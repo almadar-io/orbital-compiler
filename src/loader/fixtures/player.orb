@@ -1,0 +1,19 @@
+{
+  "name": "PlayerModule",
+  "version": "1.0.0",
+  "orbitals": [
+    {
+      "name": "Player",
+      "uses": [
+        { "from": "./health.orb", "as": "Health" }
+      ],
+      "entity": "Health.entity",
+      "traits": [
+        { "ref": "Health.traits.HealthTrait" }
+      ],
+      "pages": [
+        { "ref": "Health.pages.HealthStatus", "path": "/player/:id/health" }
+      ]
+    }
+  ]
+}

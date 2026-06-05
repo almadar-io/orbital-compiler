@@ -1,0 +1,24 @@
+[package]
+name = "orbital-compiler"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Compiler for Orbital schemas to Rust code"
+
+[dependencies]
+orbital-core = { path = "../orbital-core" }
+serde.workspace = true
+serde_json = { workspace = true, features = ["preserve_order"] }
+thiserror.workspace = true
+tracing.workspace = true
+chrono.workspace = true
+regex = "1.10"
+phf = { version = "0.11", features = ["macros"] }
+
+[dev-dependencies]
+pretty_assertions.workspace = true
+tempfile = "3.10"
+
+[[bin]]
+name = "compose_only"
+path = "src/bin/compose_only.rs"

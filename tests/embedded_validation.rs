@@ -1,0 +1,317 @@
+//! Integration tests for Phase 3 of Lolo v3 (embedded JSON registries).
+//!
+//! Twenty test cases proving the validator now reads from the embedded
+//! `operators.json`, `patterns-registry.json`, and `behaviors-registry.json`,
+//! plus the hand-ported `BINDING_CONTEXT_RULES`. See
+//! `docs/Lolo_Language_Spec_v3_PLAN.md` Section 8.7.
+
+use orbital_compiler::embedded;
+use orbital_compiler::phases::validation::sigil_context::validate_trait_sigil_contexts;
+use orbital_core::schema::{
+    SExpression, StateDefinition, StateMachine, StringOrArray, StringOrNumber, TickDefinition,
+    TraitDefinition, TransitionDefinition,
+};
+
+// ============================================================================
+// Helpers
+// ============================================================================
+
+fn make_trait_with_transition(
+    guard: Option<SExpression>,
+    effects: Vec<SExpression>,
+) -> TraitDefinition {
+    TraitDefinition {
+        name: "TestTrait".to_string(),
+        entity_rebindable: None,
+        entity_contract: None,
+        category: None,
+        capabilities: vec![],
+        linked_entity: Some("Task".to_string()),
+        description: None,
+        state_machine: StateMachine {
+            states: vec![StateDefinition {
+                name: "Browsing".to_string(),
+                is_initial: Some(true),
+                is_terminal: None,
+                description: None,
+            }],
+            events: Some(vec![]),
+            transitions: vec![TransitionDefinition {
+                from: StringOrArray::Single("Browsing".to_string()),
+                to: "Browsing".to_string(),
+                event: "INIT".to_string(),
+                guard,
+                effects: Some(effects),
+            }],
+        },
+        emits: None,
+        listens: None,
+        ticks: None,
+        config: None,
+        data_entities: None,
+        scope: None,
+        source_behavior: None,
+        source_entity_definition: None,
+    }
+}
+
+fn make_trait_with_tick(effects: Vec<SExpression>) -> TraitDefinition {
+    let mut t = make_trait_with_transition(None, vec![]);
+    t.ticks = Some(vec![TickDefinition {
+        name: "test-tick".to_string(),
+        interval: StringOrNumber::Number(1000.0),
+        guard: None,
+        effects,
+        applies_to: None,
+        description: None,
+    }]);
+    t
+}
+
+// ============================================================================
+// 5 operator existence cases (one per category)
+// ============================================================================
+
+#[test]
+fn op_arithmetic_plus_exists() {
+    // arithmetic category
+    let op = embedded::get_operator("+").expect("'+' must exist in operators.json");
+    assert_eq!(op.category, "arithmetic");
+    assert_eq!(op.min_arity, 2);
+}
+
+#[test]
+fn op_control_let_exists() {
+    // control category
+    let op = embedded::get_operator("let").expect("'let' must exist in operators.json");
+    assert_eq!(op.category, "control");
+}
+
+#[test]
+fn op_effect_set_exists_with_side_effects() {
+    // effect category
+    let op = embedded::get_operator("set").expect("'set' must exist in operators.json");
+    assert_eq!(op.category, "effect");
+    assert!(op.has_side_effects);
+}
+
+#[test]
+fn op_std_math_floor_exists() {
+    // std-math category
+    let op =
+        embedded::get_operator("math/floor").expect("'math/floor' must exist in operators.json");
+    assert_eq!(op.category, "std-math");
+}
+
+#[test]
+fn op_std_composition_compose_exists() {
+    // std-composition category (added in Phase 0.4)
+    let op = embedded::get_operator("behavior/compose")
+        .expect("'behavior/compose' must exist in operators.json");
+    assert_eq!(op.category, "std-composition");
+}
+
+// ============================================================================
+// 5 pattern existence cases (one per common category)
+// ============================================================================
+
+#[test]
+fn pattern_display_entity_table_exists() {
+    let p = embedded::get_pattern("entity-table")
+        .expect("'entity-table' must exist in patterns-registry.json");
+    assert_eq!(p.category, "display");
+}
+
+#[test]
+fn pattern_component_button_exists() {
+    let p = embedded::get_pattern("button").expect("'button' must exist in patterns-registry.json");
+    // Real category in registry is "interactive"; we just check it parsed.
+    assert!(!p.category.is_empty());
+}
+
+#[test]
+fn pattern_template_exists() {
+    // Pick any template-category pattern that ships.
+    // The card template is broadly available.
+    assert!(embedded::is_known_pattern("card"));
+}
+
+#[test]
+fn pattern_form_exists() {
+    let p = embedded::get_pattern("form").expect("'form' must exist in patterns-registry.json");
+    assert_eq!(p.category, "form");
+}
+
+#[test]
+fn pattern_layout_container_exists() {
+    let p = embedded::get_pattern("container")
+        .expect("'container' must exist in patterns-registry.json");
+    assert!(!p.category.is_empty());
+}
+
+// ============================================================================
+// 5 sigil context cases (one per legal context, plus violation cases)
+// ============================================================================
+
+#[test]
+fn sigil_payload_in_effect_passes() {
+    let trait_def = make_trait_with_transition(
+        None,
+        vec![SExpression::Array(vec![
+            SExpression::String("set".to_string()),
+            SExpression::String("@entity.amount".to_string()),
+            SExpression::String("@payload.amount".to_string()),
+        ])],
+    );
+    let result = validate_trait_sigil_contexts(&trait_def, "test");
+    assert!(
+        result.is_valid(),
+        "Effect using @payload should pass. Errors: {:?}",
+        result.errors
+    );
+}
+
+#[test]
+fn sigil_state_in_guard_passes() {
+    let trait_def = make_trait_with_transition(
+        Some(SExpression::Array(vec![
+            SExpression::String("=".to_string()),
+            SExpression::String("@state".to_string()),
+            SExpression::String("Browsing".to_string()),
+        ])),
+        vec![],
+    );
+    let result = validate_trait_sigil_contexts(&trait_def, "test");
+    assert!(
+        result.is_valid(),
+        "Guard using @state should pass. Errors: {:?}",
+        result.errors
+    );
+}
+
+#[test]
+fn sigil_now_in_tick_passes() {
+    let trait_def = make_trait_with_tick(vec![SExpression::Array(vec![
+        SExpression::String("set".to_string()),
+        SExpression::String("@entity.lastTick".to_string()),
+        SExpression::String("@now".to_string()),
+    ])]);
+    let result = validate_trait_sigil_contexts(&trait_def, "test");
+    assert!(
+        result.is_valid(),
+        "Tick using @now should pass. Errors: {:?}",
+        result.errors
+    );
+}
+
+#[test]
+fn sigil_payload_in_tick_is_rejected() {
+    let trait_def = make_trait_with_tick(vec![SExpression::Array(vec![
+        SExpression::String("set".to_string()),
+        SExpression::String("@entity.amount".to_string()),
+        SExpression::String("@payload.amount".to_string()),
+    ])]);
+    let result = validate_trait_sigil_contexts(&trait_def, "test");
+    assert!(
+        !result.is_valid(),
+        "Tick using @payload should fail validation"
+    );
+    assert!(result.errors.iter().any(|e| e.message.contains("@payload")));
+}
+
+#[test]
+fn sigil_unknown_root_in_guard_is_rejected() {
+    let trait_def = make_trait_with_transition(
+        Some(SExpression::Array(vec![
+            SExpression::String("=".to_string()),
+            SExpression::String("@bogus.field".to_string()),
+            SExpression::String("@entity.field".to_string()),
+        ])),
+        vec![],
+    );
+    let result = validate_trait_sigil_contexts(&trait_def, "test");
+    assert!(
+        !result.is_valid(),
+        "Guard with unknown sigil root should fail"
+    );
+}
+
+// ============================================================================
+// 3 behavior existence cases (atom / molecule / organism levels)
+// ============================================================================
+
+#[test]
+fn behavior_some_atom_exists() {
+    let map = embedded::behaviors();
+    let atom_count = map.values().filter(|b| b.level == "atom").count();
+    assert!(atom_count > 0, "registry should have at least one atom");
+}
+
+#[test]
+fn behavior_some_molecule_exists() {
+    let map = embedded::behaviors();
+    let mol_count = map.values().filter(|b| b.level == "molecule").count();
+    assert!(mol_count > 0, "registry should have at least one molecule");
+}
+
+#[test]
+fn behavior_some_organism_exists() {
+    let map = embedded::behaviors();
+    let org_count = map.values().filter(|b| b.level == "organism").count();
+    assert!(org_count > 0, "registry should have at least one organism");
+}
+
+// ============================================================================
+// 2 cross-registry consistency cases
+// ============================================================================
+
+#[test]
+fn cross_registry_unknown_operator_is_unknown() {
+    assert!(!embedded::is_known_operator("totally-fake-operator-xyz"));
+}
+
+#[test]
+fn cross_registry_unknown_pattern_is_unknown() {
+    assert!(!embedded::is_known_pattern("totally-fake-pattern-xyz"));
+}
+
+// ============================================================================
+// Bonus: parity test from spec — embedded BINDING_CONTEXT_RULES must match TS
+// ============================================================================
+
+#[test]
+fn sigil_rules_match_ts_source() {
+    // Read the TS source at test time and assert the embedded constant
+    // hasn't drifted. If the TS file changes, this test fails until the
+    // Rust constant is hand-updated to match. (Phase 3.4 deferred the
+    // automated bindings.json artifact to a future phase.)
+    let ts_path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("../../../packages/almadar-core/src/types/bindings.ts");
+    let src = std::fs::read_to_string(&ts_path)
+        .unwrap_or_else(|e| panic!("Failed to read {}: {}", ts_path.display(), e));
+
+    // Extremely simple substring check rather than a full TS parser.
+    // Looks for the canonical allowed-list arrays in BINDING_CONTEXT_RULES.
+    assert!(
+        src.contains("guard:")
+            && src.contains("['entity', 'payload', 'state', 'now', 'config', 'user']"),
+        "TS BINDING_CONTEXT_RULES.guard drifted from Rust embedded constant (expected \
+         `'entity', 'payload', 'state', 'now', 'config', 'user'` — `user` was added so \
+         atoms like std-row-access-control can author role/ownership guards like \
+         `when (in @user.role @config.visibleRoles)`)"
+    );
+    assert!(
+        src.contains("effect:")
+            && src.contains("'entity', 'payload', 'state', 'now', 'trait', 'config', 'user'"),
+        "TS BINDING_CONTEXT_RULES.effect drifted from Rust embedded constant (expected \
+         `'entity', 'payload', 'state', 'now', 'trait', 'config', 'user'` — `user` was \
+         added alongside the guard rule so role/ownership filters can run in effects \
+         (std-row-access-control filters @payload.data by @user.id ownership)"
+    );
+    assert!(
+        src.contains("tick:") && src.contains("['entity', 'state', 'now', 'config', 'user']"),
+        "TS BINDING_CONTEXT_RULES.tick drifted from Rust embedded constant (expected \
+         `'entity', 'state', 'now', 'config', 'user'` — `user` was added alongside the \
+         guard and effect rules for consistent role/ownership access in ticks)"
+    );
+}

@@ -1,0 +1,714 @@
+{
+  "version": "1.0.0",
+  "description": "Layer definitions for ML architecture trees. Source of truth for what layers exist, their parameters, and shape rules.",
+  "layers": {
+    "linear": {
+      "category": "core",
+      "description": "Fully connected (dense) layer",
+      "params": {
+        "in": { "type": "number", "required": true, "description": "Input features" },
+        "out": { "type": "number", "required": true, "description": "Output features" },
+        "bias": { "type": "boolean", "default": true, "description": "Include bias term" }
+      },
+      "input-shape": ["batch", "in"],
+      "output-shape": ["batch", "out"],
+      "pytorch": "nn.Linear"
+    },
+    "bilinear": {
+      "category": "core",
+      "description": "Bilinear layer (two inputs)",
+      "params": {
+        "in1": { "type": "number", "required": true, "description": "First input features" },
+        "in2": { "type": "number", "required": true, "description": "Second input features" },
+        "out": { "type": "number", "required": true, "description": "Output features" }
+      },
+      "input-shape": [["batch", "in1"], ["batch", "in2"]],
+      "output-shape": ["batch", "out"],
+      "pytorch": "nn.Bilinear"
+    },
+    "embedding": {
+      "category": "core",
+      "description": "Embedding lookup table (integer indices to dense vectors)",
+      "params": {
+        "num": { "type": "number", "required": true, "description": "Vocabulary size" },
+        "dim": { "type": "number", "required": true, "description": "Embedding dimension" },
+        "padding-idx": { "type": "number", "default": null, "description": "Index to zero out" }
+      },
+      "input-shape": ["batch", "seq"],
+      "output-shape": ["batch", "seq", "dim"],
+      "pytorch": "nn.Embedding"
+    },
+
+    "conv1d": {
+      "category": "vision",
+      "description": "1D convolution (sequences, time series)",
+      "params": {
+        "in-channels": { "type": "number", "required": true },
+        "out-channels": { "type": "number", "required": true },
+        "kernel": { "type": "number", "required": true },
+        "stride": { "type": "number", "default": 1 },
+        "padding": { "type": "number|string", "default": 0 }
+      },
+      "input-shape": ["batch", "in-channels", "length"],
+      "output-shape": ["batch", "out-channels", "length*"],
+      "pytorch": "nn.Conv1d"
+    },
+    "conv2d": {
+      "category": "vision",
+      "description": "2D convolution (images)",
+      "params": {
+        "in-channels": { "type": "number", "required": true },
+        "out-channels": { "type": "number", "required": true },
+        "kernel": { "type": "number", "required": true },
+        "stride": { "type": "number", "default": 1 },
+        "padding": { "type": "number|string", "default": 0 }
+      },
+      "input-shape": ["batch", "in-channels", "height", "width"],
+      "output-shape": ["batch", "out-channels", "height*", "width*"],
+      "pytorch": "nn.Conv2d"
+    },
+    "conv3d": {
+      "category": "vision",
+      "description": "3D convolution (video, volumetric)",
+      "params": {
+        "in-channels": { "type": "number", "required": true },
+        "out-channels": { "type": "number", "required": true },
+        "kernel": { "type": "number", "required": true },
+        "stride": { "type": "number", "default": 1 },
+        "padding": { "type": "number|string", "default": 0 }
+      },
+      "input-shape": ["batch", "in-channels", "depth", "height", "width"],
+      "output-shape": ["batch", "out-channels", "depth*", "height*", "width*"],
+      "pytorch": "nn.Conv3d"
+    },
+    "conv-transpose2d": {
+      "category": "vision",
+      "description": "2D transposed convolution (upsampling)",
+      "params": {
+        "in-channels": { "type": "number", "required": true },
+        "out-channels": { "type": "number", "required": true },
+        "kernel": { "type": "number", "required": true },
+        "stride": { "type": "number", "default": 1 },
+        "padding": { "type": "number|string", "default": 0 },
+        "output-padding": { "type": "number", "default": 0 }
+      },
+      "input-shape": ["batch", "in-channels", "height", "width"],
+      "output-shape": ["batch", "out-channels", "height*", "width*"],
+      "pytorch": "nn.ConvTranspose2d"
+    },
+
+    "lstm": {
+      "category": "recurrent",
+      "description": "Long Short-Term Memory (bidirectional optional)",
+      "params": {
+        "input-size": { "type": "number", "required": true },
+        "hidden-size": { "type": "number", "required": true },
+        "num-layers": { "type": "number", "default": 1 },
+        "bidirectional": { "type": "boolean", "default": false },
+        "dropout": { "type": "number", "default": 0 },
+        "batch-first": { "type": "boolean", "default": true }
+      },
+      "input-shape": ["batch", "seq", "input-size"],
+      "output-shape": ["batch", "seq", "hidden-size * (2 if bidirectional else 1)"],
+      "pytorch": "nn.LSTM"
+    },
+    "gru": {
+      "category": "recurrent",
+      "description": "Gated Recurrent Unit (bidirectional optional)",
+      "params": {
+        "input-size": { "type": "number", "required": true },
+        "hidden-size": { "type": "number", "required": true },
+        "num-layers": { "type": "number", "default": 1 },
+        "bidirectional": { "type": "boolean", "default": false },
+        "dropout": { "type": "number", "default": 0 },
+        "batch-first": { "type": "boolean", "default": true }
+      },
+      "input-shape": ["batch", "seq", "input-size"],
+      "output-shape": ["batch", "seq", "hidden-size * (2 if bidirectional else 1)"],
+      "pytorch": "nn.GRU"
+    },
+
+    "multi-head-attention": {
+      "category": "attention",
+      "description": "Multi-head scaled dot-product attention",
+      "params": {
+        "embed-dim": { "type": "number", "required": true },
+        "num-heads": { "type": "number", "required": true },
+        "dropout": { "type": "number", "default": 0 },
+        "batch-first": { "type": "boolean", "default": true }
+      },
+      "input-shape": ["batch", "seq", "embed-dim"],
+      "output-shape": ["batch", "seq", "embed-dim"],
+      "pytorch": "nn.MultiheadAttention"
+    },
+    "scaled-dot-attention": {
+      "category": "attention",
+      "description": "Scaled dot-product attention (functional, no learned params)",
+      "params": {},
+      "input-shape": ["batch", "seq", "dim"],
+      "output-shape": ["batch", "seq", "dim"],
+      "pytorch": "F.scaled_dot_product_attention"
+    },
+
+    "relu": {
+      "category": "activation",
+      "description": "ReLU: max(0, x)",
+      "params": {},
+      "input-shape": "passthrough",
+      "output-shape": "passthrough",
+      "pytorch": "nn.ReLU"
+    },
+    "gelu": {
+      "category": "activation",
+      "description": "GELU: Gaussian Error Linear Unit",
+      "params": {
+        "approximate": { "type": "string", "default": "none", "description": "'none' or 'tanh'" }
+      },
+      "input-shape": "passthrough",
+      "output-shape": "passthrough",
+      "pytorch": "nn.GELU"
+    },
+    "silu": {
+      "category": "activation",
+      "description": "SiLU (Swish): x * sigmoid(x)",
+      "params": {},
+      "input-shape": "passthrough",
+      "output-shape": "passthrough",
+      "pytorch": "nn.SiLU"
+    },
+    "tanh": {
+      "category": "activation",
+      "description": "Tanh: (e^x - e^-x) / (e^x + e^-x)",
+      "params": {},
+      "input-shape": "passthrough",
+      "output-shape": "passthrough",
+      "pytorch": "nn.Tanh"
+    },
+    "sigmoid": {
+      "category": "activation",
+      "description": "Sigmoid: 1 / (1 + e^-x)",
+      "params": {},
+      "input-shape": "passthrough",
+      "output-shape": "passthrough",
+      "pytorch": "nn.Sigmoid"
+    },
+    "softmax": {
+      "category": "activation",
+      "description": "Softmax: normalize to probability distribution",
+      "params": {
+        "dim": { "type": "number", "default": -1, "description": "Dimension to apply softmax" }
+      },
+      "input-shape": "passthrough",
+      "output-shape": "passthrough",
+      "pytorch": "nn.Softmax"
+    },
+    "leaky-relu": {
+      "category": "activation",
+      "description": "Leaky ReLU: max(negative_slope * x, x)",
+      "params": {
+        "negative-slope": { "type": "number", "default": 0.01 }
+      },
+      "input-shape": "passthrough",
+      "output-shape": "passthrough",
+      "pytorch": "nn.LeakyReLU"
+    },
+    "elu": {
+      "category": "activation",
+      "description": "ELU: Exponential Linear Unit",
+      "params": {
+        "alpha": { "type": "number", "default": 1.0 }
+      },
+      "input-shape": "passthrough",
+      "output-shape": "passthrough",
+      "pytorch": "nn.ELU"
+    },
+    "mish": {
+      "category": "activation",
+      "description": "Mish: x * tanh(softplus(x))",
+      "params": {},
+      "input-shape": "passthrough",
+      "output-shape": "passthrough",
+      "pytorch": "nn.Mish"
+    },
+    "swiglu": {
+      "category": "activation",
+      "description": "SwiGLU: gated linear unit with SiLU (used in LLaMA)",
+      "params": {
+        "dim": { "type": "number", "required": true, "description": "Input/output dimension" },
+        "ff-dim": { "type": "number", "required": true, "description": "Intermediate dimension" }
+      },
+      "input-shape": ["batch", "seq", "dim"],
+      "output-shape": ["batch", "seq", "dim"],
+      "pytorch": "custom"
+    },
+
+    "batch-norm": {
+      "category": "normalization",
+      "description": "Batch normalization (auto-selects 1d/2d based on input rank)",
+      "params": {
+        "num-features": { "type": "number", "required": true },
+        "momentum": { "type": "number", "default": 0.1 },
+        "eps": { "type": "number", "default": 1e-5 }
+      },
+      "input-shape": "passthrough",
+      "output-shape": "passthrough",
+      "pytorch": "nn.BatchNorm1d/2d"
+    },
+    "layer-norm": {
+      "category": "normalization",
+      "description": "Layer normalization",
+      "params": {
+        "normalized-shape": { "type": "number|array", "required": true },
+        "eps": { "type": "number", "default": 1e-5 }
+      },
+      "input-shape": "passthrough",
+      "output-shape": "passthrough",
+      "pytorch": "nn.LayerNorm"
+    },
+    "group-norm": {
+      "category": "normalization",
+      "description": "Group normalization",
+      "params": {
+        "num-groups": { "type": "number", "required": true },
+        "num-channels": { "type": "number", "required": true },
+        "eps": { "type": "number", "default": 1e-5 }
+      },
+      "input-shape": "passthrough",
+      "output-shape": "passthrough",
+      "pytorch": "nn.GroupNorm"
+    },
+    "instance-norm": {
+      "category": "normalization",
+      "description": "Instance normalization",
+      "params": {
+        "num-features": { "type": "number", "required": true }
+      },
+      "input-shape": "passthrough",
+      "output-shape": "passthrough",
+      "pytorch": "nn.InstanceNorm1d/2d"
+    },
+    "rms-norm": {
+      "category": "normalization",
+      "description": "RMS normalization (no mean subtraction, used in LLaMA)",
+      "params": {
+        "dim": { "type": "number", "required": true },
+        "eps": { "type": "number", "default": 1e-5 }
+      },
+      "input-shape": "passthrough",
+      "output-shape": "passthrough",
+      "pytorch": "custom"
+    },
+
+    "dropout": {
+      "category": "regularization",
+      "description": "Dropout: randomly zero elements during training",
+      "params": {
+        "rate": { "type": "number", "default": 0.5 }
+      },
+      "input-shape": "passthrough",
+      "output-shape": "passthrough",
+      "pytorch": "nn.Dropout"
+    },
+    "dropout2d": {
+      "category": "regularization",
+      "description": "2D dropout: zero entire channels",
+      "params": {
+        "rate": { "type": "number", "default": 0.5 }
+      },
+      "input-shape": "passthrough",
+      "output-shape": "passthrough",
+      "pytorch": "nn.Dropout2d"
+    },
+    "alpha-dropout": {
+      "category": "regularization",
+      "description": "Alpha dropout: maintains self-normalizing property (for SELU)",
+      "params": {
+        "rate": { "type": "number", "default": 0.5 }
+      },
+      "input-shape": "passthrough",
+      "output-shape": "passthrough",
+      "pytorch": "nn.AlphaDropout"
+    },
+
+    "max-pool2d": {
+      "category": "pooling",
+      "description": "2D max pooling",
+      "params": {
+        "kernel": { "type": "number", "required": true },
+        "stride": { "type": "number", "default": null, "description": "Defaults to kernel size" },
+        "padding": { "type": "number", "default": 0 }
+      },
+      "input-shape": ["batch", "channels", "height", "width"],
+      "output-shape": ["batch", "channels", "height/stride", "width/stride"],
+      "pytorch": "nn.MaxPool2d"
+    },
+    "avg-pool2d": {
+      "category": "pooling",
+      "description": "2D average pooling",
+      "params": {
+        "kernel": { "type": "number", "required": true },
+        "stride": { "type": "number", "default": null },
+        "padding": { "type": "number", "default": 0 }
+      },
+      "input-shape": ["batch", "channels", "height", "width"],
+      "output-shape": ["batch", "channels", "height/stride", "width/stride"],
+      "pytorch": "nn.AvgPool2d"
+    },
+    "adaptive-avg-pool": {
+      "category": "pooling",
+      "description": "Adaptive average pooling (specify output size, not kernel)",
+      "params": {
+        "output-size": { "type": "number|array", "required": true }
+      },
+      "input-shape": ["batch", "channels", "...spatial"],
+      "output-shape": ["batch", "channels", "...output-size"],
+      "pytorch": "nn.AdaptiveAvgPool1d/2d"
+    },
+    "global-mean-pool": {
+      "category": "pooling",
+      "description": "Global mean pooling (collapse spatial dims to 1)",
+      "params": {},
+      "input-shape": ["batch", "channels", "...spatial"],
+      "output-shape": ["batch", "channels"],
+      "pytorch": "custom"
+    },
+    "global-max-pool": {
+      "category": "pooling",
+      "description": "Global max pooling (collapse spatial dims to 1)",
+      "params": {},
+      "input-shape": ["batch", "channels", "...spatial"],
+      "output-shape": ["batch", "channels"],
+      "pytorch": "custom"
+    },
+
+    "flatten": {
+      "category": "shape",
+      "description": "Flatten all dimensions after batch",
+      "params": {
+        "start-dim": { "type": "number", "default": 1 },
+        "end-dim": { "type": "number", "default": -1 }
+      },
+      "input-shape": ["batch", "...dims"],
+      "output-shape": ["batch", "product(dims)"],
+      "pytorch": "nn.Flatten"
+    },
+    "reshape": {
+      "category": "shape",
+      "description": "Reshape tensor to target shape",
+      "params": {
+        "shape": { "type": "array", "required": true, "description": "Target shape (batch dim excluded)" }
+      },
+      "input-shape": ["batch", "...dims"],
+      "output-shape": ["batch", "...shape"],
+      "pytorch": "view"
+    },
+    "select-token": {
+      "category": "shape",
+      "description": "Select a single token from a sequence (e.g., CLS token at index 0, or last token at -1)",
+      "params": {
+        "index": { "type": "number", "required": true, "description": "Token index (0 for CLS, -1 for last)" }
+      },
+      "input-shape": ["batch", "seq", "dim"],
+      "output-shape": ["batch", "dim"],
+      "pytorch": "indexing"
+    },
+    "select-hidden": {
+      "category": "shape",
+      "description": "Select hidden state from recurrent output (last, mean, max)",
+      "params": {
+        "method": { "type": "string", "required": true, "description": "'last', 'mean', or 'max'" }
+      },
+      "input-shape": ["batch", "seq", "hidden"],
+      "output-shape": ["batch", "hidden"],
+      "pytorch": "indexing"
+    },
+
+    "sequential": {
+      "category": "composition",
+      "description": "Stack layers in order. Output of each feeds into the next.",
+      "params": {
+        "layers": { "type": "array", "required": true, "description": "Ordered list of layers" }
+      },
+      "input-shape": "first layer's input",
+      "output-shape": "last layer's output",
+      "pytorch": "nn.Sequential"
+    },
+    "parallel": {
+      "category": "composition",
+      "description": "Run multiple branches on the same input, merge results",
+      "params": {
+        "branches": { "type": "array", "required": true, "description": "List of branch layer trees" },
+        "merge": { "type": "string", "required": true, "description": "'concat', 'add', 'mul', 'mean', 'max', 'none'" },
+        "names": { "type": "array", "description": "Named outputs when merge='none'" }
+      },
+      "input-shape": "shared input to all branches",
+      "output-shape": "depends on merge mode",
+      "pytorch": "custom"
+    },
+    "residual": {
+      "category": "composition",
+      "description": "Skip connection: output = block(x) + shortcut(x)",
+      "params": {
+        "block": { "type": "layer", "required": true, "description": "Main computation block" },
+        "shortcut": { "type": "string", "default": "identity", "description": "'identity' or 'projection' (auto 1x1 conv if dims differ)" }
+      },
+      "input-shape": "block's input",
+      "output-shape": "block's output (must match shortcut output for add)",
+      "pytorch": "custom"
+    },
+    "repeat": {
+      "category": "composition",
+      "description": "Repeat a block N times (optionally sharing weights)",
+      "params": {
+        "count": { "type": "number", "required": true, "description": "Number of repetitions" },
+        "block": { "type": "layer", "required": true, "description": "Block to repeat" },
+        "share-weights": { "type": "boolean", "default": false }
+      },
+      "input-shape": "block's input",
+      "output-shape": "block's output (must be compatible with block's input for chaining)",
+      "pytorch": "custom"
+    },
+
+    "positional-encoding": {
+      "category": "embedding",
+      "description": "Add positional information to token embeddings",
+      "params": {
+        "dim": { "type": "number", "required": true, "description": "Embedding dimension" },
+        "max-len": { "type": "number", "required": true, "description": "Maximum sequence length" },
+        "type": { "type": "string", "default": "sinusoidal", "description": "'sinusoidal', 'learned', or 'rope'" }
+      },
+      "input-shape": ["batch", "seq", "dim"],
+      "output-shape": ["batch", "seq", "dim"],
+      "pytorch": "custom"
+    },
+    "patch-embedding": {
+      "category": "embedding",
+      "description": "Split image into patches and project to embedding dimension (ViT)",
+      "params": {
+        "image-size": { "type": "number", "required": true },
+        "patch-size": { "type": "number", "required": true },
+        "in-channels": { "type": "number", "default": 3 },
+        "embed-dim": { "type": "number", "required": true }
+      },
+      "input-shape": ["batch", "in-channels", "image-size", "image-size"],
+      "output-shape": ["batch", "(image-size/patch-size)^2", "embed-dim"],
+      "pytorch": "nn.Conv2d(kernel=patch, stride=patch) + reshape"
+    },
+    "prepend-cls-token": {
+      "category": "embedding",
+      "description": "Prepend a learnable CLS token to the sequence",
+      "params": {
+        "dim": { "type": "number", "required": true }
+      },
+      "input-shape": ["batch", "seq", "dim"],
+      "output-shape": ["batch", "seq+1", "dim"],
+      "pytorch": "custom"
+    },
+    "token-type-embedding": {
+      "category": "embedding",
+      "description": "Segment embedding for sentence pair tasks (BERT)",
+      "params": {
+        "num": { "type": "number", "required": true, "description": "Number of segment types" },
+        "dim": { "type": "number", "required": true }
+      },
+      "input-shape": ["batch", "seq"],
+      "output-shape": ["batch", "seq", "dim"],
+      "pytorch": "nn.Embedding"
+    },
+    "pretrained": {
+      "category": "embedding",
+      "description": "Load a pretrained model (HuggingFace or local checkpoint)",
+      "params": {
+        "model": { "type": "string", "required": true, "description": "Model name or path" },
+        "freeze": { "type": "boolean", "default": true, "description": "Freeze pretrained weights" }
+      },
+      "input-shape": "model-dependent",
+      "output-shape": "model-dependent",
+      "pytorch": "transformers.AutoModel"
+    },
+
+    "transformer-encoder-block": {
+      "category": "organism",
+      "description": "One transformer encoder block: attention + FFN + residuals + norms",
+      "params": {
+        "embed-dim": { "type": "number", "required": true },
+        "num-heads": { "type": "number", "required": true },
+        "ff-dim": { "type": "number", "required": true },
+        "dropout": { "type": "number", "default": 0.1 },
+        "activation": { "type": "string", "default": "relu", "description": "'relu', 'gelu', 'swiglu'" },
+        "norm": { "type": "string", "default": "post", "description": "'pre' or 'post'" },
+        "norm-type": { "type": "string", "default": "layer-norm", "description": "'layer-norm' or 'rms-norm'" },
+        "causal-mask": { "type": "boolean", "default": false },
+        "positional": { "type": "string", "default": null, "description": "'rope', 'alibi', or null (no positional)" },
+        "rope-theta": { "type": "number", "default": 10000 }
+      },
+      "input-shape": ["batch", "seq", "embed-dim"],
+      "output-shape": ["batch", "seq", "embed-dim"],
+      "pytorch": "custom (expands to attention + ffn + residual + norm)"
+    },
+    "transformer-decoder-block": {
+      "category": "organism",
+      "description": "One transformer decoder block: causal self-attention + optional cross-attention + FFN",
+      "params": {
+        "embed-dim": { "type": "number", "required": true },
+        "num-heads": { "type": "number", "required": true },
+        "ff-dim": { "type": "number", "required": true },
+        "dropout": { "type": "number", "default": 0.1 },
+        "cross-attention": { "type": "boolean", "default": false },
+        "causal-mask": { "type": "boolean", "default": true },
+        "activation": { "type": "string", "default": "relu" },
+        "norm": { "type": "string", "default": "post" },
+        "norm-type": { "type": "string", "default": "layer-norm" },
+        "positional": { "type": "string", "default": null },
+        "rope-theta": { "type": "number", "default": 10000 },
+        "kv-heads": { "type": "number", "default": null, "description": "Grouped-query attention: KV heads < Q heads" },
+        "ff-type": { "type": "string", "default": "dense", "description": "'dense' or 'moe'" },
+        "moe": { "type": "object", "default": null, "description": "MoE config: num-experts, top-k, expert, router, load-balance-loss" }
+      },
+      "input-shape": ["batch", "seq", "embed-dim"],
+      "output-shape": ["batch", "seq", "embed-dim"],
+      "pytorch": "custom (expands to self-attn + cross-attn + ffn + residual + norm)"
+    },
+    "mlp": {
+      "category": "organism",
+      "description": "Multi-layer perceptron: convenience for feedforward stacks",
+      "params": {
+        "dims": { "type": "array", "required": true, "description": "Layer dimensions [in, hidden1, hidden2, ..., out]" },
+        "activation": { "type": "string", "default": "relu" },
+        "dropout": { "type": "number", "default": 0 },
+        "norm": { "type": "string", "default": null, "description": "'layer', 'batch', or null" }
+      },
+      "input-shape": ["batch", "dims[0]"],
+      "output-shape": ["batch", "dims[-1]"],
+      "pytorch": "custom (expands to Sequential of Linear + Norm + Activation + Dropout)"
+    },
+    "unet": {
+      "category": "organism",
+      "description": "U-Net encoder-decoder with skip connections",
+      "params": {
+        "encoder": { "type": "array", "required": true, "description": "Encoder stage configs" },
+        "bottleneck": { "type": "object", "required": true },
+        "decoder": { "type": "array", "required": true, "description": "Decoder stage configs" },
+        "skip-connections": { "type": "string", "default": "concat", "description": "'concat' or 'add'" },
+        "final": { "type": "layer", "required": true, "description": "Final output layer" },
+        "activation": { "type": "string", "default": "relu" },
+        "norm": { "type": "string", "default": "batch-norm" }
+      },
+      "input-shape": ["batch", "in-channels", "height", "width"],
+      "output-shape": ["batch", "out-channels", "height", "width"],
+      "pytorch": "custom"
+    },
+    "conditional-unet": {
+      "category": "organism",
+      "description": "Conditional U-Net for diffusion models (time + context conditioning)",
+      "params": {
+        "in-channels": { "type": "number", "required": true },
+        "out-channels": { "type": "number", "required": true },
+        "base-channels": { "type": "number", "required": true },
+        "channel-multipliers": { "type": "array", "required": true },
+        "num-res-blocks": { "type": "number", "default": 2 },
+        "attention-resolutions": { "type": "array", "default": [] },
+        "num-heads": { "type": "number", "default": 8 },
+        "context-dim": { "type": "number", "default": null, "description": "Cross-attention context dim (text embedding)" },
+        "time-embed-dim": { "type": "number", "default": null },
+        "conditioning": { "type": "object", "default": null }
+      },
+      "input-shape": ["batch", "in-channels", "height", "width"],
+      "output-shape": ["batch", "out-channels", "height", "width"],
+      "pytorch": "custom"
+    },
+
+    "gcn-conv": {
+      "category": "graph",
+      "description": "Graph Convolutional Network layer (Kipf & Welling)",
+      "params": {
+        "in": { "type": "number", "required": true },
+        "out": { "type": "number", "required": true }
+      },
+      "input-shape": { "x": ["num-nodes", "in"], "edge-index": [2, "num-edges"] },
+      "output-shape": { "x": ["num-nodes", "out"] },
+      "pytorch": "torch_geometric.nn.GCNConv"
+    },
+    "gat-conv": {
+      "category": "graph",
+      "description": "Graph Attention Network layer (Velickovic et al.)",
+      "params": {
+        "in": { "type": "number", "required": true },
+        "out": { "type": "number", "required": true },
+        "heads": { "type": "number", "default": 1 },
+        "dropout": { "type": "number", "default": 0 },
+        "concat": { "type": "boolean", "default": true, "description": "Concatenate heads (true) or average (false)" }
+      },
+      "input-shape": { "x": ["num-nodes", "in"], "edge-index": [2, "num-edges"] },
+      "output-shape": { "x": ["num-nodes", "out * heads (if concat) or out"] },
+      "pytorch": "torch_geometric.nn.GATConv"
+    },
+    "sage-conv": {
+      "category": "graph",
+      "description": "GraphSAGE layer (Hamilton et al.) for inductive learning",
+      "params": {
+        "in": { "type": "number", "required": true },
+        "out": { "type": "number", "required": true },
+        "aggregator": { "type": "string", "default": "mean", "description": "'mean', 'max', 'lstm'" }
+      },
+      "input-shape": { "x": ["num-nodes", "in"], "edge-index": [2, "num-edges"] },
+      "output-shape": { "x": ["num-nodes", "out"] },
+      "pytorch": "torch_geometric.nn.SAGEConv"
+    },
+    "gin-conv": {
+      "category": "graph",
+      "description": "Graph Isomorphism Network layer (Xu et al.) for maximum expressiveness",
+      "params": {
+        "in": { "type": "number", "required": true },
+        "out": { "type": "number", "required": true },
+        "train-eps": { "type": "boolean", "default": false }
+      },
+      "input-shape": { "x": ["num-nodes", "in"], "edge-index": [2, "num-edges"] },
+      "output-shape": { "x": ["num-nodes", "out"] },
+      "pytorch": "torch_geometric.nn.GINConv"
+    },
+    "edge-conv": {
+      "category": "graph",
+      "description": "Edge convolution layer (Wang et al., DGCNN)",
+      "params": {
+        "in": { "type": "number", "required": true },
+        "out": { "type": "number", "required": true }
+      },
+      "input-shape": { "x": ["num-nodes", "in"], "edge-index": [2, "num-edges"] },
+      "output-shape": { "x": ["num-nodes", "out"] },
+      "pytorch": "torch_geometric.nn.EdgeConv"
+    },
+    "graph-readout": {
+      "category": "graph",
+      "description": "Aggregate node features to a single graph-level vector",
+      "params": {
+        "method": { "type": "string", "required": true, "description": "'mean', 'max', 'sum', 'attention'" }
+      },
+      "input-shape": { "x": ["num-nodes", "dim"] },
+      "output-shape": ["batch", "dim"],
+      "pytorch": "torch_geometric.nn.global_mean_pool/max_pool/add_pool"
+    },
+
+    "pooler": {
+      "category": "utility",
+      "description": "Pool sequence output to a single vector (for classification heads)",
+      "params": {
+        "method": { "type": "string", "required": true, "description": "'cls-token', 'mean', 'max'" },
+        "dim": { "type": "number", "required": true }
+      },
+      "input-shape": ["batch", "seq", "dim"],
+      "output-shape": ["batch", "dim"],
+      "pytorch": "custom"
+    },
+    "reparameterize": {
+      "category": "utility",
+      "description": "VAE reparameterization trick: z = mu + eps * exp(0.5 * logvar)",
+      "params": {
+        "latent-dim": { "type": "number", "required": true }
+      },
+      "input-shape": { "mu": ["batch", "latent-dim"], "logvar": ["batch", "latent-dim"] },
+      "output-shape": ["batch", "latent-dim"],
+      "pytorch": "custom"
+    }
+  }
+}

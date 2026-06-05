@@ -1,0 +1,1030 @@
+//! Trait Validation
+//!
+//! Validates trait references, categories, state machines, and transitions.
+//! Ported from `builder/packages/shared/src/orbitals/validation/trait-validator.ts`.
+
+use super::{
+    is_std_trait, ErrorCode, ValidationContext, ValidationError, ValidationResult,
+    VALID_TRAIT_CATEGORIES,
+};
+use orbital_core::schema::{
+    EntityDefinition, OrbitalSchema, Persistence, SExpression, StateMachine, StringOrArray,
+    TraitCategory, TraitDefinition, TraitReference, TransitionDefinition,
+};
+use std::collections::{HashMap, HashSet};
+
+/// Validate all traits in a schema
+pub fn validate_all_traits(schema: &OrbitalSchema, ctx: &mut ValidationContext) {
+    // Validate trait references in orbitals
+    // Note: Traits are now only defined inline within orbitals, not at schema level.
+    for (i, orbital) in schema.orbitals.iter().enumerate() {
+        for (j, trait_ref) in orbital.traits.iter().enumerate() {
+            let path = format!("orbitals[{}].traits[{}]", i, j);
+            let result =
+                validate_trait_reference(trait_ref, &path, &ctx.trait_names, &ctx.entity_names);
+            ctx.merge(result);
+        }
+    }
+
+    // Check INIT transitions have fetch effects for persistent linked entities
+    for (i, orbital) in schema.orbitals.iter().enumerate() {
+        for (j, trait_ref) in orbital.traits.iter().enumerate() {
+            if let TraitReference::Inline(trait_def) = trait_ref {
+                if !is_interaction_trait(trait_def) {
+                    continue;
+                }
+                if let Some(linked) = &trait_def.linked_entity {
+                    // Only require fetch for persistent entities
+                    let is_persistent = ctx
+                        .entity_definitions
+                        .get(linked)
+                        .map(|e| matches!(e.persistence, None | Some(Persistence::Persistent)))
+                        .unwrap_or(false);
+
+                    if !is_persistent {
+                        continue;
+                    }
+
+                    let sm = &trait_def.state_machine;
+                    let initial_state = sm
+                        .states
+                        .iter()
+                        .find(|s| s.is_initial.unwrap_or(false))
+                        .map(|s| s.name.as_str());
+
+                    if let Some(initial) = initial_state {
+                        let has_init_with_fetch = sm.transitions.iter().any(|t| {
+                            t.event == "INIT"
+                                && matches_state(&t.from, initial)
+                                && t.effects
+                                    .as_ref()
+                                    .map(|effs| effs.iter().any(|eff| is_fetch_effect(eff, linked)))
+                                    .unwrap_or(false)
+                        });
+
+                        if !has_init_with_fetch {
+                            let path = format!("orbitals[{}].traits[{}]", i, j);
+                            let mut result = ValidationResult::new();
+                            result.add_error(
+                                ValidationError::warning(
+                                    ErrorCode::TraitInitMissingFetch,
+                                    format!("{}.stateMachine.transitions", path),
+                                    format!(
+                                        "INIT transition should include [\"fetch\", \"{}\"] to load entity data",
+                                        linked
+                                    ),
+                                )
+                                .with_suggestion(format!(
+                                    "Add [\"fetch\", \"{}\"] to the INIT transition's effects array",
+                                    linked
+                                )),
+                            );
+                            ctx.merge(result);
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    // Enforce `@rebindable`: a trait imported from an atom and rebound to a
+    // different entity via `linkedEntity` is only legal when the atom's
+    // binding opted in (`-> @rebindable Entity`); the rebind target must also
+    // provide the trait's contract `requires` fields. Runs on the resolved
+    // (post-inline) schema where the marker + contract survive on the cloned
+    // Inline trait and `source_entity_definition` holds the atom's original
+    // entity. See docs/Almadar_Rabit_Gaps.md (RABIT-STD-1 follow-up).
+    for (i, orbital) in schema.orbitals.iter().enumerate() {
+        for (j, trait_ref) in orbital.traits.iter().enumerate() {
+            if let TraitReference::Inline(trait_def) = trait_ref {
+                let path = format!("orbitals[{}].traits[{}]", i, j);
+                let result = validate_entity_rebind(trait_def, &path, &ctx.entity_definitions);
+                ctx.merge(result);
+            }
+        }
+    }
+
+    // Validate trait uniqueness across orbitals
+    let uniqueness_result = validate_trait_uniqueness(schema);
+    ctx.merge(uniqueness_result);
+}
+
+/// Enforce the `@rebindable` opt-in + inferred field contract on a resolved
+/// (post-inline) trait. A trait is a "rebind" when it was imported from an
+/// atom (`source_behavior` set) and its `linked_entity` differs from the
+/// atom's own entity (`source_entity_definition.name`). Only then do the
+/// rules apply:
+///   1. the atom's binding must be `entity_rebindable` (else `ORB_T_ENTITY_NOT_REBINDABLE`);
+///   2. the target entity must have every field in `entity_contract.requires`
+///      (else `ORB_T_REBIND_MISSING_FIELDS`). `provides` are NOT required —
+///      the trait provisions those itself.
+fn validate_entity_rebind(
+    trait_def: &TraitDefinition,
+    path: &str,
+    entity_definitions: &HashMap<String, EntityDefinition>,
+) -> ValidationResult {
+    let mut result = ValidationResult::new();
+
+    // Only imported traits can be rebinds. A trait authored directly on the
+    // orbital (no source_behavior) declaring `linkedEntity` is a definition,
+    // not a rebind, and is exempt.
+    let Some(source) = &trait_def.source_behavior else {
+        return result;
+    };
+    let Some(linked) = &trait_def.linked_entity else {
+        return result;
+    };
+    let source_entity = trait_def
+        .source_entity_definition
+        .as_ref()
+        .map(|e| e.name.as_str());
+    let is_rebind = source_entity.map(|n| n != linked.as_str()).unwrap_or(false);
+    if !is_rebind {
+        return result;
+    }
+
+    if trait_def.entity_rebindable != Some(true) {
+        result.add_error(
+            ValidationError::error(
+                ErrorCode::TraitEntityNotRebindable,
+                format!("{}.linkedEntity", path),
+                format!(
+                    "Trait '{}' (from {}) has a fixed entity binding and cannot be rebound to '{}'; the atom's binding is not marked `@rebindable`.",
+                    trait_def.name, source.behavior, linked
+                ),
+            )
+            .with_suggestion(
+                "Mark the atom trait's binding `-> @rebindable Entity` in its .lolo source, or remove the linkedEntity rebind.",
+            ),
+        );
+        return result;
+    }
+
+    if let Some(contract) = &trait_def.entity_contract {
+        if !contract.requires.is_empty() {
+            if let Some(target) = entity_definitions.get(linked.as_str()) {
+                let have: HashSet<&str> = target
+                    .fields
+                    .iter()
+                    .filter_map(|f| f.name.as_deref())
+                    .collect();
+                let missing: Vec<String> = contract
+                    .requires
+                    .iter()
+                    .filter(|r| !have.contains(r.as_str()))
+                    .cloned()
+                    .collect();
+                if !missing.is_empty() {
+                    result.add_error(
+                        ValidationError::error(
+                            ErrorCode::RebindMissingEntityFields,
+                            format!("{}.linkedEntity", path),
+                            format!(
+                                "Entity '{}' is missing fields required by trait '{}': {}",
+                                linked,
+                                trait_def.name,
+                                missing.join(", ")
+                            ),
+                        )
+                        .with_suggestion(
+                            "Add the missing fields to the entity, or rebind to an entity that already has them.",
+                        ),
+                    );
+                }
+            }
+        }
+    }
+
+    result
+}
+
+/// Validate a trait reference (inline or external)
+pub fn validate_trait_reference(
+    trait_ref: &TraitReference,
+    path: &str,
+    known_traits: &HashSet<String>,
+    known_entities: &HashSet<String>,
+) -> ValidationResult {
+    let mut result = ValidationResult::new();
+
+    match trait_ref {
+        TraitReference::Inline(trait_def) => {
+            // Validate inline trait definition
+            result.merge(validate_trait_definition(trait_def, path, known_entities));
+        }
+        TraitReference::Reference {
+            reference,
+            name,
+            linked_entity,
+            ..
+        } => {
+            // Get the trait name from reference or name field
+            let trait_name = reference.as_ref().or(name.as_ref());
+
+            if let Some(name) = trait_name {
+                // Check if it's a known trait (custom or std library)
+                if !known_traits.contains(name) && !is_std_trait(name) {
+                    result.add_error(
+                        ValidationError::error(
+                            ErrorCode::TraitUndefined,
+                            path,
+                            format!("Trait '{}' is not defined", name),
+                        )
+                        .with_suggestion(
+                            "Define traits inline within orbitals or use a std library trait",
+                        ),
+                    );
+                }
+            } else {
+                result.add_error(
+                    ValidationError::error(
+                        ErrorCode::TraitInvalidFormat,
+                        path,
+                        "Trait reference must have 'ref' or 'name' property",
+                    )
+                    .with_suggestion("Add ref: 'TraitName' to reference a defined trait"),
+                );
+            }
+
+            // Validate linked entity if specified
+            if let Some(linked) = linked_entity {
+                if !known_entities.contains(linked) {
+                    result.add_error(
+                        ValidationError::error(
+                            ErrorCode::EntityInvalidRelation,
+                            format!("{}.linkedEntity", path),
+                            format!("Linked entity '{}' does not exist", linked),
+                        )
+                        .with_suggestion("Ensure the linked entity is defined in the schema"),
+                    );
+                }
+            }
+        }
+    }
+
+    result
+}
+
+/// Validate a full trait definition
+pub fn validate_trait_definition(
+    trait_def: &TraitDefinition,
+    path: &str,
+    known_entities: &HashSet<String>,
+) -> ValidationResult {
+    let mut result = ValidationResult::new();
+
+    // Trait must have a name
+    if trait_def.name.is_empty() {
+        result.add_error(
+            ValidationError::error(
+                ErrorCode::TraitUndefined,
+                format!("{}.name", path),
+                "Trait name is required",
+            )
+            .with_suggestion("Add a descriptive name for the trait"),
+        );
+    }
+
+    // Validate trait category if specified
+    if let Some(category) = &trait_def.category {
+        let category_str = category_to_string(category);
+        if !VALID_TRAIT_CATEGORIES.contains(&category_str.as_str()) {
+            result.add_error(
+                ValidationError::error(
+                    ErrorCode::TraitInvalidCategory,
+                    format!("{}.category", path),
+                    format!("Invalid trait category: '{}'", category_str),
+                )
+                .with_valid_values(
+                    VALID_TRAIT_CATEGORIES
+                        .iter()
+                        .map(|s| s.to_string())
+                        .collect(),
+                ),
+            );
+        }
+    }
+
+    // Validate linked entity if specified
+    if let Some(linked) = &trait_def.linked_entity {
+        if !known_entities.contains(linked) {
+            result.add_error(
+                ValidationError::error(
+                    ErrorCode::EntityInvalidRelation,
+                    format!("{}.linkedEntity", path),
+                    format!("Linked entity '{}' does not exist", linked),
+                )
+                .with_suggestion("Ensure the linked entity is defined in the schema"),
+            );
+        }
+    }
+
+    // Validate state machine
+    let sm_result = validate_state_machine(&trait_def.state_machine, path, trait_def);
+    result.merge(sm_result);
+
+    // Validate render_ui effects for interaction traits
+    if is_interaction_trait(trait_def) {
+        let has_render_ui = has_render_ui_effects(&trait_def.state_machine);
+        if !has_render_ui {
+            result.add_error(
+                ValidationError::warning(
+                    ErrorCode::TraitMissingRenderUI,
+                    path,
+                    format!(
+                        "Interaction trait '{}' should have render_ui effects",
+                        trait_def.name
+                    ),
+                )
+                .with_suggestion("Add render_ui effects to transitions to render UI components"),
+            );
+        }
+    }
+
+    // Validate `trait`-typed config field defaults — must be `@trait.<TraitName>`
+    // strings. Catches malformed defaults at the field declaration so authors
+    // get a precise error rather than a downstream `ORB_RUI_INVALID_PATTERN`
+    // failure when the config flows into render-ui children.
+    if let Some(config) = &trait_def.config {
+        for (field_name, cf) in config.iter() {
+            if cf.field_type != "trait" {
+                continue;
+            }
+            let Some(default) = &cf.default else { continue };
+            match default {
+                SExpression::String(s) => {
+                    if !is_trait_ref_string(s) {
+                        result.add_error(
+                            ValidationError::error(
+                                ErrorCode::BindingTraitInvalidFormat,
+                                format!("{}.config.{}.default", path, field_name),
+                                format!(
+                                    "trait-typed config field '{}' has invalid default '{}' — must be `@trait.<TraitName>`",
+                                    field_name, s
+                                ),
+                            )
+                            .with_suggestion(
+                                "Set the default to a `@trait.PascalCaseName` reference, or remove the default and require the consumer to override.",
+                            ),
+                        );
+                    }
+                }
+                _ => {
+                    result.add_error(
+                        ValidationError::error(
+                            ErrorCode::BindingTraitInvalidFormat,
+                            format!("{}.config.{}.default", path, field_name),
+                            format!(
+                                "trait-typed config field '{}' default must be a string `@trait.<TraitName>` reference",
+                                field_name
+                            ),
+                        ),
+                    );
+                }
+            }
+        }
+    }
+
+    result
+}
+
+/// `^@trait\.[A-Z][a-zA-Z0-9]*$` — accepted shape for trait references.
+fn is_trait_ref_string(s: &str) -> bool {
+    let Some(rest) = s.strip_prefix("@trait.") else {
+        return false;
+    };
+    let mut chars = rest.chars();
+    let Some(first) = chars.next() else {
+        return false;
+    };
+    if !first.is_ascii_uppercase() {
+        return false;
+    }
+    chars.all(|c| c.is_ascii_alphanumeric())
+}
+
+/// Validate a state machine
+pub fn validate_state_machine(
+    sm: &StateMachine,
+    path: &str,
+    trait_def: &TraitDefinition,
+) -> ValidationResult {
+    let mut result = ValidationResult::new();
+    let sm_path = format!("{}.stateMachine", path);
+
+    // Must have at least one state
+    if sm.states.is_empty() {
+        result.add_error(
+            ValidationError::error(
+                ErrorCode::TraitNoInitialState,
+                format!("{}.states", sm_path),
+                "State machine must have at least one state",
+            )
+            .with_suggestion("Add at least one state to the state machine"),
+        );
+        return result;
+    }
+
+    // Collect state names and check for duplicates
+    let mut state_names: HashSet<&str> = HashSet::new();
+    let mut initial_states: Vec<&str> = Vec::new();
+
+    for (i, state) in sm.states.iter().enumerate() {
+        let state_path = format!("{}.states[{}]", sm_path, i);
+
+        // Check for duplicate state names
+        if !state_names.insert(&state.name) {
+            result.add_error(
+                ValidationError::error(
+                    ErrorCode::TraitDuplicateState,
+                    state_path,
+                    format!("Duplicate state name: '{}'", state.name),
+                )
+                .with_suggestion("Each state must have a unique name"),
+            );
+        }
+
+        // Track initial states
+        if state.is_initial == Some(true) {
+            initial_states.push(&state.name);
+        }
+    }
+
+    // Check for exactly one initial state
+    if initial_states.is_empty() {
+        result.add_error(
+            ValidationError::error(
+                ErrorCode::TraitNoInitialState,
+                format!("{}.states", sm_path),
+                "State machine must have an initial state",
+            )
+            .with_suggestion("Mark one state with isInitial: true"),
+        );
+    } else if initial_states.len() > 1 {
+        result.add_error(
+            ValidationError::error(
+                ErrorCode::TraitMultipleInitialStates,
+                format!("{}.states", sm_path),
+                format!("Multiple initial states found: {:?}", initial_states),
+            )
+            .with_suggestion("Only one state should be marked as initial"),
+        );
+    }
+
+    // Collect event names (using key field)
+    let event_names: HashSet<&str> = sm
+        .events
+        .as_ref()
+        .map(|events| events.iter().map(|e| e.key.as_str()).collect())
+        .unwrap_or_default();
+
+    // Validate transitions
+    let transitions_result =
+        validate_transitions(&sm.transitions, &sm_path, &state_names, &event_names);
+    result.merge(transitions_result);
+
+    // Check for INIT transition on initial state (for interaction traits)
+    if is_interaction_trait(trait_def) && !initial_states.is_empty() {
+        let has_init = sm
+            .transitions
+            .iter()
+            .any(|t| t.event == "INIT" && matches_state(&t.from, initial_states[0]));
+
+        if !has_init {
+            result.add_error(
+                ValidationError::warning(
+                    ErrorCode::TraitMissingInitTransition,
+                    format!("{}.transitions", sm_path),
+                    format!(
+                        "Interaction trait should have INIT transition on initial state '{}'",
+                        initial_states[0]
+                    ),
+                )
+                .with_suggestion("Add a transition: { from: 'initialState', to: 'initialState', event: 'INIT', effects: [...] }"),
+            );
+        }
+    }
+
+    result
+}
+
+/// Validate transitions
+pub fn validate_transitions(
+    transitions: &[TransitionDefinition],
+    path: &str,
+    state_names: &HashSet<&str>,
+    event_names: &HashSet<&str>,
+) -> ValidationResult {
+    let mut result = ValidationResult::new();
+
+    // Track seen transitions for duplicate detection
+    let mut seen_transitions: HashMap<(&str, &str), Vec<usize>> = HashMap::new();
+
+    for (i, transition) in transitions.iter().enumerate() {
+        let trans_path = format!("{}.transitions[{}]", path, i);
+
+        // Validate 'from' states
+        match &transition.from {
+            StringOrArray::Single(state) => {
+                if state != "*" && !state_names.contains(state.as_str()) {
+                    result.add_error(
+                        ValidationError::error(
+                            ErrorCode::TraitInvalidTransition,
+                            format!("{}.from", trans_path),
+                            format!("Source state '{}' does not exist", state),
+                        )
+                        .with_valid_values(state_names.iter().map(|s| s.to_string()).collect()),
+                    );
+                }
+
+                // Track for duplicate detection
+                let key = (state.as_str(), transition.event.as_str());
+                seen_transitions.entry(key).or_default().push(i);
+            }
+            StringOrArray::Multiple(states) => {
+                for state in states {
+                    if state != "*" && !state_names.contains(state.as_str()) {
+                        result.add_error(
+                            ValidationError::error(
+                                ErrorCode::TraitInvalidTransition,
+                                format!("{}.from", trans_path),
+                                format!("Source state '{}' does not exist", state),
+                            )
+                            .with_valid_values(state_names.iter().map(|s| s.to_string()).collect()),
+                        );
+                    }
+                }
+            }
+        }
+
+        // Validate 'to' state
+        if !state_names.contains(transition.to.as_str()) {
+            result.add_error(
+                ValidationError::error(
+                    ErrorCode::TraitInvalidTransition,
+                    format!("{}.to", trans_path),
+                    format!("Target state '{}' does not exist", transition.to),
+                )
+                .with_valid_values(state_names.iter().map(|s| s.to_string()).collect()),
+            );
+        }
+
+        // Validate event is defined (if events are declared)
+        if !event_names.is_empty()
+            && transition.event != "INIT"
+            && !event_names.contains(transition.event.as_str())
+        {
+            result.add_error(
+                ValidationError::warning(
+                    ErrorCode::TraitUndefinedEvent,
+                    format!("{}.event", trans_path),
+                    format!(
+                        "Event '{}' is not defined in events array",
+                        transition.event
+                    ),
+                )
+                .with_suggestion("Add the event to the stateMachine.events array"),
+            );
+        }
+    }
+
+    // Check for duplicate transitions (same from/event without guards)
+    for ((from, event), indices) in seen_transitions {
+        if indices.len() > 1 {
+            // Check if all have guards
+            let guarded: Vec<_> = indices
+                .iter()
+                .filter(|&&i| transitions[i].guard.is_some())
+                .collect();
+
+            if guarded.len() < indices.len() - 1 {
+                // More than one unguarded transition
+                result.add_error(
+                    ValidationError::error(
+                        ErrorCode::TraitDuplicateTransition,
+                        format!("{}.transitions", path),
+                        format!(
+                            "Duplicate transitions from '{}' on event '{}' without guards",
+                            from, event
+                        ),
+                    )
+                    .with_suggestion("Add guard conditions to distinguish transitions"),
+                );
+            }
+        }
+    }
+
+    result
+}
+
+/// Validate trait uniqueness across orbitals
+pub fn validate_trait_uniqueness(schema: &OrbitalSchema) -> ValidationResult {
+    let mut result = ValidationResult::new();
+    let mut trait_to_orbital: HashMap<&str, Vec<&str>> = HashMap::new();
+
+    // Collect all inline trait names with their orbitals
+    for orbital in &schema.orbitals {
+        for trait_ref in &orbital.traits {
+            if let TraitReference::Inline(trait_def) = trait_ref {
+                trait_to_orbital
+                    .entry(&trait_def.name)
+                    .or_default()
+                    .push(&orbital.name);
+            }
+        }
+    }
+
+    // Check for duplicates (same trait name in multiple orbitals)
+    for (trait_name, orbitals) in trait_to_orbital {
+        if orbitals.len() > 1 {
+            result.add_error(
+                ValidationError::error(
+                    ErrorCode::TraitDuplicateName,
+                    "orbitals",
+                    format!(
+                        "Trait '{}' is defined in multiple orbitals: {:?}",
+                        trait_name, orbitals
+                    ),
+                )
+                .with_suggestion(
+                    "Use unique trait names per orbital or define traits inline within orbitals",
+                ),
+            );
+        }
+    }
+
+    result
+}
+
+/// Check if a trait is an interaction trait
+fn is_interaction_trait(trait_def: &TraitDefinition) -> bool {
+    match &trait_def.category {
+        Some(TraitCategory::Interaction) => true,
+        None => true, // Default is interaction
+        _ => false,
+    }
+}
+
+/// Check if state machine has render_ui effects
+fn has_render_ui_effects(sm: &StateMachine) -> bool {
+    for transition in &sm.transitions {
+        if let Some(effects) = &transition.effects {
+            for effect in effects {
+                if is_render_ui_effect(effect) {
+                    return true;
+                }
+            }
+        }
+    }
+    false
+}
+
+/// Check if an S-expression is a render_ui effect
+fn is_render_ui_effect(expr: &SExpression) -> bool {
+    match expr {
+        SExpression::Array(arr) if !arr.is_empty() => {
+            if let SExpression::String(op) = &arr[0] {
+                op == "render-ui" || op == "render_ui"
+            } else {
+                false
+            }
+        }
+        SExpression::Object(obj) => obj.contains_key("render_ui") || obj.contains_key("render-ui"),
+        _ => false,
+    }
+}
+
+/// Check if an S-expression is a fetch effect for the given entity
+fn is_fetch_effect(expr: &SExpression, entity_name: &str) -> bool {
+    match expr {
+        SExpression::Array(arr) if arr.len() >= 2 => {
+            if let (SExpression::String(op), SExpression::String(entity)) = (&arr[0], &arr[1]) {
+                (op == "fetch" || op == "ref") && entity == entity_name
+            } else {
+                false
+            }
+        }
+        _ => false,
+    }
+}
+
+/// Check if a transition 'from' matches a state name
+fn matches_state(from: &StringOrArray, state: &str) -> bool {
+    match from {
+        StringOrArray::Single(s) => s == state || s == "*",
+        StringOrArray::Multiple(states) => states.iter().any(|s| s == state || s == "*"),
+    }
+}
+
+/// Convert TraitCategory to string
+fn category_to_string(category: &TraitCategory) -> String {
+    match category {
+        TraitCategory::Interaction => "interaction".to_string(),
+        TraitCategory::Integration => "integration".to_string(),
+        TraitCategory::Lifecycle => "lifecycle".to_string(),
+        TraitCategory::GameCore => "game-core".to_string(),
+        TraitCategory::GameEntity => "game-entity".to_string(),
+        TraitCategory::GameUi => "game-ui".to_string(),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use orbital_core::schema::{
+        EntityFieldContract, EventDefinition, FieldDefinition, FieldType, SourceBehaviorMetadata,
+        StateDefinition,
+    };
+
+    fn create_valid_state_machine() -> StateMachine {
+        StateMachine {
+            states: vec![
+                StateDefinition {
+                    name: "idle".to_string(),
+                    is_initial: Some(true),
+                    is_terminal: None,
+                    description: None,
+                },
+                StateDefinition {
+                    name: "active".to_string(),
+                    is_initial: None,
+                    is_terminal: None,
+                    description: None,
+                },
+            ],
+            events: Some(vec![
+                EventDefinition {
+                    key: "INIT".to_string(),
+                    name: Some("Initialize".to_string()),
+                    description: None,
+                    synonyms: None,
+                    tier: None,
+                    payload_schema: None,
+                },
+                EventDefinition {
+                    key: "START".to_string(),
+                    name: Some("Start".to_string()),
+                    description: None,
+                    synonyms: None,
+                    tier: None,
+                    payload_schema: None,
+                },
+            ]),
+            transitions: vec![
+                // INIT self-transition with a render-ui effect — required for
+                // Interaction traits to pass the validator (TraitMissingInitTransition +
+                // TraitMissingRenderUI errors fire otherwise).
+                TransitionDefinition {
+                    from: StringOrArray::Single("idle".to_string()),
+                    to: "idle".to_string(),
+                    event: "INIT".to_string(),
+                    guard: None,
+                    effects: Some(vec![
+                        orbital_core::schema::SExpression::Array(vec![
+                            orbital_core::schema::SExpression::String("render-ui".to_string()),
+                            orbital_core::schema::SExpression::String("main".to_string()),
+                            orbital_core::schema::SExpression::Object({
+                                let mut m = std::collections::HashMap::new();
+                                m.insert(
+                                    "type".to_string(),
+                                    orbital_core::schema::SExpression::String(
+                                        "box".to_string(),
+                                    ),
+                                );
+                                m
+                            }),
+                        ]),
+                    ]),
+                },
+                TransitionDefinition {
+                    from: StringOrArray::Single("idle".to_string()),
+                    to: "active".to_string(),
+                    event: "START".to_string(),
+                    guard: None,
+                    effects: None,
+                },
+            ],
+        }
+    }
+
+    fn create_valid_trait() -> TraitDefinition {
+        TraitDefinition {
+            name: "TestTrait".to_string(),
+            entity_rebindable: None,
+            entity_contract: None,
+            category: Some(TraitCategory::Interaction),
+            capabilities: vec![],
+            description: None,
+            linked_entity: None,
+            emits: None,
+            listens: None,
+            state_machine: create_valid_state_machine(),
+            ticks: None,
+            config: None,
+            data_entities: None,
+            scope: None,
+            source_behavior: None,
+            source_entity_definition: None,
+        }
+    }
+
+    #[test]
+    fn test_valid_trait() {
+        let trait_def = create_valid_trait();
+        let result = validate_trait_definition(&trait_def, "test", &HashSet::new());
+        // May have warnings but no errors
+        assert!(
+            result.errors.iter().all(|e| e.is_warning()),
+            "Unexpected errors: {:?}",
+            result.errors
+        );
+    }
+
+    #[test]
+    fn test_trait_no_initial_state() {
+        let mut trait_def = create_valid_trait();
+        trait_def.state_machine.states[0].is_initial = None;
+
+        let result = validate_trait_definition(&trait_def, "test", &HashSet::new());
+        assert!(result
+            .errors
+            .iter()
+            .any(|e| e.code == ErrorCode::TraitNoInitialState));
+    }
+
+    #[test]
+    fn test_trait_multiple_initial_states() {
+        let mut trait_def = create_valid_trait();
+        trait_def.state_machine.states[1].is_initial = Some(true);
+
+        let result = validate_trait_definition(&trait_def, "test", &HashSet::new());
+        assert!(result
+            .errors
+            .iter()
+            .any(|e| e.code == ErrorCode::TraitMultipleInitialStates));
+    }
+
+    // ---- @rebindable enforcement (validate_entity_rebind) ----
+
+    fn make_entity(name: &str, fields: &[&str]) -> EntityDefinition {
+        EntityDefinition {
+            name: name.to_string(),
+            collection: None,
+            persistence: None,
+            fields: fields
+                .iter()
+                .map(|f| FieldDefinition {
+                    name: Some(f.to_string()),
+                    field_type: FieldType::String,
+                    required: None,
+                    primary_key: None,
+                    unique: None,
+                    default: None,
+                    values: None,
+                    relation: None,
+                    items: None,
+                    properties: None,
+                    intrinsic: None,
+                    description: None,
+                    synonyms: None,
+                })
+                .collect(),
+            instances: None,
+        }
+    }
+
+    /// A trait imported from std-browse (atom entity `BrowseItem`) and rebound
+    /// to `Listing`.
+    fn rebound_trait(rebindable: Option<bool>, requires: &[&str]) -> TraitDefinition {
+        let mut t = create_valid_trait();
+        t.source_behavior = Some(SourceBehaviorMetadata {
+            behavior: "std/behaviors/std-browse".to_string(),
+            alias: "Browse".to_string(),
+            original_name: "BrowseItemBrowse".to_string(),
+        });
+        t.source_entity_definition = Some(make_entity("BrowseItem", &[]));
+        t.linked_entity = Some("Listing".to_string());
+        t.entity_rebindable = rebindable;
+        if !requires.is_empty() {
+            t.entity_contract = Some(EntityFieldContract {
+                requires: requires.iter().map(|s| s.to_string()).collect(),
+                provides: vec![],
+            });
+        }
+        t
+    }
+
+    #[test]
+    fn test_rebind_not_rebindable_rejected() {
+        let t = rebound_trait(None, &[]);
+        let result = validate_entity_rebind(&t, "test", &HashMap::new());
+        assert!(result
+            .errors
+            .iter()
+            .any(|e| e.code == ErrorCode::TraitEntityNotRebindable));
+    }
+
+    #[test]
+    fn test_rebind_rebindable_allowed() {
+        let t = rebound_trait(Some(true), &[]);
+        let result = validate_entity_rebind(&t, "test", &HashMap::new());
+        assert!(result.errors.is_empty(), "Unexpected: {:?}", result.errors);
+    }
+
+    #[test]
+    fn test_rebind_missing_required_field_rejected() {
+        let t = rebound_trait(Some(true), &["sku"]);
+        let mut defs = HashMap::new();
+        defs.insert("Listing".to_string(), make_entity("Listing", &["title"])); // no `sku`
+        let result = validate_entity_rebind(&t, "test", &defs);
+        assert!(result
+            .errors
+            .iter()
+            .any(|e| e.code == ErrorCode::RebindMissingEntityFields));
+    }
+
+    #[test]
+    fn test_rebind_required_field_present_ok() {
+        let t = rebound_trait(Some(true), &["sku"]);
+        let mut defs = HashMap::new();
+        defs.insert("Listing".to_string(), make_entity("Listing", &["sku", "title"]));
+        let result = validate_entity_rebind(&t, "test", &defs);
+        assert!(result.errors.is_empty(), "Unexpected: {:?}", result.errors);
+    }
+
+    #[test]
+    fn test_inline_authored_binding_exempt() {
+        // No source_behavior = authored directly on the orbital, not a rebind.
+        let mut t = create_valid_trait();
+        t.linked_entity = Some("Listing".to_string());
+        t.entity_rebindable = None;
+        let result = validate_entity_rebind(&t, "test", &HashMap::new());
+        assert!(result.errors.is_empty(), "Unexpected: {:?}", result.errors);
+    }
+
+    #[test]
+    fn test_trait_duplicate_state() {
+        let mut trait_def = create_valid_trait();
+        trait_def.state_machine.states.push(StateDefinition {
+            name: "idle".to_string(), // Duplicate
+            is_initial: None,
+            is_terminal: None,
+            description: None,
+        });
+
+        let result = validate_trait_definition(&trait_def, "test", &HashSet::new());
+        assert!(result
+            .errors
+            .iter()
+            .any(|e| e.code == ErrorCode::TraitDuplicateState));
+    }
+
+    #[test]
+    fn test_trait_invalid_transition_target() {
+        let mut trait_def = create_valid_trait();
+        trait_def.state_machine.transitions[0].to = "nonexistent".to_string();
+
+        let result = validate_trait_definition(&trait_def, "test", &HashSet::new());
+        assert!(result
+            .errors
+            .iter()
+            .any(|e| e.code == ErrorCode::TraitInvalidTransition));
+    }
+
+    #[test]
+    fn test_trait_undefined_reference() {
+        let trait_ref = TraitReference::Reference {
+            reference: Some("NonExistentTrait".to_string()),
+            name: None,
+            linked_entity: None,
+            config: None,
+            events: None,
+            fields: None,
+            listens: None,
+            emits_scope: None,
+        };
+
+        let result = validate_trait_reference(&trait_ref, "test", &HashSet::new(), &HashSet::new());
+        assert!(result
+            .errors
+            .iter()
+            .any(|e| e.code == ErrorCode::TraitUndefined));
+    }
+
+    #[test]
+    fn test_std_trait_reference() {
+        let trait_ref = TraitReference::Reference {
+            reference: Some("std/Form".to_string()),
+            name: None,
+            linked_entity: None,
+            config: None,
+            events: None,
+            fields: None,
+            listens: None,
+            emits_scope: None,
+        };
+
+        let result = validate_trait_reference(&trait_ref, "test", &HashSet::new(), &HashSet::new());
+        assert!(result.is_valid());
+    }
+}

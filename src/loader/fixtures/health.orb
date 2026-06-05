@@ -1,0 +1,46 @@
+{
+  "name": "HealthModule",
+  "version": "1.0.0",
+  "orbitals": [
+    {
+      "name": "Health",
+      "entity": {
+        "name": "HealthEntity",
+        "persistence": "runtime",
+        "fields": [
+          { "name": "id", "type": "string", "required": true },
+          { "name": "health", "type": "number", "required": true },
+          { "name": "maxHealth", "type": "number", "required": true }
+        ]
+      },
+      "traits": [
+        {
+          "name": "HealthTrait",
+          "stateMachine": {
+            "states": [
+              { "name": "alive", "isInitial": true },
+              { "name": "dead" }
+            ],
+            "events": [
+              { "key": "DAMAGE" },
+              { "key": "HEAL" }
+            ],
+            "transitions": [
+              {
+                "from": "alive",
+                "to": "dead",
+                "event": "DAMAGE"
+              }
+            ]
+          }
+        }
+      ],
+      "pages": [
+        {
+          "name": "HealthStatus",
+          "path": "/health/:id"
+        }
+      ]
+    }
+  ]
+}
