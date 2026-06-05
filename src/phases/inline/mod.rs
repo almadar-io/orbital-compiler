@@ -36,7 +36,7 @@ use service::inline_services;
 // non-test build doesn't flag them as unused.
 #[cfg(test)]
 use rewrite::{
-    rewrite_entity_field_paths, rewrite_entity_refs, rewrite_identifiers, rewrite_trait_event_fields,
+    rewrite_entity_refs, rewrite_identifiers, rewrite_trait_event_fields,
 };
 #[cfg(test)]
 use r#trait::apply_overrides_to_trait;
@@ -2768,7 +2768,7 @@ mod tests {
         // Standalone orbital with no imports — entity unchanged.
         use orbital_core::schema::FieldType;
 
-        let mut caller = EntityDefinition {
+        let caller = EntityDefinition {
             name: "MyEntity".to_string(),
             collection: None,
             persistence: None,

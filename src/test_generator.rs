@@ -95,18 +95,6 @@ pub trait TestGenerator: Send + Sync {
     }
 }
 
-/// Base test generator with common functionality
-pub struct BaseTestGenerator {
-    name: &'static str,
-    extension: &'static str,
-}
-
-impl BaseTestGenerator {
-    pub fn new(name: &'static str, extension: &'static str) -> Self {
-        Self { name, extension }
-    }
-}
-
 /// TypeScript/Vitest test generator
 pub struct VitestGenerator;
 
@@ -422,7 +410,7 @@ mod tests {{
                     name_lower = to_snake_case(&trait_def.name),
                     idx = i,
                     name = trait_def.name,
-                    from = t.from.to_string(),
+                    from = t.from,
                     to = t.to,
                     on_event = t.event,
                     event = to_snake_case(&t.event)

@@ -124,9 +124,9 @@ pub(super) fn validate_pattern(
                         if actual_type == "binding" {
                             continue;
                         }
-                        let expects_array = expected_types.iter().any(|t| *t == "array");
-                        let expects_object = expected_types.iter().any(|t| *t == "object");
-                        let accepts_string = expected_types.iter().any(|t| *t == "string");
+                        let expects_array = expected_types.contains(&"array");
+                        let expects_object = expected_types.contains(&"object");
+                        let accepts_string = expected_types.contains(&"string");
                         // V-2 hard rule: an array-typed prop (e.g. `data-grid.entity`,
                         // `data-grid.fields`) MUST be either an array literal or a
                         // binding expression. A bare string literal like
@@ -199,7 +199,7 @@ pub(super) fn validate_pattern(
                                                         result.add_error(
                                                             ValidationError::error(
                                                                 ErrorCode::RenderUIElementShapeMismatch,
-                                                                &format!("{}.{}[{}]", path, prop_name, idx),
+                                                                format!("{}.{}[{}]", path, prop_name, idx),
                                                                 format!(
                                                                     "Element [{}] of prop '{}' on '{}' is missing required field '{}' — the pattern's element shape requires it",
                                                                     idx, prop_name, pattern_type, field_name

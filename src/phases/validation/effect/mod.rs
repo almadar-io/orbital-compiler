@@ -22,17 +22,14 @@ pub(crate) use call_service::{validate_call_service, validate_call_service_objec
 pub(crate) use emit::{extract_emit_object_ref, validate_emit, validate_emit_config};
 pub(crate) use emit_declaration::{
     collect_declared_emits, validate_effect, validate_emit_against_declaration,
-    validate_required_emit_success,
 };
-pub(crate) use fetch::{validate_fetch, validate_fetch_include, validate_fetch_object};
-pub(crate) use navigate::{
-    extract_static_path_prefix, find_matching_page_path, path_matches_pattern, validate_navigate,
-};
+pub(crate) use fetch::{validate_fetch, validate_fetch_object};
+pub(crate) use navigate::validate_navigate;
 pub(crate) use os_watch::validate_os_watch;
 pub(crate) use persist::validate_persist;
 pub(crate) use r#ref::validate_ref;
-pub(crate) use set::{is_path_expression, validate_set, validate_set_object};
-pub(crate) use utils::{extract_payload_fields, is_upper_snake_case, is_valid_event_identifier};
+pub(crate) use set::{validate_set, validate_set_object};
+pub(crate) use utils::{extract_payload_fields, is_valid_event_identifier};
 pub use utils::EFFECT_OPERATORS;
 
 /// Validate all effects in a schema
@@ -127,6 +124,7 @@ pub fn validate_trait_effects(
 pub(crate) struct DeclaredEmit {
     pub(crate) event: String,
     pub(crate) is_external: bool,
+    #[allow(dead_code)] // collected + constructed by tests; not read by validators yet
     pub(crate) payload_fields: Vec<String>,
     pub(crate) required_fields: Vec<String>,
 }

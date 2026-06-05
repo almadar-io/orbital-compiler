@@ -94,7 +94,7 @@ pub fn validate_service_definition(service: &ServiceDefinition, path: &str) -> V
             if rest.name.is_empty() {
                 result.add_error(ValidationError::error(
                     ErrorCode::EntityMissingName,
-                    &format!("{}.name", path),
+                    format!("{}.name", path),
                     "Service name is required",
                 ));
             }
@@ -103,13 +103,13 @@ pub fn validate_service_definition(service: &ServiceDefinition, path: &str) -> V
             if rest.base_url.is_empty() {
                 result.add_error(ValidationError::error(
                     ErrorCode::InvalidValue,
-                    &format!("{}.baseUrl", path),
+                    format!("{}.baseUrl", path),
                     "REST service requires a baseUrl",
                 ));
             } else if !is_valid_url(&rest.base_url) {
                 result.add_error(ValidationError::error(
                     ErrorCode::InvalidValue,
-                    &format!("{}.baseUrl", path),
+                    format!("{}.baseUrl", path),
                     format!("Invalid URL: '{}'", rest.base_url),
                 ));
             }
@@ -117,22 +117,21 @@ pub fn validate_service_definition(service: &ServiceDefinition, path: &str) -> V
             // Validate auth config
             if let Some(auth) = &rest.auth {
                 // For api-key auth, keyName should be provided
-                if auth.auth_type == orbital_core::schema::RestAuthType::ApiKey {
-                    if auth.key_name.is_none() {
+                if auth.auth_type == orbital_core::schema::RestAuthType::ApiKey
+                    && auth.key_name.is_none() {
                         result.add_error(ValidationError::warning(
                             ErrorCode::MissingField,
-                            &format!("{}.auth.keyName", path),
+                            format!("{}.auth.keyName", path),
                             "api-key auth should specify keyName",
                         ));
                     }
-                }
 
                 // secretEnv should follow env var naming convention
                 if let Some(secret_env) = &auth.secret_env {
                     if !is_valid_env_var_name(secret_env) {
                         result.add_error(ValidationError::warning(
                             ErrorCode::InvalidValue,
-                            &format!("{}.auth.secretEnv", path),
+                            format!("{}.auth.secretEnv", path),
                             format!("secretEnv '{}' should be UPPER_SNAKE_CASE", secret_env),
                         ));
                     }
@@ -144,7 +143,7 @@ pub fn validate_service_definition(service: &ServiceDefinition, path: &str) -> V
                 if timeout == 0 {
                     result.add_error(ValidationError::warning(
                         ErrorCode::InvalidValue,
-                        &format!("{}.timeout", path),
+                        format!("{}.timeout", path),
                         "Timeout of 0 may cause immediate failures",
                     ));
                 }
@@ -155,7 +154,7 @@ pub fn validate_service_definition(service: &ServiceDefinition, path: &str) -> V
             if socket.name.is_empty() {
                 result.add_error(ValidationError::error(
                     ErrorCode::EntityMissingName,
-                    &format!("{}.name", path),
+                    format!("{}.name", path),
                     "Service name is required",
                 ));
             }
@@ -164,13 +163,13 @@ pub fn validate_service_definition(service: &ServiceDefinition, path: &str) -> V
             if socket.url.is_empty() {
                 result.add_error(ValidationError::error(
                     ErrorCode::InvalidValue,
-                    &format!("{}.url", path),
+                    format!("{}.url", path),
                     "Socket service requires a url",
                 ));
             } else if !socket.url.starts_with("ws://") && !socket.url.starts_with("wss://") {
                 result.add_error(ValidationError::error(
                     ErrorCode::InvalidValue,
-                    &format!("{}.url", path),
+                    format!("{}.url", path),
                     format!(
                         "Socket URL must start with ws:// or wss://, got: '{}'",
                         socket.url
@@ -182,7 +181,7 @@ pub fn validate_service_definition(service: &ServiceDefinition, path: &str) -> V
             if socket.events.inbound.is_empty() && socket.events.outbound.is_empty() {
                 result.add_error(ValidationError::warning(
                     ErrorCode::MissingField,
-                    &format!("{}.events", path),
+                    format!("{}.events", path),
                     "Socket service has no inbound or outbound events defined",
                 ));
             }
@@ -192,7 +191,7 @@ pub fn validate_service_definition(service: &ServiceDefinition, path: &str) -> V
             if mcp.name.is_empty() {
                 result.add_error(ValidationError::error(
                     ErrorCode::EntityMissingName,
-                    &format!("{}.name", path),
+                    format!("{}.name", path),
                     "Service name is required",
                 ));
             }
@@ -201,7 +200,7 @@ pub fn validate_service_definition(service: &ServiceDefinition, path: &str) -> V
             if mcp.server_path.is_empty() {
                 result.add_error(ValidationError::error(
                     ErrorCode::InvalidValue,
-                    &format!("{}.serverPath", path),
+                    format!("{}.serverPath", path),
                     "MCP service requires a serverPath",
                 ));
             }
@@ -210,7 +209,7 @@ pub fn validate_service_definition(service: &ServiceDefinition, path: &str) -> V
             if mcp.capabilities.is_empty() {
                 result.add_error(ValidationError::warning(
                     ErrorCode::MissingField,
-                    &format!("{}.capabilities", path),
+                    format!("{}.capabilities", path),
                     "MCP service has no capabilities defined",
                 ));
             }

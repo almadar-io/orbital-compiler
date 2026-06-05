@@ -18,6 +18,10 @@ use std::collections::{BTreeSet, HashMap};
 use orbital_core::schema::{ListenSource, OrbitalSchema, PayloadField, TraitReference};
 
 use super::error::{ErrorCode, ValidationError};
+
+/// One emitter of an event: `(trait_path, signature_set, owner_orbital, owner_trait)`.
+/// The signature set is `(field_name, field_type, required)` triples.
+type EmitterEntry = (String, BTreeSet<(String, String, bool)>, String, String);
 use super::ValidationContext;
 
 /// One listener entry in the reverse index. Records the listening trait's
@@ -95,10 +99,7 @@ pub fn validate_cross_emitter(schema: &OrbitalSchema, ctx: &mut ValidationContex
     // The owner pair is for the future L2.6 narrowing — comparing emitter
     // orbitals to listener orbitals to decide whether a divergence is
     // actually reachable.
-    let mut emitters: HashMap<
-        String,
-        Vec<(String, BTreeSet<(String, String, bool)>, String, String)>,
-    > = HashMap::new();
+    let mut emitters: HashMap<String, Vec<EmitterEntry>> = HashMap::new();
 
     for (oi, orbital) in schema.orbitals.iter().enumerate() {
         for (ti, trait_ref) in orbital.traits.iter().enumerate() {
@@ -182,7 +183,7 @@ pub fn validate_cross_emitter(schema: &OrbitalSchema, ctx: &mut ValidationContex
 /// in which case the warning is signal-zero.
 fn is_cross_orbital_reachable(
     event: &str,
-    emitters: &[(String, BTreeSet<(String, String, bool)>, String, String)],
+    emitters: &[EmitterEntry],
     listen_index: &ListenIndex,
 ) -> bool {
     let Some(listeners) = listen_index.get(event) else {

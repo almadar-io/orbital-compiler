@@ -65,7 +65,7 @@ pub fn validate_page(
     page: &PageDefinition,
     path: &str,
     known_traits: &HashSet<String>,
-    seen_paths: &mut HashSet<&str>,
+    _seen_paths: &mut HashSet<&str>,
     check_naming: bool,
 ) -> ValidationResult {
     let mut result = ValidationResult::new();
@@ -296,7 +296,7 @@ pub fn validate_page_path_uniqueness(schema: &OrbitalSchema) -> ValidationResult
 #[cfg(test)]
 mod tests {
     use super::*;
-    use orbital_core::schema::{StateMachine, TraitDefinition};
+    
 
     fn create_valid_page() -> PageDefinition {
         PageDefinition {

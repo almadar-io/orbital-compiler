@@ -78,7 +78,7 @@ pub(crate) fn validate_emit_config(
             .map(|(_, canon)| *canon)
             .unwrap_or(key.as_str());
 
-        if !allowed_keys.iter().any(|k| *k == canonical) {
+        if !allowed_keys.contains(&canonical) {
             result.add_error(
                 ValidationError::error(
                     ErrorCode::EffectEmitKeyInvalid,

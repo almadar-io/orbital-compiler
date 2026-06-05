@@ -121,8 +121,7 @@ fn build_cross_references(schema: &OrbitalSchema, ctx: &mut EnrichmentContext) {
                     if let Some(linked) = linked_entity {
                         let trait_name = reference
                             .as_ref()
-                            .or(name.as_ref())
-                            .map(|s| s.clone())
+                            .or(name.as_ref()).cloned()
                             .unwrap_or_default();
                         ctx.entity_used_by_traits
                             .entry(linked.clone())
@@ -155,15 +154,13 @@ fn build_cross_references(schema: &OrbitalSchema, ctx: &mut EnrichmentContext) {
                         for section in sections {
                             // Check props for entity references
                             if let Some(props) = &section.props {
-                                if let Some(entity_value) = props.get("entity") {
-                                    if let orbital_core::schema::SExpression::String(entity) =
-                                        entity_value
-                                    {
-                                        ctx.entity_used_by_pages
-                                            .entry(entity.clone())
-                                            .or_default()
-                                            .push(page.name.clone());
-                                    }
+                                if let Some(orbital_core::schema::SExpression::String(entity)) =
+                                    props.get("entity")
+                                {
+                                    ctx.entity_used_by_pages
+                                        .entry(entity.clone())
+                                        .or_default()
+                                        .push(page.name.clone());
                                 }
                             }
                         }

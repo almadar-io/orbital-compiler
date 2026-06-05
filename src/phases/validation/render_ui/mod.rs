@@ -21,7 +21,7 @@ use self::sync::ExtraPatterns;
 pub use self::item_actions::is_render_ui_effect;
 
 use orbital_core::schema::{
-    EntityDefinition, OrbitalSchema, SExpression, TraitDefinition, TraitReference,
+    EntityDefinition, OrbitalSchema, SExpression, TraitDefinition,
 };
 use std::collections::{HashMap, HashSet};
 
@@ -68,7 +68,7 @@ pub fn validate_trait_render_ui(
         if let Some(effects) = &transition.effects {
             let fetched: HashSet<String> = effects
                 .iter()
-                .filter_map(|effect| extract_fetch_entity(effect))
+                .filter_map(extract_fetch_entity)
                 .collect();
             if !fetched.is_empty() {
                 fetched_by_state
@@ -134,7 +134,7 @@ pub fn validate_trait_render_ui(
             // Entities fetched in THIS transition
             let fetched_entities: HashSet<String> = effects
                 .iter()
-                .filter_map(|effect| extract_fetch_entity(effect))
+                .filter_map(extract_fetch_entity)
                 .collect();
 
             // Entities available at the target state from predecessor states
@@ -259,25 +259,25 @@ pub fn validate_render_ui_effect(
         }
         SExpression::Object(obj) => {
             // Object form: { render_ui: { slot: "main", pattern: { ... } } }
-            if let Some(render_ui) = obj.get("render_ui").or_else(|| obj.get("render-ui")) {
-                if let SExpression::Object(rui_obj) = render_ui {
-                    if let Some(SExpression::String(slot)) = rui_obj.get("slot") {
-                        result.merge(validate_slot(slot, path));
-                    }
+            if let Some(SExpression::Object(rui_obj)) =
+                obj.get("render_ui").or_else(|| obj.get("render-ui"))
+            {
+                if let Some(SExpression::String(slot)) = rui_obj.get("slot") {
+                    result.merge(validate_slot(slot, path));
+                }
 
-                    if let Some(pattern) = rui_obj.get("pattern") {
-                        result.merge(validate_pattern(
-                            pattern,
-                            path,
-                            entity_definitions,
-                            extra_patterns,
-                        ));
-                        result.merge(validate_trait_binding_positions(
-                            pattern,
-                            path,
-                            extra_patterns,
-                        ));
-                    }
+                if let Some(pattern) = rui_obj.get("pattern") {
+                    result.merge(validate_pattern(
+                        pattern,
+                        path,
+                        entity_definitions,
+                        extra_patterns,
+                    ));
+                    result.merge(validate_trait_binding_positions(
+                        pattern,
+                        path,
+                        extra_patterns,
+                    ));
                 }
             }
         }
@@ -325,7 +325,7 @@ fn walk_pattern_for_trait_positions(
                     // only tracks prop-name membership, not type. If a future
                     // extension adds type metadata, thread it through here.
                     sync::patterns::get_prop_types(pat, prop)
-                        .map(|types| types.iter().any(|t| *t == "node"))
+                        .map(|types| types.contains(&"node"))
                         .unwrap_or(false)
                 }
                 _ => false,

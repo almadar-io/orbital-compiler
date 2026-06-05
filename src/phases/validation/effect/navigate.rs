@@ -93,7 +93,7 @@ pub(crate) fn validate_navigate(
         if let Some((page_path, init_payload)) = matching_page {
             // Check if navigate provides required payload
             if !init_payload.required_fields.is_empty() {
-                let provided_fields = extract_payload_fields(&arr);
+                let provided_fields = extract_payload_fields(arr);
 
                 // Check each required field
                 for required_field in &init_payload.required_fields {
@@ -111,7 +111,7 @@ pub(crate) fn validate_navigate(
                                 "Add payload to navigate effect: [\"navigate\", \"{}\", {{ \"{}\": \"@entity.{}\" }}]",
                                 nav_path, required_field, required_field
                             ))
-                            .with_expected_shape(&format!(
+                            .with_expected_shape(format!(
                                 r#"["navigate", "{}", {{ {} }}]"#,
                                 nav_path,
                                 init_payload

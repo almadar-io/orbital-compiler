@@ -6,7 +6,7 @@ use super::operators::{is_known_operator, EFFECT_OPERATORS};
 use crate::phases::validation::{
     ErrorCode, ValidationContext, ValidationError, ValidationResult,
 };
-use orbital_core::schema::{OrbitalSchema, SExpression, TraitDefinition, TraitReference};
+use orbital_core::schema::{OrbitalSchema, SExpression, TraitDefinition};
 use std::collections::HashSet;
 
 /// Validation context for S-expressions

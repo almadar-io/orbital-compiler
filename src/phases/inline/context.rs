@@ -131,6 +131,7 @@ impl InlineContext {
     /// Back-compat helper for tests and call sites that import a single
     /// orbital. Wraps the orbital in an `AliasEntry` using the orbital's own
     /// `name` as the source label.
+    #[allow(dead_code)] // used only by #[cfg(test)] call sites
     pub(crate) fn add_alias(&mut self, alias: &str, orbital: &Orbital) {
         let label = orbital.name.clone();
         self.aliases.insert(

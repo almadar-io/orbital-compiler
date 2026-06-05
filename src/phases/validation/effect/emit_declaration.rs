@@ -2,8 +2,7 @@
 
 use super::super::{ErrorCode, PageInitPayload, ValidationError, ValidationResult};
 use super::{
-    extract_emit_object_ref, validate_call_service, validate_call_service_object, validate_emit,
-    validate_emit_config, validate_fetch, validate_fetch_object, validate_navigate,
+    validate_call_service, validate_call_service_object, validate_emit, validate_fetch, validate_fetch_object, validate_navigate,
     validate_os_watch, validate_persist, validate_ref, validate_set, validate_set_object,
     DeclaredEmit, EFFECT_OPERATORS,
 };
@@ -222,6 +221,7 @@ pub(crate) fn validate_required_emit_success(
 }
 
 /// Validate a single effect
+#[allow(clippy::too_many_arguments)]
 pub(crate) fn validate_effect(
     effect: &SExpression,
     path: &str,

@@ -36,12 +36,8 @@ struct RenderUIInfo {
     pattern_type: Option<String>,
     /// Props including itemActions
     props: Option<serde_json::Map<String, serde_json::Value>>,
-    /// Source state
-    from_state: String,
     /// Target state
     to_state: String,
-    /// Triggering event
-    event: String,
     /// Path for error reporting
     path: String,
 }
@@ -216,21 +212,11 @@ fn parse_render_ui_effect(
             (None, None)
         };
 
-        // Handle StringOrArray for from_state
-        let from_state = match &transition.from {
-            orbital_core::schema::StringOrArray::Single(s) => s.clone(),
-            orbital_core::schema::StringOrArray::Multiple(arr) => {
-                arr.first().cloned().unwrap_or_default()
-            }
-        };
-
         Some(RenderUIInfo {
             slot,
             pattern_type,
             props,
-            from_state,
             to_state: transition.to.clone(),
-            event: transition.event.clone(),
             path: format!(
                 "{}.stateMachine.transitions[{}].effects[{}]",
                 base_path, trans_idx, effect_idx
@@ -548,7 +534,7 @@ fn validate_dead_end_components(
         }
 
         // Check for itemActions (tables, lists) or actions (headers, forms)
-        let has_actions = render_ui.props.as_ref().map_or(false, |p| {
+        let has_actions = render_ui.props.as_ref().is_some_and(|p| {
             let has_item_actions = p
                 .get("itemActions")
                 .and_then(|v| v.as_array())
@@ -603,7 +589,7 @@ fn validate_unreachable_states(state_machine: &StateMachine, path: &str) -> Vali
             result.add_error(
                 ValidationError::error(
                     ErrorCode::CircuitUnreachableState,
-                    &format!("{}.stateMachine.states", path),
+                    format!("{}.stateMachine.states", path),
                     format!(
                         "State '{}' has no incoming transitions and cannot be reached",
                         state_name
@@ -806,7 +792,7 @@ fn validate_modal_exit_completeness(
             None => continue,
         };
 
-        let has_modal_null = effects.iter().any(|e| is_overlay_close_effect(e));
+        let has_modal_null = effects.iter().any(is_overlay_close_effect);
         let has_main_render = effects.iter().any(|e| {
             if let SExpression::Array(arr) = e {
                 if arr.len() >= 3 {
@@ -824,7 +810,7 @@ fn validate_modal_exit_completeness(
             result.add_error(
                 ValidationError::warning(
                     ErrorCode::CircuitModalExitIncomplete,
-                    &format!(
+                    format!(
                         "{}.transitions[{:?}->{}->{}]",
                         path, transition.from, transition.event, transition.to
                     ),
@@ -930,7 +916,7 @@ fn validate_overlay_close_on_exit(
                     result.add_error(
                         ValidationError::warning(
                             ErrorCode::CircuitModalExitIncomplete,
-                            &format!(
+                            format!(
                                 "{}.transitions[{:?}->{}->{}]",
                                 path, transition.from, transition.event, transition.to
                             ),
@@ -976,7 +962,7 @@ fn validate_dead_end_states(state_machine: &StateMachine, path: &str) -> Validat
             result.add_error(
                 ValidationError::warning(
                     ErrorCode::CircuitDeadEndState,
-                    &format!("{}.stateMachine.states", path),
+                    format!("{}.stateMachine.states", path),
                     format!(
                         "State '{}' has no outgoing transitions - it may be a dead end",
                         state_name

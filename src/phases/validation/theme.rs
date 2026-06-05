@@ -58,7 +58,7 @@ pub fn validate_theme_definition(theme: &ThemeDefinition, path: &str) -> Validat
     if theme.name.is_empty() {
         result.add_error(ValidationError::error(
             ErrorCode::EntityMissingName,
-            &format!("{}.name", path),
+            format!("{}.name", path),
             "Theme name is required",
         ));
     }
@@ -69,7 +69,7 @@ pub fn validate_theme_definition(theme: &ThemeDefinition, path: &str) -> Validat
             if !is_valid_css_color(value) {
                 result.add_error(ValidationError::warning(
                     ErrorCode::InvalidValue,
-                    &format!("{}.tokens.colors.{}", path, key),
+                    format!("{}.tokens.colors.{}", path, key),
                     format!("Color value '{}' may not be a valid CSS color", value),
                 ));
             }
@@ -82,7 +82,7 @@ pub fn validate_theme_definition(theme: &ThemeDefinition, path: &str) -> Validat
             if !is_valid_css_length(value) {
                 result.add_error(ValidationError::warning(
                     ErrorCode::InvalidValue,
-                    &format!("{}.tokens.radii.{}", path, key),
+                    format!("{}.tokens.radii.{}", path, key),
                     format!("Radius value '{}' may not be a valid CSS length", value),
                 ));
             }
@@ -95,7 +95,7 @@ pub fn validate_theme_definition(theme: &ThemeDefinition, path: &str) -> Validat
             if !is_valid_css_length(value) {
                 result.add_error(ValidationError::warning(
                     ErrorCode::InvalidValue,
-                    &format!("{}.tokens.spacing.{}", path, key),
+                    format!("{}.tokens.spacing.{}", path, key),
                     format!("Spacing value '{}' may not be a valid CSS length", value),
                 ));
             }
@@ -113,7 +113,7 @@ pub fn validate_theme_definition(theme: &ThemeDefinition, path: &str) -> Validat
                     if !is_valid_css_color(value) {
                         result.add_error(ValidationError::warning(
                             ErrorCode::InvalidValue,
-                            &format!("{}.colors.{}", variant_path, key),
+                            format!("{}.colors.{}", variant_path, key),
                             format!("Color value '{}' may not be a valid CSS color", value),
                         ));
                     }
@@ -135,8 +135,7 @@ fn is_valid_css_color(value: &str) -> bool {
     let value = value.trim();
 
     // Hex colors: #RGB, #RRGGBB, #RRGGBBAA
-    if value.starts_with('#') {
-        let hex = &value[1..];
+    if let Some(hex) = value.strip_prefix('#') {
         return matches!(hex.len(), 3 | 4 | 6 | 8) && hex.chars().all(|c| c.is_ascii_hexdigit());
     }
 
@@ -177,8 +176,7 @@ fn is_valid_css_length(value: &str) -> bool {
     let units = ["px", "rem", "em", "%", "vh", "vw", "pt", "ch", "ex"];
 
     for unit in units {
-        if value.ends_with(unit) {
-            let num_part = &value[..value.len() - unit.len()];
+        if let Some(num_part) = value.strip_suffix(unit) {
             if num_part.parse::<f64>().is_ok() {
                 return true;
             }

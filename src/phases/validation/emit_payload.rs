@@ -599,7 +599,7 @@ fn success_event_from_effect(op_name: &str, args: &[SExpression]) -> Option<Stri
             return args
                 .iter()
                 .rev()
-                .find_map(|a| extract_emit_success(a));
+                .find_map(extract_emit_success);
         }
         // (call-service "svc" "action" params options?) -> args[4]
         "call-service" | "call_service" => 4,

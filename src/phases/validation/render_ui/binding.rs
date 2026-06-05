@@ -227,13 +227,13 @@ fn walk_pattern_props(
 
         // Skip when expected is "object" — too broad; the existing rule
         // already documents this as deferred.
-        if expected_types.iter().any(|t| *t == "object") {
+        if expected_types.contains(&"object") {
             continue;
         }
         // Skip event-name bindings (kind: event-ref / callback / etc.) —
         // L2.2 covers those via emit-payload schema compare. Here we
         // only care about value-typed bindings.
-        if expected_types.iter().any(|t| *t == "function") {
+        if expected_types.contains(&"function") {
             continue;
         }
 
@@ -246,7 +246,7 @@ fn walk_pattern_props(
         // false positive. Field names commonly collide with operator
         // names; the surrounding prop's declared type is the
         // disambiguator.
-        if expected_types.iter().any(|t| *t == "array")
+        if expected_types.contains(&"array")
             && matches!(prop_value, SExpression::Array(_))
         {
             continue;

@@ -7,7 +7,7 @@
 
 use super::sync::{find_similar_icons, is_common_icon, COMMON_LUCIDE_ICONS};
 use super::{ErrorCode, ValidationContext, ValidationError, ValidationResult};
-use orbital_core::schema::{OrbitalSchema, SExpression, TraitDefinition, TraitReference};
+use orbital_core::schema::{OrbitalSchema, SExpression, TraitDefinition};
 use regex::Regex;
 use std::sync::LazyLock;
 

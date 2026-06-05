@@ -583,9 +583,7 @@ impl<'a> ExhaustiveTestGenerator<'a> {
         &self,
         guard: Option<&OirExpr>,
     ) -> Option<serde_json::Value> {
-        let Some(guard) = guard else {
-            return None;
-        };
+        let guard = guard?;
 
         let mut entity = serde_json::Map::new();
         self.extract_entity_requirements(guard, &mut entity);
@@ -603,77 +601,74 @@ impl<'a> ExhaustiveTestGenerator<'a> {
         expr: &OirExpr,
         entity: &mut serde_json::Map<String, serde_json::Value>,
     ) {
-        match expr {
-            OirExpr::BinaryOp { op, left, right } => match op {
-                OirBinaryOp::And => {
-                    self.extract_entity_requirements(left, entity);
-                    self.extract_entity_requirements(right, entity);
+        if let OirExpr::BinaryOp { op, left, right } = expr { match op {
+            OirBinaryOp::And => {
+                self.extract_entity_requirements(left, entity);
+                self.extract_entity_requirements(right, entity);
+            }
+            OirBinaryOp::Or => {
+                // For Or, satisfy just the first branch
+                self.extract_entity_requirements(left, entity);
+            }
+            OirBinaryOp::Eq => {
+                if let (Some(field), Some(value)) = (
+                    self.extract_entity_field(left),
+                    self.extract_literal_value(right),
+                ) {
+                    entity.insert(field, value);
+                } else if let (Some(field), Some(value)) = (
+                    self.extract_entity_field(right),
+                    self.extract_literal_value(left),
+                ) {
+                    entity.insert(field, value);
                 }
-                OirBinaryOp::Or => {
-                    // For Or, satisfy just the first branch
-                    self.extract_entity_requirements(left, entity);
+            }
+            OirBinaryOp::Ne => {
+                // For != comparisons, generate a different value
+                if let (Some(field), Some(literal)) = (
+                    self.extract_entity_field(left),
+                    self.extract_literal_value(right),
+                ) {
+                    entity.insert(field, self.generate_different_value(&literal));
+                } else if let (Some(field), Some(literal)) = (
+                    self.extract_entity_field(right),
+                    self.extract_literal_value(left),
+                ) {
+                    entity.insert(field, self.generate_different_value(&literal));
                 }
-                OirBinaryOp::Eq => {
-                    if let (Some(field), Some(value)) = (
-                        self.extract_entity_field(left),
-                        self.extract_literal_value(right),
-                    ) {
-                        entity.insert(field, value);
-                    } else if let (Some(field), Some(value)) = (
-                        self.extract_entity_field(right),
-                        self.extract_literal_value(left),
-                    ) {
-                        entity.insert(field, value);
-                    }
+            }
+            OirBinaryOp::Gt => {
+                if let Some(field) = self.extract_entity_field(left) {
+                    let val = self
+                        .extract_literal_number(right)
+                        .map(|n| n + 1.0)
+                        .unwrap_or(100.0);
+                    entity.insert(field, serde_json::json!(val));
                 }
-                OirBinaryOp::Ne => {
-                    // For != comparisons, generate a different value
-                    if let (Some(field), Some(literal)) = (
-                        self.extract_entity_field(left),
-                        self.extract_literal_value(right),
-                    ) {
-                        entity.insert(field, self.generate_different_value(&literal));
-                    } else if let (Some(field), Some(literal)) = (
-                        self.extract_entity_field(right),
-                        self.extract_literal_value(left),
-                    ) {
-                        entity.insert(field, self.generate_different_value(&literal));
-                    }
+            }
+            OirBinaryOp::Ge => {
+                if let Some(field) = self.extract_entity_field(left) {
+                    let val = self.extract_literal_number(right).unwrap_or(100.0);
+                    entity.insert(field, serde_json::json!(val));
                 }
-                OirBinaryOp::Gt => {
-                    if let Some(field) = self.extract_entity_field(left) {
-                        let val = self
-                            .extract_literal_number(right)
-                            .map(|n| n + 1.0)
-                            .unwrap_or(100.0);
-                        entity.insert(field, serde_json::json!(val));
-                    }
+            }
+            OirBinaryOp::Lt => {
+                if let Some(field) = self.extract_entity_field(left) {
+                    let val = self
+                        .extract_literal_number(right)
+                        .map(|n| n - 1.0)
+                        .unwrap_or(0.0);
+                    entity.insert(field, serde_json::json!(val));
                 }
-                OirBinaryOp::Ge => {
-                    if let Some(field) = self.extract_entity_field(left) {
-                        let val = self.extract_literal_number(right).unwrap_or(100.0);
-                        entity.insert(field, serde_json::json!(val));
-                    }
+            }
+            OirBinaryOp::Le => {
+                if let Some(field) = self.extract_entity_field(left) {
+                    let val = self.extract_literal_number(right).unwrap_or(0.0);
+                    entity.insert(field, serde_json::json!(val));
                 }
-                OirBinaryOp::Lt => {
-                    if let Some(field) = self.extract_entity_field(left) {
-                        let val = self
-                            .extract_literal_number(right)
-                            .map(|n| n - 1.0)
-                            .unwrap_or(0.0);
-                        entity.insert(field, serde_json::json!(val));
-                    }
-                }
-                OirBinaryOp::Le => {
-                    if let Some(field) = self.extract_entity_field(left) {
-                        let val = self.extract_literal_number(right).unwrap_or(0.0);
-                        entity.insert(field, serde_json::json!(val));
-                    }
-                }
-                _ => {}
-            },
+            }
             _ => {}
-        }
+        } }
     }
 
     /// Extract entity field name from @entity.* binding expression

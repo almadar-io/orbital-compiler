@@ -7,7 +7,7 @@
 
 use orbital_core::schema::OrbitalSchema;
 use std::collections::hash_map::Entry;
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use thiserror::Error;
 
@@ -441,7 +441,7 @@ impl ExternalOrbitalLoader {
     }
 
     fn add_orb_extension(&self, path: PathBuf) -> PathBuf {
-        if path.extension().map_or(true, |ext| ext != "orb") {
+        if path.extension().is_none_or(|ext| ext != "orb") {
             path.with_extension("orb")
         } else {
             path

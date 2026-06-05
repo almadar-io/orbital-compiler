@@ -527,7 +527,7 @@ fn validate_page(page: &PageDefinition, path: &str, ctx: &mut ValidationContext)
 mod tests {
     use super::*;
     use orbital_core::schema::{
-        EntityRef, SExpression, StateDefinition, StateMachine, TraitDefinition,
+        SExpression, StateDefinition, StateMachine, TraitDefinition,
         TransitionDefinition,
     };
 

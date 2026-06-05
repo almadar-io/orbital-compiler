@@ -11,9 +11,7 @@ use orbital_core::ir::{
 };
 use orbital_core::schema::{
     Cardinality, EntityDefinition, EntityRef, FieldDefinition, FieldType, OrbitalSchema,
-    PageDefinition, PageRef, SExpression, SectionDefinition, ServiceRef, StringOrArray,
-    ThemeDefinition, ThemeRef, TraitDefinition, TraitReference, TransitionDefinition,
-    UseDeclaration,
+    PageDefinition, PageRef, SExpression, SectionDefinition, ServiceRef, StringOrArray, ThemeRef, TraitDefinition, TraitReference, TransitionDefinition,
 };
 use std::collections::HashMap;
 use thiserror::Error;
@@ -43,34 +41,11 @@ pub fn resolve_to_oir(schema: &OrbitalSchema) -> Result<OirModule, ResolveError>
 /// Resolver state
 pub struct Resolver<'a> {
     schema: &'a OrbitalSchema,
-    entity_map: HashMap<String, &'a EntityDefinition>,
-    trait_map: HashMap<String, &'a TraitDefinition>,
 }
 
 impl<'a> Resolver<'a> {
     fn new(schema: &'a OrbitalSchema) -> Self {
-        let mut entity_map = HashMap::new();
-        let mut trait_map = HashMap::new();
-
-        // Collect entities and inline traits from orbitals
-        for orbital in &schema.orbitals {
-            // Handle EntityRef - only collect inline entities
-            if let EntityRef::Inline(entity) = &orbital.entity {
-                entity_map.insert(entity.name.clone(), entity);
-            }
-
-            for trait_ref in &orbital.traits {
-                if let TraitReference::Inline(trait_def) = trait_ref {
-                    trait_map.insert(trait_def.name.clone(), trait_def);
-                }
-            }
-        }
-
-        Self {
-            schema,
-            entity_map,
-            trait_map,
-        }
+        Self { schema }
     }
 
     /// Get entity definition from EntityRef
@@ -168,13 +143,11 @@ impl<'a> Resolver<'a> {
         // Collect themes from orbitals (only inline themes, skip duplicates)
         let mut seen_themes = std::collections::HashSet::new();
         for orbital in &self.schema.orbitals {
-            if let Some(theme_ref) = &orbital.theme {
-                if let ThemeRef::Inline(theme) = theme_ref {
-                    if seen_themes.insert(theme.name.clone()) {
-                        module.themes.push(theme.clone());
-                    }
+            // Note: ThemeRef::Reference would be resolved by pre-processing
+            if let Some(ThemeRef::Inline(theme)) = &orbital.theme {
+                if seen_themes.insert(theme.name.clone()) {
+                    module.themes.push(theme.clone());
                 }
-                // Note: ThemeRef::Reference would be resolved by pre-processing
             }
         }
 
@@ -452,7 +425,7 @@ impl<'a> Resolver<'a> {
             .or_else(|| sm.states.first().map(|s| &s.name));
 
         for state in &sm.states {
-            let is_initial = initial_state_name.map_or(false, |init| init == &state.name);
+            let is_initial = initial_state_name == Some(&state.name);
             oir_trait.states.push(if is_initial {
                 OirState::initial(&state.name)
             } else {
@@ -808,10 +781,10 @@ impl<'a> Resolver<'a> {
     fn resolve_sexpr_call(&self, op: &str, args: &[SExpression]) -> Result<OirExpr, ResolveError> {
         match op {
             // Comparison operators
-            "=" | "==" | "eq" => self.binary_op(args, |l, r| OirExpr::eq(l, r)),
-            "!=" | "ne" => self.binary_op(args, |l, r| OirExpr::ne(l, r)),
-            "<" | "lt" => self.binary_op(args, |l, r| OirExpr::lt(l, r)),
-            ">" | "gt" => self.binary_op(args, |l, r| OirExpr::gt(l, r)),
+            "=" | "==" | "eq" => self.binary_op(args, OirExpr::eq),
+            "!=" | "ne" => self.binary_op(args, OirExpr::ne),
+            "<" | "lt" => self.binary_op(args, OirExpr::lt),
+            ">" | "gt" => self.binary_op(args, OirExpr::gt),
             "<=" | "le" => self.binary_op(args, |l, r| OirExpr::BinaryOp {
                 op: OirBinaryOp::Le,
                 left: Box::new(l),
@@ -824,13 +797,13 @@ impl<'a> Resolver<'a> {
             }),
 
             // Logical operators
-            "and" | "&&" => self.binary_op(args, |l, r| OirExpr::and(l, r)),
-            "or" | "||" => self.binary_op(args, |l, r| OirExpr::or(l, r)),
-            "not" | "!" => self.unary_op(args, |a| OirExpr::not(a)),
+            "and" | "&&" => self.binary_op(args, OirExpr::and),
+            "or" | "||" => self.binary_op(args, OirExpr::or),
+            "not" | "!" => self.unary_op(args, OirExpr::not),
 
             // Arithmetic operators
-            "+" | "add" => self.binary_op(args, |l, r| OirExpr::add(l, r)),
-            "-" | "sub" => self.binary_op(args, |l, r| OirExpr::sub(l, r)),
+            "+" | "add" => self.binary_op(args, OirExpr::add),
+            "-" | "sub" => self.binary_op(args, OirExpr::sub),
             "*" | "mul" => self.binary_op(args, |l, r| OirExpr::BinaryOp {
                 op: OirBinaryOp::Mul,
                 left: Box::new(l),
@@ -1174,9 +1147,9 @@ impl<'a> Resolver<'a> {
 
                 let emit_cfg = self.extract_emit_config(obj)?;
 
-                if id.is_some() {
+                if let Some(id) = id {
                     // Fetch by ID: ["fetch", "Entity", { "id": "@payload.id" }]
-                    let mut effect = OirEffect::fetch_by_id(&entity, id.unwrap());
+                    let mut effect = OirEffect::fetch_by_id(&entity, id);
                     if let OirEffect::Fetch {
                         include: ref mut inc,
                         emit: ref mut em,
@@ -1732,10 +1705,8 @@ impl<'a> Resolver<'a> {
     /// Extract slot name from a render-ui effect (stored as OirExpr::Effect)
     fn extract_slot_from_effect(&self, effect: &OirExpr) -> Option<String> {
         // Effects are wrapped in OirExpr::Effect { effect: OirEffect }
-        if let Some(oir_effect) = effect.as_effect() {
-            if let OirEffect::RenderUi { slot, .. } = oir_effect {
-                return Some(slot.clone());
-            }
+        if let Some(OirEffect::RenderUi { slot, .. }) = effect.as_effect() {
+            return Some(slot.clone());
         }
         None
     }

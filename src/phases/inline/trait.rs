@@ -14,6 +14,7 @@ use orbital_core::schema::{
 };
 use std::collections::{HashMap, HashSet};
 
+#[allow(clippy::too_many_arguments)]
 pub(crate) fn apply_overrides_to_trait(
     trait_def: &mut TraitDefinition,
     linked_entity: Option<&String>,

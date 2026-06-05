@@ -3,32 +3,6 @@
 //! Compiles Orbital schemas (.orb files) to generated code via the
 //! Orbital Intermediate Representation (OIR).
 
-#![allow(
-    dead_code,
-    unused_imports,
-    unused_variables,
-    clippy::too_many_arguments,
-    clippy::redundant_closure,
-    clippy::derivable_impls,
-    clippy::should_implement_trait,
-    clippy::unwrap_or_default,
-    clippy::unnecessary_map_or,
-    clippy::collapsible_if,
-    clippy::needless_borrow,
-    clippy::manual_strip,
-    clippy::manual_pattern_char_comparison,
-    clippy::redundant_pattern_matching,
-    clippy::explicit_auto_deref,
-    clippy::map_entry,
-    clippy::map_clone,
-    clippy::to_string_in_format_args,
-    clippy::manual_is_multiple_of,
-    clippy::iter_on_single_items,
-    clippy::needless_borrows_for_generic_args,
-    clippy::collapsible_match,
-    clippy::for_kv_map,
-    unexpected_cfgs
-)]
 //!
 //! # Compilation Pipeline
 //!

@@ -101,6 +101,7 @@ pub(crate) fn extract_payload_fields(arr: &[SExpression]) -> HashSet<String> {
 }
 
 /// Check if a string is UPPER_SNAKE_CASE
+#[allow(dead_code)] // exercised by #[cfg(test)] only
 pub(crate) fn is_upper_snake_case(s: &str) -> bool {
     !s.is_empty()
         && s.chars()
@@ -128,9 +129,8 @@ pub(crate) fn is_valid_event_identifier(s: &str) -> bool {
 #[cfg(test)]
 mod tests {
     use super::is_upper_snake_case;
-    use super::super::{
-        path_matches_pattern, validate_effect, validate_emit_against_declaration, DeclaredEmit,
-    };
+    use super::super::navigate::path_matches_pattern;
+    use super::super::{validate_effect, validate_emit_against_declaration, DeclaredEmit};
     use super::super::super::{ErrorCode, PageInitPayload};
     use orbital_core::schema::{EntityDefinition, FieldType, SExpression};
     use std::collections::{HashMap, HashSet};
@@ -356,7 +356,7 @@ mod tests {
 
     #[test]
     fn test_emit_declared_passes() {
-        use orbital_core::schema::{EmitDefinition, EventScope, PayloadField};
+        
 
         let declared_emits = vec![DeclaredEmit {
             event: "TASK_CREATED".to_string(),

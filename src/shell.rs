@@ -140,6 +140,7 @@ pub struct BaseShell {
 
 impl BaseShell {
     /// Create a new base shell
+    #[allow(clippy::too_many_arguments)]
     pub fn new(
         name: &'static str,
         description: &'static str,
@@ -318,7 +319,7 @@ fn copy_dir_with_replacements(src: &Path, dst: &Path, project_name: &str) -> She
                     // Kotlin
                     | "kt"
                     | "kts"
-            ) || path.file_name().map_or(false, |n| {
+            ) || path.file_name().is_some_and(|n| {
                 let name = n.to_string_lossy();
                 name.starts_with('.') && !name.contains("lock")
             });
@@ -373,7 +374,7 @@ fn replace_placeholders(
 
 /// Convert to title case (e.g., "my-app" -> "My App")
 fn to_title_case(s: &str) -> String {
-    s.split(|c: char| c == '-' || c == '_')
+    s.split(['-', '_'])
         .map(|word| {
             let mut chars = word.chars();
             match chars.next() {

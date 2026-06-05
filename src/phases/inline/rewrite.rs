@@ -252,12 +252,10 @@ fn rewrite_identifiers_inner(
                         if let SExpression::Array(items) = v {
                             for item in items.iter_mut() {
                                 if let SExpression::Object(entry) = item {
-                                    if let Some(inner) = entry.get_mut(*field) {
-                                        if let SExpression::String(s) = inner {
-                                            if !s.starts_with('@') {
-                                                if let Some(to) = event_subs.get(s) {
-                                                    *s = to.clone();
-                                                }
+                                    if let Some(SExpression::String(s)) = entry.get_mut(*field) {
+                                        if !s.starts_with('@') {
+                                            if let Some(to) = event_subs.get(s) {
+                                                *s = to.clone();
                                             }
                                         }
                                     }
@@ -301,7 +299,7 @@ pub(crate) fn rewrite_entity_field_paths(
                 // Split off the first segment (field name), keeping any nested
                 // path / index suffix intact.
                 let split_at = rest
-                    .find(|c| c == '.' || c == '[')
+                    .find(['.', '['])
                     .unwrap_or(rest.len());
                 let (field, suffix) = rest.split_at(split_at);
                 if let Some(to) = field_subs.get(field) {
@@ -620,12 +618,11 @@ fn rewrite_entity_in_type_string(s: &str, entity_subs: &HashMap<String, String>)
         return s.to_string();
     }
     let mut out = String::with_capacity(s.len());
-    let mut chars = s.chars().peekable();
     let mut buf = String::new();
     fn is_ident(c: char) -> bool {
         c.is_alphanumeric() || c == '_' || c == '$'
     }
-    while let Some(c) = chars.next() {
+    for c in s.chars() {
         if is_ident(c) {
             buf.push(c);
             continue;

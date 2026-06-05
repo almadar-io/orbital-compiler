@@ -5,7 +5,7 @@
 
 use super::{
     render_ui::is_render_ui_effect, Domain, ErrorCode, ValidationContext, ValidationError,
-    ValidationResult, VALID_SLOTS,
+    ValidationResult,
 };
 use orbital_core::schema::{
     OrbitalSchema, SExpression, StateMachine, TraitDefinition, TraitReference,

@@ -101,7 +101,7 @@ pub(crate) fn validate_scope_boundary(schema: &OrbitalSchema) -> ValidationResul
             let owned_holder: Option<Vec<EmitDefinition>>;
             let target_emits: &Vec<EmitDefinition> =
                 if let Some(emits) = in_schema_emits.get(target_trait_name) {
-                    *emits
+                    emits
                 } else if let Some(src) = alias_source.get(alias) {
                     // Attempt to resolve std-behavior content. Other
                     // sources (local .orb paths) aren't loaded here —
@@ -192,19 +192,6 @@ pub(crate) fn validate_scope_boundary(schema: &OrbitalSchema) -> ValidationResul
     }
 
     result
-}
-
-/// Parse an embedded std-behavior JSON blob and extract the `emits[]` for a
-/// specific trait name. Returns `None` when parsing fails or the trait isn't
-/// present. Failures are treated as "skip the check" rather than errors so a
-/// malformed embedded payload doesn't derail unrelated validation; if that
-/// ever happens the embedded-registry tests will flag it.
-pub(crate) fn parse_emits_from_std_content(
-    content: &str,
-    trait_name: &str,
-) -> Option<Vec<EmitDefinition>> {
-    let schema: OrbitalSchema = serde_json::from_str(content).ok()?;
-    emits_for_trait(&schema, trait_name)
 }
 
 /// Read a named inline trait's `emits[]` from an already-parsed schema.

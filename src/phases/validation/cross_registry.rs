@@ -15,7 +15,7 @@
 
 use super::{ErrorCode, ValidationContext, ValidationError, ValidationResult};
 use crate::embedded;
-use orbital_core::schema::{OrbitalSchema, SExpression, TraitDefinition, TraitReference};
+use orbital_core::schema::{OrbitalSchema, SExpression, TraitDefinition};
 
 /// Run all cross-registry consistency checks across the schema.
 pub fn validate_cross_registry(schema: &OrbitalSchema, ctx: &mut ValidationContext) {
@@ -84,8 +84,7 @@ fn walk_for_references(expr: &SExpression, path: &str, result: &mut ValidationRe
                 }
 
                 // behavior/* existence check (in case Compose left any unresolved)
-                if op.starts_with("behavior/") {
-                    let suffix = &op["behavior/".len()..];
+                if let Some(suffix) = op.strip_prefix("behavior/") {
                     // The behavior name appears as the second arg, e.g.
                     // (behavior/compose "std-cart" {...}).
                     // For behavior/<name> shorthand the name is the suffix itself.

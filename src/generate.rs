@@ -78,7 +78,7 @@ pub trait Backend: Send + Sync {
     fn generate(&self, module: &OirModule) -> GeneratedOutput;
 
     /// Generate code with mode awareness
-    fn generate_with_mode(&self, module: &OirModule, mode: ShellMode) -> GeneratedOutput {
+    fn generate_with_mode(&self, module: &OirModule, _mode: ShellMode) -> GeneratedOutput {
         // Default implementation ignores mode and generates everything
         self.generate(module)
     }
