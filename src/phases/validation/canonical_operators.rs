@@ -1,6 +1,5 @@
-// Auto-generated from @almadar/std STD_OPERATORS.
+// Auto-generated from @almadar/std canonical-operators.json by @almadar-io/almadar-pattern-sync.
 // DO NOT EDIT MANUALLY.
-// Generated: 2026-06-04T18:20:04.580Z
 // Total operators targeting Rust: 204
 
 /// Operator metadata derived from the canonical @almadar/std registry.
