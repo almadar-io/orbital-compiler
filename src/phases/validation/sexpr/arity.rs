@@ -10,10 +10,13 @@ pub struct ArityRule {
 
 /// Get arity rules for an operator.
 ///
-/// Consults the embedded `operators.json` registry first (Phase 3 of Lolo v3 plan).
-/// Falls back to the hardcoded match for ML operators not yet migrated to the registry.
+/// The canonical operator registry (`canonical-operators.json`, surfaced via
+/// `embedded::get_operator`) is the source of truth for arity wherever the
+/// operator is declared there. The match below is a fallback for operators not
+/// yet carried in the registry (legacy aliases, ML/tensor/graph/contract/data
+/// modules); every arm here is for an operator the registry does NOT define, so
+/// the registry lookup always wins when both have it.
 pub(crate) fn get_arity_rule(operator: &str) -> Option<ArityRule> {
-    // Replaced primary lookup with embedded::get_operator() in Phase 3 of Lolo v3 plan.
     if let Some(meta) = crate::embedded::get_operator(operator) {
         return Some(ArityRule {
             min: meta.min_arity as usize,
@@ -22,215 +25,37 @@ pub(crate) fn get_arity_rule(operator: &str) -> Option<ArityRule> {
     }
     match operator {
         // Unary
-        "not" | "abs" | "floor" | "ceil" | "round" | "upper" | "lower" | "trim" | "length"
-        | "first" | "last" | "rest" | "count" | "keys" | "values" | "entries" | "type"
-        | "is-null" | "is-empty" | "is-string" | "is-number" | "is-boolean" | "is-array"
-        | "is-object" | "reverse" => Some(ArityRule {
+        "abs" | "floor" | "ceil" | "round" | "upper" | "lower" | "trim" | "length" | "first"
+        | "last" | "rest" | "count" | "keys" | "values" | "entries" | "type" | "is-null"
+        | "is-empty" | "is-string" | "is-number" | "is-boolean" | "is-array" | "is-object"
+        | "reverse" => Some(ArityRule {
             min: 1,
             max: Some(1),
         }),
 
         // Binary
-        "=" | "!=" | "<" | ">" | "<=" | ">=" | "eq" | "neq" | "lt" | "gt" | "lte" | "gte" | "-"
-        | "/" | "%" | "sub" | "div" | "mod" | "get" | "nth" | "date-diff" => Some(ArityRule {
+        "eq" | "neq" | "lt" | "gt" | "lte" | "gte" | "sub" | "div" | "mod" | "get" | "nth"
+        | "date-diff" => Some(ArityRule {
             min: 2,
             max: Some(2),
         }),
 
         // Binary or more
-        "and" | "or" | "+" | "*" | "add" | "mul" | "concat" | "merge" | "min" | "max" => {
+        "add" | "mul" | "concat" | "merge" | "min" | "max" => {
             Some(ArityRule { min: 2, max: None })
         }
 
         // Ternary
-        "if" | "substring" | "replace" | "slice" => Some(ArityRule {
+        "substring" | "replace" | "slice" => Some(ArityRule {
             min: 3,
             max: Some(3),
         }),
 
         // Variable arity
-        "do" | "let" | "cond" => Some(ArityRule { min: 1, max: None }),
-
-        // Path building (variadic, 1+ segments)
-        "path" => Some(ArityRule { min: 1, max: None }),
+        "cond" => Some(ArityRule { min: 1, max: None }),
 
         // Effects have their own validation
         _ if EFFECT_OPERATORS.contains(&operator) => None,
-
-        // ============================================
-        // Neural Network Operators (nn module)
-        // ============================================
-
-        // nn/sequential - variadic (1+ layers)
-        "nn/sequential" => Some(ArityRule { min: 1, max: None }),
-
-        // nn/linear - binary (in_features, out_features)
-        "nn/linear" => Some(ArityRule {
-            min: 2,
-            max: Some(2),
-        }),
-
-        // Activation functions - unary (optional dim for softmax)
-        "nn/relu" | "nn/tanh" | "nn/sigmoid" => Some(ArityRule {
-            min: 0,
-            max: Some(0),
-        }),
-        "nn/softmax" => Some(ArityRule {
-            min: 0,
-            max: Some(1),
-        }),
-
-        // Regularization - unary (rate/features)
-        "nn/dropout" => Some(ArityRule {
-            min: 0,
-            max: Some(1),
-        }),
-        "nn/batchnorm" | "nn/layernorm" => Some(ArityRule {
-            min: 1,
-            max: Some(1),
-        }),
-
-        // nn/forward - binary (module, input)
-        "nn/forward" => Some(ArityRule {
-            min: 2,
-            max: Some(2),
-        }),
-
-        // Weight operations - unary/binary
-        "nn/getWeights" | "nn/paramCount" | "nn/clone" => Some(ArityRule {
-            min: 1,
-            max: Some(1),
-        }),
-        "nn/setWeights" => Some(ArityRule {
-            min: 2,
-            max: Some(2),
-        }),
-
-        // ============================================
-        // Tensor Operators (tensor module)
-        // ============================================
-
-        // Creation - unary (data/shape)
-        "tensor/from" | "tensor/zeros" | "tensor/ones" | "tensor/rand" | "tensor/randn" => {
-            Some(ArityRule {
-                min: 1,
-                max: Some(1),
-            })
-        }
-
-        // Shape/Indexing - unary/binary
-        "tensor/shape" | "tensor/flatten" => Some(ArityRule {
-            min: 1,
-            max: Some(1),
-        }),
-        "tensor/get" => Some(ArityRule {
-            min: 2,
-            max: Some(2),
-        }),
-        "tensor/slice" => Some(ArityRule {
-            min: 3,
-            max: Some(3),
-        }),
-        "tensor/reshape" => Some(ArityRule {
-            min: 2,
-            max: Some(2),
-        }),
-
-        // Math - binary
-        "tensor/add" | "tensor/sub" | "tensor/mul" | "tensor/div" | "tensor/matmul"
-        | "tensor/dot" => Some(ArityRule {
-            min: 2,
-            max: Some(2),
-        }),
-
-        // Reductions - unary
-        "tensor/sum" | "tensor/mean" | "tensor/max" | "tensor/min" | "tensor/argmax"
-        | "tensor/norm" => Some(ArityRule {
-            min: 1,
-            max: Some(1),
-        }),
-
-        // Range validation - binary
-        "tensor/allInRange" | "tensor/clampPerDim" | "tensor/outOfRangeDims" => Some(ArityRule {
-            min: 2,
-            max: Some(2),
-        }),
-        "tensor/outOfRangeIndices" | "tensor/clamp" => Some(ArityRule {
-            min: 3,
-            max: Some(3),
-        }),
-
-        // Conversion - unary
-        "tensor/toArray" | "tensor/toList" => Some(ArityRule {
-            min: 1,
-            max: Some(1),
-        }),
-
-        // ============================================
-        // Training Operators (train module)
-        // ============================================
-
-        // train/loop - ternary (module, data, config)
-        "train/loop" => Some(ArityRule {
-            min: 3,
-            max: Some(3),
-        }),
-
-        // train/step - quaternary (module, input, target, config)
-        "train/step" => Some(ArityRule {
-            min: 4,
-            max: Some(4),
-        }),
-
-        // Validation - binary/ternary
-        "train/validate" => Some(ArityRule {
-            min: 2,
-            max: Some(3),
-        }),
-        "train/checkRegression" => Some(ArityRule {
-            min: 2,
-            max: Some(2),
-        }),
-
-        // Constraints - binary
-        "train/checkConstraints" | "train/checkWeightMagnitude" | "train/checkForbiddenOutputs" => {
-            Some(ArityRule {
-                min: 2,
-                max: Some(2),
-            })
-        }
-
-        // Gradients/Weights - binary
-        "train/clipGradients" | "train/clipWeights" => Some(ArityRule {
-            min: 2,
-            max: Some(2),
-        }),
-        "train/getGradientNorm" | "train/getMaxWeightMagnitude" => Some(ArityRule {
-            min: 1,
-            max: Some(1),
-        }),
-
-        // Loss functions - binary (prediction, target)
-        "train/mse" | "train/crossEntropy" | "train/huber" => Some(ArityRule {
-            min: 2,
-            max: Some(2),
-        }),
-
-        // Optimizers - binary (params, config)
-        "train/sgd" | "train/adam" => Some(ArityRule {
-            min: 2,
-            max: Some(2),
-        }),
-
-        // RL - binary/ternary
-        "train/sampleBatch" => Some(ArityRule {
-            min: 2,
-            max: Some(2),
-        }),
-        "train/computeReturns" | "train/computeAdvantages" => Some(ArityRule {
-            min: 2,
-            max: Some(3),
-        }),
 
         // ============================================
         // New Tensor Operators
