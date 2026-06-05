@@ -222,6 +222,31 @@ pub fn is_std_trait(name: &str) -> bool {
     STD_TRAITS.contains(&name) || name.starts_with("std/")
 }
 
+/// Iterate every inline trait definition in the schema, yielding the trait and
+/// its canonical validation path (`orbitals[i].traits[j]`).
+///
+/// Reference traits are skipped — they are resolved by the inline phase before
+/// validation runs, so per-trait validators only see `TraitReference::Inline`.
+/// This collapses the `for orbital { for trait { if let Inline } }` boilerplate
+/// repeated across the per-trait validators.
+pub fn inline_traits(
+    schema: &OrbitalSchema,
+) -> impl Iterator<Item = (&orbital_core::schema::TraitDefinition, String)> {
+    use orbital_core::schema::TraitReference;
+    schema.orbitals.iter().enumerate().flat_map(|(i, orbital)| {
+        orbital
+            .traits
+            .iter()
+            .enumerate()
+            .filter_map(move |(j, trait_ref)| match trait_ref {
+                TraitReference::Inline(trait_def) => {
+                    Some((trait_def, format!("orbitals[{}].traits[{}]", i, j)))
+                }
+                TraitReference::Reference { .. } => None,
+            })
+    })
+}
+
 /// Valid UI slots
 pub const VALID_SLOTS: &[&str] = &[
     "main",

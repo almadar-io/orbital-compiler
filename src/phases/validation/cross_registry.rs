@@ -19,14 +19,9 @@ use orbital_core::schema::{OrbitalSchema, SExpression, TraitDefinition, TraitRef
 
 /// Run all cross-registry consistency checks across the schema.
 pub fn validate_cross_registry(schema: &OrbitalSchema, ctx: &mut ValidationContext) {
-    for (i, orbital) in schema.orbitals.iter().enumerate() {
-        for (j, trait_ref) in orbital.traits.iter().enumerate() {
-            if let TraitReference::Inline(trait_def) = trait_ref {
-                let path = format!("orbitals[{}].traits[{}]", i, j);
-                let result = validate_trait_cross_registry(trait_def, &path);
-                ctx.merge(result);
-            }
-        }
+    for (trait_def, path) in super::inline_traits(schema) {
+        let result = validate_trait_cross_registry(trait_def, &path);
+        ctx.merge(result);
     }
 }
 

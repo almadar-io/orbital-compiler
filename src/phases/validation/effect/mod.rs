@@ -121,22 +121,17 @@ pub const EFFECT_OPERATORS: &[&str] = &[
 pub fn validate_all_effects(schema: &OrbitalSchema, ctx: &mut ValidationContext) {
     // Validate effects in orbital inline traits
     // Note: Traits are now only defined inline within orbitals, not at schema level.
-    for (i, orbital) in schema.orbitals.iter().enumerate() {
-        for (j, trait_ref) in orbital.traits.iter().enumerate() {
-            if let TraitReference::Inline(trait_def) = trait_ref {
-                let path = format!("orbitals[{}].traits[{}]", i, j);
-                let result = validate_trait_effects(
-                    trait_def,
-                    &path,
-                    &ctx.entity_names,
-                    &ctx.entity_definitions,
-                    &ctx.service_names,
-                    &ctx.page_init_payloads,
-                    &ctx.service_actions,
-                );
-                ctx.merge(result);
-            }
-        }
+    for (trait_def, path) in super::inline_traits(schema) {
+        let result = validate_trait_effects(
+            trait_def,
+            &path,
+            &ctx.entity_names,
+            &ctx.entity_definitions,
+            &ctx.service_names,
+            &ctx.page_init_payloads,
+            &ctx.service_actions,
+        );
+        ctx.merge(result);
     }
 }
 

@@ -23,14 +23,9 @@ static PASCAL_CASE_PATTERN: LazyLock<Regex> =
 pub fn validate_all_icons(schema: &OrbitalSchema, ctx: &mut ValidationContext) {
     // Validate icons in orbital inline traits
     // Note: Traits are now only defined inline within orbitals, not at schema level.
-    for (i, orbital) in schema.orbitals.iter().enumerate() {
-        for (j, trait_ref) in orbital.traits.iter().enumerate() {
-            if let TraitReference::Inline(trait_def) = trait_ref {
-                let path = format!("orbitals[{}].traits[{}]", i, j);
-                let result = validate_trait_icons(trait_def, &path);
-                ctx.merge(result);
-            }
-        }
+    for (trait_def, path) in super::inline_traits(schema) {
+        let result = validate_trait_icons(trait_def, &path);
+        ctx.merge(result);
     }
 }
 
