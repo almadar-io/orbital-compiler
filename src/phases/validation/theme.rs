@@ -6,6 +6,11 @@
 use super::error::{ErrorCode, ValidationError, ValidationResult};
 use super::ValidationContext;
 use orbital_core::schema::{OrbitalSchema, ThemeDefinition, ThemeRef};
+use regex::Regex;
+use std::sync::LazyLock;
+
+static THEME_REF_REGEX: LazyLock<Regex> =
+    LazyLock::new(|| Regex::new(r"^[A-Z][a-zA-Z0-9]*\.theme$").unwrap());
 
 /// Validate all themes in a schema
 pub fn validate_all_themes(schema: &OrbitalSchema, ctx: &mut ValidationContext) {
@@ -122,8 +127,7 @@ pub fn validate_theme_definition(theme: &ThemeDefinition, path: &str) -> Validat
 
 /// Check if a theme reference is valid format: "Alias.theme"
 fn is_valid_theme_reference(ref_str: &str) -> bool {
-    let pattern = regex::Regex::new(r"^[A-Z][a-zA-Z0-9]*\.theme$").unwrap();
-    pattern.is_match(ref_str)
+    THEME_REF_REGEX.is_match(ref_str)
 }
 
 /// Check if a value is a valid CSS color (hex, rgb, hsl, named)

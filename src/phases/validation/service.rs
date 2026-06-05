@@ -6,6 +6,11 @@
 use super::error::{ErrorCode, ValidationError, ValidationResult};
 use super::ValidationContext;
 use orbital_core::schema::{OrbitalSchema, ServiceDefinition, ServiceRef};
+use regex::Regex;
+use std::sync::LazyLock;
+
+static SERVICE_REF_REGEX: LazyLock<Regex> =
+    LazyLock::new(|| Regex::new(r"^[A-Z][a-zA-Z0-9]*\.services\.[a-zA-Z][a-zA-Z0-9]*$").unwrap());
 
 /// Validate all services in a schema
 pub fn validate_all_services(schema: &OrbitalSchema, ctx: &mut ValidationContext) {
@@ -217,9 +222,7 @@ pub fn validate_service_definition(service: &ServiceDefinition, path: &str) -> V
 
 /// Check if a service reference is valid format: "Alias.services.ServiceName"
 fn is_valid_service_reference(ref_str: &str) -> bool {
-    let pattern =
-        regex::Regex::new(r"^[A-Z][a-zA-Z0-9]*\.services\.[a-zA-Z][a-zA-Z0-9]*$").unwrap();
-    pattern.is_match(ref_str)
+    SERVICE_REF_REGEX.is_match(ref_str)
 }
 
 /// Check if a URL is valid (basic check)

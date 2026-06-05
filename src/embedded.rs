@@ -139,9 +139,6 @@ struct OperatorsSchema {
     operators: HashMap<String, EmbeddedOperator>,
 }
 
-static OPERATORS: OnceLock<HashMap<String, EmbeddedOperator>> = OnceLock::new();
-static CATEGORIES: OnceLock<HashMap<String, EmbeddedCategory>> = OnceLock::new();
-
 fn parsed_operators() -> &'static OperatorsSchema {
     static PARSED: OnceLock<OperatorsSchema> = OnceLock::new();
     PARSED.get_or_init(|| {
@@ -151,12 +148,12 @@ fn parsed_operators() -> &'static OperatorsSchema {
 
 /// All operators keyed by name (e.g. `"+"`, `"render-ui"`, `"behavior/compose"`).
 pub fn operators() -> &'static HashMap<String, EmbeddedOperator> {
-    OPERATORS.get_or_init(|| parsed_operators().operators.clone())
+    &parsed_operators().operators
 }
 
 /// All operator categories.
 pub fn categories() -> &'static HashMap<String, EmbeddedCategory> {
-    CATEGORIES.get_or_init(|| parsed_operators().categories.clone())
+    &parsed_operators().categories
 }
 
 /// Returns true if `name` is a known operator from `operators.json`.

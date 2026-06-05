@@ -289,13 +289,12 @@ pub fn compose_behaviors(
 
     // Step 1: Apply event wiring.
     //
-    // The TS code deep-clones via JSON when wiring is provided; we mirror that
-    // behaviour by always cloning into a fresh mutable Vec when wiring is
-    // non-empty.
+    // The TS code deep-clones via JSON when wiring is provided; `Vec<Value>`'s
+    // `Clone` is itself a deep clone, so we clone directly instead of
+    // round-tripping through serialize/parse.
     let mut wired_orbitals: Vec<Value> = if let Some(ref wiring) = event_wiring {
         if !wiring.is_empty() {
-            let json = serde_json::to_string(&raw_orbitals)?;
-            let mut cloned: Vec<Value> = serde_json::from_str(&json)?;
+            let mut cloned: Vec<Value> = raw_orbitals.clone();
             apply_event_wiring_value(&mut cloned, wiring);
             cloned
         } else {

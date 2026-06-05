@@ -46,6 +46,12 @@ pub(crate) fn validate_scope_boundary(schema: &OrbitalSchema) -> ValidationResul
         }
     }
 
+    // Cache embedded std-behavior parses keyed by source path. The same
+    // `std/behaviors/X` content was previously re-parsed for every trait
+    // reference into it; parse each distinct behavior at most once per run.
+    // `None` records a parse failure so we don't retry it.
+    let mut parsed_std_cache: HashMap<&str, Option<OrbitalSchema>> = HashMap::new();
+
     for (oi, orbital) in schema.orbitals.iter().enumerate() {
         // Build alias -> source path map from `uses:` so we can try to
         // resolve std-behavior references. Only std paths
@@ -99,9 +105,16 @@ pub(crate) fn validate_scope_boundary(schema: &OrbitalSchema) -> ValidationResul
                 } else if let Some(src) = alias_source.get(alias) {
                     // Attempt to resolve std-behavior content. Other
                     // sources (local .orb paths) aren't loaded here —
-                    // skip silently.
-                    if let Some(content) = crate::embedded::get_std_behavior_content(src) {
-                        owned_holder = parse_emits_from_std_content(content, target_trait_name);
+                    // skip silently. The parsed schema is cached per src so
+                    // repeated references don't re-parse the same content.
+                    if crate::embedded::get_std_behavior_content(src).is_some() {
+                        let parsed = parsed_std_cache.entry(*src).or_insert_with(|| {
+                            crate::embedded::get_std_behavior_content(src)
+                                .and_then(|content| serde_json::from_str::<OrbitalSchema>(content).ok())
+                        });
+                        owned_holder = parsed
+                            .as_ref()
+                            .and_then(|schema| emits_for_trait(schema, target_trait_name));
                         match &owned_holder {
                             Some(e) => e,
                             // Target trait found but has no emits[] —
@@ -191,6 +204,11 @@ pub(crate) fn parse_emits_from_std_content(
     trait_name: &str,
 ) -> Option<Vec<EmitDefinition>> {
     let schema: OrbitalSchema = serde_json::from_str(content).ok()?;
+    emits_for_trait(&schema, trait_name)
+}
+
+/// Read a named inline trait's `emits[]` from an already-parsed schema.
+fn emits_for_trait(schema: &OrbitalSchema, trait_name: &str) -> Option<Vec<EmitDefinition>> {
     for orbital in &schema.orbitals {
         for trait_ref in &orbital.traits {
             if let TraitReference::Inline(trait_def) = trait_ref {

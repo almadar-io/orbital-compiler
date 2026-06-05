@@ -55,14 +55,29 @@ pub(crate) fn rewrite_identifiers(
     entity_subs: &HashMap<String, String>,
     event_subs: &HashMap<String, String>,
 ) {
+    // Hoist the `@<from>` prefix allocation out of the per-node recursion:
+    // build each `@`-prefixed key once here instead of re-formatting it for
+    // every string node visited during the walk.
+    let entity_at_prefixes: Vec<(String, &str)> = entity_subs
+        .iter()
+        .map(|(from, to)| (format!("@{}", from), to.as_str()))
+        .collect();
+    rewrite_identifiers_inner(expr, entity_subs, event_subs, &entity_at_prefixes);
+}
+
+fn rewrite_identifiers_inner(
+    expr: &mut SExpression,
+    entity_subs: &HashMap<String, String>,
+    event_subs: &HashMap<String, String>,
+    entity_at_prefixes: &[(String, &str)],
+) {
     match expr {
         SExpression::Null | SExpression::Bool(_) | SExpression::Number(_) => {}
         SExpression::String(s) => {
             // Entity binding root rewrite: `@From` or `@From.path` → `@To` or
             // `@To.path`. Boundary-checked so `@FromOther` is left alone.
-            for (from, to) in entity_subs {
-                let prefix_with_at = format!("@{}", from);
-                if let Some(rest) = s.strip_prefix(&prefix_with_at) {
+            for (prefix_with_at, to) in entity_at_prefixes {
+                if let Some(rest) = s.strip_prefix(prefix_with_at.as_str()) {
                     if rest.is_empty() || rest.starts_with('.') {
                         *s = format!("@{}{}", to, rest);
                         return;
@@ -153,7 +168,7 @@ pub(crate) fn rewrite_identifiers(
                 }
             }
             for item in items.iter_mut() {
-                rewrite_identifiers(item, entity_subs, event_subs);
+                rewrite_identifiers_inner(item, entity_subs, event_subs, entity_at_prefixes);
             }
         }
         SExpression::Object(map) => {
@@ -260,7 +275,7 @@ pub(crate) fn rewrite_identifiers(
                         }
                     }
                 }
-                rewrite_identifiers(v, entity_subs, event_subs);
+                rewrite_identifiers_inner(v, entity_subs, event_subs, entity_at_prefixes);
             }
         }
     }
