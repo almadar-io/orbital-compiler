@@ -21,6 +21,7 @@ use super::sync::{
     is_list_action, is_list_pattern,
 };
 use super::{ErrorCode, ValidationContext, ValidationError, ValidationResult};
+use crate::phases::sexpr_json::sexpr_obj_to_json_map;
 use orbital_core::schema::{
     OrbitalSchema, SExpression, StateMachine, TraitDefinition, TraitReference, TransitionDefinition,
 };
@@ -237,33 +238,6 @@ fn parse_render_ui_effect(
         })
     } else {
         None
-    }
-}
-
-/// Convert SExpression object to JSON map
-fn sexpr_obj_to_json_map(
-    obj: &std::collections::HashMap<String, SExpression>,
-) -> serde_json::Map<String, serde_json::Value> {
-    let mut map = serde_json::Map::new();
-    for (key, value) in obj {
-        map.insert(key.clone(), sexpr_to_json(value));
-    }
-    map
-}
-
-/// Convert SExpression to JSON value
-fn sexpr_to_json(expr: &SExpression) -> serde_json::Value {
-    match expr {
-        SExpression::String(s) => serde_json::Value::String(s.clone()),
-        SExpression::Number(n) => {
-            serde_json::Value::Number(serde_json::Number::from_f64(*n).unwrap_or(0.into()))
-        }
-        SExpression::Bool(b) => serde_json::Value::Bool(*b),
-        SExpression::Null => serde_json::Value::Null,
-        SExpression::Array(arr) => {
-            serde_json::Value::Array(arr.iter().map(sexpr_to_json).collect())
-        }
-        SExpression::Object(obj) => serde_json::Value::Object(sexpr_obj_to_json_map(obj)),
     }
 }
 

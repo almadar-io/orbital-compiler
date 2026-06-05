@@ -17,6 +17,7 @@
 use crate::composition::{
     compose_behaviors, ComposeBehaviorsInput, ComposeError, EventWiringEntry,
 };
+use crate::phases::sexpr_json::sexpr_to_json;
 use orbital_core::schema::{
     Orbital, OrbitalSchema, SExpression, StateMachine, TickDefinition, TraitDefinition,
     TraitReference, TransitionDefinition,
@@ -226,14 +227,6 @@ fn resolve_detect_layout(args: &[SExpression]) -> Result<SExpression, ComposeErr
 // ============================================================================
 // SExpression <-> serde_json::Value bridge
 // ============================================================================
-
-fn sexpr_to_json(expr: &SExpression) -> serde_json::Value {
-    // SExpression already has a `Serialize` impl that produces equivalent
-    // JSON, so we round-trip through serde_json. This is the simplest and
-    // safest path. Any changes to the SExpression representation will flow
-    // through automatically.
-    serde_json::to_value(expr).unwrap_or(serde_json::Value::Null)
-}
 
 fn json_to_sexpr(value: &serde_json::Value) -> SExpression {
     serde_json::from_value(value.clone()).unwrap_or(SExpression::Null)

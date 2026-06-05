@@ -22,6 +22,7 @@ pub mod enrich;
 pub mod inline;
 pub mod parse;
 pub mod resolve;
+pub mod sexpr_json;
 pub mod synthetic;
 pub mod validate;
 pub mod validation;
