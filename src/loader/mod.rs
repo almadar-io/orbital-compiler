@@ -6,9 +6,35 @@
 //! - Scoped packages (@name/...)
 
 use orbital_core::schema::OrbitalSchema;
+use std::collections::hash_map::Entry;
 use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 use thiserror::Error;
+
+/// Canonicalize a path for use as a cycle-detection / cache key.
+///
+/// Returns the original path when canonicalization fails (e.g. the file does
+/// not exist yet, as with synthetic `<embedded>` paths). When the path *does*
+/// exist but canonicalization still fails (permission denied, symlink loop),
+/// the fallback key can diverge from another reference to the same file and
+/// silently break cycle detection or cache hits — so we warn loudly instead of
+/// swallowing the error.
+fn canonical_key(path: &Path) -> PathBuf {
+    match path.canonicalize() {
+        Ok(canonical) => canonical,
+        Err(err) => {
+            if path.exists() {
+                tracing::warn!(
+                    path = %path.display(),
+                    error = %err,
+                    "canonicalize failed for an existing path; falling back to the \
+                     non-canonical path, which may break cycle detection or cache keys"
+                );
+            }
+            path.to_path_buf()
+        }
+    }
+}
 
 // ============================================================================
 // Errors
@@ -102,7 +128,7 @@ impl ImportChain {
     /// Try to add a path to the chain
     /// Returns error message if circular, None if OK
     pub fn push(&mut self, path: &Path) -> Option<String> {
-        let canonical = path.canonicalize().unwrap_or_else(|_| path.to_path_buf());
+        let canonical = canonical_key(path);
         if self.chain.contains(&canonical) {
             let cycle: Vec<String> = self
                 .chain
@@ -158,14 +184,26 @@ impl LoaderCache {
     }
 
     pub fn insert(&mut self, path: PathBuf, schema: LoadedSchema) {
-        // Try to canonicalize, but fall back to original path if file doesn't exist
-        let key = path.canonicalize().unwrap_or(path);
+        let key = canonical_key(&path);
         self.cache.insert(key, schema);
     }
 
     pub fn contains(&self, path: &Path) -> bool {
-        let key = path.canonicalize().unwrap_or_else(|_| path.to_path_buf());
-        self.cache.contains_key(&key)
+        self.cache.contains_key(&canonical_key(path))
+    }
+
+    /// Return the cached schema for `path`, computing and inserting it with
+    /// `produce` on a miss. Single canonicalization, single hash lookup via the
+    /// Entry API — no contains-then-get round trip.
+    pub fn get_or_insert_with<E>(
+        &mut self,
+        path: &Path,
+        produce: impl FnOnce() -> Result<LoadedSchema, E>,
+    ) -> Result<&LoadedSchema, E> {
+        match self.cache.entry(canonical_key(path)) {
+            Entry::Occupied(e) => Ok(e.into_mut()),
+            Entry::Vacant(e) => Ok(e.insert(produce()?)),
+        }
     }
 
     pub fn clear(&mut self) {
@@ -233,25 +271,25 @@ impl ExternalOrbitalLoader {
                 return Err(LoaderError::CircularImport(error));
             }
 
-            // Fast path: embedded result already cached.
-            if self.embedded_cache.contains_key(import_path) {
-                chain.pop();
-                return Ok(self.embedded_cache.get(import_path).unwrap());
-            }
-
-            let schema: OrbitalSchema = serde_json::from_str(content).map_err(|e| {
-                LoaderError::InvalidJson(synthetic_path.display().to_string(), e.to_string())
-            })?;
-
-            let loaded = LoadedSchema {
-                schema,
-                source_path: synthetic_path,
-                import_path: import_path.to_string(),
+            // Entry API avoids the contains-then-get double lookup; the parse
+            // error is matched (not `?`-propagated) so the chain still pops.
+            let result = match self.embedded_cache.entry(import_path.to_string()) {
+                Entry::Occupied(e) => Ok(e.into_mut()),
+                Entry::Vacant(e) => match serde_json::from_str::<OrbitalSchema>(content) {
+                    Ok(schema) => Ok(e.insert(LoadedSchema {
+                        schema,
+                        source_path: synthetic_path.clone(),
+                        import_path: import_path.to_string(),
+                    })),
+                    Err(parse_err) => Err(LoaderError::InvalidJson(
+                        synthetic_path.display().to_string(),
+                        parse_err.to_string(),
+                    )),
+                },
             };
-            self.embedded_cache.insert(import_path.to_string(), loaded);
 
             chain.pop();
-            return Ok(self.embedded_cache.get(import_path).unwrap());
+            return result.map(|loaded| &*loaded);
         }
 
         // Resolve the absolute path
@@ -262,19 +300,12 @@ impl ExternalOrbitalLoader {
             return Err(LoaderError::CircularImport(error));
         }
 
-        // Check cache - need to do this in two steps to satisfy borrow checker
-        let cached = self.cache.contains(&absolute_path);
-        if cached {
-            chain.pop();
-            return Ok(self.cache.get(&absolute_path).unwrap());
-        }
-
-        // Load and parse the file
-        let loaded = self.load_file(&absolute_path, import_path)?;
-        self.cache.insert(absolute_path.clone(), loaded);
+        let result = self.cache.get_or_insert_with(&absolute_path, || {
+            Self::load_file(&absolute_path, import_path)
+        });
 
         chain.pop();
-        Ok(self.cache.get(&absolute_path).unwrap())
+        result
     }
 
     /// Resolve an import path to an absolute filesystem path
@@ -417,7 +448,7 @@ impl ExternalOrbitalLoader {
         }
     }
 
-    fn load_file(&self, path: &Path, import_path: &str) -> Result<LoadedSchema, LoaderError> {
+    fn load_file(path: &Path, import_path: &str) -> Result<LoadedSchema, LoaderError> {
         // Check file exists
         if !path.exists() {
             return Err(LoaderError::FileNotFound(path.display().to_string()));
@@ -426,13 +457,9 @@ impl ExternalOrbitalLoader {
         // Read file
         let content = std::fs::read_to_string(path)?;
 
-        // Parse JSON
-        let data: serde_json::Value = serde_json::from_str(&content)
+        // Deserialize directly into the schema (single parse).
+        let schema: OrbitalSchema = serde_json::from_str(&content)
             .map_err(|e| LoaderError::InvalidJson(path.display().to_string(), e.to_string()))?;
-
-        // Deserialize to schema
-        let schema: OrbitalSchema = serde_json::from_value(data)
-            .map_err(|e| LoaderError::InvalidSchema(path.display().to_string(), e.to_string()))?;
 
         Ok(LoadedSchema {
             schema,
