@@ -5,6 +5,7 @@
 use orbital_core::schema::{
     EntityDefinition, EntityRef, Orbital, OrbitalSchema, PageRef, TraitDefinition, TraitReference,
 };
+use orbital_core::str_utils::to_snake_case;
 use std::collections::HashMap;
 
 /// Enrichment configuration
@@ -171,22 +172,6 @@ fn build_cross_references(schema: &OrbitalSchema, ctx: &mut EnrichmentContext) {
             }
         }
     }
-}
-
-/// Convert PascalCase to snake_case
-fn to_snake_case(s: &str) -> String {
-    let mut result = String::new();
-    for (i, c) in s.chars().enumerate() {
-        if c.is_uppercase() {
-            if i > 0 {
-                result.push('_');
-            }
-            result.push(c.to_ascii_lowercase());
-        } else {
-            result.push(c);
-        }
-    }
-    result
 }
 
 #[cfg(test)]

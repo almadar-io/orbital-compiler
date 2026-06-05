@@ -3,6 +3,7 @@
 //! Generates tests alongside application code for each backend.
 
 use orbital_core::ir::{OirEffect, OirEntity, OirModule, OirPage, OirTrait};
+use orbital_core::str_utils::to_snake_case;
 use std::path::PathBuf;
 
 /// Generated file
@@ -722,21 +723,8 @@ class TestIntegration:
 
 // Helper functions
 
-fn to_snake_case(s: &str) -> String {
-    let mut result = String::new();
-    for (i, c) in s.chars().enumerate() {
-        if c.is_uppercase() {
-            if i > 0 {
-                result.push('_');
-            }
-            result.push(c.to_ascii_lowercase());
-        } else {
-            result.push(c);
-        }
-    }
-    result
-}
-
+// NOTE: distinct from `orbital_core::str_utils::to_pascal_case` — this
+// variant splits on `_` only and preserves the case of the trailing chars.
 fn to_pascal_case(s: &str) -> String {
     s.split('_')
         .map(|word| {

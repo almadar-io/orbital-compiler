@@ -58,17 +58,7 @@ fn pascal_to_kebab(name: &str) -> String {
 }
 
 /// Convert kebab-case to PascalCase
-pub fn kebab_to_pascal(name: &str) -> String {
-    name.split('-')
-        .map(|part| {
-            let mut chars = part.chars();
-            match chars.next() {
-                Some(first) => first.to_uppercase().chain(chars).collect::<String>(),
-                None => String::new(),
-            }
-        })
-        .collect()
-}
+pub use orbital_core::str_utils::kebab_to_pascal;
 
 /// Find similar icon names for suggestions
 pub fn find_similar_icons(name: &str, max_suggestions: usize) -> Vec<&'static str> {
