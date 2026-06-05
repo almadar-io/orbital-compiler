@@ -1,0 +1,481 @@
+//! S-expression traversal and validation entry points.
+
+use super::arity::get_arity_rule;
+use super::binding::validate_binding;
+use super::operators::{is_known_operator, EFFECT_OPERATORS};
+use crate::phases::validation::{
+    ErrorCode, ValidationContext, ValidationError, ValidationResult,
+};
+use orbital_core::schema::{OrbitalSchema, SExpression, TraitDefinition, TraitReference};
+use std::collections::HashSet;
+
+/// Validation context for S-expressions
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SExprContext {
+    Guard,
+    Effect,
+    TickEffect,
+}
+
+/// Validate all S-expressions in a schema
+pub fn validate_all_sexprs(schema: &OrbitalSchema, ctx: &mut ValidationContext) {
+    // Validate in orbital inline traits
+    // Note: Traits are now only defined inline within orbitals, not at schema level.
+    for (i, orbital) in schema.orbitals.iter().enumerate() {
+        for (j, trait_ref) in orbital.traits.iter().enumerate() {
+            if let TraitReference::Inline(trait_def) = trait_ref {
+                let path = format!("orbitals[{}].traits[{}]", i, j);
+                let result = validate_trait_sexprs(trait_def, &path, &ctx.entity_names);
+                ctx.merge(result);
+            }
+        }
+    }
+}
+
+/// Validate S-expressions in a trait
+pub fn validate_trait_sexprs(
+    trait_def: &TraitDefinition,
+    path: &str,
+    known_entities: &HashSet<String>,
+) -> ValidationResult {
+    let mut result = ValidationResult::new();
+
+    // Validate guards and effects in transitions
+    for (i, transition) in trait_def.state_machine.transitions.iter().enumerate() {
+        let trans_path = format!("{}.stateMachine.transitions[{}]", path, i);
+
+        // Validate guard
+        if let Some(guard) = &transition.guard {
+            let guard_result = validate_sexpr(
+                guard,
+                &format!("{}.guard", trans_path),
+                SExprContext::Guard,
+                known_entities,
+            );
+            result.merge(guard_result);
+        }
+
+        // Validate effects
+        if let Some(effects) = &transition.effects {
+            for (j, effect) in effects.iter().enumerate() {
+                let effect_result = validate_sexpr(
+                    effect,
+                    &format!("{}.effects[{}]", trans_path, j),
+                    SExprContext::Effect,
+                    known_entities,
+                );
+                result.merge(effect_result);
+            }
+        }
+    }
+
+    // Validate tick effects
+    if let Some(ticks) = &trait_def.ticks {
+        for (i, tick) in ticks.iter().enumerate() {
+            for (j, effect) in tick.effects.iter().enumerate() {
+                let effect_result = validate_sexpr(
+                    effect,
+                    &format!("{}.ticks[{}].effects[{}]", path, i, j),
+                    SExprContext::TickEffect,
+                    known_entities,
+                );
+                result.merge(effect_result);
+            }
+        }
+    }
+
+    result
+}
+
+/// Validate a single S-expression
+pub fn validate_sexpr(
+    expr: &SExpression,
+    path: &str,
+    context: SExprContext,
+    known_entities: &HashSet<String>,
+) -> ValidationResult {
+    validate_sexpr_with_locals(expr, path, context, known_entities, &HashSet::new())
+}
+
+/// Validate a single S-expression with lambda-local variable tracking.
+pub(crate) fn validate_sexpr_with_locals(
+    expr: &SExpression,
+    path: &str,
+    context: SExprContext,
+    known_entities: &HashSet<String>,
+    lambda_locals: &HashSet<String>,
+) -> ValidationResult {
+    let mut result = ValidationResult::new();
+
+    match expr {
+        SExpression::Array(arr) if !arr.is_empty() => {
+            // Check if this looks like an S-expression call (first element is a known operator)
+            // vs a data array (first element is a field name or literal value)
+            let is_sexpr_call = if let SExpression::String(first) = &arr[0] {
+                // It's an S-expression call if the first element is a known operator
+                // or looks like an operator (contains '/' for namespaced ops)
+                is_known_operator(first) || first.contains('/')
+            } else {
+                // Non-string first element (array, object, etc) - treat as data
+                false
+            };
+
+            if is_sexpr_call {
+                if let SExpression::String(operator) = &arr[0] {
+                    // Detect lambda expressions: ["fn", "param", body] or ["lambda", ["p1", "p2"], body]
+                    if (operator == "fn" || operator == "lambda") && arr.len() == 3 {
+                        let mut extended_locals = lambda_locals.clone();
+                        if let SExpression::Array(params) = &arr[1] {
+                            for param in params {
+                                if let SExpression::String(name) = param {
+                                    extended_locals.insert(name.clone());
+                                }
+                            }
+                        } else if let SExpression::String(param_name) = &arr[1] {
+                            extended_locals.insert(param_name.clone());
+                        }
+                        // Validate the body with extended locals
+                        result.merge(validate_sexpr_with_locals(
+                            &arr[2],
+                            &format!("{}[2]", path),
+                            context,
+                            known_entities,
+                            &extended_locals,
+                        ));
+                        return result;
+                    }
+                    // Check if effect operator used in guard context
+                    if context == SExprContext::Guard
+                        && EFFECT_OPERATORS.contains(&operator.as_str())
+                    {
+                        result.add_error(
+                            ValidationError::error(
+                                ErrorCode::SExprEffectInGuard,
+                                path,
+                                format!(
+                                    "Effect operator '{}' cannot be used in guard context",
+                                    operator
+                                ),
+                            )
+                            .with_suggestion(
+                                "Guards should only use pure operators for conditions",
+                            ),
+                        );
+                    }
+
+                    // Check operator validity (only warn for namespaced operators that aren't known)
+                    if !is_known_operator(operator) && operator.contains('/') {
+                        result.add_error(
+                            ValidationError::warning(
+                                ErrorCode::SExprInvalidOperator,
+                                path,
+                                format!("Unknown operator: '{}'", operator),
+                            )
+                            .with_suggestion(
+                                "Use a known operator or ensure custom operator is registered",
+                            ),
+                        );
+                    }
+
+                    // Check arity
+                    if let Some(arity) = get_arity_rule(operator) {
+                        let arg_count = arr.len() - 1; // Exclude operator
+                        if arg_count < arity.min {
+                            result.add_error(ValidationError::error(
+                                ErrorCode::SExprArityMismatch,
+                                path,
+                                format!(
+                                    "Operator '{}' requires at least {} argument(s), got {}",
+                                    operator, arity.min, arg_count
+                                ),
+                            ));
+                        }
+                        if let Some(max) = arity.max {
+                            if arg_count > max {
+                                result.add_error(ValidationError::error(
+                                    ErrorCode::SExprArityMismatch,
+                                    path,
+                                    format!(
+                                        "Operator '{}' takes at most {} argument(s), got {}",
+                                        operator, max, arg_count
+                                    ),
+                                ));
+                            }
+                        }
+                    }
+
+                    // Recursively validate arguments
+                    for (i, arg) in arr.iter().skip(1).enumerate() {
+                        let arg_result = validate_sexpr_with_locals(
+                            arg,
+                            &format!("{}[{}]", path, i + 1),
+                            context,
+                            known_entities,
+                            lambda_locals,
+                        );
+                        result.merge(arg_result);
+                    }
+                }
+            } else {
+                // Data array - just validate bindings within elements, don't check operators
+                for (i, item) in arr.iter().enumerate() {
+                    // Only validate bindings (@...) within data arrays
+                    if let SExpression::String(s) = item {
+                        if s.starts_with('@') {
+                            let binding_result = validate_binding(
+                                s,
+                                &format!("{}[{}]", path, i),
+                                context,
+                                known_entities,
+                                lambda_locals,
+                            );
+                            result.merge(binding_result);
+                        }
+                    } else if matches!(item, SExpression::Array(_) | SExpression::Object(_)) {
+                        // Recursively check nested structures for bindings
+                        let item_result = validate_sexpr_with_locals(
+                            item,
+                            &format!("{}[{}]", path, i),
+                            context,
+                            known_entities,
+                            lambda_locals,
+                        );
+                        result.merge(item_result);
+                    }
+                }
+            }
+        }
+        SExpression::String(s) if s.starts_with('@') => {
+            // Validate binding
+            let binding_result = validate_binding(s, path, context, known_entities, lambda_locals);
+            result.merge(binding_result);
+        }
+        SExpression::Object(obj) => {
+            // Recursively validate object values
+            for (key, value) in obj {
+                let value_result = validate_sexpr_with_locals(
+                    value,
+                    &format!("{}.{}", path, key),
+                    context,
+                    known_entities,
+                    lambda_locals,
+                );
+                result.merge(value_result);
+            }
+        }
+        SExpression::Array(arr) => {
+            // Empty array or array literal
+            for (i, item) in arr.iter().enumerate() {
+                let item_result = validate_sexpr_with_locals(
+                    item,
+                    &format!("{}[{}]", path, i),
+                    context,
+                    known_entities,
+                    lambda_locals,
+                );
+                result.merge(item_result);
+            }
+        }
+        _ => {
+            // Null, Bool, Number, plain String - all valid
+        }
+    }
+
+    result
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_valid_guard() {
+        let guard = SExpression::Array(vec![
+            SExpression::String("=".to_string()),
+            SExpression::String("@entity.status".to_string()),
+            SExpression::String("active".to_string()),
+        ]);
+
+        let result = validate_sexpr(&guard, "test", SExprContext::Guard, &HashSet::new());
+        assert!(result.is_valid(), "Errors: {:?}", result.errors);
+    }
+
+    #[test]
+    fn test_effect_in_guard() {
+        let guard = SExpression::Array(vec![
+            SExpression::String("set".to_string()),
+            SExpression::String("@entity.status".to_string()),
+            SExpression::String("active".to_string()),
+        ]);
+
+        let result = validate_sexpr(&guard, "test", SExprContext::Guard, &HashSet::new());
+        assert!(!result.is_valid());
+        assert!(result
+            .errors
+            .iter()
+            .any(|e| e.code == ErrorCode::SExprEffectInGuard));
+    }
+
+    #[test]
+    fn test_arity_mismatch() {
+        let expr = SExpression::Array(vec![
+            SExpression::String("not".to_string()),
+            // not takes exactly 1 argument, but we give 2
+            SExpression::Bool(true),
+            SExpression::Bool(false),
+        ]);
+
+        let result = validate_sexpr(&expr, "test", SExprContext::Guard, &HashSet::new());
+        assert!(!result.is_valid());
+        assert!(result
+            .errors
+            .iter()
+            .any(|e| e.code == ErrorCode::SExprArityMismatch));
+    }
+
+    #[test]
+    fn test_payload_in_tick() {
+        let effect = SExpression::Array(vec![
+            SExpression::String("set".to_string()),
+            SExpression::String("@entity.value".to_string()),
+            SExpression::String("@payload.data".to_string()),
+        ]);
+
+        let result = validate_sexpr(&effect, "test", SExprContext::TickEffect, &HashSet::new());
+        assert!(!result.is_valid());
+        assert!(result
+            .errors
+            .iter()
+            .any(|e| e.code == ErrorCode::BindingPayloadInTick));
+    }
+
+    #[test]
+    fn test_valid_entity_binding() {
+        let expr = SExpression::String("@Task.title".to_string());
+
+        let known_entities: HashSet<String> = ["Task".to_string()].into_iter().collect();
+        let result = validate_sexpr(&expr, "test", SExprContext::Effect, &known_entities);
+        assert!(result.is_valid());
+    }
+
+    #[test]
+    fn test_unknown_entity_binding() {
+        let expr = SExpression::String("@NonExistent.title".to_string());
+
+        let known_entities: HashSet<String> = ["Task".to_string()].into_iter().collect();
+        let result = validate_sexpr(&expr, "test", SExprContext::Effect, &known_entities);
+        // This is a warning, not an error
+        assert!(result
+            .errors
+            .iter()
+            .any(|e| e.code == ErrorCode::SExprUnknownEntity));
+    }
+
+    #[test]
+    fn test_nn_forward_valid() {
+        // ["nn/forward", "@entity.architecture", "@entity.sensors"]
+        let expr = SExpression::Array(vec![
+            SExpression::String("nn/forward".to_string()),
+            SExpression::String("@entity.architecture".to_string()),
+            SExpression::String("@entity.sensors".to_string()),
+        ]);
+
+        let result = validate_sexpr(&expr, "test", SExprContext::Effect, &HashSet::new());
+        assert!(result.is_valid(), "Errors: {:?}", result.errors);
+    }
+
+    #[test]
+    fn test_nn_sequential_valid() {
+        // ["nn/sequential", ["nn/linear", 16, 64], ["nn/relu"], ["nn/linear", 64, 4]]
+        let expr = SExpression::Array(vec![
+            SExpression::String("nn/sequential".to_string()),
+            SExpression::Array(vec![
+                SExpression::String("nn/linear".to_string()),
+                SExpression::Number(16.0),
+                SExpression::Number(64.0),
+            ]),
+            SExpression::Array(vec![SExpression::String("nn/relu".to_string())]),
+            SExpression::Array(vec![
+                SExpression::String("nn/linear".to_string()),
+                SExpression::Number(64.0),
+                SExpression::Number(4.0),
+            ]),
+        ]);
+
+        let result = validate_sexpr(&expr, "test", SExprContext::Effect, &HashSet::new());
+        assert!(result.is_valid(), "Errors: {:?}", result.errors);
+    }
+
+    #[test]
+    fn test_tensor_clamp_valid() {
+        // ["tensor/clamp", "@entity.output", 0.0, 1.0]
+        let expr = SExpression::Array(vec![
+            SExpression::String("tensor/clamp".to_string()),
+            SExpression::String("@entity.output".to_string()),
+            SExpression::Number(0.0),
+            SExpression::Number(1.0),
+        ]);
+
+        let result = validate_sexpr(&expr, "test", SExprContext::Effect, &HashSet::new());
+        assert!(result.is_valid(), "Errors: {:?}", result.errors);
+    }
+
+    #[test]
+    fn test_train_loop_valid() {
+        // ["train/loop", "@entity.architecture", "@entity.buffer", "@entity.config"]
+        let expr = SExpression::Array(vec![
+            SExpression::String("train/loop".to_string()),
+            SExpression::String("@entity.architecture".to_string()),
+            SExpression::String("@entity.buffer".to_string()),
+            SExpression::String("@entity.config".to_string()),
+        ]);
+
+        let result = validate_sexpr(&expr, "test", SExprContext::Effect, &HashSet::new());
+        assert!(result.is_valid(), "Errors: {:?}", result.errors);
+    }
+
+    #[test]
+    fn test_nn_forward_arity_error() {
+        // nn/forward requires exactly 2 arguments
+        let expr = SExpression::Array(vec![
+            SExpression::String("nn/forward".to_string()),
+            SExpression::String("@entity.architecture".to_string()),
+            // Missing second argument
+        ]);
+
+        let result = validate_sexpr(&expr, "test", SExprContext::Effect, &HashSet::new());
+        assert!(!result.is_valid());
+        assert!(result
+            .errors
+            .iter()
+            .any(|e| e.code == ErrorCode::SExprArityMismatch));
+    }
+
+    #[test]
+    fn test_is_known_operator() {
+        // Core operators
+        assert!(is_known_operator("="));
+        assert!(is_known_operator("and"));
+
+        // Effect operators
+        assert!(is_known_operator("set"));
+        assert!(is_known_operator("fetch"));
+
+        // NN operators
+        assert!(is_known_operator("nn/forward"));
+        assert!(is_known_operator("nn/sequential"));
+        assert!(is_known_operator("nn/linear"));
+
+        // Tensor operators
+        assert!(is_known_operator("tensor/from"));
+        assert!(is_known_operator("tensor/clamp"));
+
+        // Train operators
+        assert!(is_known_operator("train/loop"));
+        assert!(is_known_operator("train/mse"));
+
+        // Unknown
+        assert!(!is_known_operator("unknown/op"));
+        assert!(!is_known_operator("foo"));
+    }
+}

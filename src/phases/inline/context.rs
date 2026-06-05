@@ -1,0 +1,394 @@
+//! Reference parsing and the inline alias context.
+
+use super::InlineError;
+use orbital_core::schema::{
+    EntityDefinition, EntityRef, Orbital, PageRef, ServiceRef, ThemeRef, TraitReference,
+};
+use std::collections::HashMap;
+
+// ============================================================================
+// Reference Parser
+// ============================================================================
+
+/// Parsed reference components
+#[derive(Debug, Clone)]
+pub(crate) enum ParsedReference {
+    /// Alias.entity
+    Entity { alias: String },
+    /// Alias.traits.TraitName
+    Trait { alias: String, name: String },
+    /// Alias.pages.PageName
+    Page { alias: String, name: String },
+    /// Alias.theme
+    Theme { alias: String },
+    /// Alias.services.ServiceName
+    Service { alias: String, name: String },
+}
+
+/// Parse a reference string into components
+pub(crate) fn parse_reference(reference: &str) -> Result<ParsedReference, InlineError> {
+    let parts: Vec<&str> = reference.split('.').collect();
+
+    if parts.len() < 2 {
+        return Err(InlineError::InvalidReference(reference.to_string()));
+    }
+
+    let alias = parts[0].to_string();
+
+    match parts[1] {
+        "entity" => {
+            if parts.len() != 2 {
+                return Err(InlineError::InvalidReference(reference.to_string()));
+            }
+            Ok(ParsedReference::Entity { alias })
+        }
+        "traits" => {
+            if parts.len() != 3 {
+                return Err(InlineError::InvalidReference(reference.to_string()));
+            }
+            Ok(ParsedReference::Trait {
+                alias,
+                name: parts[2].to_string(),
+            })
+        }
+        "pages" => {
+            if parts.len() != 3 {
+                return Err(InlineError::InvalidReference(reference.to_string()));
+            }
+            Ok(ParsedReference::Page {
+                alias,
+                name: parts[2].to_string(),
+            })
+        }
+        "theme" => {
+            if parts.len() != 2 {
+                return Err(InlineError::InvalidReference(reference.to_string()));
+            }
+            Ok(ParsedReference::Theme { alias })
+        }
+        "services" => {
+            if parts.len() != 3 {
+                return Err(InlineError::InvalidReference(reference.to_string()));
+            }
+            Ok(ParsedReference::Service {
+                alias,
+                name: parts[2].to_string(),
+            })
+        }
+        _ => Err(InlineError::InvalidReference(reference.to_string())),
+    }
+}
+
+// ============================================================================
+// Inline Context
+// ============================================================================
+
+/// One imported behavior's orbitals plus the source label used in errors.
+///
+/// `orbitals` holds every orbital from the imported `.orb` — not just orbital
+/// 0 — so a trait/page/service that lives in orbital 1+ of a multi-orbital
+/// behavior (all 32 organism registries fit this shape) can still be found by
+/// `Alias.traits.X` / `Alias.pages.X` / etc. See the bug fix in the module
+/// doc above.
+///
+/// `source_label` is the human-readable name of the imported behavior (e.g.
+/// `"std-arcade-game"` for `std/behaviors/std-arcade-game`). It appears in
+/// `*NotFound` error messages instead of "orbital 0's name", which was
+/// misleading once the resolver started searching all orbitals — the author
+/// needs to know which imported behavior is missing the symbol.
+#[derive(Clone)]
+pub(crate) struct AliasEntry {
+    pub(crate) orbitals: Vec<Orbital>,
+    pub(crate) source_label: String,
+}
+
+/// Context for inlining references within an orbital
+/// Uses owned copies to avoid borrow checker issues with loader cache
+pub(crate) struct InlineContext {
+    /// Mapping from alias to the full set of orbitals loaded under that alias.
+    pub(crate) aliases: HashMap<String, AliasEntry>,
+    /// When true, this orbital is being resolved as an IMPORT (not the
+    /// top-level compilation target), so `@config.X` bindings inside resolved
+    /// traits MUST NOT be substituted with the import's own declared defaults.
+    /// The defaults are still folded into the resolved trait's `config[k].default`
+    /// (so they carry forward as the new defaults), but the `@config.X` strings
+    /// in the state machine are left intact so the consumer's
+    /// `apply_overrides_to_trait` pass can replace them. Without this, a config
+    /// override on a variation (consumer → variation → base) is clobbered by the
+    /// variation's own default at import-load time. See the long note on
+    /// `inline_orbital`'s `is_top_level` param.
+    pub(crate) defer_config_subst: bool,
+}
+
+impl InlineContext {
+    pub(crate) fn new() -> Self {
+        Self {
+            aliases: HashMap::new(),
+            defer_config_subst: false,
+        }
+    }
+
+    /// Back-compat helper for tests and call sites that import a single
+    /// orbital. Wraps the orbital in an `AliasEntry` using the orbital's own
+    /// `name` as the source label.
+    pub(crate) fn add_alias(&mut self, alias: &str, orbital: &Orbital) {
+        let label = orbital.name.clone();
+        self.aliases.insert(
+            alias.to_string(),
+            AliasEntry {
+                orbitals: vec![orbital.clone()],
+                source_label: label,
+            },
+        );
+    }
+
+    /// Register an alias whose imported behavior has multiple orbitals. The
+    /// resolver searches every orbital in `orbitals` when resolving
+    /// `Alias.traits.X`, `Alias.pages.X`, `Alias.services.X`, and
+    /// `Alias.entity`. `source_label` is used only in error messages.
+    pub(crate) fn add_alias_multi(
+        &mut self,
+        alias: &str,
+        orbitals: Vec<Orbital>,
+        source_label: String,
+    ) {
+        self.aliases.insert(
+            alias.to_string(),
+            AliasEntry {
+                orbitals,
+                source_label,
+            },
+        );
+    }
+
+    pub(crate) fn get_entry(&self, alias: &str) -> Result<&AliasEntry, InlineError> {
+        self.aliases
+            .get(alias)
+            .ok_or_else(|| InlineError::UnknownAlias(alias.to_string()))
+    }
+
+    /// Find the entity belonging to the specific orbital that contains a
+    /// given trait name. Used by the auto-merge logic: when a caller's trait
+    /// ref points at `Alias.traits.X` with a `linkedEntity`, we need the
+    /// entity from the orbital that owns trait `X` (not necessarily orbital 0).
+    /// Returns `None` if the trait is not found or the owning orbital has no
+    /// inline entity.
+    pub(crate) fn get_entity_for_trait_orbital(
+        &self,
+        alias: &str,
+        trait_name: &str,
+    ) -> Option<EntityDefinition> {
+        let entry = self.aliases.get(alias)?;
+        for orbital in &entry.orbitals {
+            let has_trait = orbital.traits.iter().any(|tr| match tr {
+                TraitReference::Inline(def) => def.name == trait_name,
+                TraitReference::Reference {
+                    name: Some(n),
+                    ..
+                } => n == trait_name,
+                TraitReference::Reference {
+                    reference: Some(r),
+                    ..
+                } => r.ends_with(&format!(".{}", trait_name)),
+                _ => false,
+            });
+            if has_trait {
+                if let EntityRef::Inline(entity_def) = &orbital.entity {
+                    return Some(entity_def.clone());
+                }
+            }
+        }
+        None
+    }
+
+    /// Find an entity definition by NAME across an alias's orbitals, searching
+    /// each orbital's primary entity AND its auxiliary entities. Used when a
+    /// sibling-pulled no-rebind trait keeps its own bound entity (e.g. a
+    /// step-flow's `ProgressVerticalView`): that entity lives in the source
+    /// behavior's auxiliary list after the source was recursively inlined, and
+    /// must be carried into the consumer that pulls the sibling.
+    pub(crate) fn get_entity_by_name_for_alias(
+        &self,
+        alias: &str,
+        entity_name: &str,
+    ) -> Option<EntityDefinition> {
+        let entry = self.aliases.get(alias)?;
+        for orbital in &entry.orbitals {
+            if let EntityRef::Inline(e) = &orbital.entity {
+                if e.name == entity_name {
+                    return Some(e.clone());
+                }
+            }
+            if let Some(aux) = &orbital.auxiliary_entities {
+                for a in aux {
+                    if let EntityRef::Inline(e) = a {
+                        if e.name == entity_name {
+                            return Some(e.clone());
+                        }
+                    }
+                }
+            }
+        }
+        None
+    }
+
+    pub(crate) fn get_entity(&self, alias: &str) -> Result<EntityRef, InlineError> {
+        let entry = self.get_entry(alias)?;
+
+        // `Alias.entity` is historically the first orbital's entity — every
+        // std atom/molecule has exactly one orbital, so this preserves
+        // long-standing behaviour. For multi-orbital imports the first
+        // orbital is treated as the "primary" entity. Callers that need a
+        // specific orbital's entity go through the trait/page/service
+        // lookups which do iterate all orbitals.
+        let Some(orbital) = entry.orbitals.first() else {
+            return Err(InlineError::EntityNotFound(entry.source_label.clone()));
+        };
+
+        match &orbital.entity {
+            EntityRef::Inline(entity) => Ok(EntityRef::Inline(entity.clone())),
+            EntityRef::Reference(_) | EntityRef::Extends(_) => {
+                // The referenced orbital itself still has a non-inline
+                // entity (Reference or Extends). The inline phase processes
+                // imports breadth-first via the loader, so by the time the
+                // alias is added to this context the upstream entity should
+                // already be Inline. If it isn't, the import order is wrong
+                // or the upstream registry produced a non-inline entity —
+                // either way the molecule cannot resolve it here. Surface
+                // the same EntityNotFound the original `Reference` arm
+                // returned so callers don't need a new error variant.
+                Err(InlineError::EntityNotFound(entry.source_label.clone()))
+            }
+        }
+    }
+
+    pub(crate) fn get_trait(&self, alias: &str, name: &str) -> Result<TraitReference, InlineError> {
+        let entry = self.get_entry(alias)?;
+
+        // Iterate every orbital of the imported behavior. Traits with a given
+        // name are unique across a single behavior's orbitals by convention;
+        // the first match wins if duplicates somehow appear.
+        for orbital in &entry.orbitals {
+            for trait_ref in &orbital.traits {
+                match trait_ref {
+                    TraitReference::Inline(trait_def) => {
+                        if trait_def.name == name {
+                            return Ok(TraitReference::Inline(trait_def.clone()));
+                        }
+                    }
+                    TraitReference::Reference {
+                        reference,
+                        name: trait_name,
+                        ..
+                    } => {
+                        // Check if the reference matches or name matches
+                        if trait_name.as_deref() == Some(name) {
+                            // Return as-is - it's still a reference that might need further resolution
+                            return Ok(trait_ref.clone());
+                        }
+                        if let Some(ref_str) = reference {
+                            // If ref matches the pattern we're looking for
+                            if ref_str.ends_with(&format!(".{}", name)) {
+                                return Ok(trait_ref.clone());
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        Err(InlineError::TraitNotFound(
+            name.to_string(),
+            entry.source_label.clone(),
+        ))
+    }
+
+    pub(crate) fn get_page(&self, alias: &str, name: &str) -> Result<PageRef, InlineError> {
+        let entry = self.get_entry(alias)?;
+
+        // Iterate every orbital — pages, like traits, may live in orbital
+        // 1+ of a multi-orbital behavior.
+        for orbital in &entry.orbitals {
+            if let Some(pages) = &orbital.pages {
+                for page_ref in pages {
+                    match page_ref {
+                        PageRef::Inline(page_def) => {
+                            if page_def.name == name {
+                                return Ok(PageRef::Inline(page_def.clone()));
+                            }
+                        }
+                        PageRef::Object(obj) => {
+                            // Object references need further resolution
+                            if obj.reference.ends_with(&format!(".{}", name)) {
+                                return Ok(page_ref.clone());
+                            }
+                        }
+                        PageRef::Reference(ref_str) => {
+                            if ref_str.ends_with(&format!(".{}", name)) {
+                                return Ok(page_ref.clone());
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        Err(InlineError::PageNotFound(
+            name.to_string(),
+            entry.source_label.clone(),
+        ))
+    }
+
+    pub(crate) fn get_theme(&self, alias: &str) -> Result<ThemeRef, InlineError> {
+        let entry = self.get_entry(alias)?;
+
+        // Theme lives at the schema level in `.orb` files, but the loader
+        // currently surfaces each orbital individually. Search every orbital
+        // for an inline theme; the first match wins.
+        for orbital in &entry.orbitals {
+            match &orbital.theme {
+                Some(ThemeRef::Inline(theme)) => return Ok(ThemeRef::Inline(theme.clone())),
+                _ => continue,
+            }
+        }
+        Err(InlineError::ThemeNotFound(entry.source_label.clone()))
+    }
+
+    pub(crate) fn get_service(&self, alias: &str, name: &str) -> Result<ServiceRef, InlineError> {
+        let entry = self.get_entry(alias)?;
+
+        // Iterate every orbital — services, like traits/pages, may live in
+        // orbital 1+ of a multi-orbital behavior.
+        for orbital in &entry.orbitals {
+            if let Some(services) = &orbital.services {
+                for service_ref in services {
+                    match service_ref {
+                        ServiceRef::Inline(service_def) => {
+                            if service_def.name() == name {
+                                return Ok(ServiceRef::Inline(service_def.clone()));
+                            }
+                        }
+                        ServiceRef::Object(obj) => {
+                            // Object references inside the upstream registry
+                            // need further resolution. Mirrors the PageRef::Object
+                            // case in `get_page` above.
+                            if obj.reference.ends_with(&format!(".{}", name)) {
+                                return Ok(service_ref.clone());
+                            }
+                        }
+                        ServiceRef::Reference(ref_str) => {
+                            if ref_str.ends_with(&format!(".{}", name)) {
+                                return Ok(service_ref.clone());
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        Err(InlineError::ServiceNotFound(
+            name.to_string(),
+            entry.source_label.clone(),
+        ))
+    }
+}
