@@ -97,3 +97,201 @@ pub(crate) fn check_field_relation(
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use orbital_core::schema::{EntityDefinition, EntityRef, Orbital};
+
+    fn create_minimal_schema() -> OrbitalSchema {
+        OrbitalSchema {
+            name: "TestApp".to_string(),
+            version: Some("1.0.0".to_string()),
+            description: None,
+            orbitals: vec![Orbital {
+                name: "TaskOrbital".to_string(),
+                uses: None,
+                theme: None,
+                services: None,
+                entity: EntityRef::Inline(EntityDefinition {
+                    name: "Task".to_string(),
+                    collection: None,
+                    persistence: None,
+                    fields: vec![],
+                    instances: None,
+                }),
+                auxiliary_entities: None,
+                traits: vec![],
+                pages: None,
+                emits: None,
+                listens: None,
+                exposes: None,
+                domain_context: None,
+                design: None,
+            }],
+            metadata: None,
+        }
+    }
+
+    // =========================================================================
+    // COMP-9: validate_relation_targets
+    // =========================================================================
+
+    /// Positive case: a relation field whose `relation.entity` is declared in
+    /// another orbital in the same schema must not produce a warning.
+    #[test]
+    fn test_relation_targets_in_schema_ok() {
+        use orbital_core::schema::{FieldDefinition, FieldType, RelationDefinition};
+
+        let mut schema = create_minimal_schema();
+        // Add a second orbital that declares "Patient".
+        schema.orbitals.push(Orbital {
+            name: "PatientOrbital".to_string(),
+            uses: None,
+            theme: None,
+            services: None,
+            entity: EntityRef::Inline(EntityDefinition {
+                name: "Patient".to_string(),
+                collection: None,
+                persistence: None,
+                fields: vec![],
+                instances: None,
+            }),
+            auxiliary_entities: None,
+            traits: vec![],
+            pages: None,
+            emits: None,
+            listens: None,
+            exposes: None,
+            domain_context: None,
+            design: None,
+        });
+        // Point Task.patient at Patient — should resolve cleanly.
+        if let EntityRef::Inline(task) = &mut schema.orbitals[0].entity {
+            task.fields.push(FieldDefinition {
+                name: Some("patient".to_string()),
+                field_type: FieldType::Relation,
+                required: None,
+                primary_key: None,
+                unique: None,
+                default: None,
+                values: None,
+                relation: Some(RelationDefinition {
+                    entity: "Patient".to_string(),
+                    cardinality: None,
+                }),
+                items: None,
+                properties: None,
+                intrinsic: None,
+                description: None,
+                synonyms: None,
+            });
+        }
+
+        let result = validate_relation_targets(&schema);
+        assert!(
+            !result
+                .errors
+                .iter()
+                .any(|e| e.code == ErrorCode::UnresolvedRelationTarget),
+            "Resolvable relation must not warn. Warnings: {:?}",
+            result.errors
+        );
+    }
+
+    /// Negative case: the relation points at an entity that is not declared
+    /// anywhere in the schema — expect ORB_X_UNRESOLVED_RELATION_TARGET.
+    #[test]
+    fn test_relation_targets_dangling_warns() {
+        use orbital_core::schema::{FieldDefinition, FieldType, RelationDefinition};
+
+        let mut schema = create_minimal_schema();
+        if let EntityRef::Inline(task) = &mut schema.orbitals[0].entity {
+            task.fields.push(FieldDefinition {
+                name: Some("patient".to_string()),
+                field_type: FieldType::Relation,
+                required: None,
+                primary_key: None,
+                unique: None,
+                default: None,
+                values: None,
+                relation: Some(RelationDefinition {
+                    entity: "Patient".to_string(),
+                    cardinality: None,
+                }),
+                items: None,
+                properties: None,
+                intrinsic: None,
+                description: None,
+                synonyms: None,
+            });
+        }
+
+        let result = validate_relation_targets(&schema);
+        let hits: Vec<_> = result
+            .errors
+            .iter()
+            .filter(|e| e.code == ErrorCode::UnresolvedRelationTarget)
+            .collect();
+        assert_eq!(
+            hits.len(),
+            1,
+            "Dangling relation must produce exactly one ORB_X_UNRESOLVED_RELATION_TARGET. \
+             Warnings: {:?}",
+            result.errors
+        );
+        assert!(hits[0].path.contains("orbitals[0].entity.fields[0]"));
+    }
+
+    /// Relations nested inside an array's `items.relation.entity` must also
+    /// be validated, proving the recursive walker works.
+    #[test]
+    fn test_relation_targets_nested_in_array_items() {
+        use orbital_core::schema::{FieldDefinition, FieldType, RelationDefinition};
+
+        let mut schema = create_minimal_schema();
+        if let EntityRef::Inline(task) = &mut schema.orbitals[0].entity {
+            task.fields.push(FieldDefinition {
+                name: Some("patientList".to_string()),
+                field_type: FieldType::Array,
+                required: None,
+                primary_key: None,
+                unique: None,
+                default: None,
+                values: None,
+                relation: None,
+                items: Some(Box::new(FieldDefinition {
+                    name: None,
+                    field_type: FieldType::Relation,
+                    required: None,
+                    primary_key: None,
+                    unique: None,
+                    default: None,
+                    values: None,
+                    relation: Some(RelationDefinition {
+                        entity: "Patient".to_string(),
+                        cardinality: None,
+                    }),
+                    items: None,
+                    properties: None,
+                    intrinsic: None,
+                    description: None,
+                    synonyms: None,
+                })),
+                properties: None,
+                intrinsic: None,
+                description: None,
+                synonyms: None,
+            });
+        }
+
+        let result = validate_relation_targets(&schema);
+        let hits: Vec<_> = result
+            .errors
+            .iter()
+            .filter(|e| e.code == ErrorCode::UnresolvedRelationTarget)
+            .collect();
+        assert_eq!(hits.len(), 1);
+        assert!(hits[0].path.contains(".items.relation.entity"));
+    }
+}

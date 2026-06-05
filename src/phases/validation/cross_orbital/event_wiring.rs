@@ -318,3 +318,150 @@ pub(crate) fn extract_emit_event(effect: &orbital_core::schema::SExpression) -> 
     }
     None
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use orbital_core::schema::{
+        EntityDefinition, EntityRef, Orbital, StateMachine, TraitDefinition,
+    };
+
+    fn create_minimal_schema() -> OrbitalSchema {
+        OrbitalSchema {
+            name: "TestApp".to_string(),
+            version: Some("1.0.0".to_string()),
+            description: None,
+            orbitals: vec![Orbital {
+                name: "TaskOrbital".to_string(),
+                uses: None,
+                theme: None,
+                services: None,
+                entity: EntityRef::Inline(EntityDefinition {
+                    name: "Task".to_string(),
+                    collection: None,
+                    persistence: None,
+                    fields: vec![],
+                    instances: None,
+                }),
+                auxiliary_entities: None,
+                traits: vec![],
+                pages: None,
+                emits: None,
+                listens: None,
+                exposes: None,
+                domain_context: None,
+                design: None,
+            }],
+            metadata: None,
+        }
+    }
+
+    // =========================================================================
+    // COMP-2: external listen no longer counts as an orphan
+    // =========================================================================
+
+    /// Positive case for COMP-2 fix: a trait with an `external`-scoped listen
+    /// and no in-schema emitter must NOT produce `ORB_X_ORPHAN_LISTENER`. The
+    /// expectation is that the agent bus / another orbital is responsible for
+    /// emitting this event; the sibling-only check was producing false
+    /// positives.
+    #[test]
+    fn test_external_listen_not_reported_as_orphan() {
+        let mut schema = create_minimal_schema();
+        schema.orbitals[0].traits = vec![TraitReference::Inline(TraitDefinition {
+            name: "OrderTrait".to_string(),
+            entity_rebindable: None,
+            entity_contract: None,
+            category: None,
+            capabilities: vec![],
+            description: None,
+            linked_entity: Some("Order".to_string()),
+            emits: None,
+            listens: Some(vec![orbital_core::schema::ListenDefinition {
+                event: "USER_LOGGED_IN".to_string(),
+                triggers: None,
+                scope: Some(EventScope::External),
+                source: None,
+                description: None,
+                synonyms: None,
+                tier: None,
+                payload_mapping: None,
+                guard: None,
+            }]),
+            state_machine: StateMachine {
+                states: vec![],
+                events: None,
+                transitions: vec![],
+            },
+            ticks: None,
+            config: None,
+            data_entities: None,
+            scope: None,
+            source_behavior: None,
+            source_entity_definition: None,
+        })];
+
+        let result = validate_event_wiring(&schema);
+        assert!(
+            !result
+                .errors
+                .iter()
+                .any(|e| e.code == ErrorCode::CrossOrbitalOrphanListener),
+            "External listen should not produce ORB_X_ORPHAN_LISTENER. Warnings: {:?}",
+            result.errors
+        );
+    }
+
+    /// Negative case for COMP-2 fix: an `internal`-scoped listen (or one with
+    /// no scope, defaulting to internal-equivalent for orphan checks — but we
+    /// only check explicit External here) with no in-schema emitter SHOULD
+    /// still produce the ORB_X_ORPHAN_LISTENER warning so regressions don't
+    /// silently drop coverage.
+    #[test]
+    fn test_internal_listen_still_reports_orphan() {
+        let mut schema = create_minimal_schema();
+        schema.orbitals[0].traits = vec![TraitReference::Inline(TraitDefinition {
+            name: "OrderTrait".to_string(),
+            entity_rebindable: None,
+            entity_contract: None,
+            category: None,
+            capabilities: vec![],
+            description: None,
+            linked_entity: Some("Order".to_string()),
+            emits: None,
+            listens: Some(vec![orbital_core::schema::ListenDefinition {
+                event: "SOMETHING_WITHIN_ORBITAL".to_string(),
+                triggers: None,
+                scope: Some(EventScope::Internal),
+                source: None,
+                description: None,
+                synonyms: None,
+                tier: None,
+                payload_mapping: None,
+                guard: None,
+            }]),
+            state_machine: StateMachine {
+                states: vec![],
+                events: None,
+                transitions: vec![],
+            },
+            ticks: None,
+            config: None,
+            data_entities: None,
+            scope: None,
+            source_behavior: None,
+            source_entity_definition: None,
+        })];
+
+        let result = validate_event_wiring(&schema);
+        assert!(
+            result
+                .errors
+                .iter()
+                .any(|e| e.code == ErrorCode::CrossOrbitalOrphanListener),
+            "Internal listen with no emitter should still produce ORB_X_ORPHAN_LISTENER. \
+             Warnings: {:?}",
+            result.errors
+        );
+    }
+}

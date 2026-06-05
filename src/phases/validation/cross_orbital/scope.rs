@@ -202,3 +202,178 @@ pub(crate) fn parse_emits_from_std_content(
     }
     None
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use orbital_core::schema::{
+        EntityDefinition, EntityRef, Orbital, StateMachine, TraitDefinition,
+    };
+    use std::collections::HashMap;
+
+    // =========================================================================
+    // COMP-7: validate_scope_boundary
+    // =========================================================================
+
+    /// Helper: build an orbital that declares an atom trait with a given
+    /// emit scope, and a second orbital that composes it via an
+    /// `Alias.traits.Atom` reference with an `events:` rename override.
+    fn build_scope_boundary_fixture(atom_scope: EventScope) -> OrbitalSchema {
+        let atom = TraitDefinition {
+            name: "Atom".to_string(),
+            entity_rebindable: None,
+            entity_contract: None,
+            category: None,
+            capabilities: vec![],
+            description: None,
+            linked_entity: Some("Task".to_string()),
+            emits: Some(vec![EmitDefinition {
+                event: "OPEN".to_string(),
+                scope: Some(atom_scope),
+                description: None,
+                synonyms: None,
+                tier: None,
+                payload_schema: None,
+            }]),
+            listens: None,
+            state_machine: StateMachine {
+                states: vec![],
+                events: None,
+                transitions: vec![],
+            },
+            ticks: None,
+            config: None,
+            data_entities: None,
+            scope: None,
+            source_behavior: None,
+            source_entity_definition: None,
+        };
+        let atom_orbital = Orbital {
+            name: "AtomHost".to_string(),
+            uses: None,
+            theme: None,
+            services: None,
+            entity: EntityRef::Inline(EntityDefinition {
+                name: "AtomEntity".to_string(),
+                collection: None,
+                persistence: None,
+                fields: vec![],
+                instances: None,
+            }),
+            auxiliary_entities: None,
+            traits: vec![TraitReference::Inline(atom)],
+            pages: None,
+            emits: None,
+            listens: None,
+            exposes: None,
+            domain_context: None,
+            design: None,
+        };
+
+        let mut events_rename = HashMap::new();
+        events_rename.insert("OPEN".to_string(), "ADD_ITEM".to_string());
+        let composer_ref = TraitReference::Reference {
+            reference: Some("Lib.traits.Atom".to_string()),
+            name: Some("Composed".to_string()),
+            linked_entity: Some("Cart".to_string()),
+            config: None,
+            events: Some(events_rename),
+            fields: None,
+            listens: None,
+            emits_scope: None,
+        };
+        let composer_orbital = Orbital {
+            name: "Composer".to_string(),
+            uses: Some(vec![orbital_core::schema::UseDeclaration {
+                from: "local/does-not-matter".to_string(),
+                alias: "Lib".to_string(),
+            }]),
+            theme: None,
+            services: None,
+            entity: EntityRef::Inline(EntityDefinition {
+                name: "Cart".to_string(),
+                collection: None,
+                persistence: None,
+                fields: vec![],
+                instances: None,
+            }),
+            auxiliary_entities: None,
+            traits: vec![composer_ref],
+            pages: None,
+            emits: None,
+            listens: None,
+            exposes: None,
+            domain_context: None,
+            design: None,
+        };
+
+        OrbitalSchema {
+            name: "CompositionApp".to_string(),
+            version: Some("1.0.0".to_string()),
+            description: None,
+            orbitals: vec![atom_orbital, composer_orbital],
+            metadata: None,
+        }
+    }
+
+    /// Positive case: the atom declares `scope: 'external'`, so remapping it
+    /// is allowed. Expect no ORB_X_INTERNAL_EVENT_EXPOSED warnings.
+    #[test]
+    fn test_scope_boundary_external_ok() {
+        let schema = build_scope_boundary_fixture(EventScope::External);
+        let result = validate_scope_boundary(&schema);
+        assert!(
+            !result
+                .errors
+                .iter()
+                .any(|e| e.code == ErrorCode::InternalEventExposed),
+            "External-scoped atom events must allow remapping. Warnings: {:?}",
+            result.errors
+        );
+    }
+
+    /// Negative case: the atom declares `scope: 'internal'`, so a composing
+    /// `events:` rename touches a private event. Expect exactly one
+    /// ORB_X_INTERNAL_EVENT_EXPOSED warning on the Composer orbital.
+    #[test]
+    fn test_scope_boundary_internal_warns() {
+        let schema = build_scope_boundary_fixture(EventScope::Internal);
+        let result = validate_scope_boundary(&schema);
+        let hits: Vec<_> = result
+            .errors
+            .iter()
+            .filter(|e| e.code == ErrorCode::InternalEventExposed)
+            .collect();
+        assert_eq!(
+            hits.len(),
+            1,
+            "Exactly one ORB_X_INTERNAL_EVENT_EXPOSED expected. Warnings: {:?}",
+            result.errors
+        );
+        assert!(hits[0].path.contains("orbitals[1].traits[0].events"));
+    }
+
+    /// Bare reference without `events:` / `listens:` overrides must not
+    /// produce any COMP-7 warnings regardless of atom scope. This guards
+    /// against a naive walker that fires on any `TraitReference::Reference`.
+    #[test]
+    fn test_scope_boundary_no_override_is_silent() {
+        let mut schema = build_scope_boundary_fixture(EventScope::Internal);
+        // Drop the events override from the composer trait reference.
+        if let Some(TraitReference::Reference {
+            events,
+            listens,
+            ..
+        }) = schema.orbitals[1].traits.first_mut()
+        {
+            *events = None;
+            *listens = None;
+        }
+        let result = validate_scope_boundary(&schema);
+        assert!(
+            result.errors.is_empty(),
+            "References without overrides must be silent. Warnings: {:?}",
+            result.errors
+        );
+    }
+}
