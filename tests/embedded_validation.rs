@@ -286,7 +286,7 @@ fn sigil_rules_match_ts_source() {
     // Rust constant is hand-updated to match. (Phase 3.4 deferred the
     // automated bindings.json artifact to a future phase.)
     let ts_path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
-        .join("../../../packages/almadar-core/src/types/bindings.ts");
+        .join("../../packages/almadar-core/src/types/bindings.ts");
     let src = std::fs::read_to_string(&ts_path)
         .unwrap_or_else(|e| panic!("Failed to read {}: {}", ts_path.display(), e));
 
