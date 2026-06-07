@@ -2,7 +2,7 @@
 //!
 //! Source: packages/almadar-patterns/src/patterns-registry.json
 //!
-//! Last synced: 2026-06-06
+//! Last synced: 2026-06-07
 //! To regenerate: npx tsx tools/almadar-pattern-sync/index.ts
 //!
 //! DO NOT EDIT MANUALLY - changes will be overwritten on next sync.
@@ -4499,7 +4499,7 @@ pub static PATTERN_PROP_TYPES: LazyLock<HashMap<&'static str, HashMap<&'static s
             (
                 "calendar-grid",
                 [
-                    ("weekStart", &["object"] as &[&str]),
+                    ("weekStart", &["date"] as &[&str]),
                     ("timeSlots", &["array"] as &[&str]),
                     ("events", &["object", "array"] as &[&str]),
                     ("onSlotClick", &["function"] as &[&str]),
@@ -5150,7 +5150,7 @@ pub static PATTERN_PROP_TYPES: LazyLock<HashMap<&'static str, HashMap<&'static s
             (
                 "day-cell",
                 [
-                    ("date", &["object"] as &[&str]),
+                    ("date", &["date"] as &[&str]),
                     ("isToday", &["boolean"] as &[&str]),
                     ("onClick", &["function"] as &[&str]),
                     ("className", &["string"] as &[&str]),
@@ -6055,6 +6055,7 @@ pub static PATTERN_PROP_TYPES: LazyLock<HashMap<&'static str, HashMap<&'static s
                     ("size", &["string"] as &[&str]),
                     ("truncate", &["boolean"] as &[&str]),
                     ("overflow", &["string"] as &[&str]),
+                    ("as", &["string"] as &[&str]),
                     ("id", &["string"] as &[&str]),
                     ("className", &["string"] as &[&str]),
                     ("style", &["object"] as &[&str]),
@@ -6179,7 +6180,7 @@ pub static PATTERN_PROP_TYPES: LazyLock<HashMap<&'static str, HashMap<&'static s
                     ("onClear", &["function"] as &[&str]),
                     ("options", &["array"] as &[&str]),
                     ("rows", &["number"] as &[&str]),
-                    ("onChange", &["object"] as &[&str]),
+                    ("onChange", &["function"] as &[&str]),
                 ]
                 .into_iter()
                 .collect(),
@@ -8142,6 +8143,7 @@ pub static PATTERN_PROP_TYPES: LazyLock<HashMap<&'static str, HashMap<&'static s
                     ("size", &["string"] as &[&str]),
                     ("truncate", &["boolean"] as &[&str]),
                     ("overflow", &["string"] as &[&str]),
+                    ("as", &["string"] as &[&str]),
                     ("id", &["string"] as &[&str]),
                     ("className", &["string"] as &[&str]),
                     ("style", &["object"] as &[&str]),
@@ -8383,6 +8385,7 @@ pub static PATTERN_PROP_TYPES: LazyLock<HashMap<&'static str, HashMap<&'static s
                     ("size", &["string"] as &[&str]),
                     ("truncate", &["boolean"] as &[&str]),
                     ("overflow", &["string"] as &[&str]),
+                    ("as", &["string"] as &[&str]),
                     ("id", &["string"] as &[&str]),
                     ("className", &["string"] as &[&str]),
                     ("style", &["object"] as &[&str]),
