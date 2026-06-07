@@ -163,6 +163,7 @@ mod tests {
                     field_type: "string".to_string(),
                     required: Some(true),
                     description: Some("The order ID".to_string()),
+                    properties: None,
                 }]),
             }]),
             listens: None,

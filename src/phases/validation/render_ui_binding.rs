@@ -514,6 +514,7 @@ mod tests {
             field_type: "string".to_string(),
             required: Some(true),
             description: None,
+            properties: None,
         }];
         let ctx = BindingContext {
             trait_def: &t,
@@ -620,6 +621,7 @@ mod tests {
                 field_type: "number".to_string(),
                 required: None,
                 description: None,
+                properties: None,
             },
         ];
         let ctx = BindingContext {

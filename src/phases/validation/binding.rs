@@ -1399,6 +1399,7 @@ mod tests {
             field_type: "array".to_string(),
             required: Some(true),
             description: None,
+            properties: None,
         }];
         let result = validate_payload_field_references(&expr, "test", Some(&fields), "READ");
         assert!(result
@@ -1415,6 +1416,7 @@ mod tests {
             field_type: "array".to_string(),
             required: Some(true),
             description: None,
+            properties: None,
         }];
         let result = validate_payload_field_references(&expr, "test", Some(&fields), "READ");
         assert!(result.errors.is_empty());

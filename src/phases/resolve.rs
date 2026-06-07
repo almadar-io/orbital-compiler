@@ -457,7 +457,7 @@ impl<'a> Resolver<'a> {
                     let mut schema = std::collections::HashMap::new();
                     let mut required = std::collections::BTreeSet::new();
                     for field in payload_fields {
-                        let oir_type = parse_payload_field_type(&field.field_type);
+                        let oir_type = payload_field_to_oir_type(field);
                         schema.insert(field.name.clone(), oir_type);
                         if field.required.unwrap_or(false) {
                             required.insert(field.name.clone());
@@ -1724,6 +1724,38 @@ impl<'a> Resolver<'a> {
 /// | `"object"`     | `OirType::Json` (fallback; authors should narrow) |
 ///
 /// Recursive on arrays so `[[X]]` (unlikely in practice) still resolves.
+/// Resolve a `PayloadField` to an `OirType`. A field carrying a nested
+/// `properties` shape (an anonymous struct payload — inline `{ … }` or a
+/// `type X = { … }` alias) becomes an `OirType::Struct` so codegen emits a
+/// strict inline object type; everything else uses the flat `field_type`
+/// string parse.
+fn payload_field_to_oir_type(field: &orbital_core::schema::PayloadField) -> OirType {
+    if let Some(props) = &field.properties {
+        let fields = props
+            .iter()
+            .map(|p| OirField {
+                name: p.name.clone(),
+                field_type: payload_field_to_oir_type(p),
+                description: p.description.clone(),
+                required: p.required.unwrap_or(false),
+                default: None,
+                constraints: Vec::new(),
+                enum_values: None,
+                relation: None,
+            })
+            .collect();
+        let struct_ty = OirType::Struct { fields };
+        // `field_type` "[object]" signals an array-of-struct: `properties` holds
+        // the ELEMENT shape, so wrap in an array. Plain "object" is a direct
+        // struct field.
+        if field.field_type.trim_start().starts_with('[') {
+            return OirType::array(struct_ty);
+        }
+        return struct_ty;
+    }
+    parse_payload_field_type(&field.field_type)
+}
+
 fn parse_payload_field_type(field_type: &str) -> OirType {
     let trimmed = field_type.trim();
     // Array: `[X]` where X may itself be a compound expression.

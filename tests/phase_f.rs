@@ -30,6 +30,7 @@ fn payload_field(name: &str, ty: &str, required: bool) -> PayloadField {
         field_type: ty.to_string(),
         required: if required { Some(true) } else { None },
         description: None,
+        properties: None,
     }
 }
 
