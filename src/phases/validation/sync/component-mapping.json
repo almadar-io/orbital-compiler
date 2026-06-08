@@ -1,6 +1,6 @@
 {
   "version": "1.0.0",
-  "exportedAt": "2026-06-07T18:38:16.149Z",
+  "exportedAt": "2026-06-08T19:05:53.459Z",
   "mappings": {
     "page-header": {
       "component": "PageHeader",
@@ -20,11 +20,6 @@
     "entity-cards": {
       "component": "CardGrid",
       "importPath": "@/components/organisms/CardGrid",
-      "category": "display"
-    },
-    "stats": {
-      "component": "StatCard",
-      "importPath": "@/components/atoms/StatCard",
       "category": "display"
     },
     "detail-panel": {
@@ -804,11 +799,6 @@
       "importPath": "@/components/molecules/StatsGrid",
       "category": "display"
     },
-    "step-item": {
-      "component": "StepItem",
-      "importPath": "@/components/molecules/StepItem",
-      "category": "component"
-    },
     "tag-cloud": {
       "component": "TagCloud",
       "importPath": "@/components/molecules/TagCloud",
@@ -1522,6 +1512,16 @@
     "table-view": {
       "component": "TableView",
       "importPath": "@/components/molecules/TableView",
+      "category": "display"
+    },
+    "step-flow": {
+      "component": "StepFlow",
+      "importPath": "@/components/molecules/StepFlow",
+      "category": "component"
+    },
+    "stat-card": {
+      "component": "StatCard",
+      "importPath": "@/components/atoms/StatCard",
       "category": "display"
     },
     "heading": {
