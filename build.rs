@@ -1,22 +1,19 @@
 // Build script for orbital-compiler.
 //
-// Tells Cargo to rebuild the crate whenever the embedded source-of-truth
-// JSON registries change. The actual embedding happens in `src/embedded.rs`
-// via `include_str!`. See `docs/Lolo_Language_Spec_v3_PLAN.md` Section 8 (Phase 3).
+// Rebuild whenever the committed in-crate baked registries change. The bake is
+// produced by `@almadar-io/almadar-pattern-sync rust` (`make sync`) from the
+// pinned npm packages; the actual embedding happens in `src/embedded.rs` via
+// `include_str!("baked/…")`. No `packages/*` submodules are involved.
 
 fn main() {
     println!("cargo:rerun-if-changed=build.rs");
-    println!("cargo:rerun-if-changed=../../packages/almadar-std/canonical-operators.json");
-    println!(
-        "cargo:rerun-if-changed=../../packages/almadar-patterns/src/patterns-registry.json"
-    );
-    println!(
-        "cargo:rerun-if-changed=../../packages/almadar-std/behaviors/behaviors-registry.json"
-    );
-    // Sub-unit 3.5.C: the full std behavior registry (atoms + molecules +
-    // organisms) is embedded via `include_str!` in `src/embedded.rs`. Rerun
-    // whenever any `.orb` file under `behaviors/registry/` changes. The single
-    // directive covers all three subdirectories.
-    println!("cargo:rerun-if-changed=../../packages/almadar-std/behaviors/registry");
-    println!("cargo:rerun-if-changed=../../packages/almadar-core/src/types/bindings.ts");
+    println!("cargo:rerun-if-changed=src/baked/canonical-operators.json");
+    println!("cargo:rerun-if-changed=src/baked/patterns-registry.json");
+    println!("cargo:rerun-if-changed=src/baked/behaviors-registry-std.json");
+    println!("cargo:rerun-if-changed=src/baked/behaviors-registry-io.json");
+    // The full std+io behavior corpus is embedded via `include_str!` from
+    // `src/baked/{std,io}/…`. These directives cover every `.orb`.
+    println!("cargo:rerun-if-changed=src/baked/std");
+    println!("cargo:rerun-if-changed=src/baked/io");
+    println!("cargo:rerun-if-changed=src/baked/bindings.ts");
 }
