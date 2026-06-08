@@ -341,6 +341,20 @@ impl<'a> Resolver<'a> {
         &self,
         field: &orbital_core::schema::ConfigField,
     ) -> OirType {
+        // Map slot: `params : Map string SimParam` lowers to
+        // `field_type: "Map<string,SimParam>"` plus `items: FieldDefinition`
+        // carrying the VALUE's resolved shape (reusing the array `items`
+        // carrier; the `Map<…>` field-type string disambiguates from arrays).
+        // Inline the value struct so the emitted `Record<string, …>` is
+        // self-contained (no undefined alias name). Key is always `string`.
+        if field.field_type.trim_start().starts_with("Map<") {
+            let value = field
+                .items
+                .as_ref()
+                .map(|it| self.resolve_field_shape(it).unwrap_or(OirType::Json))
+                .unwrap_or(OirType::Json);
+            return OirType::map(OirType::String, value);
+        }
         // Array slot with a typed element shape: `metrics : [MetricSpec]`
         // lowers to `field_type: "[MetricSpec]"` plus `items: FieldDefinition`
         // carrying MetricSpec's fields. Walk items via the existing
@@ -387,6 +401,13 @@ impl<'a> Resolver<'a> {
         }
         if let Some(stripped) = trimmed.strip_prefix('[').and_then(|s| s.strip_suffix(']')) {
             return OirType::array(self.type_string_to_oir(stripped));
+        }
+        // `Map<K,V>` config-knob type. Delegate to the free
+        // `parse_payload_field_type`, which (unlike this method's `_ => String`
+        // default) resolves a Named value type to `Reference` — so the value
+        // emits as `Record<string, SimParam>`, not `Record<string, string>`.
+        if trimmed.starts_with("Map<") {
+            return parse_payload_field_type(trimmed);
         }
         match trimmed.to_lowercase().as_str() {
             "string" => OirType::String,
@@ -1762,6 +1783,18 @@ fn parse_payload_field_type(field_type: &str) -> OirType {
     if let Some(inner) = trimmed.strip_prefix('[').and_then(|s| s.strip_suffix(']')) {
         return OirType::array(parse_payload_field_type(inner));
     }
+    // Map: `Map<K,V>` — dynamic-key uniform-value map. The key is a comma-free
+    // atom, so split on the FIRST comma (value may itself be `Map<…>`/`[…]`).
+    if let Some(inner) = trimmed.strip_prefix("Map<").and_then(|s| s.strip_suffix('>')) {
+        if let Some(comma) = inner.find(',') {
+            let key = &inner[..comma];
+            let value = &inner[comma + 1..];
+            return OirType::map(
+                parse_payload_field_type(key),
+                parse_payload_field_type(value),
+            );
+        }
+    }
     // Primitive keywords (case-insensitive match).
     match trimmed.to_lowercase().as_str() {
         "string" => return OirType::String,
@@ -1815,6 +1848,40 @@ mod tests {
                 other => panic!("expected Reference inside Array, got {:?}", other),
             },
             other => panic!("expected Array, got {:?}", other),
+        }
+    }
+
+    #[test]
+    fn parse_payload_field_type_map() {
+        let parsed = parse_payload_field_type("Map<string,SimulationParameter>");
+        match parsed {
+            OirType::Map { key, value } => {
+                assert_eq!(*key, OirType::String);
+                match *value {
+                    OirType::Reference { entity } => assert_eq!(entity, "SimulationParameter"),
+                    other => panic!("expected Reference value, got {:?}", other),
+                }
+            }
+            other => panic!("expected Map, got {:?}", other),
+        }
+    }
+
+    #[test]
+    fn parse_payload_field_type_map_nested_value() {
+        // `Map string (Map string Foo)` — value is itself a map.
+        let parsed = parse_payload_field_type("Map<string,Map<string,Foo>>");
+        match parsed {
+            OirType::Map { key, value } => {
+                assert_eq!(*key, OirType::String);
+                match *value {
+                    OirType::Map { value: inner, .. } => match *inner {
+                        OirType::Reference { entity } => assert_eq!(entity, "Foo"),
+                        other => panic!("expected nested Reference, got {:?}", other),
+                    },
+                    other => panic!("expected nested Map, got {:?}", other),
+                }
+            }
+            other => panic!("expected Map, got {:?}", other),
         }
     }
 
