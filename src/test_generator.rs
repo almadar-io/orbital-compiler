@@ -741,6 +741,7 @@ fn default_value_for_type(ty: &orbital_core::ir::OirType) -> &'static str {
         OirType::Struct { .. } => "{}",
         OirType::Enum { .. } => "'value'",
         OirType::Trait => "'@trait.Mock'",
+        OirType::SExpr => "'noop'",
     }
 }
 
@@ -760,6 +761,7 @@ fn rust_default_value(ty: &orbital_core::ir::OirType) -> &'static str {
         OirType::Struct { .. } => "Default::default()",
         OirType::Enum { .. } => "Default::default()",
         OirType::Trait => "String::from(\"@trait.Mock\")",
+        OirType::SExpr => "String::from(\"noop\")",
     }
 }
 
@@ -778,6 +780,7 @@ fn python_default_value(ty: &orbital_core::ir::OirType) -> &'static str {
         OirType::Struct { .. } => "{}",
         OirType::Enum { .. } => "\"value\"",
         OirType::Trait => "\"@trait.Mock\"",
+        OirType::SExpr => "\"noop\"",
     }
 }
 

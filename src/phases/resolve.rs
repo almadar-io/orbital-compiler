@@ -318,6 +318,15 @@ impl<'a> Resolver<'a> {
                     }
                     struct_fields.sort_by(|a, b| a.name.cmp(&b.name));
                     Ok(OirType::Struct { fields: struct_fields })
+                } else if let Some(items) = &field.items {
+                    // A `Map K V` field nested inside a struct/alias lowers to
+                    // `FieldType::Object` with the VALUE shape carried in `items`
+                    // (no `properties`) — the same carrier the entity lowerer
+                    // uses for maps. Emit `Record<string, V>`, not `Json`.
+                    // (Top-level config-field maps are handled string-side in
+                    // `resolve_config_field_shape`; this covers maps reached via
+                    // a struct property / array element / map value.)
+                    Ok(OirType::map(OirType::String, self.resolve_field_shape(items)?))
                 } else {
                     Ok(OirType::Json)
                 }
@@ -347,12 +356,28 @@ impl<'a> Resolver<'a> {
         // carrier; the `Map<…>` field-type string disambiguates from arrays).
         // Inline the value struct so the emitted `Record<string, …>` is
         // self-contained (no undefined alias name). Key is always `string`.
-        if field.field_type.trim_start().starts_with("Map<") {
-            let value = field
-                .items
-                .as_ref()
-                .map(|it| self.resolve_field_shape(it).unwrap_or(OirType::Json))
-                .unwrap_or(OirType::Json);
+        if let Some(inner) = field
+            .field_type
+            .trim_start()
+            .strip_prefix("Map<")
+            .and_then(|s| s.strip_suffix('>'))
+        {
+            // The `items` FieldDefinition carrier holds the fully-resolved,
+            // inlined value shape (named structs inlined, arrays preserved) and
+            // is authoritative for every value type EXCEPT the `SExpr` brand:
+            // entity.rs lowers `SExpr` lossily to `FieldType::Object`, so the
+            // carrier would degrade it to `Json`. For a bare `SExpr` value, the
+            // field-type string is authoritative — emit the real `SExpr` brand.
+            let value_str = inner.splitn(2, ',').nth(1).map(str::trim).unwrap_or("");
+            let value = if value_str.eq_ignore_ascii_case("SExpr") {
+                OirType::SExpr
+            } else {
+                field
+                    .items
+                    .as_ref()
+                    .map(|it| self.resolve_field_shape(it).unwrap_or(OirType::Json))
+                    .unwrap_or(OirType::Json)
+            };
             return OirType::map(OirType::String, value);
         }
         // Array slot with a typed element shape: `metrics : [MetricSpec]`
@@ -422,6 +447,8 @@ impl<'a> Resolver<'a> {
             // Lowered to Json so codegen emits a JSON-shaped TS type
             // (the variant author supplies any tree; runtime substitutes).
             "render-ui" => OirType::Json,
+            // `SExpr` brand config knob — emits the recursive `SExpr` TS type.
+            "sexpr" => OirType::SExpr,
             _ => OirType::String, // Default to string for unknown types
         }
     }
@@ -1805,6 +1832,9 @@ fn parse_payload_field_type(field_type: &str) -> OirType {
         "datetime" => return OirType::DateTime,
         "array" | "list" => return OirType::array(OirType::Json),
         "object" | "json" | "tensor" => return OirType::Json,
+        // `SExpr` brand — a compiled s-expression value (config-only; e.g. a
+        // `conditionalFields` map value). Emits the recursive `SExpr` TS type.
+        "sexpr" => return OirType::SExpr,
         // UI scalar types (`node`/`slot`/`icon`/`component`/`pattern`) carry no
         // serializable OIR shape — in a data/payload/struct-field context they
         // are represented as strings (an icon/component name, or a serialized

@@ -115,8 +115,6 @@ pub static PATTERN_TYPES: LazyLock<HashSet<&'static str>> = LazyLock::new(|| {
         "drawer",
         "modal",
         "overlay",
-        // Dashboard Patterns
-        "stats",
         // Debug Patterns
         "runtime-debugger",
         // Display Patterns
@@ -156,6 +154,7 @@ pub static PATTERN_TYPES: LazyLock<HashSet<&'static str>> = LazyLock::new(|| {
         "showcase-card",
         "showcase-organism",
         "sortable-list",
+        "stat-card",
         "stat-display",
         "state-machine-view",
         "stats-grid",
@@ -334,7 +333,6 @@ pub static PATTERN_CATEGORIES: LazyLock<HashSet<&'static str>> = LazyLock::new(|
     [
         "component",
         "container",
-        "dashboard",
         "debug",
         "display",
         "filter",
@@ -458,8 +456,6 @@ pub static PATTERN_TO_CATEGORY: LazyLock<HashMap<&'static str, &'static str>> =
             ("drawer", "container"),
             ("modal", "container"),
             ("overlay", "container"),
-            // Dashboard
-            ("stats", "dashboard"),
             // Debug
             ("runtime-debugger", "debug"),
             // Display
@@ -499,6 +495,7 @@ pub static PATTERN_TO_CATEGORY: LazyLock<HashMap<&'static str, &'static str>> =
             ("showcase-card", "display"),
             ("showcase-organism", "display"),
             ("sortable-list", "display"),
+            ("stat-card", "display"),
             ("stat-display", "display"),
             ("state-machine-view", "display"),
             ("stats-grid", "display"),
@@ -782,7 +779,7 @@ pub static PATTERN_REQUIRED_PROPS: LazyLock<HashMap<&'static str, Vec<&'static s
             ("navigation", vec!["items"]),
             ("notification", vec!["message"]),
             ("object-rule-panel", vec!["object", "onRulesChange"]),
-            ("option-constraint-group", vec!["groupId", "title", "options", "constraint"]),
+            ("option-constraint-group", vec!["groupId", "title", "options"]),
             ("pagination", vec!["currentPage", "totalPages"]),
             ("popover", vec!["content", "children"]),
             ("positioned-canvas", vec!["items"]),
@@ -825,11 +822,10 @@ pub static PATTERN_REQUIRED_PROPS: LazyLock<HashMap<&'static str, Vec<&'static s
             ("split-section", vec!["title", "description"]),
             ("sprite", vec!["spritesheet", "frameWidth", "frameHeight", "frame", "x", "y"]),
             ("stat-badge", vec!["label"]),
+            ("stat-card", vec!["value", "label"]),
             ("stat-display", vec!["label", "value"]),
             ("state-indicator", vec!["state"]),
-            ("state-machine-view", vec!["layoutData"]),
             ("state-node", vec!["name", "position"]),
-            ("stats", vec!["value", "label"]),
             ("stats-grid", vec!["stats"]),
             ("status-effect", vec!["icon"]),
             ("step-flow", vec!["steps"]),
@@ -3431,6 +3427,7 @@ pub static PATTERN_PROPS_SCHEMA: LazyLock<HashMap<&'static str, HashSet<&'static
                 .into_iter()
                 .collect(),
             ),
+            ("stat-card", ["className", "label", "size", "value"].into_iter().collect()),
             (
                 "stat-display",
                 [
@@ -3477,7 +3474,6 @@ pub static PATTERN_PROPS_SCHEMA: LazyLock<HashMap<&'static str, HashSet<&'static
                 .into_iter()
                 .collect(),
             ),
-            ("stats", ["className", "label", "size", "value"].into_iter().collect()),
             ("stats-grid", ["className", "columns", "stats"].into_iter().collect()),
             (
                 "stats-organism",
@@ -4808,7 +4804,7 @@ pub static PATTERN_PROP_TYPES: LazyLock<HashMap<&'static str, HashMap<&'static s
             (
                 "conditional-wrapper",
                 [
-                    ("condition", &["object"] as &[&str]),
+                    ("condition", &["sexpr"] as &[&str]),
                     ("context", &["object"] as &[&str]),
                     ("children", &["node"] as &[&str]),
                     ("fallback", &["node"] as &[&str]),
@@ -7577,6 +7573,17 @@ pub static PATTERN_PROP_TYPES: LazyLock<HashMap<&'static str, HashMap<&'static s
                 .collect(),
             ),
             (
+                "stat-card",
+                [
+                    ("value", &["string"] as &[&str]),
+                    ("label", &["string"] as &[&str]),
+                    ("size", &["string"] as &[&str]),
+                    ("className", &["string"] as &[&str]),
+                ]
+                .into_iter()
+                .collect(),
+            ),
+            (
                 "stat-display",
                 [
                     ("label", &["string"] as &[&str]),
@@ -7650,17 +7657,6 @@ pub static PATTERN_PROP_TYPES: LazyLock<HashMap<&'static str, HashMap<&'static s
                     ("isInitial", &["boolean"] as &[&str]),
                     ("position", &["object"] as &[&str]),
                     ("onClick", &["function"] as &[&str]),
-                    ("className", &["string"] as &[&str]),
-                ]
-                .into_iter()
-                .collect(),
-            ),
-            (
-                "stats",
-                [
-                    ("value", &["string"] as &[&str]),
-                    ("label", &["string"] as &[&str]),
-                    ("size", &["string"] as &[&str]),
                     ("className", &["string"] as &[&str]),
                 ]
                 .into_iter()
@@ -9205,6 +9201,7 @@ pub static PATTERN_PROP_ENUM_VALUES: LazyLock<HashMap<&'static str, HashMap<&'st
                 .into_iter()
                 .collect(),
             ),
+            ("stat-card", [("size", &["sm", "md", "lg"] as &[&str])].into_iter().collect()),
             (
                 "stat-display",
                 [
@@ -9218,7 +9215,6 @@ pub static PATTERN_PROP_ENUM_VALUES: LazyLock<HashMap<&'static str, HashMap<&'st
                 .collect(),
             ),
             ("state-indicator", [("size", &["sm", "md", "lg"] as &[&str])].into_iter().collect()),
-            ("stats", [("size", &["sm", "md", "lg"] as &[&str])].into_iter().collect()),
             ("stats-organism", [("sortDirection", &["asc", "desc"] as &[&str])].into_iter().collect()),
             (
                 "status-dot",
