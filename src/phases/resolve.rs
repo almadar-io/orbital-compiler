@@ -1772,6 +1772,14 @@ fn parse_payload_field_type(field_type: &str) -> OirType {
         "datetime" => return OirType::DateTime,
         "array" | "list" => return OirType::array(OirType::Json),
         "object" | "json" | "tensor" => return OirType::Json,
+        // UI scalar types (`node`/`slot`/`icon`/`component`/`pattern`) carry no
+        // serializable OIR shape — in a data/payload/struct-field context they
+        // are represented as strings (an icon/component name, or a serialized
+        // node), matching the config-knob emitter (`node`-typed knobs emit
+        // `string`) and the Zod payload validator (`z.string()`). Without this
+        // they fell through to `Reference { entity: "node" }` and emitted the
+        // bare identifier `node` — TS2552 "Cannot find name 'node'".
+        "node" | "slot" | "icon" | "component" | "pattern" => return OirType::String,
         _ => {}
     }
     // Any remaining non-empty identifier: treat as an entity reference.
