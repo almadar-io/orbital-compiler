@@ -6,7 +6,7 @@ use super::operators::{is_known_operator, EFFECT_OPERATORS};
 use crate::phases::validation::{
     ErrorCode, ValidationContext, ValidationError, ValidationResult,
 };
-use orbital_core::schema::{OrbitalSchema, SExpression, TraitDefinition};
+use orbital_core::schema::{EntityRef, FieldDefinition, OrbitalSchema, SExpression, TraitDefinition};
 use std::collections::HashSet;
 
 /// Validation context for S-expressions
@@ -25,6 +25,64 @@ pub fn validate_all_sexprs(schema: &OrbitalSchema, ctx: &mut ValidationContext) 
         let result = validate_trait_sexprs(trait_def, &path, &ctx.entity_names);
         ctx.merge(result);
     }
+
+    // Entity-field `= default` and `derived` expressions are SExpressions too,
+    // but were not covered by the trait walk above. Validate them uniformly so a
+    // bad operator/arity/binding in a default or derived expression is caught at
+    // the same place as transition effects (Phase 1.2 uniform SExpr coverage).
+    let entity_names = ctx.entity_names.clone();
+    for (oi, orbital) in schema.orbitals.iter().enumerate() {
+        let fields = match &orbital.entity {
+            EntityRef::Inline(ed) => Some(&ed.fields),
+            EntityRef::Extends(ere) => ere.fields.as_ref(),
+            EntityRef::Reference(_) => None,
+        };
+        if let Some(fields) = fields {
+            let base = format!("orbitals[{}].entity.fields", oi);
+            for (fi, f) in fields.iter().enumerate() {
+                let r = validate_field_default_sexprs(f, &format!("{}[{}]", base, fi), &entity_names);
+                ctx.merge(r);
+            }
+        }
+    }
+}
+
+/// Validate the `default`/`derived` SExpression of an entity field (recursing
+/// into array `items` and object `properties` shapes). Plain literal defaults
+/// are no-ops here (handled by the literal-default validator); SExpr-shaped
+/// defaults (operator calls, bindings, `{ derived: … }`) get full arity +
+/// binding validation.
+fn validate_field_default_sexprs(
+    f: &FieldDefinition,
+    path: &str,
+    known_entities: &HashSet<String>,
+) -> ValidationResult {
+    let mut result = ValidationResult::new();
+    if let Some(def) = &f.default {
+        result.merge(validate_sexpr(
+            def,
+            &format!("{}.default", path),
+            SExprContext::Effect,
+            known_entities,
+        ));
+    }
+    if let Some(items) = &f.items {
+        result.merge(validate_field_default_sexprs(
+            items,
+            &format!("{}.items", path),
+            known_entities,
+        ));
+    }
+    if let Some(props) = &f.properties {
+        for (k, p) in props {
+            result.merge(validate_field_default_sexprs(
+                p,
+                &format!("{}.properties.{}", path, k),
+                known_entities,
+            ));
+        }
+    }
+    result
 }
 
 /// Validate S-expressions in a trait
