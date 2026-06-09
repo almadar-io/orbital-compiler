@@ -991,6 +991,40 @@ impl<'a> Resolver<'a> {
             // dispatches via OirExpr::Call). String-array literals are
             // diverted at the resolve_sexpr Array case BEFORE reaching
             // here, so this arm only fires for genuine call forms.
+            // Lambda — the single shared representation (OirExpr::Lambda) every
+            // backend consumes, replacing per-site `Call{function:"fn"}` parsing.
+            // Post-normalization the shape is `[params, body]` (params = a string
+            // for a single param or an array for the grouped form); the flat
+            // `[p1, …, pN, body]` form is handled defensively.
+            "fn" | "lambda" => {
+                if args.len() < 2 {
+                    return Err(ResolveError::InvalidSExpr(format!(
+                        "{op} lambda requires parameters and a body"
+                    )));
+                }
+                let (param_slice, body_sexpr) = if args.len() == 2 {
+                    (std::slice::from_ref(&args[0]), &args[1])
+                } else {
+                    (&args[..args.len() - 1], &args[args.len() - 1])
+                };
+                let mut params = Vec::new();
+                for p in param_slice {
+                    match p {
+                        SExpression::String(s) => params.push(s.clone()),
+                        SExpression::Array(ps) => {
+                            for pp in ps {
+                                if let SExpression::String(s) = pp {
+                                    params.push(s.clone());
+                                }
+                            }
+                        }
+                        _ => {}
+                    }
+                }
+                let body = self.resolve_sexpr(body_sexpr)?;
+                Ok(OirExpr::lambda(params, body))
+            }
+
             _ => {
                 let resolved_args = args
                     .iter()
