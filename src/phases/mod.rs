@@ -156,7 +156,12 @@ fn compile_schema_with_path(
     source_path: Option<&Path>,
 ) -> CompileResult<OirModule> {
     // Phases 2–3: Inline, Compose, Enrich.
-    let schema = resolve_schema_with_path(schema, options, source_path)?;
+    let mut schema = resolve_schema_with_path(schema, options, source_path)?;
+
+    // Canonicalize flat `fn` lambdas post-inline so raw `.orb` input (which skips
+    // the lolo lowerer) is normalized before validation + codegen, and inlined
+    // reference traits are caught too.
+    orbital_core::schema::normalize_fn_shapes(&mut schema);
 
     // Phase 4: Validate (runs on the fully inlined + enriched schema so reference
     //           checks and collection-presence checks are accurate)
