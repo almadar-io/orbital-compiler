@@ -1,10 +1,10 @@
 {
   "version": "1.0.0",
-  "exportedAt": "2026-06-08T19:05:53.459Z",
+  "exportedAt": "2026-06-09T01:18:33.001Z",
   "mappings": {
     "page-header": {
       "component": "PageHeader",
-      "importPath": "@/components/organisms/PageHeader",
+      "importPath": "@/components/molecules/PageHeader",
       "category": "header"
     },
     "entity-list": {
@@ -84,7 +84,7 @@
     },
     "wizard-container": {
       "component": "WizardContainer",
-      "importPath": "@/components/organisms/WizardContainer",
+      "importPath": "@/components/molecules/WizardContainer",
       "category": "navigation"
     },
     "wizard-progress": {
@@ -119,7 +119,7 @@
     },
     "confirm-dialog": {
       "component": "ConfirmDialog",
-      "importPath": "@/components/organisms/ConfirmDialog",
+      "importPath": "@/components/molecules/ConfirmDialog",
       "category": "layout"
     },
     "master-detail": {
@@ -401,7 +401,7 @@
     },
     "header": {
       "component": "Header",
-      "importPath": "@/components/organisms/Header",
+      "importPath": "@/components/molecules/Header",
       "category": "header"
     },
     "modal-slot": {
@@ -411,33 +411,28 @@
     },
     "navigation": {
       "component": "Navigation",
-      "importPath": "@/components/organisms/Navigation",
+      "importPath": "@/components/molecules/Navigation",
       "category": "navigation"
     },
     "orbital-visualization": {
       "component": "OrbitalVisualization",
-      "importPath": "@/components/organisms/OrbitalVisualization",
+      "importPath": "@/components/molecules/OrbitalVisualization",
       "category": "display"
     },
     "section": {
       "component": "Section",
-      "importPath": "@/components/organisms/Section",
+      "importPath": "@/components/molecules/Section",
       "category": "display"
     },
     "sidebar": {
       "component": "Sidebar",
-      "importPath": "@/components/organisms/Sidebar",
+      "importPath": "@/components/molecules/Sidebar",
       "category": "navigation"
     },
     "split": {
       "component": "Split",
-      "importPath": "@/components/organisms/Split",
+      "importPath": "@/components/molecules/Split",
       "category": "layout"
-    },
-    "table": {
-      "component": "Table",
-      "importPath": "@/components/organisms/Table",
-      "category": "display"
     },
     "toast-slot": {
       "component": "ToastSlot",
@@ -476,7 +471,7 @@
     },
     "chart": {
       "component": "Chart",
-      "importPath": "@/components/organisms/Chart",
+      "importPath": "@/components/molecules/Chart",
       "category": "visualization"
     },
     "meter": {
@@ -496,22 +491,22 @@
     },
     "signature-pad": {
       "component": "SignaturePad",
-      "importPath": "@/components/organisms/SignaturePad",
+      "importPath": "@/components/molecules/SignaturePad",
       "category": "form"
     },
     "document-viewer": {
       "component": "DocumentViewer",
-      "importPath": "@/components/organisms/DocumentViewer",
+      "importPath": "@/components/molecules/DocumentViewer",
       "category": "display"
     },
     "graph-canvas": {
       "component": "GraphCanvas",
-      "importPath": "@/components/organisms/GraphCanvas",
+      "importPath": "@/components/molecules/GraphCanvas",
       "category": "visualization"
     },
     "code-viewer": {
       "component": "CodeViewer",
-      "importPath": "@/components/organisms/CodeViewer",
+      "importPath": "@/components/molecules/CodeViewer",
       "category": "display"
     },
     "battle-template": {
@@ -556,12 +551,12 @@
     },
     "content-renderer": {
       "component": "ContentRenderer",
-      "importPath": "@/components/organisms/ContentRenderer",
+      "importPath": "@/components/molecules/ContentRenderer",
       "category": "display"
     },
     "jazari-state-machine": {
       "component": "JazariStateMachine",
-      "importPath": "@/components/organisms/JazariStateMachine",
+      "importPath": "@/components/molecules/JazariStateMachine",
       "category": "display"
     },
     "state-machine-view": {
@@ -733,11 +728,6 @@
       "component": "CaseStudyCard",
       "importPath": "@/components/molecules/CaseStudyCard",
       "category": "display"
-    },
-    "code-example": {
-      "component": "CodeExample",
-      "importPath": "@/components/molecules/CodeExample",
-      "category": "component"
     },
     "community-links": {
       "component": "CommunityLinks",

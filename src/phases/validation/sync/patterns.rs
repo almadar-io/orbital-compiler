@@ -2,7 +2,7 @@
 //!
 //! Source: packages/almadar-patterns/src/patterns-registry.json
 //!
-//! Last synced: 2026-06-09
+//! Last synced: 2026-06-10
 //! To regenerate: npx tsx tools/almadar-pattern-sync/index.ts
 //!
 //! DO NOT EDIT MANUALLY - changes will be overwritten on next sync.
@@ -29,7 +29,6 @@ pub static PATTERN_TYPES: LazyLock<HashSet<&'static str>> = LazyLock::new(|| {
         "carousel",
         "checkbox",
         "code-block",
-        "code-example",
         "community-links",
         "conditional-wrapper",
         "confetti-effect",
@@ -162,7 +161,6 @@ pub static PATTERN_TYPES: LazyLock<HashSet<&'static str>> = LazyLock::new(|| {
         "status-dot",
         "step-flow-organism",
         "svg-grid",
-        "table",
         "table-view",
         "team-card",
         "team-organism",
@@ -370,7 +368,6 @@ pub static PATTERN_TO_CATEGORY: LazyLock<HashMap<&'static str, &'static str>> =
             ("carousel", "component"),
             ("checkbox", "component"),
             ("code-block", "component"),
-            ("code-example", "component"),
             ("community-links", "component"),
             ("conditional-wrapper", "component"),
             ("confetti-effect", "component"),
@@ -503,7 +500,6 @@ pub static PATTERN_TO_CATEGORY: LazyLock<HashMap<&'static str, &'static str>> =
             ("status-dot", "display"),
             ("step-flow-organism", "display"),
             ("svg-grid", "display"),
-            ("table", "display"),
             ("table-view", "display"),
             ("team-card", "display"),
             ("team-organism", "display"),
@@ -708,7 +704,6 @@ pub static PATTERN_REQUIRED_PROPS: LazyLock<HashMap<&'static str, Vec<&'static s
             ("chart-legend", vec!["items"]),
             ("choice-button", vec!["text"]),
             ("code-block", vec!["code"]),
-            ("code-example", vec!["code", "language"]),
             ("code-view", vec!["data"]),
             ("combat-log", vec!["events"]),
             ("combo-counter", vec!["combo"]),
@@ -723,7 +718,6 @@ pub static PATTERN_REQUIRED_PROPS: LazyLock<HashMap<&'static str, Vec<&'static s
             ("dashboard-grid", vec!["cells"]),
             ("data-grid", vec!["entity"]),
             ("data-list", vec!["entity"]),
-            ("day-cell", vec!["date"]),
             ("detail-panel", vec!["fields"]),
             ("dialogue-box", vec!["dialogue"]),
             ("dialogue-bubble", vec!["text"]),
@@ -843,7 +837,6 @@ pub static PATTERN_REQUIRED_PROPS: LazyLock<HashMap<&'static str, Vec<&'static s
             ("svg-stack", vec!["x", "y"]),
             ("swipeable-row", vec!["children"]),
             ("tabbed-container", vec!["tabs"]),
-            ("table", vec!["columns"]),
             ("table-view", vec!["entity"]),
             ("tag-cloud", vec!["tags"]),
             ("tag-input", vec!["value"]),
@@ -1333,7 +1326,6 @@ pub static PATTERN_PROPS_SCHEMA: LazyLock<HashMap<&'static str, HashSet<&'static
                 .into_iter()
                 .collect(),
             ),
-            ("code-example", ["className", "code", "copyable", "language", "maxHeight", "title"].into_iter().collect()),
             ("code-view", ["className", "data", "defaultExpanded", "label"].into_iter().collect()),
             (
                 "code-viewer",
@@ -3626,37 +3618,6 @@ pub static PATTERN_PROPS_SCHEMA: LazyLock<HashMap<&'static str, HashSet<&'static
             ),
             ("tabbed-container", ["activeTab", "className", "defaultTab", "onTabChange", "position", "tabs"].into_iter().collect()),
             (
-                "table",
-                [
-                    "activeFilters",
-                    "className",
-                    "columns",
-                    "currentPage",
-                    "emptyMessage",
-                    "entity",
-                    "error",
-                    "isLoading",
-                    "loading",
-                    "page",
-                    "pageSize",
-                    "paginated",
-                    "rowActions",
-                    "searchPlaceholder",
-                    "searchValue",
-                    "searchable",
-                    "selectable",
-                    "selectedIds",
-                    "sortBy",
-                    "sortColumn",
-                    "sortDirection",
-                    "sortable",
-                    "totalCount",
-                    "totalPages",
-                ]
-                .into_iter()
-                .collect(),
-            ),
-            (
                 "table-view",
                 [
                     "accepts",
@@ -4711,19 +4672,6 @@ pub static PATTERN_PROP_TYPES: LazyLock<HashMap<&'static str, HashMap<&'static s
                     ("editable", &["boolean"] as &[&str]),
                     ("onChange", &["function"] as &[&str]),
                     ("errorLines", &["object"] as &[&str]),
-                ]
-                .into_iter()
-                .collect(),
-            ),
-            (
-                "code-example",
-                [
-                    ("code", &["string"] as &[&str]),
-                    ("language", &["string"] as &[&str]),
-                    ("title", &["string"] as &[&str]),
-                    ("copyable", &["boolean"] as &[&str]),
-                    ("maxHeight", &["string"] as &[&str]),
-                    ("className", &["string"] as &[&str]),
                 ]
                 .into_iter()
                 .collect(),
@@ -7976,37 +7924,6 @@ pub static PATTERN_PROP_TYPES: LazyLock<HashMap<&'static str, HashMap<&'static s
                 .collect(),
             ),
             (
-                "table",
-                [
-                    ("entity", &["object", "array"] as &[&str]),
-                    ("className", &["string"] as &[&str]),
-                    ("isLoading", &["boolean"] as &[&str]),
-                    ("error", &["object"] as &[&str]),
-                    ("sortBy", &["string"] as &[&str]),
-                    ("sortDirection", &["string"] as &[&str]),
-                    ("searchValue", &["string"] as &[&str]),
-                    ("page", &["number"] as &[&str]),
-                    ("pageSize", &["number"] as &[&str]),
-                    ("totalCount", &["number"] as &[&str]),
-                    ("activeFilters", &["object"] as &[&str]),
-                    ("selectedIds", &["array"] as &[&str]),
-                    ("columns", &["array"] as &[&str]),
-                    ("selectable", &["boolean"] as &[&str]),
-                    ("sortable", &["boolean"] as &[&str]),
-                    ("sortColumn", &["string"] as &[&str]),
-                    ("searchable", &["boolean"] as &[&str]),
-                    ("searchPlaceholder", &["string"] as &[&str]),
-                    ("paginated", &["boolean"] as &[&str]),
-                    ("currentPage", &["number"] as &[&str]),
-                    ("totalPages", &["number"] as &[&str]),
-                    ("rowActions", &["function"] as &[&str]),
-                    ("emptyMessage", &["string"] as &[&str]),
-                    ("loading", &["boolean"] as &[&str]),
-                ]
-                .into_iter()
-                .collect(),
-            ),
-            (
                 "table-view",
                 [
                     ("dragGroup", &["string"] as &[&str]),
@@ -9243,7 +9160,6 @@ pub static PATTERN_PROP_ENUM_VALUES: LazyLock<HashMap<&'static str, HashMap<&'st
             ("svg-ring", [("variant", &["solid", "dashed", "glow"] as &[&str])].into_iter().collect()),
             ("svg-shield", [("variant", &["outline", "filled", "check"] as &[&str])].into_iter().collect()),
             ("tabbed-container", [("position", &["top", "left"] as &[&str])].into_iter().collect()),
-            ("table", [("sortDirection", &["asc", "desc"] as &[&str])].into_iter().collect()),
             (
                 "table-view",
                 [
