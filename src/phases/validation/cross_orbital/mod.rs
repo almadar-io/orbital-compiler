@@ -9,6 +9,7 @@ use orbital_core::schema::{OrbitalSchema, TraitDefinition, TraitReference};
 mod cycles;
 mod entity;
 mod event_wiring;
+mod listen_trigger;
 mod listens;
 mod payload;
 mod relations;
@@ -19,6 +20,7 @@ pub(crate) use entity::validate_entity_uniqueness;
 pub(crate) use event_wiring::{
     extract_emit_event, transition_can_propagate, validate_event_wiring,
 };
+pub(crate) use listen_trigger::validate_listen_triggers;
 pub(crate) use listens::validate_listens_integrity;
 pub(crate) use payload::validate_external_emit_payloads;
 pub(crate) use relations::validate_relation_targets;

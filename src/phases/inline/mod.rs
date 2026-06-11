@@ -103,6 +103,20 @@ pub enum InlineError {
         /// agent's dispatcher can route UPDATE_SPEC by orbital owner.
         path: String,
     },
+
+    #[error(
+        "events: {{ \"{from}\": ... }} override on trait reference at {path} names source key \
+         '{from}' which does not exist in the imported trait '{trait_name}'. The rename silently \
+         no-ops. Use one of the trait's declared event keys."
+    )]
+    EventRenameUnknownKey {
+        /// The unknown source (`from`) key the rename map tried to rewrite.
+        from: String,
+        /// The imported trait's resolved name (post-`name:` rename, if any).
+        trait_name: String,
+        /// Source-tagged path to the offending trait reference.
+        path: String,
+    },
 }
 
 impl InlineError {
@@ -112,7 +126,20 @@ impl InlineError {
     pub fn structured_path(&self) -> &str {
         match self {
             InlineError::DuplicateTraitName { path, .. } => path,
+            InlineError::EventRenameUnknownKey { path, .. } => path,
             _ => "",
+        }
+    }
+
+    /// Stable diagnostic code for this inline-phase error, mirroring the
+    /// validator's `ErrorCode::as_str()` vocabulary. Variants without a
+    /// dedicated code fall back to the generic `INLINE_ERROR` tag so the CLI
+    /// JSON output carries a concrete `ORB_*` code where one exists.
+    pub fn structured_code(&self) -> &'static str {
+        match self {
+            InlineError::EventRenameUnknownKey { .. } => "ORB_T_EVENT_RENAME_UNKNOWN_KEY",
+            InlineError::DuplicateTraitName { .. } => "ORB_T_DUPLICATE_NAME",
+            _ => "INLINE_ERROR",
         }
     }
 }

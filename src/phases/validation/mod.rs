@@ -417,6 +417,12 @@ pub fn validate_comprehensive_full_with_phase_f(
     // it; warn when two emitters disagree on the field list.
     cross_emitter::validate_cross_emitter(schema, &mut ctx);
 
+    // Phase 5d: Listen-trigger-matched backstop. Runs POST-inline so the
+    // `events: { OLD: NEW }`-rename variant is caught — a `listens { Src.EVENT
+    // -> TRIGGER }` whose TRIGGER has no matching transition in the same trait
+    // is a silent dead wire. Error severity.
+    ctx.merge(cross_orbital::validate_listen_triggers(schema));
+
     // Phase 6: Render-UI validation
     render_ui::validate_all_render_ui(schema, &mut ctx);
 

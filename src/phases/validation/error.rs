@@ -110,6 +110,13 @@ pub enum ErrorCode {
     /// reads (its inferred `entityContract.requires`). The target would break
     /// the behavior.
     RebindMissingEntityFields,
+    /// A call-site `events: { OLD: NEW }` rename names an OLD source key that
+    /// does not exist in the imported trait's event set (its `emits[].event` ∪
+    /// `state_machine.transitions[].event`). The rename silently no-ops:
+    /// nothing is renamed and the author's intent is lost. Surfaced from the
+    /// inline phase where the imported trait's pre-rename event set is still
+    /// visible.
+    EventRenameUnknownKey,
 
     // =========================================================================
     // Page Errors (ORB_P_*)
@@ -338,6 +345,14 @@ pub enum ErrorCode {
     /// after `use`-imports inline so atoms/molecules pulled into an orbital
     /// can't accidentally introduce dangling listens.
     CrossOrbitalListenSourceUnresolved,
+    /// A `listens { Src.EVENT -> TRIGGER }` entry names an internal TRIGGER
+    /// that no transition in the SAME trait reacts to. The bus would deliver
+    /// the event but the state machine has no handler — the wire silently
+    /// drops. Runs post-inline so the `events: { OLD: NEW }`-rename variant
+    /// (where the rewrite renamed the transition event but the listen trigger
+    /// drifted) is caught too. Defense-in-depth for the L1 (`orbital-lolo`)
+    /// author-time check on hand-authored `.lolo`.
+    ListenTriggerUnmatched,
     /// Composing trait's override map touches an event declared `scope: 'internal'`.
     /// Staged as a warning until all atoms declare explicit scopes (then graduates
     /// to an error). See COMP-7 in docs/Almadar_Agent_Behaviors_Plan.md.
@@ -385,6 +400,12 @@ pub enum ErrorCode {
     /// signatures; the class is declared here so the code path can reference
     /// it and emit warnings incrementally.
     BindingPayloadTypeIncompatible,
+    /// `(set @entity.X ?payloadField)` writes a payload field whose declared
+    /// type does not match the target entity field's declared type. The lolo
+    /// crate catches this at author time for `.lolo`; this is the raw-`.orb`
+    /// defense-in-depth backstop. Payload field types are sourced from the
+    /// trait's `emits[].payload_schema` and `listens` payload metadata.
+    SetValueTypeMismatch,
     /// `(emit EVT {...})` literal payload is missing a field the event's
     /// declared payload marks as required. Warn-only in V2 Phase 0;
     /// escalates to error in Phase 5.
@@ -551,6 +572,7 @@ impl ErrorCode {
             ErrorCode::TraitConfigTierInvalid => "ORB_T_CONFIG_TIER_INVALID",
             ErrorCode::TraitEntityNotRebindable => "ORB_T_ENTITY_NOT_REBINDABLE",
             ErrorCode::RebindMissingEntityFields => "ORB_T_REBIND_MISSING_FIELDS",
+            ErrorCode::EventRenameUnknownKey => "ORB_T_EVENT_RENAME_UNKNOWN_KEY",
 
             // Page
             ErrorCode::PageMissingName => "ORB_P_MISSING_NAME",
@@ -638,6 +660,7 @@ impl ErrorCode {
             ErrorCode::CrossOrbitalMissingName => "ORB_X_MISSING_ORBITAL_NAME",
             ErrorCode::CrossOrbitalPayloadMismatch => "ORB_X_PAYLOAD_MISMATCH",
             ErrorCode::CrossOrbitalListenSourceUnresolved => "ORB_X_LISTEN_SOURCE_UNRESOLVED",
+            ErrorCode::ListenTriggerUnmatched => "ORB_X_LISTEN_TRIGGER_UNMATCHED",
             ErrorCode::InternalEventExposed => "ORB_X_INTERNAL_EVENT_EXPOSED",
             ErrorCode::UnresolvedRelationTarget => "ORB_X_UNRESOLVED_RELATION_TARGET",
             ErrorCode::UnresolvedPatternFieldRef => "ORB_X_UNRESOLVED_PATTERN_FIELD_REF",
@@ -654,6 +677,7 @@ impl ErrorCode {
             ErrorCode::BindingSetTargetMissingPath => "ORB_BINDING_SET_TARGET_MISSING_PATH",
             ErrorCode::BindingPayloadFieldUndeclared => "ORB_BINDING_PAYLOAD_FIELD_UNDECLARED",
             ErrorCode::BindingPayloadTypeIncompatible => "ORB_BINDING_PAYLOAD_TYPE_INCOMPATIBLE",
+            ErrorCode::SetValueTypeMismatch => "ORB_X_SET_VALUE_TYPE_MISMATCH",
             ErrorCode::EmitPayloadMissingRequired => "ORB_EMIT_PAYLOAD_MISSING_REQUIRED",
             ErrorCode::EmitPayloadExtraField => "ORB_EMIT_PAYLOAD_EXTRA_FIELD",
             ErrorCode::EmitPayloadFieldTypeMismatch => "ORB_EMIT_PAYLOAD_FIELD_TYPE_MISMATCH",
@@ -748,7 +772,8 @@ impl ErrorCode {
             | ErrorCode::TraitConfigObjectArrayForbidden
             | ErrorCode::TraitConfigTierInvalid
             | ErrorCode::TraitEntityNotRebindable
-            | ErrorCode::RebindMissingEntityFields => "trait",
+            | ErrorCode::RebindMissingEntityFields
+            | ErrorCode::EventRenameUnknownKey => "trait",
 
             ErrorCode::PageMissingName
             | ErrorCode::PageMissingPath
@@ -800,6 +825,7 @@ impl ErrorCode {
             | ErrorCode::EffectEmitInvalidName
             | ErrorCode::EffectEmitUndeclaredEvent
             | ErrorCode::EffectMissingRequiredEmit
+            | ErrorCode::SetValueTypeMismatch
             | ErrorCode::EmitDeclaredButUnfired => "effect",
 
             ErrorCode::SExprInvalidOperator
@@ -828,6 +854,7 @@ impl ErrorCode {
             | ErrorCode::CrossOrbitalMissingName
             | ErrorCode::CrossOrbitalPayloadMismatch
             | ErrorCode::CrossOrbitalListenSourceUnresolved
+            | ErrorCode::ListenTriggerUnmatched
             | ErrorCode::InternalEventExposed
             | ErrorCode::UnresolvedRelationTarget
             | ErrorCode::UnresolvedPatternFieldRef

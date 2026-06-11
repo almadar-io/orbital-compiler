@@ -4,7 +4,7 @@ use super::super::{ErrorCode, PageInitPayload, ValidationError, ValidationResult
 use super::{
     validate_call_service, validate_call_service_object, validate_emit, validate_fetch, validate_fetch_object, validate_navigate,
     validate_os_watch, validate_persist, validate_ref, validate_set, validate_set_object,
-    DeclaredEmit, EFFECT_OPERATORS,
+    validate_set_value_type, DeclaredEmit, EFFECT_OPERATORS,
 };
 use orbital_core::schema::{EntityDefinition, SExpression, TraitDefinition};
 use std::collections::{HashMap, HashSet};
@@ -231,6 +231,10 @@ pub(crate) fn validate_effect(
     page_init_payloads: &HashMap<String, PageInitPayload>,
     service_actions: &HashMap<String, HashSet<String>>,
     declared_emits: Option<&[DeclaredEmit]>,
+    // SET-EMITS-PAYLOAD backstop inputs: `{ name -> type }` maps for the
+    // linked entity's fields and the trait's declared payload fields.
+    entity_field_types: &HashMap<String, String>,
+    payload_field_types: &HashMap<String, String>,
 ) -> ValidationResult {
     let mut result = ValidationResult::new();
 
@@ -258,6 +262,12 @@ pub(crate) fn validate_effect(
                     }
                     "set" => {
                         result.merge(validate_set(arr, path, declared_emits));
+                        result.merge(validate_set_value_type(
+                            arr,
+                            path,
+                            entity_field_types,
+                            payload_field_types,
+                        ));
                     }
                     "fetch" => {
                         result.merge(validate_fetch(

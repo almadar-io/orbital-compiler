@@ -152,6 +152,8 @@ mod tests {
             &HashMap::new(),
             &HashMap::new(),
             None,
+            &HashMap::new(),
+            &HashMap::new(),
         );
         assert!(result.is_valid(), "Errors: {:?}", result.errors);
     }
@@ -173,6 +175,8 @@ mod tests {
             &HashMap::new(),
             &HashMap::new(),
             None,
+            &HashMap::new(),
+            &HashMap::new(),
         );
         assert!(!result.is_valid());
         assert!(result
@@ -198,6 +202,8 @@ mod tests {
             &HashMap::new(),
             &HashMap::new(),
             None,
+            &HashMap::new(),
+            &HashMap::new(),
         );
         assert!(!result.is_valid());
         assert!(result
@@ -223,6 +229,8 @@ mod tests {
             &HashMap::new(),
             &HashMap::new(),
             None,
+            &HashMap::new(),
+            &HashMap::new(),
         );
         assert!(!result.is_valid());
         assert!(result
@@ -249,6 +257,8 @@ mod tests {
             &HashMap::new(),
             &HashMap::new(),
             None,
+            &HashMap::new(),
+            &HashMap::new(),
         );
         assert!(!result.is_valid());
         assert!(result
@@ -284,6 +294,8 @@ mod tests {
             &page_init_payloads,
             &HashMap::new(),
             None,
+            &HashMap::new(),
+            &HashMap::new(),
         );
         assert!(!result.is_valid());
         assert!(result
@@ -327,6 +339,8 @@ mod tests {
             &page_init_payloads,
             &HashMap::new(),
             None,
+            &HashMap::new(),
+            &HashMap::new(),
         );
         assert!(result.is_valid(), "Errors: {:?}", result.errors);
     }
@@ -547,6 +561,8 @@ mod tests {
             &HashMap::new(),
             &HashMap::new(),
             Some(&declared_emits),
+            &HashMap::new(),
+            &HashMap::new(),
         );
         assert!(result.is_valid(), "Errors: {:?}", result.errors);
     }
@@ -627,6 +643,8 @@ mod tests {
             &HashMap::new(),
             &HashMap::new(),
             None,
+            &HashMap::new(),
+            &HashMap::new(),
         );
         assert!(!result.is_valid());
         assert!(result

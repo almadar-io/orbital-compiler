@@ -28,7 +28,9 @@ pub(crate) use navigate::validate_navigate;
 pub(crate) use os_watch::validate_os_watch;
 pub(crate) use persist::validate_persist;
 pub(crate) use r#ref::validate_ref;
-pub(crate) use set::{validate_set, validate_set_object};
+pub(crate) use set::{
+    entity_field_type_map, validate_set, validate_set_object, validate_set_value_type,
+};
 pub(crate) use utils::{extract_payload_fields, is_valid_event_identifier};
 pub use utils::EFFECT_OPERATORS;
 
@@ -65,6 +67,21 @@ pub fn validate_trait_effects(
     // Collect declared emits for this trait
     let declared_emits = collect_declared_emits(trait_def);
 
+    // SET-EMITS-PAYLOAD backstop inputs: the linked entity's field types and
+    // the trait's declared payload field types. Both are `{ name -> type }`
+    // maps over the lowercase primitive vocabulary. Payload types come from
+    // the typed `emits[].payload_schema`; listens carry payload field NAMES
+    // (via `payload_mapping`) but no declared types, so they cannot seed a
+    // type-comparison entry — the check fires only where a declared type
+    // exists on both sides.
+    let entity_field_types: HashMap<String, String> = trait_def
+        .linked_entity
+        .as_ref()
+        .and_then(|e| entity_definitions.get(e))
+        .map(entity_field_type_map)
+        .unwrap_or_default();
+    let payload_field_types = collect_payload_field_types(trait_def);
+
     // Validate effects in transitions
     for (i, transition) in trait_def.state_machine.transitions.iter().enumerate() {
         if let Some(effects) = &transition.effects {
@@ -80,6 +97,8 @@ pub fn validate_trait_effects(
                     page_init_payloads,
                     service_actions,
                     Some(&declared_emits),
+                    &entity_field_types,
+                    &payload_field_types,
                 );
                 result.merge(effect_result);
 
@@ -105,6 +124,8 @@ pub fn validate_trait_effects(
                     page_init_payloads,
                     service_actions,
                     Some(&declared_emits),
+                    &entity_field_types,
+                    &payload_field_types,
                 );
                 result.merge(effect_result);
 
@@ -117,6 +138,32 @@ pub fn validate_trait_effects(
     }
 
     result
+}
+
+/// Collect the `{ payloadFieldName -> declaredType }` map for a trait,
+/// sourced from every `emits[].payload_schema` field. This is the typed
+/// payload surface the SET-EMITS-PAYLOAD backstop compares against. Listens
+/// carry payload field NAMES (via `payload_mapping`) but no declared types,
+/// so they cannot contribute a type entry; the backstop only fires where a
+/// declared type exists on both the entity and the payload side.
+///
+/// On duplicate field names across multiple emits, the first declared type
+/// wins (deterministic — iteration order is the declared `emits` order).
+fn collect_payload_field_types(
+    trait_def: &orbital_core::schema::TraitDefinition,
+) -> HashMap<String, String> {
+    let mut map: HashMap<String, String> = HashMap::new();
+    if let Some(emits) = &trait_def.emits {
+        for emit in emits {
+            if let Some(schema) = &emit.payload_schema {
+                for field in schema {
+                    map.entry(field.name.clone())
+                        .or_insert_with(|| field.field_type.clone());
+                }
+            }
+        }
+    }
+    map
 }
 
 /// Information about a declared emit

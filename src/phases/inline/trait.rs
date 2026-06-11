@@ -469,6 +469,40 @@ pub(crate) fn inline_traits(
                                     // before/after pair when a `name:`
                                     // override is supplied.
                                     let original_name = trait_def.name.clone();
+                                    // RULE 3: validate the events-rename SOURCE
+                                    // keys against the imported trait's event
+                                    // set BEFORE the override is applied (after
+                                    // it, the original keys are gone). A `from`
+                                    // key that names nothing silently no-ops —
+                                    // surface it instead. The event set is the
+                                    // union of declared emits and transition
+                                    // triggers (`ORB_T_EVENT_RENAME_UNKNOWN_KEY`).
+                                    if let Some(map) = events_override.as_ref() {
+                                        let mut known: HashSet<&str> = HashSet::new();
+                                        if let Some(emits) = &trait_def.emits {
+                                            for e in emits {
+                                                known.insert(e.event.as_str());
+                                            }
+                                        }
+                                        for t in &trait_def.state_machine.transitions {
+                                            known.insert(t.event.as_str());
+                                        }
+                                        for from in map.keys() {
+                                            // Skip self-maps / empties — they
+                                            // are pruned as no-ops by the
+                                            // override builder anyway.
+                                            if from.is_empty() {
+                                                continue;
+                                            }
+                                            if !known.contains(from.as_str()) {
+                                                return Err(InlineError::EventRenameUnknownKey {
+                                                    from: from.clone(),
+                                                    trait_name: original_name.clone(),
+                                                    path: trait_path.clone(),
+                                                });
+                                            }
+                                        }
+                                    }
                                     apply_overrides_to_trait(
                                         &mut trait_def,
                                         linked_entity.as_ref(),
