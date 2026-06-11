@@ -505,6 +505,70 @@ pub fn validate_state_machine(
         }
     }
 
+    // Reachability: every declared state must be reachable from the initial
+    // state via some transition path. Mirrors the verifier's BFS exclusions —
+    // skip `from == "*"` wildcards (they don't define real topology edges) and
+    // skip the boot `INIT` self-loop on the initial state. Dead states surface
+    // only as a generic "uncovered" in the verifier today; catch them here.
+    if !initial_states.is_empty() {
+        let initial = initial_states[0];
+        let mut adjacency: HashMap<&str, Vec<&str>> = HashMap::new();
+        for transition in &sm.transitions {
+            // Skip ONLY the boot INIT *self-loop* on the initial state (it adds
+            // no reachability). A `loading --INIT--> loaded` boot transition that
+            // moves to a DIFFERENT state IS a real auto-fired reachability edge
+            // (the runtime fires INIT on mount), so it must be followed — the
+            // walker skips re-firing it, but for reachability `loaded` is reached.
+            if transition.event == "INIT"
+                && matches_state(&transition.from, initial)
+                && transition.to.as_str() == initial
+            {
+                continue;
+            }
+            let froms: Vec<&str> = match &transition.from {
+                StringOrArray::Single(s) => vec![s.as_str()],
+                StringOrArray::Multiple(states) => states.iter().map(|s| s.as_str()).collect(),
+            };
+            for from in froms {
+                if from == "*" {
+                    continue;
+                }
+                adjacency.entry(from).or_default().push(transition.to.as_str());
+            }
+        }
+
+        let mut reached: HashSet<&str> = HashSet::new();
+        let mut queue: Vec<&str> = vec![initial];
+        reached.insert(initial);
+        while let Some(state) = queue.pop() {
+            if let Some(targets) = adjacency.get(state) {
+                for &target in targets {
+                    if reached.insert(target) {
+                        queue.push(target);
+                    }
+                }
+            }
+        }
+
+        for state in &sm.states {
+            if !reached.contains(state.name.as_str()) {
+                result.add_error(
+                    ValidationError::warning(
+                        ErrorCode::TraitStateUnreachable,
+                        format!("{}.states", sm_path),
+                        format!(
+                            "State '{}' is unreachable from the initial state '{}' via any transition path",
+                            state.name, initial
+                        ),
+                    )
+                    .with_suggestion(
+                        "Add a transition that reaches this state, or remove the dead state",
+                    ),
+                );
+            }
+        }
+    }
+
     result
 }
 
@@ -862,6 +926,45 @@ mod tests {
             .errors
             .iter()
             .any(|e| e.code == ErrorCode::TraitMultipleInitialStates));
+    }
+
+    #[test]
+    fn test_trait_state_unreachable_fires() {
+        // 3 states: idle (initial) -> active via START; `orphan` has no
+        // incoming transition, so it is unreachable from the initial state.
+        let mut trait_def = create_valid_trait();
+        trait_def.state_machine.states.push(StateDefinition {
+            name: "orphan".to_string(),
+            is_initial: None,
+            is_terminal: None,
+            description: None,
+        });
+
+        let result = validate_trait_definition(&trait_def, "test", &HashSet::new());
+        assert!(
+            result
+                .errors
+                .iter()
+                .any(|e| e.code == ErrorCode::TraitStateUnreachable
+                    && e.message.contains("orphan")),
+            "Expected ORB_T_STATE_UNREACHABLE for 'orphan', got: {:?}",
+            result.errors
+        );
+    }
+
+    #[test]
+    fn test_trait_state_all_reachable_no_fire() {
+        // idle (initial) -> active is fully reachable; no unreachable state.
+        let trait_def = create_valid_trait();
+        let result = validate_trait_definition(&trait_def, "test", &HashSet::new());
+        assert!(
+            !result
+                .errors
+                .iter()
+                .any(|e| e.code == ErrorCode::TraitStateUnreachable),
+            "Did not expect ORB_T_STATE_UNREACHABLE, got: {:?}",
+            result.errors
+        );
     }
 
     // ---- @rebindable enforcement (validate_entity_rebind) ----

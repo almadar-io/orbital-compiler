@@ -70,6 +70,14 @@ pub enum ErrorCode {
     TraitDuplicateTransition,
     /// Missing INIT transition on initial state
     TraitMissingInitTransition,
+    /// A declared state is unreachable from the trait's initial state via any
+    /// transition path. BFS from the initial state over `transitions` (skipping
+    /// `from == "*"` wildcards and the boot `INIT` self-loop on the initial
+    /// state) never reaches it — dead topology. Surfaces only as a generic
+    /// "uncovered" in the verifier today; caught here at author time. Worked
+    /// example: std-booking-system ScheduleDisplay's `displaying`/`refreshing`
+    /// cluster.
+    TraitStateUnreachable,
     /// INIT transition missing fetch effect for linked entity
     TraitInitMissingFetch,
     /// Interaction trait missing render_ui effects
@@ -560,6 +568,7 @@ impl ErrorCode {
             ErrorCode::TraitInvalidTransition => "ORB_T_INVALID_TRANSITION",
             ErrorCode::TraitDuplicateTransition => "ORB_T_DUPLICATE_TRANSITION",
             ErrorCode::TraitMissingInitTransition => "ORB_T_MISSING_INIT_TRANSITION",
+            ErrorCode::TraitStateUnreachable => "ORB_T_STATE_UNREACHABLE",
             ErrorCode::TraitInitMissingFetch => "ORB_T_INIT_MISSING_FETCH",
             ErrorCode::TraitMissingRenderUI => "ORB_T_MISSING_RENDER_UI",
             ErrorCode::TraitDeprecatedUI => "ORB_T_DEPRECATED_UI",
@@ -761,6 +770,7 @@ impl ErrorCode {
             | ErrorCode::TraitInvalidTransition
             | ErrorCode::TraitDuplicateTransition
             | ErrorCode::TraitMissingInitTransition
+            | ErrorCode::TraitStateUnreachable
             | ErrorCode::TraitInitMissingFetch
             | ErrorCode::TraitMissingRenderUI
             | ErrorCode::TraitDeprecatedUI
