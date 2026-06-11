@@ -802,7 +802,18 @@ impl<'a> Resolver<'a> {
                 // `positive("negative", "neutral")` and TS2304) without
                 // misclassifying `str/concat`, `agent/generate`, etc.
                 if let Some(SExpression::String(op)) = arr.first() {
-                    let is_known = orbital_core::evaluator::get_operator(op).is_some()
+                    // Discriminate against the CANONICAL operator registry
+                    // (`@almadar/std` canonical-operators.json, baked via the sync
+                    // tool) — the single source of record — first, then the
+                    // evaluator/effect registries for aliases not yet declared
+                    // canonical. Using only the hand-maintained evaluator registry
+                    // here silently DEMOTED real canonical ops it happened to miss
+                    // (`array/count`, `time/relative`) to string-array literals
+                    // (G-LOLO-OP-ARRAY-DEMOTION). Corpus-verified: every
+                    // canonical-headed array is a call; data lists never use a
+                    // canonical head.
+                    let is_known = crate::embedded::is_known_operator(op)
+                        || orbital_core::evaluator::get_operator(op).is_some()
                         || orbital_core::effects::is_known_effect_name(op);
                     if is_known {
                         return self.resolve_sexpr_call(op, &arr[1..]);
