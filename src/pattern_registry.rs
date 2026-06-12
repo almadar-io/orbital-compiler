@@ -40,7 +40,7 @@ pub struct ComponentMapping {
 /// One field of an emit/listen payload schema mirrored into the registry by
 /// pattern-sync from the component's `EventEmit<P>` / `EventListen<P>` brand.
 #[derive(Debug, Clone, Deserialize)]
-pub struct PayloadField {
+pub struct RegistryPayloadField {
     #[serde(default)]
     pub name: String,
     #[serde(default, rename = "type")]
@@ -93,7 +93,7 @@ pub struct PropSchema {
     pub callback_args: Option<Vec<CallbackArg>>,
     /// For `kind: "event-ref"` from an `EventEmit<P>` brand.
     #[serde(rename = "emitPayloadSchema", default)]
-    pub emit_payload_schema: Option<Vec<PayloadField>>,
+    pub emit_payload_schema: Option<Vec<RegistryPayloadField>>,
     /// Element shape for array-typed props (mirrors JSON Schema `items`).
     #[serde(default)]
     pub items: Option<PropTypeSchema>,
@@ -116,7 +116,7 @@ pub struct PropSchema {
 /// Pattern definition from registry.
 #[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub struct PatternDefinition {
+pub struct RegistryPattern {
     #[serde(rename = "type")]
     pub pattern_type: String,
     pub category: String,
@@ -137,7 +137,7 @@ pub struct PayloadSchema {
 
 /// Event emitted by a component.
 #[derive(Debug, Clone, Deserialize)]
-pub struct EventDefinition {
+pub struct RegistryEvent {
     pub event: String,
     pub trigger: String,
     pub payload: PayloadSchema,
@@ -149,7 +149,7 @@ pub struct EventDefinition {
 #[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct EventContract {
-    pub emits: Vec<EventDefinition>,
+    pub emits: Vec<RegistryEvent>,
     pub requires: Vec<String>,
     #[serde(default)]
     pub entity_aware: bool,
@@ -169,7 +169,7 @@ struct EventContractsFile {
 
 #[derive(Debug, Deserialize)]
 struct PatternRegistryFile {
-    patterns: HashMap<String, PatternDefinition>,
+    patterns: HashMap<String, RegistryPattern>,
 }
 
 fn component_mappings() -> &'static HashMap<String, ComponentMapping> {
@@ -190,8 +190,8 @@ fn event_contracts() -> &'static HashMap<String, EventContract> {
     })
 }
 
-fn pattern_definitions() -> &'static HashMap<String, PatternDefinition> {
-    static PARSED: OnceLock<HashMap<String, PatternDefinition>> = OnceLock::new();
+fn pattern_definitions() -> &'static HashMap<String, RegistryPattern> {
+    static PARSED: OnceLock<HashMap<String, RegistryPattern>> = OnceLock::new();
     PARSED.get_or_init(|| {
         let file: PatternRegistryFile = serde_json::from_str(REGISTRY_JSON)
             .expect("parse baked patterns registry");
@@ -210,7 +210,7 @@ pub fn get_event_contract(pattern_type: &str) -> Option<&'static EventContract> 
 }
 
 /// Get pattern definition (includes props schema).
-pub fn get_pattern_definition(pattern_type: &str) -> Option<&'static PatternDefinition> {
+pub fn get_pattern_definition(pattern_type: &str) -> Option<&'static RegistryPattern> {
     pattern_definitions().get(pattern_type)
 }
 
