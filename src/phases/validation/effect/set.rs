@@ -154,7 +154,7 @@ pub(crate) fn validate_set_value_type(
         return result;
     };
 
-    if !types_compatible(entity_ty, payload_ty) {
+    if !orbital_core::set_value_type_compatible(entity_ty, payload_ty) {
         result.add_error(
             ValidationError::error(
                 ErrorCode::SetValueTypeMismatch,
@@ -202,24 +202,6 @@ fn payload_field_ref(value: &SExpression) -> Option<&str> {
         return None;
     }
     Some(field)
-}
-
-/// Two declared field types are compatible when they name the same KIND.
-/// Deterministic, no widening/coercion — but array kinds compare equal across
-/// element types because the entity side collapses `[T]` to `"array"`
-/// (FieldType::Array) while the payload side keeps the raw `"[T]"` string. This
-/// rule only catches kind mismatches (e.g. `string <- [CacheEntry]`), not
-/// element-type drift.
-fn types_compatible(entity_ty: &str, payload_ty: &str) -> bool {
-    if entity_ty == payload_ty {
-        return true;
-    }
-    let is_array = |t: &str| t == "array" || (t.starts_with('[') && t.ends_with(']'));
-    if is_array(entity_ty) && is_array(payload_ty) {
-        return true;
-    }
-    let is_object = |t: &str| t == "object" || t == "json";
-    is_object(entity_ty) && is_object(payload_ty)
 }
 
 /// Build the `{ fieldName -> type }` map for an entity definition. The type is

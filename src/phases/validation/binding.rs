@@ -789,61 +789,6 @@ fn validate_entity_field_references(
     result
 }
 
-/// Walk an SExpression and collect every `@entity.<field>` reference into
-/// `referenced_fields`, plus every `(set @entity.<field> ...)` setter call
-/// into `set_fields`. The path arg is unused at the leaf — kept to mirror
-/// other walkers in this file. Recursive over arrays + object values.
-fn collect_entity_field_refs(
-    expr: &SExpression,
-    referenced_fields: &mut HashMap<String, String>,
-    set_fields: &mut HashSet<String>,
-    transition_event: &str,
-) {
-    match expr {
-        SExpression::String(s) if s.starts_with("@entity.") => {
-            let binding_path = &s[8..];
-            let field_name = binding_path.split('.').next().unwrap_or("");
-            let field_name = field_name.split('[').next().unwrap_or(field_name);
-            if !field_name.is_empty()
-                && field_name != "id"
-                && field_name != "createdAt"
-                && field_name != "updatedAt"
-            {
-                referenced_fields
-                    .entry(field_name.to_string())
-                    .or_insert_with(|| transition_event.to_string());
-            }
-        }
-        SExpression::Array(arr) => {
-            // Detect `["set", "@entity.<field>", ...]` setter form. The 4-elem
-            // form `["set", entityId, field, value]` (back-compat) doesn't
-            // bind through `@entity.path`, so the field-presence check still
-            // catches it conservatively as "no path-form set".
-            if arr.len() >= 2 {
-                if let (SExpression::String(op), SExpression::String(path)) = (&arr[0], &arr[1]) {
-                    if op == "set" && path.starts_with("@entity.") {
-                        let setter_path = &path[8..];
-                        let setter_field = setter_path.split('.').next().unwrap_or("");
-                        let setter_field = setter_field.split('[').next().unwrap_or(setter_field);
-                        if !setter_field.is_empty() {
-                            set_fields.insert(setter_field.to_string());
-                        }
-                    }
-                }
-            }
-            for item in arr {
-                collect_entity_field_refs(item, referenced_fields, set_fields, transition_event);
-            }
-        }
-        SExpression::Object(obj) => {
-            for value in obj.values() {
-                collect_entity_field_refs(value, referenced_fields, set_fields, transition_event);
-            }
-        }
-        _ => {}
-    }
-}
-
 /// Validate that every `@entity.<field>` referenced in a trait's
 /// transitions/guards/effects/ticks has at least one explicit
 /// `(set @entity.<field> <value>)` somewhere in the trait.
@@ -883,18 +828,18 @@ fn validate_entity_fields_have_setters(
     for transition in trait_def.state_machine.transitions.iter() {
         let event = transition.event.as_str();
         if let Some(guard) = &transition.guard {
-            collect_entity_field_refs(guard, &mut referenced_fields, &mut set_fields, event);
+            guard.collect_entity_field_refs(&mut referenced_fields, &mut set_fields, event);
         }
         if let Some(effects) = &transition.effects {
             for effect in effects {
-                collect_entity_field_refs(effect, &mut referenced_fields, &mut set_fields, event);
+                effect.collect_entity_field_refs(&mut referenced_fields, &mut set_fields, event);
             }
         }
     }
     if let Some(ticks) = &trait_def.ticks {
         for tick in ticks {
             for effect in &tick.effects {
-                collect_entity_field_refs(effect, &mut referenced_fields, &mut set_fields, "TICK");
+                effect.collect_entity_field_refs(&mut referenced_fields, &mut set_fields, "TICK");
             }
         }
     }
