@@ -1,6 +1,6 @@
 {
   "version": "1.0.0",
-  "exportedAt": "2026-06-09T01:18:33.001Z",
+  "exportedAt": "2026-06-12T08:35:33.532Z",
   "mappings": {
     "page-header": {
       "component": "PageHeader",
@@ -457,7 +457,7 @@
     "game-template": {
       "component": "GameTemplate",
       "importPath": "@/components/templates/GameTemplate",
-      "category": "template"
+      "category": "game"
     },
     "generic-app-template": {
       "component": "GenericAppTemplate",
@@ -467,7 +467,7 @@
     "game-shell": {
       "component": "GameShell",
       "importPath": "@/components/templates/GameShell",
-      "category": "template"
+      "category": "game"
     },
     "chart": {
       "component": "Chart",
@@ -512,17 +512,17 @@
     "battle-template": {
       "component": "BattleTemplate",
       "importPath": "@/components/templates/BattleTemplate",
-      "category": "template"
+      "category": "game"
     },
     "castle-template": {
       "component": "CastleTemplate",
       "importPath": "@/components/templates/CastleTemplate",
-      "category": "template"
+      "category": "game"
     },
     "world-map-template": {
       "component": "WorldMapTemplate",
       "importPath": "@/components/templates/WorldMapTemplate",
-      "category": "template"
+      "category": "game"
     },
     "error-boundary": {
       "component": "ErrorBoundary",
@@ -1446,7 +1446,7 @@
     },
     "feature-renderer": {
       "component": "FeatureRenderer",
-      "importPath": "@almadar/ui/components/organisms/game/three",
+      "importPath": "@/components/organisms/FeatureRenderer",
       "category": "game"
     },
     "dashboard-grid": {
