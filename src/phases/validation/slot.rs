@@ -4,11 +4,11 @@
 //! Ported from `builder/packages/shared/src/orbitals/validation/slot-validator.ts`.
 
 use super::{
-    render_ui::is_render_ui_effect, Domain, ErrorCode, ValidationContext, ValidationError,
-    ValidationResult,
+    render_ui::{extract_slot, is_render_ui_effect},
+    Domain, ErrorCode, ValidationContext, ValidationError, ValidationResult,
 };
 use orbital_core::schema::{
-    OrbitalSchema, SExpression, StateMachine, TraitDefinition, TraitReference,
+    OrbitalSchema, StateMachine, TraitDefinition, TraitReference,
 };
 use std::collections::{HashMap, HashSet, VecDeque};
 
@@ -327,29 +327,6 @@ fn matches_state(from: &orbital_core::schema::StringOrArray, state: &str) -> boo
     }
 }
 
-/// Extract slot from a render_ui effect
-fn extract_slot(expr: &SExpression) -> Option<String> {
-    match expr {
-        SExpression::Array(arr) if arr.len() >= 2 => {
-            if let SExpression::String(slot) = &arr[1] {
-                Some(slot.clone())
-            } else {
-                None
-            }
-        }
-        SExpression::Object(obj) => {
-            let render_ui = obj.get("render_ui").or_else(|| obj.get("render-ui"))?;
-            if let SExpression::Object(rui_obj) = render_ui {
-                if let Some(SExpression::String(slot)) = rui_obj.get("slot") {
-                    return Some(slot.clone());
-                }
-            }
-            None
-        }
-        _ => None,
-    }
-}
-
 /// Validate main slot coverage for a specific set of traits and state
 pub fn validate_main_slot_coverage(
     traits: &[&TraitDefinition],
@@ -395,7 +372,7 @@ pub fn validate_main_slot_coverage(
 mod tests {
     use super::*;
     use orbital_core::schema::{
-        StateDefinition, StateMachine, StringOrArray, TransitionDefinition,
+        SExpression, StateDefinition, StateMachine, StringOrArray, TransitionDefinition,
     };
 
     fn create_trait_with_render_ui(name: &str, slot: &str) -> TraitDefinition {

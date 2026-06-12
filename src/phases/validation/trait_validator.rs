@@ -4,8 +4,8 @@
 //! Ported from `builder/packages/shared/src/orbitals/validation/trait-validator.ts`.
 
 use super::{
-    is_std_trait, ErrorCode, ValidationContext, ValidationError, ValidationResult,
-    VALID_TRAIT_CATEGORIES,
+    is_std_trait, render_ui::is_render_ui_effect, ErrorCode, ValidationContext, ValidationError,
+    ValidationResult, VALID_TRAIT_CATEGORIES,
 };
 use orbital_core::schema::{
     EntityDefinition, OrbitalSchema, Persistence, SExpression, StateMachine, StringOrArray,
@@ -845,21 +845,6 @@ fn has_render_ui_effects(sm: &StateMachine) -> bool {
         }
     }
     false
-}
-
-/// Check if an S-expression is a render_ui effect
-fn is_render_ui_effect(expr: &SExpression) -> bool {
-    match expr {
-        SExpression::Array(arr) if !arr.is_empty() => {
-            if let SExpression::String(op) = &arr[0] {
-                op == "render-ui" || op == "render_ui"
-            } else {
-                false
-            }
-        }
-        SExpression::Object(obj) => obj.contains_key("render_ui") || obj.contains_key("render-ui"),
-        _ => false,
-    }
 }
 
 /// Check if an S-expression is a fetch effect for the given entity

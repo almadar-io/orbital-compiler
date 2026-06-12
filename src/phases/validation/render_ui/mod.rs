@@ -15,10 +15,10 @@ pub(crate) use super::sync;
 pub(crate) use super::{ErrorCode, ValidationContext, ValidationError, ValidationResult, VALID_SLOTS};
 
 use self::binding::validate_all_render_ui_bindings;
-use self::item_actions::{extract_fetch_entity, extract_render_ui_entity, extract_slot};
+use self::item_actions::{extract_fetch_entity, extract_render_ui_entity};
 use self::pattern::validate_pattern;
 use self::sync::ExtraPatterns;
-pub use self::item_actions::is_render_ui_effect;
+pub use self::item_actions::{extract_slot, is_render_ui_effect};
 
 use orbital_core::schema::{
     EntityDefinition, OrbitalSchema, SExpression, TraitDefinition,

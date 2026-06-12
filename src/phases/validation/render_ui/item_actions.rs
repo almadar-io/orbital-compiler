@@ -130,7 +130,7 @@ pub fn is_render_ui_effect(expr: &SExpression) -> bool {
 }
 
 /// Extract slot from a render_ui effect
-pub(super) fn extract_slot(expr: &SExpression) -> Option<String> {
+pub fn extract_slot(expr: &SExpression) -> Option<String> {
     match expr {
         SExpression::Array(arr) if arr.len() >= 2 => {
             if let SExpression::String(slot) = &arr[1] {
