@@ -49,6 +49,7 @@ pub mod error;
 pub mod icon;
 pub mod literal_default;
 pub mod page;
+pub mod payload_field_name;
 pub mod render_ui;
 pub mod render_ui_binding;
 pub mod service;
@@ -411,6 +412,11 @@ pub fn validate_comprehensive_full_with_phase_f(
     // after effect because it reuses emit-declaration data effect
     // collected via `trait_def.emits`. Warn-only severity.
     emit_payload::validate_all_emit_payloads(schema, &mut ctx);
+
+    // Phase 5b.1: G6 Rule 1 — every emit/event payloadSchema field name must
+    // be a valid TS identifier (no dots, spaces, or leading digits). Defense-
+    // in-depth for the lowering pass that flattens nested payload names.
+    payload_field_name::validate_payload_field_names(schema, &mut ctx);
 
     // Phase 5c: Phase F.2 cross-emitter declared-payload consensus.
     // Compares every event's declared payload across all traits that emit

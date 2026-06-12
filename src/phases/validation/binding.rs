@@ -527,6 +527,42 @@ pub fn validate_set_target(binding: &str, path: &str) -> ValidationResult {
     result
 }
 
+/// The first path segment that fails to resolve while walking a `@payload`
+/// binding through nested `properties`, plus the field set at that level (for
+/// the `valid_values` suggestion).
+struct UnresolvedPayloadSegment<'a> {
+    segment: &'a str,
+    siblings: &'a [PayloadField],
+}
+
+/// Walk `segments` (already `@payload.`-stripped + index-stripped) through the
+/// payload schema, descending into each matched field's `properties`. Returns
+/// `None` when every segment resolves, or the first segment that doesn't (with
+/// the sibling set at that level). Stops descending once a segment matches a
+/// leaf (no `properties`) — deeper segments on a leaf are runtime object access
+/// the schema doesn't enumerate, not a declaration error.
+fn resolve_payload_path<'a>(
+    fields: &'a [PayloadField],
+    segments: &'a [&'a str],
+) -> Option<UnresolvedPayloadSegment<'a>> {
+    let mut level = fields;
+    for seg in segments {
+        match level.iter().find(|f| f.name == *seg) {
+            None => {
+                return Some(UnresolvedPayloadSegment {
+                    segment: seg,
+                    siblings: level,
+                })
+            }
+            Some(field) => match field.properties.as_deref() {
+                Some(props) => level = props,
+                None => return None,
+            },
+        }
+    }
+    None
+}
+
 /// Validate that @payload.field references are declared in the event's payload schema
 fn validate_payload_field_references(
     expr: &SExpression,
@@ -538,35 +574,45 @@ fn validate_payload_field_references(
 
     match expr {
         SExpression::String(s) if s.starts_with("@payload.") => {
-            // Extract the field name from @payload.fieldName or @payload.fieldName.nested
+            // Walk the full dotted path through nested `properties`, so a
+            // nested binding `@payload.row.category` resolves against the
+            // `row` object field's `category` property (entity-ref payload
+            // fields now lower to ONE nested object field, not dotted-flat
+            // members).
             let binding_path = &s[9..]; // Skip "@payload."
-            let field_name = binding_path.split('.').next().unwrap_or("");
+            let segments: Vec<&str> = binding_path
+                .split('.')
+                .map(|seg| seg.split('[').next().unwrap_or(seg))
+                .filter(|seg| !seg.is_empty())
+                .collect();
 
-            if field_name.is_empty() {
+            if segments.is_empty() {
                 return result;
             }
+            let field_name = segments[0];
 
             match payload_fields {
                 Some(fields) => {
-                    // Check if the field is declared
-                    let field_exists = fields.iter().any(|f| f.name == field_name);
-                    if !field_exists {
-                        let declared_fields: Vec<&str> =
-                            fields.iter().map(|f| f.name.as_str()).collect();
+                    if let Some(unresolved) = resolve_payload_path(fields, &segments) {
+                        let valid_at_level: Vec<String> = unresolved
+                            .siblings
+                            .iter()
+                            .map(|f| f.name.clone())
+                            .collect();
                         result.add_error(
                             ValidationError::error(
                                 ErrorCode::BindingPayloadFieldUndeclared,
                                 path,
                                 format!(
                                     "Payload field '{}' is not declared in event '{}' payload schema",
-                                    field_name, event_name
+                                    unresolved.segment, event_name
                                 ),
                             )
                             .with_suggestion(format!(
                                 "Add {{ \"name\": \"{}\", \"type\": \"...\" }} to the event's payload array",
-                                field_name
+                                unresolved.segment
                             ))
-                            .with_valid_values(declared_fields.iter().map(|s| s.to_string()).collect()),
+                            .with_valid_values(valid_at_level),
                         );
                     }
                 }

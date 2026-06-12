@@ -424,6 +424,12 @@ pub enum ErrorCode {
     /// `(emit EVT {...})` literal provides a value whose primitive type
     /// does not match the declared `PayloadField.field_type`. Warn-only.
     EmitPayloadFieldTypeMismatch,
+    /// An event/emit `payloadSchema` field name is not a valid TypeScript
+    /// identifier (contains a dot, space, or leading digit). Codegen turns
+    /// each field into a struct member, so `row.category` would emit broken
+    /// TS. Validate-layer defense-in-depth for the lowering pass that
+    /// flattens nested payload field names. Error severity.
+    PayloadFieldNameInvalid,
     /// `emit: { success: "X" }` config on a data operator declares success
     /// event X but X's declared payload does not match the operator's
     /// `effect.produces` at this call site. Warn-only.
@@ -690,6 +696,7 @@ impl ErrorCode {
             ErrorCode::EmitPayloadMissingRequired => "ORB_EMIT_PAYLOAD_MISSING_REQUIRED",
             ErrorCode::EmitPayloadExtraField => "ORB_EMIT_PAYLOAD_EXTRA_FIELD",
             ErrorCode::EmitPayloadFieldTypeMismatch => "ORB_EMIT_PAYLOAD_FIELD_TYPE_MISMATCH",
+            ErrorCode::PayloadFieldNameInvalid => "ORB_X_PAYLOAD_FIELD_NAME",
             ErrorCode::EmitSuccessPayloadReturnMismatch => "ORB_EMIT_SUCCESS_PAYLOAD_RETURN_MISMATCH",
             ErrorCode::CrossEmitterDeclaredPayloadMismatch => {
                 "ORB_X_CROSS_EMITTER_DECLARED_PAYLOAD_MISMATCH"
@@ -884,6 +891,7 @@ impl ErrorCode {
             | ErrorCode::EmitPayloadMissingRequired
             | ErrorCode::EmitPayloadExtraField
             | ErrorCode::EmitPayloadFieldTypeMismatch
+            | ErrorCode::PayloadFieldNameInvalid
             | ErrorCode::EmitSuccessPayloadReturnMismatch
             | ErrorCode::BindingEntityFieldNotFound
             | ErrorCode::BindingEntityFieldNeverSet
