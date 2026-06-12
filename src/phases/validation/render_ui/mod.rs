@@ -155,6 +155,7 @@ pub fn validate_trait_render_ui(
                         &effect_path,
                         entity_definitions,
                         extra_patterns,
+                        trait_def.linked_entity.as_deref(),
                     );
                     result.merge(render_result);
 
@@ -234,6 +235,7 @@ pub fn validate_render_ui_effect(
     path: &str,
     entity_definitions: &HashMap<String, EntityDefinition>,
     extra_patterns: Option<&ExtraPatterns>,
+    linked_entity: Option<&str>,
 ) -> ValidationResult {
     let mut result = ValidationResult::new();
 
@@ -250,6 +252,7 @@ pub fn validate_render_ui_effect(
                     path,
                     entity_definitions,
                     extra_patterns,
+                    linked_entity,
                 ));
                 // `@trait.X` bindings must only appear in `children:` or
                 // `node`-typed props. Walk the pattern tree and warn on
@@ -272,6 +275,7 @@ pub fn validate_render_ui_effect(
                         path,
                         entity_definitions,
                         extra_patterns,
+                        linked_entity,
                     ));
                     result.merge(validate_trait_binding_positions(
                         pattern,
@@ -426,7 +430,7 @@ mod tests {
         ]);
 
         let entity_defs = HashMap::new();
-        let result = validate_render_ui_effect(&effect, "test", &entity_defs, None);
+        let result = validate_render_ui_effect(&effect, "test", &entity_defs, None, None);
         assert!(result.is_valid(), "Errors: {:?}", result.errors);
     }
 
@@ -443,7 +447,7 @@ mod tests {
         ]);
 
         let entity_defs = HashMap::new();
-        let result = validate_render_ui_effect(&effect, "test", &entity_defs, None);
+        let result = validate_render_ui_effect(&effect, "test", &entity_defs, None, None);
         assert!(!result.is_valid());
         assert!(result
             .errors
@@ -460,7 +464,7 @@ mod tests {
         ]);
 
         let entity_defs = HashMap::new();
-        let result = validate_render_ui_effect(&effect, "test", &entity_defs, None);
+        let result = validate_render_ui_effect(&effect, "test", &entity_defs, None, None);
         assert!(!result.is_valid());
         assert!(result
             .errors
@@ -507,7 +511,7 @@ mod tests {
         ]);
 
         let entity_defs = HashMap::new();
-        let result = validate_render_ui_effect(&effect, "test", &entity_defs, None);
+        let result = validate_render_ui_effect(&effect, "test", &entity_defs, None, None);
         assert!(!result.is_valid());
         assert!(result
             .errors
@@ -559,7 +563,7 @@ mod tests {
         ]);
 
         let entity_defs = HashMap::new();
-        let result = validate_render_ui_effect(&effect, "test", &entity_defs, None);
+        let result = validate_render_ui_effect(&effect, "test", &entity_defs, None, None);
         // Should have an error for unknown prop
         assert!(
             result
@@ -598,7 +602,7 @@ mod tests {
         ]);
 
         let entity_defs = HashMap::new();
-        let result = validate_render_ui_effect(&effect, "test", &entity_defs, None);
+        let result = validate_render_ui_effect(&effect, "test", &entity_defs, None, None);
         // Should have no invalid prop errors
         assert!(
             !result
@@ -634,7 +638,7 @@ mod tests {
         ]);
 
         let entity_defs = HashMap::new();
-        let result = validate_render_ui_effect(&effect, "test", &entity_defs, None);
+        let result = validate_render_ui_effect(&effect, "test", &entity_defs, None, None);
         // Should have no invalid prop errors
         assert!(
             !result
@@ -753,7 +757,7 @@ mod tests {
             ),
         ]);
 
-        let result = validate_render_ui_effect(&effect, "test", &entity_defs, None);
+        let result = validate_render_ui_effect(&effect, "test", &entity_defs, None, None);
         // Should have no field path errors
         assert!(
             !result
@@ -821,7 +825,7 @@ mod tests {
             ),
         ]);
 
-        let result = validate_render_ui_effect(&effect, "test", &entity_defs, None);
+        let result = validate_render_ui_effect(&effect, "test", &entity_defs, None, None);
         // Should have field path warning for missing relation
         assert!(
             result
@@ -935,7 +939,7 @@ mod tests {
         ]);
 
         let entity_defs = HashMap::new();
-        let result = validate_render_ui_effect(&effect, "test", &entity_defs, None);
+        let result = validate_render_ui_effect(&effect, "test", &entity_defs, None, None);
 
         // Should report a hard error (not a warning) with a message that
         // mentions binding alternatives.
@@ -989,7 +993,7 @@ mod tests {
         ]);
 
         let entity_defs = HashMap::new();
-        let result = validate_render_ui_effect(&effect, "test", &entity_defs, None);
+        let result = validate_render_ui_effect(&effect, "test", &entity_defs, None, None);
 
         assert!(
             !result.errors.iter().any(|e| {
@@ -1028,7 +1032,7 @@ mod tests {
         ]);
 
         let entity_defs = HashMap::new();
-        let result = validate_render_ui_effect(&effect, "test", &entity_defs, None);
+        let result = validate_render_ui_effect(&effect, "test", &entity_defs, None, None);
 
         assert!(
             !result.errors.iter().any(|e| {

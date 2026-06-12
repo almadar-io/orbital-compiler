@@ -430,6 +430,11 @@ pub enum ErrorCode {
     /// TS. Validate-layer defense-in-depth for the lowering pass that
     /// flattens nested payload field names. Error severity.
     PayloadFieldNameInvalid,
+    /// A render-ui pattern prop typed `EntityWith<K>` declares required entity
+    /// fields (`requiredFields` in the registry), but the bound entity does not
+    /// provide them and no remap/field-map supplies them. The component would
+    /// render blank rows. Remap-aware (runs post-inline). Error severity.
+    EntityPropContract,
     /// `emit: { success: "X" }` config on a data operator declares success
     /// event X but X's declared payload does not match the operator's
     /// `effect.produces` at this call site. Warn-only.
@@ -697,6 +702,7 @@ impl ErrorCode {
             ErrorCode::EmitPayloadExtraField => "ORB_EMIT_PAYLOAD_EXTRA_FIELD",
             ErrorCode::EmitPayloadFieldTypeMismatch => "ORB_EMIT_PAYLOAD_FIELD_TYPE_MISMATCH",
             ErrorCode::PayloadFieldNameInvalid => "ORB_X_PAYLOAD_FIELD_NAME",
+            ErrorCode::EntityPropContract => "ORB_X_ENTITY_PROP_CONTRACT",
             ErrorCode::EmitSuccessPayloadReturnMismatch => "ORB_EMIT_SUCCESS_PAYLOAD_RETURN_MISMATCH",
             ErrorCode::CrossEmitterDeclaredPayloadMismatch => {
                 "ORB_X_CROSS_EMITTER_DECLARED_PAYLOAD_MISMATCH"
@@ -824,6 +830,7 @@ impl ErrorCode {
             | ErrorCode::RenderUIBindingTypeMismatch
             | ErrorCode::RenderUIElementShapeMismatch
             | ErrorCode::RenderUIEventBindingPayloadMismatch
+            | ErrorCode::EntityPropContract
             | ErrorCode::RenderUIEventLiteralStale => "render_ui",
 
             ErrorCode::EffectCallServiceMissingService

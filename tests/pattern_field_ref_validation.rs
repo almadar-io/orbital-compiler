@@ -111,7 +111,7 @@ fn filter_group_with_valid_field_validates_clean() {
 
     let effect = filter_group_effect("Product", vec!["status"]);
 
-    let result = validate_render_ui_effect(&effect, "test", &entity_defs, None);
+    let result = validate_render_ui_effect(&effect, "test", &entity_defs, None, None);
 
     assert_eq!(
         count_field_ref_warnings(&result),
@@ -137,7 +137,7 @@ fn filter_group_with_typo_warns() {
     // Note: "categoryy" (typo). Entity has "category", not "categoryy".
     let effect = filter_group_effect("Product", vec!["categoryy"]);
 
-    let result = validate_render_ui_effect(&effect, "test", &entity_defs, None);
+    let result = validate_render_ui_effect(&effect, "test", &entity_defs, None, None);
 
     let warnings: Vec<_> = result
         .errors
@@ -183,7 +183,7 @@ fn filter_group_with_mixed_fields_warns_per_bad_element() {
     // "status" valid, "categoryy" bad typo, "nonsense" bad.
     let effect = filter_group_effect("Product", vec!["status", "categoryy", "nonsense"]);
 
-    let result = validate_render_ui_effect(&effect, "test", &entity_defs, None);
+    let result = validate_render_ui_effect(&effect, "test", &entity_defs, None, None);
 
     let warnings: Vec<_> = result
         .errors
@@ -259,7 +259,7 @@ fn pattern_prop_without_marker_is_not_validated() {
         ),
     ]);
 
-    let result = validate_render_ui_effect(&effect, "test", &entity_defs, None);
+    let result = validate_render_ui_effect(&effect, "test", &entity_defs, None, None);
 
     assert_eq!(
         count_field_ref_warnings(&result),
@@ -309,7 +309,7 @@ fn entity_cards_image_field_valid_scalar() {
         ),
     ]);
 
-    let result = validate_render_ui_effect(&effect, "test", &entity_defs, None);
+    let result = validate_render_ui_effect(&effect, "test", &entity_defs, None, None);
 
     assert_eq!(
         count_field_ref_warnings(&result),
@@ -356,7 +356,7 @@ fn entity_cards_image_field_invalid_scalar_warns() {
         ),
     ]);
 
-    let result = validate_render_ui_effect(&effect, "test", &entity_defs, None);
+    let result = validate_render_ui_effect(&effect, "test", &entity_defs, None, None);
 
     let warnings: Vec<_> = result
         .errors
@@ -400,7 +400,7 @@ fn binding_value_skipped() {
     // flagged as an unresolved field ref.
     let effect = filter_group_effect("Product", vec!["@config.filterFields"]);
 
-    let result = validate_render_ui_effect(&effect, "test", &entity_defs, None);
+    let result = validate_render_ui_effect(&effect, "test", &entity_defs, None, None);
 
     assert_eq!(
         count_field_ref_warnings(&result),

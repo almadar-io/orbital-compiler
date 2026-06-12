@@ -303,6 +303,12 @@ pub struct EmbeddedPatternProp {
     /// the lolo literal's keys.
     #[serde(default)]
     pub properties: Option<HashMap<String, EmbeddedPatternProp>>,
+    /// Entity-row clean slate: when a prop's TS type is `EntityWith<K>`,
+    /// pattern-sync writes the keys `K` here. The bound entity (or a remap
+    /// field-map) MUST provide every one of these fields, else the component
+    /// renders blank rows. Enforced by `ORB_X_ENTITY_PROP_CONTRACT`.
+    #[serde(rename = "requiredFields", default)]
+    pub required_fields: Option<Vec<String>>,
 }
 
 /// A single pattern entry from `patterns-registry.json`.

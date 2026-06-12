@@ -2,7 +2,7 @@
 //!
 //! Source: packages/almadar-patterns/src/patterns-registry.json
 //!
-//! Last synced: 2026-06-10
+//! Last synced: 2026-06-12
 //! To regenerate: npx tsx tools/almadar-pattern-sync/index.ts
 //!
 //! DO NOT EDIT MANUALLY - changes will be overwritten on next sync.
@@ -188,9 +188,11 @@ pub static PATTERN_TYPES: LazyLock<HashSet<&'static str>> = LazyLock::new(|| {
         "action-palette",
         "action-tile",
         "battle-board",
+        "battle-template",
         "builder-board",
         "canvas-effect",
         "castle-board",
+        "castle-template",
         "choice-button",
         "classifier-board",
         "code-view",
@@ -214,6 +216,8 @@ pub static PATTERN_TYPES: LazyLock<HashSet<&'static str>> = LazyLock::new(|| {
         "game-hud",
         "game-menu",
         "game-over-screen",
+        "game-shell",
+        "game-template",
         "graph-canvas",
         "health-bar",
         "health-panel",
@@ -257,6 +261,7 @@ pub static PATTERN_TYPES: LazyLock<HashSet<&'static str>> = LazyLock::new(|| {
         "variable-panel",
         "waypoint-marker",
         "world-map-board",
+        "world-map-template",
         "xp-bar",
         // Header Patterns
         "header",
@@ -307,17 +312,12 @@ pub static PATTERN_TYPES: LazyLock<HashSet<&'static str>> = LazyLock::new(|| {
         // Template Patterns
         "about-page-template",
         "auth-layout",
-        "battle-template",
-        "castle-template",
         "counter-template",
         "dashboard-layout",
         "feature-detail-page-template",
-        "game-shell",
-        "game-template",
         "generic-app-template",
         "landing-page-template",
         "pricing-page-template",
-        "world-map-template",
         // Visualization Patterns
         "chart",
         "meter",
@@ -527,9 +527,11 @@ pub static PATTERN_TO_CATEGORY: LazyLock<HashMap<&'static str, &'static str>> =
             ("action-palette", "game"),
             ("action-tile", "game"),
             ("battle-board", "game"),
+            ("battle-template", "game"),
             ("builder-board", "game"),
             ("canvas-effect", "game"),
             ("castle-board", "game"),
+            ("castle-template", "game"),
             ("choice-button", "game"),
             ("classifier-board", "game"),
             ("code-view", "game"),
@@ -553,6 +555,8 @@ pub static PATTERN_TO_CATEGORY: LazyLock<HashMap<&'static str, &'static str>> =
             ("game-hud", "game"),
             ("game-menu", "game"),
             ("game-over-screen", "game"),
+            ("game-shell", "game"),
+            ("game-template", "game"),
             ("graph-canvas", "game"),
             ("health-bar", "game"),
             ("health-panel", "game"),
@@ -596,6 +600,7 @@ pub static PATTERN_TO_CATEGORY: LazyLock<HashMap<&'static str, &'static str>> =
             ("variable-panel", "game"),
             ("waypoint-marker", "game"),
             ("world-map-board", "game"),
+            ("world-map-template", "game"),
             ("xp-bar", "game"),
             // Header
             ("header", "header"),
@@ -646,17 +651,12 @@ pub static PATTERN_TO_CATEGORY: LazyLock<HashMap<&'static str, &'static str>> =
             // Template
             ("about-page-template", "template"),
             ("auth-layout", "template"),
-            ("battle-template", "template"),
-            ("castle-template", "template"),
             ("counter-template", "template"),
             ("dashboard-layout", "template"),
             ("feature-detail-page-template", "template"),
-            ("game-shell", "template"),
-            ("game-template", "template"),
             ("generic-app-template", "template"),
             ("landing-page-template", "template"),
             ("pricing-page-template", "template"),
-            ("world-map-template", "template"),
             // Visualization
             ("chart", "visualization"),
             ("meter", "visualization"),
@@ -687,7 +687,6 @@ pub static PATTERN_REQUIRED_PROPS: LazyLock<HashMap<&'static str, Vec<&'static s
             ("animated-counter", vec!["value"]),
             ("animated-reveal", vec!["children"]),
             ("article-section", vec!["title", "children"]),
-            ("battle-board", vec!["entity"]),
             ("battle-template", vec!["entity"]),
             ("behavior-view", vec!["data"]),
             ("book-chapter-view", vec!["chapter"]),
@@ -919,7 +918,28 @@ pub static PATTERN_PROPS_SCHEMA: LazyLock<HashMap<&'static str, HashSet<&'static
                 .into_iter()
                 .collect(),
             ),
-            ("action-tile", ["action", "categoryColors", "disabled", "size"].into_iter().collect()),
+            (
+                "action-tile",
+                [
+                    "action",
+                    "activeFilters",
+                    "categoryColors",
+                    "className",
+                    "disabled",
+                    "error",
+                    "isLoading",
+                    "page",
+                    "pageSize",
+                    "searchValue",
+                    "selectedIds",
+                    "size",
+                    "sortBy",
+                    "sortDirection",
+                    "totalCount",
+                ]
+                .into_iter()
+                .collect(),
+            ),
             (
                 "alert",
                 [
@@ -1016,6 +1036,7 @@ pub static PATTERN_PROPS_SCHEMA: LazyLock<HashMap<&'static str, HashSet<&'static
                 "battle-board",
                 [
                     "actions",
+                    "activeFilters",
                     "attackEvent",
                     "calculateDamage",
                     "cancelEvent",
@@ -1023,20 +1044,29 @@ pub static PATTERN_PROPS_SCHEMA: LazyLock<HashMap<&'static str, HashSet<&'static
                     "effectSpriteUrls",
                     "endTurnEvent",
                     "entity",
+                    "error",
                     "gameEndEvent",
                     "gameOverOverlay",
                     "hasActiveEffects",
                     "header",
+                    "isLoading",
                     "onAttack",
                     "onDrawEffects",
                     "onGameEnd",
                     "onUnitMove",
                     "overlay",
+                    "page",
+                    "pageSize",
                     "playAgainEvent",
                     "resolveUnitFrame",
                     "scale",
+                    "searchValue",
+                    "selectedIds",
                     "sidebar",
+                    "sortBy",
+                    "sortDirection",
                     "tileClickEvent",
+                    "totalCount",
                     "unitClickEvent",
                     "unitScale",
                 ]
@@ -1045,7 +1075,7 @@ pub static PATTERN_PROPS_SCHEMA: LazyLock<HashMap<&'static str, HashSet<&'static
             ),
             ("battle-template", ["className", "entity", "scale", "unitScale"].into_iter().collect()),
             ("behavior-view", ["data"].into_iter().collect()),
-            ("book-chapter-view", ["chapter", "className", "direction"].into_iter().collect()),
+            ("book-chapter-view", ["chapter", "className", "direction", "orbitalSchema"].into_iter().collect()),
             ("book-cover-page", ["author", "className", "coverImageUrl", "direction", "subtitle", "title"].into_iter().collect()),
             ("book-nav-bar", ["chapterTitle", "className", "currentPage", "direction", "totalPages"].into_iter().collect()),
             ("book-table-of-contents", ["className", "currentChapterId", "direction", "parts"].into_iter().collect()),
@@ -1113,7 +1143,26 @@ pub static PATTERN_PROPS_SCHEMA: LazyLock<HashMap<&'static str, HashSet<&'static
                 .collect(),
             ),
             ("breadcrumb", ["className", "items", "maxItems", "separator"].into_iter().collect()),
-            ("builder-board", ["completeEvent", "entity"].into_iter().collect()),
+            (
+                "builder-board",
+                [
+                    "activeFilters",
+                    "className",
+                    "completeEvent",
+                    "entity",
+                    "error",
+                    "isLoading",
+                    "page",
+                    "pageSize",
+                    "searchValue",
+                    "selectedIds",
+                    "sortBy",
+                    "sortDirection",
+                    "totalCount",
+                ]
+                .into_iter()
+                .collect(),
+            ),
             (
                 "button",
                 [
@@ -1308,7 +1357,26 @@ pub static PATTERN_PROPS_SCHEMA: LazyLock<HashMap<&'static str, HashSet<&'static
             ("chart-legend", ["className", "direction", "items"].into_iter().collect()),
             ("checkbox", ["checked", "className", "defaultChecked", "label"].into_iter().collect()),
             ("choice-button", ["className", "disabled", "index", "onClick", "selected", "text"].into_iter().collect()),
-            ("classifier-board", ["completeEvent", "entity"].into_iter().collect()),
+            (
+                "classifier-board",
+                [
+                    "activeFilters",
+                    "className",
+                    "completeEvent",
+                    "entity",
+                    "error",
+                    "isLoading",
+                    "page",
+                    "pageSize",
+                    "searchValue",
+                    "selectedIds",
+                    "sortBy",
+                    "sortDirection",
+                    "totalCount",
+                ]
+                .into_iter()
+                .collect(),
+            ),
             (
                 "code-block",
                 [
@@ -1387,7 +1455,6 @@ pub static PATTERN_PROPS_SCHEMA: LazyLock<HashMap<&'static str, HashSet<&'static
                     "className",
                     "content",
                     "direction",
-                    "entity",
                     "error",
                     "isLoading",
                     "page",
@@ -1474,7 +1541,6 @@ pub static PATTERN_PROPS_SCHEMA: LazyLock<HashMap<&'static str, HashSet<&'static
                     "cells",
                     "className",
                     "columns",
-                    "entity",
                     "error",
                     "gap",
                     "isLoading",
@@ -1610,7 +1676,26 @@ pub static PATTERN_PROPS_SCHEMA: LazyLock<HashMap<&'static str, HashSet<&'static
             ),
             ("date-range-selector", ["className", "onSelect", "options", "selected"].into_iter().collect()),
             ("day-cell", ["className", "date", "isToday", "onClick"].into_iter().collect()),
-            ("debugger-board", ["completeEvent", "entity"].into_iter().collect()),
+            (
+                "debugger-board",
+                [
+                    "activeFilters",
+                    "className",
+                    "completeEvent",
+                    "entity",
+                    "error",
+                    "isLoading",
+                    "page",
+                    "pageSize",
+                    "searchValue",
+                    "selectedIds",
+                    "sortBy",
+                    "sortDirection",
+                    "totalCount",
+                ]
+                .into_iter()
+                .collect(),
+            ),
             (
                 "detail-panel",
                 [
@@ -1846,7 +1931,28 @@ pub static PATTERN_PROPS_SCHEMA: LazyLock<HashMap<&'static str, HashSet<&'static
             ),
             ("error-boundary", ["children", "className", "fallback", "onError"].into_iter().collect()),
             ("error-state", ["className", "description", "message", "onRetry", "retryEvent", "title"].into_iter().collect()),
-            ("event-handler-board", ["completeEvent", "entity", "playEvent", "stepDurationMs"].into_iter().collect()),
+            (
+                "event-handler-board",
+                [
+                    "activeFilters",
+                    "className",
+                    "completeEvent",
+                    "entity",
+                    "error",
+                    "isLoading",
+                    "page",
+                    "pageSize",
+                    "playEvent",
+                    "searchValue",
+                    "selectedIds",
+                    "sortBy",
+                    "sortDirection",
+                    "stepDurationMs",
+                    "totalCount",
+                ]
+                .into_iter()
+                .collect(),
+            ),
             ("event-log", ["className", "entries", "label", "maxHeight"].into_iter().collect()),
             (
                 "feature-card",
@@ -2734,7 +2840,26 @@ pub static PATTERN_PROPS_SCHEMA: LazyLock<HashMap<&'static str, HashSet<&'static
             ("modal-slot", ["children", "className", "entity", "error", "isLoading", "size", "title"].into_iter().collect()),
             ("module-card", ["data"].into_iter().collect()),
             ("navigation", ["className", "entity", "error", "isLoading", "items", "orientation"].into_iter().collect()),
-            ("negotiator-board", ["completeEvent", "entity"].into_iter().collect()),
+            (
+                "negotiator-board",
+                [
+                    "activeFilters",
+                    "className",
+                    "completeEvent",
+                    "entity",
+                    "error",
+                    "isLoading",
+                    "page",
+                    "pageSize",
+                    "searchValue",
+                    "selectedIds",
+                    "sortBy",
+                    "sortDirection",
+                    "totalCount",
+                ]
+                .into_iter()
+                .collect(),
+            ),
             (
                 "notification",
                 [
@@ -3162,7 +3287,29 @@ pub static PATTERN_PROPS_SCHEMA: LazyLock<HashMap<&'static str, HashSet<&'static
                 .into_iter()
                 .collect(),
             ),
-            ("sequencer-board", ["categoryColors", "completeEvent", "entity", "playEvent", "stepDurationMs"].into_iter().collect()),
+            (
+                "sequencer-board",
+                [
+                    "activeFilters",
+                    "categoryColors",
+                    "className",
+                    "completeEvent",
+                    "entity",
+                    "error",
+                    "isLoading",
+                    "page",
+                    "pageSize",
+                    "playEvent",
+                    "searchValue",
+                    "selectedIds",
+                    "sortBy",
+                    "sortDirection",
+                    "stepDurationMs",
+                    "totalCount",
+                ]
+                .into_iter()
+                .collect(),
+            ),
             ("service-catalog", ["className", "services"].into_iter().collect()),
             ("showcase-card", ["accentColor", "badge", "className", "description", "href", "image", "title"].into_iter().collect()),
             (
@@ -3267,7 +3414,26 @@ pub static PATTERN_PROPS_SCHEMA: LazyLock<HashMap<&'static str, HashSet<&'static
                 .collect(),
             ),
             ("simulation-graph", ["className", "color", "data", "height", "label", "maxPoints", "unit", "width"].into_iter().collect()),
-            ("simulator-board", ["completeEvent", "entity"].into_iter().collect()),
+            (
+                "simulator-board",
+                [
+                    "activeFilters",
+                    "className",
+                    "completeEvent",
+                    "entity",
+                    "error",
+                    "isLoading",
+                    "page",
+                    "pageSize",
+                    "searchValue",
+                    "selectedIds",
+                    "sortBy",
+                    "sortDirection",
+                    "totalCount",
+                ]
+                .into_iter()
+                .collect(),
+            ),
             ("skeleton", ["className", "columns", "fields", "rows", "variant"].into_iter().collect()),
             ("social-proof", ["className", "items", "variant"].into_iter().collect()),
             (
@@ -3449,7 +3615,28 @@ pub static PATTERN_PROPS_SCHEMA: LazyLock<HashMap<&'static str, HashSet<&'static
                 .into_iter()
                 .collect(),
             ),
-            ("state-architect-board", ["completeEvent", "entity", "stepDurationMs", "testEvent"].into_iter().collect()),
+            (
+                "state-architect-board",
+                [
+                    "activeFilters",
+                    "className",
+                    "completeEvent",
+                    "entity",
+                    "error",
+                    "isLoading",
+                    "page",
+                    "pageSize",
+                    "searchValue",
+                    "selectedIds",
+                    "sortBy",
+                    "sortDirection",
+                    "stepDurationMs",
+                    "testEvent",
+                    "totalCount",
+                ]
+                .into_iter()
+                .collect(),
+            ),
             ("state-indicator", ["animated", "className", "label", "size", "state", "stateStyles"].into_iter().collect()),
             ("state-machine-view", ["className", "error", "isLoading", "layoutData", "renderStateNode"].into_iter().collect()),
             (
@@ -4128,6 +4315,17 @@ pub static PATTERN_PROP_TYPES: LazyLock<HashMap<&'static str, HashMap<&'static s
             (
                 "action-tile",
                 [
+                    ("className", &["string"] as &[&str]),
+                    ("isLoading", &["boolean"] as &[&str]),
+                    ("error", &["object"] as &[&str]),
+                    ("sortBy", &["string"] as &[&str]),
+                    ("sortDirection", &["string"] as &[&str]),
+                    ("searchValue", &["string"] as &[&str]),
+                    ("page", &["number"] as &[&str]),
+                    ("pageSize", &["number"] as &[&str]),
+                    ("totalCount", &["number"] as &[&str]),
+                    ("activeFilters", &["object"] as &[&str]),
+                    ("selectedIds", &["array"] as &[&str]),
                     ("action", &["object"] as &[&str]),
                     ("size", &["string"] as &[&str]),
                     ("disabled", &["boolean"] as &[&str]),
@@ -4263,7 +4461,18 @@ pub static PATTERN_PROP_TYPES: LazyLock<HashMap<&'static str, HashMap<&'static s
             (
                 "battle-board",
                 [
-                    ("entity", &["object"] as &[&str]),
+                    ("className", &["string"] as &[&str]),
+                    ("isLoading", &["boolean"] as &[&str]),
+                    ("error", &["object"] as &[&str]),
+                    ("sortBy", &["string"] as &[&str]),
+                    ("sortDirection", &["string"] as &[&str]),
+                    ("searchValue", &["string"] as &[&str]),
+                    ("page", &["number"] as &[&str]),
+                    ("pageSize", &["number"] as &[&str]),
+                    ("totalCount", &["number"] as &[&str]),
+                    ("activeFilters", &["object"] as &[&str]),
+                    ("selectedIds", &["array"] as &[&str]),
+                    ("entity", &["object", "array"] as &[&str]),
                     ("scale", &["number"] as &[&str]),
                     ("unitScale", &["number"] as &[&str]),
                     ("header", &["function"] as &[&str]),
@@ -4286,7 +4495,6 @@ pub static PATTERN_PROP_TYPES: LazyLock<HashMap<&'static str, HashMap<&'static s
                     ("gameEndEvent", &["string"] as &[&str]),
                     ("playAgainEvent", &["string"] as &[&str]),
                     ("attackEvent", &["string"] as &[&str]),
-                    ("className", &["string"] as &[&str]),
                 ]
                 .into_iter()
                 .collect(),
@@ -4308,6 +4516,7 @@ pub static PATTERN_PROP_TYPES: LazyLock<HashMap<&'static str, HashMap<&'static s
                 [
                     ("className", &["string"] as &[&str]),
                     ("chapter", &["object"] as &[&str]),
+                    ("orbitalSchema", &["object"] as &[&str]),
                     ("direction", &["string"] as &[&str]),
                 ]
                 .into_iter()
@@ -4342,7 +4551,7 @@ pub static PATTERN_PROP_TYPES: LazyLock<HashMap<&'static str, HashMap<&'static s
                 "book-table-of-contents",
                 [
                     ("className", &["string"] as &[&str]),
-                    ("parts", &["array"] as &[&str]),
+                    ("parts", &["object", "array"] as &[&str]),
                     ("currentChapterId", &["string"] as &[&str]),
                     ("direction", &["string"] as &[&str]),
                 ]
@@ -4352,7 +4561,6 @@ pub static PATTERN_PROP_TYPES: LazyLock<HashMap<&'static str, HashMap<&'static s
             (
                 "book-viewer",
                 [
-                    ("entity", &["object"] as &[&str]),
                     ("className", &["string"] as &[&str]),
                     ("isLoading", &["boolean"] as &[&str]),
                     ("error", &["object"] as &[&str]),
@@ -4364,6 +4572,7 @@ pub static PATTERN_PROP_TYPES: LazyLock<HashMap<&'static str, HashMap<&'static s
                     ("totalCount", &["number"] as &[&str]),
                     ("activeFilters", &["object"] as &[&str]),
                     ("selectedIds", &["array"] as &[&str]),
+                    ("entity", &["object", "array"] as &[&str]),
                     ("initialPage", &["number"] as &[&str]),
                     ("fieldMap", &["object", "string"] as &[&str]),
                 ]
@@ -4423,7 +4632,26 @@ pub static PATTERN_PROP_TYPES: LazyLock<HashMap<&'static str, HashMap<&'static s
                 .into_iter()
                 .collect(),
             ),
-            ("builder-board", [("entity", &["object", "array"] as &[&str]), ("completeEvent", &["string"] as &[&str])].into_iter().collect()),
+            (
+                "builder-board",
+                [
+                    ("className", &["string"] as &[&str]),
+                    ("isLoading", &["boolean"] as &[&str]),
+                    ("error", &["object"] as &[&str]),
+                    ("sortBy", &["string"] as &[&str]),
+                    ("sortDirection", &["string"] as &[&str]),
+                    ("searchValue", &["string"] as &[&str]),
+                    ("page", &["number"] as &[&str]),
+                    ("pageSize", &["number"] as &[&str]),
+                    ("totalCount", &["number"] as &[&str]),
+                    ("activeFilters", &["object"] as &[&str]),
+                    ("selectedIds", &["array"] as &[&str]),
+                    ("entity", &["object", "array"] as &[&str]),
+                    ("completeEvent", &["string"] as &[&str]),
+                ]
+                .into_iter()
+                .collect(),
+            ),
             (
                 "button",
                 [
@@ -4534,7 +4762,6 @@ pub static PATTERN_PROP_TYPES: LazyLock<HashMap<&'static str, HashMap<&'static s
             (
                 "case-study-organism",
                 [
-                    ("entity", &["object", "array"] as &[&str]),
                     ("className", &["string"] as &[&str]),
                     ("isLoading", &["boolean"] as &[&str]),
                     ("error", &["object"] as &[&str]),
@@ -4546,6 +4773,7 @@ pub static PATTERN_PROP_TYPES: LazyLock<HashMap<&'static str, HashMap<&'static s
                     ("totalCount", &["number"] as &[&str]),
                     ("activeFilters", &["object"] as &[&str]),
                     ("selectedIds", &["array"] as &[&str]),
+                    ("entity", &["object", "array"] as &[&str]),
                     ("heading", &["string"] as &[&str]),
                     ("subtitle", &["string"] as &[&str]),
                 ]
@@ -4658,7 +4886,26 @@ pub static PATTERN_PROP_TYPES: LazyLock<HashMap<&'static str, HashMap<&'static s
                 .into_iter()
                 .collect(),
             ),
-            ("classifier-board", [("entity", &["object", "array"] as &[&str]), ("completeEvent", &["string"] as &[&str])].into_iter().collect()),
+            (
+                "classifier-board",
+                [
+                    ("className", &["string"] as &[&str]),
+                    ("isLoading", &["boolean"] as &[&str]),
+                    ("error", &["object"] as &[&str]),
+                    ("sortBy", &["string"] as &[&str]),
+                    ("sortDirection", &["string"] as &[&str]),
+                    ("searchValue", &["string"] as &[&str]),
+                    ("page", &["number"] as &[&str]),
+                    ("pageSize", &["number"] as &[&str]),
+                    ("totalCount", &["number"] as &[&str]),
+                    ("activeFilters", &["object"] as &[&str]),
+                    ("selectedIds", &["array"] as &[&str]),
+                    ("entity", &["object", "array"] as &[&str]),
+                    ("completeEvent", &["string"] as &[&str]),
+                ]
+                .into_iter()
+                .collect(),
+            ),
             (
                 "code-block",
                 [
@@ -4812,7 +5059,6 @@ pub static PATTERN_PROP_TYPES: LazyLock<HashMap<&'static str, HashMap<&'static s
             (
                 "content-renderer",
                 [
-                    ("entity", &["object", "array"] as &[&str]),
                     ("className", &["string"] as &[&str]),
                     ("isLoading", &["boolean"] as &[&str]),
                     ("error", &["object"] as &[&str]),
@@ -4932,7 +5178,6 @@ pub static PATTERN_PROP_TYPES: LazyLock<HashMap<&'static str, HashMap<&'static s
             (
                 "dashboard-grid",
                 [
-                    ("entity", &["object", "array"] as &[&str]),
                     ("className", &["string"] as &[&str]),
                     ("isLoading", &["boolean"] as &[&str]),
                     ("error", &["object"] as &[&str]),
@@ -5092,7 +5337,26 @@ pub static PATTERN_PROP_TYPES: LazyLock<HashMap<&'static str, HashMap<&'static s
                 .into_iter()
                 .collect(),
             ),
-            ("debugger-board", [("entity", &["object", "array"] as &[&str]), ("completeEvent", &["string"] as &[&str])].into_iter().collect()),
+            (
+                "debugger-board",
+                [
+                    ("className", &["string"] as &[&str]),
+                    ("isLoading", &["boolean"] as &[&str]),
+                    ("error", &["object"] as &[&str]),
+                    ("sortBy", &["string"] as &[&str]),
+                    ("sortDirection", &["string"] as &[&str]),
+                    ("searchValue", &["string"] as &[&str]),
+                    ("page", &["number"] as &[&str]),
+                    ("pageSize", &["number"] as &[&str]),
+                    ("totalCount", &["number"] as &[&str]),
+                    ("activeFilters", &["object"] as &[&str]),
+                    ("selectedIds", &["array"] as &[&str]),
+                    ("entity", &["object", "array"] as &[&str]),
+                    ("completeEvent", &["string"] as &[&str]),
+                ]
+                .into_iter()
+                .collect(),
+            ),
             (
                 "detail-panel",
                 [
@@ -5379,7 +5643,6 @@ pub static PATTERN_PROP_TYPES: LazyLock<HashMap<&'static str, HashMap<&'static s
             (
                 "entity-table",
                 [
-                    ("entity", &["object", "array"] as &[&str]),
                     ("className", &["string"] as &[&str]),
                     ("isLoading", &["boolean"] as &[&str]),
                     ("error", &["object"] as &[&str]),
@@ -5391,6 +5654,7 @@ pub static PATTERN_PROP_TYPES: LazyLock<HashMap<&'static str, HashMap<&'static s
                     ("totalCount", &["number"] as &[&str]),
                     ("activeFilters", &["object"] as &[&str]),
                     ("selectedIds", &["array"] as &[&str]),
+                    ("entity", &["object", "array"] as &[&str]),
                     ("fields", &["array"] as &[&str]),
                     ("columns", &["array"] as &[&str]),
                     ("itemActions", &["array"] as &[&str]),
@@ -5437,6 +5701,17 @@ pub static PATTERN_PROP_TYPES: LazyLock<HashMap<&'static str, HashMap<&'static s
             (
                 "event-handler-board",
                 [
+                    ("className", &["string"] as &[&str]),
+                    ("isLoading", &["boolean"] as &[&str]),
+                    ("error", &["object"] as &[&str]),
+                    ("sortBy", &["string"] as &[&str]),
+                    ("sortDirection", &["string"] as &[&str]),
+                    ("searchValue", &["string"] as &[&str]),
+                    ("page", &["number"] as &[&str]),
+                    ("pageSize", &["number"] as &[&str]),
+                    ("totalCount", &["number"] as &[&str]),
+                    ("activeFilters", &["object"] as &[&str]),
+                    ("selectedIds", &["array"] as &[&str]),
                     ("entity", &["object", "array"] as &[&str]),
                     ("stepDurationMs", &["number"] as &[&str]),
                     ("playEvent", &["string"] as &[&str]),
@@ -5486,7 +5761,6 @@ pub static PATTERN_PROP_TYPES: LazyLock<HashMap<&'static str, HashMap<&'static s
             (
                 "feature-grid-organism",
                 [
-                    ("entity", &["object", "array"] as &[&str]),
                     ("className", &["string"] as &[&str]),
                     ("isLoading", &["boolean"] as &[&str]),
                     ("error", &["object"] as &[&str]),
@@ -5498,6 +5772,7 @@ pub static PATTERN_PROP_TYPES: LazyLock<HashMap<&'static str, HashMap<&'static s
                     ("totalCount", &["number"] as &[&str]),
                     ("activeFilters", &["object"] as &[&str]),
                     ("selectedIds", &["array"] as &[&str]),
+                    ("entity", &["object", "array"] as &[&str]),
                     ("columns", &["number"] as &[&str]),
                     ("heading", &["string"] as &[&str]),
                     ("subtitle", &["string"] as &[&str]),
@@ -6030,7 +6305,6 @@ pub static PATTERN_PROP_TYPES: LazyLock<HashMap<&'static str, HashMap<&'static s
             (
                 "hero-organism",
                 [
-                    ("entity", &["object"] as &[&str]),
                     ("className", &["string"] as &[&str]),
                     ("isLoading", &["boolean"] as &[&str]),
                     ("error", &["object"] as &[&str]),
@@ -6042,6 +6316,7 @@ pub static PATTERN_PROP_TYPES: LazyLock<HashMap<&'static str, HashMap<&'static s
                     ("totalCount", &["number"] as &[&str]),
                     ("activeFilters", &["object"] as &[&str]),
                     ("selectedIds", &["array"] as &[&str]),
+                    ("entity", &["object"] as &[&str]),
                     ("children", &["node"] as &[&str]),
                 ]
                 .into_iter()
@@ -6382,7 +6657,6 @@ pub static PATTERN_PROP_TYPES: LazyLock<HashMap<&'static str, HashMap<&'static s
             (
                 "master-detail",
                 [
-                    ("entity", &["object", "array"] as &[&str]),
                     ("className", &["string"] as &[&str]),
                     ("isLoading", &["boolean"] as &[&str]),
                     ("error", &["object"] as &[&str]),
@@ -6394,6 +6668,7 @@ pub static PATTERN_PROP_TYPES: LazyLock<HashMap<&'static str, HashMap<&'static s
                     ("totalCount", &["number"] as &[&str]),
                     ("activeFilters", &["object"] as &[&str]),
                     ("selectedIds", &["array"] as &[&str]),
+                    ("entity", &["object", "array"] as &[&str]),
                     ("masterFields", &["array"] as &[&str]),
                     ("detailFields", &["array"] as &[&str]),
                     ("loading", &["boolean"] as &[&str]),
@@ -6435,7 +6710,6 @@ pub static PATTERN_PROP_TYPES: LazyLock<HashMap<&'static str, HashMap<&'static s
             (
                 "media-gallery",
                 [
-                    ("entity", &["object", "array"] as &[&str]),
                     ("className", &["string"] as &[&str]),
                     ("isLoading", &["boolean"] as &[&str]),
                     ("error", &["object"] as &[&str]),
@@ -6447,6 +6721,7 @@ pub static PATTERN_PROP_TYPES: LazyLock<HashMap<&'static str, HashMap<&'static s
                     ("totalCount", &["number"] as &[&str]),
                     ("activeFilters", &["object"] as &[&str]),
                     ("selectedIds", &["array"] as &[&str]),
+                    ("entity", &["object", "array"] as &[&str]),
                     ("title", &["string"] as &[&str]),
                     ("items", &["array"] as &[&str]),
                     ("columns", &["number"] as &[&str]),
@@ -6555,7 +6830,26 @@ pub static PATTERN_PROP_TYPES: LazyLock<HashMap<&'static str, HashMap<&'static s
                 .into_iter()
                 .collect(),
             ),
-            ("negotiator-board", [("entity", &["object", "array"] as &[&str]), ("completeEvent", &["string"] as &[&str])].into_iter().collect()),
+            (
+                "negotiator-board",
+                [
+                    ("className", &["string"] as &[&str]),
+                    ("isLoading", &["boolean"] as &[&str]),
+                    ("error", &["object"] as &[&str]),
+                    ("sortBy", &["string"] as &[&str]),
+                    ("sortDirection", &["string"] as &[&str]),
+                    ("searchValue", &["string"] as &[&str]),
+                    ("page", &["number"] as &[&str]),
+                    ("pageSize", &["number"] as &[&str]),
+                    ("totalCount", &["number"] as &[&str]),
+                    ("activeFilters", &["object"] as &[&str]),
+                    ("selectedIds", &["array"] as &[&str]),
+                    ("entity", &["object", "array"] as &[&str]),
+                    ("completeEvent", &["string"] as &[&str]),
+                ]
+                .into_iter()
+                .collect(),
+            ),
             (
                 "notification",
                 [
@@ -6788,7 +7082,6 @@ pub static PATTERN_PROP_TYPES: LazyLock<HashMap<&'static str, HashMap<&'static s
             (
                 "pricing-organism",
                 [
-                    ("entity", &["object", "array"] as &[&str]),
                     ("className", &["string"] as &[&str]),
                     ("isLoading", &["boolean"] as &[&str]),
                     ("error", &["object"] as &[&str]),
@@ -6800,6 +7093,7 @@ pub static PATTERN_PROP_TYPES: LazyLock<HashMap<&'static str, HashMap<&'static s
                     ("totalCount", &["number"] as &[&str]),
                     ("activeFilters", &["object"] as &[&str]),
                     ("selectedIds", &["array"] as &[&str]),
+                    ("entity", &["object", "array"] as &[&str]),
                     ("heading", &["string"] as &[&str]),
                     ("subtitle", &["string"] as &[&str]),
                 ]
@@ -7013,7 +7307,7 @@ pub static PATTERN_PROP_TYPES: LazyLock<HashMap<&'static str, HashMap<&'static s
             (
                 "rich-block-editor",
                 [
-                    ("initialBlocks", &["array"] as &[&str]),
+                    ("initialBlocks", &["object", "array"] as &[&str]),
                     ("onChange", &["function"] as &[&str]),
                     ("changeEvent", &["string"] as &[&str]),
                     ("readOnly", &["boolean"] as &[&str]),
@@ -7162,6 +7456,17 @@ pub static PATTERN_PROP_TYPES: LazyLock<HashMap<&'static str, HashMap<&'static s
             (
                 "sequencer-board",
                 [
+                    ("className", &["string"] as &[&str]),
+                    ("isLoading", &["boolean"] as &[&str]),
+                    ("error", &["object"] as &[&str]),
+                    ("sortBy", &["string"] as &[&str]),
+                    ("sortDirection", &["string"] as &[&str]),
+                    ("searchValue", &["string"] as &[&str]),
+                    ("page", &["number"] as &[&str]),
+                    ("pageSize", &["number"] as &[&str]),
+                    ("totalCount", &["number"] as &[&str]),
+                    ("activeFilters", &["object"] as &[&str]),
+                    ("selectedIds", &["array"] as &[&str]),
                     ("entity", &["object", "array"] as &[&str]),
                     ("categoryColors", &["object"] as &[&str]),
                     ("stepDurationMs", &["number"] as &[&str]),
@@ -7189,7 +7494,6 @@ pub static PATTERN_PROP_TYPES: LazyLock<HashMap<&'static str, HashMap<&'static s
             (
                 "showcase-organism",
                 [
-                    ("entity", &["object", "array"] as &[&str]),
                     ("className", &["string"] as &[&str]),
                     ("isLoading", &["boolean"] as &[&str]),
                     ("error", &["object"] as &[&str]),
@@ -7201,6 +7505,7 @@ pub static PATTERN_PROP_TYPES: LazyLock<HashMap<&'static str, HashMap<&'static s
                     ("totalCount", &["number"] as &[&str]),
                     ("activeFilters", &["object"] as &[&str]),
                     ("selectedIds", &["array"] as &[&str]),
+                    ("entity", &["object", "array"] as &[&str]),
                     ("columns", &["number"] as &[&str]),
                     ("heading", &["string"] as &[&str]),
                     ("subtitle", &["string"] as &[&str]),
@@ -7326,7 +7631,26 @@ pub static PATTERN_PROP_TYPES: LazyLock<HashMap<&'static str, HashMap<&'static s
                 .into_iter()
                 .collect(),
             ),
-            ("simulator-board", [("entity", &["object", "array"] as &[&str]), ("completeEvent", &["string"] as &[&str])].into_iter().collect()),
+            (
+                "simulator-board",
+                [
+                    ("className", &["string"] as &[&str]),
+                    ("isLoading", &["boolean"] as &[&str]),
+                    ("error", &["object"] as &[&str]),
+                    ("sortBy", &["string"] as &[&str]),
+                    ("sortDirection", &["string"] as &[&str]),
+                    ("searchValue", &["string"] as &[&str]),
+                    ("page", &["number"] as &[&str]),
+                    ("pageSize", &["number"] as &[&str]),
+                    ("totalCount", &["number"] as &[&str]),
+                    ("activeFilters", &["object"] as &[&str]),
+                    ("selectedIds", &["array"] as &[&str]),
+                    ("entity", &["object", "array"] as &[&str]),
+                    ("completeEvent", &["string"] as &[&str]),
+                ]
+                .into_iter()
+                .collect(),
+            ),
             (
                 "skeleton",
                 [
@@ -7563,6 +7887,17 @@ pub static PATTERN_PROP_TYPES: LazyLock<HashMap<&'static str, HashMap<&'static s
             (
                 "state-architect-board",
                 [
+                    ("className", &["string"] as &[&str]),
+                    ("isLoading", &["boolean"] as &[&str]),
+                    ("error", &["object"] as &[&str]),
+                    ("sortBy", &["string"] as &[&str]),
+                    ("sortDirection", &["string"] as &[&str]),
+                    ("searchValue", &["string"] as &[&str]),
+                    ("page", &["number"] as &[&str]),
+                    ("pageSize", &["number"] as &[&str]),
+                    ("totalCount", &["number"] as &[&str]),
+                    ("activeFilters", &["object"] as &[&str]),
+                    ("selectedIds", &["array"] as &[&str]),
                     ("entity", &["object", "array"] as &[&str]),
                     ("stepDurationMs", &["number"] as &[&str]),
                     ("testEvent", &["string"] as &[&str]),
@@ -7623,7 +7958,6 @@ pub static PATTERN_PROP_TYPES: LazyLock<HashMap<&'static str, HashMap<&'static s
             (
                 "stats-organism",
                 [
-                    ("entity", &["object", "array"] as &[&str]),
                     ("className", &["string"] as &[&str]),
                     ("isLoading", &["boolean"] as &[&str]),
                     ("error", &["object"] as &[&str]),
@@ -7635,6 +7969,7 @@ pub static PATTERN_PROP_TYPES: LazyLock<HashMap<&'static str, HashMap<&'static s
                     ("totalCount", &["number"] as &[&str]),
                     ("activeFilters", &["object"] as &[&str]),
                     ("selectedIds", &["array"] as &[&str]),
+                    ("entity", &["object", "array"] as &[&str]),
                     ("columns", &["number"] as &[&str]),
                 ]
                 .into_iter()
@@ -7680,7 +8015,6 @@ pub static PATTERN_PROP_TYPES: LazyLock<HashMap<&'static str, HashMap<&'static s
             (
                 "step-flow-organism",
                 [
-                    ("entity", &["object", "array"] as &[&str]),
                     ("className", &["string"] as &[&str]),
                     ("isLoading", &["boolean"] as &[&str]),
                     ("error", &["object"] as &[&str]),
@@ -7692,6 +8026,7 @@ pub static PATTERN_PROP_TYPES: LazyLock<HashMap<&'static str, HashMap<&'static s
                     ("totalCount", &["number"] as &[&str]),
                     ("activeFilters", &["object"] as &[&str]),
                     ("selectedIds", &["array"] as &[&str]),
+                    ("entity", &["object", "array"] as &[&str]),
                     ("orientation", &["string"] as &[&str]),
                     ("showConnectors", &["boolean"] as &[&str]),
                     ("heading", &["string"] as &[&str]),
@@ -8017,7 +8352,6 @@ pub static PATTERN_PROP_TYPES: LazyLock<HashMap<&'static str, HashMap<&'static s
             (
                 "team-organism",
                 [
-                    ("entity", &["object", "array"] as &[&str]),
                     ("className", &["string"] as &[&str]),
                     ("isLoading", &["boolean"] as &[&str]),
                     ("error", &["object"] as &[&str]),
@@ -8029,6 +8363,7 @@ pub static PATTERN_PROP_TYPES: LazyLock<HashMap<&'static str, HashMap<&'static s
                     ("totalCount", &["number"] as &[&str]),
                     ("activeFilters", &["object"] as &[&str]),
                     ("selectedIds", &["array"] as &[&str]),
+                    ("entity", &["object", "array"] as &[&str]),
                     ("heading", &["string"] as &[&str]),
                     ("subtitle", &["string"] as &[&str]),
                 ]
@@ -8346,7 +8681,7 @@ pub static PATTERN_PROP_TYPES: LazyLock<HashMap<&'static str, HashMap<&'static s
                 "variable-panel",
                 [
                     ("entityName", &["string"] as &[&str]),
-                    ("variables", &["array"] as &[&str]),
+                    ("variables", &["object", "array"] as &[&str]),
                     ("className", &["string"] as &[&str]),
                 ]
                 .into_iter()
@@ -8560,7 +8895,7 @@ pub static PATTERN_PROP_ENUM_VALUES: LazyLock<HashMap<&'static str, HashMap<&'st
                 .collect(),
             ),
             ("action-palette", [("size", &["sm", "md", "lg"] as &[&str])].into_iter().collect()),
-            ("action-tile", [("size", &["sm", "md", "lg"] as &[&str])].into_iter().collect()),
+            ("action-tile", [("sortDirection", &["asc", "desc"] as &[&str]), ("size", &["sm", "md", "lg"] as &[&str])].into_iter().collect()),
             ("alert", [("variant", &["info", "success", "warning", "error"] as &[&str])].into_iter().collect()),
             ("animated-graphic", [("animation", &["draw", "fill", "pulse", "morph"] as &[&str])].into_iter().collect()),
             (
@@ -8591,6 +8926,7 @@ pub static PATTERN_PROP_ENUM_VALUES: LazyLock<HashMap<&'static str, HashMap<&'st
                 .into_iter()
                 .collect(),
             ),
+            ("battle-board", [("sortDirection", &["asc", "desc"] as &[&str])].into_iter().collect()),
             ("book-chapter-view", [("direction", &["rtl", "ltr"] as &[&str])].into_iter().collect()),
             ("book-cover-page", [("direction", &["rtl", "ltr"] as &[&str])].into_iter().collect()),
             ("book-nav-bar", [("direction", &["rtl", "ltr"] as &[&str])].into_iter().collect()),
@@ -8615,6 +8951,7 @@ pub static PATTERN_PROP_ENUM_VALUES: LazyLock<HashMap<&'static str, HashMap<&'st
                 .into_iter()
                 .collect(),
             ),
+            ("builder-board", [("sortDirection", &["asc", "desc"] as &[&str])].into_iter().collect()),
             (
                 "button",
                 [
@@ -8656,6 +8993,7 @@ pub static PATTERN_PROP_ENUM_VALUES: LazyLock<HashMap<&'static str, HashMap<&'st
                 .collect(),
             ),
             ("chart-legend", [("direction", &["horizontal", "vertical"] as &[&str])].into_iter().collect()),
+            ("classifier-board", [("sortDirection", &["asc", "desc"] as &[&str])].into_iter().collect()),
             ("code-viewer", [("mode", &["code", "diff"] as &[&str])].into_iter().collect()),
             ("combo-counter", [("size", &["sm", "md", "lg"] as &[&str])].into_iter().collect()),
             (
@@ -8730,6 +9068,7 @@ pub static PATTERN_PROP_ENUM_VALUES: LazyLock<HashMap<&'static str, HashMap<&'st
                 .into_iter()
                 .collect(),
             ),
+            ("debugger-board", [("sortDirection", &["asc", "desc"] as &[&str])].into_iter().collect()),
             ("detail-panel", [("sortDirection", &["asc", "desc"] as &[&str]), ("position", &["left", "right"] as &[&str])].into_iter().collect()),
             ("dialogue-box", [("position", &["top", "bottom"] as &[&str])].into_iter().collect()),
             ("dialogue-bubble", [("position", &["top", "bottom"] as &[&str])].into_iter().collect()),
@@ -8791,6 +9130,7 @@ pub static PATTERN_PROP_ENUM_VALUES: LazyLock<HashMap<&'static str, HashMap<&'st
                 .into_iter()
                 .collect(),
             ),
+            ("event-handler-board", [("sortDirection", &["asc", "desc"] as &[&str])].into_iter().collect()),
             (
                 "feature-card",
                 [
@@ -9006,6 +9346,7 @@ pub static PATTERN_PROP_ENUM_VALUES: LazyLock<HashMap<&'static str, HashMap<&'st
             ),
             ("modal-slot", [("size", &["sm", "md", "lg", "xl", "full"] as &[&str])].into_iter().collect()),
             ("navigation", [("orientation", &["horizontal", "vertical"] as &[&str])].into_iter().collect()),
+            ("negotiator-board", [("sortDirection", &["asc", "desc"] as &[&str])].into_iter().collect()),
             ("notification", [("variant", &["success", "error", "info", "warning"] as &[&str])].into_iter().collect()),
             ("number-stepper", [("size", &["sm", "md", "lg"] as &[&str])].into_iter().collect()),
             ("option-constraint-group", [("size", &["sm", "md"] as &[&str])].into_iter().collect()),
@@ -9066,9 +9407,11 @@ pub static PATTERN_PROP_ENUM_VALUES: LazyLock<HashMap<&'static str, HashMap<&'st
             ),
             ("section-header", [("align", &["center", "left", "right"] as &[&str])].into_iter().collect()),
             ("sequence-bar", [("size", &["sm", "md", "lg"] as &[&str])].into_iter().collect()),
+            ("sequencer-board", [("sortDirection", &["asc", "desc"] as &[&str])].into_iter().collect()),
             ("showcase-organism", [("sortDirection", &["asc", "desc"] as &[&str])].into_iter().collect()),
             ("side-panel", [("position", &["left", "right"] as &[&str])].into_iter().collect()),
             ("simple-grid", [("gap", &["none", "xs", "sm", "md", "lg", "xl"] as &[&str])].into_iter().collect()),
+            ("simulator-board", [("sortDirection", &["asc", "desc"] as &[&str])].into_iter().collect()),
             ("skeleton", [("variant", &["header", "table", "form", "card", "text"] as &[&str])].into_iter().collect()),
             ("social-proof", [("variant", &["logos", "quotes", "badges"] as &[&str])].into_iter().collect()),
             ("sortable-list", [("dragHandlePosition", &["left", "right"] as &[&str])].into_iter().collect()),
@@ -9131,6 +9474,7 @@ pub static PATTERN_PROP_ENUM_VALUES: LazyLock<HashMap<&'static str, HashMap<&'st
                 .into_iter()
                 .collect(),
             ),
+            ("state-architect-board", [("sortDirection", &["asc", "desc"] as &[&str])].into_iter().collect()),
             ("state-indicator", [("size", &["sm", "md", "lg"] as &[&str])].into_iter().collect()),
             ("stats-organism", [("sortDirection", &["asc", "desc"] as &[&str])].into_iter().collect()),
             (

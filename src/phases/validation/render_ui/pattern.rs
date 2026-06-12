@@ -18,6 +18,7 @@ pub(super) fn validate_pattern(
     path: &str,
     entity_definitions: &HashMap<String, EntityDefinition>,
     extra_patterns: Option<&ExtraPatterns>,
+    linked_entity: Option<&str>,
 ) -> ValidationResult {
     let mut result = ValidationResult::new();
 
@@ -379,6 +380,20 @@ pub(super) fn validate_pattern(
                     }
                 }
 
+                // Entity-row clean slate: enforce the `EntityWith<K>`
+                // contract — every prop whose registry schema declares
+                // `requiredFields` must have those fields provided by the
+                // bound entity or a remap/field-map. Remap-aware: runs
+                // post-inline, so `@entity.<old>` was already rewritten to
+                // the new name and `@config.X` substituted.
+                result.merge(validate_entity_prop_contract(
+                    pattern_type,
+                    obj,
+                    path,
+                    entity_definitions,
+                    linked_entity,
+                ));
+
                 // Check for action on button/link patterns using synced definition
                 if requires_action(pattern_type)
                     && !obj.contains_key("action")
@@ -413,6 +428,7 @@ pub(super) fn validate_pattern(
                                     &child_path,
                                     entity_definitions,
                                     extra_patterns,
+                                    linked_entity,
                                 ));
                             }
                         }
@@ -423,6 +439,7 @@ pub(super) fn validate_pattern(
                                 &child_path,
                                 entity_definitions,
                                 extra_patterns,
+                                linked_entity,
                             ));
                         }
                         _ => {}
@@ -475,6 +492,397 @@ pub(super) fn validate_pattern(
     }
 
     result
+}
+
+// =============================================================================
+// Entity Prop Contract (ORB_X_ENTITY_PROP_CONTRACT)
+// =============================================================================
+
+/// Enforce the `EntityWith<K>` clean-slate contract: for each prop whose
+/// registry schema declares `requiredFields`, the bound entity (or a remap
+/// field-map on the resolved pattern object) MUST provide every required
+/// field. Remap-aware — runs post-inline, so `@entity.<old>` references were
+/// already rewritten to the new field name and `@config.X` substituted.
+///
+/// Permissive on provision (false negatives are preferred to spurious
+/// errors): a field counts as provided if the entity declares it, a
+/// `columns`/`fields` map remaps it, a prop slot literally named for it is
+/// bound, or any `@entity.<field>` reference for it appears in the resolved
+/// object.
+fn validate_entity_prop_contract(
+    pattern_type: &str,
+    obj: &HashMap<String, SExpression>,
+    path: &str,
+    entity_definitions: &HashMap<String, EntityDefinition>,
+    linked_entity: Option<&str>,
+) -> ValidationResult {
+    let Some(embedded_pattern) = crate::embedded::get_pattern(pattern_type) else {
+        return ValidationResult::new();
+    };
+    validate_entity_prop_contract_inner(
+        pattern_type,
+        embedded_pattern,
+        obj,
+        path,
+        entity_definitions,
+        linked_entity,
+    )
+}
+
+/// Registry-injectable core of `validate_entity_prop_contract` — takes the
+/// resolved `EmbeddedPattern` so unit tests can supply a pattern carrying
+/// `requiredFields` (the baked registry won't carry it until a later re-bake).
+fn validate_entity_prop_contract_inner(
+    pattern_type: &str,
+    embedded_pattern: &crate::embedded::EmbeddedPattern,
+    obj: &HashMap<String, SExpression>,
+    path: &str,
+    entity_definitions: &HashMap<String, EntityDefinition>,
+    linked_entity: Option<&str>,
+) -> ValidationResult {
+    let mut result = ValidationResult::new();
+
+    // Resolve the bound entity name. Primary: a literal `entity: "Name"`
+    // prop. Fallback: the trait's linked entity (covers the common
+    // `entity: "@payload.data"` / `@entity.X` / `@entity` binding case).
+    let bound_entity: Option<&str> = match obj.get("entity") {
+        Some(SExpression::String(s)) if !s.starts_with('@') => Some(s.as_str()),
+        _ => linked_entity,
+    };
+
+    // SKIP when the bound entity is unresolvable — exactly like the existing
+    // field-ref checks. Better to miss than to emit a spurious error.
+    let Some(entity_name) = bound_entity else {
+        return result;
+    };
+    let entity_def = entity_definitions.get(entity_name);
+
+    for (prop_name, prop_schema) in embedded_pattern.props_schema.iter() {
+        let Some(required_fields) = prop_schema.required_fields.as_ref() else {
+            continue;
+        };
+        if required_fields.is_empty() {
+            continue;
+        }
+        // Only enforce on props that are actually bound at this call site.
+        if !obj.contains_key(prop_name) {
+            continue;
+        }
+
+        for field in required_fields {
+            if !is_field_provided(field, obj, entity_def) {
+                result.add_error(
+                    ValidationError::error(
+                        ErrorCode::EntityPropContract,
+                        path,
+                        format!(
+                            "Component '{}' requires entity field '{}', but the bound entity '{}' does not provide it (declare the field, or remap one with a field map)",
+                            pattern_type, field, entity_name
+                        ),
+                    )
+                    .with_suggestion(format!(
+                        "Add field '{}' to entity '{}', or remap an existing field onto '{}' via the pattern's columns/fields map",
+                        field, entity_name, field
+                    )),
+                );
+            }
+        }
+    }
+
+    result
+}
+
+/// A required field `f` is PROVIDED if ANY of:
+/// (i) the bound entity declares a field named `f`;
+/// (ii) the resolved pattern obj supplies it via a remap/field-map —
+///      a `columns` array element with `field == f`, a `fields` array
+///      containing `f`, or a prop slot literally named `f`;
+/// (iii) any `@entity.f` reference appears anywhere in the resolved obj.
+fn is_field_provided(
+    field: &str,
+    obj: &HashMap<String, SExpression>,
+    entity_def: Option<&EntityDefinition>,
+) -> bool {
+    // (i) entity declares the field
+    if let Some(ed) = entity_def {
+        if ed
+            .fields
+            .iter()
+            .any(|f| f.name.as_deref() == Some(field))
+        {
+            return true;
+        }
+    }
+
+    // (ii) field-map provision
+    if let Some(SExpression::Array(cols)) = obj.get("columns") {
+        for col in cols {
+            if let SExpression::Object(col_obj) = col {
+                if let Some(SExpression::String(f)) = col_obj.get("field") {
+                    if f == field {
+                        return true;
+                    }
+                }
+            }
+        }
+    }
+    if let Some(SExpression::Array(fields)) = obj.get("fields") {
+        for f in fields {
+            if let SExpression::String(s) = f {
+                if s == field {
+                    return true;
+                }
+            }
+        }
+    }
+    if obj.contains_key(field) {
+        return true;
+    }
+
+    // (iii) any `@entity.<field>` reference in the resolved obj
+    let needle = format!("@entity.{}", field);
+    if sexpr_references_binding(&SExpression::Object(obj.clone()), &needle) {
+        return true;
+    }
+
+    false
+}
+
+/// Recursively scan an S-expression for a string whose value equals or
+/// path-prefixes `needle` (so `@entity.title` matches `@entity.title.x`).
+fn sexpr_references_binding(node: &SExpression, needle: &str) -> bool {
+    match node {
+        SExpression::String(s) => {
+            s == needle || s.starts_with(&format!("{}.", needle))
+        }
+        SExpression::Array(arr) => arr.iter().any(|n| sexpr_references_binding(n, needle)),
+        SExpression::Object(obj) => obj.values().any(|n| sexpr_references_binding(n, needle)),
+        _ => false,
+    }
+}
+
+#[cfg(test)]
+mod entity_prop_contract_tests {
+    use super::*;
+    use crate::embedded::EmbeddedPattern;
+    use orbital_core::schema::{EntityDefinition, FieldDefinition, FieldType};
+
+    /// A pattern whose `entity` prop is typed `EntityWith<"title" | "subtitle">`:
+    /// pattern-sync writes `requiredFields: ["title","subtitle"]` onto it. The
+    /// baked registry won't carry this until a re-bake, so we build it here.
+    fn pattern_with_required_fields() -> EmbeddedPattern {
+        serde_json::from_value(serde_json::json!({
+            "type": "entity-cards",
+            "category": "data",
+            "propsSchema": {
+                "entity": {
+                    "types": ["string", "object", "array"],
+                    "requiredFields": ["title", "subtitle"]
+                }
+            },
+            "entityAware": true
+        }))
+        .expect("valid embedded pattern fixture")
+    }
+
+    fn entity_with_fields(name: &str, field_names: &[&str]) -> EntityDefinition {
+        EntityDefinition {
+            name: name.to_string(),
+            fields: field_names
+                .iter()
+                .map(|fname| FieldDefinition {
+                    name: Some(fname.to_string()),
+                    field_type: FieldType::String,
+                    required: None,
+                    primary_key: None,
+                    unique: None,
+                    relation: None,
+                    items: None,
+                    values: None,
+                    default: None,
+                    properties: None,
+                    intrinsic: None,
+                    description: None,
+                    synonyms: None,
+                })
+                .collect(),
+            collection: None,
+            persistence: None,
+            instances: None,
+        }
+    }
+
+    fn pattern_obj(entries: Vec<(&str, SExpression)>) -> HashMap<String, SExpression> {
+        entries
+            .into_iter()
+            .map(|(k, v)| (k.to_string(), v))
+            .collect()
+    }
+
+    #[test]
+    fn rejects_entity_missing_required_field() {
+        // Entity has `title` but NOT `subtitle`; pattern requires both.
+        let mut defs = HashMap::new();
+        defs.insert("Article".to_string(), entity_with_fields("Article", &["title"]));
+
+        let obj = pattern_obj(vec![(
+            "entity",
+            SExpression::String("Article".to_string()),
+        )]);
+
+        let result = validate_entity_prop_contract_inner(
+            "entity-cards",
+            &pattern_with_required_fields(),
+            &obj,
+            "test",
+            &defs,
+            None,
+        );
+
+        let contract_errors: Vec<_> = result
+            .errors
+            .iter()
+            .filter(|e| e.code == ErrorCode::EntityPropContract)
+            .collect();
+        assert_eq!(
+            contract_errors.len(),
+            1,
+            "Expected exactly one ORB_X_ENTITY_PROP_CONTRACT for missing 'subtitle'. Errors: {:?}",
+            result.errors
+        );
+        assert!(
+            contract_errors[0].message.contains("subtitle"),
+            "Error should name the missing field 'subtitle'. Got: {}",
+            contract_errors[0].message
+        );
+    }
+
+    #[test]
+    fn accepts_entity_providing_all_required_fields() {
+        let mut defs = HashMap::new();
+        defs.insert(
+            "Article".to_string(),
+            entity_with_fields("Article", &["title", "subtitle"]),
+        );
+
+        let obj = pattern_obj(vec![(
+            "entity",
+            SExpression::String("Article".to_string()),
+        )]);
+
+        let result = validate_entity_prop_contract_inner(
+            "entity-cards",
+            &pattern_with_required_fields(),
+            &obj,
+            "test",
+            &defs,
+            None,
+        );
+
+        assert!(
+            !result
+                .errors
+                .iter()
+                .any(|e| e.code == ErrorCode::EntityPropContract),
+            "Entity provides all required fields; no contract error expected. Errors: {:?}",
+            result.errors
+        );
+    }
+
+    #[test]
+    fn accepts_when_column_field_map_remaps_missing_field() {
+        // Entity lacks `subtitle`, but a `columns` field-map remaps a column
+        // onto `subtitle` — provision (ii). No error expected.
+        let mut defs = HashMap::new();
+        defs.insert("Article".to_string(), entity_with_fields("Article", &["title"]));
+
+        let columns = SExpression::Array(vec![
+            SExpression::Object(pattern_obj(vec![(
+                "field",
+                SExpression::String("subtitle".to_string()),
+            )])),
+        ]);
+        let obj = pattern_obj(vec![
+            ("entity", SExpression::String("Article".to_string())),
+            ("columns", columns),
+        ]);
+
+        let result = validate_entity_prop_contract_inner(
+            "entity-cards",
+            &pattern_with_required_fields(),
+            &obj,
+            "test",
+            &defs,
+            None,
+        );
+
+        assert!(
+            !result
+                .errors
+                .iter()
+                .any(|e| e.code == ErrorCode::EntityPropContract),
+            "A columns field-map remaps 'subtitle'; no contract error expected. Errors: {:?}",
+            result.errors
+        );
+    }
+
+    #[test]
+    fn resolves_bound_entity_from_linked_entity_for_binding() {
+        // `entity: "@payload.data"` (binding) → resolve to the trait's
+        // linked entity (remap-aware coverage). Linked entity lacks
+        // 'subtitle' → error.
+        let mut defs = HashMap::new();
+        defs.insert("Article".to_string(), entity_with_fields("Article", &["title"]));
+
+        let obj = pattern_obj(vec![(
+            "entity",
+            SExpression::String("@payload.data".to_string()),
+        )]);
+
+        let result = validate_entity_prop_contract_inner(
+            "entity-cards",
+            &pattern_with_required_fields(),
+            &obj,
+            "test",
+            &defs,
+            Some("Article"),
+        );
+
+        assert!(
+            result
+                .errors
+                .iter()
+                .any(|e| e.code == ErrorCode::EntityPropContract
+                    && e.message.contains("subtitle")),
+            "Binding entity should resolve to linked 'Article' and flag missing 'subtitle'. Errors: {:?}",
+            result.errors
+        );
+    }
+
+    #[test]
+    fn skips_when_entity_unresolvable() {
+        // Binding entity, no linked_entity → unresolvable → SKIP (no error).
+        let defs: HashMap<String, EntityDefinition> = HashMap::new();
+        let obj = pattern_obj(vec![(
+            "entity",
+            SExpression::String("@payload.data".to_string()),
+        )]);
+
+        let result = validate_entity_prop_contract_inner(
+            "entity-cards",
+            &pattern_with_required_fields(),
+            &obj,
+            "test",
+            &defs,
+            None,
+        );
+
+        assert!(
+            result.is_valid(),
+            "Unresolvable bound entity must be skipped, not errored. Errors: {:?}",
+            result.errors
+        );
+    }
 }
 
 // =============================================================================
