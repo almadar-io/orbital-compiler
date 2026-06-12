@@ -38,6 +38,25 @@ pub fn resolve_to_oir(schema: &OrbitalSchema) -> Result<OirModule, ResolveError>
     resolver.resolve()
 }
 
+/// Lower a standalone EXPRESSION `SExpression` to `OirExpr` through the ONE
+/// canonical lowering — for codegen paths (render-ui operator-valued props)
+/// that re-lower an already-resolved expression rather than keeping a parallel
+/// emitter. Uses an empty schema: the expression arms (comparison/logic/
+/// arithmetic/array/object/str/time/validate/bindings/literals/`fn`/`cond`)
+/// never read it; only the effect arms (`emit`/`persist`/`fetch`/…) do, and
+/// effects never appear in an expression-valued prop. Returns `Err` for shapes
+/// the lowering rejects (the caller falls back to literal handling).
+pub fn resolve_sexpr_standalone(sexpr: &SExpression) -> Result<OirExpr, ResolveError> {
+    let empty = OrbitalSchema {
+        name: String::new(),
+        version: None,
+        description: None,
+        orbitals: Vec::new(),
+        metadata: None,
+    };
+    Resolver::new(&empty).resolve_sexpr(sexpr)
+}
+
 /// Resolver state
 pub struct Resolver<'a> {
     schema: &'a OrbitalSchema,
