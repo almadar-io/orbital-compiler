@@ -31,6 +31,7 @@ pub mod exhaustive_tests;
 pub mod generate;
 pub mod ir_helpers;
 pub mod loader;
+pub mod pattern_registry;
 pub mod phases;
 pub mod shell;
 pub mod test_generator;

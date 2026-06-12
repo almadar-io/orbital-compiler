@@ -20,21 +20,12 @@ static ENTITY_NAME_REGEX: LazyLock<Regex> =
     LazyLock::new(|| Regex::new(r"^[A-Z][a-zA-Z0-9]*$").unwrap());
 
 /// UI component names that collide with entity names in compiled TypeScript output.
-/// Dynamically loaded from component-mapping.json (synced by tools/sync-rust).
+/// Sourced from the single canonical `crate::pattern_registry` embed (no longer a
+/// per-phase copy of component-mapping.json).
 static RESERVED_COMPONENT_NAMES: LazyLock<HashSet<String>> = LazyLock::new(|| {
-    let json = include_str!("sync/component-mapping.json");
-    // Parse the top-level { "mappings": { "pattern-type": { "component": "Name", ... } } }
-    let parsed: serde_json::Value =
-        serde_json::from_str(json).expect("Failed to parse component-mapping.json");
-    let mut names = HashSet::new();
-    if let Some(mappings) = parsed.get("mappings").and_then(|m| m.as_object()) {
-        for (_pattern, info) in mappings {
-            if let Some(component) = info.get("component").and_then(|c| c.as_str()) {
-                names.insert(component.to_string());
-            }
-        }
-    }
-    names
+    crate::pattern_registry::component_names()
+        .map(|s| s.to_string())
+        .collect()
 });
 
 /// Validate all entities in a schema
