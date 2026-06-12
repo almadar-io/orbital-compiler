@@ -1,26 +1,16 @@
 //! Effect validation helpers: payload extraction + identifier checks.
 
+use crate::phases::validation::sexpr::EFFECT_OPERATORS;
 use orbital_core::schema::SExpression;
 use std::collections::HashSet;
+use std::sync::OnceLock;
 
-/// Known effect operators
-pub const EFFECT_OPERATORS: &[&str] = &[
-    "set",
-    "emit",
-    "fetch", // Runtime effect (EffectExecutor handles it)
-    "persist",
-    "delete", // Note: typically a persist sub-action, kept for compat
-    "navigate",
-    "render-ui",
-    "render_ui",
-    "call-service",
-    "call_service",
-    "notify",
-    "log", // Runtime effect (EffectExecutor handles it)
-    "spawn",
-    "destroy", // Legacy alias — canonical name is "despawn"
-    "despawn", // Canonical (GAP-E001): used by TS evaluator + runtime
-    "update",  // Note: typically a persist sub-action, kept for compat
+/// Operators valid in EFFECT POSITION beyond the core `EFFECT_OPERATORS`
+/// (control-flow wrappers that *contain* effects, array mutation, OS / ML /
+/// agent ops). The core effects are NOT relisted here — `effect_operators()`
+/// derives the full set from the single `sexpr::operators::EFFECT_OPERATORS`
+/// source, so a new core effect can't drift between the two lists (F3).
+const EFFECT_POSITION_EXTRA: &[&str] = &[
     // Conditional and array mutation effects
     "if",            // Conditional effect execution
     "array/append",  // Append item to array field
@@ -83,6 +73,19 @@ pub const EFFECT_OPERATORS: &[&str] = &[
     "agent/context-usage",
     "agent/session-id",
 ];
+
+/// All operators valid in effect position: the core effects (the single
+/// `sexpr::operators::EFFECT_OPERATORS` source) plus the wrappers above.
+/// Replaces the former second `EFFECT_OPERATORS` const that re-listed the core
+/// effects verbatim (F3 — drift-proof: add a core effect in one place).
+pub fn effect_operators() -> &'static [&'static str] {
+    static ALL: OnceLock<Vec<&'static str>> = OnceLock::new();
+    ALL.get_or_init(|| {
+        let mut v = EFFECT_OPERATORS.to_vec();
+        v.extend_from_slice(EFFECT_POSITION_EXTRA);
+        v
+    })
+}
 
 /// Extract payload field names from a navigate effect
 pub(crate) fn extract_payload_fields(arr: &[SExpression]) -> HashSet<String> {

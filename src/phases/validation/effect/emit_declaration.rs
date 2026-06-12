@@ -4,7 +4,7 @@ use super::super::{ErrorCode, PageInitPayload, ValidationError, ValidationResult
 use super::{
     validate_call_service, validate_call_service_object, validate_emit, validate_fetch, validate_fetch_object, validate_navigate,
     validate_os_watch, validate_persist, validate_ref, validate_set, validate_set_object,
-    validate_set_value_type, DeclaredEmit, EFFECT_OPERATORS,
+    effect_operators, validate_set_value_type, DeclaredEmit,
 };
 use orbital_core::schema::{EntityDefinition, SExpression, TraitDefinition};
 use std::collections::{HashMap, HashSet};
@@ -301,7 +301,7 @@ pub(crate) fn validate_effect(
                     os_op if os_op.starts_with("os/watch-") => {
                         result.merge(validate_os_watch(arr, path, declared_emits));
                     }
-                    op if !EFFECT_OPERATORS.contains(&op) => {
+                    op if !effect_operators().contains(&op) => {
                         result.add_error(
                             ValidationError::warning(
                                 ErrorCode::EffectUnknownType,
@@ -309,7 +309,7 @@ pub(crate) fn validate_effect(
                                 format!("Unknown effect operator: '{}'", op),
                             )
                             .with_valid_values(
-                                EFFECT_OPERATORS.iter().map(|s| s.to_string()).collect(),
+                                effect_operators().iter().map(|s| s.to_string()).collect(),
                             ),
                         );
                     }
