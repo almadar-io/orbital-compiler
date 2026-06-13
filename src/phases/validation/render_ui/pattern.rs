@@ -12,6 +12,30 @@ use super::{ErrorCode, ValidationError, ValidationResult};
 use orbital_core::schema::{EntityDefinition, SExpression};
 use std::collections::HashMap;
 
+/// The field names that EVERY element of an array-of-objects prop must carry,
+/// for the `ORB_RUI_ELEMENT_SHAPE_MISMATCH` element-shape check. Two sources,
+/// unioned:
+/// - `items.required` (the `Names([...])` at the element level — fields required
+///   on each element), read via `as_names()`; and
+/// - each per-element property that is itself required ON the element
+///   (`required_on_parent()` = the `Bool(true)` form ONLY).
+///
+/// A property whose `required` is a `Names([...])` lists *its own* nested
+/// required sub-keys and is NOT itself required on the element — so e.g. an
+/// optional `relation: { …, required: ["entity"] }` must NOT be demanded on
+/// every `form-section` field (the CG-FORM-SECTION-RELATION bug).
+fn element_required_fields(items: &crate::embedded::EmbeddedPatternProp) -> Vec<String> {
+    let mut out: Vec<String> = items.required.as_names().to_vec();
+    if let Some(props) = items.properties.as_ref() {
+        for (k, v) in props {
+            if v.required.required_on_parent() && !out.contains(k) {
+                out.push(k.clone());
+            }
+        }
+    }
+    out
+}
+
 /// Validate a pattern
 pub(super) fn validate_pattern(
     pattern: &SExpression,
@@ -174,29 +198,12 @@ pub(super) fn validate_pattern(
                                 .and_then(|p| p.props_schema.get(prop_name));
                             if let Some(rp) = registry_prop {
                                 if let Some(items) = rp.items.as_ref() {
-                                    let required_from_array = items.required.as_names();
-                                    let required_from_props: Vec<String> = items
-                                        .properties
-                                        .as_ref()
-                                        .map(|p| {
-                                            p.iter()
-                                                .filter(|(_, v)| v.required.as_bool())
-                                                .map(|(k, _)| k.clone())
-                                                .collect()
-                                        })
-                                        .unwrap_or_default();
-                                    let mut required_fields: Vec<&str> =
-                                        required_from_array.iter().map(|s| s.as_str()).collect();
-                                    for r in &required_from_props {
-                                        if !required_fields.contains(&r.as_str()) {
-                                            required_fields.push(r.as_str());
-                                        }
-                                    }
+                                    let required_fields = element_required_fields(items);
                                     if !required_fields.is_empty() {
                                         for (idx, elem) in elements.iter().enumerate() {
                                             if let SExpression::Object(elem_obj) = elem {
                                                 for field_name in &required_fields {
-                                                    if !elem_obj.contains_key(*field_name) {
+                                                    if !elem_obj.contains_key(field_name.as_str()) {
                                                         result.add_error(
                                                             ValidationError::error(
                                                                 ErrorCode::RenderUIElementShapeMismatch,
@@ -658,6 +665,59 @@ fn sexpr_references_binding(node: &SExpression, needle: &str) -> bool {
         SExpression::Array(arr) => arr.iter().any(|n| sexpr_references_binding(n, needle)),
         SExpression::Object(obj) => obj.values().any(|n| sexpr_references_binding(n, needle)),
         _ => false,
+    }
+}
+
+#[cfg(test)]
+mod element_shape_tests {
+    use super::element_required_fields;
+    use crate::embedded::EmbeddedPatternProp;
+
+    fn items_prop(json: serde_json::Value) -> EmbeddedPatternProp {
+        serde_json::from_value(json).expect("valid items prop fixture")
+    }
+
+    #[test]
+    fn optional_nested_object_prop_is_not_required_on_parent() {
+        // The `form-section` `fields[]` element shape: `name`/`label`/`type` are
+        // plain optional props, `relation` is an OBJECT prop whose OWN `entity`
+        // sub-key is required (`required: ["entity"]`). None of these is required
+        // ON the element, so the element-required set must be EMPTY — a field
+        // literal `{ name, label, type }` (no relation) must not be rejected.
+        let items = items_prop(serde_json::json!({
+            "types": ["object"],
+            "properties": {
+                "name":  { "types": ["string"] },
+                "label": { "types": ["string"] },
+                "type":  { "types": ["string"] },
+                "relation": {
+                    "types": ["object"],
+                    "properties": { "entity": { "types": ["string"] } },
+                    "required": ["entity"]
+                }
+            }
+        }));
+        assert!(
+            element_required_fields(&items).is_empty(),
+            "optional relation (required:[\"entity\"]) must not be parent-required"
+        );
+    }
+
+    #[test]
+    fn bool_true_and_item_level_names_are_required_on_parent() {
+        // `items.required: ["title"]` (element-level) + a property `id` marked
+        // `required: true` (Bool) → both required on every element.
+        let items = items_prop(serde_json::json!({
+            "types": ["object"],
+            "required": ["title"],
+            "properties": {
+                "id":    { "types": ["string"], "required": true },
+                "title": { "types": ["string"] }
+            }
+        }));
+        let mut got = element_required_fields(&items);
+        got.sort();
+        assert_eq!(got, vec!["id".to_string(), "title".to_string()]);
     }
 }
 

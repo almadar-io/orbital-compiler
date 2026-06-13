@@ -227,16 +227,19 @@ impl Default for RequiredFlag {
 }
 
 impl RequiredFlag {
-    /// Read as a boolean — true when the bool form is set, OR when the
-    /// names form is non-empty (treats "any required field" as required).
-    pub fn as_bool(&self) -> bool {
-        match self {
-            RequiredFlag::Bool(b) => *b,
-            RequiredFlag::Names(v) => !v.is_empty(),
-        }
+    /// Whether the property carrying this flag is required ON ITS PARENT object —
+    /// the `Bool(true)` form ONLY. The `Names([...])` form means something
+    /// different ("these sub-keys are required WITHIN this property's own object,
+    /// if the property is present"), read via [`as_names`](Self::as_names); it must
+    /// NOT make the property itself parent-required. (The old `as_bool` conflated
+    /// the two — `Names` non-empty → true — which wrongly demanded e.g. an optional
+    /// `relation` on every `form-section` field.)
+    pub fn required_on_parent(&self) -> bool {
+        matches!(self, RequiredFlag::Bool(true))
     }
 
-    /// Read as a slice of field names — empty for the bool form.
+    /// Read as a slice of field names — the `Names([...])` form's required
+    /// sub-keys; empty for the bool form.
     pub fn as_names(&self) -> &[String] {
         match self {
             RequiredFlag::Bool(_) => &[],
