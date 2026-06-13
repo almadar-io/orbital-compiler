@@ -976,7 +976,7 @@ pub static EMBEDDED_STD_BEHAVIORS: phf::Map<&'static str, &'static str> = phf::p
     "std/behaviors/ui-wizard-container" => include_str!("baked/std/ui/core/molecules/ui-wizard-container.orb"),
     "std/behaviors/ui-wizard-navigation" => include_str!("baked/std/ui/core/molecules/ui-wizard-navigation.orb"),
     "std/behaviors/ui-wizard-progress" => include_str!("baked/std/ui/core/molecules/ui-wizard-progress.orb"),
-    // === Organisms (134) ===
+    // === Organisms (135) ===
     "std/behaviors/AccountOrbital" => include_str!("baked/io/curated/organisms/AccountOrbital.orb"),
     "std/behaviors/BundleOrbital" => include_str!("baked/io/curated/organisms/BundleOrbital.orb"),
     "std/behaviors/ChargeItemOrbital" => include_str!("baked/io/curated/organisms/ChargeItemOrbital.orb"),
@@ -1042,6 +1042,7 @@ pub static EMBEDDED_STD_BEHAVIORS: phf::Map<&'static str, &'static str> = phf::p
     "std/behaviors/std-service-research-assistant" => include_str!("baked/io/service/organisms/std-service-research-assistant.orb"),
     "std/behaviors/std-social-feed" => include_str!("baked/io/app/organisms/std-social-feed.orb"),
     "std/behaviors/std-stem-lab" => include_str!("baked/io/game/organisms/std-stem-lab.orb"),
+    "std/behaviors/std-storefront" => include_str!("baked/io/marketing/organisms/std-storefront.orb"),
     "std/behaviors/std-strategy-game" => include_str!("baked/io/game/organisms/std-strategy-game.orb"),
     "std/behaviors/std-subscription-billing" => include_str!("baked/io/app/organisms/std-subscription-billing.orb"),
     "std/behaviors/std-survey" => include_str!("baked/io/app/organisms/std-survey.orb"),

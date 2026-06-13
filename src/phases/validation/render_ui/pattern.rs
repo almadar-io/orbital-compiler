@@ -549,12 +549,27 @@ fn validate_entity_prop_contract_inner(
 ) -> ValidationResult {
     let mut result = ValidationResult::new();
 
-    // Resolve the bound entity name. Primary: a literal `entity: "Name"`
-    // prop. Fallback: the trait's linked entity (covers the common
-    // `entity: "@payload.data"` / `@entity.X` / `@entity` binding case).
+    // Resolve the bound entity name. A literal `entity: "Name"` names it
+    // directly. A WHOLE-entity binding (`@entity`, `@payload[.data]`, `@data`)
+    // or an absent `entity` prop maps to the trait's linked entity. A SUB-FIELD
+    // binding (`entity: @entity.items`, `@config.team`) binds an element
+    // collection whose element type is not recoverable here (`FieldType::Array`
+    // carries no inner type) — the prop's `requiredFields` apply to that opaque
+    // element type, NOT the parent entity — so we skip rather than false-positive
+    // against the parent. (The element rows are already validated by the
+    // component contract on the producing side.)
     let bound_entity: Option<&str> = match obj.get("entity") {
         Some(SExpression::String(s)) if !s.starts_with('@') => Some(s.as_str()),
-        _ => linked_entity,
+        Some(SExpression::String(s)) => {
+            if is_whole_entity_binding(s) {
+                linked_entity
+            } else {
+                return result;
+            }
+        }
+        None => linked_entity,
+        // Any non-string literal value (array/object) — element type opaque.
+        Some(_) => return result,
     };
 
     // SKIP when the bound entity is unresolvable — exactly like the existing
@@ -597,6 +612,23 @@ fn validate_entity_prop_contract_inner(
     }
 
     result
+}
+
+/// True when an `@`-binding refers to the entity as a whole — the linked
+/// entity record (`@entity`) or its loaded collection (`@payload`,
+/// `@payload.data`, `@data`) — rather than a sub-field. Only whole-entity
+/// bindings let a prop's `requiredFields` be checked against the linked
+/// entity; a sub-field binding (`@entity.items`, `@config.team`) binds an
+/// element collection whose type is opaque here.
+fn is_whole_entity_binding(binding: &str) -> bool {
+    let mut segs = binding.trim_start_matches('@').split('.');
+    match segs.next() {
+        // The loaded entity collection.
+        Some("payload") | Some("data") => true,
+        // The entity record itself — only with no sub-path.
+        Some("entity") => segs.next().is_none(),
+        _ => false,
+    }
 }
 
 /// A required field `f` is PROVIDED if ANY of:
@@ -942,6 +974,49 @@ mod entity_prop_contract_tests {
             "Unresolvable bound entity must be skipped, not errored. Errors: {:?}",
             result.errors
         );
+    }
+
+    #[test]
+    fn skips_sub_field_binding_against_parent_entity() {
+        // `entity: @entity.items` binds an element collection whose type is
+        // opaque here. The parent (linked) entity `Section` lacks 'subtitle',
+        // but the requiredFields apply to the element type — must NOT
+        // false-positive against the parent.
+        let mut defs = HashMap::new();
+        defs.insert(
+            "Section".to_string(),
+            entity_with_fields("Section", &["id", "items"]),
+        );
+
+        for binding in ["@entity.items", "@config.team", "@config.steps"] {
+            let obj = pattern_obj(vec![(
+                "entity",
+                SExpression::String(binding.to_string()),
+            )]);
+            let result = validate_entity_prop_contract_inner(
+                "entity-cards",
+                &pattern_with_required_fields(),
+                &obj,
+                "test",
+                &defs,
+                Some("Section"),
+            );
+            assert!(
+                result.is_valid(),
+                "Sub-field binding {binding} must skip the parent-entity contract. Errors: {:?}",
+                result.errors
+            );
+        }
+    }
+
+    #[test]
+    fn whole_entity_binding_classification() {
+        for b in ["@entity", "@payload", "@payload.data", "@data"] {
+            assert!(is_whole_entity_binding(b), "{b} should be whole-entity");
+        }
+        for b in ["@entity.items", "@config.team", "@row.id", "@entity.x.y"] {
+            assert!(!is_whole_entity_binding(b), "{b} should be sub-field");
+        }
     }
 }
 
