@@ -492,6 +492,18 @@ impl<'a> ExhaustiveTestGenerator<'a> {
         expr: &OirExpr,
         payload: &mut serde_json::Map<String, serde_json::Value>,
     ) {
+        // Ratio comparison (`current/max >= 0.85`): synthesize the payload-side
+        // binding(s); neither comparison operand is a bare field so the direct
+        // path below can't see it.
+        let ratio = self.ratio_assignments(expr);
+        if !ratio.is_empty() {
+            for (root, path, val) in ratio {
+                if matches!(root, OirBindingRoot::Payload) {
+                    Self::insert_nested(payload, &path, val);
+                }
+            }
+            return;
+        }
         match expr {
             OirExpr::BinaryOp { op, left, right } => match op {
                 OirBinaryOp::And | OirBinaryOp::Or => {
@@ -601,6 +613,18 @@ impl<'a> ExhaustiveTestGenerator<'a> {
         expr: &OirExpr,
         entity: &mut serde_json::Map<String, serde_json::Value>,
     ) {
+        // Ratio comparison (`current/max >= 0.85`): synthesize the entity-side
+        // binding(s) (e.g. the `max` denominator, or both for an entity/entity
+        // ratio like `tokenCount/maxTokens`).
+        let ratio = self.ratio_assignments(expr);
+        if !ratio.is_empty() {
+            for (root, path, val) in ratio {
+                if matches!(root, OirBindingRoot::Entity) {
+                    entity.insert(path.join("."), val);
+                }
+            }
+            return;
+        }
         if let OirExpr::BinaryOp { op, left, right } = expr { match op {
             OirBinaryOp::And => {
                 self.extract_entity_requirements(left, entity);
@@ -752,6 +776,65 @@ impl<'a> ExhaustiveTestGenerator<'a> {
             OirExpr::Number { value } => Some(*value),
             _ => None,
         }
+    }
+
+    /// A division `["/", num, den]` in either `BinaryOp` or operator-`Call` form.
+    fn as_division(expr: &OirExpr) -> Option<(&OirExpr, &OirExpr)> {
+        match expr {
+            OirExpr::BinaryOp { op: OirBinaryOp::Div, left, right } => Some((left, right)),
+            OirExpr::Call { function, args } if function == "/" && args.len() == 2 => {
+                Some((&args[0], &args[1]))
+            }
+            _ => None,
+        }
+    }
+
+    /// `(root, path)` for a bare binding expression.
+    fn as_binding(expr: &OirExpr) -> Option<(OirBindingRoot, Vec<String>)> {
+        match expr {
+            OirExpr::Binding { binding } if !binding.path.is_empty() => {
+                Some((binding.root.clone(), binding.path.clone()))
+            }
+            _ => None,
+        }
+    }
+
+    /// Satisfying assignments for a *ratio* comparison
+    /// `[cmp, ["/", numBinding, denBinding], threshold]` (e.g. a gauge guard
+    /// `current/max >= 0.85`). The direct-binding path can't synthesize these
+    /// because neither comparison operand is itself a field. We fix the
+    /// denominator to a base (100) and solve the numerator for the threshold
+    /// with a unit margin, so a band `(and [>= r 0.85] [< r 0.95])` lands in
+    /// range via last-wins overwrite of the numerator (the tighter `<` bound
+    /// wins and still satisfies the `>=`). Each binding is returned with its
+    /// root so the payload- and entity-side synthesizers take their own.
+    fn ratio_assignments(
+        &self,
+        expr: &OirExpr,
+    ) -> Vec<(OirBindingRoot, Vec<String>, serde_json::Value)> {
+        let OirExpr::BinaryOp { op, left, right } = expr else {
+            return vec![];
+        };
+        let Some(threshold) = self.extract_literal_number(right) else {
+            return vec![];
+        };
+        let Some((num, den)) = Self::as_division(left) else {
+            return vec![];
+        };
+        let (Some(num_b), Some(den_b)) = (Self::as_binding(num), Self::as_binding(den)) else {
+            return vec![];
+        };
+        let den_val = 100.0_f64;
+        let num_val = match op {
+            OirBinaryOp::Ge | OirBinaryOp::Le | OirBinaryOp::Eq => threshold * den_val,
+            OirBinaryOp::Gt => threshold * den_val + 1.0,
+            OirBinaryOp::Lt => threshold * den_val - 1.0,
+            _ => return vec![],
+        };
+        vec![
+            (num_b.0, num_b.1, serde_json::json!(num_val)),
+            (den_b.0, den_b.1, serde_json::json!(den_val)),
+        ]
     }
 }
 
