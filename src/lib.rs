@@ -39,7 +39,8 @@ pub mod type_infer;
 
 pub use composition::ComposeError;
 pub use exhaustive_tests::{
-    ExhaustiveTestGenerator, JourneyStep, TestCase, TestCategory, TraitTestResult,
+    resolve_transition, ExhaustiveTestGenerator, JourneyStep, TestCase, TestCategory,
+    TraitTestResult,
 };
 pub use generate::{
     generate_from_file, generate_from_oir, Backend, BackendRegistry, GenerateError,

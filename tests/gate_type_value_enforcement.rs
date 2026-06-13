@@ -97,3 +97,34 @@ fn inferencer_lives_only_in_compiler() {
         );
     }
 }
+
+#[test]
+fn guard_evaluation_has_one_home_in_core() {
+    // `test --execute` (and anything else) must evaluate guards through the one
+    // canonical evaluator (`orbital_core::Evaluator::evaluate_guard_oir`), never a
+    // re-grown headless walker. The shadow functions deleted from orbital-cli must
+    // not come back, and the OIR→SExpression bridge that feeds the evaluator lives
+    // once, in orbital-core.
+    let cli = crate_src("orbital-cli");
+    for shadow in ["fn evaluate_guard_headless", "fn resolve_expr_value", "fn resolve_expr_to_f64"]
+    {
+        assert_eq!(
+            count(&cli, shadow),
+            0,
+            "orbital-cli re-grew a parallel guard evaluator (`{shadow}`) — evaluate \
+             guards via orbital_core::Evaluator::evaluate_guard_oir instead"
+        );
+    }
+
+    let core = crate_src("orbital-core");
+    assert_eq!(
+        count(&core, "fn to_sexpression("),
+        1,
+        "the OirExpr→SExpression bridge must be defined exactly once, in orbital-core"
+    );
+    assert_eq!(
+        count(&core, "fn evaluate_guard_oir("),
+        1,
+        "the OirExpr-guard evaluation entry must be defined exactly once, in orbital-core"
+    );
+}

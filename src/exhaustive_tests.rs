@@ -81,6 +81,53 @@ pub struct JourneyStep {
     pub payload: Option<serde_json::Value>,
 }
 
+/// Step the state machine once: given the current state and an event with a
+/// payload/entity, return the resulting state — the `to` of the first
+/// `(event, from_state)` transition (in declaration order) whose guard passes
+/// via the ONE canonical evaluator (`orbital_core::Evaluator::evaluate_guard_oir`),
+/// or `None` if no transition fires. This is the single source of "what does this
+/// event actually do here", shared by the test generator (to compute the correct
+/// expected outcome, accounting for guard priority / shadowing) and the
+/// `test --execute` executor — so the two can never disagree. An unconvertible /
+/// unevaluable guard is permissive (does not block).
+pub fn resolve_transition(
+    trait_def: &OirTrait,
+    current_state: &str,
+    event: &str,
+    payload: Option<&serde_json::Value>,
+    entity_data: Option<&serde_json::Value>,
+) -> Option<String> {
+    use orbital_core::{BindingContext, Evaluator, Value};
+
+    let mut ctx = BindingContext::new();
+    if let Some(p) = payload {
+        if let Ok(v) = serde_json::from_value::<Value>(p.clone()) {
+            ctx.set_payload(v);
+        }
+    }
+    if let Some(e) = entity_data {
+        if let Ok(v) = serde_json::from_value::<Value>(e.clone()) {
+            ctx.set_entity(v);
+        }
+    }
+    let evaluator = Evaluator::new();
+
+    for transition in trait_def
+        .transitions
+        .iter()
+        .filter(|t| t.event == event && t.from.matches(current_state))
+    {
+        let passes = match &transition.guard {
+            Some(g) => evaluator.evaluate_guard_oir(g, &ctx).unwrap_or(true),
+            None => true,
+        };
+        if passes {
+            return Some(transition.to.clone());
+        }
+    }
+    None
+}
+
 /// Exhaustive test generator for state machines
 pub struct ExhaustiveTestGenerator<'a> {
     module: &'a OirModule,
@@ -181,30 +228,42 @@ impl<'a> ExhaustiveTestGenerator<'a> {
         for transition in &trait_def.transitions {
             let from_states = self.get_from_states(trait_def, transition);
 
+            // Synthesize a payload/entity that satisfies THIS transition's guard,
+            // then ask the shared stepper what the event actually does from here.
+            let synth_payload = self.generate_valid_guard_payload(transition.guard.as_ref());
+            let synth_entity = self.generate_valid_guard_entity_data(transition.guard.as_ref());
+            let payload_opt =
+                (synth_payload != serde_json::json!({})).then(|| synth_payload.clone());
+
             for from_state in from_states {
+                // Only assert this transition when it is the one that ACTUALLY
+                // fires for the satisfying input. If a higher-priority sibling
+                // wins (shadowing) or the guard can't be satisfied at all (a
+                // config-folded-off flow), the declared `→ to` is unreachable in
+                // this compiled module — skip rather than assert a state the
+                // machine never reaches.
+                if resolve_transition(
+                    trait_def,
+                    &from_state,
+                    &transition.event,
+                    payload_opt.as_ref(),
+                    synth_entity.as_ref(),
+                )
+                .as_deref()
+                    != Some(transition.to.as_str())
+                {
+                    continue;
+                }
+
                 let setup_path = self.find_path_to_state(adjacency, initial_state, &from_state);
-
-                // For guarded transitions, provide valid payload+entity so the
-                // transition actually fires (this tests the transition, not the guard)
-                let payload = if transition.guard.is_some() {
-                    let p = self.generate_valid_guard_payload(transition.guard.as_ref());
-                    if p == serde_json::json!({}) {
-                        None
-                    } else {
-                        Some(p)
-                    }
-                } else {
-                    None
-                };
-
                 tests.push(TestCase {
                     name: format!("{} + {} → {}", from_state, transition.event, transition.to),
                     category: TestCategory::Transition,
                     from_state: from_state.clone(),
                     event: transition.event.clone(),
                     expected_state: transition.to.clone(),
-                    payload,
-                    entity_data: self.generate_valid_guard_entity_data(transition.guard.as_ref()),
+                    payload: payload_opt.clone(),
+                    entity_data: synth_entity.clone(),
                     setup_path,
                 });
             }
@@ -233,29 +292,54 @@ impl<'a> ExhaustiveTestGenerator<'a> {
                 .cloned()
                 .unwrap_or_else(|| initial_state.to_string());
             let setup_path = self.find_path_to_state(adjacency, initial_state, &from_state);
+            let empty = serde_json::json!({});
 
-            // Test 1: Guard should BLOCK with invalid/empty payload
-            tests.push(TestCase {
-                name: format!("guard blocks {} (invalid payload)", transition.event),
-                category: TestCategory::GuardBlock,
-                from_state: from_state.clone(),
-                event: transition.event.clone(),
-                expected_state: from_state.clone(), // Should stay in same state
-                payload: Some(serde_json::json!({})),
-                entity_data: None, // Deliberately empty to test guard blocking
-                setup_path: setup_path.clone(),
-            });
+            // Test 1: Guard should BLOCK with invalid/empty payload — but only a
+            // CLEAN block (the event genuinely leaves the machine in place). If an
+            // unguarded/satisfiable sibling catches the same event with the empty
+            // payload, the event isn't "blocked to stay"; skip rather than assert
+            // a stay that doesn't happen.
+            if resolve_transition(trait_def, &from_state, &transition.event, Some(&empty), None)
+                .map_or(true, |to| to == from_state)
+            {
+                tests.push(TestCase {
+                    name: format!("guard blocks {} (invalid payload)", transition.event),
+                    category: TestCategory::GuardBlock,
+                    from_state: from_state.clone(),
+                    event: transition.event.clone(),
+                    expected_state: from_state.clone(), // Should stay in same state
+                    payload: Some(empty.clone()),
+                    entity_data: None, // Deliberately empty to test guard blocking
+                    setup_path: setup_path.clone(),
+                });
+            }
 
-            // Test 2: Guard should ALLOW with valid payload
+            // Test 2: Guard should ALLOW with valid payload — but only when THIS
+            // transition is the one that actually fires for the satisfying input
+            // (an unsatisfiable config-folded guard, or a transition shadowed by a
+            // higher-priority sibling, has nothing to allow; skip it).
             let valid_payload = self.generate_valid_guard_payload(transition.guard.as_ref());
             let valid_entity = self.generate_valid_guard_entity_data(transition.guard.as_ref());
+            let payload_opt = (valid_payload != empty).then(|| valid_payload.clone());
+            if resolve_transition(
+                trait_def,
+                &from_state,
+                &transition.event,
+                payload_opt.as_ref(),
+                valid_entity.as_ref(),
+            )
+            .as_deref()
+                != Some(transition.to.as_str())
+            {
+                continue;
+            }
             tests.push(TestCase {
                 name: format!("guard allows {} (valid payload)", transition.event),
                 category: TestCategory::GuardAllow,
                 from_state: from_state.clone(),
                 event: transition.event.clone(),
                 expected_state: transition.to.clone(),
-                payload: Some(valid_payload),
+                payload: payload_opt,
                 entity_data: valid_entity,
                 setup_path,
             });
@@ -492,12 +576,16 @@ impl<'a> ExhaustiveTestGenerator<'a> {
         expr: &OirExpr,
         payload: &mut serde_json::Map<String, serde_json::Value>,
     ) {
-        // Ratio comparison (`current/max >= 0.85`): synthesize the payload-side
-        // binding(s); neither comparison operand is a bare field so the direct
-        // path below can't see it.
-        let ratio = self.ratio_assignments(expr);
-        if !ratio.is_empty() {
-            for (root, path, val) in ratio {
+        // Ratio (`current/max >= 0.85`) and length (`len(?data) > 0`)
+        // comparisons: neither operand is a bare field, so the direct path below
+        // can't see them. Synthesize the payload-side binding(s).
+        let synth = {
+            let mut s = self.ratio_assignments(expr);
+            s.extend(self.len_assignments(expr));
+            s
+        };
+        if !synth.is_empty() {
+            for (root, path, val) in synth {
                 if matches!(root, OirBindingRoot::Payload) {
                     Self::insert_nested(payload, &path, val);
                 }
@@ -613,12 +701,16 @@ impl<'a> ExhaustiveTestGenerator<'a> {
         expr: &OirExpr,
         entity: &mut serde_json::Map<String, serde_json::Value>,
     ) {
-        // Ratio comparison (`current/max >= 0.85`): synthesize the entity-side
-        // binding(s) (e.g. the `max` denominator, or both for an entity/entity
-        // ratio like `tokenCount/maxTokens`).
-        let ratio = self.ratio_assignments(expr);
-        if !ratio.is_empty() {
-            for (root, path, val) in ratio {
+        // Ratio (`current/max >= 0.85`) and length (`len(@entity.items) > 0`)
+        // comparisons: synthesize the entity-side binding(s) (e.g. the `max`
+        // denominator, or both for an entity/entity ratio).
+        let synth = {
+            let mut s = self.ratio_assignments(expr);
+            s.extend(self.len_assignments(expr));
+            s
+        };
+        if !synth.is_empty() {
+            for (root, path, val) in synth {
                 if matches!(root, OirBindingRoot::Entity) {
                     entity.insert(path.join("."), val);
                 }
@@ -776,6 +868,52 @@ impl<'a> ExhaustiveTestGenerator<'a> {
             OirExpr::Number { value } => Some(*value),
             _ => None,
         }
+    }
+
+    /// An `array/len`-family call `["array/len", binding]`.
+    fn as_array_len(expr: &OirExpr) -> Option<&OirExpr> {
+        match expr {
+            OirExpr::Call { function, args }
+                if matches!(
+                    function.as_str(),
+                    "array/len" | "array/length" | "length" | "count" | "len" | "size"
+                ) && args.len() == 1 =>
+            {
+                Some(&args[0])
+            }
+            _ => None,
+        }
+    }
+
+    /// Satisfying assignment for a *length* comparison
+    /// `[cmp, ["array/len", binding], threshold]` (e.g. `len(?data) > 0`): an
+    /// array of the length that makes the comparison hold, routed to the
+    /// binding's payload/entity bucket.
+    fn len_assignments(
+        &self,
+        expr: &OirExpr,
+    ) -> Vec<(OirBindingRoot, Vec<String>, serde_json::Value)> {
+        let OirExpr::BinaryOp { op, left, right } = expr else {
+            return vec![];
+        };
+        let Some(threshold) = self.extract_literal_number(right) else {
+            return vec![];
+        };
+        let Some(arg) = Self::as_array_len(left) else {
+            return vec![];
+        };
+        let Some((root, path)) = Self::as_binding(arg) else {
+            return vec![];
+        };
+        let n = threshold.max(0.0) as i64;
+        let len = match op {
+            OirBinaryOp::Gt => n + 1,
+            OirBinaryOp::Ge | OirBinaryOp::Eq | OirBinaryOp::Le => n,
+            OirBinaryOp::Lt => (n - 1).max(0),
+            _ => return vec![],
+        };
+        let arr: Vec<serde_json::Value> = (0..len).map(|_| serde_json::json!({})).collect();
+        vec![(root, path, serde_json::Value::Array(arr))]
     }
 
     /// A division `["/", num, den]` in either `BinaryOp` or operator-`Call` form.
