@@ -131,10 +131,10 @@ pub(crate) fn is_valid_event_identifier(s: &str) -> bool {
 
 #[cfg(test)]
 mod tests {
-    use super::is_upper_snake_case;
+    use super::super::super::{ErrorCode, PageInitPayload};
     use super::super::navigate::path_matches_pattern;
     use super::super::{validate_effect, validate_emit_against_declaration, DeclaredEmit};
-    use super::super::super::{ErrorCode, PageInitPayload};
+    use super::is_upper_snake_case;
     use orbital_core::schema::{EntityDefinition, FieldType, SExpression};
     use std::collections::{HashMap, HashSet};
 
@@ -373,8 +373,6 @@ mod tests {
 
     #[test]
     fn test_emit_declared_passes() {
-        
-
         let declared_emits = vec![DeclaredEmit {
             event: "TASK_CREATED".to_string(),
             is_external: true,

@@ -285,8 +285,7 @@ fn sigil_rules_match_ts_source() {
     // hasn't drifted. If the TS file changes, this test fails until the
     // Rust constant is hand-updated to match. (Phase 3.4 deferred the
     // automated bindings.json artifact to a future phase.)
-    let ts_path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
-        .join("src/baked/bindings.ts");
+    let ts_path = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src/baked/bindings.ts");
     let src = std::fs::read_to_string(&ts_path)
         .unwrap_or_else(|e| panic!("Failed to read {}: {}", ts_path.display(), e));
 

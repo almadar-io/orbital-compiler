@@ -262,7 +262,6 @@ pub(super) fn validate_pattern(
                                 )),
                             );
                         }
-
                     }
 
                     // Enum-value check: when the prop's TS type was a bounded
@@ -324,8 +323,7 @@ pub(super) fn validate_pattern(
                             if prop_name == "type" || prop_name == "entity" {
                                 continue;
                             }
-                            let Some(prop_schema) =
-                                embedded_pattern.props_schema.get(prop_name)
+                            let Some(prop_schema) = embedded_pattern.props_schema.get(prop_name)
                             else {
                                 continue;
                             };
@@ -644,11 +642,7 @@ fn is_field_provided(
 ) -> bool {
     // (i) entity declares the field
     if let Some(ed) = entity_def {
-        if ed
-            .fields
-            .iter()
-            .any(|f| f.name.as_deref() == Some(field))
-        {
+        if ed.fields.iter().any(|f| f.name.as_deref() == Some(field)) {
             return true;
         }
     }
@@ -691,9 +685,7 @@ fn is_field_provided(
 /// path-prefixes `needle` (so `@entity.title` matches `@entity.title.x`).
 fn sexpr_references_binding(node: &SExpression, needle: &str) -> bool {
     match node {
-        SExpression::String(s) => {
-            s == needle || s.starts_with(&format!("{}.", needle))
-        }
+        SExpression::String(s) => s == needle || s.starts_with(&format!("{}.", needle)),
         SExpression::Array(arr) => arr.iter().any(|n| sexpr_references_binding(n, needle)),
         SExpression::Object(obj) => obj.values().any(|n| sexpr_references_binding(n, needle)),
         _ => false,
@@ -815,12 +807,12 @@ mod entity_prop_contract_tests {
     fn rejects_entity_missing_required_field() {
         // Entity has `title` but NOT `subtitle`; pattern requires both.
         let mut defs = HashMap::new();
-        defs.insert("Article".to_string(), entity_with_fields("Article", &["title"]));
+        defs.insert(
+            "Article".to_string(),
+            entity_with_fields("Article", &["title"]),
+        );
 
-        let obj = pattern_obj(vec![(
-            "entity",
-            SExpression::String("Article".to_string()),
-        )]);
+        let obj = pattern_obj(vec![("entity", SExpression::String("Article".to_string()))]);
 
         let result = validate_entity_prop_contract_inner(
             "entity-cards",
@@ -857,10 +849,7 @@ mod entity_prop_contract_tests {
             entity_with_fields("Article", &["title", "subtitle"]),
         );
 
-        let obj = pattern_obj(vec![(
-            "entity",
-            SExpression::String("Article".to_string()),
-        )]);
+        let obj = pattern_obj(vec![("entity", SExpression::String("Article".to_string()))]);
 
         let result = validate_entity_prop_contract_inner(
             "entity-cards",
@@ -886,14 +875,15 @@ mod entity_prop_contract_tests {
         // Entity lacks `subtitle`, but a `columns` field-map remaps a column
         // onto `subtitle` — provision (ii). No error expected.
         let mut defs = HashMap::new();
-        defs.insert("Article".to_string(), entity_with_fields("Article", &["title"]));
+        defs.insert(
+            "Article".to_string(),
+            entity_with_fields("Article", &["title"]),
+        );
 
-        let columns = SExpression::Array(vec![
-            SExpression::Object(pattern_obj(vec![(
-                "field",
-                SExpression::String("subtitle".to_string()),
-            )])),
-        ]);
+        let columns = SExpression::Array(vec![SExpression::Object(pattern_obj(vec![(
+            "field",
+            SExpression::String("subtitle".to_string()),
+        )]))]);
         let obj = pattern_obj(vec![
             ("entity", SExpression::String("Article".to_string())),
             ("columns", columns),
@@ -924,7 +914,10 @@ mod entity_prop_contract_tests {
         // linked entity (remap-aware coverage). Linked entity lacks
         // 'subtitle' → error.
         let mut defs = HashMap::new();
-        defs.insert("Article".to_string(), entity_with_fields("Article", &["title"]));
+        defs.insert(
+            "Article".to_string(),
+            entity_with_fields("Article", &["title"]),
+        );
 
         let obj = pattern_obj(vec![(
             "entity",
@@ -989,10 +982,7 @@ mod entity_prop_contract_tests {
         );
 
         for binding in ["@entity.items", "@config.team", "@config.steps"] {
-            let obj = pattern_obj(vec![(
-                "entity",
-                SExpression::String(binding.to_string()),
-            )]);
+            let obj = pattern_obj(vec![("entity", SExpression::String(binding.to_string()))]);
             let result = validate_entity_prop_contract_inner(
                 "entity-cards",
                 &pattern_with_required_fields(),

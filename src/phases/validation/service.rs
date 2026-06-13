@@ -118,13 +118,14 @@ pub fn validate_service_definition(service: &ServiceDefinition, path: &str) -> V
             if let Some(auth) = &rest.auth {
                 // For api-key auth, keyName should be provided
                 if auth.auth_type == orbital_core::schema::RestAuthType::ApiKey
-                    && auth.key_name.is_none() {
-                        result.add_error(ValidationError::warning(
-                            ErrorCode::MissingField,
-                            format!("{}.auth.keyName", path),
-                            "api-key auth should specify keyName",
-                        ));
-                    }
+                    && auth.key_name.is_none()
+                {
+                    result.add_error(ValidationError::warning(
+                        ErrorCode::MissingField,
+                        format!("{}.auth.keyName", path),
+                        "api-key auth should specify keyName",
+                    ));
+                }
 
                 // secretEnv should follow env var naming convention
                 if let Some(secret_env) = &auth.secret_env {

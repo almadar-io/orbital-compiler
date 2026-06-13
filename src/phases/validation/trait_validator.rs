@@ -637,7 +637,10 @@ pub fn validate_state_machine(
                 if from == "*" {
                     continue;
                 }
-                adjacency.entry(from).or_default().push(transition.to.as_str());
+                adjacency
+                    .entry(from)
+                    .or_default()
+                    .push(transition.to.as_str());
             }
         }
 
@@ -932,22 +935,18 @@ mod tests {
                     to: "idle".to_string(),
                     event: "INIT".to_string(),
                     guard: None,
-                    effects: Some(vec![
-                        orbital_core::schema::SExpression::Array(vec![
-                            orbital_core::schema::SExpression::String("render-ui".to_string()),
-                            orbital_core::schema::SExpression::String("main".to_string()),
-                            orbital_core::schema::SExpression::Object({
-                                let mut m = std::collections::HashMap::new();
-                                m.insert(
-                                    "type".to_string(),
-                                    orbital_core::schema::SExpression::String(
-                                        "box".to_string(),
-                                    ),
-                                );
-                                m
-                            }),
-                        ]),
-                    ]),
+                    effects: Some(vec![orbital_core::schema::SExpression::Array(vec![
+                        orbital_core::schema::SExpression::String("render-ui".to_string()),
+                        orbital_core::schema::SExpression::String("main".to_string()),
+                        orbital_core::schema::SExpression::Object({
+                            let mut m = std::collections::HashMap::new();
+                            m.insert(
+                                "type".to_string(),
+                                orbital_core::schema::SExpression::String("box".to_string()),
+                            );
+                            m
+                        }),
+                    ])]),
                 },
                 TransitionDefinition {
                     from: StringOrArray::Single("idle".to_string()),
@@ -1139,7 +1138,10 @@ mod tests {
     fn test_rebind_required_field_present_ok() {
         let t = rebound_trait(Some(true), &["sku"]);
         let mut defs = HashMap::new();
-        defs.insert("Listing".to_string(), make_entity("Listing", &["sku", "title"]));
+        defs.insert(
+            "Listing".to_string(),
+            make_entity("Listing", &["sku", "title"]),
+        );
         let result = validate_entity_rebind(&t, "test", &defs);
         assert!(result.errors.is_empty(), "Unexpected: {:?}", result.errors);
     }
@@ -1220,7 +1222,11 @@ mod tests {
         assert!(result.is_valid());
     }
 
-    fn event_ref(reference: Option<&str>, name: Option<&str>, renames: &[(&str, &str)]) -> TraitReference {
+    fn event_ref(
+        reference: Option<&str>,
+        name: Option<&str>,
+        renames: &[(&str, &str)],
+    ) -> TraitReference {
         let mut events = HashMap::new();
         for (k, v) in renames {
             events.insert(k.to_string(), v.to_string());
@@ -1269,7 +1275,11 @@ mod tests {
 
     #[test]
     fn test_event_rename_known_key_passes() {
-        let r = event_ref(Some("Alias.traits.TestTrait"), None, &[("INIT", "ADD"), ("START", "GO")]);
+        let r = event_ref(
+            Some("Alias.traits.TestTrait"),
+            None,
+            &[("INIT", "ADD"), ("START", "GO")],
+        );
         let result = validate_event_renames(&r, "test", &known_events());
         assert!(result.is_valid());
     }
@@ -1277,9 +1287,12 @@ mod tests {
     #[test]
     fn test_event_rename_unknown_target_trait_skips() {
         // Target trait not in the event-set map (external/std) — defer to inline.
-        let r = event_ref(Some("Alias.traits.ExternalTrait"), None, &[("WHATEVER", "Z")]);
+        let r = event_ref(
+            Some("Alias.traits.ExternalTrait"),
+            None,
+            &[("WHATEVER", "Z")],
+        );
         let result = validate_event_renames(&r, "test", &known_events());
         assert!(result.is_valid());
     }
-
 }

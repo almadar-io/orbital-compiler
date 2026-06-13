@@ -175,8 +175,8 @@ struct PatternRegistryFile {
 fn component_mappings() -> &'static HashMap<String, ComponentMapping> {
     static PARSED: OnceLock<HashMap<String, ComponentMapping>> = OnceLock::new();
     PARSED.get_or_init(|| {
-        let file: ComponentMappingFile = serde_json::from_str(COMPONENT_MAPPING_JSON)
-            .expect("parse baked component-mapping");
+        let file: ComponentMappingFile =
+            serde_json::from_str(COMPONENT_MAPPING_JSON).expect("parse baked component-mapping");
         file.mappings
     })
 }
@@ -193,8 +193,8 @@ fn event_contracts() -> &'static HashMap<String, EventContract> {
 fn pattern_definitions() -> &'static HashMap<String, RegistryPattern> {
     static PARSED: OnceLock<HashMap<String, RegistryPattern>> = OnceLock::new();
     PARSED.get_or_init(|| {
-        let file: PatternRegistryFile = serde_json::from_str(REGISTRY_JSON)
-            .expect("parse baked patterns registry");
+        let file: PatternRegistryFile =
+            serde_json::from_str(REGISTRY_JSON).expect("parse baked patterns registry");
         file.patterns
     })
 }
@@ -226,7 +226,9 @@ pub fn get_all_patterns() -> Vec<&'static str> {
 
 /// Get the props schema for a pattern type.
 pub fn get_props_schema(pattern_type: &str) -> Option<&'static HashMap<String, PropSchema>> {
-    pattern_definitions().get(pattern_type).map(|p| &p.props_schema)
+    pattern_definitions()
+        .get(pattern_type)
+        .map(|p| &p.props_schema)
 }
 
 /// All component identifiers in the mapping (e.g. `StatCard`, `EntityTable`).

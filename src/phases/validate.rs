@@ -527,8 +527,7 @@ fn validate_page(page: &PageDefinition, path: &str, ctx: &mut ValidationContext)
 mod tests {
     use super::*;
     use orbital_core::schema::{
-        SExpression, StateDefinition, StateMachine, TraitDefinition,
-        TransitionDefinition,
+        SExpression, StateDefinition, StateMachine, TraitDefinition, TransitionDefinition,
     };
 
     fn create_minimal_schema() -> OrbitalSchema {

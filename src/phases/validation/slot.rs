@@ -7,9 +7,7 @@ use super::{
     render_ui::{extract_slot, is_render_ui_effect},
     Domain, ErrorCode, ValidationContext, ValidationError, ValidationResult,
 };
-use orbital_core::schema::{
-    OrbitalSchema, StateMachine, TraitDefinition, TraitReference,
-};
+use orbital_core::schema::{OrbitalSchema, StateMachine, TraitDefinition, TraitReference};
 use std::collections::{HashMap, HashSet, VecDeque};
 
 /// Slots that cannot contain other slots
@@ -586,11 +584,9 @@ mod tests {
     #[test]
     fn test_slot_no_contention_across_distinct_states() {
         // trait1: main @ idle (INIT), something else @ second
-        let trait1 =
-            create_two_state_trait("Trait1", Some("main"), "GO", "sidebar");
+        let trait1 = create_two_state_trait("Trait1", Some("main"), "GO", "sidebar");
         // trait2: sidebar @ idle (INIT), main @ second — reachable but different state from trait1's main render
-        let trait2 =
-            create_two_state_trait("Trait2", Some("sidebar"), "GO", "main");
+        let trait2 = create_two_state_trait("Trait2", Some("sidebar"), "GO", "main");
         let traits = vec![&trait1, &trait2];
 
         let result = validate_page_slots(&traits, "test", Domain::Business);
@@ -652,8 +648,7 @@ mod tests {
         let trait1 = create_two_state_trait("Trait1", Some("main"), "GO", "main");
         // trait2 also renders main at INIT? We want ONLY a runtime conflict.
         // Give trait2 a non-main INIT slot so INIT check passes.
-        let trait2 =
-            create_two_state_trait("Trait2", Some("sidebar"), "GO", "main");
+        let trait2 = create_two_state_trait("Trait2", Some("sidebar"), "GO", "main");
         let traits = vec![&trait1, &trait2];
 
         let result = validate_page_slots(&traits, "test", Domain::Business);

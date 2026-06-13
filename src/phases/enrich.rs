@@ -121,7 +121,8 @@ fn build_cross_references(schema: &OrbitalSchema, ctx: &mut EnrichmentContext) {
                     if let Some(linked) = linked_entity {
                         let trait_name = reference
                             .as_ref()
-                            .or(name.as_ref()).cloned()
+                            .or(name.as_ref())
+                            .cloned()
                             .unwrap_or_default();
                         ctx.entity_used_by_traits
                             .entry(linked.clone())

@@ -65,18 +65,11 @@ pub(crate) fn validate_listens_integrity(schema: &OrbitalSchema) -> ValidationRe
                     result.add_error(
                         ValidationError::error(
                             ErrorCode::CrossOrbitalListenSourceUnresolved,
-                            format!(
-                                "orbitals.{}.traits.{}.listens",
-                                orbital.name, td.name
-                            ),
+                            format!("orbitals.{}.traits.{}.listens", orbital.name, td.name),
                             format!(
                                 "Listen entry in '{}.{}' references source '{}.{}' event '{}' \
                                  which is not declared on the source trait.",
-                                orbital.name,
-                                td.name,
-                                source_orbital,
-                                source_trait,
-                                listen.event
+                                orbital.name, td.name, source_orbital, source_trait, listen.event
                             ),
                         )
                         .with_suggestion(

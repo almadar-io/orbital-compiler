@@ -41,7 +41,11 @@ fn emit_def(event: &str, fields: Vec<PayloadField>) -> EmitDefinition {
         synonyms: None,
         tier: None,
         scope: Some(EventScope::External),
-        payload_schema: if fields.is_empty() { None } else { Some(fields) },
+        payload_schema: if fields.is_empty() {
+            None
+        } else {
+            Some(fields)
+        },
     }
 }
 
@@ -69,7 +73,10 @@ fn task_entity() -> EntityDefinition {
     }
 }
 
-fn run(schema: &OrbitalSchema, strict: bool) -> orbital_compiler::phases::validation::ValidationResult {
+fn run(
+    schema: &OrbitalSchema,
+    strict: bool,
+) -> orbital_compiler::phases::validation::ValidationResult {
     validate_comprehensive_full_with_phase_f(
         schema,
         None,

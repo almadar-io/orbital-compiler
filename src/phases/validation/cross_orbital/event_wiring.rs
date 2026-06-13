@@ -119,9 +119,7 @@ pub(crate) fn validate_event_wiring(schema: &OrbitalSchema) -> ValidationResult 
         if external_emit_events.contains(event) {
             continue;
         }
-        if !listened_events_all.contains_key(event)
-            && !trigger_events.contains_key(event)
-        {
+        if !listened_events_all.contains_key(event) && !trigger_events.contains_key(event) {
             for emitter in emitters {
                 result.add_error(
                     ValidationError::warning(
@@ -222,8 +220,7 @@ pub(crate) fn collect_trait_events(
             // check; exclude them from `listened_strict` so the orphan-
             // listener check doesn't fire when the schema only contains
             // this orbital.
-            let is_cross_orbital =
-                matches!(listen.source, Some(ListenSource::Orbital { .. }));
+            let is_cross_orbital = matches!(listen.source, Some(ListenSource::Orbital { .. }));
             listened_all
                 .entry(listen.event.clone())
                 .or_default()
@@ -268,7 +265,9 @@ pub(crate) fn transition_can_propagate(trait_def: &TraitDefinition, event: &str)
         if transition.event != event {
             continue;
         }
-        let Some(effects) = &transition.effects else { continue };
+        let Some(effects) = &transition.effects else {
+            continue;
+        };
         for effect in effects {
             if extract_emit_event(effect).is_some() {
                 return true;

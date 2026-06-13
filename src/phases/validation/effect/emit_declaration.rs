@@ -2,10 +2,10 @@
 
 use super::super::{ErrorCode, PageInitPayload, ValidationError, ValidationResult};
 use super::{
-    validate_call_service, validate_call_service_object, validate_emit, validate_fetch, validate_fetch_object, validate_navigate,
-    validate_os_watch, validate_persist, validate_ref, validate_set, validate_set_enum_value,
-    validate_set_object, validate_set_return_type, effect_operators, validate_set_value_type,
-    DeclaredEmit, EntityFieldMeta,
+    effect_operators, validate_call_service, validate_call_service_object, validate_emit,
+    validate_fetch, validate_fetch_object, validate_navigate, validate_os_watch, validate_persist,
+    validate_ref, validate_set, validate_set_enum_value, validate_set_object,
+    validate_set_return_type, validate_set_value_type, DeclaredEmit, EntityFieldMeta,
 };
 use orbital_core::schema::{EntityDefinition, SExpression, TraitDefinition};
 use std::collections::{HashMap, HashSet};
@@ -184,11 +184,19 @@ pub(crate) fn validate_required_emit_success(
     let mut found_emit_success: Option<String> = None;
     let mut saw_options_object = false;
     for arg in arr.iter().skip(2) {
-        let SExpression::Object(obj) = arg else { continue };
+        let SExpression::Object(obj) = arg else {
+            continue;
+        };
         saw_options_object = true;
-        let Some(emit) = obj.get("emit") else { continue };
-        let SExpression::Object(emit_obj) = emit else { continue };
-        let Some(success) = emit_obj.get("success") else { continue };
+        let Some(emit) = obj.get("emit") else {
+            continue;
+        };
+        let SExpression::Object(emit_obj) = emit else {
+            continue;
+        };
+        let Some(success) = emit_obj.get("success") else {
+            continue;
+        };
         if let SExpression::String(s) = success {
             if !s.is_empty() {
                 found_emit_success = Some(s.clone());
@@ -288,12 +296,7 @@ pub(crate) fn validate_effect(
                         ));
                     }
                     "persist" => {
-                        result.merge(validate_persist(
-                            arr,
-                            path,
-                            known_entities,
-                            declared_emits,
-                        ));
+                        result.merge(validate_persist(arr, path, known_entities, declared_emits));
                     }
                     "ref" => {
                         result.merge(validate_ref(arr, path, declared_emits));

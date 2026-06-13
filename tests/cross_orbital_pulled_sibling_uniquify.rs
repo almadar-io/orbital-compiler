@@ -139,11 +139,15 @@ fn cross_orbital_pulled_siblings_are_uniquified() {
 
     // Each orbital pulled its own stepper sibling, uniquified by orbital name.
     assert!(
-        tech_names.iter().any(|n| n == "TechnicianOrbitalCheckinStepper"),
+        tech_names
+            .iter()
+            .any(|n| n == "TechnicianOrbitalCheckinStepper"),
         "TechnicianOrbital should carry a uniquified stepper; got {tech_names:?}"
     );
     assert!(
-        job_names.iter().any(|n| n == "JobCheckinOrbitalCheckinStepper"),
+        job_names
+            .iter()
+            .any(|n| n == "JobCheckinOrbitalCheckinStepper"),
         "JobCheckinOrbital should carry a uniquified stepper; got {job_names:?}"
     );
 
@@ -165,7 +169,11 @@ fn cross_orbital_pulled_siblings_are_uniquified() {
         s.dedup();
         s.len()
     };
-    assert_eq!(all.len(), dedup_len, "trait names must be app-unique; got {all:?}");
+    assert_eq!(
+        all.len(),
+        dedup_len,
+        "trait names must be app-unique; got {all:?}"
+    );
 
     // The pulling trait's `listens` source tracked the rename in each orbital.
     for (idx, expected_src) in [

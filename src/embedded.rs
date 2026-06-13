@@ -181,8 +181,7 @@ pub fn is_rust_target(name: &str) -> bool {
 // 3.2 — Embedded patterns-registry.json
 // ============================================================================
 
-const PATTERNS_JSON: &str =
-    include_str!("baked/patterns-registry.json");
+const PATTERNS_JSON: &str = include_str!("baked/patterns-registry.json");
 
 /// A single field of an emit/listen payload schema, mirroring trait
 /// `payloadSchema` entries so L1/L2 consumers can compare the component's
@@ -373,11 +372,9 @@ pub fn get_pattern(pattern_type: &str) -> Option<&'static EmbeddedPattern> {
 // startup in `behaviors()`; partitions are disjoint by topic so the union
 // has no observable collisions, but if one ever occurs std wins.
 
-const BEHAVIORS_JSON_STD: &str =
-    include_str!("baked/behaviors-registry-std.json");
+const BEHAVIORS_JSON_STD: &str = include_str!("baked/behaviors-registry-std.json");
 
-const BEHAVIORS_JSON_IO: &str =
-    include_str!("baked/behaviors-registry-io.json");
+const BEHAVIORS_JSON_IO: &str = include_str!("baked/behaviors-registry-io.json");
 
 /// A single behavior entry from `behaviors-registry.json`.
 #[derive(Debug, Clone, Deserialize)]
@@ -397,12 +394,15 @@ pub struct EmbeddedBehavior {
 static BEHAVIORS: OnceLock<HashMap<String, EmbeddedBehavior>> = OnceLock::new();
 
 fn parse_behaviors_into(map: &mut HashMap<String, EmbeddedBehavior>, json: &str, source: &str) {
-    let parsed: serde_json::Value = serde_json::from_str(json)
-        .unwrap_or_else(|e| panic!("Failed to parse embedded behaviors-registry.json ({source}): {e}"));
+    let parsed: serde_json::Value = serde_json::from_str(json).unwrap_or_else(|e| {
+        panic!("Failed to parse embedded behaviors-registry.json ({source}): {e}")
+    });
     let behaviors_obj = parsed
         .get("behaviors")
         .and_then(|v| v.as_object())
-        .unwrap_or_else(|| panic!("behaviors-registry.json ({source}) missing 'behaviors' object at root"));
+        .unwrap_or_else(|| {
+            panic!("behaviors-registry.json ({source}) missing 'behaviors' object at root")
+        });
     for (name, value) in behaviors_obj {
         if let Ok(b) = serde_json::from_value::<EmbeddedBehavior>(value.clone()) {
             map.insert(name.clone(), b);
@@ -1144,7 +1144,10 @@ pub const BINDING_CONTEXT_RULES: &[(&str, &[&str])] = &[
     // validate sees unresolved @config bindings and allows them.
     // `user` is the authenticated-user context (@user.id, @user.role)
     // for ownership / role-based gates (e.g. std-row-access-control).
-    ("guard", &["entity", "payload", "state", "now", "config", "user"]),
+    (
+        "guard",
+        &["entity", "payload", "state", "now", "config", "user"],
+    ),
     // `trait` here is the `@trait.X` intra-frame composition binding — it
     // appears inside render-ui children and is passed through server-side
     // as a literal for the client renderer to substitute via TraitFrame.
@@ -1153,7 +1156,12 @@ pub const BINDING_CONTEXT_RULES: &[(&str, &[&str])] = &[
     // @config.X with the literal call-site config value; atom-scope
     // validate sees unresolved @config bindings and must allow them.
     // `user` is the authenticated-user context (@user.id, @user.role).
-    ("effect", &["entity", "payload", "state", "now", "trait", "config", "user"]),
+    (
+        "effect",
+        &[
+            "entity", "payload", "state", "now", "trait", "config", "user",
+        ],
+    ),
     // Ticks have no @payload — they fire on a clock, not on an event.
     // `config` is allowed for the same call-site parameterization use
     // case (e.g. tick interval threshold reading @config.cooldownMs).
@@ -1229,9 +1237,7 @@ mod tests {
                     OperatorTypeRef::Tagged(OperatorTypeRefKind::Array { of: inner }) => {
                         match inner.as_ref() {
                             OperatorTypeRef::Tagged(OperatorTypeRefKind::Entity { .. }) => {}
-                            other => panic!(
-                                "fetch produces[1].of should be Entity, got {other:?}"
-                            ),
+                            other => panic!("fetch produces[1].of should be Entity, got {other:?}"),
                         }
                     }
                     other => panic!("fetch produces[1] should be Array, got {other:?}"),

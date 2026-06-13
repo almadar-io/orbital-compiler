@@ -191,9 +191,15 @@ fn shape_errors(schema: &OrbitalSchema) -> Vec<String> {
 fn good_array_of_metricspec_passes() {
     let mut config = HashMap::new();
     let mut good_metric: HashMap<String, SExpression> = HashMap::new();
-    good_metric.insert("label".to_string(), SExpression::String("Revenue".to_string()));
+    good_metric.insert(
+        "label".to_string(),
+        SExpression::String("Revenue".to_string()),
+    );
     good_metric.insert("value".to_string(), SExpression::Number(142000.0));
-    good_metric.insert("format".to_string(), SExpression::String("currency".to_string()));
+    good_metric.insert(
+        "format".to_string(),
+        SExpression::String("currency".to_string()),
+    );
     config.insert(
         "metrics".to_string(),
         ConfigField {
@@ -217,7 +223,10 @@ fn good_array_of_metricspec_passes() {
 fn string_value_where_number_expected_fails() {
     let mut config = HashMap::new();
     let mut bad_metric: HashMap<String, SExpression> = HashMap::new();
-    bad_metric.insert("label".to_string(), SExpression::String("Retention".to_string()));
+    bad_metric.insert(
+        "label".to_string(),
+        SExpression::String("Retention".to_string()),
+    );
     // LLM emitted "85%" as a string for a numeric value slot — the exact
     // bug pattern we saw in the workspace failure.
     bad_metric.insert("value".to_string(), SExpression::String("85%".to_string()));
@@ -238,8 +247,16 @@ fn string_value_where_number_expected_fails() {
     let schema = schema_with_config(config);
     let errs = shape_errors(&schema);
     assert_eq!(errs.len(), 1, "expected one shape error, got: {:?}", errs);
-    assert!(errs[0].contains("expected number, got string"), "unexpected message: {}", errs[0]);
-    assert!(errs[0].contains("metrics)[0].value"), "unexpected path: {}", errs[0]);
+    assert!(
+        errs[0].contains("expected number, got string"),
+        "unexpected message: {}",
+        errs[0]
+    );
+    assert!(
+        errs[0].contains("metrics)[0].value"),
+        "unexpected path: {}",
+        errs[0]
+    );
 }
 
 #[test]
@@ -304,7 +321,11 @@ fn bare_string_in_array_of_objects_fails() {
     let schema = schema_with_config(config);
     let errs = shape_errors(&schema);
     assert_eq!(errs.len(), 2, "expected two shape errors, got: {:?}", errs);
-    assert!(errs.iter().all(|e| e.contains("expected an object")), "messages: {:?}", errs);
+    assert!(
+        errs.iter().all(|e| e.contains("expected an object")),
+        "messages: {:?}",
+        errs
+    );
 }
 
 #[test]
@@ -329,18 +350,29 @@ fn missing_required_field_fails() {
     );
     let schema = schema_with_config(config);
     let errs = shape_errors(&schema);
-    assert!(errs.iter().any(|e| e.contains("required field 'label' missing")), "messages: {:?}", errs);
+    assert!(
+        errs.iter()
+            .any(|e| e.contains("required field 'label' missing")),
+        "messages: {:?}",
+        errs
+    );
 }
 
 #[test]
 fn enum_value_outside_allowed_set_fails() {
     let mut config = HashMap::new();
     let mut bad_enum: HashMap<String, SExpression> = HashMap::new();
-    bad_enum.insert("label".to_string(), SExpression::String("Revenue".to_string()));
+    bad_enum.insert(
+        "label".to_string(),
+        SExpression::String("Revenue".to_string()),
+    );
     bad_enum.insert("value".to_string(), SExpression::Number(100.0));
     // `format` is closed to ["number","currency","percent"] — anything
     // else trips the enum membership check.
-    bad_enum.insert("format".to_string(), SExpression::String("dollars".to_string()));
+    bad_enum.insert(
+        "format".to_string(),
+        SExpression::String("dollars".to_string()),
+    );
     config.insert(
         "metrics".to_string(),
         ConfigField {
@@ -357,7 +389,11 @@ fn enum_value_outside_allowed_set_fails() {
     );
     let schema = schema_with_config(config);
     let errs = shape_errors(&schema);
-    assert!(errs.iter().any(|e| e.contains("isn't a legal enum value")), "messages: {:?}", errs);
+    assert!(
+        errs.iter().any(|e| e.contains("isn't a legal enum value")),
+        "messages: {:?}",
+        errs
+    );
 }
 
 #[test]
@@ -366,7 +402,10 @@ fn binding_strings_pass_the_check() {
     // checker can't adjudicate their concrete type, so they pass.
     let mut config = HashMap::new();
     let mut binding_metric: HashMap<String, SExpression> = HashMap::new();
-    binding_metric.insert("label".to_string(), SExpression::String("Revenue".to_string()));
+    binding_metric.insert(
+        "label".to_string(),
+        SExpression::String("Revenue".to_string()),
+    );
     binding_metric.insert(
         "value".to_string(),
         SExpression::String("@entity.revenue".to_string()),
@@ -375,7 +414,9 @@ fn binding_strings_pass_the_check() {
         "metrics".to_string(),
         ConfigField {
             field_type: "[MetricSpec]".to_string(),
-            default: Some(SExpression::Array(vec![SExpression::Object(binding_metric)])),
+            default: Some(SExpression::Array(vec![SExpression::Object(
+                binding_metric,
+            )])),
             label: None,
             description: None,
             synonyms: None,
@@ -387,7 +428,11 @@ fn binding_strings_pass_the_check() {
     );
     let schema = schema_with_config(config);
     let errs = shape_errors(&schema);
-    assert!(errs.is_empty(), "bindings should pass static shape check, got: {:?}", errs);
+    assert!(
+        errs.is_empty(),
+        "bindings should pass static shape check, got: {:?}",
+        errs
+    );
 }
 
 #[test]

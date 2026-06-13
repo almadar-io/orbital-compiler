@@ -296,7 +296,6 @@ pub fn validate_page_path_uniqueness(schema: &OrbitalSchema) -> ValidationResult
 #[cfg(test)]
 mod tests {
     use super::*;
-    
 
     fn create_valid_page() -> PageDefinition {
         PageDefinition {

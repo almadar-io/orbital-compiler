@@ -11,7 +11,9 @@ use crate::embedded::{get_pattern, EmbeddedPatternProp};
 use crate::phases::validation::render_ui_binding::{
     resolve_binding_type, BindingContext, BindingType,
 };
-use orbital_core::schema::{OrbitalSchema, PayloadField, SExpression, TraitDefinition, TraitReference};
+use orbital_core::schema::{
+    OrbitalSchema, PayloadField, SExpression, TraitDefinition, TraitReference,
+};
 use std::collections::HashMap;
 
 /// Top-level entry: walk every trait, every transition's render-ui
@@ -104,9 +106,7 @@ pub(super) fn validate_all_render_ui_bindings(schema: &OrbitalSchema, ctx: &mut 
 /// IR type (they have `payload_mapping` for cross-event field rewires
 /// only); the canonical payload contract lives on the matching events
 /// declaration.
-fn collect_trait_event_payloads(
-    trait_def: &TraitDefinition,
-) -> HashMap<String, Vec<PayloadField>> {
+fn collect_trait_event_payloads(trait_def: &TraitDefinition) -> HashMap<String, Vec<PayloadField>> {
     let mut map: HashMap<String, Vec<PayloadField>> = HashMap::new();
     if let Some(events) = &trait_def.state_machine.events {
         for evt in events {
@@ -190,27 +190,13 @@ fn walk_pattern_props(
         // is the deeper contract.
         if let SExpression::String(event_name) = prop_value {
             if !event_name.starts_with('@') {
-                check_event_binding_payload(
-                    pat,
-                    prop_name,
-                    event_name,
-                    bctx,
-                    path,
-                    diagnostics,
-                );
+                check_event_binding_payload(pat, prop_name, event_name, bctx, path, diagnostics);
                 // L2.3: when the literal matches a known event-bearing
                 // prop in the registry but the event isn't declared on
                 // the trait, the literal is stale — likely a leftover
                 // from an events-override rename that the compiler's
                 // C1 inline rewrite missed. Gap #30.
-                check_event_literal_stale(
-                    pat,
-                    prop_name,
-                    event_name,
-                    bctx,
-                    path,
-                    diagnostics,
-                );
+                check_event_literal_stale(pat, prop_name, event_name, bctx, path, diagnostics);
             }
         }
 
@@ -246,17 +232,12 @@ fn walk_pattern_props(
         // false positive. Field names commonly collide with operator
         // names; the surrounding prop's declared type is the
         // disambiguator.
-        if expected_types.contains(&"array")
-            && matches!(prop_value, SExpression::Array(_))
-        {
+        if expected_types.contains(&"array") && matches!(prop_value, SExpression::Array(_)) {
             continue;
         }
 
         let resolved = resolve_binding_type(prop_value, bctx);
-        if matches!(
-            resolved,
-            BindingType::Unknown | BindingType::TraitRef
-        ) {
+        if matches!(resolved, BindingType::Unknown | BindingType::TraitRef) {
             // Resolver couldn't determine the type (cross-orbital
             // payload, missing alias, dynamic field name, or sentinel
             // trait ref). Skip — emitting a false-positive here is
@@ -398,10 +379,7 @@ fn check_event_binding_payload(
                     );
                 }
                 Some(declared_field) => {
-                    if !primitive_event_compat(
-                        &declared_field.field_type,
-                        &required_field.r#type,
-                    ) {
+                    if !primitive_event_compat(&declared_field.field_type, &required_field.r#type) {
                         diagnostics.push(
                             ValidationError::warning(
                                 ErrorCode::RenderUIEventBindingPayloadMismatch,
@@ -498,8 +476,7 @@ fn check_event_literal_stale(
         return;
     };
     let kind = prop_meta.kind.as_deref().unwrap_or("");
-    let is_event_bearing =
-        matches!(kind, "event" | "event-ref" | "event-listen" | "callback");
+    let is_event_bearing = matches!(kind, "event" | "event-ref" | "event-listen" | "callback");
     if !is_event_bearing {
         return;
     }
@@ -507,8 +484,7 @@ fn check_event_literal_stale(
     // Build the trait's full event set: every event the trait declares
     // as emit, listens for, or transitions on. A literal that matches
     // none of these is stale.
-    let mut declared_events: std::collections::HashSet<&str> =
-        std::collections::HashSet::new();
+    let mut declared_events: std::collections::HashSet<&str> = std::collections::HashSet::new();
     if let Some(emits) = &bctx.trait_def.emits {
         for emit in emits {
             declared_events.insert(emit.event.as_str());

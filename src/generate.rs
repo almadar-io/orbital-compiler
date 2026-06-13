@@ -160,8 +160,7 @@ where
     // as a dedicated CLI subcommand for tooling that wants resolved
     // visibility without generating TSX.
     if let Ok(parsed) = parse_file(schema_path) {
-        if let Ok(resolved) =
-            resolve_schema_with_path(parsed, &options.compiler, Some(schema_path))
+        if let Ok(resolved) = resolve_schema_with_path(parsed, &options.compiler, Some(schema_path))
         {
             let resolved_path = output_dir.join("resolved.orb");
             if let Ok(json) = serde_json::to_string_pretty(&resolved) {

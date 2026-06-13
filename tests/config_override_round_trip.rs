@@ -168,7 +168,9 @@ fn extract_render_ui_payload(path: &std::path::Path) -> SExpression {
 
 /// Read the render-ui effect's object payload (the third array element) as
 /// a `HashMap<String, SExpression>`. Panics on shape mismatch.
-fn extract_render_ui_object(payload: &SExpression) -> std::collections::HashMap<String, SExpression> {
+fn extract_render_ui_object(
+    payload: &SExpression,
+) -> std::collections::HashMap<String, SExpression> {
     match payload {
         SExpression::Array(items) => {
             assert_eq!(items.len(), 3, "render-ui effect must be 3 elements");
@@ -411,7 +413,8 @@ fn materialize_two_lvl(consumer_config: &str) -> (tempfile::TempDir, std::path::
     std::fs::write(dir.path().join("base.orb"), TWO_LVL_BASE).expect("write base");
     std::fs::write(dir.path().join("variation.orb"), TWO_LVL_VARIATION).expect("write variation");
     let consumer_path = dir.path().join("consumer.orb");
-    std::fs::write(&consumer_path, two_lvl_consumer_source(consumer_config)).expect("write consumer");
+    std::fs::write(&consumer_path, two_lvl_consumer_source(consumer_config))
+        .expect("write consumer");
     (dir, consumer_path)
 }
 

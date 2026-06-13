@@ -38,8 +38,12 @@ fn return_type_to_oir(rt: &str) -> OirType {
         "boolean" => OirType::Boolean,
         "date" => OirType::Date,
         "datetime" => OirType::DateTime,
-        "array" => OirType::Array { inner: Box::new(OirType::Json) },
-        "number[]" => OirType::Array { inner: Box::new(OirType::Number) },
+        "array" => OirType::Array {
+            inner: Box::new(OirType::Json),
+        },
+        "number[]" => OirType::Array {
+            inner: Box::new(OirType::Number),
+        },
         _ => OirType::Json, // any / object / json / void / function / nn|tensor|train …
     }
 }
@@ -56,15 +60,24 @@ pub fn infer_oir_expr_type<C: TypeCtx>(expr: &OirExpr, ctx: &C) -> OirType {
                 .first()
                 .map(|e| infer_oir_expr_type(e, ctx))
                 .unwrap_or(OirType::Json);
-            OirType::Array { inner: Box::new(inner) }
+            OirType::Array {
+                inner: Box::new(inner),
+            }
         }
         OirExpr::Object { .. } => OirType::Json,
         OirExpr::Binding { binding } => ctx.binding_type(binding).unwrap_or(OirType::Json),
         OirExpr::BinaryOp { op, .. } => match op {
-            OirBinaryOp::Add | OirBinaryOp::Sub | OirBinaryOp::Mul | OirBinaryOp::Div
+            OirBinaryOp::Add
+            | OirBinaryOp::Sub
+            | OirBinaryOp::Mul
+            | OirBinaryOp::Div
             | OirBinaryOp::Mod => OirType::Number,
-            OirBinaryOp::Eq | OirBinaryOp::Ne | OirBinaryOp::Lt | OirBinaryOp::Gt
-            | OirBinaryOp::Le | OirBinaryOp::Ge => OirType::Boolean,
+            OirBinaryOp::Eq
+            | OirBinaryOp::Ne
+            | OirBinaryOp::Lt
+            | OirBinaryOp::Gt
+            | OirBinaryOp::Le
+            | OirBinaryOp::Ge => OirType::Boolean,
             OirBinaryOp::Concat => OirType::String,
             // `and`/`or` return a truthy operand (JS semantics) — union, unknowable.
             OirBinaryOp::And | OirBinaryOp::Or => OirType::Json,
@@ -73,15 +86,25 @@ pub fn infer_oir_expr_type<C: TypeCtx>(expr: &OirExpr, ctx: &C) -> OirType {
             OirUnaryOp::Not => OirType::Boolean,
             OirUnaryOp::Neg => OirType::Number,
         },
-        OirExpr::Conditional { then_branch, else_branch, .. } => {
+        OirExpr::Conditional {
+            then_branch,
+            else_branch,
+            ..
+        } => {
             let t = infer_oir_expr_type(then_branch, ctx);
             let e = infer_oir_expr_type(else_branch, ctx);
-            if t == e { t } else { OirType::Json } // branch-union, conservative
+            if t == e {
+                t
+            } else {
+                OirType::Json
+            } // branch-union, conservative
         }
         OirExpr::Call { function, args } => infer_call(function, args, ctx),
         // Map/Reduce produce values whose element/result type needs the bound
         // loop var's type; conservative without over-reaching.
-        OirExpr::Map { .. } => OirType::Array { inner: Box::new(OirType::Json) },
+        OirExpr::Map { .. } => OirType::Array {
+            inner: Box::new(OirType::Json),
+        },
         OirExpr::Filter { source, .. } => infer_oir_expr_type(source, ctx), // identity
         OirExpr::Reduce { initial, .. } => infer_oir_expr_type(initial, ctx),
         OirExpr::Lambda { .. } | OirExpr::Effect { .. } => OirType::Json,
@@ -100,7 +123,11 @@ fn infer_call<C: TypeCtx>(function: &str, args: &[OirExpr], ctx: &C) -> OirType 
 
 /// The `return_semantics` lattice — a generic interpreter, no per-operator code.
 fn apply_return_semantics<C: TypeCtx>(sem: &str, args: &[OirExpr], ctx: &C) -> OirType {
-    let arg0 = || args.first().map(|a| infer_oir_expr_type(a, ctx)).unwrap_or(OirType::Json);
+    let arg0 = || {
+        args.first()
+            .map(|a| infer_oir_expr_type(a, ctx))
+            .unwrap_or(OirType::Json)
+    };
     match sem {
         // element of the arg<0> array (may be undefined)
         "element-of-arg<0>?" => {
@@ -108,13 +135,18 @@ fn apply_return_semantics<C: TypeCtx>(sem: &str, args: &[OirExpr], ctx: &C) -> O
                 OirType::Array { inner } => *inner,
                 _ => OirType::Json,
             };
-            OirType::Optional { inner: Box::new(inner) }
+            OirType::Optional {
+                inner: Box::new(inner),
+            }
         }
         // the arg<0> array passes through unchanged (filter/reject/sort/…)
         "identity-of-arg<0>" => arg0(),
         // union of the branches/args, or an open object-key lookup — unknowable.
-        "branch-union" | "first-truthy-of-args" | "last-truthy-of-args"
-        | "object-key-lookup" | "lambda-result" => OirType::Json,
+        "branch-union"
+        | "first-truthy-of-args"
+        | "last-truthy-of-args"
+        | "object-key-lookup"
+        | "lambda-result" => OirType::Json,
         _ => OirType::Json,
     }
 }
@@ -131,12 +163,18 @@ mod tests {
     }
 
     fn call(name: &str, args: Vec<OirExpr>) -> OirExpr {
-        OirExpr::Call { function: name.to_string(), args }
+        OirExpr::Call {
+            function: name.to_string(),
+            args,
+        }
     }
 
     #[test]
     fn literals_and_binops() {
-        assert_eq!(infer_oir_expr_type(&OirExpr::Number { value: 1.0 }, &NoCtx), OirType::Number);
+        assert_eq!(
+            infer_oir_expr_type(&OirExpr::Number { value: 1.0 }, &NoCtx),
+            OirType::Number
+        );
         assert_eq!(
             infer_oir_expr_type(
                 &OirExpr::BinaryOp {
@@ -165,9 +203,16 @@ mod tests {
     #[test]
     fn input_dependent_element_of_arg() {
         // array/first over a [Number] array → Optional<Number>
-        let arr = OirExpr::Array { items: vec![OirExpr::Number { value: 1.0 }] };
+        let arr = OirExpr::Array {
+            items: vec![OirExpr::Number { value: 1.0 }],
+        };
         let got = infer_oir_expr_type(&call("array/first", vec![arr]), &NoCtx);
-        assert_eq!(got, OirType::Optional { inner: Box::new(OirType::Number) });
+        assert_eq!(
+            got,
+            OirType::Optional {
+                inner: Box::new(OirType::Number)
+            }
+        );
     }
 
     #[test]
@@ -178,6 +223,9 @@ mod tests {
             OirType::Json
         );
         // unknown operator → Json
-        assert_eq!(infer_oir_expr_type(&call("totally/unknown", vec![]), &NoCtx), OirType::Json);
+        assert_eq!(
+            infer_oir_expr_type(&call("totally/unknown", vec![]), &NoCtx),
+            OirType::Json
+        );
     }
 }

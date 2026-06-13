@@ -48,7 +48,9 @@ pub fn validate_all_entities(schema: &OrbitalSchema, ctx: &mut ValidationContext
             // took. The TS codegen would otherwise produce TS2440
             // "Import declaration conflicts with local declaration".
             for t in &orbital.traits {
-                let Some(trait_name) = t.trait_name() else { continue };
+                let Some(trait_name) = t.trait_name() else {
+                    continue;
+                };
                 let state_shadow = format!("{}State", trait_name);
                 let event_shadow = format!("{}Event", trait_name);
                 if entity.name == state_shadow {

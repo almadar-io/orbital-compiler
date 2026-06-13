@@ -3,15 +3,16 @@
 //! Resolves all references and produces the final OIR (Orbital Intermediate Representation).
 
 use orbital_core::ir::{
-    OirBinaryOp, OirBinding, OirCardinality, OirEffect, OirEmit, OirEmitConfig, OirEntity,
-    OirEvent, OirEventScope, OirExpr, OirField, OirInterval, OirListener, OirMetadata, OirModule,
-    OirPage, OirPattern, OirPayloadField, OirPersistence, OirRelation, OirSection, OirState,
-    OirConfigFieldType, OirTick, OirTrait, OirTraitBinding, OirTraitSource, OirTransition,
-    OirTransitionFrom, OirType, OirValue,
+    OirBinaryOp, OirBinding, OirCardinality, OirConfigFieldType, OirEffect, OirEmit, OirEmitConfig,
+    OirEntity, OirEvent, OirEventScope, OirExpr, OirField, OirInterval, OirListener, OirMetadata,
+    OirModule, OirPage, OirPattern, OirPayloadField, OirPersistence, OirRelation, OirSection,
+    OirState, OirTick, OirTrait, OirTraitBinding, OirTraitSource, OirTransition, OirTransitionFrom,
+    OirType, OirValue,
 };
 use orbital_core::schema::{
     Cardinality, EntityDefinition, EntityRef, FieldDefinition, FieldType, OrbitalSchema,
-    PageDefinition, PageRef, SExpression, SectionDefinition, ServiceRef, StringOrArray, ThemeRef, TraitDefinition, TraitReference, TransitionDefinition,
+    PageDefinition, PageRef, SExpression, SectionDefinition, ServiceRef, StringOrArray, ThemeRef,
+    TraitDefinition, TraitReference, TransitionDefinition,
 };
 use std::collections::HashMap;
 use thiserror::Error;
@@ -336,7 +337,9 @@ impl<'a> Resolver<'a> {
                         struct_fields.push(nested);
                     }
                     struct_fields.sort_by(|a, b| a.name.cmp(&b.name));
-                    Ok(OirType::Struct { fields: struct_fields })
+                    Ok(OirType::Struct {
+                        fields: struct_fields,
+                    })
                 } else if let Some(items) = &field.items {
                     // A `Map K V` field nested inside a struct/alias lowers to
                     // `FieldType::Object` with the VALUE shape carried in `items`
@@ -345,7 +348,10 @@ impl<'a> Resolver<'a> {
                     // (Top-level config-field maps are handled string-side in
                     // `resolve_config_field_shape`; this covers maps reached via
                     // a struct property / array element / map value.)
-                    Ok(OirType::map(OirType::String, self.resolve_field_shape(items)?))
+                    Ok(OirType::map(
+                        OirType::String,
+                        self.resolve_field_shape(items)?,
+                    ))
                 } else {
                     Ok(OirType::Json)
                 }
@@ -365,10 +371,7 @@ impl<'a> Resolver<'a> {
     /// Mirrors `resolve_field_shape` on `FieldDefinition` — same recursion
     /// rules so a typed config slot's TS shape parallels what entity fields
     /// emit.
-    fn resolve_config_field_shape(
-        &self,
-        field: &orbital_core::schema::ConfigField,
-    ) -> OirType {
+    fn resolve_config_field_shape(&self, field: &orbital_core::schema::ConfigField) -> OirType {
         // Map slot: `params : Map string SimParam` lowers to
         // `field_type: "Map<string,SimParam>"` plus `items: FieldDefinition`
         // carrying the VALUE's resolved shape (reusing the array `items`
@@ -404,9 +407,7 @@ impl<'a> Resolver<'a> {
         // carrying MetricSpec's fields. Walk items via the existing
         // FieldDefinition-shaped resolver.
         if let Some(items) = &field.items {
-            let inner = self
-                .resolve_field_shape(items)
-                .unwrap_or(OirType::Json);
+            let inner = self.resolve_field_shape(items).unwrap_or(OirType::Json);
             return OirType::array(inner);
         }
         // Object slot with inline / named struct: `prefs : { theme: string }`
@@ -1161,7 +1162,10 @@ impl<'a> Resolver<'a> {
             _ => OirEffect::update(&entity, data), // default to update
         };
 
-        if let OirEffect::Persist { emit: ref mut em, .. } = effect {
+        if let OirEffect::Persist {
+            emit: ref mut em, ..
+        } = effect
+        {
             *em = emit_cfg;
         }
 
@@ -1382,7 +1386,10 @@ impl<'a> Resolver<'a> {
         })?;
         let value = self.resolve_sexpr(&args[1])?;
         let mut effect = OirEffect::set(target, value);
-        if let OirEffect::Set { emit: ref mut em, .. } = effect {
+        if let OirEffect::Set {
+            emit: ref mut em, ..
+        } = effect
+        {
             *em = emit_cfg;
         }
         Ok(OirExpr::effect(effect))
@@ -1876,7 +1883,10 @@ fn parse_payload_field_type(field_type: &str) -> OirType {
     }
     // Map: `Map<K,V>` — dynamic-key uniform-value map. The key is a comma-free
     // atom, so split on the FIRST comma (value may itself be `Map<…>`/`[…]`).
-    if let Some(inner) = trimmed.strip_prefix("Map<").and_then(|s| s.strip_suffix('>')) {
+    if let Some(inner) = trimmed
+        .strip_prefix("Map<")
+        .and_then(|s| s.strip_suffix('>'))
+    {
         if let Some(comma) = inner.find(',') {
             let key = &inner[..comma];
             let value = &inner[comma + 1..];

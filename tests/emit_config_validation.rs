@@ -165,12 +165,12 @@ fn fetch_with_success_and_failure_is_valid() {
     );
     let result = validate_comprehensive(&schema);
     assert!(
-        !result
-            .errors
-            .iter()
-            .any(|e| matches!(e.code, ErrorCode::EffectEmitKeyInvalid
+        !result.errors.iter().any(|e| matches!(
+            e.code,
+            ErrorCode::EffectEmitKeyInvalid
                 | ErrorCode::EffectEmitInvalidName
-                | ErrorCode::EffectEmitUndeclaredEvent)),
+                | ErrorCode::EffectEmitUndeclaredEvent
+        )),
         "expected no emit errors, got: {:?}",
         result.errors
     );

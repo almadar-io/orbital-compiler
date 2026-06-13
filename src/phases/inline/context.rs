@@ -183,13 +183,9 @@ impl InlineContext {
         for orbital in &entry.orbitals {
             let has_trait = orbital.traits.iter().any(|tr| match tr {
                 TraitReference::Inline(def) => def.name == trait_name,
+                TraitReference::Reference { name: Some(n), .. } => n == trait_name,
                 TraitReference::Reference {
-                    name: Some(n),
-                    ..
-                } => n == trait_name,
-                TraitReference::Reference {
-                    reference: Some(r),
-                    ..
+                    reference: Some(r), ..
                 } => r.ends_with(&format!(".{}", trait_name)),
                 _ => false,
             });

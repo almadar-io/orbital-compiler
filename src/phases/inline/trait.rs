@@ -9,8 +9,8 @@ use super::rewrite::{
 };
 use super::InlineError;
 use orbital_core::schema::{
-    ConfigProvenanceRecord, EntityDefinition, SExpression, SourceBehaviorMetadata,
-    TraitDefinition, TraitReference,
+    ConfigProvenanceRecord, EntityDefinition, SExpression, SourceBehaviorMetadata, TraitDefinition,
+    TraitReference,
 };
 use std::collections::{HashMap, HashSet};
 
@@ -449,8 +449,7 @@ pub(crate) fn inline_traits(
                             // the trait's linkedEntity without walking
                             // the import graph at runtime.
                             let source_label = ctx.get_entry(&alias)?.source_label.clone();
-                            let source_entity_def =
-                                ctx.get_entity_for_trait_orbital(&alias, &name);
+                            let source_entity_def = ctx.get_entity_for_trait_orbital(&alias, &name);
                             let provenance = SourceBehaviorMetadata {
                                 behavior: source_label,
                                 alias: alias.clone(),
@@ -514,8 +513,7 @@ pub(crate) fn inline_traits(
                                         recorder,
                                     );
                                     if trait_def.name != original_name {
-                                        rename_map
-                                            .insert(original_name, trait_def.name.clone());
+                                        rename_map.insert(original_name, trait_def.name.clone());
                                     }
                                     // Phase F.7: replace the trait's
                                     // listens and/or set every emit's scope
@@ -627,8 +625,7 @@ pub(crate) fn inline_traits(
                 continue;
             }
             // The sibling must exist as a trait in the SAME source atom.
-            let Ok(TraitReference::Inline(mut sibling_def)) =
-                ctx.get_trait(&alias, &sibling_name)
+            let Ok(TraitReference::Inline(mut sibling_def)) = ctx.get_trait(&alias, &sibling_name)
             else {
                 // Not a same-alias sibling (or not resolvable to an inline
                 // trait) — leave the `@trait.X` for the validator to flag.

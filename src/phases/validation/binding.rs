@@ -83,11 +83,7 @@ pub fn validate_all_bindings(schema: &OrbitalSchema, ctx: &mut ValidationContext
                 // `@trait.X` bindings (client-only, render-time) need their
                 // own pass with orbital-scoped context: known traits in this
                 // orbital + the current trait's own name (to catch self-ref).
-                let trait_result = validate_trait_binding_usage(
-                    trait_def,
-                    &path,
-                    known_traits,
-                );
+                let trait_result = validate_trait_binding_usage(trait_def, &path, known_traits);
                 ctx.merge(trait_result);
             }
         }
@@ -95,10 +91,8 @@ pub fn validate_all_bindings(schema: &OrbitalSchema, ctx: &mut ValidationContext
         // Detect cycles in the orbital's `@trait.X` reference graph after
         // all per-trait validation so the error is reported once per orbital
         // rather than once per cycle participant.
-        let cycle_result = detect_trait_binding_cycles(
-            &orbital.traits,
-            &format!("orbitals[{}]", i),
-        );
+        let cycle_result =
+            detect_trait_binding_cycles(&orbital.traits, &format!("orbitals[{}]", i));
         ctx.merge(cycle_result);
     }
 }
@@ -126,7 +120,11 @@ pub fn validate_trait_bindings(
         .map(|events| {
             events
                 .iter()
-                .filter_map(|e| e.payload_schema.as_ref().map(|p| (e.key.as_str(), p.as_slice())))
+                .filter_map(|e| {
+                    e.payload_schema
+                        .as_ref()
+                        .map(|p| (e.key.as_str(), p.as_slice()))
+                })
                 .collect()
         })
         .unwrap_or_default();
@@ -226,7 +224,11 @@ pub fn validate_trait_bindings(
                 .collect()
         })
         .unwrap_or_default();
-    result.merge(validate_entity_fields_have_setters(trait_def, path, &intrinsic_fields));
+    result.merge(validate_entity_fields_have_setters(
+        trait_def,
+        path,
+        &intrinsic_fields,
+    ));
 
     result
 }
@@ -594,11 +596,8 @@ fn validate_payload_field_references(
             match payload_fields {
                 Some(fields) => {
                     if let Some(unresolved) = resolve_payload_path(fields, &segments) {
-                        let valid_at_level: Vec<String> = unresolved
-                            .siblings
-                            .iter()
-                            .map(|f| f.name.clone())
-                            .collect();
+                        let valid_at_level: Vec<String> =
+                            unresolved.siblings.iter().map(|f| f.name.clone()).collect();
                         result.add_error(
                             ValidationError::error(
                                 ErrorCode::BindingPayloadFieldUndeclared,
@@ -1036,12 +1035,14 @@ fn validate_trait_binding(
     let mut result = ValidationResult::new();
 
     if !BINDING_REGEX.is_match(binding) {
-        result.add_error(ValidationError::error(
-            ErrorCode::BindingTraitInvalidFormat,
-            path,
-            format!("Invalid @trait binding format: '{}'", binding),
-        )
-        .with_suggestion("Use @trait.<PascalCaseTraitName>[.<slot>]"));
+        result.add_error(
+            ValidationError::error(
+                ErrorCode::BindingTraitInvalidFormat,
+                path,
+                format!("Invalid @trait binding format: '{}'", binding),
+            )
+            .with_suggestion("Use @trait.<PascalCaseTraitName>[.<slot>]"),
+        );
         return result;
     }
 
@@ -1050,27 +1051,31 @@ fn validate_trait_binding(
 
     // parts[0] must be "trait" — validator is only called for those.
     if parts.len() == 1 {
-        result.add_error(ValidationError::error(
-            ErrorCode::BindingTraitMissingName,
-            path,
-            "@trait binding missing trait name",
-        )
-        .with_suggestion("Use @trait.<TraitName> to reference another trait's current frame"));
+        result.add_error(
+            ValidationError::error(
+                ErrorCode::BindingTraitMissingName,
+                path,
+                "@trait binding missing trait name",
+            )
+            .with_suggestion("Use @trait.<TraitName> to reference another trait's current frame"),
+        );
         return result;
     }
 
     let trait_name = parts[1];
 
     if !PASCAL_CASE_REGEX.is_match(trait_name) {
-        result.add_error(ValidationError::error(
-            ErrorCode::BindingTraitInvalidFormat,
-            path,
-            format!(
-                "@trait binding trait name '{}' is not PascalCase",
-                trait_name
-            ),
-        )
-        .with_suggestion("Trait names must be PascalCase (e.g., @trait.ItemSearch)"));
+        result.add_error(
+            ValidationError::error(
+                ErrorCode::BindingTraitInvalidFormat,
+                path,
+                format!(
+                    "@trait binding trait name '{}' is not PascalCase",
+                    trait_name
+                ),
+            )
+            .with_suggestion("Trait names must be PascalCase (e.g., @trait.ItemSearch)"),
+        );
         return result;
     }
 
@@ -1087,16 +1092,18 @@ fn validate_trait_binding(
     }
 
     if !known_traits.is_empty() && !known_traits.contains(trait_name) {
-        result.add_error(ValidationError::error(
-            ErrorCode::BindingTraitUnknown,
-            path,
-            format!(
-                "@trait.{} references a trait not declared in this orbital",
-                trait_name
-            ),
-        )
-        .with_suggestion("Declare the trait in the orbital, or check spelling")
-        .with_valid_values(known_traits.iter().cloned().collect()));
+        result.add_error(
+            ValidationError::error(
+                ErrorCode::BindingTraitUnknown,
+                path,
+                format!(
+                    "@trait.{} references a trait not declared in this orbital",
+                    trait_name
+                ),
+            )
+            .with_suggestion("Declare the trait in the orbital, or check spelling")
+            .with_valid_values(known_traits.iter().cloned().collect()),
+        );
         return result;
     }
 
@@ -1218,21 +1225,20 @@ pub fn detect_trait_binding_cycles(
                         }
                         cycle_path.push(child_str);
                         cycle_path.reverse();
-                        let idx = trait_indices
-                            .get(child_str)
-                            .copied()
-                            .unwrap_or(0);
-                        result.add_error(ValidationError::error(
-                            ErrorCode::BindingTraitCycle,
-                            format!("{}.traits[{}]", orbital_path, idx),
-                            format!(
-                                "@trait reference cycle detected: {}",
-                                cycle_path.join(" -> ")
+                        let idx = trait_indices.get(child_str).copied().unwrap_or(0);
+                        result.add_error(
+                            ValidationError::error(
+                                ErrorCode::BindingTraitCycle,
+                                format!("{}.traits[{}]", orbital_path, idx),
+                                format!(
+                                    "@trait reference cycle detected: {}",
+                                    cycle_path.join(" -> ")
+                                ),
+                            )
+                            .with_suggestion(
+                                "Break the cycle by removing one of the @trait.X references",
                             ),
-                        )
-                        .with_suggestion(
-                            "Break the cycle by removing one of the @trait.X references",
-                        ));
+                        );
                         return result;
                     }
                     _ => {}
@@ -1644,7 +1650,11 @@ mod tests {
                 to: "idle".to_string(),
                 event: event.to_string(),
                 guard: None,
-                effects: if effects.is_empty() { None } else { Some(effects) },
+                effects: if effects.is_empty() {
+                    None
+                } else {
+                    Some(effects)
+                },
             })
             .collect();
         orbital_core::schema::TraitDefinition {
@@ -1744,7 +1754,11 @@ mod tests {
     #[test]
     fn test_entity_field_set_explicitly_passes() {
         // INIT runs (set @entity.currentPage 1) then render-ui binds it. Pass.
-        let set_effect = arr(vec![s("set"), s("@entity.currentPage"), SExpression::Number(1.into())]);
+        let set_effect = arr(vec![
+            s("set"),
+            s("@entity.currentPage"),
+            SExpression::Number(1.into()),
+        ]);
         let render_ui = arr(vec![
             s("render-ui"),
             s("main"),
@@ -1771,7 +1785,11 @@ mod tests {
     fn test_entity_field_set_in_different_transition_passes() {
         // INIT (set @entity.currentPage 1); render-ui happens in PAGE transition.
         // The setter doesn't have to be in the same transition as the read.
-        let set_effect = arr(vec![s("set"), s("@entity.currentPage"), SExpression::Number(1.into())]);
+        let set_effect = arr(vec![
+            s("set"),
+            s("@entity.currentPage"),
+            SExpression::Number(1.into()),
+        ]);
         let render_ui = arr(vec![
             s("render-ui"),
             s("main"),
@@ -1784,10 +1802,7 @@ mod tests {
         let trait_def = build_trait_fixture(
             "CrossTransitionPagination",
             Some("PagedItem"),
-            vec![
-                ("INIT", vec![set_effect]),
-                ("PAGE", vec![render_ui]),
-            ],
+            vec![("INIT", vec![set_effect]), ("PAGE", vec![render_ui])],
         );
         let result = validate_entity_fields_have_setters(&trait_def, "test", &HashSet::new());
         assert!(
@@ -1912,7 +1927,8 @@ mod tests {
                 source_entity_definition: None,
             }
         };
-        let result = validate_entity_fields_have_setters(&guard_only_trait, "test", &HashSet::new());
+        let result =
+            validate_entity_fields_have_setters(&guard_only_trait, "test", &HashSet::new());
         assert!(
             result
                 .warnings

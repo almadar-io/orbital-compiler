@@ -38,11 +38,11 @@
 pub mod binding;
 pub mod canonical_operators;
 pub mod closed_circuit;
+pub mod config_type;
 pub mod cross_emitter;
 pub mod cross_orbital;
 pub mod cross_registry;
 pub mod effect;
-pub mod config_type;
 pub mod emit_payload;
 pub mod entity;
 pub mod error;

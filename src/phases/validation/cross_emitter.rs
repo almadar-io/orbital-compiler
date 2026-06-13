@@ -83,10 +83,7 @@ pub fn build_listen_index(schema: &OrbitalSchema) -> ListenIndex {
                     trait_name: trait_def.name.clone(),
                     source: listen.source.clone(),
                 };
-                index
-                    .entry(listen.event.clone())
-                    .or_default()
-                    .push(entry);
+                index.entry(listen.event.clone()).or_default().push(entry);
             }
         }
     }
@@ -112,15 +109,12 @@ pub fn validate_cross_emitter(schema: &OrbitalSchema, ctx: &mut ValidationContex
             let trait_path = format!("orbitals[{}].traits[{}]({})", oi, ti, trait_def.name);
             for emit in emits {
                 let sig = signature(emit.payload_schema.as_deref().unwrap_or(&[]));
-                emitters
-                    .entry(emit.event.clone())
-                    .or_default()
-                    .push((
-                        trait_path.clone(),
-                        sig,
-                        orbital.name.clone(),
-                        trait_def.name.clone(),
-                    ));
+                emitters.entry(emit.event.clone()).or_default().push((
+                    trait_path.clone(),
+                    sig,
+                    orbital.name.clone(),
+                    trait_def.name.clone(),
+                ));
             }
         }
     }

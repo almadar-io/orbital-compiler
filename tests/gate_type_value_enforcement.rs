@@ -61,7 +61,11 @@ fn compat_predicates_live_only_in_core() {
     );
 
     // No consumer crate re-defines these — they import from orbital_core.
-    for c in ["orbital-compiler", "orbital-lolo", "orbital-shell-typescript"] {
+    for c in [
+        "orbital-compiler",
+        "orbital-lolo",
+        "orbital-shell-typescript",
+    ] {
         let src = crate_src(c);
         assert_eq!(
             count(&src, "fn enum_value_is_member"),
@@ -106,8 +110,11 @@ fn guard_evaluation_has_one_home_in_core() {
     // not come back, and the OIR→SExpression bridge that feeds the evaluator lives
     // once, in orbital-core.
     let cli = crate_src("orbital-cli");
-    for shadow in ["fn evaluate_guard_headless", "fn resolve_expr_value", "fn resolve_expr_to_f64"]
-    {
+    for shadow in [
+        "fn evaluate_guard_headless",
+        "fn resolve_expr_value",
+        "fn resolve_expr_to_f64",
+    ] {
         assert_eq!(
             count(&cli, shadow),
             0,

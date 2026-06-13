@@ -10,10 +10,12 @@
 //! Also validates config overrides in trait references (TODO: requires
 //! inline resolution for the upstream declaration lookup).
 
-use orbital_core::schema::{ConfigField, FieldDefinition, FieldType, OrbitalSchema, SExpression, TraitReference};
+use orbital_core::schema::{
+    ConfigField, FieldDefinition, FieldType, OrbitalSchema, SExpression, TraitReference,
+};
 
-use super::sync::patterns::is_valid_pattern;
 use super::error::{ErrorCode, ValidationError};
+use super::sync::patterns::is_valid_pattern;
 use super::{ValidationContext, ValidationResult, VALID_SLOTS};
 
 /// Validate all `slot` and `pattern` config fields in the schema.
@@ -32,7 +34,10 @@ pub fn validate_all_config_types(schema: &OrbitalSchema, ctx: &mut ValidationCon
                         }
                     }
                 }
-                TraitReference::Reference { config: Some(config), .. } => {
+                TraitReference::Reference {
+                    config: Some(config),
+                    ..
+                } => {
                     for (field_name, value) in config.iter() {
                         let field_path = format!("{}.config({})", path_prefix, field_name);
                         // We don't know the declared type of an override field
@@ -53,7 +58,10 @@ pub fn validate_all_config_types(schema: &OrbitalSchema, ctx: &mut ValidationCon
 }
 
 /// Validate a single config field's default value against its declared type.
-fn validate_config_field(field: &orbital_core::schema::ConfigField, path: &str) -> ValidationResult {
+fn validate_config_field(
+    field: &orbital_core::schema::ConfigField,
+    path: &str,
+) -> ValidationResult {
     let mut result = ValidationResult::new();
 
     // Reject `[object]` (and the bare `object` variant) as a declared
@@ -114,10 +122,7 @@ fn validate_config_field(field: &orbital_core::schema::ConfigField, path: &str) 
                         VALID_TIERS.join(", ")
                     ),
                 )
-                .with_suggestion(format!(
-                    "Use one of: {}.",
-                    VALID_TIERS.join(", ")
-                )),
+                .with_suggestion(format!("Use one of: {}.", VALID_TIERS.join(", "))),
             );
         }
     }
@@ -274,13 +279,11 @@ fn check_field_def_shape(
     match schema.field_type {
         FieldType::Array => {
             let SExpression::Array(items) = value else {
-                result.add_error(
-                    ValidationError::error(
-                        ErrorCode::TraitConfigShapeMismatch,
-                        path,
-                        "expected an array".to_string(),
-                    ),
-                );
+                result.add_error(ValidationError::error(
+                    ErrorCode::TraitConfigShapeMismatch,
+                    path,
+                    "expected an array".to_string(),
+                ));
                 return result;
             };
             if let Some(inner) = &schema.items {
@@ -292,13 +295,11 @@ fn check_field_def_shape(
         }
         FieldType::Object => {
             let SExpression::Object(map) = value else {
-                result.add_error(
-                    ValidationError::error(
-                        ErrorCode::TraitConfigShapeMismatch,
-                        path,
-                        "expected an object".to_string(),
-                    ),
-                );
+                result.add_error(ValidationError::error(
+                    ErrorCode::TraitConfigShapeMismatch,
+                    path,
+                    "expected an object".to_string(),
+                ));
                 return result;
             };
             if let Some(props) = &schema.properties {
@@ -306,19 +307,18 @@ fn check_field_def_shape(
                     let prop_path = format!("{}.{}", path, key);
                     match map.get(key) {
                         Some(prop_value) => {
-                            result.merge(check_field_def_shape(prop_schema, prop_value, &prop_path));
+                            result.merge(check_field_def_shape(
+                                prop_schema,
+                                prop_value,
+                                &prop_path,
+                            ));
                         }
                         None if prop_schema.required.unwrap_or(false) => {
-                            result.add_error(
-                                ValidationError::error(
-                                    ErrorCode::TraitConfigShapeMismatch,
-                                    &prop_path,
-                                    format!(
-                                        "required field '{}' missing on object literal",
-                                        key
-                                    ),
-                                ),
-                            );
+                            result.add_error(ValidationError::error(
+                                ErrorCode::TraitConfigShapeMismatch,
+                                &prop_path,
+                                format!("required field '{}' missing on object literal", key),
+                            ));
                         }
                         None => {}
                     }
@@ -365,11 +365,7 @@ fn check_field_def_shape(
 /// Type-tag → value-kind primitive check. SExpression bindings
 /// (`@entity.X`, `@config.X`, `@payload.X`) and function calls / nested
 /// expressions are late-bound; they pass the static check.
-fn check_primitive_shape(
-    type_tag: &str,
-    value: &SExpression,
-    path: &str,
-) -> ValidationResult {
+fn check_primitive_shape(type_tag: &str, value: &SExpression, path: &str) -> ValidationResult {
     let mut result = ValidationResult::new();
     if let SExpression::String(s) = value {
         if s.starts_with('@') {
@@ -392,13 +388,11 @@ fn check_primitive_shape(
         _ => true, // Unknown type tags pass — covered by other validators.
     };
     if !ok {
-        result.add_error(
-            ValidationError::error(
-                ErrorCode::TraitConfigShapeMismatch,
-                path,
-                format!("expected {}, got {}", type_tag, actual),
-            ),
-        );
+        result.add_error(ValidationError::error(
+            ErrorCode::TraitConfigShapeMismatch,
+            path,
+            format!("expected {}, got {}", type_tag, actual),
+        ));
     }
     result
 }

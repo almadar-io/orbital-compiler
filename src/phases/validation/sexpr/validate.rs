@@ -3,10 +3,10 @@
 use super::arity::get_arity_rule;
 use super::binding::validate_binding;
 use super::operators::{is_known_operator, EFFECT_OPERATORS};
-use crate::phases::validation::{
-    ErrorCode, ValidationContext, ValidationError, ValidationResult,
+use crate::phases::validation::{ErrorCode, ValidationContext, ValidationError, ValidationResult};
+use orbital_core::schema::{
+    EntityRef, FieldDefinition, OrbitalSchema, SExpression, TraitDefinition,
 };
-use orbital_core::schema::{EntityRef, FieldDefinition, OrbitalSchema, SExpression, TraitDefinition};
 use std::collections::HashSet;
 
 /// Validation context for S-expressions
@@ -40,7 +40,8 @@ pub fn validate_all_sexprs(schema: &OrbitalSchema, ctx: &mut ValidationContext) 
         if let Some(fields) = fields {
             let base = format!("orbitals[{}].entity.fields", oi);
             for (fi, f) in fields.iter().enumerate() {
-                let r = validate_field_default_sexprs(f, &format!("{}[{}]", base, fi), &entity_names);
+                let r =
+                    validate_field_default_sexprs(f, &format!("{}[{}]", base, fi), &entity_names);
                 ctx.merge(r);
             }
         }

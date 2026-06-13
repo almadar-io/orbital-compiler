@@ -337,7 +337,12 @@ fn field_type_str_to_binding(s: &str) -> BindingType {
         // fields. Strip optional `!` suffix.
         s => {
             let trimmed = s.trim_end_matches('!');
-            if trimmed.chars().next().map(|c| c.is_uppercase()).unwrap_or(false) {
+            if trimmed
+                .chars()
+                .next()
+                .map(|c| c.is_uppercase())
+                .unwrap_or(false)
+            {
                 BindingType::Entity(trimmed.to_string())
             } else {
                 BindingType::Unknown
@@ -523,10 +528,7 @@ mod tests {
             sibling_trait_names: &[],
         };
         assert_eq!(
-            resolve_binding_type(
-                &SExpression::String("@payload.tabId".to_string()),
-                &ctx
-            ),
+            resolve_binding_type(&SExpression::String("@payload.tabId".to_string()), &ctx),
             BindingType::String
         );
         // Unknown field falls through to Unknown
@@ -574,10 +576,7 @@ mod tests {
             sibling_trait_names: &[],
         };
         assert_eq!(
-            resolve_binding_type(
-                &SExpression::String("@entity.title".to_string()),
-                &ctx
-            ),
+            resolve_binding_type(&SExpression::String("@entity.title".to_string()), &ctx),
             BindingType::String
         );
     }
@@ -594,19 +593,13 @@ mod tests {
             sibling_trait_names: &siblings,
         };
         assert_eq!(
-            resolve_binding_type(
-                &SExpression::String("@trait.CmsHubTabs".to_string()),
-                &ctx
-            ),
+            resolve_binding_type(&SExpression::String("@trait.CmsHubTabs".to_string()), &ctx),
             BindingType::TraitRef
         );
         // Missing sibling → Unknown (caller's other rule catches the
         // missing-trait error with a more specific code).
         assert_eq!(
-            resolve_binding_type(
-                &SExpression::String("@trait.MissingOne".to_string()),
-                &ctx
-            ),
+            resolve_binding_type(&SExpression::String("@trait.MissingOne".to_string()), &ctx),
             BindingType::Unknown
         );
     }
@@ -615,15 +608,13 @@ mod tests {
     fn resolves_or_operator_first_truthy() {
         let t = empty_trait("T", None);
         let entities: HashMap<String, EntityDefinition> = HashMap::new();
-        let payload = vec![
-            PayloadField {
-                name: "totalCount".to_string(),
-                field_type: "number".to_string(),
-                required: None,
-                description: None,
-                properties: None,
-            },
-        ];
+        let payload = vec![PayloadField {
+            name: "totalCount".to_string(),
+            field_type: "number".to_string(),
+            required: None,
+            description: None,
+            properties: None,
+        }];
         let ctx = BindingContext {
             trait_def: &t,
             entity_definitions: &entities,

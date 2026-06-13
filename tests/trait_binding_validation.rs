@@ -116,8 +116,7 @@ fn known_traits(names: &[&str]) -> HashSet<String> {
 
 #[test]
 fn valid_trait_binding_emits_no_error() {
-    let trait_def =
-        trait_with_trait_binding_in_children("ItemLayout", "@trait.ItemBrowse");
+    let trait_def = trait_with_trait_binding_in_children("ItemLayout", "@trait.ItemBrowse");
     let known = known_traits(&["ItemBrowse", "ItemLayout"]);
     let result = validate_trait_binding_usage(&trait_def, "orbitals[0].traits[0]", &known);
     assert!(
@@ -125,13 +124,16 @@ fn valid_trait_binding_emits_no_error() {
         "expected no errors for valid binding, got: {:?}",
         result.errors
     );
-    assert!(result.warnings.is_empty(), "expected no warnings: {:?}", result.warnings);
+    assert!(
+        result.warnings.is_empty(),
+        "expected no warnings: {:?}",
+        result.warnings
+    );
 }
 
 #[test]
 fn unknown_trait_binding_emits_error() {
-    let trait_def =
-        trait_with_trait_binding_in_children("ItemLayout", "@trait.DoesNotExist");
+    let trait_def = trait_with_trait_binding_in_children("ItemLayout", "@trait.DoesNotExist");
     let known = known_traits(&["ItemBrowse", "ItemLayout"]);
     let result = validate_trait_binding_usage(&trait_def, "orbitals[0].traits[0]", &known);
     assert!(
@@ -146,8 +148,7 @@ fn unknown_trait_binding_emits_error() {
 
 #[test]
 fn self_reference_emits_error() {
-    let trait_def =
-        trait_with_trait_binding_in_children("ItemLayout", "@trait.ItemLayout");
+    let trait_def = trait_with_trait_binding_in_children("ItemLayout", "@trait.ItemLayout");
     let known = known_traits(&["ItemLayout"]);
     let result = validate_trait_binding_usage(&trait_def, "orbitals[0].traits[0]", &known);
     assert!(
@@ -181,8 +182,7 @@ fn bare_at_trait_emits_missing_name() {
 fn extra_segment_emits_invalid_format() {
     // `@trait.X.main` was the former cross-slot pull syntax. Rejected
     // outright now to keep interpreted + compiled paths aligned.
-    let trait_def =
-        trait_with_trait_binding_in_children("ItemLayout", "@trait.ItemBrowse.main");
+    let trait_def = trait_with_trait_binding_in_children("ItemLayout", "@trait.ItemBrowse.main");
     let known = known_traits(&["ItemBrowse", "ItemLayout"]);
     let result = validate_trait_binding_usage(&trait_def, "orbitals[0].traits[0]", &known);
     assert!(
@@ -197,8 +197,7 @@ fn extra_segment_emits_invalid_format() {
 
 #[test]
 fn non_pascal_trait_name_emits_invalid_format() {
-    let trait_def =
-        trait_with_trait_binding_in_children("ItemLayout", "@trait.itemBrowse");
+    let trait_def = trait_with_trait_binding_in_children("ItemLayout", "@trait.itemBrowse");
     let known = known_traits(&["ItemLayout"]);
     let result = validate_trait_binding_usage(&trait_def, "orbitals[0].traits[0]", &known);
     assert!(

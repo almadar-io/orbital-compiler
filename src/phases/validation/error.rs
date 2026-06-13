@@ -642,7 +642,9 @@ impl ErrorCode {
             ErrorCode::RenderUIBindingTypeMismatch => "ORB_RUI_BINDING_TYPE_MISMATCH",
             ErrorCode::RenderUIElementShapeMismatch => "ORB_RUI_ELEMENT_SHAPE_MISMATCH",
             ErrorCode::EntityNameShadowsTraitUnion => "ORB_T_ENTITY_NAME_SHADOWS_TRAIT_UNION",
-            ErrorCode::RenderUIEventBindingPayloadMismatch => "ORB_RUI_EVENT_BINDING_PAYLOAD_MISMATCH",
+            ErrorCode::RenderUIEventBindingPayloadMismatch => {
+                "ORB_RUI_EVENT_BINDING_PAYLOAD_MISMATCH"
+            }
             ErrorCode::RenderUIEventLiteralStale => "ORB_X_RENDER_UI_EVENT_LITERAL_STALE",
 
             // Effect
@@ -718,7 +720,9 @@ impl ErrorCode {
             ErrorCode::EmitPayloadFieldTypeMismatch => "ORB_EMIT_PAYLOAD_FIELD_TYPE_MISMATCH",
             ErrorCode::PayloadFieldNameInvalid => "ORB_X_PAYLOAD_FIELD_NAME",
             ErrorCode::EntityPropContract => "ORB_X_ENTITY_PROP_CONTRACT",
-            ErrorCode::EmitSuccessPayloadReturnMismatch => "ORB_EMIT_SUCCESS_PAYLOAD_RETURN_MISMATCH",
+            ErrorCode::EmitSuccessPayloadReturnMismatch => {
+                "ORB_EMIT_SUCCESS_PAYLOAD_RETURN_MISMATCH"
+            }
             ErrorCode::CrossEmitterDeclaredPayloadMismatch => {
                 "ORB_X_CROSS_EMITTER_DECLARED_PAYLOAD_MISMATCH"
             }

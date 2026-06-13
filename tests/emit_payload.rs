@@ -175,10 +175,8 @@ fn extra_field_emits_warning() {
     literal.insert("id".to_string(), string_sexpr("u-1"));
     literal.insert("nickname".to_string(), string_sexpr("ada"));
     let emit = emit_effect("USER_SAVED", Some(SExpression::Object(literal)));
-    let declared = declared_emit_with_payload(
-        "USER_SAVED",
-        vec![payload_field("id", "string", false)],
-    );
+    let declared =
+        declared_emit_with_payload("USER_SAVED", vec![payload_field("id", "string", false)]);
     let schema = schema_with_emit(emit, declared);
     let result = validate_comprehensive(&schema);
     let hit = result
@@ -199,10 +197,8 @@ fn primitive_type_mismatch_emits_warning() {
     let mut literal = HashMap::new();
     literal.insert("count".to_string(), string_sexpr("seventeen"));
     let emit = emit_effect("USER_SAVED", Some(SExpression::Object(literal)));
-    let declared = declared_emit_with_payload(
-        "USER_SAVED",
-        vec![payload_field("count", "number", false)],
-    );
+    let declared =
+        declared_emit_with_payload("USER_SAVED", vec![payload_field("count", "number", false)]);
     let schema = schema_with_emit(emit, declared);
     let result = validate_comprehensive(&schema);
     let hit = result

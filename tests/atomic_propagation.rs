@@ -273,8 +273,8 @@ fn editing_atom_orb_propagates_to_molecule_lowered_output() {
 
     // ---- Step 1: write atom v1 + molecule, compile, snapshot ----
     let molecule_path = write_files(&dir, ATOM_V1);
-    let oir_v1 = compile_file(&molecule_path, &lowered_oir_options())
-        .expect("v1 compile must succeed");
+    let oir_v1 =
+        compile_file(&molecule_path, &lowered_oir_options()).expect("v1 compile must succeed");
     let snap_v1 = snapshot_consumer_trait(&oir_v1);
 
     // Sanity: the v1 atom has exactly 1 state and the v1 content text.
@@ -288,8 +288,8 @@ fn editing_atom_orb_propagates_to_molecule_lowered_output() {
 
     // ---- Step 2: overwrite atom with v2, recompile, snapshot ----
     fs::write(dir.join("test-atom.orb"), ATOM_V2).expect("overwrite atom with v2");
-    let oir_v2 = compile_file(&molecule_path, &lowered_oir_options())
-        .expect("v2 compile must succeed");
+    let oir_v2 =
+        compile_file(&molecule_path, &lowered_oir_options()).expect("v2 compile must succeed");
     let snap_v2 = snapshot_consumer_trait(&oir_v2);
 
     // ---- Step 3: assert the change propagated ----
@@ -307,7 +307,9 @@ fn editing_atom_orb_propagates_to_molecule_lowered_output() {
         snap_v2.state_names
     );
     assert!(
-        snap_v2.init_text_blob().contains("ATOM_V2_CONTENT_REWRITTEN"),
+        snap_v2
+            .init_text_blob()
+            .contains("ATOM_V2_CONTENT_REWRITTEN"),
         "v2 INIT effects must carry the v2 content text; got {}",
         snap_v2.init_text_blob()
     );
@@ -320,8 +322,8 @@ fn editing_atom_orb_propagates_to_molecule_lowered_output() {
     // Guards against a non-deterministic compile_file (which would make
     // the v1→v2 difference unreliable evidence).
     fs::write(dir.join("test-atom.orb"), ATOM_V1).expect("revert atom to v1");
-    let oir_v1_again = compile_file(&molecule_path, &lowered_oir_options())
-        .expect("revert compile must succeed");
+    let oir_v1_again =
+        compile_file(&molecule_path, &lowered_oir_options()).expect("revert compile must succeed");
     let snap_v1_again = snapshot_consumer_trait(&oir_v1_again);
     assert_eq!(
         snap_v1, snap_v1_again,
@@ -513,7 +515,10 @@ fn editing_atom_orb_propagates_through_molecule_into_organism() {
     let snap_v1 = snapshot_organism_trait(&oir_v1);
 
     assert!(
-        snap_v1.init_effects_value.to_string().contains("ATOM_V1_DEEP"),
+        snap_v1
+            .init_effects_value
+            .to_string()
+            .contains("ATOM_V1_DEEP"),
         "organism's lowered OIR must carry the v1 atom content (deep propagation); got {}",
         snap_v1.init_effects_value
     );
@@ -533,13 +538,15 @@ fn editing_atom_orb_propagates_through_molecule_into_organism() {
     );
 
     // ---- v2 compile ----
-    fs::write(dir.join("recursive-atom.orb"), RECURSIVE_ATOM_V2)
-        .expect("overwrite atom with v2");
+    fs::write(dir.join("recursive-atom.orb"), RECURSIVE_ATOM_V2).expect("overwrite atom with v2");
     let oir_v2 = compile_file(&organism_path, &lowered_oir_options())
         .expect("v2 organism compile must succeed");
     let snap_v2 = snapshot_organism_trait(&oir_v2);
 
-    assert_ne!(snap_v1, snap_v2, "atom edit must propagate through both layers");
+    assert_ne!(
+        snap_v1, snap_v2,
+        "atom edit must propagate through both layers"
+    );
     assert!(
         snap_v2
             .init_effects_value
@@ -549,14 +556,17 @@ fn editing_atom_orb_propagates_through_molecule_into_organism() {
         snap_v2.init_effects_value
     );
     assert!(
-        !snap_v2.init_effects_value.to_string().contains("ATOM_V1_DEEP"),
+        !snap_v2
+            .init_effects_value
+            .to_string()
+            .contains("ATOM_V1_DEEP"),
         "v2 organism must NOT carry the v1 content"
     );
 
     // ---- revert sanity ----
     fs::write(dir.join("recursive-atom.orb"), RECURSIVE_ATOM_V1).expect("revert atom");
-    let oir_v1_again = compile_file(&organism_path, &lowered_oir_options())
-        .expect("revert compile must succeed");
+    let oir_v1_again =
+        compile_file(&organism_path, &lowered_oir_options()).expect("revert compile must succeed");
     let snap_v1_again = snapshot_organism_trait(&oir_v1_again);
     assert_eq!(
         snap_v1, snap_v1_again,
@@ -675,8 +685,8 @@ fn linked_entity_rebind_rewrites_pattern_entity_props() {
         .iter()
         .find(|t| t.event == "INIT")
         .expect("must find an INIT transition");
-    let effects_json = serde_json::to_string(&init_transition.effects)
-        .expect("effects must serialize");
+    let effects_json =
+        serde_json::to_string(&init_transition.effects).expect("effects must serialize");
 
     // Positive: the consumer entity name lands in the pattern props.
     assert!(

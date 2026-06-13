@@ -2,9 +2,7 @@
 
 use crate::embedded::get_pattern;
 use crate::phases::validation::sync::patterns::{PATTERN_EVENT_LIST_PROPS, PATTERN_EVENT_PROPS};
-use orbital_core::schema::{
-    ConfigProvenanceRecord, SExpression, TraitDefinition, TraitReference,
-};
+use orbital_core::schema::{ConfigProvenanceRecord, SExpression, TraitDefinition, TraitReference};
 use std::collections::{HashMap, HashSet};
 
 /// Phase F.3: Generic identifier-substitution walker for SExpressions.
@@ -201,10 +199,9 @@ fn rewrite_identifiers_inner(
             let event_props_for_pattern: Option<&HashSet<&'static str>> = pattern_type
                 .as_deref()
                 .and_then(|t| PATTERN_EVENT_PROPS.get(t));
-            let event_list_for_pattern: Option<&HashMap<&'static str, &'static str>> =
-                pattern_type
-                    .as_deref()
-                    .and_then(|t| PATTERN_EVENT_LIST_PROPS.get(t));
+            let event_list_for_pattern: Option<&HashMap<&'static str, &'static str>> = pattern_type
+                .as_deref()
+                .and_then(|t| PATTERN_EVENT_LIST_PROPS.get(t));
 
             // C1 plan: dynamic registry lookup as the canonical source
             // for "is this prop an event-name reference?" The static
@@ -229,11 +226,15 @@ fn rewrite_identifiers_inner(
                         .props_schema
                         .get(k.as_str())
                         .and_then(|prop| prop.kind.as_deref())
-                        .map(|kind| matches!(kind, "event" | "event-ref" | "event-listen" | "callback"))
+                        .map(|kind| {
+                            matches!(kind, "event" | "event-ref" | "event-listen" | "callback")
+                        })
                         .unwrap_or(false),
                     None => false,
                 };
-                if is_event_prop || event_props_for_pattern.is_some_and(|set| set.contains(k.as_str())) {
+                if is_event_prop
+                    || event_props_for_pattern.is_some_and(|set| set.contains(k.as_str()))
+                {
                     if let SExpression::String(s) = v {
                         if !s.starts_with('@') {
                             if let Some(to) = event_subs.get(s) {
@@ -298,9 +299,7 @@ pub(crate) fn rewrite_entity_field_paths(
             if let Some(rest) = s.strip_prefix("@entity.") {
                 // Split off the first segment (field name), keeping any nested
                 // path / index suffix intact.
-                let split_at = rest
-                    .find(['.', '['])
-                    .unwrap_or(rest.len());
+                let split_at = rest.find(['.', '[']).unwrap_or(rest.len());
                 let (field, suffix) = rest.split_at(split_at);
                 if let Some(to) = field_subs.get(field) {
                     *s = format!("@entity.{}{}", to, suffix);
@@ -349,8 +348,7 @@ pub(crate) fn mark_literal_list_in_place(value: &mut SExpression, field_type: &s
         return;
     }
     if let SExpression::Array(elems) = value {
-        let is_string_headed =
-            matches!(elems.first(), Some(SExpression::String(s)) if s != "list");
+        let is_string_headed = matches!(elems.first(), Some(SExpression::String(s)) if s != "list");
         if is_string_headed {
             let mut wrapped = Vec::with_capacity(elems.len() + 1);
             wrapped.push(SExpression::String("list".to_string()));

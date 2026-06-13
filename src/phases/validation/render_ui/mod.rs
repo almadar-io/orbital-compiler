@@ -12,17 +12,17 @@ mod pattern;
 // `super::*` and so external paths (`render_ui::is_render_ui_effect`,
 // `render_ui::validate_all_render_ui`) keep resolving unchanged.
 pub(crate) use super::sync;
-pub(crate) use super::{ErrorCode, ValidationContext, ValidationError, ValidationResult, VALID_SLOTS};
+pub(crate) use super::{
+    ErrorCode, ValidationContext, ValidationError, ValidationResult, VALID_SLOTS,
+};
 
 use self::binding::validate_all_render_ui_bindings;
 use self::item_actions::{extract_fetch_entity, extract_render_ui_entity};
+pub use self::item_actions::{extract_slot, is_render_ui_effect};
 use self::pattern::validate_pattern;
 use self::sync::ExtraPatterns;
-pub use self::item_actions::{extract_slot, is_render_ui_effect};
 
-use orbital_core::schema::{
-    EntityDefinition, OrbitalSchema, SExpression, TraitDefinition,
-};
+use orbital_core::schema::{EntityDefinition, OrbitalSchema, SExpression, TraitDefinition};
 use std::collections::{HashMap, HashSet};
 
 // Pattern types and itemAction props are imported from sync::patterns
@@ -66,10 +66,8 @@ pub fn validate_trait_render_ui(
     let mut fetched_by_state: HashMap<&str, HashSet<String>> = HashMap::new();
     for transition in &trait_def.state_machine.transitions {
         if let Some(effects) = &transition.effects {
-            let fetched: HashSet<String> = effects
-                .iter()
-                .filter_map(extract_fetch_entity)
-                .collect();
+            let fetched: HashSet<String> =
+                effects.iter().filter_map(extract_fetch_entity).collect();
             if !fetched.is_empty() {
                 fetched_by_state
                     .entry(transition.to.as_str())
@@ -132,10 +130,8 @@ pub fn validate_trait_render_ui(
     for (i, transition) in trait_def.state_machine.transitions.iter().enumerate() {
         if let Some(effects) = &transition.effects {
             // Entities fetched in THIS transition
-            let fetched_entities: HashSet<String> = effects
-                .iter()
-                .filter_map(extract_fetch_entity)
-                .collect();
+            let fetched_entities: HashSet<String> =
+                effects.iter().filter_map(extract_fetch_entity).collect();
 
             // Entities available at the target state from predecessor states
             let empty_set = HashSet::new();
@@ -257,7 +253,11 @@ pub fn validate_render_ui_effect(
                 // `@trait.X` bindings must only appear in `children:` or
                 // `node`-typed props. Walk the pattern tree and warn on
                 // misuse elsewhere (see `validate_trait_binding_positions`).
-                result.merge(validate_trait_binding_positions(pattern, path, extra_patterns));
+                result.merge(validate_trait_binding_positions(
+                    pattern,
+                    path,
+                    extra_patterns,
+                ));
             }
         }
         SExpression::Object(obj) => {
@@ -362,9 +362,13 @@ fn walk_pattern_for_trait_positions(
         SExpression::Object(obj) => {
             // Read the pattern type at this level so children inherit the
             // correct parent context.
-            let new_pat_type = obj
-                .get("type")
-                .and_then(|v| if let SExpression::String(s) = v { Some(s.as_str()) } else { None });
+            let new_pat_type = obj.get("type").and_then(|v| {
+                if let SExpression::String(s) = v {
+                    Some(s.as_str())
+                } else {
+                    None
+                }
+            });
             for (k, v) in obj {
                 if k == "type" {
                     continue;

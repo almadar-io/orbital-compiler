@@ -99,36 +99,37 @@ pub(crate) fn validate_scope_boundary(schema: &OrbitalSchema) -> ValidationResul
             // from an embedded std behavior; the in-schema path uses a
             // borrow from `in_schema_emits`.
             let owned_holder: Option<Vec<EmitDefinition>>;
-            let target_emits: &Vec<EmitDefinition> =
-                if let Some(emits) = in_schema_emits.get(target_trait_name) {
-                    emits
-                } else if let Some(src) = alias_source.get(alias) {
-                    // Attempt to resolve std-behavior content. Other
-                    // sources (local .orb paths) aren't loaded here —
-                    // skip silently. The parsed schema is cached per src so
-                    // repeated references don't re-parse the same content.
-                    if crate::embedded::get_std_behavior_content(src).is_some() {
-                        let parsed = parsed_std_cache.entry(*src).or_insert_with(|| {
-                            crate::embedded::get_std_behavior_content(src)
-                                .and_then(|content| serde_json::from_str::<OrbitalSchema>(content).ok())
-                        });
-                        owned_holder = parsed
-                            .as_ref()
-                            .and_then(|schema| emits_for_trait(schema, target_trait_name));
-                        match &owned_holder {
-                            Some(e) => e,
-                            // Target trait found but has no emits[] —
-                            // nothing internal to guard against.
-                            None => continue,
-                        }
-                    } else {
-                        continue;
+            let target_emits: &Vec<EmitDefinition> = if let Some(emits) =
+                in_schema_emits.get(target_trait_name)
+            {
+                emits
+            } else if let Some(src) = alias_source.get(alias) {
+                // Attempt to resolve std-behavior content. Other
+                // sources (local .orb paths) aren't loaded here —
+                // skip silently. The parsed schema is cached per src so
+                // repeated references don't re-parse the same content.
+                if crate::embedded::get_std_behavior_content(src).is_some() {
+                    let parsed = parsed_std_cache.entry(*src).or_insert_with(|| {
+                        crate::embedded::get_std_behavior_content(src)
+                            .and_then(|content| serde_json::from_str::<OrbitalSchema>(content).ok())
+                    });
+                    owned_holder = parsed
+                        .as_ref()
+                        .and_then(|schema| emits_for_trait(schema, target_trait_name));
+                    match &owned_holder {
+                        Some(e) => e,
+                        // Target trait found but has no emits[] —
+                        // nothing internal to guard against.
+                        None => continue,
                     }
                 } else {
-                    // No `uses:` entry for the alias and not in-schema —
-                    // we can't verify scope. Skip silently.
                     continue;
-                };
+                }
+            } else {
+                // No `uses:` entry for the alias and not in-schema —
+                // we can't verify scope. Skip silently.
+                continue;
+            };
 
             let path_base = format!("orbitals[{}].traits[{}]", oi, ti);
 
@@ -366,9 +367,7 @@ mod tests {
         let mut schema = build_scope_boundary_fixture(EventScope::Internal);
         // Drop the events override from the composer trait reference.
         if let Some(TraitReference::Reference {
-            events,
-            listens,
-            ..
+            events, listens, ..
         }) = schema.orbitals[1].traits.first_mut()
         {
             *events = None;

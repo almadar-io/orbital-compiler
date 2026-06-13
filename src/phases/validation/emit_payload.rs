@@ -41,8 +41,7 @@ pub fn validate_all_emit_payloads(schema: &OrbitalSchema, ctx: &mut ValidationCo
     // scope avoids false positives on the legitimate "namespace owner"
     // pattern where one trait declares events that sibling traits in the
     // same orbital actually fire.
-    let mut all_fired_events: std::collections::HashSet<String> =
-        std::collections::HashSet::new();
+    let mut all_fired_events: std::collections::HashSet<String> = std::collections::HashSet::new();
     for orbital in &schema.orbitals {
         for trait_ref in &orbital.traits {
             let TraitReference::Inline(td) = trait_ref else {
@@ -106,8 +105,7 @@ pub fn validate_all_emit_payloads(schema: &OrbitalSchema, ctx: &mut ValidationCo
             if let Some(ticks) = &trait_def.ticks {
                 for (i, tick) in ticks.iter().enumerate() {
                     for (j, effect) in tick.effects.iter().enumerate() {
-                        let path =
-                            format!("{}.ticks[{}].effects[{}]", trait_path, i, j);
+                        let path = format!("{}.ticks[{}].effects[{}]", trait_path, i, j);
                         if !emit_schemas.is_empty() {
                             let result =
                                 validate_emit_literal(effect, &path, &emit_schemas, strict);
@@ -139,8 +137,7 @@ pub fn validate_all_emit_payloads(schema: &OrbitalSchema, ctx: &mut ValidationCo
             // expose this pattern. The component reads `@config.event`
             // and emits the consumer-supplied event name on the bus; the
             // emits[] block is the documented payload contract.
-            let has_dynamic_event_binding =
-                trait_has_dynamic_event_prop_binding(trait_def);
+            let has_dynamic_event_binding = trait_has_dynamic_event_prop_binding(trait_def);
             // External-scope emits are intentionally undirected: the trait
             // declares the bus contract for events fired by *other* schemas
             // (a different orbital, a future external producer, an agent
@@ -159,9 +156,7 @@ pub fn validate_all_emit_payloads(schema: &OrbitalSchema, ctx: &mut ValidationCo
             if !emit_schemas.is_empty() && !has_dynamic_event_binding {
                 let mut unfired: Vec<&str> = emit_schemas
                     .keys()
-                    .filter(|k| {
-                        !all_fired_events.contains(**k) && !external_emits.contains(*k)
-                    })
+                    .filter(|k| !all_fired_events.contains(**k) && !external_emits.contains(*k))
                     .copied()
                     .collect();
                 unfired.sort();
@@ -305,7 +300,10 @@ fn ui_event_prop_names() -> &'static std::collections::HashSet<String> {
 /// pattern-sync wrote because a component author typed the prop
 /// accordingly. The set extends automatically as new event-bearing
 /// props ship in @almadar/ui.
-fn collect_fired_events_recursive(expr: &SExpression, fired: &mut std::collections::HashSet<String>) {
+fn collect_fired_events_recursive(
+    expr: &SExpression,
+    fired: &mut std::collections::HashSet<String>,
+) {
     match expr {
         SExpression::Array(arr) => {
             // `["emit", "EVENT_NAME", ...]`
@@ -596,10 +594,7 @@ fn success_event_from_effect(op_name: &str, args: &[SExpression]) -> Option<Stri
         // EffectExecutor.ts:493 heuristic).
         "persist" => {
             // Walk from the back for the first object with `emit` key.
-            return args
-                .iter()
-                .rev()
-                .find_map(extract_emit_success);
+            return args.iter().rev().find_map(extract_emit_success);
         }
         // (call-service "svc" "action" params options?) -> args[4]
         "call-service" | "call_service" => 4,
@@ -635,7 +630,11 @@ fn narrow_produces<'a>(
     let OperatorTypeRef::Tagged(OperatorTypeRefKind::Union { of }) = produces else {
         return produces;
     };
-    let kind = op_meta.effect.as_ref().map(|e| e.kind.as_str()).unwrap_or("");
+    let kind = op_meta
+        .effect
+        .as_ref()
+        .map(|e| e.kind.as_str())
+        .unwrap_or("");
     let picked: Option<usize> = match kind {
         "fetch" | "ref" => {
             // options at args[2]; has `id` -> scalar (branch 0), else array (branch 1).

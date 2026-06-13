@@ -28,18 +28,16 @@ mod r#trait;
 use context::{parse_reference, InlineContext, ParsedReference};
 use entity::{inline_entity, merge_imported_entity_fields};
 use page::{inline_pages, rewrite_page_trait_refs};
-use rewrite::{apply_inline_config_defaults, rewrite_trait_literal_refs, trait_ref_name};
 use r#trait::inline_traits;
+use rewrite::{apply_inline_config_defaults, rewrite_trait_literal_refs, trait_ref_name};
 use service::inline_services;
 
 // Test-only helpers exercised directly by the unit tests below; gated so a
 // non-test build doesn't flag them as unused.
 #[cfg(test)]
-use rewrite::{
-    rewrite_entity_refs, rewrite_identifiers, rewrite_trait_event_fields,
-};
-#[cfg(test)]
 use r#trait::apply_overrides_to_trait;
+#[cfg(test)]
+use rewrite::{rewrite_entity_refs, rewrite_identifiers, rewrite_trait_event_fields};
 
 use crate::loader::{ExternalOrbitalLoader, ImportChain, LoaderConfig, LoaderError};
 use orbital_core::schema::{
@@ -274,9 +272,8 @@ fn uniquify_cross_orbital_pulled_siblings(
                     // `listens` source at the old sibling name; track the rename.
                     if let Some(listens) = td.listens.as_mut() {
                         for listen in listens.iter_mut() {
-                            if let Some(orbital_core::schema::ListenSource::Trait {
-                                trait_name,
-                            }) = listen.source.as_mut()
+                            if let Some(orbital_core::schema::ListenSource::Trait { trait_name }) =
+                                listen.source.as_mut()
                             {
                                 if trait_name == old_name {
                                     *trait_name = new_name.clone();
@@ -373,10 +370,7 @@ fn inline_orbital(
                 // should be unreachable. Skip the alias rather than panic.
                 continue;
             }
-            (
-                loaded.schema.orbitals.clone(),
-                loaded.source_path.clone(),
-            )
+            (loaded.schema.orbitals.clone(), loaded.source_path.clone())
         };
 
         for inlined_orbital in &mut inlined_orbitals {
@@ -435,9 +429,7 @@ fn inline_orbital(
             } = trait_ref
             {
                 if let Ok(ParsedReference::Trait { alias, name }) = parse_reference(ref_str) {
-                    if let Some(imported_entity) =
-                        ctx.get_entity_for_trait_orbital(&alias, &name)
-                    {
+                    if let Some(imported_entity) = ctx.get_entity_for_trait_orbital(&alias, &name) {
                         let (carries_fields, intrinsic_only) = match linked_entity {
                             // (a) explicit rebind: merge the full field set
                             // (long-standing behavior, unchanged).
@@ -449,9 +441,7 @@ fn inline_orbital(
                             // them; a missing DATA field surfaces as an error.
                             None => (imported_entity.name == caller_entity_name, true),
                         };
-                        if carries_fields
-                            && merged_aliases.insert((alias.clone(), name.clone()))
-                        {
+                        if carries_fields && merged_aliases.insert((alias.clone(), name.clone())) {
                             // A required DATA field (in the trait's
                             // `entity_contract.requires`) must be satisfied by
                             // the target, NOT auto-merged from the source — that
@@ -508,9 +498,7 @@ fn inline_orbital(
             } = trait_ref
             {
                 if let Ok(ParsedReference::Trait { alias, name }) = parse_reference(ref_str) {
-                    if let Some(imported_entity) =
-                        ctx.get_entity_for_trait_orbital(&alias, &name)
-                    {
+                    if let Some(imported_entity) = ctx.get_entity_for_trait_orbital(&alias, &name) {
                         if seen_aux_names.insert(imported_entity.name.clone()) {
                             aux_collected.push(imported_entity);
                         }
@@ -784,7 +772,16 @@ mod tests {
     fn inline_does_not_rename_when_name_is_none() {
         // With `name = None`, the resolved trait keeps its original name.
         let mut trait_def = make_trait("ModalRecordModal");
-        apply_overrides_to_trait(&mut trait_def, None, None, None, None, None, false, &mut Vec::new());
+        apply_overrides_to_trait(
+            &mut trait_def,
+            None,
+            None,
+            None,
+            None,
+            None,
+            false,
+            &mut Vec::new(),
+        );
         assert_eq!(trait_def.name, "ModalRecordModal");
     }
 
@@ -950,8 +947,9 @@ mod tests {
             modal_ref(Some("CartItemEditItem"), Some("CartItem")),
         ];
 
-        let (result, _rename_map, _aux, _pulled) = inline_traits(&traits, &ctx, "<test>", &mut Vec::new())
-            .expect("two distinct `name` overrides must inline successfully without collision");
+        let (result, _rename_map, _aux, _pulled) =
+            inline_traits(&traits, &ctx, "<test>", &mut Vec::new())
+                .expect("two distinct `name` overrides must inline successfully without collision");
         assert_eq!(result.len(), 2, "both references must be inlined");
 
         let names: Vec<&str> = result
@@ -991,8 +989,9 @@ mod tests {
             modal_ref(None, Some("CartItem")),
         ];
 
-        let (result, _rename_map, _aux, _pulled) = inline_traits(&traits, &ctx, "<test>", &mut Vec::new())
-            .expect("one renamed + one not-renamed must succeed (no name collision)");
+        let (result, _rename_map, _aux, _pulled) =
+            inline_traits(&traits, &ctx, "<test>", &mut Vec::new())
+                .expect("one renamed + one not-renamed must succeed (no name collision)");
         assert_eq!(result.len(), 2);
 
         let names: Vec<&str> = result
@@ -1090,9 +1089,7 @@ mod tests {
         rewrite_page_trait_refs(&mut pages, &rename_map);
 
         let page = pages.as_ref().unwrap().first().unwrap();
-        let PageRef::Inline(def) = page else {
-            panic!()
-        };
+        let PageRef::Inline(def) = page else { panic!() };
         let traits = def.traits.as_ref().unwrap();
         match &traits[0] {
             TraitReference::Reference { reference, .. } => {
@@ -2185,11 +2182,7 @@ mod tests {
 
         assert_eq!(
             expr,
-            SExpression::Array(vec![
-                s("fetch"),
-                s("Target"),
-                SExpression::Object(criteria),
-            ])
+            SExpression::Array(vec![s("fetch"), s("Target"), SExpression::Object(criteria),])
         );
     }
 
@@ -2377,7 +2370,16 @@ mod tests {
         };
 
         let linked = "Target".to_string();
-        apply_overrides_to_trait(&mut trait_def, Some(&linked), None, None, None, None, false, &mut Vec::new());
+        apply_overrides_to_trait(
+            &mut trait_def,
+            Some(&linked),
+            None,
+            None,
+            None,
+            None,
+            false,
+            &mut Vec::new(),
+        );
 
         // linked_entity field flipped.
         assert_eq!(trait_def.linked_entity.as_deref(), Some("Target"));
@@ -2738,7 +2740,14 @@ mod tests {
         let names = field_names(&caller);
         assert_eq!(
             names,
-            vec!["id", "name", "description", "status", "createdAt", "pendingId"]
+            vec![
+                "id",
+                "name",
+                "description",
+                "status",
+                "createdAt",
+                "pendingId"
+            ]
         );
         assert_eq!(caller.fields.len(), 6, "no fields should be added");
     }

@@ -65,10 +65,7 @@ pub(crate) fn validate_emit_config(
 
     // Normalize both camelCase and snake_case forms that the resolver
     // accepts so the validator sees the same keys users typed.
-    let key_aliases: &[(&str, &str)] = &[
-        ("onChange", "on_change"),
-        ("onMessage", "on_message"),
-    ];
+    let key_aliases: &[(&str, &str)] = &[("onChange", "on_change"), ("onMessage", "on_message")];
 
     for (key, value) in emit_obj {
         // Canonical name (as it appears in allowed_keys).

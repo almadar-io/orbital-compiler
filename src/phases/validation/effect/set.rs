@@ -268,13 +268,14 @@ pub(crate) fn validate_set_return_type(
     if !matches!(&arr[2], SExpression::Array(_)) {
         return result;
     }
-    let Ok(oir_value) =
-        crate::phases::resolve::resolve_sexpr_standalone(&arr[2])
-    else {
+    let Ok(oir_value) = crate::phases::resolve::resolve_sexpr_standalone(&arr[2]) else {
         return result; // unresolvable shape → skip, never a false error
     };
 
-    let ctx = SetTypeCtx { entity: entity_field_types, payload: payload_field_types };
+    let ctx = SetTypeCtx {
+        entity: entity_field_types,
+        payload: payload_field_types,
+    };
     let inferred = crate::type_infer::infer_oir_expr_type(&oir_value, &ctx);
     if !orbital_core::oir_type_satisfies_field(&inferred, &meta.field_type) {
         result.add_error(
@@ -339,7 +340,9 @@ fn compat_kind_to_oir(kind: &str) -> orbital_core::ir::OirType {
         "boolean" => OirType::Boolean,
         "date" => OirType::Date,
         "datetime" | "timestamp" => OirType::DateTime,
-        "array" => OirType::Array { inner: Box::new(OirType::Json) },
+        "array" => OirType::Array {
+            inner: Box::new(OirType::Json),
+        },
         _ => OirType::Json,
     }
 }
@@ -480,14 +483,18 @@ mod enum_tests {
     #[test]
     fn member_literal_passes() {
         let arr = set("status", SExpression::String("closed".into()));
-        assert!(validate_set_enum_value(&arr, "p", &status_enum()).errors.is_empty());
+        assert!(validate_set_enum_value(&arr, "p", &status_enum())
+            .errors
+            .is_empty());
     }
 
     #[test]
     fn binding_value_skips() {
         // a `@payload`/`?` read is dynamic — not enum-checkable.
         let arr = set("status", SExpression::String("@payload.status".into()));
-        assert!(validate_set_enum_value(&arr, "p", &status_enum()).errors.is_empty());
+        assert!(validate_set_enum_value(&arr, "p", &status_enum())
+            .errors
+            .is_empty());
     }
 
     #[test]
@@ -495,7 +502,10 @@ mod enum_tests {
         let mut m = HashMap::new();
         m.insert(
             "title".to_string(),
-            EntityFieldMeta { field_type: "string".into(), enum_values: vec![] },
+            EntityFieldMeta {
+                field_type: "string".into(),
+                enum_values: vec![],
+            },
         );
         let arr = set("title", SExpression::String("anything".into()));
         assert!(validate_set_enum_value(&arr, "p", &m).errors.is_empty());
@@ -510,7 +520,10 @@ mod return_type_tests {
         let mut m = HashMap::new();
         m.insert(
             name.to_string(),
-            EntityFieldMeta { field_type: ty.into(), enum_values: vec![] },
+            EntityFieldMeta {
+                field_type: ty.into(),
+                enum_values: vec![],
+            },
         );
         m
     }
@@ -537,18 +550,22 @@ mod return_type_tests {
     #[test]
     fn string_op_into_string_field_passes() {
         let arr = set_call("title", "str/concat", &["a", "b"]);
-        assert!(validate_set_return_type(&arr, "p", &field("title", "string"), &HashMap::new())
-            .errors
-            .is_empty());
+        assert!(
+            validate_set_return_type(&arr, "p", &field("title", "string"), &HashMap::new())
+                .errors
+                .is_empty()
+        );
     }
 
     #[test]
     fn input_dependent_op_is_conservative() {
         // object/get is input-dependent (object-key-lookup → Json); never rejects.
         let arr = set_call("count", "object/get", &["@entity.data", "k"]);
-        assert!(validate_set_return_type(&arr, "p", &field("count", "number"), &HashMap::new())
-            .errors
-            .is_empty());
+        assert!(
+            validate_set_return_type(&arr, "p", &field("count", "number"), &HashMap::new())
+                .errors
+                .is_empty()
+        );
     }
 
     #[test]
@@ -559,8 +576,10 @@ mod return_type_tests {
             SExpression::String("@entity.count".into()),
             SExpression::String("5".into()),
         ];
-        assert!(validate_set_return_type(&arr, "p", &field("count", "number"), &HashMap::new())
-            .errors
-            .is_empty());
+        assert!(
+            validate_set_return_type(&arr, "p", &field("count", "number"), &HashMap::new())
+                .errors
+                .is_empty()
+        );
     }
 }
