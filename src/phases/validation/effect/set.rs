@@ -128,7 +128,7 @@ pub(crate) fn is_path_expression(arr: &[SExpression]) -> bool {
 pub(crate) fn validate_set_value_type(
     arr: &[SExpression],
     path: &str,
-    entity_field_types: &HashMap<String, String>,
+    entity_field_types: &HashMap<String, EntityFieldMeta>,
     payload_field_types: &HashMap<String, String>,
 ) -> ValidationResult {
     let mut result = ValidationResult::new();
@@ -147,12 +147,13 @@ pub(crate) fn validate_set_value_type(
         return result;
     };
 
-    let (Some(entity_ty), Some(payload_ty)) = (
+    let (Some(entity_meta), Some(payload_ty)) = (
         entity_field_types.get(entity_field),
         payload_field_types.get(payload_field),
     ) else {
         return result;
     };
+    let entity_ty = &entity_meta.field_type;
 
     if !orbital_core::set_value_type_compatible(entity_ty, payload_ty) {
         result.add_error(
@@ -169,6 +170,63 @@ pub(crate) fn validate_set_value_type(
                 "Align the payload field '{}' type with the entity field '{}' type, or set a \
                  converted value.",
                 payload_field, entity_field
+            )),
+        );
+    }
+
+    result
+}
+
+/// ENUM-UNENFORCED check (Gap G-LOLO-ENUM-UNENFORCED).
+///
+/// For `(set @entity.<field> "literal")` where `<field>` declares an enum
+/// (`values: [...]`), reject a literal that is not one of the declared members.
+/// A declared string-union previously validated + emitted but was never
+/// actually enforced, so an out-of-set value passed silently. Only a plain
+/// string LITERAL is checkable — bindings (`@…`/`?…`) and operator calls are
+/// dynamic and left to the type/return checks.
+pub(crate) fn validate_set_enum_value(
+    arr: &[SExpression],
+    path: &str,
+    entity_field_types: &HashMap<String, EntityFieldMeta>,
+) -> ValidationResult {
+    let mut result = ValidationResult::new();
+
+    if arr.len() < 3 {
+        return result;
+    }
+    let Some(entity_field) = set_entity_field(&arr[1]) else {
+        return result;
+    };
+    let Some(meta) = entity_field_types.get(entity_field) else {
+        return result;
+    };
+    if meta.enum_values.is_empty() {
+        return result; // not an enum field
+    }
+    // Only a plain string literal carries a checkable value.
+    let SExpression::String(value) = &arr[2] else {
+        return result;
+    };
+    if value.starts_with('@') || value.starts_with('?') {
+        return result; // a binding/payload read, not a literal
+    }
+
+    if !orbital_core::enum_value_is_member(value, &meta.enum_values) {
+        result.add_error(
+            ValidationError::error(
+                ErrorCode::EnumValueNotMember,
+                path,
+                format!(
+                    "set @entity.{} assigns '{}', which is not a declared member of \
+                     the field's enum.",
+                    entity_field, value
+                ),
+            )
+            .with_valid_values(meta.enum_values.clone())
+            .with_suggestion(format!(
+                "Use one of the declared values for '{}', or add '{}' to its enum.",
+                entity_field, value
             )),
         );
     }
@@ -204,18 +262,34 @@ fn payload_field_ref(value: &SExpression) -> Option<&str> {
     Some(field)
 }
 
-/// Build the `{ fieldName -> type }` map for an entity definition. The type is
-/// the lowercase primitive string (matching `PayloadField.field_type`'s
+/// Per-field metadata the set-effect checks need: the field's declared type
+/// (lowercase primitive string, for the type-compat check) and its declared
+/// enum members (`values: [...]`, empty when the field is not an enum — for the
+/// membership check). Both ride in one map so the entity is walked once and the
+/// `validate_effect` signature stays a single entity-field argument.
+pub(crate) struct EntityFieldMeta {
+    pub field_type: String,
+    pub enum_values: Vec<String>,
+}
+
+/// Build the `{ fieldName -> EntityFieldMeta }` map for an entity definition.
+/// The type is the lowercase primitive string (matching `PayloadField.field_type`'s
 /// vocabulary) so the two sides compare on the same alphabet. Fields without a
 /// name (nested item/property carriers) are skipped.
-pub(crate) fn entity_field_type_map(entity: &EntityDefinition) -> HashMap<String, String> {
+pub(crate) fn entity_field_type_map(entity: &EntityDefinition) -> HashMap<String, EntityFieldMeta> {
     entity
         .fields
         .iter()
         .filter_map(|f| {
-            f.name
-                .clone()
-                .map(|name| (name, field_type_str(&f.field_type).to_string()))
+            f.name.clone().map(|name| {
+                (
+                    name,
+                    EntityFieldMeta {
+                        field_type: field_type_str(&f.field_type).to_string(),
+                        enum_values: f.values.clone().unwrap_or_default(),
+                    },
+                )
+            })
         })
         .collect()
 }
@@ -259,4 +333,61 @@ pub(crate) fn validate_set_object(target: &SExpression, path: &str) -> Validatio
     }
 
     result
+}
+
+#[cfg(test)]
+mod enum_tests {
+    use super::*;
+
+    fn set(field: &str, value: SExpression) -> Vec<SExpression> {
+        vec![
+            SExpression::String("set".into()),
+            SExpression::String(format!("@entity.{field}")),
+            value,
+        ]
+    }
+
+    fn status_enum() -> HashMap<String, EntityFieldMeta> {
+        let mut m = HashMap::new();
+        m.insert(
+            "status".to_string(),
+            EntityFieldMeta {
+                field_type: "string".into(),
+                enum_values: vec!["open".into(), "closed".into(), "pending".into()],
+            },
+        );
+        m
+    }
+
+    #[test]
+    fn non_member_literal_errors() {
+        let arr = set("status", SExpression::String("zzz".into()));
+        let r = validate_set_enum_value(&arr, "p", &status_enum());
+        assert_eq!(r.errors.len(), 1);
+        assert_eq!(r.errors[0].code, ErrorCode::EnumValueNotMember);
+    }
+
+    #[test]
+    fn member_literal_passes() {
+        let arr = set("status", SExpression::String("closed".into()));
+        assert!(validate_set_enum_value(&arr, "p", &status_enum()).errors.is_empty());
+    }
+
+    #[test]
+    fn binding_value_skips() {
+        // a `@payload`/`?` read is dynamic — not enum-checkable.
+        let arr = set("status", SExpression::String("@payload.status".into()));
+        assert!(validate_set_enum_value(&arr, "p", &status_enum()).errors.is_empty());
+    }
+
+    #[test]
+    fn non_enum_field_skips() {
+        let mut m = HashMap::new();
+        m.insert(
+            "title".to_string(),
+            EntityFieldMeta { field_type: "string".into(), enum_values: vec![] },
+        );
+        let arr = set("title", SExpression::String("anything".into()));
+        assert!(validate_set_enum_value(&arr, "p", &m).errors.is_empty());
+    }
 }

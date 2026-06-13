@@ -414,6 +414,12 @@ pub enum ErrorCode {
     /// defense-in-depth backstop. Payload field types are sourced from the
     /// trait's `emits[].payload_schema` and `listens` payload metadata.
     SetValueTypeMismatch,
+    /// `(set @entity.X literal)` assigns a string literal that is not a member
+    /// of the target field's declared enum (`values: [...]`). The declared union
+    /// was previously validated + emitted but never enforced — an out-of-set
+    /// value passed silently. The lolo crate catches this at author time for
+    /// `.lolo`; this is the raw-`.orb` defense-in-depth backstop.
+    EnumValueNotMember,
     /// `(emit EVT {...})` literal payload is missing a field the event's
     /// declared payload marks as required. Warn-only in V2 Phase 0;
     /// escalates to error in Phase 5.
@@ -698,6 +704,7 @@ impl ErrorCode {
             ErrorCode::BindingPayloadFieldUndeclared => "ORB_BINDING_PAYLOAD_FIELD_UNDECLARED",
             ErrorCode::BindingPayloadTypeIncompatible => "ORB_BINDING_PAYLOAD_TYPE_INCOMPATIBLE",
             ErrorCode::SetValueTypeMismatch => "ORB_X_SET_VALUE_TYPE_MISMATCH",
+            ErrorCode::EnumValueNotMember => "ORB_X_ENUM_VALUE_NOT_MEMBER",
             ErrorCode::EmitPayloadMissingRequired => "ORB_EMIT_PAYLOAD_MISSING_REQUIRED",
             ErrorCode::EmitPayloadExtraField => "ORB_EMIT_PAYLOAD_EXTRA_FIELD",
             ErrorCode::EmitPayloadFieldTypeMismatch => "ORB_EMIT_PAYLOAD_FIELD_TYPE_MISMATCH",
@@ -850,6 +857,7 @@ impl ErrorCode {
             | ErrorCode::EffectEmitUndeclaredEvent
             | ErrorCode::EffectMissingRequiredEmit
             | ErrorCode::SetValueTypeMismatch
+            | ErrorCode::EnumValueNotMember
             | ErrorCode::EmitDeclaredButUnfired => "effect",
 
             ErrorCode::SExprInvalidOperator
