@@ -420,6 +420,13 @@ pub enum ErrorCode {
     /// value passed silently. The lolo crate catches this at author time for
     /// `.lolo`; this is the raw-`.orb` defense-in-depth backstop.
     EnumValueNotMember,
+    /// `(set @entity.X (op …))` assigns an operator/expression value whose
+    /// inferred result type is incompatible with the target field's declared
+    /// type (e.g. `(set @entity.count (str/concat …))` into a `number` field).
+    /// The value's type is inferred *through* the S-expression via the canonical
+    /// operator `return_semantics` lattice; an unknowable result (`Json`) never
+    /// rejects (Gap G-LOLO-SET-OP-RETURN).
+    SetReturnTypeMismatch,
     /// `(emit EVT {...})` literal payload is missing a field the event's
     /// declared payload marks as required. Warn-only in V2 Phase 0;
     /// escalates to error in Phase 5.
@@ -705,6 +712,7 @@ impl ErrorCode {
             ErrorCode::BindingPayloadTypeIncompatible => "ORB_BINDING_PAYLOAD_TYPE_INCOMPATIBLE",
             ErrorCode::SetValueTypeMismatch => "ORB_X_SET_VALUE_TYPE_MISMATCH",
             ErrorCode::EnumValueNotMember => "ORB_X_ENUM_VALUE_NOT_MEMBER",
+            ErrorCode::SetReturnTypeMismatch => "ORB_X_SET_RETURN_TYPE_MISMATCH",
             ErrorCode::EmitPayloadMissingRequired => "ORB_EMIT_PAYLOAD_MISSING_REQUIRED",
             ErrorCode::EmitPayloadExtraField => "ORB_EMIT_PAYLOAD_EXTRA_FIELD",
             ErrorCode::EmitPayloadFieldTypeMismatch => "ORB_EMIT_PAYLOAD_FIELD_TYPE_MISMATCH",
@@ -858,6 +866,7 @@ impl ErrorCode {
             | ErrorCode::EffectMissingRequiredEmit
             | ErrorCode::SetValueTypeMismatch
             | ErrorCode::EnumValueNotMember
+            | ErrorCode::SetReturnTypeMismatch
             | ErrorCode::EmitDeclaredButUnfired => "effect",
 
             ErrorCode::SExprInvalidOperator

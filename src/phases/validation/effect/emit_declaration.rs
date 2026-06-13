@@ -4,7 +4,8 @@ use super::super::{ErrorCode, PageInitPayload, ValidationError, ValidationResult
 use super::{
     validate_call_service, validate_call_service_object, validate_emit, validate_fetch, validate_fetch_object, validate_navigate,
     validate_os_watch, validate_persist, validate_ref, validate_set, validate_set_enum_value,
-    validate_set_object, effect_operators, validate_set_value_type, DeclaredEmit, EntityFieldMeta,
+    validate_set_object, validate_set_return_type, effect_operators, validate_set_value_type,
+    DeclaredEmit, EntityFieldMeta,
 };
 use orbital_core::schema::{EntityDefinition, SExpression, TraitDefinition};
 use std::collections::{HashMap, HashSet};
@@ -270,6 +271,12 @@ pub(crate) fn validate_effect(
                             payload_field_types,
                         ));
                         result.merge(validate_set_enum_value(arr, path, entity_field_types));
+                        result.merge(validate_set_return_type(
+                            arr,
+                            path,
+                            entity_field_types,
+                            payload_field_types,
+                        ));
                     }
                     "fetch" => {
                         result.merge(validate_fetch(

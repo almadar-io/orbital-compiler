@@ -30,7 +30,7 @@ pub(crate) use persist::validate_persist;
 pub(crate) use r#ref::validate_ref;
 pub(crate) use set::{
     entity_field_type_map, validate_set, validate_set_enum_value, validate_set_object,
-    validate_set_value_type, EntityFieldMeta,
+    validate_set_return_type, validate_set_value_type, EntityFieldMeta,
 };
 pub(crate) use utils::{extract_payload_fields, is_valid_event_identifier};
 pub use utils::effect_operators;

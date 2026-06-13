@@ -234,6 +234,116 @@ pub(crate) fn validate_set_enum_value(
     result
 }
 
+/// SET-OP-RETURN check (Gap G-LOLO-SET-OP-RETURN).
+///
+/// For `(set @entity.<field> (op …))` — an operator/expression value — infer the
+/// value's result type *through* the S-expression (via the canonical
+/// `return_semantics` lattice, the single `infer_oir_expr_type` derivation) and
+/// reject when it is incompatible with the field's declared type. The value is
+/// resolved to `OirExpr` with `resolve_sexpr_standalone` (expression arms never
+/// touch the schema); a shape that doesn't resolve, or a non-array-form literal
+/// (covered by the type/enum checks), is skipped. An unknowable inferred type
+/// (`Json` — an input-dependent op the std metadata can't pin down) never
+/// rejects, so this can't false-positive.
+pub(crate) fn validate_set_return_type(
+    arr: &[SExpression],
+    path: &str,
+    entity_field_types: &HashMap<String, EntityFieldMeta>,
+    payload_field_types: &HashMap<String, String>,
+) -> ValidationResult {
+    let mut result = ValidationResult::new();
+
+    if arr.len() < 3 {
+        return result;
+    }
+    let Some(entity_field) = set_entity_field(&arr[1]) else {
+        return result;
+    };
+    let Some(meta) = entity_field_types.get(entity_field) else {
+        return result;
+    };
+    // Only an array-form value (operator call / conditional / array literal)
+    // carries an inferrable result type worth checking here. Scalar literals and
+    // bare bindings are covered by the type-compat / enum checks.
+    if !matches!(&arr[2], SExpression::Array(_)) {
+        return result;
+    }
+    let Ok(oir_value) =
+        crate::phases::resolve::resolve_sexpr_standalone(&arr[2])
+    else {
+        return result; // unresolvable shape → skip, never a false error
+    };
+
+    let ctx = SetTypeCtx { entity: entity_field_types, payload: payload_field_types };
+    let inferred = crate::type_infer::infer_oir_expr_type(&oir_value, &ctx);
+    if !orbital_core::oir_type_satisfies_field(&inferred, &meta.field_type) {
+        result.add_error(
+            ValidationError::error(
+                ErrorCode::SetReturnTypeMismatch,
+                path,
+                format!(
+                    "set @entity.{} (type '{}') is assigned a value that evaluates to \
+                     '{}'; the declared types are incompatible.",
+                    entity_field,
+                    meta.field_type,
+                    orbital_core::oir_type_kind(&inferred)
+                ),
+            )
+            .with_suggestion(format!(
+                "Return a '{}'-typed value (wrap/convert the expression), or change the \
+                 field type.",
+                meta.field_type
+            )),
+        );
+    }
+
+    result
+}
+
+/// Binding-resolution context for the SET-OP-RETURN inference: resolves a
+/// single-segment `@entity.<f>` / `@payload.<f>` binding to its declared
+/// `OirType` from the validator's field-type maps. Deeper paths and other roots
+/// resolve to `None` → the inferencer treats them as `Json` (conservative).
+struct SetTypeCtx<'a> {
+    entity: &'a HashMap<String, EntityFieldMeta>,
+    payload: &'a HashMap<String, String>,
+}
+
+impl crate::type_infer::TypeCtx for SetTypeCtx<'_> {
+    fn binding_type(
+        &self,
+        binding: &orbital_core::ir::OirBinding,
+    ) -> Option<orbital_core::ir::OirType> {
+        use orbital_core::ir::OirBindingRoot;
+        if binding.path.len() != 1 {
+            return None;
+        }
+        let field = &binding.path[0];
+        let kind = match binding.root {
+            OirBindingRoot::Entity => self.entity.get(field).map(|m| m.field_type.as_str())?,
+            OirBindingRoot::Payload => self.payload.get(field).map(|s| s.as_str())?,
+            _ => return None,
+        };
+        Some(compat_kind_to_oir(kind))
+    }
+}
+
+/// Map a lowercase `FieldType` / payload kind string to the `OirType` the
+/// inferencer reasons over. Object-ish / unknowable kinds collapse to `Json` so
+/// compat stays conservative.
+fn compat_kind_to_oir(kind: &str) -> orbital_core::ir::OirType {
+    use orbital_core::ir::OirType;
+    match kind {
+        "string" => OirType::String,
+        "number" | "integer" => OirType::Number,
+        "boolean" => OirType::Boolean,
+        "date" => OirType::Date,
+        "datetime" | "timestamp" => OirType::DateTime,
+        "array" => OirType::Array { inner: Box::new(OirType::Json) },
+        _ => OirType::Json,
+    }
+}
+
 /// Extract `<field>` from a `@entity.<field>` string binding. Returns `None`
 /// for path-expression forms or non-entity targets.
 fn set_entity_field(target: &SExpression) -> Option<&str> {
@@ -389,5 +499,68 @@ mod enum_tests {
         );
         let arr = set("title", SExpression::String("anything".into()));
         assert!(validate_set_enum_value(&arr, "p", &m).errors.is_empty());
+    }
+}
+
+#[cfg(test)]
+mod return_type_tests {
+    use super::*;
+
+    fn field(name: &str, ty: &str) -> HashMap<String, EntityFieldMeta> {
+        let mut m = HashMap::new();
+        m.insert(
+            name.to_string(),
+            EntityFieldMeta { field_type: ty.into(), enum_values: vec![] },
+        );
+        m
+    }
+
+    fn set_call(field: &str, op: &str, args: &[&str]) -> Vec<SExpression> {
+        let mut call = vec![SExpression::String(op.into())];
+        call.extend(args.iter().map(|a| SExpression::String((*a).into())));
+        vec![
+            SExpression::String("set".into()),
+            SExpression::String(format!("@entity.{field}")),
+            SExpression::Array(call),
+        ]
+    }
+
+    #[test]
+    fn string_op_into_number_field_errors() {
+        // `(set @entity.count (str/concat "a" "b"))` — str/concat returns string.
+        let arr = set_call("count", "str/concat", &["a", "b"]);
+        let r = validate_set_return_type(&arr, "p", &field("count", "number"), &HashMap::new());
+        assert_eq!(r.errors.len(), 1, "errors: {:?}", r.errors);
+        assert_eq!(r.errors[0].code, ErrorCode::SetReturnTypeMismatch);
+    }
+
+    #[test]
+    fn string_op_into_string_field_passes() {
+        let arr = set_call("title", "str/concat", &["a", "b"]);
+        assert!(validate_set_return_type(&arr, "p", &field("title", "string"), &HashMap::new())
+            .errors
+            .is_empty());
+    }
+
+    #[test]
+    fn input_dependent_op_is_conservative() {
+        // object/get is input-dependent (object-key-lookup → Json); never rejects.
+        let arr = set_call("count", "object/get", &["@entity.data", "k"]);
+        assert!(validate_set_return_type(&arr, "p", &field("count", "number"), &HashMap::new())
+            .errors
+            .is_empty());
+    }
+
+    #[test]
+    fn literal_value_skips() {
+        // a scalar literal is not array-form — handled by the type/enum checks.
+        let arr = vec![
+            SExpression::String("set".into()),
+            SExpression::String("@entity.count".into()),
+            SExpression::String("5".into()),
+        ];
+        assert!(validate_set_return_type(&arr, "p", &field("count", "number"), &HashMap::new())
+            .errors
+            .is_empty());
     }
 }
