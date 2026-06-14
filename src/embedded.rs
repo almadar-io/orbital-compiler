@@ -1190,6 +1190,45 @@ pub fn known_contexts() -> HashSet<&'static str> {
 mod tests {
     use super::*;
 
+    // Operator-parity gate (zero exemptions): the runtime evaluator
+    // (`orbital_core::evaluator::get_operator`) must resolve EVERY operator whose
+    // canonical category targets `rust`. Agent ops are stubbed, so they count.
+    // Fails when a canonical rust-target op lands without a Rust impl/registration.
+    #[test]
+    fn rust_evaluator_covers_every_canonical_rust_operator() {
+        let doc: serde_json::Value = serde_json::from_str(OPERATORS_JSON).unwrap();
+        let rust_cats: std::collections::HashSet<String> = doc["categories"]
+            .as_object()
+            .unwrap()
+            .iter()
+            .filter(|(_, m)| {
+                m["target"]
+                    .as_array()
+                    .map(|t| t.iter().any(|x| x.as_str() == Some("rust")))
+                    .unwrap_or(false)
+            })
+            .map(|(c, _)| c.clone())
+            .collect();
+
+        let mut missing = Vec::new();
+        for (name, meta) in doc["operators"].as_object().unwrap() {
+            let cat = meta["category"].as_str().unwrap_or("");
+            if !rust_cats.contains(cat) {
+                continue;
+            }
+            if orbital_core::evaluator::get_operator(name).is_none() {
+                missing.push(format!("{name} ({cat})"));
+            }
+        }
+        missing.sort();
+        assert!(
+            missing.is_empty(),
+            "Rust evaluator missing {} canonical rust-target operators:\n  {}",
+            missing.len(),
+            missing.join("\n  ")
+        );
+    }
+
     #[test]
     fn operators_parse_and_lookup() {
         // Smoke test: a few well-known operators must exist.

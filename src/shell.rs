@@ -525,17 +525,17 @@ pub fn rust_shell(shells_dir: &Path) -> BaseShell {
     )
 }
 
-/// Create a Swift shell configuration
-pub fn swift_shell(shells_dir: &Path) -> BaseShell {
+/// Create an iOS shell configuration
+pub fn ios_shell(shells_dir: &Path) -> BaseShell {
     BaseShell::new(
-        "swift",
-        "Swift with SwiftUI",
+        "ios",
+        "Native iOS application with SwiftUI",
         &["swift"],
-        shells_dir.join("swift-shell"),
+        shells_dir.join("ios-shell"),
         "Sources/OrbitalApp/Generated",
-        "swift build",
-        "swift run",
-        "swift test",
+        "./orb-build.sh",
+        "./orb-build.sh --dev",
+        "xcodebuild test",
     )
 }
 
@@ -570,7 +570,7 @@ pub fn create_default_registry(shells_dir: &Path) -> ShellRegistry {
     registry.register(Box::new(android_shell(shells_dir)));
     registry.register(Box::new(python_shell(shells_dir)));
     registry.register(Box::new(rust_shell(shells_dir)));
-    registry.register(Box::new(swift_shell(shells_dir)));
+    registry.register(Box::new(ios_shell(shells_dir)));
     registry.register(Box::new(mobile_shell(shells_dir)));
     registry
 }
