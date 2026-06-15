@@ -74,15 +74,13 @@ pub fn validate_all_circuits(schema: &OrbitalSchema, ctx: &mut ValidationContext
     }
 }
 
-/// Overlay slots that require exit transitions
-/// Slots whose patterns visually overlay the page (modal dialogs,
-/// drawer panels, full-screen overlays). Every path leaving a state
-/// that mounts one of these slots must explicitly clear it with
-/// `(render-ui <slot> null)` — otherwise the overlay keeps the
-/// previous state's content mounted across the transition (gap #15 in
-/// `docs/Almadar_Std_Verification.md`). L2.8 plan generalised this set
-/// from `[modal, drawer]` to include the generic `overlay` slot too.
-const OVERLAY_SLOTS: &[&str] = &["modal", "drawer", "overlay"];
+/// Overlay slots that require exit transitions. Canonical list lives in
+/// `orbital_core::slots` (shared with the desktop renderer); the validator
+/// requires every path leaving a state that mounts one of these to clear it
+/// with `(render-ui <slot> null)` — otherwise the overlay keeps the previous
+/// state's content mounted across the transition (gap #15 in
+/// `docs/Almadar_Std_Verification.md`).
+use orbital_core::slots::OVERLAY_SLOTS;
 
 /// Events that are valid exit events for overlay slots
 const OVERLAY_EXIT_EVENTS: &[&str] = &["CLOSE", "CANCEL", "DISMISS", "SAVE", "SUBMIT", "CONFIRM"];
