@@ -174,7 +174,14 @@ where
     std::fs::create_dir_all(&generated_dir)?;
 
     for file in &output.files {
-        let file_path = generated_dir.join(&file.path);
+        // Workspace-relative paths (e.g. packages/shared/...) are written
+        // relative to the output root; all other generated paths live under
+        // the shell's generated_dir.
+        let file_path = if file.path.starts_with("packages/") {
+            output_dir.join(&file.path)
+        } else {
+            generated_dir.join(&file.path)
+        };
 
         // Ensure parent directory exists
         if let Some(parent) = file_path.parent() {
