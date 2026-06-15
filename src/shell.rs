@@ -8,7 +8,6 @@
 //! compiler, avoiding circular dependencies when the compiler registers those
 //! shells.
 
-use orbital_shell_mobile::MobileShell;
 use std::path::{Path, PathBuf};
 
 // Re-export core shell types so existing consumers of `orbital_compiler::shell`
@@ -469,11 +468,6 @@ pub fn ios_shell(shells_dir: &Path) -> BaseShell {
     )
 }
 
-/// Create a Mobile shell configuration (React Native)
-pub fn mobile_shell(_shells_dir: &Path) -> MobileShell {
-    MobileShell::new()
-}
-
 /// Create a registry with all default shells
 pub fn create_default_registry(shells_dir: &Path) -> ShellRegistry {
     let mut registry = ShellRegistry::new();
@@ -482,7 +476,6 @@ pub fn create_default_registry(shells_dir: &Path) -> ShellRegistry {
     registry.register(Box::new(python_shell(shells_dir)));
     registry.register(Box::new(rust_shell(shells_dir)));
     registry.register(Box::new(ios_shell(shells_dir)));
-    registry.register(Box::new(mobile_shell(shells_dir)));
     registry
 }
 
