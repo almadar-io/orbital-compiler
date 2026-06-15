@@ -2,75 +2,18 @@
 //!
 //! Each target platform (TypeScript, Android, Python, Rust, Swift) has a shell that
 //! provides the runtime framework. The compiler generates code INTO the shell.
+//!
+//! The `Shell` trait and related error/config types live in `orbital-core` so
+//! shell implementation crates can depend on `orbital-core` instead of the
+//! compiler, avoiding circular dependencies when the compiler registers those
+//! shells.
 
+use orbital_shell_mobile::MobileShell;
 use std::path::{Path, PathBuf};
-use thiserror::Error;
 
-/// Shell error
-#[derive(Debug, Error)]
-pub enum ShellError {
-    #[error("Shell not found: {0}")]
-    NotFound(String),
-
-    #[error("Invalid shell structure at {path}: {message}")]
-    InvalidStructure { path: PathBuf, message: String },
-
-    #[error("IO error: {0}")]
-    Io(#[from] std::io::Error),
-
-    #[error("Template error: {0}")]
-    Template(String),
-}
-
-/// Result type for shell operations
-pub type ShellResult<T> = Result<T, ShellError>;
-
-/// Trait for shell implementations.
-/// Each target platform implements this trait in its own crate.
-pub trait Shell: Send + Sync {
-    /// Shell identifier (e.g., "typescript", "android", "rust")
-    fn name(&self) -> &'static str;
-
-    /// Human-readable description
-    fn description(&self) -> &'static str;
-
-    /// File extensions this shell produces
-    fn extensions(&self) -> &[&'static str];
-
-    /// Path to the shell template directory
-    fn template_path(&self) -> &Path;
-
-    /// Initialize a new project from this shell
-    fn init_project(&self, target_dir: &Path, project_name: &str) -> ShellResult<()>;
-
-    /// Copy shell template to output directory
-    fn copy_template(&self, output_dir: &Path) -> ShellResult<()>;
-
-    /// Get the generated code output directory within the shell
-    fn generated_dir(&self) -> &str;
-
-    /// Validate that the output directory has a valid shell structure
-    fn validate_structure(&self, output_dir: &Path) -> ShellResult<()>;
-
-    /// Run build command for this shell (e.g., "npm run build", "cargo build")
-    fn build_command(&self) -> &str;
-
-    /// Run dev command for this shell
-    fn dev_command(&self) -> &str;
-
-    /// Run test command for this shell
-    fn test_command(&self) -> &str;
-
-    /// Clean generated files
-    fn clean_generated(&self, output_dir: &Path) -> ShellResult<()> {
-        let gen_dir = output_dir.join(self.generated_dir());
-        if gen_dir.exists() {
-            std::fs::remove_dir_all(&gen_dir)?;
-        }
-        std::fs::create_dir_all(&gen_dir)?;
-        Ok(())
-    }
-}
+// Re-export core shell types so existing consumers of `orbital_compiler::shell`
+// continue to compile without changes.
+pub use orbital_core::shell::{Shell, ShellConfig, ShellError, ShellResult};
 
 /// Registry of all available shells
 pub struct ShellRegistry {
@@ -111,19 +54,6 @@ impl Default for ShellRegistry {
     fn default() -> Self {
         Self::new()
     }
-}
-
-/// Shell configuration
-#[derive(Debug, Clone)]
-pub struct ShellConfig {
-    /// Shell name
-    pub name: String,
-    /// Path to shell template
-    pub template_path: PathBuf,
-    /// Output directory for generated code
-    pub output_dir: PathBuf,
-    /// Project name
-    pub project_name: String,
 }
 
 /// Base shell implementation that can be used by specific shells
@@ -540,27 +470,8 @@ pub fn ios_shell(shells_dir: &Path) -> BaseShell {
 }
 
 /// Create a Mobile shell configuration (React Native)
-pub fn mobile_shell(shells_dir: &Path) -> BaseShell {
-    // Support both development (packages/almadar-mobile-shell) and production paths
-    let template_path = {
-        let packages_path = PathBuf::from("packages/almadar-mobile-shell");
-        if packages_path.exists() {
-            packages_path
-        } else {
-            shells_dir.join("mobile-shell")
-        }
-    };
-
-    BaseShell::new(
-        "mobile",
-        "React Native mobile application",
-        &["ts", "tsx"],
-        template_path,
-        "packages/mobile/src/generated",
-        "npm run build",
-        "npm run dev",
-        "npm test",
-    )
+pub fn mobile_shell(_shells_dir: &Path) -> MobileShell {
+    MobileShell::new()
 }
 
 /// Create a registry with all default shells

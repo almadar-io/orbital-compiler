@@ -5,11 +5,15 @@
 //! This module provides the high-level API for generating code from Orbital schemas.
 
 use crate::phases::{compile_file, parse_file, resolve_schema_with_path, CompilerOptions};
-use crate::shell::{Shell, ShellError};
 use orbital_core::ir::OirModule;
+use orbital_core::shell::{Shell, ShellError};
 use std::collections::HashMap;
 use std::path::Path;
 use thiserror::Error;
+
+// Re-export core generation types so existing consumers of
+// `orbital_compiler::generate` continue to compile without changes.
+pub use orbital_core::generate::{Backend, GeneratedFile, GeneratedOutput, ShellMode};
 
 /// Generation error
 #[derive(Debug, Error)]
@@ -29,63 +33,6 @@ pub enum GenerateError {
 
 /// Result type for generation operations
 pub type GenerateResult<T> = Result<T, GenerateError>;
-
-/// A generated file
-#[derive(Debug, Clone)]
-pub struct GeneratedFile {
-    /// Relative path within the generated directory
-    pub path: String,
-    /// File content
-    pub content: String,
-}
-
-impl GeneratedFile {
-    pub fn new(path: impl Into<String>, content: impl Into<String>) -> Self {
-        Self {
-            path: path.into(),
-            content: content.into(),
-        }
-    }
-}
-
-/// Output from code generation
-#[derive(Debug, Default)]
-pub struct GeneratedOutput {
-    /// Generated files
-    pub files: Vec<GeneratedFile>,
-    /// Warnings during generation
-    pub warnings: Vec<String>,
-}
-
-/// Shell mode for mixed-language compilation
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
-pub enum ShellMode {
-    /// Generate everything (default)
-    #[default]
-    Full,
-    /// Client-only: pages, components, client effects
-    Client,
-    /// Server-only: routes, handlers, server effects
-    Server,
-}
-
-/// Backend trait for code generation
-///
-/// Each shell (TypeScript, Android, etc.) implements this trait to generate
-/// code from OIR.
-pub trait Backend: Send + Sync {
-    /// Generate code from an OIR module
-    fn generate(&self, module: &OirModule) -> GeneratedOutput;
-
-    /// Generate code with mode awareness
-    fn generate_with_mode(&self, module: &OirModule, _mode: ShellMode) -> GeneratedOutput {
-        // Default implementation ignores mode and generates everything
-        self.generate(module)
-    }
-
-    /// Backend name (e.g., "typescript", "android")
-    fn name(&self) -> &'static str;
-}
 
 /// Generation options
 #[derive(Debug, Clone, Default)]
