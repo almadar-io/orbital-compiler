@@ -239,8 +239,16 @@ pub(super) fn validate_pattern(
                             *t == actual_type
                                 || *t == "node"  // ReactNode accepts any rendered value
                                 || *t == "function" // functions can't appear in .orb
-                                || *t == "icon" // icon names are strings
-                                    && actual_type == "string"
+                                || (*t == "icon" // icon names are strings
+                                    && actual_type == "string")
+                                // A `date`/`datetime`/`timestamp` prop accepts an ISO
+                                // string or an epoch number — consistent with
+                                // `orbital_core::type_compat` (date_family accepts
+                                // string|number). A literal date default lowers to a
+                                // string/number, so rejecting it here would contradict
+                                // the type system (a config knob couldn't carry a date).
+                                || (matches!(*t, "date" | "datetime" | "timestamp")
+                                    && matches!(actual_type, "string" | "number"))
                         });
                         if !type_matches {
                             result.add_error(
