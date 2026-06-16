@@ -241,6 +241,8 @@ pub(super) fn validate_pattern(
                                 || *t == "function" // functions can't appear in .orb
                                 || (*t == "icon" // icon names are strings
                                     && actual_type == "string")
+                                || (*t == "asset" // AssetUrl is a string brand (a URL)
+                                    && actual_type == "string")
                                 // A `date`/`datetime`/`timestamp` prop accepts an ISO
                                 // string or an epoch number — consistent with
                                 // `orbital_core::type_compat` (date_family accepts
