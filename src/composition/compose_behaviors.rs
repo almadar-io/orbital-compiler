@@ -104,42 +104,6 @@ pub struct ComposeBehaviorsResult {
 // Page Generation
 // ============================================================================
 
-/// Convert a name to kebab-case.
-///
-/// Mirrors the TS implementation:
-/// ```text
-/// name.replace(/([a-z])([A-Z])/g, '$1-$2').replace(/[\s_]+/g, '-').toLowerCase();
-/// ```
-fn to_kebab_case(name: &str) -> String {
-    // Step 1: Insert '-' between a lowercase letter and an uppercase letter.
-    let mut step1 = String::with_capacity(name.len() + 4);
-    let chars: Vec<char> = name.chars().collect();
-    for (i, ch) in chars.iter().enumerate() {
-        if i > 0 && chars[i - 1].is_ascii_lowercase() && ch.is_ascii_uppercase() {
-            step1.push('-');
-        }
-        step1.push(*ch);
-    }
-
-    // Step 2: Replace runs of whitespace or underscores with a single '-'.
-    let mut step2 = String::with_capacity(step1.len());
-    let mut in_run = false;
-    for ch in step1.chars() {
-        if ch == '_' || ch.is_whitespace() {
-            if !in_run {
-                step2.push('-');
-                in_run = true;
-            }
-        } else {
-            step2.push(ch);
-            in_run = false;
-        }
-    }
-
-    // Step 3: Lowercase.
-    step2.to_lowercase()
-}
-
 /// Extract entity name from an orbital JSON value. Handles both inline
 /// entities (object with `name`) and string references (e.g. `"Alias.entity"`).
 /// Returns `None` if the entity is missing or has no usable name.
@@ -236,7 +200,7 @@ fn generate_pages(orbitals: &[Value], strategy: LayoutStrategy) -> Vec<Value> {
                     if index == 0 {
                         "/".to_string()
                     } else {
-                        format!("/{}", to_kebab_case(&orbital_name))
+                        format!("/{}", orbital_core::str_utils::to_kebab_case(&orbital_name))
                     },
                     index == 0,
                     primary_entity,

@@ -392,7 +392,7 @@ mod tests {{
             name_lower = to_snake_case(&trait_def.name),
             initial_state = trait_def
                 .initial_state()
-                .map(|s| to_pascal_case(&s.name))
+                .map(|s| orbital_core::str_utils::split_to_pascal_case(&s.name))
                 .unwrap_or_else(|| "Unknown".to_string()),
             transition_tests = trait_def
                 .transitions
@@ -710,20 +710,6 @@ class TestIntegration:
 }
 
 // Helper functions
-
-// NOTE: distinct from `orbital_core::str_utils::to_pascal_case` — this
-// variant splits on `_` only and preserves the case of the trailing chars.
-fn to_pascal_case(s: &str) -> String {
-    s.split('_')
-        .map(|word| {
-            let mut chars = word.chars();
-            match chars.next() {
-                None => String::new(),
-                Some(first) => first.to_uppercase().collect::<String>() + chars.as_str(),
-            }
-        })
-        .collect()
-}
 
 fn default_value_for_type(ty: &orbital_core::ir::OirType) -> &'static str {
     use orbital_core::ir::OirType;

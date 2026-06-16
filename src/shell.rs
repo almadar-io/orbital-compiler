@@ -274,10 +274,10 @@ fn build_replacements(project_name: &str) -> std::collections::HashMap<&'static 
 
     // App naming
     map.insert("{{APP_NAME}}", project_name.to_string());
-    map.insert("{{APP_TITLE}}", to_title_case(project_name));
+    map.insert("{{APP_TITLE}}", orbital_core::str_utils::to_title_case(project_name));
 
     // Firebase/hosting (use kebab-case for URLs)
-    let kebab_name = to_kebab_case_simple(project_name);
+    let kebab_name = orbital_core::str_utils::to_kebab_case_simple(project_name);
     map.insert("{{SITE_NAME}}", kebab_name.clone());
     map.insert("{{BACKEND_NAME}}", format!("{}-backend", kebab_name));
     map.insert("{{FIREBASE_PROJECT_ID}}", format!("{}-project", kebab_name));
@@ -298,46 +298,6 @@ fn replace_placeholders(
     for (placeholder, value) in replacements {
         result = result.replace(placeholder, value);
     }
-    result
-}
-
-/// Convert to title case (e.g., "my-app" -> "My App")
-fn to_title_case(s: &str) -> String {
-    s.split(['-', '_'])
-        .map(|word| {
-            let mut chars = word.chars();
-            match chars.next() {
-                None => String::new(),
-                Some(first) => first.to_uppercase().chain(chars).collect(),
-            }
-        })
-        .collect::<Vec<_>>()
-        .join(" ")
-}
-
-/// Simple kebab-case conversion
-fn to_kebab_case_simple(s: &str) -> String {
-    let mut result = String::new();
-    let mut last_was_hyphen = true; // Start true to avoid leading hyphen
-
-    for c in s.chars() {
-        if c.is_uppercase() {
-            if !last_was_hyphen {
-                result.push('-');
-            }
-            result.push(c.to_ascii_lowercase());
-            last_was_hyphen = false;
-        } else if c == '_' || c == ' ' || c == '-' {
-            if !last_was_hyphen {
-                result.push('-');
-                last_was_hyphen = true;
-            }
-        } else {
-            result.push(c);
-            last_was_hyphen = false;
-        }
-    }
-
     result
 }
 
