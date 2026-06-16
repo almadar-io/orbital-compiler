@@ -23,7 +23,6 @@ pub mod inline;
 pub mod parse;
 pub mod resolve;
 pub mod sexpr_json;
-pub mod synthetic;
 pub mod validate;
 pub mod validation;
 
@@ -195,13 +194,7 @@ fn compile_schema_with_path(
     if options.verbose {
         eprintln!("  Phase 5: Resolving...");
     }
-    let mut oir = resolve_to_oir(&schema)?;
-
-    // Phase 5b: Inject synthetic DATA_CHANGED listeners
-    if options.verbose {
-        eprintln!("  Phase 5b: Synthetic listeners...");
-    }
-    synthetic::inject_synthetic_listeners(&mut oir);
+    let oir = resolve_to_oir(&schema)?;
 
     if options.verbose {
         eprintln!("  Compilation complete!");
