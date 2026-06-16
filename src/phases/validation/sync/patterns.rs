@@ -36,7 +36,6 @@ pub static PATTERN_TYPES: LazyLock<HashSet<&'static str>> = LazyLock::new(|| {
         "content-section",
         "date-range-picker",
         "day-cell",
-        "doc-code-block",
         "doc-toc",
         "edge-decoration",
         "file-tree",
@@ -124,7 +123,6 @@ pub static PATTERN_TYPES: LazyLock<HashSet<&'static str>> = LazyLock::new(|| {
         "case-study-card",
         "case-study-organism",
         "chart-legend",
-        "code-viewer",
         "content-renderer",
         "data-grid",
         "data-list",
@@ -193,7 +191,6 @@ pub static PATTERN_TYPES: LazyLock<HashSet<&'static str>> = LazyLock::new(|| {
         "castle-template",
         "choice-button",
         "classifier-board",
-        "code-view",
         "combat-log",
         "combo-counter",
         "control-button",
@@ -373,7 +370,6 @@ pub static PATTERN_TO_CATEGORY: LazyLock<HashMap<&'static str, &'static str>> =
             ("content-section", "component"),
             ("date-range-picker", "component"),
             ("day-cell", "component"),
-            ("doc-code-block", "component"),
             ("doc-toc", "component"),
             ("edge-decoration", "component"),
             ("file-tree", "component"),
@@ -461,7 +457,6 @@ pub static PATTERN_TO_CATEGORY: LazyLock<HashMap<&'static str, &'static str>> =
             ("case-study-card", "display"),
             ("case-study-organism", "display"),
             ("chart-legend", "display"),
-            ("code-viewer", "display"),
             ("content-renderer", "display"),
             ("data-grid", "display"),
             ("data-list", "display"),
@@ -530,7 +525,6 @@ pub static PATTERN_TO_CATEGORY: LazyLock<HashMap<&'static str, &'static str>> =
             ("castle-template", "game"),
             ("choice-button", "game"),
             ("classifier-board", "game"),
-            ("code-view", "game"),
             ("combat-log", "game"),
             ("combo-counter", "game"),
             ("control-button", "game"),
@@ -698,8 +692,6 @@ pub static PATTERN_REQUIRED_PROPS: LazyLock<HashMap<&'static str, Vec<&'static s
             ("center", vec!["children"]),
             ("chart-legend", vec!["items"]),
             ("choice-button", vec!["text"]),
-            ("code-block", vec!["code"]),
-            ("code-view", vec!["data"]),
             ("combat-log", vec!["events"]),
             ("combo-counter", vec!["combo"]),
             ("conditional-wrapper", vec!["context", "children"]),
@@ -717,7 +709,6 @@ pub static PATTERN_REQUIRED_PROPS: LazyLock<HashMap<&'static str, Vec<&'static s
             ("dialogue-box", vec!["dialogue"]),
             ("dialogue-bubble", vec!["text"]),
             ("doc-breadcrumb", vec!["items"]),
-            ("doc-code-block", vec!["code"]),
             ("doc-sidebar", vec!["items"]),
             ("doc-toc", vec!["items"]),
             ("enemy-plate", vec!["name", "health", "maxHealth"]),
@@ -818,18 +809,6 @@ pub static PATTERN_REQUIRED_PROPS: LazyLock<HashMap<&'static str, Vec<&'static s
             ("stats-grid", vec!["stats"]),
             ("status-effect", vec!["icon"]),
             ("step-flow", vec!["steps"]),
-            ("svg-branch", vec!["x", "y"]),
-            ("svg-connection", vec!["x1", "y1", "x2", "y2"]),
-            ("svg-flow", vec!["points"]),
-            ("svg-grid", vec!["x", "y"]),
-            ("svg-lobe", vec!["cx", "cy"]),
-            ("svg-mesh", vec!["cx", "cy"]),
-            ("svg-morph", vec!["x", "y"]),
-            ("svg-node", vec!["x", "y"]),
-            ("svg-pulse", vec!["cx", "cy"]),
-            ("svg-ring", vec!["cx", "cy"]),
-            ("svg-shield", vec!["x", "y"]),
-            ("svg-stack", vec!["x", "y"]),
             ("swipeable-row", vec!["children"]),
             ("tabbed-container", vec!["tabs"]),
             ("table-view", vec!["entity"]),
@@ -1376,38 +1355,25 @@ pub static PATTERN_PROPS_SCHEMA: LazyLock<HashMap<&'static str, HashSet<&'static
             (
                 "code-block",
                 [
-                    "className",
-                    "code",
-                    "editable",
-                    "errorLines",
-                    "foldable",
-                    "language",
-                    "maxHeight",
-                    "onChange",
-                    "showCopyButton",
-                    "showLanguageBadge",
-                ]
-                .into_iter()
-                .collect(),
-            ),
-            ("code-view", ["className", "data", "defaultExpanded", "label"].into_iter().collect()),
-            (
-                "code-viewer",
-                [
                     "actions",
                     "className",
                     "code",
                     "diff",
-                    "entity",
+                    "editable",
                     "error",
+                    "errorLines",
                     "files",
+                    "foldable",
                     "isLoading",
                     "language",
                     "maxHeight",
                     "mode",
                     "newValue",
                     "oldValue",
+                    "onChange",
                     "showCopy",
+                    "showCopyButton",
+                    "showLanguageBadge",
                     "showLineNumbers",
                     "title",
                     "wordWrap",
@@ -1748,7 +1714,6 @@ pub static PATTERN_PROPS_SCHEMA: LazyLock<HashMap<&'static str, HashSet<&'static
             ("dialogue-bubble", ["className", "portrait", "position", "speaker", "text"].into_iter().collect()),
             ("divider", ["className", "label", "orientation", "variant"].into_iter().collect()),
             ("doc-breadcrumb", ["className", "items"].into_iter().collect()),
-            ("doc-code-block", ["className", "code", "language", "showLineNumbers", "title"].into_iter().collect()),
             ("doc-pagination", ["className", "next", "prev"].into_iter().collect()),
             ("doc-search", ["className", "onSearch", "placeholder"].into_iter().collect()),
             ("doc-sidebar", ["className", "items"].into_iter().collect()),
@@ -3676,15 +3641,35 @@ pub static PATTERN_PROPS_SCHEMA: LazyLock<HashMap<&'static str, HashSet<&'static
                 .into_iter()
                 .collect(),
             ),
-            ("svg-branch", ["branches", "className", "color", "opacity", "size", "variant", "x", "y"].into_iter().collect()),
+            (
+                "svg-branch",
+                [
+                    "asRoot",
+                    "branches",
+                    "className",
+                    "color",
+                    "height",
+                    "opacity",
+                    "size",
+                    "variant",
+                    "width",
+                    "x",
+                    "y",
+                ]
+                .into_iter()
+                .collect(),
+            ),
             (
                 "svg-connection",
                 [
+                    "asRoot",
                     "className",
                     "color",
+                    "height",
                     "opacity",
                     "strokeWidth",
                     "variant",
+                    "width",
                     "x1",
                     "x2",
                     "y1",
@@ -3693,69 +3678,180 @@ pub static PATTERN_PROPS_SCHEMA: LazyLock<HashMap<&'static str, HashSet<&'static
                 .into_iter()
                 .collect(),
             ),
-            ("svg-flow", ["animated", "className", "color", "opacity", "points", "strokeWidth"].into_iter().collect()),
+            (
+                "svg-flow",
+                [
+                    "animated",
+                    "asRoot",
+                    "className",
+                    "color",
+                    "height",
+                    "opacity",
+                    "points",
+                    "strokeWidth",
+                    "width",
+                ]
+                .into_iter()
+                .collect(),
+            ),
             (
                 "svg-grid",
                 [
+                    "asRoot",
                     "className",
                     "color",
                     "cols",
+                    "height",
                     "highlights",
                     "nodeRadius",
                     "opacity",
                     "rows",
                     "spacing",
+                    "width",
                     "x",
                     "y",
                 ]
                 .into_iter()
                 .collect(),
             ),
-            ("svg-lobe", ["className", "color", "cx", "cy", "opacity", "rotation", "rx", "ry", "shells"].into_iter().collect()),
+            (
+                "svg-lobe",
+                [
+                    "asRoot",
+                    "className",
+                    "color",
+                    "cx",
+                    "cy",
+                    "height",
+                    "opacity",
+                    "rotation",
+                    "rx",
+                    "ry",
+                    "shells",
+                    "width",
+                ]
+                .into_iter()
+                .collect(),
+            ),
             (
                 "svg-mesh",
                 [
+                    "asRoot",
                     "className",
                     "color",
                     "connectionDensity",
                     "cx",
                     "cy",
+                    "height",
                     "nodes",
                     "opacity",
                     "radius",
+                    "width",
                 ]
                 .into_iter()
                 .collect(),
             ),
-            ("svg-morph", ["className", "color", "opacity", "size", "variant", "x", "y"].into_iter().collect()),
-            ("svg-node", ["className", "color", "label", "opacity", "r", "variant", "x", "y"].into_iter().collect()),
-            ("svg-pulse", ["animated", "className", "color", "cx", "cy", "maxRadius", "opacity", "rings"].into_iter().collect()),
             (
-                "svg-ring",
+                "svg-morph",
                 [
+                    "asRoot",
+                    "className",
+                    "color",
+                    "height",
+                    "opacity",
+                    "size",
+                    "variant",
+                    "width",
+                    "x",
+                    "y",
+                ]
+                .into_iter()
+                .collect(),
+            ),
+            (
+                "svg-node",
+                [
+                    "asRoot",
+                    "className",
+                    "color",
+                    "height",
+                    "label",
+                    "opacity",
+                    "r",
+                    "variant",
+                    "width",
+                    "x",
+                    "y",
+                ]
+                .into_iter()
+                .collect(),
+            ),
+            (
+                "svg-pulse",
+                [
+                    "animated",
+                    "asRoot",
                     "className",
                     "color",
                     "cx",
                     "cy",
+                    "height",
+                    "maxRadius",
+                    "opacity",
+                    "rings",
+                    "width",
+                ]
+                .into_iter()
+                .collect(),
+            ),
+            (
+                "svg-ring",
+                [
+                    "asRoot",
+                    "className",
+                    "color",
+                    "cx",
+                    "cy",
+                    "height",
                     "label",
                     "opacity",
                     "r",
                     "strokeWidth",
                     "variant",
+                    "width",
                 ]
                 .into_iter()
                 .collect(),
             ),
-            ("svg-shield", ["className", "color", "opacity", "size", "variant", "x", "y"].into_iter().collect()),
+            (
+                "svg-shield",
+                [
+                    "asRoot",
+                    "className",
+                    "color",
+                    "height",
+                    "opacity",
+                    "size",
+                    "variant",
+                    "width",
+                    "x",
+                    "y",
+                ]
+                .into_iter()
+                .collect(),
+            ),
             (
                 "svg-stack",
                 [
+                    "asRoot",
                     "className",
                     "color",
                     "height",
                     "labels",
                     "layers",
                     "opacity",
+                    "svgHeight",
+                    "svgWidth",
                     "width",
                     "x",
                     "y",
@@ -4865,48 +4961,27 @@ pub static PATTERN_PROP_TYPES: LazyLock<HashMap<&'static str, HashMap<&'static s
                 "code-block",
                 [
                     ("code", &["string"] as &[&str]),
+                    ("language", &["string"] as &[&str]),
                     ("showCopyButton", &["boolean"] as &[&str]),
                     ("showLanguageBadge", &["boolean"] as &[&str]),
-                    ("maxHeight", &["string"] as &[&str]),
+                    ("maxHeight", &["string", "number"] as &[&str]),
                     ("foldable", &["boolean"] as &[&str]),
                     ("className", &["string"] as &[&str]),
                     ("editable", &["boolean"] as &[&str]),
                     ("onChange", &["function"] as &[&str]),
                     ("errorLines", &["object"] as &[&str]),
-                ]
-                .into_iter()
-                .collect(),
-            ),
-            (
-                "code-view",
-                [
-                    ("data", &["object"] as &[&str]),
-                    ("label", &["string"] as &[&str]),
-                    ("defaultExpanded", &["boolean"] as &[&str]),
-                    ("className", &["string"] as &[&str]),
-                ]
-                .into_iter()
-                .collect(),
-            ),
-            (
-                "code-viewer",
-                [
                     ("title", &["string"] as &[&str]),
-                    ("code", &["string"] as &[&str]),
+                    ("mode", &["string"] as &[&str]),
                     ("diff", &["array"] as &[&str]),
                     ("oldValue", &["string"] as &[&str]),
                     ("newValue", &["string"] as &[&str]),
-                    ("mode", &["string"] as &[&str]),
                     ("showLineNumbers", &["boolean"] as &[&str]),
-                    ("showCopy", &["boolean"] as &[&str]),
                     ("wordWrap", &["boolean"] as &[&str]),
-                    ("maxHeight", &["number", "string"] as &[&str]),
                     ("files", &["array"] as &[&str]),
                     ("actions", &["array"] as &[&str]),
-                    ("entity", &["string"] as &[&str]),
                     ("isLoading", &["boolean"] as &[&str]),
                     ("error", &["object"] as &[&str]),
-                    ("className", &["string"] as &[&str]),
+                    ("showCopy", &["boolean"] as &[&str]),
                 ]
                 .into_iter()
                 .collect(),
@@ -5387,17 +5462,6 @@ pub static PATTERN_PROP_TYPES: LazyLock<HashMap<&'static str, HashMap<&'static s
                 .collect(),
             ),
             ("doc-breadcrumb", [("items", &["array"] as &[&str]), ("className", &["string"] as &[&str])].into_iter().collect()),
-            (
-                "doc-code-block",
-                [
-                    ("code", &["string"] as &[&str]),
-                    ("title", &["string"] as &[&str]),
-                    ("showLineNumbers", &["boolean"] as &[&str]),
-                    ("className", &["string"] as &[&str]),
-                ]
-                .into_iter()
-                .collect(),
-            ),
             (
                 "doc-pagination",
                 [
@@ -7922,7 +7986,7 @@ pub static PATTERN_PROP_TYPES: LazyLock<HashMap<&'static str, HashMap<&'static s
             (
                 "status-effect",
                 [
-                    ("icon", &["node"] as &[&str]),
+                    ("icon", &["string"] as &[&str]),
                     ("label", &["string"] as &[&str]),
                     ("duration", &["number"] as &[&str]),
                     ("stacks", &["number"] as &[&str]),
@@ -7978,6 +8042,9 @@ pub static PATTERN_PROP_TYPES: LazyLock<HashMap<&'static str, HashMap<&'static s
                     ("color", &["string"] as &[&str]),
                     ("opacity", &["number"] as &[&str]),
                     ("className", &["string"] as &[&str]),
+                    ("asRoot", &["boolean"] as &[&str]),
+                    ("width", &["number"] as &[&str]),
+                    ("height", &["number"] as &[&str]),
                 ]
                 .into_iter()
                 .collect(),
@@ -7994,6 +8061,9 @@ pub static PATTERN_PROP_TYPES: LazyLock<HashMap<&'static str, HashMap<&'static s
                     ("strokeWidth", &["number"] as &[&str]),
                     ("opacity", &["number"] as &[&str]),
                     ("className", &["string"] as &[&str]),
+                    ("asRoot", &["boolean"] as &[&str]),
+                    ("width", &["number"] as &[&str]),
+                    ("height", &["number"] as &[&str]),
                 ]
                 .into_iter()
                 .collect(),
@@ -8007,6 +8077,9 @@ pub static PATTERN_PROP_TYPES: LazyLock<HashMap<&'static str, HashMap<&'static s
                     ("animated", &["boolean"] as &[&str]),
                     ("opacity", &["number"] as &[&str]),
                     ("className", &["string"] as &[&str]),
+                    ("asRoot", &["boolean"] as &[&str]),
+                    ("width", &["number"] as &[&str]),
+                    ("height", &["number"] as &[&str]),
                 ]
                 .into_iter()
                 .collect(),
@@ -8024,6 +8097,9 @@ pub static PATTERN_PROP_TYPES: LazyLock<HashMap<&'static str, HashMap<&'static s
                     ("opacity", &["number"] as &[&str]),
                     ("className", &["string"] as &[&str]),
                     ("highlights", &["array"] as &[&str]),
+                    ("asRoot", &["boolean"] as &[&str]),
+                    ("width", &["number"] as &[&str]),
+                    ("height", &["number"] as &[&str]),
                 ]
                 .into_iter()
                 .collect(),
@@ -8040,6 +8116,9 @@ pub static PATTERN_PROP_TYPES: LazyLock<HashMap<&'static str, HashMap<&'static s
                     ("color", &["string"] as &[&str]),
                     ("opacity", &["number"] as &[&str]),
                     ("className", &["string"] as &[&str]),
+                    ("asRoot", &["boolean"] as &[&str]),
+                    ("width", &["number"] as &[&str]),
+                    ("height", &["number"] as &[&str]),
                 ]
                 .into_iter()
                 .collect(),
@@ -8055,6 +8134,9 @@ pub static PATTERN_PROP_TYPES: LazyLock<HashMap<&'static str, HashMap<&'static s
                     ("connectionDensity", &["number"] as &[&str]),
                     ("opacity", &["number"] as &[&str]),
                     ("className", &["string"] as &[&str]),
+                    ("asRoot", &["boolean"] as &[&str]),
+                    ("width", &["number"] as &[&str]),
+                    ("height", &["number"] as &[&str]),
                 ]
                 .into_iter()
                 .collect(),
@@ -8069,6 +8151,9 @@ pub static PATTERN_PROP_TYPES: LazyLock<HashMap<&'static str, HashMap<&'static s
                     ("color", &["string"] as &[&str]),
                     ("opacity", &["number"] as &[&str]),
                     ("className", &["string"] as &[&str]),
+                    ("asRoot", &["boolean"] as &[&str]),
+                    ("width", &["number"] as &[&str]),
+                    ("height", &["number"] as &[&str]),
                 ]
                 .into_iter()
                 .collect(),
@@ -8084,6 +8169,9 @@ pub static PATTERN_PROP_TYPES: LazyLock<HashMap<&'static str, HashMap<&'static s
                     ("opacity", &["number"] as &[&str]),
                     ("className", &["string"] as &[&str]),
                     ("label", &["string"] as &[&str]),
+                    ("asRoot", &["boolean"] as &[&str]),
+                    ("width", &["number"] as &[&str]),
+                    ("height", &["number"] as &[&str]),
                 ]
                 .into_iter()
                 .collect(),
@@ -8099,6 +8187,9 @@ pub static PATTERN_PROP_TYPES: LazyLock<HashMap<&'static str, HashMap<&'static s
                     ("animated", &["boolean"] as &[&str]),
                     ("opacity", &["number"] as &[&str]),
                     ("className", &["string"] as &[&str]),
+                    ("asRoot", &["boolean"] as &[&str]),
+                    ("width", &["number"] as &[&str]),
+                    ("height", &["number"] as &[&str]),
                 ]
                 .into_iter()
                 .collect(),
@@ -8115,6 +8206,9 @@ pub static PATTERN_PROP_TYPES: LazyLock<HashMap<&'static str, HashMap<&'static s
                     ("opacity", &["number"] as &[&str]),
                     ("className", &["string"] as &[&str]),
                     ("label", &["string"] as &[&str]),
+                    ("asRoot", &["boolean"] as &[&str]),
+                    ("width", &["number"] as &[&str]),
+                    ("height", &["number"] as &[&str]),
                 ]
                 .into_iter()
                 .collect(),
@@ -8129,6 +8223,9 @@ pub static PATTERN_PROP_TYPES: LazyLock<HashMap<&'static str, HashMap<&'static s
                     ("color", &["string"] as &[&str]),
                     ("opacity", &["number"] as &[&str]),
                     ("className", &["string"] as &[&str]),
+                    ("asRoot", &["boolean"] as &[&str]),
+                    ("width", &["number"] as &[&str]),
+                    ("height", &["number"] as &[&str]),
                 ]
                 .into_iter()
                 .collect(),
@@ -8145,6 +8242,9 @@ pub static PATTERN_PROP_TYPES: LazyLock<HashMap<&'static str, HashMap<&'static s
                     ("opacity", &["number"] as &[&str]),
                     ("className", &["string"] as &[&str]),
                     ("labels", &["array"] as &[&str]),
+                    ("asRoot", &["boolean"] as &[&str]),
+                    ("svgWidth", &["number"] as &[&str]),
+                    ("svgHeight", &["number"] as &[&str]),
                 ]
                 .into_iter()
                 .collect(),
@@ -8905,7 +9005,15 @@ pub static PATTERN_PROP_ENUM_VALUES: LazyLock<HashMap<&'static str, HashMap<&'st
             ),
             ("chart-legend", [("direction", &["horizontal", "vertical"] as &[&str])].into_iter().collect()),
             ("classifier-board", [("sortDirection", &["asc", "desc"] as &[&str])].into_iter().collect()),
-            ("code-viewer", [("mode", &["code", "diff"] as &[&str])].into_iter().collect()),
+            (
+                "code-block",
+                [
+                    ("language", &["text", "json", "javascript", "js", "typescript", "ts", "jsx", "tsx", "css", "markdown", "md", "bash", "shell", "sh", "yaml", "yml", "rust", "python", "py", "sql", "diff", "toml", "go", "graphql", "html", "xml", "orb", "lolo"] as &[&str]),
+                    ("mode", &["code", "diff"] as &[&str]),
+                ]
+                .into_iter()
+                .collect(),
+            ),
             ("combo-counter", [("size", &["sm", "md", "lg"] as &[&str])].into_iter().collect()),
             (
                 "confirm-dialog",
@@ -9008,6 +9116,7 @@ pub static PATTERN_PROP_ENUM_VALUES: LazyLock<HashMap<&'static str, HashMap<&'st
                 [
                     ("variant", &["arch", "vine", "lattice"] as &[&str]),
                     ("side", &["left", "right", "both"] as &[&str]),
+                    ("color", &["primary", "secondary", "success", "warning", "error", "muted"] as &[&str]),
                 ]
                 .into_iter()
                 .collect(),
@@ -9135,6 +9244,7 @@ pub static PATTERN_PROP_ENUM_VALUES: LazyLock<HashMap<&'static str, HashMap<&'st
                 .into_iter()
                 .collect(),
             ),
+            ("gradient-divider", [("color", &["primary", "secondary", "success", "warning", "error", "muted"] as &[&str])].into_iter().collect()),
             ("graph-canvas", [("layout", &["force", "circular", "grid"] as &[&str])].into_iter().collect()),
             (
                 "grid",
@@ -9177,6 +9287,7 @@ pub static PATTERN_PROP_ENUM_VALUES: LazyLock<HashMap<&'static str, HashMap<&'st
                 "icon",
                 [
                     ("size", &["xs", "sm", "md", "lg", "xl"] as &[&str]),
+                    ("color", &["primary", "secondary", "success", "warning", "error", "muted"] as &[&str]),
                     ("animation", &["spin", "pulse", "none"] as &[&str]),
                 ]
                 .into_iter()
@@ -9204,7 +9315,7 @@ pub static PATTERN_PROP_ENUM_VALUES: LazyLock<HashMap<&'static str, HashMap<&'st
             ("landing-page-template", [("variant", &["product", "service", "platform"] as &[&str])].into_iter().collect()),
             ("law-reference-tooltip", [("position", &["top", "bottom", "left", "right"] as &[&str])].into_iter().collect()),
             ("likert-scale", [("size", &["sm", "md", "lg"] as &[&str]), ("variant", &["radios", "buttons"] as &[&str])].into_iter().collect()),
-            ("markdown-content", [("direction", &["rtl", "ltr"] as &[&str])].into_iter().collect()),
+            ("markdown-content", [("direction", &["ltr", "rtl"] as &[&str])].into_iter().collect()),
             ("master-detail", [("sortDirection", &["asc", "desc"] as &[&str])].into_iter().collect()),
             ("matrix-question", [("size", &["sm", "md"] as &[&str])].into_iter().collect()),
             (
@@ -9271,8 +9382,8 @@ pub static PATTERN_PROP_ENUM_VALUES: LazyLock<HashMap<&'static str, HashMap<&'st
                 "progress-bar",
                 [
                     ("progressType", &["linear", "circular", "stepped"] as &[&str]),
-                    ("variant", &["default", "primary", "success", "warning", "danger"] as &[&str]),
-                    ("color", &["default", "primary", "success", "warning", "danger"] as &[&str]),
+                    ("variant", &["default", "primary", "success", "warning", "error", "danger"] as &[&str]),
+                    ("color", &["default", "primary", "success", "warning", "error", "danger"] as &[&str]),
                     ("size", &["sm", "md", "lg"] as &[&str]),
                 ]
                 .into_iter()
@@ -9283,7 +9394,15 @@ pub static PATTERN_PROP_ENUM_VALUES: LazyLock<HashMap<&'static str, HashMap<&'st
             ("radio", [("size", &["sm", "md", "lg"] as &[&str])].into_iter().collect()),
             ("range-slider", [("size", &["sm", "md", "lg"] as &[&str])].into_iter().collect()),
             ("resource-bar", [("size", &["sm", "md", "lg"] as &[&str])].into_iter().collect()),
-            ("resource-counter", [("size", &["sm", "md", "lg"] as &[&str])].into_iter().collect()),
+            (
+                "resource-counter",
+                [
+                    ("color", &["primary", "secondary", "success", "warning", "error", "muted"] as &[&str]),
+                    ("size", &["sm", "md", "lg"] as &[&str]),
+                ]
+                .into_iter()
+                .collect(),
+            ),
             (
                 "runtime-debugger",
                 [
