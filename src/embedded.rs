@@ -807,7 +807,7 @@ pub static EMBEDDED_STD_BEHAVIORS: phf::Map<&'static str, &'static str> = phf::p
     "std/behaviors/ui-typography" => include_str!("baked/std/ui/core/atoms/ui-typography.orb"),
     "std/behaviors/ui-waypoint-marker" => include_str!("baked/std/ui/game/atoms/ui-waypoint-marker.orb"),
     "std/behaviors/ui-xp-bar" => include_str!("baked/std/ui/game/atoms/ui-xp-bar.orb"),
-    // === Molecules (166) ===
+    // === Molecules (164) ===
     "std/behaviors/std-about-page" => include_str!("baked/io/marketing/molecules/std-about-page.orb"),
     "std/behaviors/std-agent-fix-loop" => include_str!("baked/std/agent/molecules/std-agent-fix-loop.orb"),
     "std/behaviors/std-agent-learner" => include_str!("baked/std/agent/molecules/std-agent-learner.orb"),
@@ -847,7 +847,6 @@ pub static EMBEDDED_STD_BEHAVIORS: phf::Map<&'static str, &'static str> = phf::p
     "std/behaviors/ui-chart" => include_str!("baked/std/ui/core/molecules/ui-chart.orb"),
     "std/behaviors/ui-chart-legend" => include_str!("baked/std/ui/core/molecules/ui-chart-legend.orb"),
     "std/behaviors/ui-code-block" => include_str!("baked/std/ui/core/molecules/ui-code-block.orb"),
-    "std/behaviors/ui-code-viewer" => include_str!("baked/std/ui/core/molecules/ui-code-viewer.orb"),
     "std/behaviors/ui-combat-log" => include_str!("baked/std/ui/game/molecules/ui-combat-log.orb"),
     "std/behaviors/ui-community-links" => include_str!("baked/std/ui/marketing/molecules/ui-community-links.orb"),
     "std/behaviors/ui-confirm-dialog" => include_str!("baked/std/ui/core/molecules/ui-confirm-dialog.orb"),
@@ -862,7 +861,6 @@ pub static EMBEDDED_STD_BEHAVIORS: phf::Map<&'static str, &'static str> = phf::p
     "std/behaviors/ui-date-range-selector" => include_str!("baked/std/ui/core/molecules/ui-date-range-selector.orb"),
     "std/behaviors/ui-dialogue-box" => include_str!("baked/std/ui/game/molecules/ui-dialogue-box.orb"),
     "std/behaviors/ui-doc-breadcrumb" => include_str!("baked/std/ui/core/molecules/ui-doc-breadcrumb.orb"),
-    "std/behaviors/ui-doc-code-block" => include_str!("baked/std/ui/core/molecules/ui-doc-code-block.orb"),
     "std/behaviors/ui-doc-pagination" => include_str!("baked/std/ui/core/molecules/ui-doc-pagination.orb"),
     "std/behaviors/ui-doc-search" => include_str!("baked/std/ui/core/molecules/ui-doc-search.orb"),
     "std/behaviors/ui-doc-sidebar" => include_str!("baked/std/ui/core/molecules/ui-doc-sidebar.orb"),
@@ -974,7 +972,7 @@ pub static EMBEDDED_STD_BEHAVIORS: phf::Map<&'static str, &'static str> = phf::p
     "std/behaviors/ui-wizard-container" => include_str!("baked/std/ui/core/molecules/ui-wizard-container.orb"),
     "std/behaviors/ui-wizard-navigation" => include_str!("baked/std/ui/core/molecules/ui-wizard-navigation.orb"),
     "std/behaviors/ui-wizard-progress" => include_str!("baked/std/ui/core/molecules/ui-wizard-progress.orb"),
-    // === Organisms (179) ===
+    // === Organisms (178) ===
     "std/behaviors/AccountOrbital" => include_str!("baked/io/curated/organisms/AccountOrbital.orb"),
     "std/behaviors/BundleOrbital" => include_str!("baked/io/curated/organisms/BundleOrbital.orb"),
     "std/behaviors/ChargeItemOrbital" => include_str!("baked/io/curated/organisms/ChargeItemOrbital.orb"),
@@ -1104,7 +1102,6 @@ pub static EMBEDDED_STD_BEHAVIORS: phf::Map<&'static str, &'static str> = phf::p
     "std/behaviors/ui-case-study-organism" => include_str!("baked/std/ui/marketing/organisms/ui-case-study-organism.orb"),
     "std/behaviors/ui-castle-board" => include_str!("baked/std/ui/game/organisms/ui-castle-board.orb"),
     "std/behaviors/ui-classifier-board" => include_str!("baked/std/ui/game/organisms/ui-classifier-board.orb"),
-    "std/behaviors/ui-code-view" => include_str!("baked/std/ui/game/organisms/ui-code-view.orb"),
     "std/behaviors/ui-dashboard-grid" => include_str!("baked/std/ui/core/organisms/ui-dashboard-grid.orb"),
     "std/behaviors/ui-debugger-board" => include_str!("baked/std/ui/game/organisms/ui-debugger-board.orb"),
     "std/behaviors/ui-detail-panel" => include_str!("baked/std/ui/core/organisms/ui-detail-panel.orb"),
