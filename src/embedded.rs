@@ -807,7 +807,7 @@ pub static EMBEDDED_STD_BEHAVIORS: phf::Map<&'static str, &'static str> = phf::p
     "std/behaviors/ui-typography" => include_str!("baked/std/ui/core/atoms/ui-typography.orb"),
     "std/behaviors/ui-waypoint-marker" => include_str!("baked/std/ui/game/atoms/ui-waypoint-marker.orb"),
     "std/behaviors/ui-xp-bar" => include_str!("baked/std/ui/game/atoms/ui-xp-bar.orb"),
-    // === Molecules (164) ===
+    // === Molecules (165) ===
     "std/behaviors/std-about-page" => include_str!("baked/io/marketing/molecules/std-about-page.orb"),
     "std/behaviors/std-agent-fix-loop" => include_str!("baked/std/agent/molecules/std-agent-fix-loop.orb"),
     "std/behaviors/std-agent-learner" => include_str!("baked/std/agent/molecules/std-agent-learner.orb"),
