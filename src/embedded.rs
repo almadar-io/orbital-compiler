@@ -1152,6 +1152,23 @@ pub static EMBEDDED_STD_BEHAVIORS: phf::Map<&'static str, &'static str> = phf::p
     "std/behaviors/ui-uncontrolled-battle-board" => include_str!("baked/std/ui/game/organisms/ui-uncontrolled-battle-board.orb"),
     "std/behaviors/ui-variable-panel" => include_str!("baked/std/ui/game/organisms/ui-variable-panel.orb"),
     "std/behaviors/ui-world-map-board" => include_str!("baked/std/ui/game/organisms/ui-world-map-board.orb"),
+    // === Templates (16) ===
+    "std/behaviors/ui-about-page-template" => include_str!("baked/std/ui/marketing/templates/ui-about-page-template.orb"),
+    "std/behaviors/ui-auth-layout" => include_str!("baked/std/ui/marketing/templates/ui-auth-layout.orb"),
+    "std/behaviors/ui-battle-template" => include_str!("baked/std/ui/game/templates/ui-battle-template.orb"),
+    "std/behaviors/ui-castle-template" => include_str!("baked/std/ui/game/templates/ui-castle-template.orb"),
+    "std/behaviors/ui-counter-template" => include_str!("baked/std/ui/core/templates/ui-counter-template.orb"),
+    "std/behaviors/ui-dashboard-layout" => include_str!("baked/std/ui/core/templates/ui-dashboard-layout.orb"),
+    "std/behaviors/ui-feature-detail-page-template" => include_str!("baked/std/ui/marketing/templates/ui-feature-detail-page-template.orb"),
+    "std/behaviors/ui-game-canvas-3d-battle-template" => include_str!("baked/std/ui/game/templates/ui-game-canvas-3d-battle-template.orb"),
+    "std/behaviors/ui-game-canvas-3d-castle-template" => include_str!("baked/std/ui/game/templates/ui-game-canvas-3d-castle-template.orb"),
+    "std/behaviors/ui-game-canvas-3d-world-map-template" => include_str!("baked/std/ui/game/templates/ui-game-canvas-3d-world-map-template.orb"),
+    "std/behaviors/ui-game-shell" => include_str!("baked/std/ui/game/templates/ui-game-shell.orb"),
+    "std/behaviors/ui-game-template" => include_str!("baked/std/ui/game/templates/ui-game-template.orb"),
+    "std/behaviors/ui-generic-app-template" => include_str!("baked/std/ui/core/templates/ui-generic-app-template.orb"),
+    "std/behaviors/ui-landing-page-template" => include_str!("baked/std/ui/marketing/templates/ui-landing-page-template.orb"),
+    "std/behaviors/ui-pricing-page-template" => include_str!("baked/std/ui/marketing/templates/ui-pricing-page-template.orb"),
+    "std/behaviors/ui-world-map-template" => include_str!("baked/std/ui/game/templates/ui-world-map-template.orb"),
 };
 // SYNC-GENERATED:EMBEDDED_STD_BEHAVIORS:END
 
