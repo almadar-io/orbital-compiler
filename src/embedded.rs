@@ -883,6 +883,7 @@ pub static EMBEDDED_STD_BEHAVIORS: phf::Map<&'static str, &'static str> = phf::p
     "std/behaviors/ui-form-field" => include_str!("baked/std/ui/core/molecules/ui-form-field.orb"),
     "std/behaviors/ui-form-section-header" => include_str!("baked/std/ui/core/molecules/ui-form-section-header.orb"),
     "std/behaviors/ui-game-canvas-2d" => include_str!("baked/std/ui/game/molecules/ui-game-canvas-2d.orb"),
+    "std/behaviors/ui-game-canvas-3d" => include_str!("baked/std/ui/game/molecules/ui-game-canvas-3d.orb"),
     "std/behaviors/ui-game-hud" => include_str!("baked/std/ui/game/molecules/ui-game-hud.orb"),
     "std/behaviors/ui-game-menu" => include_str!("baked/std/ui/game/molecules/ui-game-menu.orb"),
     "std/behaviors/ui-game-over-screen" => include_str!("baked/std/ui/game/molecules/ui-game-over-screen.orb"),
