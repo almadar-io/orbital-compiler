@@ -1761,7 +1761,6 @@ pub static PATTERN_PROPS_SCHEMA: LazyLock<HashMap<&'static str, HashSet<&'static
                     "currentPage",
                     "documentType",
                     "documents",
-                    "entity",
                     "error",
                     "height",
                     "isLoading",
@@ -2478,7 +2477,6 @@ pub static PATTERN_PROPS_SCHEMA: LazyLock<HashMap<&'static str, HashSet<&'static
                     "actions",
                     "brandName",
                     "className",
-                    "entity",
                     "error",
                     "isLoading",
                     "isMenuOpen",
@@ -2933,7 +2931,7 @@ pub static PATTERN_PROPS_SCHEMA: LazyLock<HashMap<&'static str, HashSet<&'static
             ),
             ("modal-slot", ["children", "className", "entity", "error", "isLoading", "size", "title"].into_iter().collect()),
             ("module-card", ["data"].into_iter().collect()),
-            ("navigation", ["className", "entity", "error", "isLoading", "items", "orientation"].into_iter().collect()),
+            ("navigation", ["className", "error", "isLoading", "items", "orientation"].into_iter().collect()),
             (
                 "negotiator-board",
                 [
@@ -3036,7 +3034,6 @@ pub static PATTERN_PROPS_SCHEMA: LazyLock<HashMap<&'static str, HashSet<&'static
                     "breadcrumbs",
                     "children",
                     "className",
-                    "entity",
                     "error",
                     "isLoading",
                     "onTabChange",
@@ -5688,7 +5685,6 @@ pub static PATTERN_PROP_TYPES: LazyLock<HashMap<&'static str, HashMap<&'static s
                     ("showPrint", &["boolean"] as &[&str]),
                     ("actions", &["array"] as &[&str]),
                     ("documents", &["array"] as &[&str]),
-                    ("entity", &["string"] as &[&str]),
                     ("isLoading", &["boolean"] as &[&str]),
                     ("error", &["object"] as &[&str]),
                     ("className", &["string"] as &[&str]),
@@ -6564,7 +6560,6 @@ pub static PATTERN_PROP_TYPES: LazyLock<HashMap<&'static str, HashMap<&'static s
                     ("className", &["string"] as &[&str]),
                     ("isLoading", &["boolean"] as &[&str]),
                     ("error", &["object"] as &[&str]),
-                    ("entity", &["string"] as &[&str]),
                 ]
                 .into_iter()
                 .collect(),
@@ -7120,7 +7115,6 @@ pub static PATTERN_PROP_TYPES: LazyLock<HashMap<&'static str, HashMap<&'static s
                     ("className", &["string"] as &[&str]),
                     ("isLoading", &["boolean"] as &[&str]),
                     ("error", &["object"] as &[&str]),
-                    ("entity", &["string"] as &[&str]),
                 ]
                 .into_iter()
                 .collect(),
@@ -7251,7 +7245,6 @@ pub static PATTERN_PROP_TYPES: LazyLock<HashMap<&'static str, HashMap<&'static s
                     ("actions", &["array"] as &[&str]),
                     ("isLoading", &["boolean"] as &[&str]),
                     ("error", &["object"] as &[&str]),
-                    ("entity", &["string"] as &[&str]),
                     ("tabs", &["array"] as &[&str]),
                     ("activeTab", &["string"] as &[&str]),
                     ("onTabChange", &["function"] as &[&str]),

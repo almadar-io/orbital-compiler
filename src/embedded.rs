@@ -807,7 +807,7 @@ pub static EMBEDDED_STD_BEHAVIORS: phf::Map<&'static str, &'static str> = phf::p
     "std/behaviors/ui-typography" => include_str!("baked/std/ui/core/atoms/ui-typography.orb"),
     "std/behaviors/ui-waypoint-marker" => include_str!("baked/std/ui/game/atoms/ui-waypoint-marker.orb"),
     "std/behaviors/ui-xp-bar" => include_str!("baked/std/ui/game/atoms/ui-xp-bar.orb"),
-    // === Molecules (165) ===
+    // === Molecules (164) ===
     "std/behaviors/std-about-page" => include_str!("baked/io/marketing/molecules/std-about-page.orb"),
     "std/behaviors/std-agent-fix-loop" => include_str!("baked/std/agent/molecules/std-agent-fix-loop.orb"),
     "std/behaviors/std-agent-learner" => include_str!("baked/std/agent/molecules/std-agent-learner.orb"),
@@ -883,7 +883,6 @@ pub static EMBEDDED_STD_BEHAVIORS: phf::Map<&'static str, &'static str> = phf::p
     "std/behaviors/ui-form-field" => include_str!("baked/std/ui/core/molecules/ui-form-field.orb"),
     "std/behaviors/ui-form-section-header" => include_str!("baked/std/ui/core/molecules/ui-form-section-header.orb"),
     "std/behaviors/ui-game-canvas-2d" => include_str!("baked/std/ui/game/molecules/ui-game-canvas-2d.orb"),
-    "std/behaviors/ui-game-canvas-3d" => include_str!("baked/std/ui/game/molecules/ui-game-canvas-3d.orb"),
     "std/behaviors/ui-game-hud" => include_str!("baked/std/ui/game/molecules/ui-game-hud.orb"),
     "std/behaviors/ui-game-menu" => include_str!("baked/std/ui/game/molecules/ui-game-menu.orb"),
     "std/behaviors/ui-game-over-screen" => include_str!("baked/std/ui/game/molecules/ui-game-over-screen.orb"),
