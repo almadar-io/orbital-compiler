@@ -1052,7 +1052,21 @@ pub static PATTERN_PROPS_SCHEMA: LazyLock<HashMap<&'static str, HashSet<&'static
                 .into_iter()
                 .collect(),
             ),
-            ("battle-template", ["className", "entity", "scale", "unitScale"].into_iter().collect()),
+            (
+                "battle-template",
+                [
+                    "assetManifest",
+                    "className",
+                    "entity",
+                    "features",
+                    "scale",
+                    "tiles",
+                    "unitScale",
+                    "units",
+                ]
+                .into_iter()
+                .collect(),
+            ),
             ("behavior-view", ["data"].into_iter().collect()),
             ("book-chapter-view", ["chapter", "className", "direction", "orbitalSchema"].into_iter().collect()),
             ("book-cover-page", ["author", "className", "coverImageUrl", "direction", "subtitle", "title"].into_iter().collect()),
@@ -4129,7 +4143,7 @@ pub static PATTERN_PROPS_SCHEMA: LazyLock<HashMap<&'static str, HashSet<&'static
                 .into_iter()
                 .collect(),
             ),
-            ("uncontrolled-battle-board", ["entity"].into_iter().collect()),
+            ("uncontrolled-battle-board", ["assetManifest", "entity", "features", "tiles", "units"].into_iter().collect()),
             ("unit-command-bar", ["className", "commands", "selectedUnitId"].into_iter().collect()),
             (
                 "upload-drop-zone",
@@ -4578,6 +4592,10 @@ pub static PATTERN_PROP_TYPES: LazyLock<HashMap<&'static str, HashMap<&'static s
                     ("className", &["string"] as &[&str]),
                     ("scale", &["number"] as &[&str]),
                     ("unitScale", &["number"] as &[&str]),
+                    ("tiles", &["array"] as &[&str]),
+                    ("units", &["array"] as &[&str]),
+                    ("features", &["array"] as &[&str]),
+                    ("assetManifest", &["string"] as &[&str]),
                 ]
                 .into_iter()
                 .collect(),
@@ -8692,7 +8710,18 @@ pub static PATTERN_PROP_TYPES: LazyLock<HashMap<&'static str, HashMap<&'static s
                 .into_iter()
                 .collect(),
             ),
-            ("uncontrolled-battle-board", [("entity", &["object", "array"] as &[&str])].into_iter().collect()),
+            (
+                "uncontrolled-battle-board",
+                [
+                    ("entity", &["object", "array"] as &[&str]),
+                    ("tiles", &["array"] as &[&str]),
+                    ("units", &["array"] as &[&str]),
+                    ("features", &["array"] as &[&str]),
+                    ("assetManifest", &["string"] as &[&str]),
+                ]
+                .into_iter()
+                .collect(),
+            ),
             (
                 "unit-command-bar",
                 [
