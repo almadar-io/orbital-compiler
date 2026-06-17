@@ -2,7 +2,7 @@
 //!
 //! Source: packages/almadar-patterns/src/patterns-registry.json
 //!
-//! Last synced: 2026-06-16
+//! Last synced: 2026-06-17
 //! To regenerate: npx tsx tools/almadar-pattern-sync/index.ts
 //!
 //! DO NOT EDIT MANUALLY - changes will be overwritten on next sync.
@@ -1012,6 +1012,7 @@ pub static PATTERN_PROPS_SCHEMA: LazyLock<HashMap<&'static str, HashSet<&'static
                 [
                     "actions",
                     "activeFilters",
+                    "assetManifest",
                     "attackEvent",
                     "calculateDamage",
                     "cancelEvent",
@@ -1020,6 +1021,7 @@ pub static PATTERN_PROPS_SCHEMA: LazyLock<HashMap<&'static str, HashSet<&'static
                     "endTurnEvent",
                     "entity",
                     "error",
+                    "features",
                     "gameEndEvent",
                     "gameOverOverlay",
                     "hasActiveEffects",
@@ -1041,9 +1043,11 @@ pub static PATTERN_PROPS_SCHEMA: LazyLock<HashMap<&'static str, HashSet<&'static
                     "sortBy",
                     "sortDirection",
                     "tileClickEvent",
+                    "tiles",
                     "totalCount",
                     "unitClickEvent",
                     "unitScale",
+                    "units",
                 ]
                 .into_iter()
                 .collect(),
@@ -1270,9 +1274,11 @@ pub static PATTERN_PROPS_SCHEMA: LazyLock<HashMap<&'static str, HashSet<&'static
             (
                 "castle-board",
                 [
+                    "assetManifest",
                     "className",
                     "entity",
                     "featureClickEvent",
+                    "features",
                     "footer",
                     "header",
                     "onFeatureClick",
@@ -1282,12 +1288,14 @@ pub static PATTERN_PROPS_SCHEMA: LazyLock<HashMap<&'static str, HashSet<&'static
                     "scale",
                     "sidePanel",
                     "tileClickEvent",
+                    "tiles",
                     "unitClickEvent",
+                    "units",
                 ]
                 .into_iter()
                 .collect(),
             ),
-            ("castle-template", ["className", "entity", "scale"].into_iter().collect()),
+            ("castle-template", ["assetManifest", "className", "entity", "features", "scale", "tiles", "units"].into_iter().collect()),
             (
                 "center",
                 [
@@ -4252,6 +4260,7 @@ pub static PATTERN_PROPS_SCHEMA: LazyLock<HashMap<&'static str, HashSet<&'static
                 "world-map-board",
                 [
                     "allowMoveAllHeroes",
+                    "assetManifest",
                     "battleEncounterEvent",
                     "className",
                     "diamondTopY",
@@ -4260,6 +4269,7 @@ pub static PATTERN_PROPS_SCHEMA: LazyLock<HashMap<&'static str, HashSet<&'static
                     "entity",
                     "error",
                     "featureEnterEvent",
+                    "features",
                     "footer",
                     "header",
                     "heroMoveEvent",
@@ -4275,7 +4285,9 @@ pub static PATTERN_PROPS_SCHEMA: LazyLock<HashMap<&'static str, HashSet<&'static
                     "scale",
                     "sidePanel",
                     "tileClickEvent",
+                    "tiles",
                     "unitScale",
+                    "units",
                 ]
                 .into_iter()
                 .collect(),
@@ -4284,11 +4296,15 @@ pub static PATTERN_PROPS_SCHEMA: LazyLock<HashMap<&'static str, HashSet<&'static
                 "world-map-template",
                 [
                     "allowMoveAllHeroes",
+                    "assetManifest",
                     "className",
                     "diamondTopY",
                     "entity",
+                    "features",
                     "scale",
+                    "tiles",
                     "unitScale",
+                    "units",
                 ]
                 .into_iter()
                 .collect(),
@@ -4525,6 +4541,10 @@ pub static PATTERN_PROP_TYPES: LazyLock<HashMap<&'static str, HashMap<&'static s
                     ("activeFilters", &["object"] as &[&str]),
                     ("selectedIds", &["array"] as &[&str]),
                     ("entity", &["object", "array"] as &[&str]),
+                    ("tiles", &["array"] as &[&str]),
+                    ("units", &["array"] as &[&str]),
+                    ("features", &["array"] as &[&str]),
+                    ("assetManifest", &["object"] as &[&str]),
                     ("scale", &["number"] as &[&str]),
                     ("unitScale", &["number"] as &[&str]),
                     ("header", &["function"] as &[&str]),
@@ -4837,6 +4857,10 @@ pub static PATTERN_PROP_TYPES: LazyLock<HashMap<&'static str, HashMap<&'static s
                 "castle-board",
                 [
                     ("entity", &["object", "array"] as &[&str]),
+                    ("tiles", &["array"] as &[&str]),
+                    ("units", &["array"] as &[&str]),
+                    ("features", &["array"] as &[&str]),
+                    ("assetManifest", &["object"] as &[&str]),
                     ("scale", &["number"] as &[&str]),
                     ("header", &["function"] as &[&str]),
                     ("sidePanel", &["function"] as &[&str]),
@@ -4859,6 +4883,10 @@ pub static PATTERN_PROP_TYPES: LazyLock<HashMap<&'static str, HashMap<&'static s
                     ("entity", &["object"] as &[&str]),
                     ("className", &["string"] as &[&str]),
                     ("scale", &["number"] as &[&str]),
+                    ("tiles", &["array"] as &[&str]),
+                    ("units", &["array"] as &[&str]),
+                    ("features", &["array"] as &[&str]),
+                    ("assetManifest", &["string"] as &[&str]),
                 ]
                 .into_iter()
                 .collect(),
@@ -8828,6 +8856,10 @@ pub static PATTERN_PROP_TYPES: LazyLock<HashMap<&'static str, HashMap<&'static s
                     ("isLoading", &["boolean"] as &[&str]),
                     ("error", &["object"] as &[&str]),
                     ("entity", &["object", "array"] as &[&str]),
+                    ("tiles", &["array"] as &[&str]),
+                    ("units", &["array"] as &[&str]),
+                    ("features", &["array"] as &[&str]),
+                    ("assetManifest", &["object"] as &[&str]),
                     ("scale", &["number"] as &[&str]),
                     ("unitScale", &["number"] as &[&str]),
                     ("allowMoveAllHeroes", &["boolean"] as &[&str]),
@@ -8862,6 +8894,10 @@ pub static PATTERN_PROP_TYPES: LazyLock<HashMap<&'static str, HashMap<&'static s
                     ("unitScale", &["number"] as &[&str]),
                     ("diamondTopY", &["number"] as &[&str]),
                     ("allowMoveAllHeroes", &["boolean"] as &[&str]),
+                    ("tiles", &["array"] as &[&str]),
+                    ("units", &["array"] as &[&str]),
+                    ("features", &["array"] as &[&str]),
+                    ("assetManifest", &["string"] as &[&str]),
                 ]
                 .into_iter()
                 .collect(),
