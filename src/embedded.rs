@@ -807,7 +807,7 @@ pub static EMBEDDED_STD_BEHAVIORS: phf::Map<&'static str, &'static str> = phf::p
     "std/behaviors/ui-typography" => include_str!("baked/std/ui/core/atoms/ui-typography.orb"),
     "std/behaviors/ui-waypoint-marker" => include_str!("baked/std/ui/game/atoms/ui-waypoint-marker.orb"),
     "std/behaviors/ui-xp-bar" => include_str!("baked/std/ui/game/atoms/ui-xp-bar.orb"),
-    // === Molecules (164) ===
+    // === Molecules (166) ===
     "std/behaviors/std-about-page" => include_str!("baked/io/marketing/molecules/std-about-page.orb"),
     "std/behaviors/std-agent-fix-loop" => include_str!("baked/std/agent/molecules/std-agent-fix-loop.orb"),
     "std/behaviors/std-agent-learner" => include_str!("baked/std/agent/molecules/std-agent-learner.orb"),
@@ -874,6 +874,7 @@ pub static EMBEDDED_STD_BEHAVIORS: phf::Map<&'static str, &'static str> = phf::p
     "std/behaviors/ui-error-state" => include_str!("baked/std/ui/core/molecules/ui-error-state.orb"),
     "std/behaviors/ui-feature-card" => include_str!("baked/std/ui/marketing/molecules/ui-feature-card.orb"),
     "std/behaviors/ui-feature-grid" => include_str!("baked/std/ui/core/molecules/ui-feature-grid.orb"),
+    "std/behaviors/ui-feature-renderer" => include_str!("baked/std/ui/game/molecules/ui-feature-renderer.orb"),
     "std/behaviors/ui-file-tree" => include_str!("baked/std/ui/core/molecules/ui-file-tree.orb"),
     "std/behaviors/ui-filter-group" => include_str!("baked/std/ui/core/molecules/ui-filter-group.orb"),
     "std/behaviors/ui-flex" => include_str!("baked/std/ui/core/molecules/ui-flex.orb"),
@@ -883,6 +884,7 @@ pub static EMBEDDED_STD_BEHAVIORS: phf::Map<&'static str, &'static str> = phf::p
     "std/behaviors/ui-form-field" => include_str!("baked/std/ui/core/molecules/ui-form-field.orb"),
     "std/behaviors/ui-form-section-header" => include_str!("baked/std/ui/core/molecules/ui-form-section-header.orb"),
     "std/behaviors/ui-game-canvas-2d" => include_str!("baked/std/ui/game/molecules/ui-game-canvas-2d.orb"),
+    "std/behaviors/ui-game-canvas-3d" => include_str!("baked/std/ui/game/molecules/ui-game-canvas-3d.orb"),
     "std/behaviors/ui-game-hud" => include_str!("baked/std/ui/game/molecules/ui-game-hud.orb"),
     "std/behaviors/ui-game-menu" => include_str!("baked/std/ui/game/molecules/ui-game-menu.orb"),
     "std/behaviors/ui-game-over-screen" => include_str!("baked/std/ui/game/molecules/ui-game-over-screen.orb"),
@@ -972,7 +974,7 @@ pub static EMBEDDED_STD_BEHAVIORS: phf::Map<&'static str, &'static str> = phf::p
     "std/behaviors/ui-wizard-container" => include_str!("baked/std/ui/core/molecules/ui-wizard-container.orb"),
     "std/behaviors/ui-wizard-navigation" => include_str!("baked/std/ui/core/molecules/ui-wizard-navigation.orb"),
     "std/behaviors/ui-wizard-progress" => include_str!("baked/std/ui/core/molecules/ui-wizard-progress.orb"),
-    // === Organisms (178) ===
+    // === Organisms (177) ===
     "std/behaviors/AccountOrbital" => include_str!("baked/io/curated/organisms/AccountOrbital.orb"),
     "std/behaviors/BundleOrbital" => include_str!("baked/io/curated/organisms/BundleOrbital.orb"),
     "std/behaviors/ChargeItemOrbital" => include_str!("baked/io/curated/organisms/ChargeItemOrbital.orb"),
@@ -1112,7 +1114,6 @@ pub static EMBEDDED_STD_BEHAVIORS: phf::Map<&'static str, &'static str> = phf::p
     "std/behaviors/ui-event-handler-board" => include_str!("baked/std/ui/game/organisms/ui-event-handler-board.orb"),
     "std/behaviors/ui-event-log" => include_str!("baked/std/ui/game/organisms/ui-event-log.orb"),
     "std/behaviors/ui-feature-grid-organism" => include_str!("baked/std/ui/marketing/organisms/ui-feature-grid-organism.orb"),
-    "std/behaviors/ui-feature-renderer" => include_str!("baked/std/ui/game/organisms/ui-feature-renderer.orb"),
     "std/behaviors/ui-form" => include_str!("baked/std/ui/core/organisms/ui-form.orb"),
     "std/behaviors/ui-form-section" => include_str!("baked/std/ui/core/organisms/ui-form-section.orb"),
     "std/behaviors/ui-game-audio-provider" => include_str!("baked/std/ui/game/organisms/ui-game-audio-provider.orb"),
