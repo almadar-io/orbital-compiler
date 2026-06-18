@@ -24,7 +24,7 @@ pub(crate) use emit_declaration::{
     collect_declared_emits, validate_effect, validate_emit_against_declaration,
 };
 pub(crate) use fetch::{validate_fetch, validate_fetch_object};
-pub(crate) use navigate::validate_navigate;
+pub(crate) use navigate::{validate_navigate, validate_send_server};
 pub(crate) use os_watch::validate_os_watch;
 pub(crate) use persist::validate_persist;
 pub(crate) use r#ref::validate_ref;

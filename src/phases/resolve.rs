@@ -913,6 +913,7 @@ impl<'a> Resolver<'a> {
             "persist" => self.resolve_persist_effect(args),
             "fetch" => self.resolve_fetch_effect(args),
             "fetch-stream" => self.resolve_fetch_stream_effect(args),
+            "send-server" => self.resolve_send_server_effect(args),
             "set" => self.resolve_set_effect(args),
             "navigate" => self.resolve_navigate_effect(args),
             "render-ui" => self.resolve_render_ui_effect(args),
@@ -1383,6 +1384,21 @@ impl<'a> Resolver<'a> {
             filter: None,
             emit: None,
         }))
+    }
+
+    fn resolve_send_server_effect(&self, args: &[SExpression]) -> Result<OirExpr, ResolveError> {
+        if args.is_empty() {
+            return Err(ResolveError::InvalidSExpr(
+                "send-server requires event name".to_string(),
+            ));
+        }
+        let event = self.resolve_sexpr(&args[0])?;
+        let payload = if args.len() > 1 {
+            Some(self.resolve_sexpr(&args[1])?)
+        } else {
+            None
+        };
+        Ok(OirExpr::effect(OirEffect::SendServer { event, payload }))
     }
 
     fn resolve_set_effect(&self, args: &[SExpression]) -> Result<OirExpr, ResolveError> {

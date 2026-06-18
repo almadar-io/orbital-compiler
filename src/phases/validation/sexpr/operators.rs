@@ -278,6 +278,7 @@ pub const EFFECT_OPERATORS: &[&str] = &[
     "emit",
     "fetch",
     "fetch-stream",
+    "send-server",
     "persist",
     "delete",
     "navigate",

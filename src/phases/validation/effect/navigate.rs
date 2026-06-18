@@ -182,6 +182,25 @@ pub(crate) fn find_matching_page_path<'a>(
 }
 
 /// Check if a concrete path matches a pattern with :param placeholders
+/// Validate send-server effect: requires event name arg; optional payload.
+pub(crate) fn validate_send_server(
+    arr: &[SExpression],
+    path: &str,
+) -> ValidationResult {
+    let mut result = ValidationResult::new();
+    if arr.len() < 2 {
+        result.add_error(
+            ValidationError::error(
+                ErrorCode::EffectUnknownType,
+                path,
+                "send-server requires an event name",
+            )
+            .with_suggestion(r#"Use: ["send-server", "EVENT_NAME"] or ["send-server", "EVENT_NAME", { payload }]"#),
+        );
+    }
+    result
+}
+
 pub(crate) fn path_matches_pattern(path: &str, pattern: &str) -> bool {
     let path_parts: Vec<&str> = path.split('/').filter(|s| !s.is_empty()).collect();
     let pattern_parts: Vec<&str> = pattern.split('/').filter(|s| !s.is_empty()).collect();

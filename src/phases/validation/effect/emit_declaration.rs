@@ -8,6 +8,7 @@ use super::{
     validate_set_return_type, validate_set_value_type, DeclaredEmit, EntityFieldMeta,
 };
 use super::fetch::validate_fetch_stream;
+use super::validate_send_server;
 use orbital_core::schema::{EntityDefinition, SExpression, TraitDefinition};
 use std::collections::{HashMap, HashSet};
 
@@ -318,6 +319,9 @@ pub(crate) fn validate_effect(
                     }
                     "navigate" => {
                         result.merge(validate_navigate(arr, path, page_init_payloads));
+                    }
+                    "send-server" => {
+                        result.merge(validate_send_server(arr, path));
                     }
                     os_op if os_op.starts_with("os/watch-") => {
                         result.merge(validate_os_watch(arr, path, declared_emits));
