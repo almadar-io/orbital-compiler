@@ -231,6 +231,61 @@ pub(crate) fn validate_fetch_include(
     result
 }
 
+/// Validate `fetch-stream` effect — same entity check as `fetch` plus the
+/// emit config allows `{on_message, success, failure}` (the streaming trio).
+pub(crate) fn validate_fetch_stream(
+    arr: &[SExpression],
+    path: &str,
+    known_entities: &HashSet<String>,
+    declared_emits: Option<&[DeclaredEmit]>,
+) -> ValidationResult {
+    let mut result = ValidationResult::new();
+
+    if arr.len() < 2 {
+        result.add_error(
+            ValidationError::error(
+                ErrorCode::EffectFetchInvalidEntity,
+                path,
+                "fetch-stream requires entity name",
+            )
+            .with_suggestion("Use: [\"fetch-stream\", \"EntityName\", { \"emit\": { \"on_message\": \"CHUNK\", \"success\": \"DONE\", \"failure\": \"FAILED\" } }]"),
+        );
+        return result;
+    }
+
+    if let SExpression::String(name) = &arr[1] {
+        if !known_entities.is_empty() && !known_entities.contains(name) {
+            result.add_error(
+                ValidationError::error(
+                    ErrorCode::EffectFetchInvalidEntity,
+                    path,
+                    format!("Entity '{}' does not exist", name),
+                )
+                .with_valid_values(known_entities.iter().cloned().collect()),
+            );
+        }
+    } else {
+        result.add_error(ValidationError::error(
+            ErrorCode::EffectFetchInvalidEntity,
+            path,
+            "fetch-stream entity name must be a string",
+        ));
+    }
+
+    if let Some(SExpression::Object(obj)) = arr.get(2) {
+        if let Some(emit_obj) = extract_emit_object_ref(obj) {
+            result.merge(validate_emit_config(
+                emit_obj,
+                &["on_message", "success", "failure"],
+                declared_emits,
+                path,
+            ));
+        }
+    }
+
+    result
+}
+
 /// Validate fetch effect (object form)
 pub(crate) fn validate_fetch_object(
     entity: &SExpression,

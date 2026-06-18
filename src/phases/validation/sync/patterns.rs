@@ -2,7 +2,7 @@
 //!
 //! Source: packages/almadar-patterns/src/patterns-registry.json
 //!
-//! Last synced: 2026-06-17
+//! Last synced: 2026-06-18
 //! To regenerate: npx tsx tools/almadar-pattern-sync/index.ts
 //!
 //! DO NOT EDIT MANUALLY - changes will be overwritten on next sync.
@@ -795,7 +795,6 @@ pub static PATTERN_REQUIRED_PROPS: LazyLock<HashMap<&'static str, Vec<&'static s
             ("score-display", vec!["value"]),
             ("section", vec!["children"]),
             ("section-header", vec!["title"]),
-            ("select", vec!["options"]),
             ("sequence-bar", vec!["slots", "maxSlots", "onSlotDrop", "onSlotRemove"]),
             ("service-catalog", vec!["services"]),
             ("showcase-card", vec!["title", "image"]),
@@ -1233,6 +1232,7 @@ pub static PATTERN_PROPS_SCHEMA: LazyLock<HashMap<&'static str, HashSet<&'static
                     "action",
                     "children",
                     "className",
+                    "loading",
                     "look",
                     "padding",
                     "shadow",
@@ -2593,8 +2593,10 @@ pub static PATTERN_PROPS_SCHEMA: LazyLock<HashMap<&'static str, HashSet<&'static
                     "clearable",
                     "disabled",
                     "error",
+                    "helperText",
                     "icon",
                     "inputType",
+                    "label",
                     "leftIcon",
                     "onChange",
                     "onClear",
@@ -2872,7 +2874,7 @@ pub static PATTERN_PROPS_SCHEMA: LazyLock<HashMap<&'static str, HashSet<&'static
                 .into_iter()
                 .collect(),
             ),
-            ("menu", ["className", "items", "position", "trigger"].into_iter().collect()),
+            ("menu", ["className", "footer", "header", "items", "position", "trigger"].into_iter().collect()),
             (
                 "meter",
                 [
@@ -3361,7 +3363,24 @@ pub static PATTERN_PROPS_SCHEMA: LazyLock<HashMap<&'static str, HashSet<&'static
                 .collect(),
             ),
             ("section-header", ["align", "className", "level", "subtitle", "title"].into_iter().collect()),
-            ("select", ["action", "className", "error", "onChange", "options", "placeholder", "value"].into_iter().collect()),
+            (
+                "select",
+                [
+                    "action",
+                    "className",
+                    "clearable",
+                    "error",
+                    "groups",
+                    "multiple",
+                    "onChange",
+                    "options",
+                    "placeholder",
+                    "searchable",
+                    "value",
+                ]
+                .into_iter()
+                .collect(),
+            ),
             (
                 "sequence-bar",
                 [
@@ -3543,7 +3562,7 @@ pub static PATTERN_PROPS_SCHEMA: LazyLock<HashMap<&'static str, HashSet<&'static
             ),
             ("spacer", ["axis", "className", "size"].into_iter().collect()),
             ("sparkline", ["className", "color", "data", "fill", "height", "strokeWidth", "width"].into_iter().collect()),
-            ("spinner", ["className", "size"].into_iter().collect()),
+            ("spinner", ["className", "overlay", "size"].into_iter().collect()),
             (
                 "split",
                 [
@@ -4942,6 +4961,7 @@ pub static PATTERN_PROP_TYPES: LazyLock<HashMap<&'static str, HashMap<&'static s
                     ("look", &["string"] as &[&str]),
                     ("children", &["node"] as &[&str]),
                     ("action", &["string"] as &[&str]),
+                    ("loading", &["boolean"] as &[&str]),
                 ]
                 .into_iter()
                 .collect(),
@@ -6671,6 +6691,8 @@ pub static PATTERN_PROP_TYPES: LazyLock<HashMap<&'static str, HashMap<&'static s
                     ("disabled", &["boolean"] as &[&str]),
                     ("action", &["string"] as &[&str]),
                     ("inputType", &["string"] as &[&str]),
+                    ("label", &["string"] as &[&str]),
+                    ("helperText", &["string"] as &[&str]),
                     ("error", &["string"] as &[&str]),
                     ("leftIcon", &["icon", "string"] as &[&str]),
                     ("rightIcon", &["icon", "string"] as &[&str]),
@@ -7032,6 +7054,8 @@ pub static PATTERN_PROP_TYPES: LazyLock<HashMap<&'static str, HashMap<&'static s
                     ("items", &["array"] as &[&str]),
                     ("position", &["string"] as &[&str]),
                     ("className", &["string"] as &[&str]),
+                    ("header", &["node"] as &[&str]),
+                    ("footer", &["node"] as &[&str]),
                 ]
                 .into_iter()
                 .collect(),
@@ -7717,10 +7741,14 @@ pub static PATTERN_PROP_TYPES: LazyLock<HashMap<&'static str, HashMap<&'static s
                 [
                     ("className", &["string"] as &[&str]),
                     ("options", &["array"] as &[&str]),
+                    ("groups", &["array"] as &[&str]),
                     ("placeholder", &["string"] as &[&str]),
-                    ("value", &["string"] as &[&str]),
+                    ("value", &["string", "array"] as &[&str]),
                     ("action", &["string"] as &[&str]),
                     ("error", &["string"] as &[&str]),
+                    ("multiple", &["boolean"] as &[&str]),
+                    ("searchable", &["boolean"] as &[&str]),
+                    ("clearable", &["boolean"] as &[&str]),
                     ("onChange", &["function", "string"] as &[&str]),
                 ]
                 .into_iter()
@@ -8000,7 +8028,16 @@ pub static PATTERN_PROP_TYPES: LazyLock<HashMap<&'static str, HashMap<&'static s
                 .into_iter()
                 .collect(),
             ),
-            ("spinner", [("className", &["string"] as &[&str]), ("size", &["string"] as &[&str])].into_iter().collect()),
+            (
+                "spinner",
+                [
+                    ("className", &["string"] as &[&str]),
+                    ("size", &["string"] as &[&str]),
+                    ("overlay", &["boolean"] as &[&str]),
+                ]
+                .into_iter()
+                .collect(),
+            ),
             (
                 "split",
                 [

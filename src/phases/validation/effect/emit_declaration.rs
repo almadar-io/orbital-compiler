@@ -7,6 +7,7 @@ use super::{
     validate_ref, validate_set, validate_set_enum_value, validate_set_object,
     validate_set_return_type, validate_set_value_type, DeclaredEmit, EntityFieldMeta,
 };
+use super::fetch::validate_fetch_stream;
 use orbital_core::schema::{EntityDefinition, SExpression, TraitDefinition};
 use std::collections::{HashMap, HashSet};
 
@@ -292,6 +293,14 @@ pub(crate) fn validate_effect(
                             path,
                             known_entities,
                             entity_definitions,
+                            declared_emits,
+                        ));
+                    }
+                    "fetch-stream" => {
+                        result.merge(validate_fetch_stream(
+                            arr,
+                            path,
+                            known_entities,
                             declared_emits,
                         ));
                     }

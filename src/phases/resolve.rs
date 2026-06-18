@@ -912,6 +912,7 @@ impl<'a> Resolver<'a> {
             "emit" => self.resolve_emit_effect(args),
             "persist" => self.resolve_persist_effect(args),
             "fetch" => self.resolve_fetch_effect(args),
+            "fetch-stream" => self.resolve_fetch_stream_effect(args),
             "set" => self.resolve_set_effect(args),
             "navigate" => self.resolve_navigate_effect(args),
             "render-ui" => self.resolve_render_ui_effect(args),
@@ -1338,6 +1339,50 @@ impl<'a> Resolver<'a> {
         Ok(OirExpr::effect(OirEffect::fetch_with_options(
             entity, filter, order_by, limit,
         )))
+    }
+
+    fn resolve_fetch_stream_effect(&self, args: &[SExpression]) -> Result<OirExpr, ResolveError> {
+        if args.is_empty() {
+            return Err(ResolveError::InvalidSExpr(
+                "fetch-stream requires entity name".to_string(),
+            ));
+        }
+        let entity = self.sexpr_as_str(&args[0])?;
+
+        if args.len() > 1 {
+            if let SExpression::Object(obj) = &args[1] {
+                let id = if let Some(id_expr) = obj.get("id") {
+                    match id_expr {
+                        SExpression::Null => None,
+                        _ => Some(self.resolve_sexpr(id_expr)?),
+                    }
+                } else {
+                    None
+                };
+                let filter = if let Some(filter_expr) = obj.get("filter") {
+                    match filter_expr {
+                        SExpression::Null => None,
+                        _ => Some(self.resolve_sexpr(filter_expr)?),
+                    }
+                } else {
+                    None
+                };
+                let emit_cfg = self.extract_emit_config(obj)?;
+                return Ok(OirExpr::effect(OirEffect::FetchStream {
+                    entity_type: entity,
+                    id,
+                    filter,
+                    emit: emit_cfg,
+                }));
+            }
+        }
+
+        Ok(OirExpr::effect(OirEffect::FetchStream {
+            entity_type: entity,
+            id: None,
+            filter: None,
+            emit: None,
+        }))
     }
 
     fn resolve_set_effect(&self, args: &[SExpression]) -> Result<OirExpr, ResolveError> {
