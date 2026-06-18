@@ -3373,6 +3373,7 @@ pub static PATTERN_PROPS_SCHEMA: LazyLock<HashMap<&'static str, HashSet<&'static
                     "groups",
                     "multiple",
                     "onChange",
+                    "onValueChange",
                     "options",
                     "placeholder",
                     "searchable",
@@ -7750,6 +7751,7 @@ pub static PATTERN_PROP_TYPES: LazyLock<HashMap<&'static str, HashMap<&'static s
                     ("searchable", &["boolean"] as &[&str]),
                     ("clearable", &["boolean"] as &[&str]),
                     ("onChange", &["function", "string"] as &[&str]),
+                    ("onValueChange", &["function", "string"] as &[&str]),
                 ]
                 .into_iter()
                 .collect(),
