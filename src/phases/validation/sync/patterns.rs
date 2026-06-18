@@ -15,6 +15,7 @@ pub static PATTERN_TYPES: LazyLock<HashSet<&'static str>> = LazyLock::new(|| {
     [
         // Component Patterns
         "accordion",
+        "activation-block",
         "alert",
         "animated-counter",
         "animated-graphic",
@@ -24,6 +25,7 @@ pub static PATTERN_TYPES: LazyLock<HashSet<&'static str>> = LazyLock::new(|| {
         "avatar",
         "badge",
         "behavior-view",
+        "bloom-quiz-block",
         "button",
         "card",
         "carousel",
@@ -32,6 +34,7 @@ pub static PATTERN_TYPES: LazyLock<HashSet<&'static str>> = LazyLock::new(|| {
         "community-links",
         "conditional-wrapper",
         "confetti-effect",
+        "connection-block",
         "container",
         "content-section",
         "date-range-picker",
@@ -69,6 +72,7 @@ pub static PATTERN_TYPES: LazyLock<HashSet<&'static str>> = LazyLock::new(|| {
         "quiz-block",
         "radio",
         "range-slider",
+        "reflection-block",
         "scaled-diagram",
         "select",
         "service-catalog",
@@ -123,6 +127,7 @@ pub static PATTERN_TYPES: LazyLock<HashSet<&'static str>> = LazyLock::new(|| {
         "case-study-card",
         "case-study-organism",
         "chart-legend",
+        "code-runner-panel",
         "content-renderer",
         "data-grid",
         "data-list",
@@ -146,6 +151,7 @@ pub static PATTERN_TYPES: LazyLock<HashSet<&'static str>> = LazyLock::new(|| {
         "reply-tree",
         "rich-block-editor",
         "section",
+        "segment-renderer",
         "showcase-card",
         "showcase-organism",
         "sortable-list",
@@ -353,6 +359,7 @@ pub static PATTERN_TO_CATEGORY: LazyLock<HashMap<&'static str, &'static str>> =
         [
             // Component
             ("accordion", "component"),
+            ("activation-block", "component"),
             ("alert", "component"),
             ("animated-counter", "component"),
             ("animated-graphic", "component"),
@@ -362,6 +369,7 @@ pub static PATTERN_TO_CATEGORY: LazyLock<HashMap<&'static str, &'static str>> =
             ("avatar", "component"),
             ("badge", "component"),
             ("behavior-view", "component"),
+            ("bloom-quiz-block", "component"),
             ("button", "component"),
             ("card", "component"),
             ("carousel", "component"),
@@ -370,6 +378,7 @@ pub static PATTERN_TO_CATEGORY: LazyLock<HashMap<&'static str, &'static str>> =
             ("community-links", "component"),
             ("conditional-wrapper", "component"),
             ("confetti-effect", "component"),
+            ("connection-block", "component"),
             ("container", "component"),
             ("content-section", "component"),
             ("date-range-picker", "component"),
@@ -407,6 +416,7 @@ pub static PATTERN_TO_CATEGORY: LazyLock<HashMap<&'static str, &'static str>> =
             ("quiz-block", "component"),
             ("radio", "component"),
             ("range-slider", "component"),
+            ("reflection-block", "component"),
             ("scaled-diagram", "component"),
             ("select", "component"),
             ("service-catalog", "component"),
@@ -461,6 +471,7 @@ pub static PATTERN_TO_CATEGORY: LazyLock<HashMap<&'static str, &'static str>> =
             ("case-study-card", "display"),
             ("case-study-organism", "display"),
             ("chart-legend", "display"),
+            ("code-runner-panel", "display"),
             ("content-renderer", "display"),
             ("data-grid", "display"),
             ("data-list", "display"),
@@ -484,6 +495,7 @@ pub static PATTERN_TO_CATEGORY: LazyLock<HashMap<&'static str, &'static str>> =
             ("reply-tree", "display"),
             ("rich-block-editor", "display"),
             ("section", "display"),
+            ("segment-renderer", "display"),
             ("showcase-card", "display"),
             ("showcase-organism", "display"),
             ("sortable-list", "display"),
@@ -682,11 +694,13 @@ pub static PATTERN_REQUIRED_PROPS: LazyLock<HashMap<&'static str, Vec<&'static s
             ("action-buttons", vec!["buttons"]),
             ("action-palette", vec!["actions"]),
             ("action-tile", vec!["action"]),
+            ("activation-block", vec!["question"]),
             ("animated-counter", vec!["value"]),
             ("animated-reveal", vec!["children"]),
             ("article-section", vec!["title", "children"]),
             ("battle-template", vec!["entity"]),
             ("behavior-view", vec!["data"]),
+            ("bloom-quiz-block", vec!["level", "question", "answer"]),
             ("book-chapter-view", vec!["chapter"]),
             ("book-cover-page", vec!["title"]),
             ("book-nav-bar", vec!["currentPage", "totalPages"]),
@@ -700,11 +714,13 @@ pub static PATTERN_REQUIRED_PROPS: LazyLock<HashMap<&'static str, Vec<&'static s
             ("center", vec!["children"]),
             ("chart-legend", vec!["items"]),
             ("choice-button", vec!["text"]),
+            ("code-runner-panel", vec!["code", "language"]),
             ("combat-log", vec!["events"]),
             ("combo-counter", vec!["combo"]),
             ("conditional-wrapper", vec!["context", "children"]),
             ("confetti-effect", vec!["trigger"]),
             ("confirm-dialog", vec!["title"]),
+            ("connection-block", vec!["content"]),
             ("content-section", vec!["children"]),
             ("counter-template", vec!["entity"]),
             ("crafting-recipe", vec!["inputs", "output"]),
@@ -784,6 +800,7 @@ pub static PATTERN_REQUIRED_PROPS: LazyLock<HashMap<&'static str, Vec<&'static s
             ("pull-to-refresh", vec!["refreshEvent", "children"]),
             ("quest-tracker", vec!["quests"]),
             ("quiz-block", vec!["question", "answer"]),
+            ("reflection-block", vec!["prompt", "index"]),
             ("relation-select", vec!["options"]),
             ("repeatable-form-section", vec!["sectionType", "title", "items", "renderItem"]),
             ("reply-tree", vec!["nodes"]),
@@ -795,6 +812,7 @@ pub static PATTERN_REQUIRED_PROPS: LazyLock<HashMap<&'static str, Vec<&'static s
             ("score-display", vec!["value"]),
             ("section", vec!["children"]),
             ("section-header", vec!["title"]),
+            ("segment-renderer", vec!["segments"]),
             ("sequence-bar", vec!["slots", "maxSlots", "onSlotDrop", "onSlotRemove"]),
             ("service-catalog", vec!["services"]),
             ("showcase-card", vec!["title", "image"]),
@@ -925,6 +943,7 @@ pub static PATTERN_PROPS_SCHEMA: LazyLock<HashMap<&'static str, HashSet<&'static
                 .into_iter()
                 .collect(),
             ),
+            ("activation-block", ["className", "question", "saveEvent", "savedResponse"].into_iter().collect()),
             (
                 "alert",
                 [
@@ -1078,6 +1097,20 @@ pub static PATTERN_PROPS_SCHEMA: LazyLock<HashMap<&'static str, HashSet<&'static
                 .collect(),
             ),
             ("behavior-view", ["data"].into_iter().collect()),
+            (
+                "bloom-quiz-block",
+                [
+                    "answer",
+                    "answerEvent",
+                    "className",
+                    "index",
+                    "isAnswered",
+                    "level",
+                    "question",
+                ]
+                .into_iter()
+                .collect(),
+            ),
             ("book-chapter-view", ["chapter", "className", "direction", "orbitalSchema"].into_iter().collect()),
             ("book-cover-page", ["author", "className", "coverImageUrl", "direction", "subtitle", "title"].into_iter().collect()),
             ("book-nav-bar", ["chapterTitle", "className", "currentPage", "direction", "totalPages"].into_iter().collect()),
@@ -1415,6 +1448,7 @@ pub static PATTERN_PROPS_SCHEMA: LazyLock<HashMap<&'static str, HashSet<&'static
                 .into_iter()
                 .collect(),
             ),
+            ("code-runner-panel", ["className", "code", "language", "onRun", "runEvent", "runnable"].into_iter().collect()),
             ("combat-log", ["autoScroll", "className", "events", "maxVisible", "showTimestamps", "title"].into_iter().collect()),
             ("combo-counter", ["className", "combo", "multiplier", "size", "streak"].into_iter().collect()),
             ("community-links", ["className", "discord", "github", "heading", "subtitle", "twitter"].into_iter().collect()),
@@ -1443,6 +1477,7 @@ pub static PATTERN_PROPS_SCHEMA: LazyLock<HashMap<&'static str, HashSet<&'static
                 .into_iter()
                 .collect(),
             ),
+            ("connection-block", ["className", "content"].into_iter().collect()),
             ("container", ["as", "center", "children", "className", "maxWidth", "padding", "size"].into_iter().collect()),
             (
                 "content-renderer",
@@ -3226,6 +3261,7 @@ pub static PATTERN_PROPS_SCHEMA: LazyLock<HashMap<&'static str, HashSet<&'static
                 .into_iter()
                 .collect(),
             ),
+            ("reflection-block", ["className", "index", "prompt", "saveEvent", "savedNote"].into_iter().collect()),
             (
                 "relation-select",
                 [
@@ -3363,6 +3399,19 @@ pub static PATTERN_PROPS_SCHEMA: LazyLock<HashMap<&'static str, HashSet<&'static
                 .collect(),
             ),
             ("section-header", ["align", "className", "level", "subtitle", "title"].into_iter().collect()),
+            (
+                "segment-renderer",
+                [
+                    "className",
+                    "containerClassName",
+                    "onRenderVisualization",
+                    "onRunCodeSimulation",
+                    "segments",
+                    "userProgress",
+                ]
+                .into_iter()
+                .collect(),
+            ),
             (
                 "select",
                 [
@@ -4565,6 +4614,17 @@ pub static PATTERN_PROP_TYPES: LazyLock<HashMap<&'static str, HashMap<&'static s
                 .collect(),
             ),
             (
+                "activation-block",
+                [
+                    ("question", &["string"] as &[&str]),
+                    ("savedResponse", &["string"] as &[&str]),
+                    ("saveEvent", &["string"] as &[&str]),
+                    ("className", &["string"] as &[&str]),
+                ]
+                .into_iter()
+                .collect(),
+            ),
+            (
                 "alert",
                 [
                     ("children", &["node"] as &[&str]),
@@ -4749,6 +4809,20 @@ pub static PATTERN_PROP_TYPES: LazyLock<HashMap<&'static str, HashMap<&'static s
                 .collect(),
             ),
             ("behavior-view", [("data", &["object"] as &[&str])].into_iter().collect()),
+            (
+                "bloom-quiz-block",
+                [
+                    ("level", &["string"] as &[&str]),
+                    ("question", &["string"] as &[&str]),
+                    ("answer", &["string"] as &[&str]),
+                    ("index", &["number"] as &[&str]),
+                    ("isAnswered", &["boolean"] as &[&str]),
+                    ("answerEvent", &["string"] as &[&str]),
+                    ("className", &["string"] as &[&str]),
+                ]
+                .into_iter()
+                .collect(),
+            ),
             (
                 "book-chapter-view",
                 [
@@ -5185,6 +5259,19 @@ pub static PATTERN_PROP_TYPES: LazyLock<HashMap<&'static str, HashMap<&'static s
                 .collect(),
             ),
             (
+                "code-runner-panel",
+                [
+                    ("code", &["string"] as &[&str]),
+                    ("language", &["string"] as &[&str]),
+                    ("runnable", &["boolean"] as &[&str]),
+                    ("onRun", &["function"] as &[&str]),
+                    ("runEvent", &["string"] as &[&str]),
+                    ("className", &["string"] as &[&str]),
+                ]
+                .into_iter()
+                .collect(),
+            ),
+            (
                 "combat-log",
                 [
                     ("events", &["array"] as &[&str]),
@@ -5268,6 +5355,7 @@ pub static PATTERN_PROP_TYPES: LazyLock<HashMap<&'static str, HashMap<&'static s
                 .into_iter()
                 .collect(),
             ),
+            ("connection-block", [("content", &["string"] as &[&str]), ("className", &["string"] as &[&str])].into_iter().collect()),
             (
                 "container",
                 [
@@ -7531,6 +7619,18 @@ pub static PATTERN_PROP_TYPES: LazyLock<HashMap<&'static str, HashMap<&'static s
                 .collect(),
             ),
             (
+                "reflection-block",
+                [
+                    ("prompt", &["string"] as &[&str]),
+                    ("index", &["number"] as &[&str]),
+                    ("savedNote", &["string"] as &[&str]),
+                    ("saveEvent", &["string"] as &[&str]),
+                    ("className", &["string"] as &[&str]),
+                ]
+                .into_iter()
+                .collect(),
+            ),
+            (
                 "relation-select",
                 [
                     ("value", &["string"] as &[&str]),
@@ -7733,6 +7833,19 @@ pub static PATTERN_PROP_TYPES: LazyLock<HashMap<&'static str, HashMap<&'static s
                     ("align", &["string"] as &[&str]),
                     ("level", &["number"] as &[&str]),
                     ("className", &["string"] as &[&str]),
+                ]
+                .into_iter()
+                .collect(),
+            ),
+            (
+                "segment-renderer",
+                [
+                    ("segments", &["array"] as &[&str]),
+                    ("className", &["string"] as &[&str]),
+                    ("containerClassName", &["string"] as &[&str]),
+                    ("userProgress", &["object"] as &[&str]),
+                    ("onRunCodeSimulation", &["function"] as &[&str]),
+                    ("onRenderVisualization", &["function"] as &[&str]),
                 ]
                 .into_iter()
                 .collect(),
@@ -9291,6 +9404,7 @@ pub static PATTERN_PROP_ENUM_VALUES: LazyLock<HashMap<&'static str, HashMap<&'st
                 .collect(),
             ),
             ("battle-board", [("sortDirection", &["asc", "desc"] as &[&str])].into_iter().collect()),
+            ("bloom-quiz-block", [("level", &["remember", "understand", "apply", "analyze", "evaluate", "create"] as &[&str])].into_iter().collect()),
             ("book-chapter-view", [("direction", &["rtl", "ltr"] as &[&str])].into_iter().collect()),
             ("book-cover-page", [("direction", &["rtl", "ltr"] as &[&str])].into_iter().collect()),
             ("book-nav-bar", [("direction", &["rtl", "ltr"] as &[&str])].into_iter().collect()),
