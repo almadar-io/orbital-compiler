@@ -1,6 +1,6 @@
 // Auto-generated from @almadar/std canonical-operators.json by @almadar-io/almadar-pattern-sync.
 // DO NOT EDIT MANUALLY.
-// Total operators targeting Rust: 249
+// Total operators targeting Rust: 254
 
 /// Operator metadata derived from the canonical @almadar/std registry.
 #[derive(Debug, Clone)]
@@ -1403,6 +1403,36 @@ pub static CANONICAL_OPERATORS: &[OperatorMeta] = &[
         return_semantics: None,
     },
     OperatorMeta {
+        name: "noise/fbm",
+        category: "std-noise",
+        min_arity: 3,
+        max_arity: Some(4),
+        return_type: "number",
+        description: "Fractal Brownian motion: summed perlin octaves (clamped 1..8); output [-1,1]",
+        has_side_effects: false,
+        return_semantics: None,
+    },
+    OperatorMeta {
+        name: "noise/perlin",
+        category: "std-noise",
+        min_arity: 2,
+        max_arity: Some(3),
+        return_type: "number",
+        description: "2D Perlin noise at (x,y) with optional seed; output [-1,1]",
+        has_side_effects: false,
+        return_semantics: None,
+    },
+    OperatorMeta {
+        name: "noise/simplex",
+        category: "std-noise",
+        min_arity: 2,
+        max_arity: Some(3),
+        return_type: "number",
+        description: "Value-coherent noise (perlin-derived) at (x,y) with optional seed; output [-1,1]",
+        has_side_effects: false,
+        return_semantics: None,
+    },
+    OperatorMeta {
         name: "not",
         category: "logic",
         min_arity: 1,
@@ -1609,6 +1639,26 @@ pub static CANONICAL_OPERATORS: &[OperatorMeta] = &[
         max_arity: None,
         return_type: "string",
         description: "Build a dot-separated path string from segments. Used with set effect for dynamic field paths.",
+        has_side_effects: false,
+        return_semantics: None,
+    },
+    OperatorMeta {
+        name: "path/astar",
+        category: "std-path",
+        min_arity: 5,
+        max_arity: Some(6),
+        return_type: "array",
+        description: "A* shortest path on a w×h grid; returns cells start→goal (incl. both) or [] if none",
+        has_side_effects: false,
+        return_semantics: None,
+    },
+    OperatorMeta {
+        name: "path/reachable",
+        category: "std-path",
+        min_arity: 5,
+        max_arity: Some(6),
+        return_type: "array",
+        description: "BFS cells reachable within N moves from start (incl. start); sorted row-major",
         has_side_effects: false,
         return_semantics: None,
     },
@@ -2539,7 +2589,7 @@ mod tests {
 
     #[test]
     fn test_canonical_operators_count() {
-        assert_eq!(CANONICAL_OPERATORS.len(), 249);
+        assert_eq!(CANONICAL_OPERATORS.len(), 254);
     }
 
     #[test]
