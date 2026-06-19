@@ -1183,6 +1183,7 @@ pub static PATTERN_PROPS_SCHEMA: LazyLock<HashMap<&'static str, HashSet<&'static
                 "builder-board",
                 [
                     "activeFilters",
+                    "checkEvent",
                     "className",
                     "completeEvent",
                     "entity",
@@ -1190,6 +1191,8 @@ pub static PATTERN_PROPS_SCHEMA: LazyLock<HashMap<&'static str, HashSet<&'static
                     "isLoading",
                     "page",
                     "pageSize",
+                    "placeEvent",
+                    "playAgainEvent",
                     "searchValue",
                     "selectedIds",
                     "sortBy",
@@ -1403,6 +1406,8 @@ pub static PATTERN_PROPS_SCHEMA: LazyLock<HashMap<&'static str, HashSet<&'static
                 "classifier-board",
                 [
                     "activeFilters",
+                    "assignEvent",
+                    "checkEvent",
                     "className",
                     "completeEvent",
                     "entity",
@@ -1410,6 +1415,7 @@ pub static PATTERN_PROPS_SCHEMA: LazyLock<HashMap<&'static str, HashSet<&'static
                     "isLoading",
                     "page",
                     "pageSize",
+                    "playAgainEvent",
                     "searchValue",
                     "selectedIds",
                     "sortBy",
@@ -1711,6 +1717,7 @@ pub static PATTERN_PROPS_SCHEMA: LazyLock<HashMap<&'static str, HashSet<&'static
                 "debugger-board",
                 [
                     "activeFilters",
+                    "checkEvent",
                     "className",
                     "completeEvent",
                     "entity",
@@ -1718,10 +1725,12 @@ pub static PATTERN_PROPS_SCHEMA: LazyLock<HashMap<&'static str, HashSet<&'static
                     "isLoading",
                     "page",
                     "pageSize",
+                    "playAgainEvent",
                     "searchValue",
                     "selectedIds",
                     "sortBy",
                     "sortDirection",
+                    "toggleFlagEvent",
                     "totalCount",
                 ]
                 .into_iter()
@@ -2977,9 +2986,12 @@ pub static PATTERN_PROPS_SCHEMA: LazyLock<HashMap<&'static str, HashSet<&'static
                     "completeEvent",
                     "entity",
                     "error",
+                    "finishEvent",
                     "isLoading",
                     "page",
                     "pageSize",
+                    "playAgainEvent",
+                    "playRoundEvent",
                     "searchValue",
                     "selectedIds",
                     "sortBy",
@@ -3579,6 +3591,7 @@ pub static PATTERN_PROPS_SCHEMA: LazyLock<HashMap<&'static str, HashSet<&'static
                 "simulator-board",
                 [
                     "activeFilters",
+                    "checkEvent",
                     "className",
                     "completeEvent",
                     "entity",
@@ -3586,8 +3599,11 @@ pub static PATTERN_PROPS_SCHEMA: LazyLock<HashMap<&'static str, HashSet<&'static
                     "isLoading",
                     "page",
                     "pageSize",
+                    "playAgainEvent",
                     "searchValue",
                     "selectedIds",
+                    "setAEvent",
+                    "setBEvent",
                     "sortBy",
                     "sortDirection",
                     "totalCount",
@@ -4960,6 +4976,9 @@ pub static PATTERN_PROP_TYPES: LazyLock<HashMap<&'static str, HashMap<&'static s
                     ("selectedIds", &["array"] as &[&str]),
                     ("entity", &["object", "array"] as &[&str]),
                     ("completeEvent", &["string"] as &[&str]),
+                    ("placeEvent", &["string"] as &[&str]),
+                    ("checkEvent", &["string"] as &[&str]),
+                    ("playAgainEvent", &["string"] as &[&str]),
                 ]
                 .into_iter()
                 .collect(),
@@ -5225,6 +5244,9 @@ pub static PATTERN_PROP_TYPES: LazyLock<HashMap<&'static str, HashMap<&'static s
                     ("selectedIds", &["array"] as &[&str]),
                     ("entity", &["object", "array"] as &[&str]),
                     ("completeEvent", &["string"] as &[&str]),
+                    ("assignEvent", &["string"] as &[&str]),
+                    ("checkEvent", &["string"] as &[&str]),
+                    ("playAgainEvent", &["string"] as &[&str]),
                 ]
                 .into_iter()
                 .collect(),
@@ -5667,6 +5689,9 @@ pub static PATTERN_PROP_TYPES: LazyLock<HashMap<&'static str, HashMap<&'static s
                     ("selectedIds", &["array"] as &[&str]),
                     ("entity", &["object", "array"] as &[&str]),
                     ("completeEvent", &["string"] as &[&str]),
+                    ("toggleFlagEvent", &["string"] as &[&str]),
+                    ("checkEvent", &["string"] as &[&str]),
+                    ("playAgainEvent", &["string"] as &[&str]),
                 ]
                 .into_iter()
                 .collect(),
@@ -7248,6 +7273,9 @@ pub static PATTERN_PROP_TYPES: LazyLock<HashMap<&'static str, HashMap<&'static s
                     ("selectedIds", &["array"] as &[&str]),
                     ("entity", &["object", "array"] as &[&str]),
                     ("completeEvent", &["string"] as &[&str]),
+                    ("playRoundEvent", &["string"] as &[&str]),
+                    ("finishEvent", &["string"] as &[&str]),
+                    ("playAgainEvent", &["string"] as &[&str]),
                 ]
                 .into_iter()
                 .collect(),
@@ -8080,6 +8108,10 @@ pub static PATTERN_PROP_TYPES: LazyLock<HashMap<&'static str, HashMap<&'static s
                     ("selectedIds", &["array"] as &[&str]),
                     ("entity", &["object", "array"] as &[&str]),
                     ("completeEvent", &["string"] as &[&str]),
+                    ("setAEvent", &["string"] as &[&str]),
+                    ("setBEvent", &["string"] as &[&str]),
+                    ("checkEvent", &["string"] as &[&str]),
+                    ("playAgainEvent", &["string"] as &[&str]),
                 ]
                 .into_iter()
                 .collect(),
