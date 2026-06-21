@@ -3466,6 +3466,7 @@ pub static PATTERN_PROPS_SCHEMA: LazyLock<HashMap<&'static str, HashSet<&'static
                 [
                     "activeFilters",
                     "categoryColors",
+                    "checkEvent",
                     "className",
                     "completeEvent",
                     "entity",
@@ -3473,7 +3474,10 @@ pub static PATTERN_PROPS_SCHEMA: LazyLock<HashMap<&'static str, HashSet<&'static
                     "isLoading",
                     "page",
                     "pageSize",
+                    "placeEvent",
+                    "playAgainEvent",
                     "playEvent",
+                    "removeEvent",
                     "searchValue",
                     "selectedIds",
                     "sortBy",
@@ -4357,7 +4361,20 @@ pub static PATTERN_PROPS_SCHEMA: LazyLock<HashMap<&'static str, HashSet<&'static
                 .into_iter()
                 .collect(),
             ),
-            ("uncontrolled-battle-board", ["assetManifest", "entity", "features", "tiles", "units"].into_iter().collect()),
+            (
+                "uncontrolled-battle-board",
+                [
+                    "assetManifest",
+                    "entity",
+                    "features",
+                    "playAgainEvent",
+                    "stepEvent",
+                    "tiles",
+                    "units",
+                ]
+                .into_iter()
+                .collect(),
+            ),
             ("unit-command-bar", ["className", "commands", "selectedUnitId"].into_iter().collect()),
             (
                 "upload-drop-zone",
@@ -7935,6 +7952,10 @@ pub static PATTERN_PROP_TYPES: LazyLock<HashMap<&'static str, HashMap<&'static s
                     ("stepDurationMs", &["number"] as &[&str]),
                     ("playEvent", &["string"] as &[&str]),
                     ("completeEvent", &["string"] as &[&str]),
+                    ("placeEvent", &["string"] as &[&str]),
+                    ("removeEvent", &["string"] as &[&str]),
+                    ("checkEvent", &["string"] as &[&str]),
+                    ("playAgainEvent", &["string"] as &[&str]),
                 ]
                 .into_iter()
                 .collect(),
@@ -9148,6 +9169,8 @@ pub static PATTERN_PROP_TYPES: LazyLock<HashMap<&'static str, HashMap<&'static s
                     ("units", &["array"] as &[&str]),
                     ("features", &["array"] as &[&str]),
                     ("assetManifest", &["string"] as &[&str]),
+                    ("stepEvent", &["string"] as &[&str]),
+                    ("playAgainEvent", &["string"] as &[&str]),
                 ]
                 .into_iter()
                 .collect(),
