@@ -213,6 +213,7 @@ pub static PATTERN_TYPES: LazyLock<HashSet<&'static str>> = LazyLock::new(|| {
         "feature-renderer",
         "game-audio-provider",
         "game-audio-toggle",
+        "game-board-3d",
         "game-canvas-2d",
         "game-canvas-3d",
         "game-canvas-3d-battle-template",
@@ -233,12 +234,16 @@ pub static PATTERN_TYPES: LazyLock<HashSet<&'static str>> = LazyLock::new(|| {
         "mini-map",
         "negotiator-board",
         "pattern-tile",
+        "platformer-board",
         "platformer-canvas",
+        "platformer-template",
         "positioned-canvas",
         "powerup-slots",
         "quest-tracker",
         "resource-bar",
         "resource-counter",
+        "roguelike-board",
+        "roguelike-template",
         "score-board",
         "score-display",
         "sequence-bar",
@@ -251,6 +256,8 @@ pub static PATTERN_TYPES: LazyLock<HashSet<&'static str>> = LazyLock::new(|| {
         "state-indicator",
         "status-effect",
         "timer-display",
+        "tower-defense-board",
+        "tower-defense-template",
         "trait-slot",
         "turn-indicator",
         "turn-panel",
@@ -549,6 +556,7 @@ pub static PATTERN_TO_CATEGORY: LazyLock<HashMap<&'static str, &'static str>> =
             ("feature-renderer", "game"),
             ("game-audio-provider", "game"),
             ("game-audio-toggle", "game"),
+            ("game-board-3d", "game"),
             ("game-canvas-2d", "game"),
             ("game-canvas-3d", "game"),
             ("game-canvas-3d-battle-template", "game"),
@@ -569,12 +577,16 @@ pub static PATTERN_TO_CATEGORY: LazyLock<HashMap<&'static str, &'static str>> =
             ("mini-map", "game"),
             ("negotiator-board", "game"),
             ("pattern-tile", "game"),
+            ("platformer-board", "game"),
             ("platformer-canvas", "game"),
+            ("platformer-template", "game"),
             ("positioned-canvas", "game"),
             ("powerup-slots", "game"),
             ("quest-tracker", "game"),
             ("resource-bar", "game"),
             ("resource-counter", "game"),
+            ("roguelike-board", "game"),
+            ("roguelike-template", "game"),
             ("score-board", "game"),
             ("score-display", "game"),
             ("sequence-bar", "game"),
@@ -587,6 +599,8 @@ pub static PATTERN_TO_CATEGORY: LazyLock<HashMap<&'static str, &'static str>> =
             ("state-indicator", "game"),
             ("status-effect", "game"),
             ("timer-display", "game"),
+            ("tower-defense-board", "game"),
+            ("tower-defense-template", "game"),
             ("trait-slot", "game"),
             ("turn-indicator", "game"),
             ("turn-panel", "game"),
@@ -771,6 +785,7 @@ pub static PATTERN_REQUIRED_PROPS: LazyLock<HashMap<&'static str, Vec<&'static s
             ("notification", vec!["message"]),
             ("option-constraint-group", vec!["groupId", "title", "options"]),
             ("pagination", vec!["currentPage", "totalPages"]),
+            ("platformer-template", vec!["entity"]),
             ("popover", vec!["content", "children"]),
             ("positioned-canvas", vec!["items"]),
             ("powerup-slots", vec!["active"]),
@@ -789,6 +804,7 @@ pub static PATTERN_REQUIRED_PROPS: LazyLock<HashMap<&'static str, Vec<&'static s
             ("reply-tree", vec!["nodes"]),
             ("resource-bar", vec!["resources"]),
             ("resource-counter", vec!["label", "value"]),
+            ("roguelike-template", vec!["entity"]),
             ("scaled-diagram", vec!["children"]),
             ("score-board", vec!["score"]),
             ("score-display", vec!["value"]),
@@ -827,6 +843,7 @@ pub static PATTERN_REQUIRED_PROPS: LazyLock<HashMap<&'static str, Vec<&'static s
             ("timeline", vec!["fields"]),
             ("timer-display", vec!["seconds"]),
             ("tooltip", vec!["content", "children"]),
+            ("tower-defense-template", vec!["entity"]),
             ("trait-frame", vec!["traitName"]),
             ("trait-slot", vec!["slotNumber"]),
             ("turn-indicator", vec!["currentTurn"]),
@@ -869,6 +886,7 @@ pub static PATTERN_PROPS_SCHEMA: LazyLock<HashMap<&'static str, HashSet<&'static
             (
                 "action-button",
                 [
+                    "assetUrl",
                     "className",
                     "cooldown",
                     "disabled",
@@ -1322,6 +1340,7 @@ pub static PATTERN_PROPS_SCHEMA: LazyLock<HashMap<&'static str, HashSet<&'static
                     "onTileClick",
                     "onUnitClick",
                     "overlay",
+                    "playAgainEvent",
                     "scale",
                     "sidePanel",
                     "tileClickEvent",
@@ -1432,7 +1451,7 @@ pub static PATTERN_PROPS_SCHEMA: LazyLock<HashMap<&'static str, HashSet<&'static
             ),
             ("code-runner-panel", ["className", "code", "language", "onRun", "runEvent", "runnable"].into_iter().collect()),
             ("combat-log", ["autoScroll", "className", "events", "maxVisible", "showTimestamps", "title"].into_iter().collect()),
-            ("combo-counter", ["className", "combo", "multiplier", "size", "streak"].into_iter().collect()),
+            ("combo-counter", ["assetUrl", "className", "combo", "multiplier", "size", "streak"].into_iter().collect()),
             ("community-links", ["className", "discord", "github", "heading", "subtitle", "twitter"].into_iter().collect()),
             ("conditional-wrapper", ["animate", "children", "condition", "context", "fallback"].into_iter().collect()),
             ("confetti-effect", ["className", "duration", "particleCount", "trigger"].into_iter().collect()),
@@ -1486,6 +1505,7 @@ pub static PATTERN_PROPS_SCHEMA: LazyLock<HashMap<&'static str, HashSet<&'static
             (
                 "control-button",
                 [
+                    "assetUrl",
                     "className",
                     "disabled",
                     "icon",
@@ -1546,7 +1566,7 @@ pub static PATTERN_PROPS_SCHEMA: LazyLock<HashMap<&'static str, HashSet<&'static
                 .into_iter()
                 .collect(),
             ),
-            ("damage-number", ["className", "size", "type", "value"].into_iter().collect()),
+            ("damage-number", ["assetUrl", "className", "size", "type", "value"].into_iter().collect()),
             (
                 "dashboard-grid",
                 [
@@ -1847,7 +1867,7 @@ pub static PATTERN_PROPS_SCHEMA: LazyLock<HashMap<&'static str, HashSet<&'static
                 .into_iter()
                 .collect(),
             ),
-            ("enemy-plate", ["className", "effects", "health", "level", "maxHealth", "name"].into_iter().collect()),
+            ("enemy-plate", ["assetUrl", "className", "effects", "health", "level", "maxHealth", "name"].into_iter().collect()),
             (
                 "entity-cards",
                 [
@@ -1951,11 +1971,13 @@ pub static PATTERN_PROPS_SCHEMA: LazyLock<HashMap<&'static str, HashSet<&'static
                     "activeFilters",
                     "className",
                     "completeEvent",
+                    "editRuleEvent",
                     "entity",
                     "error",
                     "isLoading",
                     "page",
                     "pageSize",
+                    "playAgainEvent",
                     "playEvent",
                     "searchValue",
                     "selectedIds",
@@ -2217,6 +2239,21 @@ pub static PATTERN_PROPS_SCHEMA: LazyLock<HashMap<&'static str, HashSet<&'static
             ),
             ("game-audio-toggle", ["className", "entity", "error", "isLoading", "size"].into_iter().collect()),
             (
+                "game-board-3d",
+                [
+                    "backgroundColor",
+                    "cameraMode",
+                    "className",
+                    "entity",
+                    "features",
+                    "tileClickEvent",
+                    "tiles",
+                    "unitClickEvent",
+                ]
+                .into_iter()
+                .collect(),
+            ),
+            (
                 "game-canvas-2d",
                 [
                     "assetBaseUrl",
@@ -2286,22 +2323,19 @@ pub static PATTERN_PROPS_SCHEMA: LazyLock<HashMap<&'static str, HashSet<&'static
             (
                 "game-canvas-3d-battle-template",
                 [
-                    "attackTargets",
                     "backgroundColor",
                     "cameraMode",
                     "className",
                     "endTurnEvent",
                     "entity",
                     "exitEvent",
-                    "selectedUnitId",
+                    "features",
                     "shadows",
                     "showGrid",
                     "showTurnIndicator",
                     "tileClickEvent",
-                    "unitAttackEvent",
+                    "tiles",
                     "unitClickEvent",
-                    "unitMoveEvent",
-                    "validMoves",
                 ]
                 .into_iter()
                 .collect(),
@@ -2309,7 +2343,6 @@ pub static PATTERN_PROPS_SCHEMA: LazyLock<HashMap<&'static str, HashSet<&'static
             (
                 "game-canvas-3d-castle-template",
                 [
-                    "availableBuildSites",
                     "backgroundColor",
                     "buildEvent",
                     "buildingClickEvent",
@@ -2317,12 +2350,12 @@ pub static PATTERN_PROPS_SCHEMA: LazyLock<HashMap<&'static str, HashSet<&'static
                     "className",
                     "entity",
                     "exitEvent",
+                    "features",
                     "recruitEvent",
-                    "selectedBuildingId",
-                    "selectedTileIds",
                     "shadows",
                     "showGrid",
                     "showHeader",
+                    "tiles",
                     "unitClickEvent",
                 ]
                 .into_iter()
@@ -2331,7 +2364,6 @@ pub static PATTERN_PROPS_SCHEMA: LazyLock<HashMap<&'static str, HashSet<&'static
             (
                 "game-canvas-3d-world-map-template",
                 [
-                    "attackTargets",
                     "backgroundColor",
                     "cameraChangeEvent",
                     "cameraMode",
@@ -2339,7 +2371,7 @@ pub static PATTERN_PROPS_SCHEMA: LazyLock<HashMap<&'static str, HashSet<&'static
                     "entity",
                     "exitEvent",
                     "featureClickEvent",
-                    "selectedUnitId",
+                    "features",
                     "shadows",
                     "showCoordinates",
                     "showGrid",
@@ -2347,8 +2379,8 @@ pub static PATTERN_PROPS_SCHEMA: LazyLock<HashMap<&'static str, HashSet<&'static
                     "tileClickEvent",
                     "tileHoverEvent",
                     "tileLeaveEvent",
+                    "tiles",
                     "unitClickEvent",
-                    "validMoves",
                 ]
                 .into_iter()
                 .collect(),
@@ -3094,6 +3126,33 @@ pub static PATTERN_PROPS_SCHEMA: LazyLock<HashMap<&'static str, HashSet<&'static
             ),
             ("pattern-tile", ["className", "color", "size", "strokeWidth", "variant"].into_iter().collect()),
             (
+                "platformer-board",
+                [
+                    "bgColor",
+                    "canvasHeight",
+                    "canvasWidth",
+                    "className",
+                    "entity",
+                    "jumpEvent",
+                    "leftEvent",
+                    "level",
+                    "lives",
+                    "platforms",
+                    "playAgainEvent",
+                    "player",
+                    "playerSprite",
+                    "result",
+                    "rightEvent",
+                    "score",
+                    "stopEvent",
+                    "tileSprites",
+                    "worldHeight",
+                    "worldWidth",
+                ]
+                .into_iter()
+                .collect(),
+            ),
+            (
                 "platformer-canvas",
                 [
                     "assetBaseUrl",
@@ -3110,6 +3169,24 @@ pub static PATTERN_PROPS_SCHEMA: LazyLock<HashMap<&'static str, HashSet<&'static
                     "playerSprite",
                     "rightEvent",
                     "stopEvent",
+                    "tileSprites",
+                    "worldHeight",
+                    "worldWidth",
+                ]
+                .into_iter()
+                .collect(),
+            ),
+            (
+                "platformer-template",
+                [
+                    "bgColor",
+                    "canvasHeight",
+                    "canvasWidth",
+                    "className",
+                    "entity",
+                    "goalX",
+                    "platforms",
+                    "playerSprite",
                     "tileSprites",
                     "worldHeight",
                     "worldWidth",
@@ -3314,7 +3391,7 @@ pub static PATTERN_PROPS_SCHEMA: LazyLock<HashMap<&'static str, HashSet<&'static
                 .collect(),
             ),
             ("resource-bar", ["className", "resources", "size"].into_iter().collect()),
-            ("resource-counter", ["className", "color", "icon", "label", "max", "size", "value"].into_iter().collect()),
+            ("resource-counter", ["assetUrl", "className", "color", "icon", "label", "max", "size", "value"].into_iter().collect()),
             (
                 "rich-block-editor",
                 [
@@ -3330,10 +3407,47 @@ pub static PATTERN_PROPS_SCHEMA: LazyLock<HashMap<&'static str, HashSet<&'static
                 .into_iter()
                 .collect(),
             ),
+            (
+                "roguelike-board",
+                [
+                    "activeFilters",
+                    "assetManifest",
+                    "className",
+                    "depth",
+                    "enemies",
+                    "entity",
+                    "error",
+                    "isLoading",
+                    "items",
+                    "moveEvent",
+                    "page",
+                    "pageSize",
+                    "phase",
+                    "playAgainEvent",
+                    "player",
+                    "playerAttack",
+                    "playerHp",
+                    "playerMaxHp",
+                    "result",
+                    "scale",
+                    "searchValue",
+                    "selectedIds",
+                    "sortBy",
+                    "sortDirection",
+                    "stairsX",
+                    "stairsY",
+                    "tiles",
+                    "totalCount",
+                    "unitScale",
+                ]
+                .into_iter()
+                .collect(),
+            ),
+            ("roguelike-template", ["assetManifest", "className", "entity", "scale", "tiles", "unitScale"].into_iter().collect()),
             ("runtime-debugger", ["className", "defaultCollapsed", "defaultTab", "mode", "position", "schema"].into_iter().collect()),
             ("scaled-diagram", ["children", "className"].into_iter().collect()),
             ("score-board", ["className", "combo", "highScore", "level", "multiplier", "score"].into_iter().collect()),
-            ("score-display", ["animated", "className", "icon", "label", "locale", "size", "value"].into_iter().collect()),
+            ("score-display", ["animated", "assetUrl", "className", "icon", "label", "locale", "size", "value"].into_iter().collect()),
             (
                 "search-input",
                 [
@@ -3696,6 +3810,7 @@ pub static PATTERN_PROPS_SCHEMA: LazyLock<HashMap<&'static str, HashSet<&'static
             (
                 "stat-badge",
                 [
+                    "assetUrl",
                     "className",
                     "field",
                     "format",
@@ -3744,6 +3859,7 @@ pub static PATTERN_PROPS_SCHEMA: LazyLock<HashMap<&'static str, HashSet<&'static
                 "state-architect-board",
                 [
                     "activeFilters",
+                    "addTransitionEvent",
                     "className",
                     "completeEvent",
                     "entity",
@@ -3751,6 +3867,8 @@ pub static PATTERN_PROPS_SCHEMA: LazyLock<HashMap<&'static str, HashSet<&'static
                     "isLoading",
                     "page",
                     "pageSize",
+                    "playAgainEvent",
+                    "removeTransitionEvent",
                     "searchValue",
                     "selectedIds",
                     "sortBy",
@@ -3762,7 +3880,7 @@ pub static PATTERN_PROPS_SCHEMA: LazyLock<HashMap<&'static str, HashSet<&'static
                 .into_iter()
                 .collect(),
             ),
-            ("state-indicator", ["animated", "className", "label", "size", "state", "stateStyles"].into_iter().collect()),
+            ("state-indicator", ["animated", "assetUrl", "className", "label", "size", "state", "stateStyles"].into_iter().collect()),
             ("state-machine-view", ["className", "error", "isLoading", "layoutData", "renderStateNode"].into_iter().collect()),
             ("stats-grid", ["className", "columns", "stats"].into_iter().collect()),
             (
@@ -3786,7 +3904,21 @@ pub static PATTERN_PROPS_SCHEMA: LazyLock<HashMap<&'static str, HashSet<&'static
                 .collect(),
             ),
             ("status-dot", ["className", "label", "pulse", "size", "status"].into_iter().collect()),
-            ("status-effect", ["className", "duration", "icon", "label", "size", "stacks", "variant"].into_iter().collect()),
+            (
+                "status-effect",
+                [
+                    "assetUrl",
+                    "className",
+                    "duration",
+                    "icon",
+                    "label",
+                    "size",
+                    "stacks",
+                    "variant",
+                ]
+                .into_iter()
+                .collect(),
+            ),
             ("step-flow", ["className", "orientation", "showConnectors", "steps"].into_iter().collect()),
             (
                 "step-flow-organism",
@@ -4203,6 +4335,66 @@ pub static PATTERN_PROPS_SCHEMA: LazyLock<HashMap<&'static str, HashSet<&'static
                 .into_iter()
                 .collect(),
             ),
+            (
+                "tower-defense-board",
+                [
+                    "activeFilters",
+                    "className",
+                    "creeps",
+                    "entity",
+                    "error",
+                    "gold",
+                    "isLoading",
+                    "lives",
+                    "maxWaves",
+                    "page",
+                    "pageSize",
+                    "path",
+                    "placeTowerEvent",
+                    "playAgainEvent",
+                    "result",
+                    "scale",
+                    "searchValue",
+                    "selectedIds",
+                    "sortBy",
+                    "sortDirection",
+                    "startWaveEvent",
+                    "tiles",
+                    "totalCount",
+                    "towerCost",
+                    "towers",
+                    "wave",
+                    "waveActive",
+                ]
+                .into_iter()
+                .collect(),
+            ),
+            (
+                "tower-defense-template",
+                [
+                    "className",
+                    "creepBaseHp",
+                    "creepsPerWave",
+                    "entity",
+                    "gold",
+                    "goldPerKill",
+                    "lives",
+                    "maxWaves",
+                    "path",
+                    "placeTowerEvent",
+                    "playAgainEvent",
+                    "scale",
+                    "startWaveEvent",
+                    "tiles",
+                    "title",
+                    "towerCost",
+                    "towerDamage",
+                    "towerRange",
+                    "towers",
+                ]
+                .into_iter()
+                .collect(),
+            ),
             ("trait-frame", ["fallback", "traitName"].into_iter().collect()),
             (
                 "trait-slot",
@@ -4233,7 +4425,20 @@ pub static PATTERN_PROPS_SCHEMA: LazyLock<HashMap<&'static str, HashSet<&'static
                 .collect(),
             ),
             ("trend-indicator", ["className", "direction", "invert", "label", "showValue", "size", "value"].into_iter().collect()),
-            ("turn-indicator", ["activeTeam", "className", "currentTurn", "maxTurns", "phase", "size"].into_iter().collect()),
+            (
+                "turn-indicator",
+                [
+                    "activeTeam",
+                    "assetUrl",
+                    "className",
+                    "currentTurn",
+                    "maxTurns",
+                    "phase",
+                    "size",
+                ]
+                .into_iter()
+                .collect(),
+            ),
             ("turn-panel", ["actions", "activeTeam", "className", "currentTurn", "maxTurns", "phase"].into_iter().collect()),
             ("typewriter-text", ["className", "onComplete", "speed", "startDelay", "text"].into_iter().collect()),
             (
@@ -4354,7 +4559,7 @@ pub static PATTERN_PROPS_SCHEMA: LazyLock<HashMap<&'static str, HashSet<&'static
                 .into_iter()
                 .collect(),
             ),
-            ("waypoint-marker", ["active", "className", "completed", "icon", "label", "size"].into_iter().collect()),
+            ("waypoint-marker", ["active", "assetUrl", "className", "completed", "icon", "label", "size"].into_iter().collect()),
             (
                 "wizard-container",
                 [
@@ -4494,6 +4699,7 @@ pub static PATTERN_PROP_TYPES: LazyLock<HashMap<&'static str, HashMap<&'static s
             (
                 "action-button",
                 [
+                    ("assetUrl", &["asset"] as &[&str]),
                     ("label", &["string"] as &[&str]),
                     ("icon", &["icon", "string"] as &[&str]),
                     ("cooldown", &["number"] as &[&str]),
@@ -5060,6 +5266,7 @@ pub static PATTERN_PROP_TYPES: LazyLock<HashMap<&'static str, HashMap<&'static s
                     ("featureClickEvent", &["string"] as &[&str]),
                     ("unitClickEvent", &["string"] as &[&str]),
                     ("tileClickEvent", &["string"] as &[&str]),
+                    ("playAgainEvent", &["string"] as &[&str]),
                     ("className", &["string"] as &[&str]),
                 ]
                 .into_iter()
@@ -5237,6 +5444,7 @@ pub static PATTERN_PROP_TYPES: LazyLock<HashMap<&'static str, HashMap<&'static s
             (
                 "combo-counter",
                 [
+                    ("assetUrl", &["asset"] as &[&str]),
                     ("combo", &["number"] as &[&str]),
                     ("multiplier", &["number"] as &[&str]),
                     ("streak", &["number"] as &[&str]),
@@ -5356,6 +5564,7 @@ pub static PATTERN_PROP_TYPES: LazyLock<HashMap<&'static str, HashMap<&'static s
             (
                 "control-button",
                 [
+                    ("assetUrl", &["asset"] as &[&str]),
                     ("label", &["string"] as &[&str]),
                     ("icon", &["icon", "string"] as &[&str]),
                     ("size", &["string"] as &[&str]),
@@ -5431,6 +5640,7 @@ pub static PATTERN_PROP_TYPES: LazyLock<HashMap<&'static str, HashMap<&'static s
             (
                 "damage-number",
                 [
+                    ("assetUrl", &["asset"] as &[&str]),
                     ("value", &["number"] as &[&str]),
                     ("type", &["string"] as &[&str]),
                     ("size", &["string"] as &[&str]),
@@ -5823,6 +6033,7 @@ pub static PATTERN_PROP_TYPES: LazyLock<HashMap<&'static str, HashMap<&'static s
             (
                 "enemy-plate",
                 [
+                    ("assetUrl", &["asset"] as &[&str]),
                     ("name", &["string"] as &[&str]),
                     ("health", &["number"] as &[&str]),
                     ("maxHealth", &["number"] as &[&str]),
@@ -5970,6 +6181,8 @@ pub static PATTERN_PROP_TYPES: LazyLock<HashMap<&'static str, HashMap<&'static s
                     ("stepDurationMs", &["number"] as &[&str]),
                     ("playEvent", &["string"] as &[&str]),
                     ("completeEvent", &["string"] as &[&str]),
+                    ("editRuleEvent", &["string"] as &[&str]),
+                    ("playAgainEvent", &["string"] as &[&str]),
                 ]
                 .into_iter()
                 .collect(),
@@ -6300,6 +6513,21 @@ pub static PATTERN_PROP_TYPES: LazyLock<HashMap<&'static str, HashMap<&'static s
                 .collect(),
             ),
             (
+                "game-board-3d",
+                [
+                    ("entity", &["object", "array"] as &[&str]),
+                    ("tiles", &["array"] as &[&str]),
+                    ("features", &["array"] as &[&str]),
+                    ("cameraMode", &["string"] as &[&str]),
+                    ("backgroundColor", &["string"] as &[&str]),
+                    ("tileClickEvent", &["string"] as &[&str]),
+                    ("unitClickEvent", &["string"] as &[&str]),
+                    ("className", &["string"] as &[&str]),
+                ]
+                .into_iter()
+                .collect(),
+            ),
+            (
                 "game-canvas-2d",
                 [
                     ("width", &["number"] as &[&str]),
@@ -6371,19 +6599,16 @@ pub static PATTERN_PROP_TYPES: LazyLock<HashMap<&'static str, HashMap<&'static s
                 [
                     ("entity", &["object"] as &[&str]),
                     ("className", &["string"] as &[&str]),
+                    ("tiles", &["array"] as &[&str]),
+                    ("features", &["array"] as &[&str]),
                     ("cameraMode", &["string"] as &[&str]),
                     ("showGrid", &["boolean"] as &[&str]),
                     ("shadows", &["boolean"] as &[&str]),
                     ("backgroundColor", &["string"] as &[&str]),
                     ("tileClickEvent", &["string"] as &[&str]),
                     ("unitClickEvent", &["string"] as &[&str]),
-                    ("unitAttackEvent", &["string"] as &[&str]),
-                    ("unitMoveEvent", &["string"] as &[&str]),
                     ("endTurnEvent", &["string"] as &[&str]),
                     ("exitEvent", &["string"] as &[&str]),
-                    ("selectedUnitId", &["string"] as &[&str]),
-                    ("validMoves", &["array"] as &[&str]),
-                    ("attackTargets", &["array"] as &[&str]),
                     ("showTurnIndicator", &["boolean"] as &[&str]),
                 ]
                 .into_iter()
@@ -6394,6 +6619,8 @@ pub static PATTERN_PROP_TYPES: LazyLock<HashMap<&'static str, HashMap<&'static s
                 [
                     ("entity", &["object"] as &[&str]),
                     ("className", &["string"] as &[&str]),
+                    ("tiles", &["array"] as &[&str]),
+                    ("features", &["array"] as &[&str]),
                     ("cameraMode", &["string"] as &[&str]),
                     ("showGrid", &["boolean"] as &[&str]),
                     ("shadows", &["boolean"] as &[&str]),
@@ -6403,10 +6630,7 @@ pub static PATTERN_PROP_TYPES: LazyLock<HashMap<&'static str, HashMap<&'static s
                     ("buildEvent", &["string"] as &[&str]),
                     ("recruitEvent", &["string"] as &[&str]),
                     ("exitEvent", &["string"] as &[&str]),
-                    ("selectedBuildingId", &["string"] as &[&str]),
-                    ("availableBuildSites", &["array"] as &[&str]),
                     ("showHeader", &["boolean"] as &[&str]),
-                    ("selectedTileIds", &["array"] as &[&str]),
                 ]
                 .into_iter()
                 .collect(),
@@ -6416,6 +6640,8 @@ pub static PATTERN_PROP_TYPES: LazyLock<HashMap<&'static str, HashMap<&'static s
                 [
                     ("entity", &["object"] as &[&str]),
                     ("className", &["string"] as &[&str]),
+                    ("tiles", &["array"] as &[&str]),
+                    ("features", &["array"] as &[&str]),
                     ("cameraMode", &["string"] as &[&str]),
                     ("showGrid", &["boolean"] as &[&str]),
                     ("showCoordinates", &["boolean"] as &[&str]),
@@ -6429,9 +6655,6 @@ pub static PATTERN_PROP_TYPES: LazyLock<HashMap<&'static str, HashMap<&'static s
                     ("tileLeaveEvent", &["string"] as &[&str]),
                     ("cameraChangeEvent", &["string"] as &[&str]),
                     ("exitEvent", &["string"] as &[&str]),
-                    ("selectedUnitId", &["string"] as &[&str]),
-                    ("validMoves", &["array"] as &[&str]),
-                    ("attackTargets", &["array"] as &[&str]),
                 ]
                 .into_iter()
                 .collect(),
@@ -7347,6 +7570,33 @@ pub static PATTERN_PROP_TYPES: LazyLock<HashMap<&'static str, HashMap<&'static s
                 .collect(),
             ),
             (
+                "platformer-board",
+                [
+                    ("entity", &["object", "array"] as &[&str]),
+                    ("player", &["object"] as &[&str]),
+                    ("platforms", &["array"] as &[&str]),
+                    ("result", &["string"] as &[&str]),
+                    ("lives", &["number"] as &[&str]),
+                    ("score", &["number"] as &[&str]),
+                    ("level", &["number"] as &[&str]),
+                    ("worldWidth", &["number"] as &[&str]),
+                    ("worldHeight", &["number"] as &[&str]),
+                    ("canvasWidth", &["number"] as &[&str]),
+                    ("canvasHeight", &["number"] as &[&str]),
+                    ("playerSprite", &["asset"] as &[&str]),
+                    ("tileSprites", &["object"] as &[&str]),
+                    ("bgColor", &["string"] as &[&str]),
+                    ("leftEvent", &["string"] as &[&str]),
+                    ("rightEvent", &["string"] as &[&str]),
+                    ("jumpEvent", &["string"] as &[&str]),
+                    ("stopEvent", &["string"] as &[&str]),
+                    ("playAgainEvent", &["string"] as &[&str]),
+                    ("className", &["string"] as &[&str]),
+                ]
+                .into_iter()
+                .collect(),
+            ),
+            (
                 "platformer-canvas",
                 [
                     ("player", &["object"] as &[&str]),
@@ -7366,6 +7616,24 @@ pub static PATTERN_PROP_TYPES: LazyLock<HashMap<&'static str, HashMap<&'static s
                     ("jumpEvent", &["string"] as &[&str]),
                     ("stopEvent", &["string"] as &[&str]),
                     ("className", &["string"] as &[&str]),
+                ]
+                .into_iter()
+                .collect(),
+            ),
+            (
+                "platformer-template",
+                [
+                    ("entity", &["object"] as &[&str]),
+                    ("className", &["string"] as &[&str]),
+                    ("platforms", &["string"] as &[&str]),
+                    ("goalX", &["number"] as &[&str]),
+                    ("worldWidth", &["number"] as &[&str]),
+                    ("worldHeight", &["number"] as &[&str]),
+                    ("canvasWidth", &["number"] as &[&str]),
+                    ("canvasHeight", &["number"] as &[&str]),
+                    ("playerSprite", &["string"] as &[&str]),
+                    ("tileSprites", &["object"] as &[&str]),
+                    ("bgColor", &["string"] as &[&str]),
                 ]
                 .into_iter()
                 .collect(),
@@ -7652,6 +7920,7 @@ pub static PATTERN_PROP_TYPES: LazyLock<HashMap<&'static str, HashMap<&'static s
             (
                 "resource-counter",
                 [
+                    ("assetUrl", &["asset"] as &[&str]),
                     ("icon", &["icon", "string"] as &[&str]),
                     ("label", &["string"] as &[&str]),
                     ("value", &["number"] as &[&str]),
@@ -7674,6 +7943,55 @@ pub static PATTERN_PROP_TYPES: LazyLock<HashMap<&'static str, HashMap<&'static s
                     ("enableBlocks", &["boolean"] as &[&str]),
                     ("showToolbar", &["boolean"] as &[&str]),
                     ("className", &["string"] as &[&str]),
+                ]
+                .into_iter()
+                .collect(),
+            ),
+            (
+                "roguelike-board",
+                [
+                    ("className", &["string"] as &[&str]),
+                    ("isLoading", &["boolean"] as &[&str]),
+                    ("error", &["object"] as &[&str]),
+                    ("sortBy", &["string"] as &[&str]),
+                    ("sortDirection", &["string"] as &[&str]),
+                    ("searchValue", &["string"] as &[&str]),
+                    ("page", &["number"] as &[&str]),
+                    ("pageSize", &["number"] as &[&str]),
+                    ("totalCount", &["number"] as &[&str]),
+                    ("activeFilters", &["object"] as &[&str]),
+                    ("selectedIds", &["array"] as &[&str]),
+                    ("entity", &["object", "array"] as &[&str]),
+                    ("tiles", &["array"] as &[&str]),
+                    ("enemies", &["array"] as &[&str]),
+                    ("items", &["array"] as &[&str]),
+                    ("player", &["object"] as &[&str]),
+                    ("playerHp", &["number"] as &[&str]),
+                    ("playerMaxHp", &["number"] as &[&str]),
+                    ("playerAttack", &["number"] as &[&str]),
+                    ("depth", &["number"] as &[&str]),
+                    ("result", &["string"] as &[&str]),
+                    ("phase", &["string"] as &[&str]),
+                    ("stairsX", &["number"] as &[&str]),
+                    ("stairsY", &["number"] as &[&str]),
+                    ("assetManifest", &["object"] as &[&str]),
+                    ("scale", &["number"] as &[&str]),
+                    ("unitScale", &["number"] as &[&str]),
+                    ("moveEvent", &["string"] as &[&str]),
+                    ("playAgainEvent", &["string"] as &[&str]),
+                ]
+                .into_iter()
+                .collect(),
+            ),
+            (
+                "roguelike-template",
+                [
+                    ("entity", &["object"] as &[&str]),
+                    ("className", &["string"] as &[&str]),
+                    ("scale", &["number"] as &[&str]),
+                    ("unitScale", &["number"] as &[&str]),
+                    ("tiles", &["array"] as &[&str]),
+                    ("assetManifest", &["string"] as &[&str]),
                 ]
                 .into_iter()
                 .collect(),
@@ -7708,6 +8026,7 @@ pub static PATTERN_PROP_TYPES: LazyLock<HashMap<&'static str, HashMap<&'static s
             (
                 "score-display",
                 [
+                    ("assetUrl", &["asset"] as &[&str]),
                     ("value", &["number"] as &[&str]),
                     ("label", &["string"] as &[&str]),
                     ("icon", &["icon", "string"] as &[&str]),
@@ -8181,6 +8500,7 @@ pub static PATTERN_PROP_TYPES: LazyLock<HashMap<&'static str, HashMap<&'static s
             (
                 "stat-badge",
                 [
+                    ("assetUrl", &["asset"] as &[&str]),
                     ("label", &["string"] as &[&str]),
                     ("value", &["number", "string"] as &[&str]),
                     ("max", &["number"] as &[&str]),
@@ -8253,6 +8573,9 @@ pub static PATTERN_PROP_TYPES: LazyLock<HashMap<&'static str, HashMap<&'static s
                     ("stepDurationMs", &["number"] as &[&str]),
                     ("testEvent", &["string"] as &[&str]),
                     ("completeEvent", &["string"] as &[&str]),
+                    ("addTransitionEvent", &["string"] as &[&str]),
+                    ("removeTransitionEvent", &["string"] as &[&str]),
+                    ("playAgainEvent", &["string"] as &[&str]),
                 ]
                 .into_iter()
                 .collect(),
@@ -8260,6 +8583,7 @@ pub static PATTERN_PROP_TYPES: LazyLock<HashMap<&'static str, HashMap<&'static s
             (
                 "state-indicator",
                 [
+                    ("assetUrl", &["asset"] as &[&str]),
                     ("state", &["string"] as &[&str]),
                     ("label", &["string"] as &[&str]),
                     ("size", &["string"] as &[&str]),
@@ -8327,6 +8651,7 @@ pub static PATTERN_PROP_TYPES: LazyLock<HashMap<&'static str, HashMap<&'static s
             (
                 "status-effect",
                 [
+                    ("assetUrl", &["asset"] as &[&str]),
                     ("icon", &["icon", "string"] as &[&str]),
                     ("label", &["string"] as &[&str]),
                     ("duration", &["number"] as &[&str]),
@@ -8853,6 +9178,66 @@ pub static PATTERN_PROP_TYPES: LazyLock<HashMap<&'static str, HashMap<&'static s
                 .into_iter()
                 .collect(),
             ),
+            (
+                "tower-defense-board",
+                [
+                    ("className", &["string"] as &[&str]),
+                    ("isLoading", &["boolean"] as &[&str]),
+                    ("error", &["object"] as &[&str]),
+                    ("sortBy", &["string"] as &[&str]),
+                    ("sortDirection", &["string"] as &[&str]),
+                    ("searchValue", &["string"] as &[&str]),
+                    ("page", &["number"] as &[&str]),
+                    ("pageSize", &["number"] as &[&str]),
+                    ("totalCount", &["number"] as &[&str]),
+                    ("activeFilters", &["object"] as &[&str]),
+                    ("selectedIds", &["array"] as &[&str]),
+                    ("entity", &["object", "array"] as &[&str]),
+                    ("tiles", &["array"] as &[&str]),
+                    ("path", &["array"] as &[&str]),
+                    ("towers", &["array"] as &[&str]),
+                    ("creeps", &["array"] as &[&str]),
+                    ("gold", &["number"] as &[&str]),
+                    ("lives", &["number"] as &[&str]),
+                    ("wave", &["number"] as &[&str]),
+                    ("maxWaves", &["number"] as &[&str]),
+                    ("result", &["string"] as &[&str]),
+                    ("waveActive", &["boolean"] as &[&str]),
+                    ("towerCost", &["number"] as &[&str]),
+                    ("scale", &["number"] as &[&str]),
+                    ("placeTowerEvent", &["string"] as &[&str]),
+                    ("startWaveEvent", &["string"] as &[&str]),
+                    ("playAgainEvent", &["string"] as &[&str]),
+                ]
+                .into_iter()
+                .collect(),
+            ),
+            (
+                "tower-defense-template",
+                [
+                    ("entity", &["object"] as &[&str]),
+                    ("className", &["string"] as &[&str]),
+                    ("title", &["string"] as &[&str]),
+                    ("tiles", &["array"] as &[&str]),
+                    ("path", &["array"] as &[&str]),
+                    ("towers", &["array"] as &[&str]),
+                    ("gold", &["number"] as &[&str]),
+                    ("lives", &["number"] as &[&str]),
+                    ("maxWaves", &["number"] as &[&str]),
+                    ("towerCost", &["number"] as &[&str]),
+                    ("towerRange", &["number"] as &[&str]),
+                    ("towerDamage", &["number"] as &[&str]),
+                    ("creepsPerWave", &["number"] as &[&str]),
+                    ("creepBaseHp", &["number"] as &[&str]),
+                    ("goldPerKill", &["number"] as &[&str]),
+                    ("scale", &["number"] as &[&str]),
+                    ("placeTowerEvent", &["string"] as &[&str]),
+                    ("startWaveEvent", &["string"] as &[&str]),
+                    ("playAgainEvent", &["string"] as &[&str]),
+                ]
+                .into_iter()
+                .collect(),
+            ),
             ("trait-frame", [("traitName", &["string"] as &[&str]), ("fallback", &["node"] as &[&str])].into_iter().collect()),
             (
                 "trait-slot",
@@ -8899,6 +9284,7 @@ pub static PATTERN_PROP_TYPES: LazyLock<HashMap<&'static str, HashMap<&'static s
             (
                 "turn-indicator",
                 [
+                    ("assetUrl", &["asset"] as &[&str]),
                     ("currentTurn", &["number"] as &[&str]),
                     ("maxTurns", &["number"] as &[&str]),
                     ("activeTeam", &["string"] as &[&str]),
@@ -9064,6 +9450,7 @@ pub static PATTERN_PROP_TYPES: LazyLock<HashMap<&'static str, HashMap<&'static s
             (
                 "waypoint-marker",
                 [
+                    ("assetUrl", &["asset"] as &[&str]),
                     ("label", &["string"] as &[&str]),
                     ("icon", &["icon", "string"] as &[&str]),
                     ("active", &["boolean"] as &[&str]),
@@ -9556,6 +9943,7 @@ pub static PATTERN_PROP_ENUM_VALUES: LazyLock<HashMap<&'static str, HashMap<&'st
             ),
             ("form-section-header", [("badgeVariant", &["default", "primary", "success", "warning", "danger"] as &[&str])].into_iter().collect()),
             ("game-audio-toggle", [("size", &["sm", "md", "lg"] as &[&str])].into_iter().collect()),
+            ("game-board-3d", [("cameraMode", &["isometric", "perspective", "top-down"] as &[&str])].into_iter().collect()),
             (
                 "game-canvas-3d",
                 [
@@ -9704,6 +10092,7 @@ pub static PATTERN_PROP_ENUM_VALUES: LazyLock<HashMap<&'static str, HashMap<&'st
                 .into_iter()
                 .collect(),
             ),
+            ("platformer-board", [("result", &["none", "won", "lost"] as &[&str])].into_iter().collect()),
             (
                 "popover",
                 [
@@ -9739,6 +10128,7 @@ pub static PATTERN_PROP_ENUM_VALUES: LazyLock<HashMap<&'static str, HashMap<&'st
                 .into_iter()
                 .collect(),
             ),
+            ("roguelike-board", [("sortDirection", &["asc", "desc"] as &[&str]), ("result", &["none", "won", "lost"] as &[&str])].into_iter().collect()),
             (
                 "runtime-debugger",
                 [
@@ -9891,6 +10281,7 @@ pub static PATTERN_PROP_ENUM_VALUES: LazyLock<HashMap<&'static str, HashMap<&'st
             ("timer-display", [("format", &["mm:ss", "ss", "countdown"] as &[&str]), ("size", &["sm", "md", "lg"] as &[&str])].into_iter().collect()),
             ("toast-slot", [("variant", &["success", "error", "info", "warning"] as &[&str])].into_iter().collect()),
             ("tooltip", [("position", &["top", "bottom", "left", "right"] as &[&str])].into_iter().collect()),
+            ("tower-defense-board", [("sortDirection", &["asc", "desc"] as &[&str]), ("result", &["none", "won", "lost"] as &[&str])].into_iter().collect()),
             ("trait-slot", [("size", &["sm", "md", "lg"] as &[&str]), ("feedback", &["correct", "wrong"] as &[&str])].into_iter().collect()),
             ("trend-indicator", [("direction", &["up", "down", "flat"] as &[&str]), ("size", &["sm", "md", "lg"] as &[&str])].into_iter().collect()),
             ("turn-indicator", [("size", &["sm", "md", "lg"] as &[&str])].into_iter().collect()),
