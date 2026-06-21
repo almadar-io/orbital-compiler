@@ -486,7 +486,7 @@ pub fn factory_signatures_json_io() -> &'static str {
 
 // SYNC-GENERATED:EMBEDDED_STD_BEHAVIORS:BEGIN
 pub static EMBEDDED_STD_BEHAVIORS: phf::Map<&'static str, &'static str> = phf::phf_map! {
-    // === Atoms (320) ===
+    // === Atoms (323) ===
     "std/behaviors/std-agent-activity-log" => include_str!("baked/std/agent/atoms/std-agent-activity-log.orb"),
     "std/behaviors/std-agent-chat-thread" => include_str!("baked/std/agent/atoms/std-agent-chat-thread.orb"),
     "std/behaviors/std-agent-classifier" => include_str!("baked/std/agent/atoms/std-agent-classifier.orb"),
@@ -511,6 +511,7 @@ pub static EMBEDDED_STD_BEHAVIORS: phf::Map<&'static str, &'static str> = phf::p
     "std/behaviors/std-appointment-policy" => include_str!("baked/io/app/atoms/std-appointment-policy.orb"),
     "std/behaviors/std-approval-gate" => include_str!("baked/std/infra/atoms/std-approval-gate.orb"),
     "std/behaviors/std-approval-request" => include_str!("baked/io/app/atoms/std-approval-request.orb"),
+    "std/behaviors/std-asset-manifest" => include_str!("baked/std/core/atoms/std-asset-manifest.orb"),
     "std/behaviors/std-audit-capture" => include_str!("baked/std/infra/atoms/std-audit-capture.orb"),
     "std/behaviors/std-autocomplete" => include_str!("baked/std/core/atoms/std-autocomplete.orb"),
     "std/behaviors/std-billable-hour" => include_str!("baked/std/core/atoms/std-billable-hour.orb"),
@@ -546,6 +547,7 @@ pub static EMBEDDED_STD_BEHAVIORS: phf::Map<&'static str, &'static str> = phf::p
     "std/behaviors/std-confirmation" => include_str!("baked/std/core/atoms/std-confirmation.orb"),
     "std/behaviors/std-content-renderer" => include_str!("baked/io/curated/atoms/std-content-renderer.orb"),
     "std/behaviors/std-conversation-policy" => include_str!("baked/io/app/atoms/std-conversation-policy.orb"),
+    "std/behaviors/std-cooldown" => include_str!("baked/std/core/atoms/std-cooldown.orb"),
     "std/behaviors/std-court-deadline" => include_str!("baked/io/app/atoms/std-court-deadline.orb"),
     "std/behaviors/std-cross-reference" => include_str!("baked/std/infra/atoms/std-cross-reference.orb"),
     "std/behaviors/std-customer-account" => include_str!("baked/io/app/atoms/std-customer-account.orb"),
@@ -581,6 +583,7 @@ pub static EMBEDDED_STD_BEHAVIORS: phf::Map<&'static str, &'static str> = phf::p
     "std/behaviors/std-form-builder" => include_str!("baked/io/app/atoms/std-form-builder.orb"),
     "std/behaviors/std-gallery" => include_str!("baked/std/core/atoms/std-gallery.orb"),
     "std/behaviors/std-game-canvas2d" => include_str!("baked/io/game/atoms/std-game-canvas2d.orb"),
+    "std/behaviors/std-game-clock" => include_str!("baked/std/core/atoms/std-game-clock.orb"),
     "std/behaviors/std-gameflow" => include_str!("baked/io/game/atoms/std-gameflow.orb"),
     "std/behaviors/std-geosearch" => include_str!("baked/std/core/atoms/std-geosearch.orb"),
     "std/behaviors/std-graphs" => include_str!("baked/std/core/atoms/std-graphs.orb"),

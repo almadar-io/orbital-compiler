@@ -2,7 +2,7 @@
 //!
 //! Source: packages/almadar-patterns/src/patterns-registry.json
 //!
-//! Last synced: 2026-06-19
+//! Last synced: 2026-06-21
 //! To regenerate: npx tsx tools/almadar-pattern-sync/index.ts
 //!
 //! DO NOT EDIT MANUALLY - changes will be overwritten on next sync.
@@ -2736,6 +2736,7 @@ pub static PATTERN_PROPS_SCHEMA: LazyLock<HashMap<&'static str, HashSet<&'static
             (
                 "item-slot",
                 [
+                    "assetUrl",
                     "className",
                     "empty",
                     "icon",
@@ -6921,6 +6922,7 @@ pub static PATTERN_PROP_TYPES: LazyLock<HashMap<&'static str, HashMap<&'static s
             (
                 "item-slot",
                 [
+                    ("assetUrl", &["asset"] as &[&str]),
                     ("icon", &["icon", "string"] as &[&str]),
                     ("label", &["string"] as &[&str]),
                     ("quantity", &["number"] as &[&str]),
