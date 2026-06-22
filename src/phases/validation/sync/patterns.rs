@@ -2,7 +2,7 @@
 //!
 //! Source: packages/almadar-patterns/src/patterns-registry.json
 //!
-//! Last synced: 2026-06-21
+//! Last synced: 2026-06-22
 //! To regenerate: npx tsx tools/almadar-pattern-sync/index.ts
 //!
 //! DO NOT EDIT MANUALLY - changes will be overwritten on next sync.
@@ -2241,11 +2241,16 @@ pub static PATTERN_PROPS_SCHEMA: LazyLock<HashMap<&'static str, HashSet<&'static
             (
                 "game-board-3d",
                 [
+                    "attackEvent",
                     "backgroundColor",
                     "cameraMode",
+                    "cancelEvent",
                     "className",
+                    "endTurnEvent",
                     "entity",
                     "features",
+                    "gameEndEvent",
+                    "playAgainEvent",
                     "tileClickEvent",
                     "tiles",
                     "unitClickEvent",
@@ -2323,13 +2328,17 @@ pub static PATTERN_PROPS_SCHEMA: LazyLock<HashMap<&'static str, HashSet<&'static
             (
                 "game-canvas-3d-battle-template",
                 [
+                    "attackEvent",
                     "backgroundColor",
                     "cameraMode",
+                    "cancelEvent",
                     "className",
                     "endTurnEvent",
                     "entity",
                     "exitEvent",
                     "features",
+                    "gameEndEvent",
+                    "playAgainEvent",
                     "shadows",
                     "showGrid",
                     "showTurnIndicator",
@@ -2343,14 +2352,19 @@ pub static PATTERN_PROPS_SCHEMA: LazyLock<HashMap<&'static str, HashSet<&'static
             (
                 "game-canvas-3d-castle-template",
                 [
+                    "attackEvent",
                     "backgroundColor",
                     "buildEvent",
                     "buildingClickEvent",
                     "cameraMode",
+                    "cancelEvent",
                     "className",
+                    "endTurnEvent",
                     "entity",
                     "exitEvent",
                     "features",
+                    "gameEndEvent",
+                    "playAgainEvent",
                     "recruitEvent",
                     "shadows",
                     "showGrid",
@@ -2364,14 +2378,19 @@ pub static PATTERN_PROPS_SCHEMA: LazyLock<HashMap<&'static str, HashSet<&'static
             (
                 "game-canvas-3d-world-map-template",
                 [
+                    "attackEvent",
                     "backgroundColor",
                     "cameraChangeEvent",
                     "cameraMode",
+                    "cancelEvent",
                     "className",
+                    "endTurnEvent",
                     "entity",
                     "exitEvent",
                     "featureClickEvent",
                     "features",
+                    "gameEndEvent",
+                    "playAgainEvent",
                     "shadows",
                     "showCoordinates",
                     "showGrid",
@@ -3133,6 +3152,7 @@ pub static PATTERN_PROPS_SCHEMA: LazyLock<HashMap<&'static str, HashSet<&'static
                     "canvasWidth",
                     "className",
                     "entity",
+                    "gameEndEvent",
                     "jumpEvent",
                     "leftEvent",
                     "level",
@@ -3184,7 +3204,7 @@ pub static PATTERN_PROPS_SCHEMA: LazyLock<HashMap<&'static str, HashSet<&'static
                     "canvasWidth",
                     "className",
                     "entity",
-                    "goalX",
+                    "gameEndEvent",
                     "platforms",
                     "playerSprite",
                     "tileSprites",
@@ -3417,6 +3437,7 @@ pub static PATTERN_PROPS_SCHEMA: LazyLock<HashMap<&'static str, HashSet<&'static
                     "enemies",
                     "entity",
                     "error",
+                    "gameEndEvent",
                     "isLoading",
                     "items",
                     "moveEvent",
@@ -3443,7 +3464,24 @@ pub static PATTERN_PROPS_SCHEMA: LazyLock<HashMap<&'static str, HashSet<&'static
                 .into_iter()
                 .collect(),
             ),
-            ("roguelike-template", ["assetManifest", "className", "entity", "scale", "tiles", "unitScale"].into_iter().collect()),
+            (
+                "roguelike-template",
+                [
+                    "assetManifest",
+                    "className",
+                    "enemies",
+                    "entity",
+                    "gameEndEvent",
+                    "items",
+                    "scale",
+                    "stairsX",
+                    "stairsY",
+                    "tiles",
+                    "unitScale",
+                ]
+                .into_iter()
+                .collect(),
+            ),
             ("runtime-debugger", ["className", "defaultCollapsed", "defaultTab", "mode", "position", "schema"].into_iter().collect()),
             ("scaled-diagram", ["children", "className"].into_iter().collect()),
             ("score-board", ["className", "combo", "highScore", "level", "multiplier", "score"].into_iter().collect()),
@@ -4343,6 +4381,7 @@ pub static PATTERN_PROPS_SCHEMA: LazyLock<HashMap<&'static str, HashSet<&'static
                     "creeps",
                     "entity",
                     "error",
+                    "gameEndEvent",
                     "gold",
                     "isLoading",
                     "lives",
@@ -4376,6 +4415,7 @@ pub static PATTERN_PROPS_SCHEMA: LazyLock<HashMap<&'static str, HashSet<&'static
                     "creepBaseHp",
                     "creepsPerWave",
                     "entity",
+                    "gameEndEvent",
                     "gold",
                     "goldPerKill",
                     "lives",
@@ -6522,6 +6562,11 @@ pub static PATTERN_PROP_TYPES: LazyLock<HashMap<&'static str, HashMap<&'static s
                     ("backgroundColor", &["string"] as &[&str]),
                     ("tileClickEvent", &["string"] as &[&str]),
                     ("unitClickEvent", &["string"] as &[&str]),
+                    ("attackEvent", &["string"] as &[&str]),
+                    ("endTurnEvent", &["string"] as &[&str]),
+                    ("cancelEvent", &["string"] as &[&str]),
+                    ("playAgainEvent", &["string"] as &[&str]),
+                    ("gameEndEvent", &["string"] as &[&str]),
                     ("className", &["string"] as &[&str]),
                 ]
                 .into_iter()
@@ -6608,6 +6653,10 @@ pub static PATTERN_PROP_TYPES: LazyLock<HashMap<&'static str, HashMap<&'static s
                     ("tileClickEvent", &["string"] as &[&str]),
                     ("unitClickEvent", &["string"] as &[&str]),
                     ("endTurnEvent", &["string"] as &[&str]),
+                    ("cancelEvent", &["string"] as &[&str]),
+                    ("attackEvent", &["string"] as &[&str]),
+                    ("playAgainEvent", &["string"] as &[&str]),
+                    ("gameEndEvent", &["string"] as &[&str]),
                     ("exitEvent", &["string"] as &[&str]),
                     ("showTurnIndicator", &["boolean"] as &[&str]),
                 ]
@@ -6627,6 +6676,11 @@ pub static PATTERN_PROP_TYPES: LazyLock<HashMap<&'static str, HashMap<&'static s
                     ("backgroundColor", &["string"] as &[&str]),
                     ("buildingClickEvent", &["string"] as &[&str]),
                     ("unitClickEvent", &["string"] as &[&str]),
+                    ("endTurnEvent", &["string"] as &[&str]),
+                    ("cancelEvent", &["string"] as &[&str]),
+                    ("attackEvent", &["string"] as &[&str]),
+                    ("playAgainEvent", &["string"] as &[&str]),
+                    ("gameEndEvent", &["string"] as &[&str]),
                     ("buildEvent", &["string"] as &[&str]),
                     ("recruitEvent", &["string"] as &[&str]),
                     ("exitEvent", &["string"] as &[&str]),
@@ -6650,6 +6704,11 @@ pub static PATTERN_PROP_TYPES: LazyLock<HashMap<&'static str, HashMap<&'static s
                     ("backgroundColor", &["string"] as &[&str]),
                     ("tileClickEvent", &["string"] as &[&str]),
                     ("unitClickEvent", &["string"] as &[&str]),
+                    ("endTurnEvent", &["string"] as &[&str]),
+                    ("cancelEvent", &["string"] as &[&str]),
+                    ("attackEvent", &["string"] as &[&str]),
+                    ("playAgainEvent", &["string"] as &[&str]),
+                    ("gameEndEvent", &["string"] as &[&str]),
                     ("featureClickEvent", &["string"] as &[&str]),
                     ("tileHoverEvent", &["string"] as &[&str]),
                     ("tileLeaveEvent", &["string"] as &[&str]),
@@ -7591,6 +7650,7 @@ pub static PATTERN_PROP_TYPES: LazyLock<HashMap<&'static str, HashMap<&'static s
                     ("jumpEvent", &["string"] as &[&str]),
                     ("stopEvent", &["string"] as &[&str]),
                     ("playAgainEvent", &["string"] as &[&str]),
+                    ("gameEndEvent", &["string"] as &[&str]),
                     ("className", &["string"] as &[&str]),
                 ]
                 .into_iter()
@@ -7626,7 +7686,6 @@ pub static PATTERN_PROP_TYPES: LazyLock<HashMap<&'static str, HashMap<&'static s
                     ("entity", &["object"] as &[&str]),
                     ("className", &["string"] as &[&str]),
                     ("platforms", &["string"] as &[&str]),
-                    ("goalX", &["number"] as &[&str]),
                     ("worldWidth", &["number"] as &[&str]),
                     ("worldHeight", &["number"] as &[&str]),
                     ("canvasWidth", &["number"] as &[&str]),
@@ -7634,6 +7693,7 @@ pub static PATTERN_PROP_TYPES: LazyLock<HashMap<&'static str, HashMap<&'static s
                     ("playerSprite", &["string"] as &[&str]),
                     ("tileSprites", &["object"] as &[&str]),
                     ("bgColor", &["string"] as &[&str]),
+                    ("gameEndEvent", &["string"] as &[&str]),
                 ]
                 .into_iter()
                 .collect(),
@@ -7979,6 +8039,7 @@ pub static PATTERN_PROP_TYPES: LazyLock<HashMap<&'static str, HashMap<&'static s
                     ("unitScale", &["number"] as &[&str]),
                     ("moveEvent", &["string"] as &[&str]),
                     ("playAgainEvent", &["string"] as &[&str]),
+                    ("gameEndEvent", &["string"] as &[&str]),
                 ]
                 .into_iter()
                 .collect(),
@@ -7991,7 +8052,12 @@ pub static PATTERN_PROP_TYPES: LazyLock<HashMap<&'static str, HashMap<&'static s
                     ("scale", &["number"] as &[&str]),
                     ("unitScale", &["number"] as &[&str]),
                     ("tiles", &["array"] as &[&str]),
+                    ("enemies", &["string"] as &[&str]),
+                    ("items", &["string"] as &[&str]),
+                    ("stairsX", &["number"] as &[&str]),
+                    ("stairsY", &["number"] as &[&str]),
                     ("assetManifest", &["string"] as &[&str]),
+                    ("gameEndEvent", &["string"] as &[&str]),
                 ]
                 .into_iter()
                 .collect(),
@@ -9208,6 +9274,7 @@ pub static PATTERN_PROP_TYPES: LazyLock<HashMap<&'static str, HashMap<&'static s
                     ("placeTowerEvent", &["string"] as &[&str]),
                     ("startWaveEvent", &["string"] as &[&str]),
                     ("playAgainEvent", &["string"] as &[&str]),
+                    ("gameEndEvent", &["string"] as &[&str]),
                 ]
                 .into_iter()
                 .collect(),
@@ -9234,6 +9301,7 @@ pub static PATTERN_PROP_TYPES: LazyLock<HashMap<&'static str, HashMap<&'static s
                     ("placeTowerEvent", &["string"] as &[&str]),
                     ("startWaveEvent", &["string"] as &[&str]),
                     ("playAgainEvent", &["string"] as &[&str]),
+                    ("gameEndEvent", &["string"] as &[&str]),
                 ]
                 .into_iter()
                 .collect(),
