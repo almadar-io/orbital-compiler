@@ -124,6 +124,47 @@ fn walk_expr(
                         walk_expr(&arr[2], &format!("{}[2]", path), context, &extended, result);
                         return;
                     }
+                    // Detect `let`: ["let", [[name, valueExpr], ...], body]. Like the
+                    // evaluator (parallel `let`), value-expressions are checked in the
+                    // OUTER scope; only the body sees the bound names.
+                    if op == "let" {
+                        let mut extended = lambda_locals.clone();
+                        match &arr[1] {
+                            SExpression::Array(bindings) => {
+                                for (bi, binding) in bindings.iter().enumerate() {
+                                    if let SExpression::Array(pair) = binding {
+                                        if let Some(SExpression::String(name)) = pair.first() {
+                                            extended.insert(name.clone());
+                                        }
+                                        if pair.len() >= 2 {
+                                            walk_expr(
+                                                &pair[1],
+                                                &format!("{}[1][{}][1]", path, bi),
+                                                context,
+                                                lambda_locals,
+                                                result,
+                                            );
+                                        }
+                                    }
+                                }
+                            }
+                            SExpression::Object(bindings) => {
+                                for (name, value_expr) in bindings {
+                                    extended.insert(name.clone());
+                                    walk_expr(
+                                        value_expr,
+                                        &format!("{}[1].{}", path, name),
+                                        context,
+                                        lambda_locals,
+                                        result,
+                                    );
+                                }
+                            }
+                            _ => {}
+                        }
+                        walk_expr(&arr[2], &format!("{}[2]", path), context, &extended, result);
+                        return;
+                    }
                 }
             }
             // Collection ops introduce implicit @item / @index in body args.
@@ -325,6 +366,46 @@ mod tests {
             &mut result,
         );
         assert!(result.is_valid());
+    }
+
+    #[test]
+    fn let_locals_are_valid_roots_in_body() {
+        // (let ((nextWaypoint @entity.path)) @nextWaypoint.x) in tick context:
+        // the let-bound name is a valid root inside the body.
+        let expr = SExpression::Array(vec![
+            SExpression::String("let".to_string()),
+            SExpression::Array(vec![SExpression::Array(vec![
+                SExpression::String("nextWaypoint".to_string()),
+                SExpression::String("@entity.path".to_string()),
+            ])]),
+            SExpression::String("@nextWaypoint.x".to_string()),
+        ]);
+        let mut result = ValidationResult::new();
+        walk_expr(&expr, "test", SigilContext::Tick, &HashSet::new(), &mut result);
+        assert!(
+            result.is_valid(),
+            "let-bound name should be a valid root in the body"
+        );
+    }
+
+    #[test]
+    fn let_value_exprs_are_checked_in_outer_scope() {
+        // Parallel `let`: a binding VALUE referencing an unknown root is still
+        // rejected (the value can't see the let names — only the body can).
+        let expr = SExpression::Array(vec![
+            SExpression::String("let".to_string()),
+            SExpression::Array(vec![SExpression::Array(vec![
+                SExpression::String("x".to_string()),
+                SExpression::String("@bogus.field".to_string()),
+            ])]),
+            SExpression::String("@x".to_string()),
+        ]);
+        let mut result = ValidationResult::new();
+        walk_expr(&expr, "test", SigilContext::Tick, &HashSet::new(), &mut result);
+        assert!(
+            !result.is_valid(),
+            "unknown root in a let value-expr must still be flagged"
+        );
     }
 
     #[test]
