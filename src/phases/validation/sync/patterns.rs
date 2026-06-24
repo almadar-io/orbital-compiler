@@ -2,7 +2,7 @@
 //!
 //! Source: packages/almadar-patterns/src/patterns-registry.json
 //!
-//! Last synced: 2026-06-23
+//! Last synced: 2026-06-24
 //! To regenerate: npx tsx tools/almadar-pattern-sync/index.ts
 //!
 //! DO NOT EDIT MANUALLY - changes will be overwritten on next sync.
@@ -1180,6 +1180,7 @@ pub static PATTERN_PROPS_SCHEMA: LazyLock<HashMap<&'static str, HashSet<&'static
                     "position",
                     "rounded",
                     "shadow",
+                    "tapReveal",
                 ]
                 .into_iter()
                 .collect(),
@@ -5385,6 +5386,7 @@ pub static PATTERN_PROP_TYPES: LazyLock<HashMap<&'static str, HashMap<&'static s
                     ("action", &["string"] as &[&str]),
                     ("actionPayload", &["object"] as &[&str]),
                     ("hoverEvent", &["string"] as &[&str]),
+                    ("tapReveal", &["boolean"] as &[&str]),
                     ("maxWidth", &["string"] as &[&str]),
                     ("children", &["node"] as &[&str]),
                 ]

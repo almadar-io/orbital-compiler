@@ -810,7 +810,7 @@ pub static EMBEDDED_STD_BEHAVIORS: phf::Map<&'static str, &'static str> = phf::p
     "std/behaviors/ui-typography" => include_str!("baked/std/ui/core/atoms/ui-typography.orb"),
     "std/behaviors/ui-waypoint-marker" => include_str!("baked/std/ui/game/atoms/ui-waypoint-marker.orb"),
     "std/behaviors/ui-xp-bar" => include_str!("baked/std/ui/game/atoms/ui-xp-bar.orb"),
-    // === Molecules (170) ===
+    // === Molecules (171) ===
     "std/behaviors/std-about-page" => include_str!("baked/io/marketing/molecules/std-about-page.orb"),
     "std/behaviors/std-agent-fix-loop" => include_str!("baked/std/agent/molecules/std-agent-fix-loop.orb"),
     "std/behaviors/std-agent-learner" => include_str!("baked/std/agent/molecules/std-agent-learner.orb"),
@@ -847,6 +847,7 @@ pub static EMBEDDED_STD_BEHAVIORS: phf::Map<&'static str, &'static str> = phf::p
     "std/behaviors/ui-branching-logic-builder" => include_str!("baked/std/ui/core/molecules/ui-branching-logic-builder.orb"),
     "std/behaviors/ui-breadcrumb" => include_str!("baked/std/ui/core/molecules/ui-breadcrumb.orb"),
     "std/behaviors/ui-calendar-grid" => include_str!("baked/std/ui/core/molecules/ui-calendar-grid.orb"),
+    "std/behaviors/ui-card-hand" => include_str!("baked/std/ui/game/molecules/ui-card-hand.orb"),
     "std/behaviors/ui-carousel" => include_str!("baked/std/ui/core/molecules/ui-carousel.orb"),
     "std/behaviors/ui-case-study-card" => include_str!("baked/std/ui/marketing/molecules/ui-case-study-card.orb"),
     "std/behaviors/ui-chart" => include_str!("baked/std/ui/core/molecules/ui-chart.orb"),
@@ -981,7 +982,7 @@ pub static EMBEDDED_STD_BEHAVIORS: phf::Map<&'static str, &'static str> = phf::p
     "std/behaviors/ui-wizard-container" => include_str!("baked/std/ui/core/molecules/ui-wizard-container.orb"),
     "std/behaviors/ui-wizard-navigation" => include_str!("baked/std/ui/core/molecules/ui-wizard-navigation.orb"),
     "std/behaviors/ui-wizard-progress" => include_str!("baked/std/ui/core/molecules/ui-wizard-progress.orb"),
-    // === Organisms (175) ===
+    // === Organisms (179) ===
     "std/behaviors/AccountOrbital" => include_str!("baked/io/curated/organisms/AccountOrbital.orb"),
     "std/behaviors/BundleOrbital" => include_str!("baked/io/curated/organisms/BundleOrbital.orb"),
     "std/behaviors/ChargeItemOrbital" => include_str!("baked/io/curated/organisms/ChargeItemOrbital.orb"),
@@ -1108,8 +1109,10 @@ pub static EMBEDDED_STD_BEHAVIORS: phf::Map<&'static str, &'static str> = phf::p
     "std/behaviors/ui-book-viewer" => include_str!("baked/std/ui/marketing/organisms/ui-book-viewer.orb"),
     "std/behaviors/ui-builder-board" => include_str!("baked/std/ui/game/organisms/ui-builder-board.orb"),
     "std/behaviors/ui-canvas-effect" => include_str!("baked/std/ui/game/organisms/ui-canvas-effect.orb"),
+    "std/behaviors/ui-card-battler-board" => include_str!("baked/std/ui/game/organisms/ui-card-battler-board.orb"),
     "std/behaviors/ui-case-study-organism" => include_str!("baked/std/ui/marketing/organisms/ui-case-study-organism.orb"),
     "std/behaviors/ui-castle-board" => include_str!("baked/std/ui/game/organisms/ui-castle-board.orb"),
+    "std/behaviors/ui-city-builder-board" => include_str!("baked/std/ui/game/organisms/ui-city-builder-board.orb"),
     "std/behaviors/ui-classifier-board" => include_str!("baked/std/ui/game/organisms/ui-classifier-board.orb"),
     "std/behaviors/ui-code-runner-panel" => include_str!("baked/std/ui/core/organisms/ui-code-runner-panel.orb"),
     "std/behaviors/ui-dashboard-grid" => include_str!("baked/std/ui/core/organisms/ui-dashboard-grid.orb"),
@@ -1152,16 +1155,20 @@ pub static EMBEDDED_STD_BEHAVIORS: phf::Map<&'static str, &'static str> = phf::p
     "std/behaviors/ui-team-organism" => include_str!("baked/std/ui/marketing/organisms/ui-team-organism.orb"),
     "std/behaviors/ui-timeline" => include_str!("baked/std/ui/core/organisms/ui-timeline.orb"),
     "std/behaviors/ui-toast-slot" => include_str!("baked/std/ui/core/organisms/ui-toast-slot.orb"),
+    "std/behaviors/ui-top-down-shooter-board" => include_str!("baked/std/ui/game/organisms/ui-top-down-shooter-board.orb"),
     "std/behaviors/ui-tower-defense-board" => include_str!("baked/std/ui/game/organisms/ui-tower-defense-board.orb"),
     "std/behaviors/ui-trait-slot" => include_str!("baked/std/ui/game/organisms/ui-trait-slot.orb"),
     "std/behaviors/ui-ui-slot-renderer" => include_str!("baked/std/ui/core/organisms/ui-ui-slot-renderer.orb"),
     "std/behaviors/ui-uncontrolled-battle-board" => include_str!("baked/std/ui/game/organisms/ui-uncontrolled-battle-board.orb"),
+    "std/behaviors/ui-visual-novel-board" => include_str!("baked/std/ui/game/organisms/ui-visual-novel-board.orb"),
     "std/behaviors/ui-world-map-board" => include_str!("baked/std/ui/game/organisms/ui-world-map-board.orb"),
-    // === Templates (19) ===
+    // === Templates (23) ===
     "std/behaviors/ui-about-page-template" => include_str!("baked/std/ui/marketing/templates/ui-about-page-template.orb"),
     "std/behaviors/ui-auth-layout" => include_str!("baked/std/ui/marketing/templates/ui-auth-layout.orb"),
     "std/behaviors/ui-battle-template" => include_str!("baked/std/ui/game/templates/ui-battle-template.orb"),
+    "std/behaviors/ui-card-battler-template" => include_str!("baked/std/ui/game/templates/ui-card-battler-template.orb"),
     "std/behaviors/ui-castle-template" => include_str!("baked/std/ui/game/templates/ui-castle-template.orb"),
+    "std/behaviors/ui-city-builder-template" => include_str!("baked/std/ui/game/templates/ui-city-builder-template.orb"),
     "std/behaviors/ui-counter-template" => include_str!("baked/std/ui/core/templates/ui-counter-template.orb"),
     "std/behaviors/ui-dashboard-layout" => include_str!("baked/std/ui/core/templates/ui-dashboard-layout.orb"),
     "std/behaviors/ui-feature-detail-page-template" => include_str!("baked/std/ui/marketing/templates/ui-feature-detail-page-template.orb"),
@@ -1175,7 +1182,9 @@ pub static EMBEDDED_STD_BEHAVIORS: phf::Map<&'static str, &'static str> = phf::p
     "std/behaviors/ui-platformer-template" => include_str!("baked/std/ui/game/templates/ui-platformer-template.orb"),
     "std/behaviors/ui-pricing-page-template" => include_str!("baked/std/ui/marketing/templates/ui-pricing-page-template.orb"),
     "std/behaviors/ui-roguelike-template" => include_str!("baked/std/ui/game/templates/ui-roguelike-template.orb"),
+    "std/behaviors/ui-top-down-shooter-template" => include_str!("baked/std/ui/game/templates/ui-top-down-shooter-template.orb"),
     "std/behaviors/ui-tower-defense-template" => include_str!("baked/std/ui/game/templates/ui-tower-defense-template.orb"),
+    "std/behaviors/ui-visual-novel-template" => include_str!("baked/std/ui/game/templates/ui-visual-novel-template.orb"),
     "std/behaviors/ui-world-map-template" => include_str!("baked/std/ui/game/templates/ui-world-map-template.orb"),
 };
 // SYNC-GENERATED:EMBEDDED_STD_BEHAVIORS:END
