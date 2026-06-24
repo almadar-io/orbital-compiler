@@ -232,6 +232,7 @@ pub static PATTERN_TYPES: LazyLock<HashSet<&'static str>> = LazyLock::new(|| {
         "graph-canvas",
         "health-bar",
         "health-panel",
+        "hex-strategy-board",
         "inventory-grid",
         "inventory-panel",
         "isometric-canvas",
@@ -584,6 +585,7 @@ pub static PATTERN_TO_CATEGORY: LazyLock<HashMap<&'static str, &'static str>> =
             ("graph-canvas", "game"),
             ("health-bar", "game"),
             ("health-panel", "game"),
+            ("hex-strategy-board", "game"),
             ("inventory-grid", "game"),
             ("inventory-panel", "game"),
             ("isometric-canvas", "game"),
@@ -2804,6 +2806,34 @@ pub static PATTERN_PROPS_SCHEMA: LazyLock<HashMap<&'static str, HashSet<&'static
                 .collect(),
             ),
             (
+                "hex-strategy-board",
+                [
+                    "activeFilters",
+                    "assetBaseUrl",
+                    "assetManifest",
+                    "className",
+                    "enableCamera",
+                    "error",
+                    "features",
+                    "isLoading",
+                    "page",
+                    "pageSize",
+                    "scale",
+                    "searchValue",
+                    "selectedIds",
+                    "showMinimap",
+                    "sortBy",
+                    "sortDirection",
+                    "tileClickEvent",
+                    "tiles",
+                    "totalCount",
+                    "unitClickEvent",
+                    "units",
+                ]
+                .into_iter()
+                .collect(),
+            ),
+            (
                 "icon",
                 [
                     "animation",
@@ -2927,6 +2957,7 @@ pub static PATTERN_PROPS_SCHEMA: LazyLock<HashMap<&'static str, HashSet<&'static
                     "spriteMaxWidthRatio",
                     "tileClickEvent",
                     "tileHoverEvent",
+                    "tileLayout",
                     "tileLeaveEvent",
                     "tiles",
                     "unitClickEvent",
@@ -7411,6 +7442,34 @@ pub static PATTERN_PROP_TYPES: LazyLock<HashMap<&'static str, HashMap<&'static s
                 .collect(),
             ),
             (
+                "hex-strategy-board",
+                [
+                    ("className", &["string"] as &[&str]),
+                    ("isLoading", &["boolean"] as &[&str]),
+                    ("error", &["object"] as &[&str]),
+                    ("sortBy", &["string"] as &[&str]),
+                    ("sortDirection", &["string"] as &[&str]),
+                    ("searchValue", &["string"] as &[&str]),
+                    ("page", &["number"] as &[&str]),
+                    ("pageSize", &["number"] as &[&str]),
+                    ("totalCount", &["number"] as &[&str]),
+                    ("activeFilters", &["object"] as &[&str]),
+                    ("selectedIds", &["array"] as &[&str]),
+                    ("tiles", &["array"] as &[&str]),
+                    ("units", &["array"] as &[&str]),
+                    ("features", &["array"] as &[&str]),
+                    ("assetManifest", &["string"] as &[&str]),
+                    ("assetBaseUrl", &["asset"] as &[&str]),
+                    ("scale", &["number"] as &[&str]),
+                    ("showMinimap", &["boolean"] as &[&str]),
+                    ("enableCamera", &["boolean"] as &[&str]),
+                    ("tileClickEvent", &["string"] as &[&str]),
+                    ("unitClickEvent", &["string"] as &[&str]),
+                ]
+                .into_iter()
+                .collect(),
+            ),
+            (
                 "icon",
                 [
                     ("icon", &["icon", "string"] as &[&str]),
@@ -7538,6 +7597,7 @@ pub static PATTERN_PROP_TYPES: LazyLock<HashMap<&'static str, HashMap<&'static s
                     ("unitClickEvent", &["string"] as &[&str]),
                     ("tileHoverEvent", &["string"] as &[&str]),
                     ("tileLeaveEvent", &["string"] as &[&str]),
+                    ("tileLayout", &["string"] as &[&str]),
                     ("scale", &["number"] as &[&str]),
                     ("debug", &["boolean"] as &[&str]),
                     ("backgroundImage", &["asset"] as &[&str]),
@@ -10617,6 +10677,7 @@ pub static PATTERN_PROP_ENUM_VALUES: LazyLock<HashMap<&'static str, HashMap<&'st
                 .into_iter()
                 .collect(),
             ),
+            ("hex-strategy-board", [("sortDirection", &["asc", "desc"] as &[&str])].into_iter().collect()),
             (
                 "icon",
                 [
@@ -10636,6 +10697,7 @@ pub static PATTERN_PROP_ENUM_VALUES: LazyLock<HashMap<&'static str, HashMap<&'st
                 .collect(),
             ),
             ("inventory-grid", [("size", &["sm", "md", "lg"] as &[&str])].into_iter().collect()),
+            ("isometric-canvas", [("tileLayout", &["isometric", "hex"] as &[&str])].into_iter().collect()),
             (
                 "item-slot",
                 [
