@@ -1,7 +1,6 @@
-// Auto-generated from @almadar/std STD_OPERATORS.
+// Auto-generated from @almadar/std canonical-operators.json by @almadar-io/almadar-pattern-sync.
 // DO NOT EDIT MANUALLY.
-// Generated: 2026-06-23T23:16:18.206Z
-// Total operators targeting Rust: 255
+// Total operators targeting Rust: 254
 
 /// Operator metadata derived from the canonical @almadar/std registry.
 #[derive(Debug, Clone)]
@@ -640,16 +639,6 @@ pub static CANONICAL_OPERATORS: &[OperatorMeta] = &[
         max_arity: Some(2),
         return_type: "array",
         description: "Add item to start (returns new array)",
-        has_side_effects: false,
-        return_semantics: None,
-    },
-    OperatorMeta {
-        name: "array/range",
-        category: "std-array",
-        min_arity: 1,
-        max_arity: Some(3),
-        return_type: "array",
-        description: "Generate numbers: (range n) => [0,n); (range start end) => [start,end); optional step",
         has_side_effects: false,
         return_semantics: None,
     },
@@ -2600,7 +2589,7 @@ mod tests {
 
     #[test]
     fn test_canonical_operators_count() {
-        assert_eq!(CANONICAL_OPERATORS.len(), 255);
+        assert_eq!(CANONICAL_OPERATORS.len(), 254);
     }
 
     #[test]
