@@ -2,7 +2,7 @@
 //!
 //! Source: packages/almadar-patterns/src/patterns-registry.json
 //!
-//! Last synced: 2026-06-25
+//! Last synced: 2026-06-26
 //! To regenerate: npx tsx tools/almadar-pattern-sync/index.ts
 //!
 //! DO NOT EDIT MANUALLY - changes will be overwritten on next sync.
@@ -1286,6 +1286,7 @@ pub static PATTERN_PROPS_SCHEMA: LazyLock<HashMap<&'static str, HashSet<&'static
             (
                 "button",
                 [
+                    "'data-testid'",
                     "action",
                     "actionPayload",
                     "className",
@@ -2961,13 +2962,11 @@ pub static PATTERN_PROPS_SCHEMA: LazyLock<HashMap<&'static str, HashSet<&'static
                 [
                     "activeFilters",
                     "assetBaseUrl",
-                    "backgroundImage",
+                    "assetManifest",
                     "className",
-                    "drawEvent",
                     "enableCamera",
                     "error",
-                    "fps",
-                    "height",
+                    "features",
                     "isLoading",
                     "page",
                     "pageSize",
@@ -2977,9 +2976,11 @@ pub static PATTERN_PROPS_SCHEMA: LazyLock<HashMap<&'static str, HashSet<&'static
                     "showMinimap",
                     "sortBy",
                     "sortDirection",
-                    "tickEvent",
+                    "tileClickEvent",
+                    "tiles",
                     "totalCount",
-                    "width",
+                    "unitClickEvent",
+                    "units",
                 ]
                 .into_iter()
                 .collect(),
@@ -3786,22 +3787,25 @@ pub static PATTERN_PROPS_SCHEMA: LazyLock<HashMap<&'static str, HashSet<&'static
                 [
                     "activeFilters",
                     "assetBaseUrl",
-                    "backgroundImage",
+                    "assetManifest",
                     "className",
-                    "drawEvent",
+                    "enableCamera",
                     "error",
-                    "fps",
-                    "height",
+                    "features",
                     "isLoading",
                     "page",
                     "pageSize",
+                    "scale",
                     "searchValue",
                     "selectedIds",
+                    "showMinimap",
                     "sortBy",
                     "sortDirection",
-                    "tickEvent",
+                    "tileClickEvent",
+                    "tiles",
                     "totalCount",
-                    "width",
+                    "unitClickEvent",
+                    "units",
                 ]
                 .into_iter()
                 .collect(),
@@ -3983,7 +3987,22 @@ pub static PATTERN_PROPS_SCHEMA: LazyLock<HashMap<&'static str, HashSet<&'static
             ("runtime-debugger", ["className", "defaultCollapsed", "defaultTab", "mode", "position", "schema"].into_iter().collect()),
             ("scaled-diagram", ["children", "className"].into_iter().collect()),
             ("score-board", ["className", "combo", "highScore", "level", "multiplier", "score"].into_iter().collect()),
-            ("score-display", ["animated", "assetUrl", "className", "icon", "label", "locale", "size", "value"].into_iter().collect()),
+            (
+                "score-display",
+                [
+                    "animated",
+                    "assetUrl",
+                    "className",
+                    "icon",
+                    "label",
+                    "locale",
+                    "score",
+                    "size",
+                    "value",
+                ]
+                .into_iter()
+                .collect(),
+            ),
             (
                 "search-input",
                 [
@@ -4257,20 +4276,25 @@ pub static PATTERN_PROPS_SCHEMA: LazyLock<HashMap<&'static str, HashSet<&'static
                 [
                     "activeFilters",
                     "assetBaseUrl",
-                    "backgroundImage",
+                    "assetManifest",
                     "className",
+                    "enableCamera",
                     "error",
-                    "fps",
-                    "height",
+                    "features",
                     "isLoading",
                     "page",
                     "pageSize",
+                    "scale",
                     "searchValue",
                     "selectedIds",
+                    "showMinimap",
                     "sortBy",
                     "sortDirection",
+                    "tileClickEvent",
+                    "tiles",
                     "totalCount",
-                    "width",
+                    "unitClickEvent",
+                    "units",
                 ]
                 .into_iter()
                 .collect(),
@@ -5289,6 +5313,7 @@ pub static PATTERN_PROPS_SCHEMA: LazyLock<HashMap<&'static str, HashSet<&'static
                     "className",
                     "compact",
                     "dismissible",
+                    "message",
                     "onDismiss",
                     "onNavigateToField",
                     "severity",
@@ -5963,6 +5988,7 @@ pub static PATTERN_PROP_TYPES: LazyLock<HashMap<&'static str, HashMap<&'static s
                     ("actionPayload", &["object"] as &[&str]),
                     ("label", &["string"] as &[&str]),
                     ("disabled", &["boolean"] as &[&str]),
+                    ("'data-testid'", &["string"] as &[&str]),
                 ]
                 .into_iter()
                 .collect(),
@@ -7389,7 +7415,7 @@ pub static PATTERN_PROP_TYPES: LazyLock<HashMap<&'static str, HashMap<&'static s
                     ("layout", &["string"] as &[&str]),
                     ("gap", &["string"] as &[&str]),
                     ("className", &["string"] as &[&str]),
-                    ("entity", &["string", "object", "array"] as &[&str]),
+                    ("entity", &["object", "array"] as &[&str]),
                     ("mode", &["string"] as &[&str]),
                     ("fields", &["array"] as &[&str]),
                     ("initialData", &["object"] as &[&str]),
@@ -7454,7 +7480,7 @@ pub static PATTERN_PROP_TYPES: LazyLock<HashMap<&'static str, HashMap<&'static s
                     ("layout", &["string"] as &[&str]),
                     ("gap", &["string"] as &[&str]),
                     ("className", &["string"] as &[&str]),
-                    ("entity", &["string", "object", "array"] as &[&str]),
+                    ("entity", &["object", "array"] as &[&str]),
                     ("mode", &["string"] as &[&str]),
                     ("fields", &["array"] as &[&str]),
                     ("initialData", &["object"] as &[&str]),
@@ -8012,16 +8038,16 @@ pub static PATTERN_PROP_TYPES: LazyLock<HashMap<&'static str, HashMap<&'static s
                     ("totalCount", &["number"] as &[&str]),
                     ("activeFilters", &["object"] as &[&str]),
                     ("selectedIds", &["array"] as &[&str]),
-                    ("backgroundImage", &["asset"] as &[&str]),
+                    ("tiles", &["array"] as &[&str]),
+                    ("units", &["array"] as &[&str]),
+                    ("features", &["array"] as &[&str]),
+                    ("assetManifest", &["string"] as &[&str]),
                     ("assetBaseUrl", &["asset"] as &[&str]),
-                    ("width", &["number"] as &[&str]),
-                    ("height", &["number"] as &[&str]),
-                    ("fps", &["number"] as &[&str]),
                     ("scale", &["number"] as &[&str]),
                     ("showMinimap", &["boolean"] as &[&str]),
                     ("enableCamera", &["boolean"] as &[&str]),
-                    ("tickEvent", &["string"] as &[&str]),
-                    ("drawEvent", &["string"] as &[&str]),
+                    ("tileClickEvent", &["string"] as &[&str]),
+                    ("unitClickEvent", &["string"] as &[&str]),
                 ]
                 .into_iter()
                 .collect(),
@@ -8749,9 +8775,9 @@ pub static PATTERN_PROP_TYPES: LazyLock<HashMap<&'static str, HashMap<&'static s
                     ("totalCount", &["number"] as &[&str]),
                     ("activeFilters", &["object"] as &[&str]),
                     ("selectedIds", &["array"] as &[&str]),
-                    ("tiles", &["array"] as &[&str]),
-                    ("units", &["array"] as &[&str]),
-                    ("features", &["array"] as &[&str]),
+                    ("tiles", &["object", "array"] as &[&str]),
+                    ("units", &["object", "array"] as &[&str]),
+                    ("features", &["object", "array"] as &[&str]),
                     ("assetManifest", &["string"] as &[&str]),
                     ("assetBaseUrl", &["asset"] as &[&str]),
                     ("scale", &["number"] as &[&str]),
@@ -9033,13 +9059,16 @@ pub static PATTERN_PROP_TYPES: LazyLock<HashMap<&'static str, HashMap<&'static s
                     ("totalCount", &["number"] as &[&str]),
                     ("activeFilters", &["object"] as &[&str]),
                     ("selectedIds", &["array"] as &[&str]),
-                    ("backgroundImage", &["asset"] as &[&str]),
+                    ("tiles", &["array"] as &[&str]),
+                    ("units", &["array"] as &[&str]),
+                    ("features", &["array"] as &[&str]),
+                    ("assetManifest", &["string"] as &[&str]),
                     ("assetBaseUrl", &["asset"] as &[&str]),
-                    ("width", &["number"] as &[&str]),
-                    ("height", &["number"] as &[&str]),
-                    ("fps", &["number"] as &[&str]),
-                    ("tickEvent", &["string"] as &[&str]),
-                    ("drawEvent", &["string"] as &[&str]),
+                    ("scale", &["number"] as &[&str]),
+                    ("showMinimap", &["boolean"] as &[&str]),
+                    ("enableCamera", &["boolean"] as &[&str]),
+                    ("tileClickEvent", &["string"] as &[&str]),
+                    ("unitClickEvent", &["string"] as &[&str]),
                 ]
                 .into_iter()
                 .collect(),
@@ -9284,6 +9313,7 @@ pub static PATTERN_PROP_TYPES: LazyLock<HashMap<&'static str, HashMap<&'static s
                 [
                     ("assetUrl", &["asset"] as &[&str]),
                     ("value", &["number"] as &[&str]),
+                    ("score", &["number"] as &[&str]),
                     ("label", &["string"] as &[&str]),
                     ("icon", &["icon", "string"] as &[&str]),
                     ("size", &["string"] as &[&str]),
@@ -9645,11 +9675,16 @@ pub static PATTERN_PROP_TYPES: LazyLock<HashMap<&'static str, HashMap<&'static s
                     ("totalCount", &["number"] as &[&str]),
                     ("activeFilters", &["object"] as &[&str]),
                     ("selectedIds", &["array"] as &[&str]),
-                    ("backgroundImage", &["asset"] as &[&str]),
+                    ("tiles", &["array"] as &[&str]),
+                    ("units", &["array"] as &[&str]),
+                    ("features", &["array"] as &[&str]),
+                    ("assetManifest", &["string"] as &[&str]),
                     ("assetBaseUrl", &["asset"] as &[&str]),
-                    ("width", &["number"] as &[&str]),
-                    ("height", &["number"] as &[&str]),
-                    ("fps", &["number"] as &[&str]),
+                    ("scale", &["number"] as &[&str]),
+                    ("showMinimap", &["boolean"] as &[&str]),
+                    ("enableCamera", &["boolean"] as &[&str]),
+                    ("tileClickEvent", &["string"] as &[&str]),
+                    ("unitClickEvent", &["string"] as &[&str]),
                 ]
                 .into_iter()
                 .collect(),
@@ -10901,6 +10936,7 @@ pub static PATTERN_PROP_TYPES: LazyLock<HashMap<&'static str, HashMap<&'static s
                     ("onNavigateToField", &["function"] as &[&str]),
                     ("compact", &["boolean"] as &[&str]),
                     ("className", &["string"] as &[&str]),
+                    ("message", &["string"] as &[&str]),
                 ]
                 .into_iter()
                 .collect(),
