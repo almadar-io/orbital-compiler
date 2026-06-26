@@ -2,7 +2,7 @@
 //!
 //! Source: packages/almadar-patterns/src/patterns-registry.json
 //!
-//! Last synced: 2026-06-24
+//! Last synced: 2026-06-25
 //! To regenerate: npx tsx tools/almadar-pattern-sync/index.ts
 //!
 //! DO NOT EDIT MANUALLY - changes will be overwritten on next sync.
@@ -127,6 +127,7 @@ pub static PATTERN_TYPES: LazyLock<HashSet<&'static str>> = LazyLock::new(|| {
         "case-study-card",
         "case-study-organism",
         "chart-legend",
+        "chat-bar",
         "code-runner-panel",
         "content-renderer",
         "data-grid",
@@ -162,6 +163,7 @@ pub static PATTERN_TYPES: LazyLock<HashSet<&'static str>> = LazyLock::new(|| {
         "stats-organism",
         "status-dot",
         "step-flow-organism",
+        "subagent-trace-panel",
         "svg-grid",
         "table-view",
         "team-card",
@@ -191,6 +193,7 @@ pub static PATTERN_TYPES: LazyLock<HashSet<&'static str>> = LazyLock::new(|| {
         "action-tile",
         "battle-board",
         "battle-template",
+        "boardgame-board",
         "builder-board",
         "canvas-effect",
         "card-battler-board",
@@ -216,6 +219,7 @@ pub static PATTERN_TYPES: LazyLock<HashSet<&'static str>> = LazyLock::new(|| {
         "event-handler-board",
         "event-log",
         "feature-renderer",
+        "fishing-board",
         "game-audio-provider",
         "game-audio-toggle",
         "game-board-3d",
@@ -233,19 +237,25 @@ pub static PATTERN_TYPES: LazyLock<HashSet<&'static str>> = LazyLock::new(|| {
         "health-bar",
         "health-panel",
         "hex-strategy-board",
+        "holiday-runner-board",
         "inventory-grid",
         "inventory-panel",
         "isometric-canvas",
         "item-slot",
+        "match-puzzle-board",
         "mini-map",
+        "minigolf-board",
         "negotiator-board",
         "pattern-tile",
+        "pinball-board",
+        "pirate-board",
         "platformer-board",
         "platformer-canvas",
         "platformer-template",
         "positioned-canvas",
         "powerup-slots",
         "quest-tracker",
+        "racing-board",
         "resource-bar",
         "resource-counter",
         "roguelike-board",
@@ -256,11 +266,16 @@ pub static PATTERN_TYPES: LazyLock<HashSet<&'static str>> = LazyLock::new(|| {
         "sequencer-board",
         "simulation-canvas",
         "simulator-board",
+        "sokoban-board",
+        "space-shmup-board",
+        "space-station-board",
+        "sports-board",
         "sprite",
         "stat-badge",
         "state-architect-board",
         "state-indicator",
         "status-effect",
+        "tanks-board",
         "timer-display",
         "top-down-shooter-board",
         "top-down-shooter-template",
@@ -480,6 +495,7 @@ pub static PATTERN_TO_CATEGORY: LazyLock<HashMap<&'static str, &'static str>> =
             ("case-study-card", "display"),
             ("case-study-organism", "display"),
             ("chart-legend", "display"),
+            ("chat-bar", "display"),
             ("code-runner-panel", "display"),
             ("content-renderer", "display"),
             ("data-grid", "display"),
@@ -515,6 +531,7 @@ pub static PATTERN_TO_CATEGORY: LazyLock<HashMap<&'static str, &'static str>> =
             ("stats-organism", "display"),
             ("status-dot", "display"),
             ("step-flow-organism", "display"),
+            ("subagent-trace-panel", "display"),
             ("svg-grid", "display"),
             ("table-view", "display"),
             ("team-card", "display"),
@@ -544,6 +561,7 @@ pub static PATTERN_TO_CATEGORY: LazyLock<HashMap<&'static str, &'static str>> =
             ("action-tile", "game"),
             ("battle-board", "game"),
             ("battle-template", "game"),
+            ("boardgame-board", "game"),
             ("builder-board", "game"),
             ("canvas-effect", "game"),
             ("card-battler-board", "game"),
@@ -569,6 +587,7 @@ pub static PATTERN_TO_CATEGORY: LazyLock<HashMap<&'static str, &'static str>> =
             ("event-handler-board", "game"),
             ("event-log", "game"),
             ("feature-renderer", "game"),
+            ("fishing-board", "game"),
             ("game-audio-provider", "game"),
             ("game-audio-toggle", "game"),
             ("game-board-3d", "game"),
@@ -586,19 +605,25 @@ pub static PATTERN_TO_CATEGORY: LazyLock<HashMap<&'static str, &'static str>> =
             ("health-bar", "game"),
             ("health-panel", "game"),
             ("hex-strategy-board", "game"),
+            ("holiday-runner-board", "game"),
             ("inventory-grid", "game"),
             ("inventory-panel", "game"),
             ("isometric-canvas", "game"),
             ("item-slot", "game"),
+            ("match-puzzle-board", "game"),
             ("mini-map", "game"),
+            ("minigolf-board", "game"),
             ("negotiator-board", "game"),
             ("pattern-tile", "game"),
+            ("pinball-board", "game"),
+            ("pirate-board", "game"),
             ("platformer-board", "game"),
             ("platformer-canvas", "game"),
             ("platformer-template", "game"),
             ("positioned-canvas", "game"),
             ("powerup-slots", "game"),
             ("quest-tracker", "game"),
+            ("racing-board", "game"),
             ("resource-bar", "game"),
             ("resource-counter", "game"),
             ("roguelike-board", "game"),
@@ -609,11 +634,16 @@ pub static PATTERN_TO_CATEGORY: LazyLock<HashMap<&'static str, &'static str>> =
             ("sequencer-board", "game"),
             ("simulation-canvas", "game"),
             ("simulator-board", "game"),
+            ("sokoban-board", "game"),
+            ("space-shmup-board", "game"),
+            ("space-station-board", "game"),
+            ("sports-board", "game"),
             ("sprite", "game"),
             ("stat-badge", "game"),
             ("state-architect-board", "game"),
             ("state-indicator", "game"),
             ("status-effect", "game"),
+            ("tanks-board", "game"),
             ("timer-display", "game"),
             ("top-down-shooter-board", "game"),
             ("top-down-shooter-template", "game"),
@@ -855,6 +885,7 @@ pub static PATTERN_REQUIRED_PROPS: LazyLock<HashMap<&'static str, Vec<&'static s
             ("stats-grid", vec!["stats"]),
             ("status-effect", vec!["icon"]),
             ("step-flow", vec!["steps"]),
+            ("subagent-trace-panel", vec!["subagents", "disclosureLevel", "open"]),
             ("swipeable-row", vec!["children"]),
             ("tabbed-container", vec!["tabs"]),
             ("table-view", vec!["entity"]),
@@ -1128,6 +1159,34 @@ pub static PATTERN_PROPS_SCHEMA: LazyLock<HashMap<&'static str, HashSet<&'static
                     "isAnswered",
                     "level",
                     "question",
+                ]
+                .into_iter()
+                .collect(),
+            ),
+            (
+                "boardgame-board",
+                [
+                    "activeFilters",
+                    "assetBaseUrl",
+                    "assetManifest",
+                    "className",
+                    "enableCamera",
+                    "error",
+                    "features",
+                    "isLoading",
+                    "page",
+                    "pageSize",
+                    "scale",
+                    "searchValue",
+                    "selectedIds",
+                    "showMinimap",
+                    "sortBy",
+                    "sortDirection",
+                    "tileClickEvent",
+                    "tiles",
+                    "totalCount",
+                    "unitClickEvent",
+                    "units",
                 ]
                 .into_iter()
                 .collect(),
@@ -1490,8 +1549,45 @@ pub static PATTERN_PROPS_SCHEMA: LazyLock<HashMap<&'static str, HashSet<&'static
                 .collect(),
             ),
             ("chart-legend", ["className", "direction", "items"].into_iter().collect()),
+            (
+                "chat-bar",
+                [
+                    "activeFilters",
+                    "activeGate",
+                    "className",
+                    "context",
+                    "error",
+                    "isLoading",
+                    "jepaValidity",
+                    "page",
+                    "pageSize",
+                    "placeholder",
+                    "searchValue",
+                    "selectedIds",
+                    "sortBy",
+                    "sortDirection",
+                    "status",
+                    "totalCount",
+                ]
+                .into_iter()
+                .collect(),
+            ),
             ("checkbox", ["checked", "className", "defaultChecked", "label", "onChange"].into_iter().collect()),
-            ("choice-button", ["className", "disabled", "index", "onClick", "selected", "text"].into_iter().collect()),
+            (
+                "choice-button",
+                [
+                    "assetUrl",
+                    "className",
+                    "disabled",
+                    "icon",
+                    "index",
+                    "onClick",
+                    "selected",
+                    "text",
+                ]
+                .into_iter()
+                .collect(),
+            ),
             (
                 "city-builder-board",
                 [
@@ -2238,6 +2334,33 @@ pub static PATTERN_PROPS_SCHEMA: LazyLock<HashMap<&'static str, HashSet<&'static
                 .collect(),
             ),
             (
+                "fishing-board",
+                [
+                    "activeFilters",
+                    "assetBaseUrl",
+                    "backgroundImage",
+                    "className",
+                    "enableCamera",
+                    "error",
+                    "height",
+                    "isLoading",
+                    "page",
+                    "pageSize",
+                    "scale",
+                    "searchValue",
+                    "selectedIds",
+                    "showMinimap",
+                    "sortBy",
+                    "sortDirection",
+                    "tileClickEvent",
+                    "totalCount",
+                    "unitClickEvent",
+                    "width",
+                ]
+                .into_iter()
+                .collect(),
+            ),
+            (
                 "flex",
                 [
                     "align",
@@ -2834,6 +2957,34 @@ pub static PATTERN_PROPS_SCHEMA: LazyLock<HashMap<&'static str, HashSet<&'static
                 .collect(),
             ),
             (
+                "holiday-runner-board",
+                [
+                    "activeFilters",
+                    "assetBaseUrl",
+                    "backgroundImage",
+                    "className",
+                    "drawEvent",
+                    "enableCamera",
+                    "error",
+                    "fps",
+                    "height",
+                    "isLoading",
+                    "page",
+                    "pageSize",
+                    "scale",
+                    "searchValue",
+                    "selectedIds",
+                    "showMinimap",
+                    "sortBy",
+                    "sortDirection",
+                    "tickEvent",
+                    "totalCount",
+                    "width",
+                ]
+                .into_iter()
+                .collect(),
+            ),
+            (
                 "icon",
                 [
                     "animation",
@@ -3111,6 +3262,34 @@ pub static PATTERN_PROPS_SCHEMA: LazyLock<HashMap<&'static str, HashSet<&'static
                 .collect(),
             ),
             (
+                "match-puzzle-board",
+                [
+                    "activeFilters",
+                    "assetBaseUrl",
+                    "assetManifest",
+                    "className",
+                    "enableCamera",
+                    "error",
+                    "features",
+                    "isLoading",
+                    "page",
+                    "pageSize",
+                    "scale",
+                    "searchValue",
+                    "selectedIds",
+                    "showMinimap",
+                    "sortBy",
+                    "sortDirection",
+                    "tileClickEvent",
+                    "tiles",
+                    "totalCount",
+                    "unitClickEvent",
+                    "units",
+                ]
+                .into_iter()
+                .collect(),
+            ),
+            (
                 "matrix-question",
                 [
                     "changeEvent",
@@ -3187,6 +3366,34 @@ pub static PATTERN_PROPS_SCHEMA: LazyLock<HashMap<&'static str, HashSet<&'static
                     "units",
                     "viewportRect",
                     "width",
+                ]
+                .into_iter()
+                .collect(),
+            ),
+            (
+                "minigolf-board",
+                [
+                    "activeFilters",
+                    "assetBaseUrl",
+                    "assetManifest",
+                    "className",
+                    "enableCamera",
+                    "error",
+                    "features",
+                    "isLoading",
+                    "page",
+                    "pageSize",
+                    "scale",
+                    "searchValue",
+                    "selectedIds",
+                    "showMinimap",
+                    "sortBy",
+                    "sortDirection",
+                    "tileClickEvent",
+                    "tiles",
+                    "totalCount",
+                    "unitClickEvent",
+                    "units",
                 ]
                 .into_iter()
                 .collect(),
@@ -3353,6 +3560,62 @@ pub static PATTERN_PROPS_SCHEMA: LazyLock<HashMap<&'static str, HashSet<&'static
             ),
             ("pattern-tile", ["className", "color", "size", "strokeWidth", "variant"].into_iter().collect()),
             (
+                "pinball-board",
+                [
+                    "activeFilters",
+                    "assetBaseUrl",
+                    "assetManifest",
+                    "className",
+                    "enableCamera",
+                    "error",
+                    "features",
+                    "isLoading",
+                    "page",
+                    "pageSize",
+                    "scale",
+                    "searchValue",
+                    "selectedIds",
+                    "showMinimap",
+                    "sortBy",
+                    "sortDirection",
+                    "tileClickEvent",
+                    "tiles",
+                    "totalCount",
+                    "unitClickEvent",
+                    "units",
+                ]
+                .into_iter()
+                .collect(),
+            ),
+            (
+                "pirate-board",
+                [
+                    "activeFilters",
+                    "assetBaseUrl",
+                    "assetManifest",
+                    "className",
+                    "enableCamera",
+                    "error",
+                    "features",
+                    "isLoading",
+                    "page",
+                    "pageSize",
+                    "scale",
+                    "searchValue",
+                    "selectedIds",
+                    "showMinimap",
+                    "sortBy",
+                    "sortDirection",
+                    "tileClickEvent",
+                    "tiles",
+                    "totalCount",
+                    "unitClickEvent",
+                    "units",
+                ]
+                .into_iter()
+                .collect(),
+            ),
+            (
                 "platformer-board",
                 [
                     "bgColor",
@@ -3518,6 +3781,31 @@ pub static PATTERN_PROPS_SCHEMA: LazyLock<HashMap<&'static str, HashSet<&'static
             ),
             ("quest-tracker", ["activeQuestId", "className", "quests"].into_iter().collect()),
             ("quiz-block", ["answer", "className", "question"].into_iter().collect()),
+            (
+                "racing-board",
+                [
+                    "activeFilters",
+                    "assetBaseUrl",
+                    "backgroundImage",
+                    "className",
+                    "drawEvent",
+                    "error",
+                    "fps",
+                    "height",
+                    "isLoading",
+                    "page",
+                    "pageSize",
+                    "searchValue",
+                    "selectedIds",
+                    "sortBy",
+                    "sortDirection",
+                    "tickEvent",
+                    "totalCount",
+                    "width",
+                ]
+                .into_iter()
+                .collect(),
+            ),
             (
                 "radio",
                 [
@@ -3924,6 +4212,34 @@ pub static PATTERN_PROPS_SCHEMA: LazyLock<HashMap<&'static str, HashSet<&'static
             ("skeleton", ["className", "columns", "fields", "rows", "variant"].into_iter().collect()),
             ("social-proof", ["className", "items", "variant"].into_iter().collect()),
             (
+                "sokoban-board",
+                [
+                    "activeFilters",
+                    "assetBaseUrl",
+                    "assetManifest",
+                    "className",
+                    "enableCamera",
+                    "error",
+                    "features",
+                    "isLoading",
+                    "page",
+                    "pageSize",
+                    "scale",
+                    "searchValue",
+                    "selectedIds",
+                    "showMinimap",
+                    "sortBy",
+                    "sortDirection",
+                    "tileClickEvent",
+                    "tiles",
+                    "totalCount",
+                    "unitClickEvent",
+                    "units",
+                ]
+                .into_iter()
+                .collect(),
+            ),
+            (
                 "sortable-list",
                 [
                     "className",
@@ -3932,6 +4248,57 @@ pub static PATTERN_PROPS_SCHEMA: LazyLock<HashMap<&'static str, HashSet<&'static
                     "renderItem",
                     "reorderEvent",
                     "reorderPayload",
+                ]
+                .into_iter()
+                .collect(),
+            ),
+            (
+                "space-shmup-board",
+                [
+                    "activeFilters",
+                    "assetBaseUrl",
+                    "backgroundImage",
+                    "className",
+                    "error",
+                    "fps",
+                    "height",
+                    "isLoading",
+                    "page",
+                    "pageSize",
+                    "searchValue",
+                    "selectedIds",
+                    "sortBy",
+                    "sortDirection",
+                    "totalCount",
+                    "width",
+                ]
+                .into_iter()
+                .collect(),
+            ),
+            (
+                "space-station-board",
+                [
+                    "activeFilters",
+                    "assetBaseUrl",
+                    "assetManifest",
+                    "className",
+                    "enableCamera",
+                    "error",
+                    "features",
+                    "isLoading",
+                    "page",
+                    "pageSize",
+                    "scale",
+                    "searchValue",
+                    "selectedIds",
+                    "showMinimap",
+                    "sortBy",
+                    "sortDirection",
+                    "tileClickEvent",
+                    "tiles",
+                    "totalCount",
+                    "unitClickEvent",
+                    "units",
                 ]
                 .into_iter()
                 .collect(),
@@ -3986,6 +4353,34 @@ pub static PATTERN_PROPS_SCHEMA: LazyLock<HashMap<&'static str, HashSet<&'static
                     "image",
                     "imagePosition",
                     "title",
+                ]
+                .into_iter()
+                .collect(),
+            ),
+            (
+                "sports-board",
+                [
+                    "activeFilters",
+                    "assetBaseUrl",
+                    "assetManifest",
+                    "className",
+                    "enableCamera",
+                    "error",
+                    "features",
+                    "isLoading",
+                    "page",
+                    "pageSize",
+                    "scale",
+                    "searchValue",
+                    "selectedIds",
+                    "showMinimap",
+                    "sortBy",
+                    "sortDirection",
+                    "tileClickEvent",
+                    "tiles",
+                    "totalCount",
+                    "unitClickEvent",
+                    "units",
                 ]
                 .into_iter()
                 .collect(),
@@ -4186,6 +4581,32 @@ pub static PATTERN_PROPS_SCHEMA: LazyLock<HashMap<&'static str, HashSet<&'static
                     "sortBy",
                     "sortDirection",
                     "subtitle",
+                    "totalCount",
+                ]
+                .into_iter()
+                .collect(),
+            ),
+            (
+                "subagent-trace-panel",
+                [
+                    "activeFilters",
+                    "className",
+                    "coordinatorActivities",
+                    "coordinatorMessages",
+                    "disclosureLevel",
+                    "error",
+                    "focusedOrbital",
+                    "isLoading",
+                    "mode",
+                    "onClose",
+                    "open",
+                    "page",
+                    "pageSize",
+                    "searchValue",
+                    "selectedIds",
+                    "sortBy",
+                    "sortDirection",
+                    "subagents",
                     "totalCount",
                 ]
                 .into_iter()
@@ -4491,6 +4912,34 @@ pub static PATTERN_PROPS_SCHEMA: LazyLock<HashMap<&'static str, HashSet<&'static
                     "unique",
                     "value",
                     "variant",
+                ]
+                .into_iter()
+                .collect(),
+            ),
+            (
+                "tanks-board",
+                [
+                    "activeFilters",
+                    "assetBaseUrl",
+                    "assetManifest",
+                    "className",
+                    "enableCamera",
+                    "error",
+                    "features",
+                    "isLoading",
+                    "page",
+                    "pageSize",
+                    "scale",
+                    "searchValue",
+                    "selectedIds",
+                    "showMinimap",
+                    "sortBy",
+                    "sortDirection",
+                    "tileClickEvent",
+                    "tiles",
+                    "totalCount",
+                    "unitClickEvent",
+                    "units",
                 ]
                 .into_iter()
                 .collect(),
@@ -5327,6 +5776,34 @@ pub static PATTERN_PROP_TYPES: LazyLock<HashMap<&'static str, HashMap<&'static s
                 .collect(),
             ),
             (
+                "boardgame-board",
+                [
+                    ("className", &["string"] as &[&str]),
+                    ("isLoading", &["boolean"] as &[&str]),
+                    ("error", &["object"] as &[&str]),
+                    ("sortBy", &["string"] as &[&str]),
+                    ("sortDirection", &["string"] as &[&str]),
+                    ("searchValue", &["string"] as &[&str]),
+                    ("page", &["number"] as &[&str]),
+                    ("pageSize", &["number"] as &[&str]),
+                    ("totalCount", &["number"] as &[&str]),
+                    ("activeFilters", &["object"] as &[&str]),
+                    ("selectedIds", &["array"] as &[&str]),
+                    ("tiles", &["array"] as &[&str]),
+                    ("units", &["array"] as &[&str]),
+                    ("features", &["array"] as &[&str]),
+                    ("assetManifest", &["string"] as &[&str]),
+                    ("assetBaseUrl", &["asset"] as &[&str]),
+                    ("scale", &["number"] as &[&str]),
+                    ("showMinimap", &["boolean"] as &[&str]),
+                    ("enableCamera", &["boolean"] as &[&str]),
+                    ("tileClickEvent", &["string"] as &[&str]),
+                    ("unitClickEvent", &["string"] as &[&str]),
+                ]
+                .into_iter()
+                .collect(),
+            ),
+            (
                 "book-chapter-view",
                 [
                     ("className", &["string"] as &[&str]),
@@ -5760,6 +6237,29 @@ pub static PATTERN_PROP_TYPES: LazyLock<HashMap<&'static str, HashMap<&'static s
                 .collect(),
             ),
             (
+                "chat-bar",
+                [
+                    ("className", &["string"] as &[&str]),
+                    ("isLoading", &["boolean"] as &[&str]),
+                    ("error", &["object"] as &[&str]),
+                    ("sortBy", &["string"] as &[&str]),
+                    ("sortDirection", &["string"] as &[&str]),
+                    ("searchValue", &["string"] as &[&str]),
+                    ("page", &["number"] as &[&str]),
+                    ("pageSize", &["number"] as &[&str]),
+                    ("totalCount", &["number"] as &[&str]),
+                    ("activeFilters", &["object"] as &[&str]),
+                    ("selectedIds", &["array"] as &[&str]),
+                    ("status", &["string"] as &[&str]),
+                    ("activeGate", &["string"] as &[&str]),
+                    ("jepaValidity", &["number"] as &[&str]),
+                    ("placeholder", &["string"] as &[&str]),
+                    ("context", &["string"] as &[&str]),
+                ]
+                .into_iter()
+                .collect(),
+            ),
+            (
                 "checkbox",
                 [
                     ("className", &["string"] as &[&str]),
@@ -5776,6 +6276,8 @@ pub static PATTERN_PROP_TYPES: LazyLock<HashMap<&'static str, HashMap<&'static s
                 [
                     ("text", &["string"] as &[&str]),
                     ("index", &["number"] as &[&str]),
+                    ("assetUrl", &["asset"] as &[&str]),
+                    ("icon", &["icon", "string"] as &[&str]),
                     ("disabled", &["boolean"] as &[&str]),
                     ("selected", &["boolean"] as &[&str]),
                     ("onClick", &["function"] as &[&str]),
@@ -6793,6 +7295,33 @@ pub static PATTERN_PROP_TYPES: LazyLock<HashMap<&'static str, HashMap<&'static s
                 .collect(),
             ),
             (
+                "fishing-board",
+                [
+                    ("className", &["string"] as &[&str]),
+                    ("isLoading", &["boolean"] as &[&str]),
+                    ("error", &["object"] as &[&str]),
+                    ("sortBy", &["string"] as &[&str]),
+                    ("sortDirection", &["string"] as &[&str]),
+                    ("searchValue", &["string"] as &[&str]),
+                    ("page", &["number"] as &[&str]),
+                    ("pageSize", &["number"] as &[&str]),
+                    ("totalCount", &["number"] as &[&str]),
+                    ("activeFilters", &["object"] as &[&str]),
+                    ("selectedIds", &["array"] as &[&str]),
+                    ("backgroundImage", &["asset"] as &[&str]),
+                    ("assetBaseUrl", &["asset"] as &[&str]),
+                    ("scale", &["number"] as &[&str]),
+                    ("showMinimap", &["boolean"] as &[&str]),
+                    ("enableCamera", &["boolean"] as &[&str]),
+                    ("width", &["number"] as &[&str]),
+                    ("height", &["number"] as &[&str]),
+                    ("tileClickEvent", &["string"] as &[&str]),
+                    ("unitClickEvent", &["string"] as &[&str]),
+                ]
+                .into_iter()
+                .collect(),
+            ),
+            (
                 "flex",
                 [
                     ("direction", &["string"] as &[&str]),
@@ -7470,6 +7999,34 @@ pub static PATTERN_PROP_TYPES: LazyLock<HashMap<&'static str, HashMap<&'static s
                 .collect(),
             ),
             (
+                "holiday-runner-board",
+                [
+                    ("className", &["string"] as &[&str]),
+                    ("isLoading", &["boolean"] as &[&str]),
+                    ("error", &["object"] as &[&str]),
+                    ("sortBy", &["string"] as &[&str]),
+                    ("sortDirection", &["string"] as &[&str]),
+                    ("searchValue", &["string"] as &[&str]),
+                    ("page", &["number"] as &[&str]),
+                    ("pageSize", &["number"] as &[&str]),
+                    ("totalCount", &["number"] as &[&str]),
+                    ("activeFilters", &["object"] as &[&str]),
+                    ("selectedIds", &["array"] as &[&str]),
+                    ("backgroundImage", &["asset"] as &[&str]),
+                    ("assetBaseUrl", &["asset"] as &[&str]),
+                    ("width", &["number"] as &[&str]),
+                    ("height", &["number"] as &[&str]),
+                    ("fps", &["number"] as &[&str]),
+                    ("scale", &["number"] as &[&str]),
+                    ("showMinimap", &["boolean"] as &[&str]),
+                    ("enableCamera", &["boolean"] as &[&str]),
+                    ("tickEvent", &["string"] as &[&str]),
+                    ("drawEvent", &["string"] as &[&str]),
+                ]
+                .into_iter()
+                .collect(),
+            ),
+            (
                 "icon",
                 [
                     ("icon", &["icon", "string"] as &[&str]),
@@ -7823,6 +8380,34 @@ pub static PATTERN_PROP_TYPES: LazyLock<HashMap<&'static str, HashMap<&'static s
                 .collect(),
             ),
             (
+                "match-puzzle-board",
+                [
+                    ("className", &["string"] as &[&str]),
+                    ("isLoading", &["boolean"] as &[&str]),
+                    ("error", &["object"] as &[&str]),
+                    ("sortBy", &["string"] as &[&str]),
+                    ("sortDirection", &["string"] as &[&str]),
+                    ("searchValue", &["string"] as &[&str]),
+                    ("page", &["number"] as &[&str]),
+                    ("pageSize", &["number"] as &[&str]),
+                    ("totalCount", &["number"] as &[&str]),
+                    ("activeFilters", &["object"] as &[&str]),
+                    ("selectedIds", &["array"] as &[&str]),
+                    ("tiles", &["array"] as &[&str]),
+                    ("units", &["array"] as &[&str]),
+                    ("features", &["array"] as &[&str]),
+                    ("assetManifest", &["string"] as &[&str]),
+                    ("assetBaseUrl", &["asset"] as &[&str]),
+                    ("scale", &["number"] as &[&str]),
+                    ("showMinimap", &["boolean"] as &[&str]),
+                    ("enableCamera", &["boolean"] as &[&str]),
+                    ("tileClickEvent", &["string"] as &[&str]),
+                    ("unitClickEvent", &["string"] as &[&str]),
+                ]
+                .into_iter()
+                .collect(),
+            ),
+            (
                 "matrix-question",
                 [
                     ("title", &["string"] as &[&str]),
@@ -7911,6 +8496,34 @@ pub static PATTERN_PROP_TYPES: LazyLock<HashMap<&'static str, HashMap<&'static s
                     ("mapHeight", &["number"] as &[&str]),
                     ("viewportRect", &["object"] as &[&str]),
                     ("className", &["string"] as &[&str]),
+                ]
+                .into_iter()
+                .collect(),
+            ),
+            (
+                "minigolf-board",
+                [
+                    ("className", &["string"] as &[&str]),
+                    ("isLoading", &["boolean"] as &[&str]),
+                    ("error", &["object"] as &[&str]),
+                    ("sortBy", &["string"] as &[&str]),
+                    ("sortDirection", &["string"] as &[&str]),
+                    ("searchValue", &["string"] as &[&str]),
+                    ("page", &["number"] as &[&str]),
+                    ("pageSize", &["number"] as &[&str]),
+                    ("totalCount", &["number"] as &[&str]),
+                    ("activeFilters", &["object"] as &[&str]),
+                    ("selectedIds", &["array"] as &[&str]),
+                    ("tiles", &["array"] as &[&str]),
+                    ("units", &["array"] as &[&str]),
+                    ("features", &["array"] as &[&str]),
+                    ("assetManifest", &["string"] as &[&str]),
+                    ("assetBaseUrl", &["asset"] as &[&str]),
+                    ("scale", &["number"] as &[&str]),
+                    ("showMinimap", &["boolean"] as &[&str]),
+                    ("enableCamera", &["boolean"] as &[&str]),
+                    ("tileClickEvent", &["string"] as &[&str]),
+                    ("unitClickEvent", &["string"] as &[&str]),
                 ]
                 .into_iter()
                 .collect(),
@@ -8118,6 +8731,62 @@ pub static PATTERN_PROP_TYPES: LazyLock<HashMap<&'static str, HashMap<&'static s
                     ("color", &["string"] as &[&str]),
                     ("strokeWidth", &["number"] as &[&str]),
                     ("className", &["string"] as &[&str]),
+                ]
+                .into_iter()
+                .collect(),
+            ),
+            (
+                "pinball-board",
+                [
+                    ("className", &["string"] as &[&str]),
+                    ("isLoading", &["boolean"] as &[&str]),
+                    ("error", &["object"] as &[&str]),
+                    ("sortBy", &["string"] as &[&str]),
+                    ("sortDirection", &["string"] as &[&str]),
+                    ("searchValue", &["string"] as &[&str]),
+                    ("page", &["number"] as &[&str]),
+                    ("pageSize", &["number"] as &[&str]),
+                    ("totalCount", &["number"] as &[&str]),
+                    ("activeFilters", &["object"] as &[&str]),
+                    ("selectedIds", &["array"] as &[&str]),
+                    ("tiles", &["array"] as &[&str]),
+                    ("units", &["array"] as &[&str]),
+                    ("features", &["array"] as &[&str]),
+                    ("assetManifest", &["string"] as &[&str]),
+                    ("assetBaseUrl", &["asset"] as &[&str]),
+                    ("scale", &["number"] as &[&str]),
+                    ("showMinimap", &["boolean"] as &[&str]),
+                    ("enableCamera", &["boolean"] as &[&str]),
+                    ("tileClickEvent", &["string"] as &[&str]),
+                    ("unitClickEvent", &["string"] as &[&str]),
+                ]
+                .into_iter()
+                .collect(),
+            ),
+            (
+                "pirate-board",
+                [
+                    ("className", &["string"] as &[&str]),
+                    ("isLoading", &["boolean"] as &[&str]),
+                    ("error", &["object"] as &[&str]),
+                    ("sortBy", &["string"] as &[&str]),
+                    ("sortDirection", &["string"] as &[&str]),
+                    ("searchValue", &["string"] as &[&str]),
+                    ("page", &["number"] as &[&str]),
+                    ("pageSize", &["number"] as &[&str]),
+                    ("totalCount", &["number"] as &[&str]),
+                    ("activeFilters", &["object"] as &[&str]),
+                    ("selectedIds", &["array"] as &[&str]),
+                    ("tiles", &["array"] as &[&str]),
+                    ("units", &["array"] as &[&str]),
+                    ("features", &["array"] as &[&str]),
+                    ("assetManifest", &["string"] as &[&str]),
+                    ("assetBaseUrl", &["asset"] as &[&str]),
+                    ("scale", &["number"] as &[&str]),
+                    ("showMinimap", &["boolean"] as &[&str]),
+                    ("enableCamera", &["boolean"] as &[&str]),
+                    ("tileClickEvent", &["string"] as &[&str]),
+                    ("unitClickEvent", &["string"] as &[&str]),
                 ]
                 .into_iter()
                 .collect(),
@@ -8346,6 +9015,31 @@ pub static PATTERN_PROP_TYPES: LazyLock<HashMap<&'static str, HashMap<&'static s
                     ("question", &["string"] as &[&str]),
                     ("answer", &["string"] as &[&str]),
                     ("className", &["string"] as &[&str]),
+                ]
+                .into_iter()
+                .collect(),
+            ),
+            (
+                "racing-board",
+                [
+                    ("className", &["string"] as &[&str]),
+                    ("isLoading", &["boolean"] as &[&str]),
+                    ("error", &["object"] as &[&str]),
+                    ("sortBy", &["string"] as &[&str]),
+                    ("sortDirection", &["string"] as &[&str]),
+                    ("searchValue", &["string"] as &[&str]),
+                    ("page", &["number"] as &[&str]),
+                    ("pageSize", &["number"] as &[&str]),
+                    ("totalCount", &["number"] as &[&str]),
+                    ("activeFilters", &["object"] as &[&str]),
+                    ("selectedIds", &["array"] as &[&str]),
+                    ("backgroundImage", &["asset"] as &[&str]),
+                    ("assetBaseUrl", &["asset"] as &[&str]),
+                    ("width", &["number"] as &[&str]),
+                    ("height", &["number"] as &[&str]),
+                    ("fps", &["number"] as &[&str]),
+                    ("tickEvent", &["string"] as &[&str]),
+                    ("drawEvent", &["string"] as &[&str]),
                 ]
                 .into_iter()
                 .collect(),
@@ -8897,6 +9591,34 @@ pub static PATTERN_PROP_TYPES: LazyLock<HashMap<&'static str, HashMap<&'static s
                 .collect(),
             ),
             (
+                "sokoban-board",
+                [
+                    ("className", &["string"] as &[&str]),
+                    ("isLoading", &["boolean"] as &[&str]),
+                    ("error", &["object"] as &[&str]),
+                    ("sortBy", &["string"] as &[&str]),
+                    ("sortDirection", &["string"] as &[&str]),
+                    ("searchValue", &["string"] as &[&str]),
+                    ("page", &["number"] as &[&str]),
+                    ("pageSize", &["number"] as &[&str]),
+                    ("totalCount", &["number"] as &[&str]),
+                    ("activeFilters", &["object"] as &[&str]),
+                    ("selectedIds", &["array"] as &[&str]),
+                    ("tiles", &["array"] as &[&str]),
+                    ("units", &["array"] as &[&str]),
+                    ("features", &["array"] as &[&str]),
+                    ("assetManifest", &["string"] as &[&str]),
+                    ("assetBaseUrl", &["asset"] as &[&str]),
+                    ("scale", &["number"] as &[&str]),
+                    ("showMinimap", &["boolean"] as &[&str]),
+                    ("enableCamera", &["boolean"] as &[&str]),
+                    ("tileClickEvent", &["string"] as &[&str]),
+                    ("unitClickEvent", &["string"] as &[&str]),
+                ]
+                .into_iter()
+                .collect(),
+            ),
+            (
                 "sortable-list",
                 [
                     ("items", &["object", "array"] as &[&str]),
@@ -8905,6 +9627,57 @@ pub static PATTERN_PROP_TYPES: LazyLock<HashMap<&'static str, HashMap<&'static s
                     ("reorderPayload", &["object"] as &[&str]),
                     ("dragHandlePosition", &["string"] as &[&str]),
                     ("className", &["string"] as &[&str]),
+                ]
+                .into_iter()
+                .collect(),
+            ),
+            (
+                "space-shmup-board",
+                [
+                    ("className", &["string"] as &[&str]),
+                    ("isLoading", &["boolean"] as &[&str]),
+                    ("error", &["object"] as &[&str]),
+                    ("sortBy", &["string"] as &[&str]),
+                    ("sortDirection", &["string"] as &[&str]),
+                    ("searchValue", &["string"] as &[&str]),
+                    ("page", &["number"] as &[&str]),
+                    ("pageSize", &["number"] as &[&str]),
+                    ("totalCount", &["number"] as &[&str]),
+                    ("activeFilters", &["object"] as &[&str]),
+                    ("selectedIds", &["array"] as &[&str]),
+                    ("backgroundImage", &["asset"] as &[&str]),
+                    ("assetBaseUrl", &["asset"] as &[&str]),
+                    ("width", &["number"] as &[&str]),
+                    ("height", &["number"] as &[&str]),
+                    ("fps", &["number"] as &[&str]),
+                ]
+                .into_iter()
+                .collect(),
+            ),
+            (
+                "space-station-board",
+                [
+                    ("className", &["string"] as &[&str]),
+                    ("isLoading", &["boolean"] as &[&str]),
+                    ("error", &["object"] as &[&str]),
+                    ("sortBy", &["string"] as &[&str]),
+                    ("sortDirection", &["string"] as &[&str]),
+                    ("searchValue", &["string"] as &[&str]),
+                    ("page", &["number"] as &[&str]),
+                    ("pageSize", &["number"] as &[&str]),
+                    ("totalCount", &["number"] as &[&str]),
+                    ("activeFilters", &["object"] as &[&str]),
+                    ("selectedIds", &["array"] as &[&str]),
+                    ("tiles", &["array"] as &[&str]),
+                    ("units", &["array"] as &[&str]),
+                    ("features", &["array"] as &[&str]),
+                    ("assetManifest", &["string"] as &[&str]),
+                    ("assetBaseUrl", &["asset"] as &[&str]),
+                    ("scale", &["number"] as &[&str]),
+                    ("showMinimap", &["boolean"] as &[&str]),
+                    ("enableCamera", &["boolean"] as &[&str]),
+                    ("tileClickEvent", &["string"] as &[&str]),
+                    ("unitClickEvent", &["string"] as &[&str]),
                 ]
                 .into_iter()
                 .collect(),
@@ -8990,6 +9763,34 @@ pub static PATTERN_PROP_TYPES: LazyLock<HashMap<&'static str, HashMap<&'static s
                     ("background", &["string"] as &[&str]),
                     ("children", &["node"] as &[&str]),
                     ("className", &["string"] as &[&str]),
+                ]
+                .into_iter()
+                .collect(),
+            ),
+            (
+                "sports-board",
+                [
+                    ("className", &["string"] as &[&str]),
+                    ("isLoading", &["boolean"] as &[&str]),
+                    ("error", &["object"] as &[&str]),
+                    ("sortBy", &["string"] as &[&str]),
+                    ("sortDirection", &["string"] as &[&str]),
+                    ("searchValue", &["string"] as &[&str]),
+                    ("page", &["number"] as &[&str]),
+                    ("pageSize", &["number"] as &[&str]),
+                    ("totalCount", &["number"] as &[&str]),
+                    ("activeFilters", &["object"] as &[&str]),
+                    ("selectedIds", &["array"] as &[&str]),
+                    ("tiles", &["array"] as &[&str]),
+                    ("units", &["array"] as &[&str]),
+                    ("features", &["array"] as &[&str]),
+                    ("assetManifest", &["string"] as &[&str]),
+                    ("assetBaseUrl", &["asset"] as &[&str]),
+                    ("scale", &["number"] as &[&str]),
+                    ("showMinimap", &["boolean"] as &[&str]),
+                    ("enableCamera", &["boolean"] as &[&str]),
+                    ("tileClickEvent", &["string"] as &[&str]),
+                    ("unitClickEvent", &["string"] as &[&str]),
                 ]
                 .into_iter()
                 .collect(),
@@ -9255,6 +10056,32 @@ pub static PATTERN_PROP_TYPES: LazyLock<HashMap<&'static str, HashMap<&'static s
                     ("showConnectors", &["boolean"] as &[&str]),
                     ("heading", &["string"] as &[&str]),
                     ("subtitle", &["string"] as &[&str]),
+                ]
+                .into_iter()
+                .collect(),
+            ),
+            (
+                "subagent-trace-panel",
+                [
+                    ("className", &["string"] as &[&str]),
+                    ("isLoading", &["boolean"] as &[&str]),
+                    ("error", &["object"] as &[&str]),
+                    ("sortBy", &["string"] as &[&str]),
+                    ("sortDirection", &["string"] as &[&str]),
+                    ("searchValue", &["string"] as &[&str]),
+                    ("page", &["number"] as &[&str]),
+                    ("pageSize", &["number"] as &[&str]),
+                    ("totalCount", &["number"] as &[&str]),
+                    ("activeFilters", &["object"] as &[&str]),
+                    ("selectedIds", &["array"] as &[&str]),
+                    ("subagents", &["array"] as &[&str]),
+                    ("focusedOrbital", &["string"] as &[&str]),
+                    ("disclosureLevel", &["number"] as &[&str]),
+                    ("open", &["boolean"] as &[&str]),
+                    ("onClose", &["function"] as &[&str]),
+                    ("coordinatorActivities", &["array"] as &[&str]),
+                    ("coordinatorMessages", &["array"] as &[&str]),
+                    ("mode", &["string"] as &[&str]),
                 ]
                 .into_iter()
                 .collect(),
@@ -9592,6 +10419,34 @@ pub static PATTERN_PROP_TYPES: LazyLock<HashMap<&'static str, HashMap<&'static s
                     ("className", &["string"] as &[&str]),
                     ("addEvent", &["string"] as &[&str]),
                     ("removeEvent", &["string"] as &[&str]),
+                ]
+                .into_iter()
+                .collect(),
+            ),
+            (
+                "tanks-board",
+                [
+                    ("className", &["string"] as &[&str]),
+                    ("isLoading", &["boolean"] as &[&str]),
+                    ("error", &["object"] as &[&str]),
+                    ("sortBy", &["string"] as &[&str]),
+                    ("sortDirection", &["string"] as &[&str]),
+                    ("searchValue", &["string"] as &[&str]),
+                    ("page", &["number"] as &[&str]),
+                    ("pageSize", &["number"] as &[&str]),
+                    ("totalCount", &["number"] as &[&str]),
+                    ("activeFilters", &["object"] as &[&str]),
+                    ("selectedIds", &["array"] as &[&str]),
+                    ("tiles", &["array"] as &[&str]),
+                    ("units", &["array"] as &[&str]),
+                    ("features", &["array"] as &[&str]),
+                    ("assetManifest", &["string"] as &[&str]),
+                    ("assetBaseUrl", &["asset"] as &[&str]),
+                    ("scale", &["number"] as &[&str]),
+                    ("showMinimap", &["boolean"] as &[&str]),
+                    ("enableCamera", &["boolean"] as &[&str]),
+                    ("tileClickEvent", &["string"] as &[&str]),
+                    ("unitClickEvent", &["string"] as &[&str]),
                 ]
                 .into_iter()
                 .collect(),
@@ -10313,6 +11168,7 @@ pub static PATTERN_PROP_ENUM_VALUES: LazyLock<HashMap<&'static str, HashMap<&'st
             ),
             ("battle-board", [("sortDirection", &["asc", "desc"] as &[&str])].into_iter().collect()),
             ("bloom-quiz-block", [("level", &["remember", "understand", "apply", "analyze", "evaluate", "create"] as &[&str])].into_iter().collect()),
+            ("boardgame-board", [("sortDirection", &["asc", "desc"] as &[&str])].into_iter().collect()),
             ("book-chapter-view", [("direction", &["rtl", "ltr"] as &[&str])].into_iter().collect()),
             ("book-cover-page", [("direction", &["rtl", "ltr"] as &[&str])].into_iter().collect()),
             ("book-nav-bar", [("direction", &["rtl", "ltr"] as &[&str])].into_iter().collect()),
@@ -10382,6 +11238,15 @@ pub static PATTERN_PROP_ENUM_VALUES: LazyLock<HashMap<&'static str, HashMap<&'st
                 .collect(),
             ),
             ("chart-legend", [("direction", &["horizontal", "vertical"] as &[&str])].into_iter().collect()),
+            (
+                "chat-bar",
+                [
+                    ("sortDirection", &["asc", "desc"] as &[&str]),
+                    ("status", &["idle", "running", "paused", "complete", "error"] as &[&str]),
+                ]
+                .into_iter()
+                .collect(),
+            ),
             ("city-builder-board", [("sortDirection", &["asc", "desc"] as &[&str]), ("result", &["none", "won", "lost"] as &[&str])].into_iter().collect()),
             ("city-builder-template", [("result", &["none", "won", "lost"] as &[&str])].into_iter().collect()),
             ("classifier-board", [("sortDirection", &["asc", "desc"] as &[&str])].into_iter().collect()),
@@ -10560,6 +11425,7 @@ pub static PATTERN_PROP_ENUM_VALUES: LazyLock<HashMap<&'static str, HashMap<&'st
                 .into_iter()
                 .collect(),
             ),
+            ("fishing-board", [("sortDirection", &["asc", "desc"] as &[&str])].into_iter().collect()),
             (
                 "flex",
                 [
@@ -10678,6 +11544,7 @@ pub static PATTERN_PROP_ENUM_VALUES: LazyLock<HashMap<&'static str, HashMap<&'st
                 .collect(),
             ),
             ("hex-strategy-board", [("sortDirection", &["asc", "desc"] as &[&str])].into_iter().collect()),
+            ("holiday-runner-board", [("sortDirection", &["asc", "desc"] as &[&str])].into_iter().collect()),
             (
                 "icon",
                 [
@@ -10697,7 +11564,7 @@ pub static PATTERN_PROP_ENUM_VALUES: LazyLock<HashMap<&'static str, HashMap<&'st
                 .collect(),
             ),
             ("inventory-grid", [("size", &["sm", "md", "lg"] as &[&str])].into_iter().collect()),
-            ("isometric-canvas", [("tileLayout", &["isometric", "hex"] as &[&str])].into_iter().collect()),
+            ("isometric-canvas", [("tileLayout", &["isometric", "hex", "flat"] as &[&str])].into_iter().collect()),
             (
                 "item-slot",
                 [
@@ -10713,6 +11580,7 @@ pub static PATTERN_PROP_ENUM_VALUES: LazyLock<HashMap<&'static str, HashMap<&'st
             ("likert-scale", [("size", &["sm", "md", "lg"] as &[&str]), ("variant", &["radios", "buttons"] as &[&str])].into_iter().collect()),
             ("markdown-content", [("direction", &["ltr", "rtl"] as &[&str])].into_iter().collect()),
             ("master-detail", [("sortDirection", &["asc", "desc"] as &[&str])].into_iter().collect()),
+            ("match-puzzle-board", [("sortDirection", &["asc", "desc"] as &[&str])].into_iter().collect()),
             ("matrix-question", [("size", &["sm", "md"] as &[&str])].into_iter().collect()),
             (
                 "media-gallery",
@@ -10740,6 +11608,7 @@ pub static PATTERN_PROP_ENUM_VALUES: LazyLock<HashMap<&'static str, HashMap<&'st
                 .into_iter()
                 .collect(),
             ),
+            ("minigolf-board", [("sortDirection", &["asc", "desc"] as &[&str])].into_iter().collect()),
             (
                 "modal",
                 [
@@ -10764,6 +11633,8 @@ pub static PATTERN_PROP_ENUM_VALUES: LazyLock<HashMap<&'static str, HashMap<&'st
                 .into_iter()
                 .collect(),
             ),
+            ("pinball-board", [("sortDirection", &["asc", "desc"] as &[&str])].into_iter().collect()),
+            ("pirate-board", [("sortDirection", &["asc", "desc"] as &[&str])].into_iter().collect()),
             ("platformer-board", [("result", &["none", "won", "lost"] as &[&str])].into_iter().collect()),
             (
                 "popover",
@@ -10788,6 +11659,7 @@ pub static PATTERN_PROP_ENUM_VALUES: LazyLock<HashMap<&'static str, HashMap<&'st
             ),
             ("progress-dots", [("size", &["sm", "md", "lg"] as &[&str])].into_iter().collect()),
             ("qr-scanner", [("facingMode", &["environment", "user"] as &[&str])].into_iter().collect()),
+            ("racing-board", [("sortDirection", &["asc", "desc"] as &[&str])].into_iter().collect()),
             ("radio", [("size", &["sm", "md", "lg"] as &[&str])].into_iter().collect()),
             ("range-slider", [("size", &["sm", "md", "lg"] as &[&str])].into_iter().collect()),
             ("resource-bar", [("size", &["sm", "md", "lg"] as &[&str])].into_iter().collect()),
@@ -10829,7 +11701,10 @@ pub static PATTERN_PROP_ENUM_VALUES: LazyLock<HashMap<&'static str, HashMap<&'st
             ("simulator-board", [("sortDirection", &["asc", "desc"] as &[&str])].into_iter().collect()),
             ("skeleton", [("variant", &["header", "table", "form", "card", "text"] as &[&str])].into_iter().collect()),
             ("social-proof", [("variant", &["logos", "quotes", "badges"] as &[&str])].into_iter().collect()),
+            ("sokoban-board", [("sortDirection", &["asc", "desc"] as &[&str])].into_iter().collect()),
             ("sortable-list", [("dragHandlePosition", &["left", "right"] as &[&str])].into_iter().collect()),
+            ("space-shmup-board", [("sortDirection", &["asc", "desc"] as &[&str])].into_iter().collect()),
+            ("space-station-board", [("sortDirection", &["asc", "desc"] as &[&str])].into_iter().collect()),
             (
                 "spacer",
                 [
@@ -10854,6 +11729,7 @@ pub static PATTERN_PROP_ENUM_VALUES: LazyLock<HashMap<&'static str, HashMap<&'st
             ),
             ("split-pane", [("direction", &["horizontal", "vertical"] as &[&str])].into_iter().collect()),
             ("split-section", [("imagePosition", &["left", "right"] as &[&str]), ("background", &["default", "alt"] as &[&str])].into_iter().collect()),
+            ("sports-board", [("sortDirection", &["asc", "desc"] as &[&str])].into_iter().collect()),
             (
                 "stack",
                 [
@@ -10912,6 +11788,7 @@ pub static PATTERN_PROP_ENUM_VALUES: LazyLock<HashMap<&'static str, HashMap<&'st
                 .into_iter()
                 .collect(),
             ),
+            ("subagent-trace-panel", [("sortDirection", &["asc", "desc"] as &[&str]), ("mode", &["overlay", "tab"] as &[&str])].into_iter().collect()),
             ("svg-branch", [("variant", &["fork", "merge", "diamond"] as &[&str])].into_iter().collect()),
             ("svg-connection", [("variant", &["solid", "dashed", "animated"] as &[&str])].into_iter().collect()),
             ("svg-morph", [("variant", &["text-to-code", "code-to-app", "generic"] as &[&str])].into_iter().collect()),
@@ -10946,6 +11823,7 @@ pub static PATTERN_PROP_ENUM_VALUES: LazyLock<HashMap<&'static str, HashMap<&'st
                 .into_iter()
                 .collect(),
             ),
+            ("tanks-board", [("sortDirection", &["asc", "desc"] as &[&str])].into_iter().collect()),
             ("team-organism", [("sortDirection", &["asc", "desc"] as &[&str])].into_iter().collect()),
             ("text-highlight", [("highlightType", &["question", "note"] as &[&str])].into_iter().collect()),
             ("theme-toggle", [("size", &["sm", "md", "lg"] as &[&str])].into_iter().collect()),
