@@ -38,15 +38,21 @@ pub fn validate_all_config_types(schema: &OrbitalSchema, ctx: &mut ValidationCon
                     config: Some(config),
                     ..
                 } => {
-                    for (field_name, value) in config.iter() {
+                    for (field_name, cf) in config.iter() {
                         let field_path = format!("{}.config({})", path_prefix, field_name);
-                        // We don't know the declared type of an override field
-                        // from the reference alone, so we can't validate it here.
-                        // The base atom's config declaration is validated when
-                        // the base atom is compiled standalone.
-                        // TODO: After inline resolution, validate override values
-                        // against the declared type of the base atom's config field.
-                        let _ = (field_name, value, field_path);
+                        // When the call-site entry is a full annotated declaration
+                        // (not a plain wiring), validate its `@tier` and structural
+                        // shape — the same checks that run for atom declarations.
+                        // Plain wiring entries (`field_type == "unknown"`) are
+                        // skipped: the base atom's declaration validates the type;
+                        // we only have a value here with no declared shape.
+                        if cf.field_type != "unknown" {
+                            result.merge(validate_config_field(cf, &field_path));
+                        }
+                        // Suppress unused-variable warnings; the TODO below remains.
+                        // TODO: After inline resolution, cross-check the override
+                        // value against the base atom's declared config field type.
+                        let _ = (field_name, field_path);
                     }
                 }
                 _ => {}

@@ -9,8 +9,8 @@ use super::rewrite::{
 };
 use super::InlineError;
 use orbital_core::schema::{
-    ConfigProvenanceRecord, EntityDefinition, SExpression, SourceBehaviorMetadata, TraitDefinition,
-    TraitReference,
+    ConfigField, ConfigProvenanceRecord, EntityDefinition, SExpression, SourceBehaviorMetadata,
+    TraitDefinition, TraitReference,
 };
 use std::collections::{HashMap, HashSet};
 
@@ -18,7 +18,7 @@ use std::collections::{HashMap, HashSet};
 pub(crate) fn apply_overrides_to_trait(
     trait_def: &mut TraitDefinition,
     linked_entity: Option<&String>,
-    config: Option<&HashMap<String, SExpression>>,
+    config: Option<&HashMap<String, ConfigField>>,
     name: Option<&str>,
     events: Option<&HashMap<String, String>>,
     // Per-key `@entity.<old>` → `@entity.<new>` field rename map. Mirrors
@@ -157,6 +157,11 @@ pub(crate) fn apply_overrides_to_trait(
     // exists) and trips TS2339; client-side falls back to `mergedConfig?.X`
     // which works at runtime but loses constant-fold opportunities. Merging
     // keeps both paths consistent and prunes dead branches via the eq-fold.
+    // Build the effective config map (key → concrete SExpression value) for
+    // `@config.X` substitution. Sources in precedence order:
+    //   1. Atom's declared defaults (lowest priority).
+    //   2. Call-site overrides (highest priority — the `default` field of
+    //      each `ConfigField` entry).
     let mut effective_config: HashMap<String, SExpression> = HashMap::new();
     if let Some(declared) = trait_def.config.as_ref() {
         for (k, field) in declared.iter() {
@@ -166,8 +171,10 @@ pub(crate) fn apply_overrides_to_trait(
         }
     }
     if let Some(cfg) = config {
-        for (k, v) in cfg.iter() {
-            effective_config.insert(k.clone(), v.clone());
+        for (k, cf) in cfg.iter() {
+            if let Some(v) = cf.default.as_ref() {
+                effective_config.insert(k.clone(), v.clone());
+            }
         }
     }
     // Wrap string-headed array values bound for literal-array slots in the
@@ -181,19 +188,33 @@ pub(crate) fn apply_overrides_to_trait(
             }
         }
     }
-    // GAP-AG-VALUE-DRIFT (resolver-side) — when a call-site override is
-    // supplied, also fold it into `trait_def.config[k].default`. Without
-    // this, the resolver substitutes `@config.X` references in effects
-    // but leaves the schema's declared default at the atom-authored
-    // value — so consumers reading `resolved.config[k].default`
-    // (verifier assertions, the studio's resolved-spec viewer, codegen
-    // that ships the schema downstream) see a stale default. The
-    // override IS the new effective default for this call site.
+    // GAP-AG-VALUE-DRIFT: fold call-site overrides AND annotations into the
+    // atom's declared config schema so the inlined trait carries the
+    // organism's intent end-to-end. For each call-site `ConfigField`:
+    //   - `default` → replaces the atom's declared default (existing behaviour).
+    //   - `label`/`description`/`synonyms`/`tier` when `Some` → overwrite
+    //     the atom's declared value (organism wins). This is the NEW behaviour
+    //     for annotated call-site entries; plain wiring entries (no annotations)
+    //     are unchanged.
     if let Some(cfg) = config {
         if let Some(declared) = trait_def.config.as_mut() {
-            for (k, v) in cfg.iter() {
+            for (k, cf) in cfg.iter() {
                 if let Some(field) = declared.get_mut(k) {
-                    field.default = Some(v.clone());
+                    if let Some(v) = cf.default.as_ref() {
+                        field.default = Some(v.clone());
+                    }
+                    if cf.label.is_some() {
+                        field.label = cf.label.clone();
+                    }
+                    if cf.description.is_some() {
+                        field.description = cf.description.clone();
+                    }
+                    if cf.synonyms.is_some() {
+                        field.synonyms = cf.synonyms.clone();
+                    }
+                    if cf.tier.is_some() {
+                        field.tier = cf.tier.clone();
+                    }
                 }
             }
         }
