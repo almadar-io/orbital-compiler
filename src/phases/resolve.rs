@@ -893,6 +893,11 @@ impl<'a> Resolver<'a> {
                 left: Box::new(l),
                 right: Box::new(r),
             }),
+            "%" | "mod" => self.binary_op(args, |l, r| OirExpr::BinaryOp {
+                op: OirBinaryOp::Mod,
+                left: Box::new(l),
+                right: Box::new(r),
+            }),
 
             // Conditional
             "if" => {
