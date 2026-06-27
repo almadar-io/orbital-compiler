@@ -2,7 +2,7 @@
 //!
 //! Source: packages/almadar-patterns/src/patterns-registry.json
 //!
-//! Last synced: 2026-06-26
+//! Last synced: 2026-06-27
 //! To regenerate: npx tsx tools/almadar-pattern-sync/index.ts
 //!
 //! DO NOT EDIT MANUALLY - changes will be overwritten on next sync.
@@ -2338,7 +2338,6 @@ pub static PATTERN_PROPS_SCHEMA: LazyLock<HashMap<&'static str, HashSet<&'static
                 "fishing-board",
                 [
                     "activeFilters",
-                    "assetBaseUrl",
                     "backgroundImage",
                     "className",
                     "enableCamera",
@@ -2570,7 +2569,6 @@ pub static PATTERN_PROPS_SCHEMA: LazyLock<HashMap<&'static str, HashSet<&'static
                     "canvasClickEvent",
                     "children",
                     "className",
-                    "entity",
                     "error",
                     "events",
                     "featureClickEvent",
@@ -3077,7 +3075,6 @@ pub static PATTERN_PROPS_SCHEMA: LazyLock<HashMap<&'static str, HashSet<&'static
             (
                 "isometric-canvas",
                 [
-                    "assetBaseUrl",
                     "assetManifest",
                     "attackTargets",
                     "backgroundImage",
@@ -3654,6 +3651,7 @@ pub static PATTERN_PROPS_SCHEMA: LazyLock<HashMap<&'static str, HashSet<&'static
                     "canvasHeight",
                     "canvasWidth",
                     "className",
+                    "effects",
                     "followCamera",
                     "jumpEvent",
                     "leftEvent",
@@ -3988,22 +3986,7 @@ pub static PATTERN_PROPS_SCHEMA: LazyLock<HashMap<&'static str, HashSet<&'static
             ("runtime-debugger", ["className", "defaultCollapsed", "defaultTab", "mode", "position", "schema"].into_iter().collect()),
             ("scaled-diagram", ["children", "className"].into_iter().collect()),
             ("score-board", ["className", "combo", "highScore", "level", "multiplier", "score"].into_iter().collect()),
-            (
-                "score-display",
-                [
-                    "animated",
-                    "assetUrl",
-                    "className",
-                    "icon",
-                    "label",
-                    "locale",
-                    "score",
-                    "size",
-                    "value",
-                ]
-                .into_iter()
-                .collect(),
-            ),
+            ("score-display", ["assetUrl", "className", "icon", "label", "locale", "score", "size", "value"].into_iter().collect()),
             (
                 "search-input",
                 [
@@ -4485,6 +4468,7 @@ pub static PATTERN_PROPS_SCHEMA: LazyLock<HashMap<&'static str, HashSet<&'static
                     "field",
                     "format",
                     "icon",
+                    "iconUrl",
                     "label",
                     "max",
                     "size",
@@ -5527,7 +5511,7 @@ pub static PATTERN_PROP_TYPES: LazyLock<HashMap<&'static str, HashMap<&'static s
             (
                 "action-button",
                 [
-                    ("assetUrl", &["asset"] as &[&str]),
+                    ("assetUrl", &["object"] as &[&str]),
                     ("label", &["string"] as &[&str]),
                     ("icon", &["icon", "string"] as &[&str]),
                     ("cooldown", &["number"] as &[&str]),
@@ -6305,7 +6289,7 @@ pub static PATTERN_PROP_TYPES: LazyLock<HashMap<&'static str, HashMap<&'static s
                 [
                     ("text", &["string"] as &[&str]),
                     ("index", &["number"] as &[&str]),
-                    ("assetUrl", &["asset"] as &[&str]),
+                    ("assetUrl", &["object"] as &[&str]),
                     ("icon", &["icon", "string"] as &[&str]),
                     ("disabled", &["boolean"] as &[&str]),
                     ("selected", &["boolean"] as &[&str]),
@@ -6456,7 +6440,7 @@ pub static PATTERN_PROP_TYPES: LazyLock<HashMap<&'static str, HashMap<&'static s
             (
                 "combo-counter",
                 [
-                    ("assetUrl", &["asset"] as &[&str]),
+                    ("assetUrl", &["object"] as &[&str]),
                     ("combo", &["number"] as &[&str]),
                     ("multiplier", &["number"] as &[&str]),
                     ("streak", &["number"] as &[&str]),
@@ -6576,7 +6560,7 @@ pub static PATTERN_PROP_TYPES: LazyLock<HashMap<&'static str, HashMap<&'static s
             (
                 "control-button",
                 [
-                    ("assetUrl", &["asset"] as &[&str]),
+                    ("assetUrl", &["object"] as &[&str]),
                     ("label", &["string"] as &[&str]),
                     ("icon", &["icon", "string"] as &[&str]),
                     ("size", &["string"] as &[&str]),
@@ -6652,7 +6636,7 @@ pub static PATTERN_PROP_TYPES: LazyLock<HashMap<&'static str, HashMap<&'static s
             (
                 "damage-number",
                 [
-                    ("assetUrl", &["asset"] as &[&str]),
+                    ("assetUrl", &["object"] as &[&str]),
                     ("value", &["number"] as &[&str]),
                     ("type", &["string"] as &[&str]),
                     ("size", &["string"] as &[&str]),
@@ -6894,8 +6878,8 @@ pub static PATTERN_PROP_TYPES: LazyLock<HashMap<&'static str, HashMap<&'static s
                     ("completeEvent", &["string"] as &[&str]),
                     ("choiceEvent", &["string"] as &[&str]),
                     ("advanceEvent", &["string"] as &[&str]),
-                    ("backgroundImage", &["asset"] as &[&str]),
-                    ("portraitUrl", &["asset"] as &[&str]),
+                    ("backgroundImage", &["object"] as &[&str]),
+                    ("portraitUrl", &["object"] as &[&str]),
                     ("portraitScale", &["number"] as &[&str]),
                     ("className", &["string"] as &[&str]),
                 ]
@@ -6907,7 +6891,7 @@ pub static PATTERN_PROP_TYPES: LazyLock<HashMap<&'static str, HashMap<&'static s
                 [
                     ("speaker", &["string"] as &[&str]),
                     ("text", &["string"] as &[&str]),
-                    ("portrait", &["asset"] as &[&str]),
+                    ("portrait", &["object"] as &[&str]),
                     ("position", &["string"] as &[&str]),
                     ("className", &["string"] as &[&str]),
                 ]
@@ -7048,7 +7032,7 @@ pub static PATTERN_PROP_TYPES: LazyLock<HashMap<&'static str, HashMap<&'static s
             (
                 "enemy-plate",
                 [
-                    ("assetUrl", &["asset"] as &[&str]),
+                    ("assetUrl", &["object"] as &[&str]),
                     ("name", &["string"] as &[&str]),
                     ("health", &["number"] as &[&str]),
                     ("maxHealth", &["number"] as &[&str]),
@@ -7337,8 +7321,7 @@ pub static PATTERN_PROP_TYPES: LazyLock<HashMap<&'static str, HashMap<&'static s
                     ("totalCount", &["number"] as &[&str]),
                     ("activeFilters", &["object"] as &[&str]),
                     ("selectedIds", &["array"] as &[&str]),
-                    ("backgroundImage", &["asset"] as &[&str]),
-                    ("assetBaseUrl", &["asset"] as &[&str]),
+                    ("backgroundImage", &["object"] as &[&str]),
                     ("scale", &["number"] as &[&str]),
                     ("showMinimap", &["boolean"] as &[&str]),
                     ("enableCamera", &["boolean"] as &[&str]),
@@ -7586,7 +7569,7 @@ pub static PATTERN_PROP_TYPES: LazyLock<HashMap<&'static str, HashMap<&'static s
                     ("tickEvent", &["string"] as &[&str]),
                     ("drawEvent", &["string"] as &[&str]),
                     ("fps", &["number"] as &[&str]),
-                    ("backgroundImage", &["asset"] as &[&str]),
+                    ("backgroundImage", &["object"] as &[&str]),
                     ("assetBaseUrl", &["asset"] as &[&str]),
                     ("className", &["string"] as &[&str]),
                 ]
@@ -7600,7 +7583,6 @@ pub static PATTERN_PROP_TYPES: LazyLock<HashMap<&'static str, HashMap<&'static s
                     ("children", &["node"] as &[&str]),
                     ("isLoading", &["boolean"] as &[&str]),
                     ("error", &["string"] as &[&str]),
-                    ("entity", &["string"] as &[&str]),
                     ("tiles", &["array"] as &[&str]),
                     ("units", &["array"] as &[&str]),
                     ("features", &["array"] as &[&str]),
@@ -8203,7 +8185,6 @@ pub static PATTERN_PROP_TYPES: LazyLock<HashMap<&'static str, HashMap<&'static s
                     ("effectSpriteUrls", &["array"] as &[&str]),
                     ("onDrawEffects", &["function"] as &[&str]),
                     ("hasActiveEffects", &["boolean"] as &[&str]),
-                    ("assetBaseUrl", &["asset"] as &[&str]),
                     ("assetManifest", &["object"] as &[&str]),
                 ]
                 .into_iter()
@@ -8212,7 +8193,7 @@ pub static PATTERN_PROP_TYPES: LazyLock<HashMap<&'static str, HashMap<&'static s
             (
                 "item-slot",
                 [
-                    ("assetUrl", &["asset"] as &[&str]),
+                    ("assetUrl", &["object"] as &[&str]),
                     ("icon", &["icon", "string"] as &[&str]),
                     ("label", &["string"] as &[&str]),
                     ("quantity", &["number"] as &[&str]),
@@ -8835,7 +8816,7 @@ pub static PATTERN_PROP_TYPES: LazyLock<HashMap<&'static str, HashMap<&'static s
                     ("worldHeight", &["number"] as &[&str]),
                     ("canvasWidth", &["number"] as &[&str]),
                     ("canvasHeight", &["number"] as &[&str]),
-                    ("playerSprite", &["asset"] as &[&str]),
+                    ("playerSprite", &["object"] as &[&str]),
                     ("tileSprites", &["object"] as &[&str]),
                     ("bgColor", &["string"] as &[&str]),
                     ("leftEvent", &["string"] as &[&str]),
@@ -8868,6 +8849,7 @@ pub static PATTERN_PROP_TYPES: LazyLock<HashMap<&'static str, HashMap<&'static s
                     ("rightEvent", &["string"] as &[&str]),
                     ("jumpEvent", &["string"] as &[&str]),
                     ("stopEvent", &["string"] as &[&str]),
+                    ("effects", &["array"] as &[&str]),
                     ("className", &["string"] as &[&str]),
                 ]
                 .into_iter()
@@ -8883,7 +8865,7 @@ pub static PATTERN_PROP_TYPES: LazyLock<HashMap<&'static str, HashMap<&'static s
                     ("worldHeight", &["number"] as &[&str]),
                     ("canvasWidth", &["number"] as &[&str]),
                     ("canvasHeight", &["number"] as &[&str]),
-                    ("playerSprite", &["string"] as &[&str]),
+                    ("playerSprite", &["object"] as &[&str]),
                     ("tileSprites", &["object"] as &[&str]),
                     ("bgColor", &["string"] as &[&str]),
                     ("gameEndEvent", &["string"] as &[&str]),
@@ -9201,7 +9183,7 @@ pub static PATTERN_PROP_TYPES: LazyLock<HashMap<&'static str, HashMap<&'static s
             (
                 "resource-counter",
                 [
-                    ("assetUrl", &["asset"] as &[&str]),
+                    ("assetUrl", &["object"] as &[&str]),
                     ("icon", &["icon", "string"] as &[&str]),
                     ("label", &["string"] as &[&str]),
                     ("value", &["number"] as &[&str]),
@@ -9315,14 +9297,13 @@ pub static PATTERN_PROP_TYPES: LazyLock<HashMap<&'static str, HashMap<&'static s
             (
                 "score-display",
                 [
-                    ("assetUrl", &["asset"] as &[&str]),
+                    ("assetUrl", &["object"] as &[&str]),
                     ("value", &["number"] as &[&str]),
                     ("score", &["number"] as &[&str]),
                     ("label", &["string"] as &[&str]),
                     ("icon", &["icon", "string"] as &[&str]),
                     ("size", &["string"] as &[&str]),
                     ("className", &["string"] as &[&str]),
-                    ("animated", &["boolean"] as &[&str]),
                     ("locale", &["string"] as &[&str]),
                 ]
                 .into_iter()
@@ -9837,7 +9818,7 @@ pub static PATTERN_PROP_TYPES: LazyLock<HashMap<&'static str, HashMap<&'static s
             (
                 "sprite",
                 [
-                    ("spritesheet", &["asset"] as &[&str]),
+                    ("spritesheet", &["object"] as &[&str]),
                     ("frameWidth", &["number"] as &[&str]),
                     ("frameHeight", &["number"] as &[&str]),
                     ("frame", &["number"] as &[&str]),
@@ -9904,7 +9885,8 @@ pub static PATTERN_PROP_TYPES: LazyLock<HashMap<&'static str, HashMap<&'static s
             (
                 "stat-badge",
                 [
-                    ("assetUrl", &["asset"] as &[&str]),
+                    ("assetUrl", &["object"] as &[&str]),
+                    ("iconUrl", &["object"] as &[&str]),
                     ("label", &["string"] as &[&str]),
                     ("value", &["number", "string"] as &[&str]),
                     ("max", &["number"] as &[&str]),
@@ -9987,7 +9969,7 @@ pub static PATTERN_PROP_TYPES: LazyLock<HashMap<&'static str, HashMap<&'static s
             (
                 "state-indicator",
                 [
-                    ("assetUrl", &["asset"] as &[&str]),
+                    ("assetUrl", &["object"] as &[&str]),
                     ("state", &["string"] as &[&str]),
                     ("label", &["string"] as &[&str]),
                     ("size", &["string"] as &[&str]),
@@ -10055,7 +10037,7 @@ pub static PATTERN_PROP_TYPES: LazyLock<HashMap<&'static str, HashMap<&'static s
             (
                 "status-effect",
                 [
-                    ("assetUrl", &["asset"] as &[&str]),
+                    ("assetUrl", &["object"] as &[&str]),
                     ("icon", &["icon", "string"] as &[&str]),
                     ("label", &["string"] as &[&str]),
                     ("duration", &["number"] as &[&str]),
@@ -10799,7 +10781,7 @@ pub static PATTERN_PROP_TYPES: LazyLock<HashMap<&'static str, HashMap<&'static s
             (
                 "turn-indicator",
                 [
-                    ("assetUrl", &["asset"] as &[&str]),
+                    ("assetUrl", &["object"] as &[&str]),
                     ("currentTurn", &["number"] as &[&str]),
                     ("maxTurns", &["number"] as &[&str]),
                     ("activeTeam", &["string"] as &[&str]),
@@ -11010,7 +10992,7 @@ pub static PATTERN_PROP_TYPES: LazyLock<HashMap<&'static str, HashMap<&'static s
             (
                 "waypoint-marker",
                 [
-                    ("assetUrl", &["asset"] as &[&str]),
+                    ("assetUrl", &["object"] as &[&str]),
                     ("label", &["string"] as &[&str]),
                     ("icon", &["icon", "string"] as &[&str]),
                     ("active", &["boolean"] as &[&str]),
