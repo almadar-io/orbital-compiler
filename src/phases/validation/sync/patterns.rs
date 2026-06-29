@@ -48,6 +48,7 @@ pub static PATTERN_TYPES: LazyLock<HashSet<&'static str>> = LazyLock::new(|| {
         "geometric-pattern",
         "gradient-divider",
         "graph-view",
+        "hstack",
         "icon",
         "infinite-scroll-sentinel",
         "input",
@@ -109,6 +110,7 @@ pub static PATTERN_TYPES: LazyLock<HashSet<&'static str>> = LazyLock::new(|| {
         "typography",
         "upload-drop-zone",
         "vote-stack",
+        "vstack",
         // Container Patterns
         "confirm-dialog",
         "dialog",
@@ -179,6 +181,7 @@ pub static PATTERN_TYPES: LazyLock<HashSet<&'static str>> = LazyLock::new(|| {
         "date-range-selector",
         "form",
         "form-field",
+        "form-layout",
         "form-section",
         "form-section-header",
         "input-group",
@@ -214,7 +217,6 @@ pub static PATTERN_TYPES: LazyLock<HashSet<&'static str>> = LazyLock::new(|| {
         "event-handler-board",
         "event-log",
         "fishing-board",
-        "game-audio-provider",
         "game-audio-toggle",
         "game-board-3d",
         "game-canvas-3d",
@@ -400,6 +402,7 @@ pub static PATTERN_TO_CATEGORY: LazyLock<HashMap<&'static str, &'static str>> =
             ("geometric-pattern", "component"),
             ("gradient-divider", "component"),
             ("graph-view", "component"),
+            ("hstack", "component"),
             ("icon", "component"),
             ("infinite-scroll-sentinel", "component"),
             ("input", "component"),
@@ -461,6 +464,7 @@ pub static PATTERN_TO_CATEGORY: LazyLock<HashMap<&'static str, &'static str>> =
             ("typography", "component"),
             ("upload-drop-zone", "component"),
             ("vote-stack", "component"),
+            ("vstack", "component"),
             // Container
             ("confirm-dialog", "container"),
             ("dialog", "container"),
@@ -531,6 +535,7 @@ pub static PATTERN_TO_CATEGORY: LazyLock<HashMap<&'static str, &'static str>> =
             ("date-range-selector", "form"),
             ("form", "form"),
             ("form-field", "form"),
+            ("form-layout", "form"),
             ("form-section", "form"),
             ("form-section-header", "form"),
             ("input-group", "form"),
@@ -566,7 +571,6 @@ pub static PATTERN_TO_CATEGORY: LazyLock<HashMap<&'static str, &'static str>> =
             ("event-handler-board", "game"),
             ("event-log", "game"),
             ("fishing-board", "game"),
-            ("game-audio-provider", "game"),
             ("game-audio-toggle", "game"),
             ("game-board-3d", "game"),
             ("game-canvas-3d", "game"),
@@ -764,10 +768,11 @@ pub static PATTERN_REQUIRED_PROPS: LazyLock<HashMap<&'static str, Vec<&'static s
             ("flip-card", vec!["front", "back"]),
             ("flip-container", vec!["flipped", "children"]),
             ("form", vec!["fields"]),
+            ("form-actions", vec!["children"]),
             ("form-field", vec!["label", "children"]),
+            ("form-layout", vec!["children"]),
             ("form-section", vec!["fields"]),
             ("form-section-header", vec!["title"]),
-            ("game-audio-provider", vec!["manifest", "children"]),
             ("game-canvas-3d-battle-template", vec!["entity"]),
             ("game-canvas-3d-castle-template", vec!["entity"]),
             ("game-canvas-3d-world-map-template", vec!["entity"]),
@@ -2392,20 +2397,45 @@ pub static PATTERN_PROPS_SCHEMA: LazyLock<HashMap<&'static str, HashSet<&'static
             (
                 "form-actions",
                 [
+                    "activeFilters",
+                    "align",
                     "children",
                     "className",
-                    "entity",
-                    "filters",
-                    "look",
-                    "orientation",
-                    "primary",
-                    "secondary",
-                    "variant",
+                    "error",
+                    "isLoading",
+                    "page",
+                    "pageSize",
+                    "searchValue",
+                    "selectedIds",
+                    "sortBy",
+                    "sortDirection",
+                    "sticky",
+                    "totalCount",
                 ]
                 .into_iter()
                 .collect(),
             ),
             ("form-field", ["children", "className", "error", "hint", "label", "required"].into_iter().collect()),
+            (
+                "form-layout",
+                [
+                    "activeFilters",
+                    "children",
+                    "className",
+                    "dividers",
+                    "error",
+                    "isLoading",
+                    "page",
+                    "pageSize",
+                    "searchValue",
+                    "selectedIds",
+                    "sortBy",
+                    "sortDirection",
+                    "totalCount",
+                ]
+                .into_iter()
+                .collect(),
+            ),
             (
                 "form-section",
                 [
@@ -2455,20 +2485,6 @@ pub static PATTERN_PROPS_SCHEMA: LazyLock<HashMap<&'static str, HashSet<&'static
                     "onToggle",
                     "subtitle",
                     "title",
-                ]
-                .into_iter()
-                .collect(),
-            ),
-            (
-                "game-audio-provider",
-                [
-                    "baseUrl",
-                    "children",
-                    "className",
-                    "error",
-                    "initialMuted",
-                    "isLoading",
-                    "manifest",
                 ]
                 .into_iter()
                 .collect(),
@@ -7219,15 +7235,20 @@ pub static PATTERN_PROP_TYPES: LazyLock<HashMap<&'static str, HashMap<&'static s
             (
                 "form-actions",
                 [
-                    ("children", &["node"] as &[&str]),
-                    ("primary", &["object"] as &[&str]),
-                    ("secondary", &["array"] as &[&str]),
-                    ("variant", &["string"] as &[&str]),
-                    ("orientation", &["string"] as &[&str]),
                     ("className", &["string"] as &[&str]),
-                    ("entity", &["string"] as &[&str]),
-                    ("filters", &["array"] as &[&str]),
-                    ("look", &["string"] as &[&str]),
+                    ("isLoading", &["boolean"] as &[&str]),
+                    ("error", &["object"] as &[&str]),
+                    ("sortBy", &["string"] as &[&str]),
+                    ("sortDirection", &["string"] as &[&str]),
+                    ("searchValue", &["string"] as &[&str]),
+                    ("page", &["number"] as &[&str]),
+                    ("pageSize", &["number"] as &[&str]),
+                    ("totalCount", &["number"] as &[&str]),
+                    ("activeFilters", &["object"] as &[&str]),
+                    ("selectedIds", &["array"] as &[&str]),
+                    ("children", &["node"] as &[&str]),
+                    ("sticky", &["boolean"] as &[&str]),
+                    ("align", &["string"] as &[&str]),
                 ]
                 .into_iter()
                 .collect(),
@@ -7241,6 +7262,26 @@ pub static PATTERN_PROP_TYPES: LazyLock<HashMap<&'static str, HashMap<&'static s
                     ("hint", &["string"] as &[&str]),
                     ("className", &["string"] as &[&str]),
                     ("children", &["node"] as &[&str]),
+                ]
+                .into_iter()
+                .collect(),
+            ),
+            (
+                "form-layout",
+                [
+                    ("className", &["string"] as &[&str]),
+                    ("isLoading", &["boolean"] as &[&str]),
+                    ("error", &["object"] as &[&str]),
+                    ("sortBy", &["string"] as &[&str]),
+                    ("sortDirection", &["string"] as &[&str]),
+                    ("searchValue", &["string"] as &[&str]),
+                    ("page", &["number"] as &[&str]),
+                    ("pageSize", &["number"] as &[&str]),
+                    ("totalCount", &["number"] as &[&str]),
+                    ("activeFilters", &["object"] as &[&str]),
+                    ("selectedIds", &["array"] as &[&str]),
+                    ("children", &["node"] as &[&str]),
+                    ("dividers", &["boolean"] as &[&str]),
                 ]
                 .into_iter()
                 .collect(),
@@ -7294,20 +7335,6 @@ pub static PATTERN_PROP_TYPES: LazyLock<HashMap<&'static str, HashMap<&'static s
                     ("hasErrors", &["boolean"] as &[&str]),
                     ("isComplete", &["boolean"] as &[&str]),
                     ("className", &["string"] as &[&str]),
-                ]
-                .into_iter()
-                .collect(),
-            ),
-            (
-                "game-audio-provider",
-                [
-                    ("manifest", &["object"] as &[&str]),
-                    ("baseUrl", &["string"] as &[&str]),
-                    ("children", &["node"] as &[&str]),
-                    ("initialMuted", &["boolean"] as &[&str]),
-                    ("className", &["string"] as &[&str]),
-                    ("isLoading", &["boolean"] as &[&str]),
-                    ("error", &["object"] as &[&str]),
                 ]
                 .into_iter()
                 .collect(),
@@ -11085,13 +11112,13 @@ pub static PATTERN_PROP_ENUM_VALUES: LazyLock<HashMap<&'static str, HashMap<&'st
             (
                 "form-actions",
                 [
-                    ("variant", &["default", "segmented", "toggle"] as &[&str]),
-                    ("orientation", &["horizontal", "vertical"] as &[&str]),
-                    ("look", &["right-aligned-buttons", "floating-bar", "inline-row", "dropdown-menu", "command-palette-trigger"] as &[&str]),
+                    ("sortDirection", &["asc", "desc"] as &[&str]),
+                    ("align", &["left", "right", "between", "center"] as &[&str]),
                 ]
                 .into_iter()
                 .collect(),
             ),
+            ("form-layout", [("sortDirection", &["asc", "desc"] as &[&str])].into_iter().collect()),
             (
                 "form-section",
                 [

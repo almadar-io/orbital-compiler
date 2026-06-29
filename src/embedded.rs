@@ -486,7 +486,7 @@ pub fn factory_signatures_json_io() -> &'static str {
 
 // SYNC-GENERATED:EMBEDDED_STD_BEHAVIORS:BEGIN
 pub static EMBEDDED_STD_BEHAVIORS: phf::Map<&'static str, &'static str> = phf::phf_map! {
-    // === Atoms (323) ===
+    // === Atoms (326) ===
     "std/behaviors/std-agent-activity-log" => include_str!("baked/std/agent/atoms/std-agent-activity-log.orb"),
     "std/behaviors/std-agent-chat-thread" => include_str!("baked/std/agent/atoms/std-agent-chat-thread.orb"),
     "std/behaviors/std-agent-classifier" => include_str!("baked/std/agent/atoms/std-agent-classifier.orb"),
@@ -759,6 +759,9 @@ pub static EMBEDDED_STD_BEHAVIORS: phf::Map<&'static str, &'static str> = phf::p
     "std/behaviors/ui-divider" => include_str!("baked/std/ui/core/atoms/ui-divider.orb"),
     "std/behaviors/ui-filter-pill" => include_str!("baked/std/ui/core/atoms/ui-filter-pill.orb"),
     "std/behaviors/ui-flip-container" => include_str!("baked/std/ui/core/atoms/ui-flip-container.orb"),
+    "std/behaviors/ui-game-audio-toggle" => include_str!("baked/std/ui/game/2d/atoms/ui-game-audio-toggle.orb"),
+    "std/behaviors/ui-game-card" => include_str!("baked/std/ui/game/2d/atoms/ui-game-card.orb"),
+    "std/behaviors/ui-game-icon" => include_str!("baked/std/ui/game/2d/atoms/ui-game-icon.orb"),
     "std/behaviors/ui-health-bar" => include_str!("baked/std/ui/game/2d/atoms/ui-health-bar.orb"),
     "std/behaviors/ui-icon" => include_str!("baked/std/ui/core/atoms/ui-icon.orb"),
     "std/behaviors/ui-infinite-scroll-sentinel" => include_str!("baked/std/ui/core/atoms/ui-infinite-scroll-sentinel.orb"),
@@ -810,7 +813,7 @@ pub static EMBEDDED_STD_BEHAVIORS: phf::Map<&'static str, &'static str> = phf::p
     "std/behaviors/ui-typography" => include_str!("baked/std/ui/core/atoms/ui-typography.orb"),
     "std/behaviors/ui-waypoint-marker" => include_str!("baked/std/ui/game/2d/atoms/ui-waypoint-marker.orb"),
     "std/behaviors/ui-xp-bar" => include_str!("baked/std/ui/game/2d/atoms/ui-xp-bar.orb"),
-    // === Molecules (155) ===
+    // === Molecules (157) ===
     "std/behaviors/std-about-page" => include_str!("baked/io/marketing/molecules/std-about-page.orb"),
     "std/behaviors/std-agent-fix-loop" => include_str!("baked/std/agent/molecules/std-agent-fix-loop.orb"),
     "std/behaviors/std-agent-learner" => include_str!("baked/std/agent/molecules/std-agent-learner.orb"),
@@ -847,6 +850,7 @@ pub static EMBEDDED_STD_BEHAVIORS: phf::Map<&'static str, &'static str> = phf::p
     "std/behaviors/ui-branching-logic-builder" => include_str!("baked/std/ui/core/molecules/ui-branching-logic-builder.orb"),
     "std/behaviors/ui-breadcrumb" => include_str!("baked/std/ui/core/molecules/ui-breadcrumb.orb"),
     "std/behaviors/ui-calendar-grid" => include_str!("baked/std/ui/core/molecules/ui-calendar-grid.orb"),
+    "std/behaviors/ui-canvas-2d" => include_str!("baked/std/ui/game/2d/molecules/ui-canvas-2d.orb"),
     "std/behaviors/ui-carousel" => include_str!("baked/std/ui/core/molecules/ui-carousel.orb"),
     "std/behaviors/ui-case-study-card" => include_str!("baked/std/ui/marketing/molecules/ui-case-study-card.orb"),
     "std/behaviors/ui-chart" => include_str!("baked/std/ui/core/molecules/ui-chart.orb"),
@@ -857,6 +861,7 @@ pub static EMBEDDED_STD_BEHAVIORS: phf::Map<&'static str, &'static str> = phf::p
     "std/behaviors/ui-connection-block" => include_str!("baked/std/ui/core/molecules/ui-connection-block.orb"),
     "std/behaviors/ui-container" => include_str!("baked/std/ui/core/molecules/ui-container.orb"),
     "std/behaviors/ui-content-renderer" => include_str!("baked/std/ui/core/molecules/ui-content-renderer.orb"),
+    "std/behaviors/ui-control-grid" => include_str!("baked/std/ui/game/2d/molecules/ui-control-grid.orb"),
     "std/behaviors/ui-cta-banner" => include_str!("baked/std/ui/marketing/molecules/ui-cta-banner.orb"),
     "std/behaviors/ui-d-pad" => include_str!("baked/std/ui/game/2d/molecules/ui-d-pad.orb"),
     "std/behaviors/ui-data-grid" => include_str!("baked/std/ui/core/molecules/ui-data-grid.orb"),
@@ -966,7 +971,7 @@ pub static EMBEDDED_STD_BEHAVIORS: phf::Map<&'static str, &'static str> = phf::p
     "std/behaviors/ui-wizard-container" => include_str!("baked/std/ui/core/molecules/ui-wizard-container.orb"),
     "std/behaviors/ui-wizard-navigation" => include_str!("baked/std/ui/core/molecules/ui-wizard-navigation.orb"),
     "std/behaviors/ui-wizard-progress" => include_str!("baked/std/ui/core/molecules/ui-wizard-progress.orb"),
-    // === Organisms (195) ===
+    // === Organisms (193) ===
     "std/behaviors/AccountOrbital" => include_str!("baked/io/curated/organisms/AccountOrbital.orb"),
     "std/behaviors/BundleOrbital" => include_str!("baked/io/curated/organisms/BundleOrbital.orb"),
     "std/behaviors/ChargeItemOrbital" => include_str!("baked/io/curated/organisms/ChargeItemOrbital.orb"),
@@ -1114,8 +1119,6 @@ pub static EMBEDDED_STD_BEHAVIORS: phf::Map<&'static str, &'static str> = phf::p
     "std/behaviors/ui-fishing-board" => include_str!("baked/std/ui/game/2d/organisms/ui-fishing-board.orb"),
     "std/behaviors/ui-form" => include_str!("baked/std/ui/core/organisms/ui-form.orb"),
     "std/behaviors/ui-form-section" => include_str!("baked/std/ui/core/organisms/ui-form-section.orb"),
-    "std/behaviors/ui-game-audio-provider" => include_str!("baked/std/ui/game/2d/organisms/ui-game-audio-provider.orb"),
-    "std/behaviors/ui-game-audio-toggle" => include_str!("baked/std/ui/game/2d/organisms/ui-game-audio-toggle.orb"),
     "std/behaviors/ui-game-board-3d" => include_str!("baked/std/ui/game/3d/organisms/ui-game-board-3d.orb"),
     "std/behaviors/ui-hero-organism" => include_str!("baked/std/ui/marketing/organisms/ui-hero-organism.orb"),
     "std/behaviors/ui-hex-strategy-board" => include_str!("baked/std/ui/game/2d/organisms/ui-hex-strategy-board.orb"),
