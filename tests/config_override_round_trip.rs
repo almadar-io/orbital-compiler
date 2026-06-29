@@ -195,7 +195,7 @@ fn config_override_substitutes_string_param() {
     // `filterFields` and `label` are not in the config map for THIS test).
     let config_fragment = r#",
           "config": {
-            "slot": "content"
+            "slot": { "type": "unknown", "default": "content" }
           }"#;
     let (_dir, composer_path) = materialize_fixtures(config_fragment);
     let payload = extract_render_ui_payload(&composer_path);
@@ -264,7 +264,7 @@ fn config_override_substitutes_array_param() {
     // any SExpression value type can land in place of the binding.
     let config_fragment = r#",
           "config": {
-            "filterFields": ["status", "category"]
+            "filterFields": { "type": "unknown", "default": ["status", "category"] }
           }"#;
     let (_dir, composer_path) = materialize_fixtures(config_fragment);
     let payload = extract_render_ui_payload(&composer_path);
@@ -368,7 +368,7 @@ const TWO_LVL_VARIATION: &str = r#"{
         {
           "ref": "Base.traits.TwoLvlBaseTrait",
           "name": "TwoLvlVariationTrait",
-          "config": { "titleBinding": "@item.variationVal" }
+          "config": { "titleBinding": { "type": "unknown", "default": "@item.variationVal" } }
         }
       ]
     }
@@ -457,7 +457,7 @@ fn config_override_propagates_through_variation_chain() {
     // Consumer overrides titleBinding through the variation; the consumer's
     // value must win over BOTH the variation's value and the base default.
     let config_fragment = r#",
-          "config": { "titleBinding": "@item.dishName" }"#;
+          "config": { "titleBinding": { "type": "unknown", "default": "@item.dishName" } }"#;
     let (_dir, consumer_path) = materialize_two_lvl(config_fragment);
     let title = two_lvl_resolved_title(&consumer_path);
     assert_eq!(

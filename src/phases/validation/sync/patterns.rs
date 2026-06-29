@@ -2,7 +2,7 @@
 //!
 //! Source: packages/almadar-patterns/src/patterns-registry.json
 //!
-//! Last synced: 2026-06-28
+//! Last synced: 2026-06-29
 //! To regenerate: npx tsx tools/almadar-pattern-sync/index.ts
 //!
 //! DO NOT EDIT MANUALLY - changes will be overwritten on next sync.
@@ -214,9 +214,16 @@ pub static PATTERN_TYPES: LazyLock<HashSet<&'static str>> = LazyLock::new(|| {
         "event-handler-board",
         "event-log",
         "fishing-board",
+        "game-audio-provider",
         "game-audio-toggle",
+        "game-board-3d",
+        "game-canvas-3d",
+        "game-canvas-3d-battle-template",
+        "game-canvas-3d-castle-template",
+        "game-canvas-3d-world-map-template",
         "game-card",
         "game-hud",
+        "game-icon",
         "game-menu",
         "game-shell",
         "game-template",
@@ -559,9 +566,16 @@ pub static PATTERN_TO_CATEGORY: LazyLock<HashMap<&'static str, &'static str>> =
             ("event-handler-board", "game"),
             ("event-log", "game"),
             ("fishing-board", "game"),
+            ("game-audio-provider", "game"),
             ("game-audio-toggle", "game"),
+            ("game-board-3d", "game"),
+            ("game-canvas-3d", "game"),
+            ("game-canvas-3d-battle-template", "game"),
+            ("game-canvas-3d-castle-template", "game"),
+            ("game-canvas-3d-world-map-template", "game"),
             ("game-card", "game"),
             ("game-hud", "game"),
+            ("game-icon", "game"),
             ("game-menu", "game"),
             ("game-shell", "game"),
             ("game-template", "game"),
@@ -753,7 +767,12 @@ pub static PATTERN_REQUIRED_PROPS: LazyLock<HashMap<&'static str, Vec<&'static s
             ("form-field", vec!["label", "children"]),
             ("form-section", vec!["fields"]),
             ("form-section-header", vec!["title"]),
+            ("game-audio-provider", vec!["manifest", "children"]),
+            ("game-canvas-3d-battle-template", vec!["entity"]),
+            ("game-canvas-3d-castle-template", vec!["entity"]),
+            ("game-canvas-3d-world-map-template", vec!["entity"]),
             ("game-card", vec!["id"]),
+            ("game-icon", vec!["icon"]),
             ("game-menu", vec!["title"]),
             ("game-template", vec!["entity", "children"]),
             ("generic-app-template", vec!["entity", "title", "children"]),
@@ -822,7 +841,6 @@ pub static PATTERN_REQUIRED_PROPS: LazyLock<HashMap<&'static str, Vec<&'static s
             ("stat-display", vec!["label", "value"]),
             ("state-indicator", vec!["state"]),
             ("stats-grid", vec!["stats"]),
-            ("status-effect", vec!["icon"]),
             ("step-flow", vec!["steps"]),
             ("subagent-trace-panel", vec!["subagents", "disclosureLevel", "open"]),
             ("swipeable-row", vec!["children"]),
@@ -1199,6 +1217,7 @@ pub static PATTERN_PROPS_SCHEMA: LazyLock<HashMap<&'static str, HashSet<&'static
                 "builder-board",
                 [
                     "activeFilters",
+                    "assetManifest",
                     "checkEvent",
                     "className",
                     "completeEvent",
@@ -1621,6 +1640,7 @@ pub static PATTERN_PROPS_SCHEMA: LazyLock<HashMap<&'static str, HashSet<&'static
                 "classifier-board",
                 [
                     "activeFilters",
+                    "assetManifest",
                     "assignEvent",
                     "checkEvent",
                     "className",
@@ -1935,6 +1955,7 @@ pub static PATTERN_PROPS_SCHEMA: LazyLock<HashMap<&'static str, HashSet<&'static
                 "debugger-board",
                 [
                     "activeFilters",
+                    "assetManifest",
                     "checkEvent",
                     "className",
                     "completeEvent",
@@ -2272,6 +2293,7 @@ pub static PATTERN_PROPS_SCHEMA: LazyLock<HashMap<&'static str, HashSet<&'static
                 "fishing-board",
                 [
                     "activeFilters",
+                    "assetManifest",
                     "backgroundImage",
                     "className",
                     "enableCamera",
@@ -2437,7 +2459,182 @@ pub static PATTERN_PROPS_SCHEMA: LazyLock<HashMap<&'static str, HashSet<&'static
                 .into_iter()
                 .collect(),
             ),
+            (
+                "game-audio-provider",
+                [
+                    "baseUrl",
+                    "children",
+                    "className",
+                    "error",
+                    "initialMuted",
+                    "isLoading",
+                    "manifest",
+                ]
+                .into_iter()
+                .collect(),
+            ),
             ("game-audio-toggle", ["className", "error", "isLoading", "size"].into_iter().collect()),
+            (
+                "game-board-3d",
+                [
+                    "attackEvent",
+                    "backgroundColor",
+                    "cameraMode",
+                    "cancelEvent",
+                    "className",
+                    "endTurnEvent",
+                    "entity",
+                    "features",
+                    "gameEndEvent",
+                    "playAgainEvent",
+                    "scale",
+                    "tileClickEvent",
+                    "tiles",
+                    "unitClickEvent",
+                    "unitScale",
+                ]
+                .into_iter()
+                .collect(),
+            ),
+            (
+                "game-canvas-3d",
+                [
+                    "assetLoader",
+                    "attackTargets",
+                    "backgroundColor",
+                    "cameraChangeEvent",
+                    "cameraMode",
+                    "canvasClickEvent",
+                    "children",
+                    "className",
+                    "error",
+                    "events",
+                    "featureClickEvent",
+                    "featureRenderer",
+                    "features",
+                    "fogOfWar",
+                    "isLoading",
+                    "loadingMessage",
+                    "onCanvasClick",
+                    "onFeatureClick",
+                    "onTileClick",
+                    "onTileHover",
+                    "onUnitAnimation",
+                    "onUnitClick",
+                    "orientation",
+                    "overlay",
+                    "preloadAssets",
+                    "scale",
+                    "selectedTileIds",
+                    "selectedUnitId",
+                    "shadows",
+                    "showCoordinates",
+                    "showGrid",
+                    "showTileInfo",
+                    "tileClickEvent",
+                    "tileHoverEvent",
+                    "tileLeaveEvent",
+                    "tileRenderer",
+                    "tiles",
+                    "unitAnimationEvent",
+                    "unitClickEvent",
+                    "unitRenderer",
+                    "unitScale",
+                    "units",
+                    "useInstancing",
+                    "validMoves",
+                ]
+                .into_iter()
+                .collect(),
+            ),
+            (
+                "game-canvas-3d-battle-template",
+                [
+                    "assetManifest",
+                    "attackEvent",
+                    "backgroundColor",
+                    "cameraMode",
+                    "cancelEvent",
+                    "className",
+                    "endTurnEvent",
+                    "entity",
+                    "exitEvent",
+                    "features",
+                    "gameEndEvent",
+                    "playAgainEvent",
+                    "scale",
+                    "shadows",
+                    "showGrid",
+                    "showTurnIndicator",
+                    "tileClickEvent",
+                    "tiles",
+                    "unitClickEvent",
+                    "unitScale",
+                ]
+                .into_iter()
+                .collect(),
+            ),
+            (
+                "game-canvas-3d-castle-template",
+                [
+                    "assetManifest",
+                    "attackEvent",
+                    "backgroundColor",
+                    "buildEvent",
+                    "buildingClickEvent",
+                    "cameraMode",
+                    "cancelEvent",
+                    "className",
+                    "endTurnEvent",
+                    "entity",
+                    "exitEvent",
+                    "features",
+                    "gameEndEvent",
+                    "playAgainEvent",
+                    "recruitEvent",
+                    "scale",
+                    "shadows",
+                    "showGrid",
+                    "showHeader",
+                    "tiles",
+                    "unitClickEvent",
+                    "unitScale",
+                ]
+                .into_iter()
+                .collect(),
+            ),
+            (
+                "game-canvas-3d-world-map-template",
+                [
+                    "assetManifest",
+                    "attackEvent",
+                    "backgroundColor",
+                    "cameraChangeEvent",
+                    "cameraMode",
+                    "cancelEvent",
+                    "className",
+                    "endTurnEvent",
+                    "entity",
+                    "exitEvent",
+                    "featureClickEvent",
+                    "features",
+                    "gameEndEvent",
+                    "playAgainEvent",
+                    "scale",
+                    "shadows",
+                    "showCoordinates",
+                    "showGrid",
+                    "showTileInfo",
+                    "tileClickEvent",
+                    "tileHoverEvent",
+                    "tileLeaveEvent",
+                    "tiles",
+                    "unitClickEvent",
+                    "unitScale",
+                ]
+                .into_iter()
+                .collect(),
+            ),
             (
                 "game-card",
                 [
@@ -2458,6 +2655,7 @@ pub static PATTERN_PROPS_SCHEMA: LazyLock<HashMap<&'static str, HashSet<&'static
                 .collect(),
             ),
             ("game-hud", ["className", "elements", "items", "position", "size", "stats", "transparent"].into_iter().collect()),
+            ("game-icon", ["alt", "assetUrl", "className", "icon", "size"].into_iter().collect()),
             (
                 "game-menu",
                 [
@@ -3099,6 +3297,7 @@ pub static PATTERN_PROPS_SCHEMA: LazyLock<HashMap<&'static str, HashSet<&'static
                 "negotiator-board",
                 [
                     "activeFilters",
+                    "assetManifest",
                     "className",
                     "completeEvent",
                     "entity",
@@ -3833,6 +4032,7 @@ pub static PATTERN_PROPS_SCHEMA: LazyLock<HashMap<&'static str, HashSet<&'static
                 "simulator-board",
                 [
                     "activeFilters",
+                    "assetManifest",
                     "checkEvent",
                     "className",
                     "completeEvent",
@@ -5578,6 +5778,7 @@ pub static PATTERN_PROP_TYPES: LazyLock<HashMap<&'static str, HashMap<&'static s
                     ("placeEvent", &["string"] as &[&str]),
                     ("checkEvent", &["string"] as &[&str]),
                     ("playAgainEvent", &["string"] as &[&str]),
+                    ("assetManifest", &["object"] as &[&str]),
                 ]
                 .into_iter()
                 .collect(),
@@ -6033,6 +6234,7 @@ pub static PATTERN_PROP_TYPES: LazyLock<HashMap<&'static str, HashMap<&'static s
                     ("assignEvent", &["string"] as &[&str]),
                     ("checkEvent", &["string"] as &[&str]),
                     ("playAgainEvent", &["string"] as &[&str]),
+                    ("assetManifest", &["object"] as &[&str]),
                 ]
                 .into_iter()
                 .collect(),
@@ -6459,6 +6661,7 @@ pub static PATTERN_PROP_TYPES: LazyLock<HashMap<&'static str, HashMap<&'static s
                     ("toggleFlagEvent", &["string"] as &[&str]),
                     ("checkEvent", &["string"] as &[&str]),
                     ("playAgainEvent", &["string"] as &[&str]),
+                    ("assetManifest", &["object"] as &[&str]),
                 ]
                 .into_iter()
                 .collect(),
@@ -6906,6 +7109,7 @@ pub static PATTERN_PROP_TYPES: LazyLock<HashMap<&'static str, HashMap<&'static s
                     ("activeFilters", &["object"] as &[&str]),
                     ("selectedIds", &["array"] as &[&str]),
                     ("backgroundImage", &["object"] as &[&str]),
+                    ("assetManifest", &["object"] as &[&str]),
                     ("scale", &["number"] as &[&str]),
                     ("showMinimap", &["boolean"] as &[&str]),
                     ("enableCamera", &["boolean"] as &[&str]),
@@ -7095,12 +7299,187 @@ pub static PATTERN_PROP_TYPES: LazyLock<HashMap<&'static str, HashMap<&'static s
                 .collect(),
             ),
             (
+                "game-audio-provider",
+                [
+                    ("manifest", &["object"] as &[&str]),
+                    ("baseUrl", &["string"] as &[&str]),
+                    ("children", &["node"] as &[&str]),
+                    ("initialMuted", &["boolean"] as &[&str]),
+                    ("className", &["string"] as &[&str]),
+                    ("isLoading", &["boolean"] as &[&str]),
+                    ("error", &["object"] as &[&str]),
+                ]
+                .into_iter()
+                .collect(),
+            ),
+            (
                 "game-audio-toggle",
                 [
                     ("size", &["string"] as &[&str]),
                     ("className", &["string"] as &[&str]),
                     ("isLoading", &["boolean"] as &[&str]),
                     ("error", &["object"] as &[&str]),
+                ]
+                .into_iter()
+                .collect(),
+            ),
+            (
+                "game-board-3d",
+                [
+                    ("entity", &["object", "array"] as &[&str]),
+                    ("tiles", &["array"] as &[&str]),
+                    ("features", &["array"] as &[&str]),
+                    ("cameraMode", &["string"] as &[&str]),
+                    ("backgroundColor", &["string"] as &[&str]),
+                    ("unitScale", &["number"] as &[&str]),
+                    ("scale", &["number"] as &[&str]),
+                    ("tileClickEvent", &["string"] as &[&str]),
+                    ("unitClickEvent", &["string"] as &[&str]),
+                    ("attackEvent", &["string"] as &[&str]),
+                    ("endTurnEvent", &["string"] as &[&str]),
+                    ("cancelEvent", &["string"] as &[&str]),
+                    ("playAgainEvent", &["string"] as &[&str]),
+                    ("gameEndEvent", &["string"] as &[&str]),
+                    ("className", &["string"] as &[&str]),
+                ]
+                .into_iter()
+                .collect(),
+            ),
+            (
+                "game-canvas-3d",
+                [
+                    ("className", &["string"] as &[&str]),
+                    ("children", &["node"] as &[&str]),
+                    ("isLoading", &["boolean"] as &[&str]),
+                    ("error", &["string"] as &[&str]),
+                    ("tiles", &["array"] as &[&str]),
+                    ("units", &["array"] as &[&str]),
+                    ("features", &["array"] as &[&str]),
+                    ("events", &["array"] as &[&str]),
+                    ("fogOfWar", &["array"] as &[&str]),
+                    ("orientation", &["string"] as &[&str]),
+                    ("cameraMode", &["string"] as &[&str]),
+                    ("showGrid", &["boolean"] as &[&str]),
+                    ("showCoordinates", &["boolean"] as &[&str]),
+                    ("showTileInfo", &["boolean"] as &[&str]),
+                    ("overlay", &["string"] as &[&str]),
+                    ("shadows", &["boolean"] as &[&str]),
+                    ("backgroundColor", &["string"] as &[&str]),
+                    ("onTileClick", &["function"] as &[&str]),
+                    ("onUnitClick", &["function"] as &[&str]),
+                    ("onFeatureClick", &["function"] as &[&str]),
+                    ("onCanvasClick", &["function"] as &[&str]),
+                    ("onTileHover", &["function"] as &[&str]),
+                    ("onUnitAnimation", &["function"] as &[&str]),
+                    ("assetLoader", &["object"] as &[&str]),
+                    ("tileRenderer", &["object"] as &[&str]),
+                    ("unitRenderer", &["object"] as &[&str]),
+                    ("featureRenderer", &["object"] as &[&str]),
+                    ("preloadAssets", &["array"] as &[&str]),
+                    ("tileClickEvent", &["string"] as &[&str]),
+                    ("unitClickEvent", &["string"] as &[&str]),
+                    ("featureClickEvent", &["string"] as &[&str]),
+                    ("canvasClickEvent", &["string"] as &[&str]),
+                    ("tileHoverEvent", &["string"] as &[&str]),
+                    ("tileLeaveEvent", &["string"] as &[&str]),
+                    ("unitAnimationEvent", &["string"] as &[&str]),
+                    ("cameraChangeEvent", &["string"] as &[&str]),
+                    ("loadingMessage", &["string"] as &[&str]),
+                    ("useInstancing", &["boolean"] as &[&str]),
+                    ("validMoves", &["array"] as &[&str]),
+                    ("attackTargets", &["array"] as &[&str]),
+                    ("selectedTileIds", &["array"] as &[&str]),
+                    ("selectedUnitId", &["string"] as &[&str]),
+                    ("unitScale", &["number"] as &[&str]),
+                    ("scale", &["number"] as &[&str]),
+                ]
+                .into_iter()
+                .collect(),
+            ),
+            (
+                "game-canvas-3d-battle-template",
+                [
+                    ("entity", &["object"] as &[&str]),
+                    ("className", &["string"] as &[&str]),
+                    ("tiles", &["array"] as &[&str]),
+                    ("features", &["array"] as &[&str]),
+                    ("assetManifest", &["object"] as &[&str]),
+                    ("cameraMode", &["string"] as &[&str]),
+                    ("showGrid", &["boolean"] as &[&str]),
+                    ("shadows", &["boolean"] as &[&str]),
+                    ("backgroundColor", &["string"] as &[&str]),
+                    ("tileClickEvent", &["string"] as &[&str]),
+                    ("unitClickEvent", &["string"] as &[&str]),
+                    ("endTurnEvent", &["string"] as &[&str]),
+                    ("cancelEvent", &["string"] as &[&str]),
+                    ("attackEvent", &["string"] as &[&str]),
+                    ("playAgainEvent", &["string"] as &[&str]),
+                    ("gameEndEvent", &["string"] as &[&str]),
+                    ("exitEvent", &["string"] as &[&str]),
+                    ("showTurnIndicator", &["boolean"] as &[&str]),
+                    ("unitScale", &["number"] as &[&str]),
+                    ("scale", &["number"] as &[&str]),
+                ]
+                .into_iter()
+                .collect(),
+            ),
+            (
+                "game-canvas-3d-castle-template",
+                [
+                    ("entity", &["object"] as &[&str]),
+                    ("className", &["string"] as &[&str]),
+                    ("tiles", &["array"] as &[&str]),
+                    ("features", &["array"] as &[&str]),
+                    ("assetManifest", &["object"] as &[&str]),
+                    ("cameraMode", &["string"] as &[&str]),
+                    ("showGrid", &["boolean"] as &[&str]),
+                    ("shadows", &["boolean"] as &[&str]),
+                    ("backgroundColor", &["string"] as &[&str]),
+                    ("buildingClickEvent", &["string"] as &[&str]),
+                    ("unitClickEvent", &["string"] as &[&str]),
+                    ("endTurnEvent", &["string"] as &[&str]),
+                    ("cancelEvent", &["string"] as &[&str]),
+                    ("attackEvent", &["string"] as &[&str]),
+                    ("playAgainEvent", &["string"] as &[&str]),
+                    ("gameEndEvent", &["string"] as &[&str]),
+                    ("buildEvent", &["string"] as &[&str]),
+                    ("recruitEvent", &["string"] as &[&str]),
+                    ("exitEvent", &["string"] as &[&str]),
+                    ("showHeader", &["boolean"] as &[&str]),
+                    ("unitScale", &["number"] as &[&str]),
+                    ("scale", &["number"] as &[&str]),
+                ]
+                .into_iter()
+                .collect(),
+            ),
+            (
+                "game-canvas-3d-world-map-template",
+                [
+                    ("entity", &["object"] as &[&str]),
+                    ("className", &["string"] as &[&str]),
+                    ("tiles", &["array"] as &[&str]),
+                    ("features", &["array"] as &[&str]),
+                    ("assetManifest", &["object"] as &[&str]),
+                    ("cameraMode", &["string"] as &[&str]),
+                    ("showGrid", &["boolean"] as &[&str]),
+                    ("showCoordinates", &["boolean"] as &[&str]),
+                    ("showTileInfo", &["boolean"] as &[&str]),
+                    ("shadows", &["boolean"] as &[&str]),
+                    ("backgroundColor", &["string"] as &[&str]),
+                    ("tileClickEvent", &["string"] as &[&str]),
+                    ("unitClickEvent", &["string"] as &[&str]),
+                    ("endTurnEvent", &["string"] as &[&str]),
+                    ("cancelEvent", &["string"] as &[&str]),
+                    ("attackEvent", &["string"] as &[&str]),
+                    ("playAgainEvent", &["string"] as &[&str]),
+                    ("gameEndEvent", &["string"] as &[&str]),
+                    ("featureClickEvent", &["string"] as &[&str]),
+                    ("tileHoverEvent", &["string"] as &[&str]),
+                    ("tileLeaveEvent", &["string"] as &[&str]),
+                    ("cameraChangeEvent", &["string"] as &[&str]),
+                    ("exitEvent", &["string"] as &[&str]),
+                    ("unitScale", &["number"] as &[&str]),
+                    ("scale", &["number"] as &[&str]),
                 ]
                 .into_iter()
                 .collect(),
@@ -7134,6 +7513,18 @@ pub static PATTERN_PROP_TYPES: LazyLock<HashMap<&'static str, HashMap<&'static s
                     ("size", &["string"] as &[&str]),
                     ("className", &["string"] as &[&str]),
                     ("transparent", &["boolean"] as &[&str]),
+                ]
+                .into_iter()
+                .collect(),
+            ),
+            (
+                "game-icon",
+                [
+                    ("assetUrl", &["object"] as &[&str]),
+                    ("icon", &["icon", "string"] as &[&str]),
+                    ("size", &["number", "string"] as &[&str]),
+                    ("alt", &["string"] as &[&str]),
+                    ("className", &["string"] as &[&str]),
                 ]
                 .into_iter()
                 .collect(),
@@ -7376,7 +7767,7 @@ pub static PATTERN_PROP_TYPES: LazyLock<HashMap<&'static str, HashMap<&'static s
                     ("tiles", &["array"] as &[&str]),
                     ("units", &["array"] as &[&str]),
                     ("features", &["array"] as &[&str]),
-                    ("assetManifest", &["string"] as &[&str]),
+                    ("assetManifest", &["object"] as &[&str]),
                     ("assetBaseUrl", &["asset"] as &[&str]),
                     ("scale", &["number"] as &[&str]),
                     ("showMinimap", &["boolean"] as &[&str]),
@@ -7917,6 +8308,7 @@ pub static PATTERN_PROP_TYPES: LazyLock<HashMap<&'static str, HashMap<&'static s
                     ("playRoundEvent", &["string"] as &[&str]),
                     ("finishEvent", &["string"] as &[&str]),
                     ("playAgainEvent", &["string"] as &[&str]),
+                    ("assetManifest", &["object"] as &[&str]),
                 ]
                 .into_iter()
                 .collect(),
@@ -8074,7 +8466,7 @@ pub static PATTERN_PROP_TYPES: LazyLock<HashMap<&'static str, HashMap<&'static s
                     ("tiles", &["object", "array"] as &[&str]),
                     ("units", &["object", "array"] as &[&str]),
                     ("features", &["object", "array"] as &[&str]),
-                    ("assetManifest", &["string"] as &[&str]),
+                    ("assetManifest", &["object"] as &[&str]),
                     ("assetBaseUrl", &["asset"] as &[&str]),
                     ("scale", &["number"] as &[&str]),
                     ("showMinimap", &["boolean"] as &[&str]),
@@ -8102,7 +8494,7 @@ pub static PATTERN_PROP_TYPES: LazyLock<HashMap<&'static str, HashMap<&'static s
                     ("tiles", &["array"] as &[&str]),
                     ("units", &["array"] as &[&str]),
                     ("features", &["array"] as &[&str]),
-                    ("assetManifest", &["string"] as &[&str]),
+                    ("assetManifest", &["object"] as &[&str]),
                     ("assetBaseUrl", &["asset"] as &[&str]),
                     ("scale", &["number"] as &[&str]),
                     ("showMinimap", &["boolean"] as &[&str]),
@@ -8311,7 +8703,7 @@ pub static PATTERN_PROP_TYPES: LazyLock<HashMap<&'static str, HashMap<&'static s
                     ("tiles", &["array"] as &[&str]),
                     ("units", &["array"] as &[&str]),
                     ("features", &["array"] as &[&str]),
-                    ("assetManifest", &["string"] as &[&str]),
+                    ("assetManifest", &["object"] as &[&str]),
                     ("assetBaseUrl", &["asset"] as &[&str]),
                     ("scale", &["number"] as &[&str]),
                     ("showMinimap", &["boolean"] as &[&str]),
@@ -8827,6 +9219,7 @@ pub static PATTERN_PROP_TYPES: LazyLock<HashMap<&'static str, HashMap<&'static s
                     ("setBEvent", &["string"] as &[&str]),
                     ("checkEvent", &["string"] as &[&str]),
                     ("playAgainEvent", &["string"] as &[&str]),
+                    ("assetManifest", &["object"] as &[&str]),
                 ]
                 .into_iter()
                 .collect(),
@@ -8911,7 +9304,7 @@ pub static PATTERN_PROP_TYPES: LazyLock<HashMap<&'static str, HashMap<&'static s
                     ("tiles", &["array"] as &[&str]),
                     ("units", &["array"] as &[&str]),
                     ("features", &["array"] as &[&str]),
-                    ("assetManifest", &["string"] as &[&str]),
+                    ("assetManifest", &["object"] as &[&str]),
                     ("assetBaseUrl", &["asset"] as &[&str]),
                     ("scale", &["number"] as &[&str]),
                     ("showMinimap", &["boolean"] as &[&str]),
@@ -10711,8 +11104,23 @@ pub static PATTERN_PROP_ENUM_VALUES: LazyLock<HashMap<&'static str, HashMap<&'st
             ),
             ("form-section-header", [("badgeVariant", &["default", "primary", "success", "warning", "danger"] as &[&str])].into_iter().collect()),
             ("game-audio-toggle", [("size", &["sm", "md", "lg"] as &[&str])].into_iter().collect()),
+            ("game-board-3d", [("cameraMode", &["pan-zoom", "follow", "fixed"] as &[&str])].into_iter().collect()),
+            (
+                "game-canvas-3d",
+                [
+                    ("orientation", &["standard", "rotated"] as &[&str]),
+                    ("cameraMode", &["pan-zoom", "follow", "fixed"] as &[&str]),
+                    ("overlay", &["default", "hidden", "minimap"] as &[&str]),
+                ]
+                .into_iter()
+                .collect(),
+            ),
+            ("game-canvas-3d-battle-template", [("cameraMode", &["isometric", "perspective", "top-down"] as &[&str])].into_iter().collect()),
+            ("game-canvas-3d-castle-template", [("cameraMode", &["isometric", "perspective", "top-down"] as &[&str])].into_iter().collect()),
+            ("game-canvas-3d-world-map-template", [("cameraMode", &["isometric", "perspective", "top-down"] as &[&str])].into_iter().collect()),
             ("game-card", [("size", &["sm", "md", "lg"] as &[&str])].into_iter().collect()),
             ("game-hud", [("position", &["top", "bottom", "corners"] as &[&str]), ("size", &["sm", "md", "lg"] as &[&str])].into_iter().collect()),
+            ("game-icon", [("size", &["sm", "md", "lg"] as &[&str])].into_iter().collect()),
             (
                 "geometric-pattern",
                 [
@@ -11238,7 +11646,7 @@ mod tests {
     fn test_pattern_types() {
         assert!(is_valid_pattern("entity-table"));
         assert!(is_valid_pattern("form"));
-        assert!(is_valid_pattern("game-canvas-2d"));
+        assert!(is_valid_pattern("canvas-2d"));
         assert!(!is_valid_pattern("nonexistent-pattern"));
     }
 
@@ -11246,7 +11654,7 @@ mod tests {
     fn test_pattern_category() {
         assert_eq!(get_pattern_category("entity-table"), Some("display"));
         assert_eq!(get_pattern_category("form"), Some("form"));
-        assert_eq!(get_pattern_category("game-canvas-2d"), Some("game"));
+        assert_eq!(get_pattern_category("canvas-2d"), Some("game"));
         assert_eq!(get_pattern_category("nonexistent"), None);
     }
 
