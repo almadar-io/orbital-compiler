@@ -1,6 +1,6 @@
 // Auto-generated from @almadar/std canonical-operators.json by @almadar-io/almadar-pattern-sync.
 // DO NOT EDIT MANUALLY.
-// Total operators targeting Rust: 255
+// Total operators targeting Rust: 258
 
 /// Operator metadata derived from the canonical @almadar/std registry.
 #[derive(Debug, Clone)]
@@ -1173,12 +1173,42 @@ pub static CANONICAL_OPERATORS: &[OperatorMeta] = &[
         return_semantics: None,
     },
     OperatorMeta {
+        name: "math/acos",
+        category: "std-math",
+        min_arity: 1,
+        max_arity: Some(1),
+        return_type: "number",
+        description: "Arccosine (inverse cosine) in radians",
+        has_side_effects: false,
+        return_semantics: None,
+    },
+    OperatorMeta {
         name: "math/approach",
         category: "std-math",
         min_arity: 3,
         max_arity: Some(3),
         return_type: "number",
         description: "Move cur toward target by at most maxDelta",
+        has_side_effects: false,
+        return_semantics: None,
+    },
+    OperatorMeta {
+        name: "math/asin",
+        category: "std-math",
+        min_arity: 1,
+        max_arity: Some(1),
+        return_type: "number",
+        description: "Arcsine (inverse sine) in radians",
+        has_side_effects: false,
+        return_semantics: None,
+    },
+    OperatorMeta {
+        name: "math/atan",
+        category: "std-math",
+        min_arity: 1,
+        max_arity: Some(1),
+        return_type: "number",
+        description: "Arctangent (inverse tangent) in radians",
         has_side_effects: false,
         return_semantics: None,
     },
@@ -2599,7 +2629,7 @@ mod tests {
 
     #[test]
     fn test_canonical_operators_count() {
-        assert_eq!(CANONICAL_OPERATORS.len(), 255);
+        assert_eq!(CANONICAL_OPERATORS.len(), 258);
     }
 
     #[test]
