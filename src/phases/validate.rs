@@ -606,6 +606,7 @@ mod tests {
             is_initial: if is_initial { Some(true) } else { None },
             is_terminal: None,
             description: None,
+            time_bound_ms: None,
         }
     }
 

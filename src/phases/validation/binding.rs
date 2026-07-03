@@ -1720,6 +1720,7 @@ mod tests {
                     is_initial: Some(true),
                     is_terminal: None,
                     description: None,
+                    time_bound_ms: None,
                 }],
                 events: None,
                 transitions: trans,
@@ -1956,6 +1957,7 @@ mod tests {
                         is_initial: Some(true),
                         is_terminal: None,
                         description: None,
+                        time_bound_ms: None,
                     }],
                     events: None,
                     transitions: vec![TransitionDefinition {

@@ -9,8 +9,45 @@
 //! See `docs/Lolo_Language_Spec_v3_PLAN.md` Section 8 for context.
 
 use serde::Deserialize;
+use std::borrow::Cow;
 use std::collections::{HashMap, HashSet};
 use std::sync::OnceLock;
+
+// ============================================================================
+// Env-var overrides for baked registries (opt-in; unset = today's behavior)
+// ============================================================================
+//
+// Every baked registry below is embedded at compile time via `include_str!`
+// from `packages/almadar-*`'s pinned-npm bake (`make sync`), so a local,
+// unpublished edit to a std behavior/pattern/operator is invisible until a
+// full re-bake + `cargo build`. This lets a specific env var (or the shared
+// `ORBITAL_BAKED_DIR` fallback) point at a live file on disk instead, for
+// fast local iteration. Opt-in only: with no env var set this resolves to the
+// exact same embedded `&'static str`, byte for byte.
+
+/// Read `specific_env`, or `ORBITAL_BAKED_DIR/<baked_filename>`, or fall back
+/// to `embedded`. A set-but-unreadable override path panics with a clear
+/// message rather than silently falling through to the embedded source.
+fn resolve_baked_source(
+    specific_env: &str,
+    baked_filename: &str,
+    embedded: &'static str,
+) -> Cow<'static, str> {
+    if let Ok(path) = std::env::var(specific_env) {
+        tracing::warn!(env = specific_env, path = %path, "baked registry override active");
+        return Cow::Owned(std::fs::read_to_string(&path).unwrap_or_else(|e| {
+            panic!("{specific_env} is set to '{path}' but it could not be read: {e}")
+        }));
+    }
+    if let Ok(dir) = std::env::var("ORBITAL_BAKED_DIR") {
+        let path = format!("{dir}/{baked_filename}");
+        tracing::warn!(env = "ORBITAL_BAKED_DIR", path = %path, "baked registry override active");
+        return Cow::Owned(std::fs::read_to_string(&path).unwrap_or_else(|e| {
+            panic!("ORBITAL_BAKED_DIR is set to '{dir}' but '{path}' could not be read: {e}")
+        }));
+    }
+    Cow::Borrowed(embedded)
+}
 
 // ============================================================================
 // 3.1 — Embedded operators.json
@@ -142,7 +179,12 @@ struct OperatorsSchema {
 fn parsed_operators() -> &'static OperatorsSchema {
     static PARSED: OnceLock<OperatorsSchema> = OnceLock::new();
     PARSED.get_or_init(|| {
-        serde_json::from_str(OPERATORS_JSON).expect("Failed to parse embedded operators.json")
+        let source = resolve_baked_source(
+            "ORBITAL_OPERATORS_JSON",
+            "canonical-operators.json",
+            OPERATORS_JSON,
+        );
+        serde_json::from_str(&source).expect("Failed to parse embedded operators.json")
     })
 }
 
@@ -334,7 +376,12 @@ static PATTERNS: OnceLock<HashMap<String, EmbeddedPattern>> = OnceLock::new();
 pub fn patterns() -> &'static HashMap<String, EmbeddedPattern> {
     PATTERNS.get_or_init(|| {
         // patterns-registry.json shape: { version, exportedAt, patterns: { name: PatternEntry } }
-        let parsed: serde_json::Value = serde_json::from_str(PATTERNS_JSON)
+        let source = resolve_baked_source(
+            "ORBITAL_PATTERNS_JSON",
+            "patterns-registry.json",
+            PATTERNS_JSON,
+        );
+        let parsed: serde_json::Value = serde_json::from_str(&source)
             .expect("Failed to parse embedded patterns-registry.json");
         let patterns_obj = parsed
             .get("patterns")
@@ -416,8 +463,18 @@ fn parse_behaviors_into(map: &mut HashMap<String, EmbeddedBehavior>, json: &str,
 pub fn behaviors() -> &'static HashMap<String, EmbeddedBehavior> {
     BEHAVIORS.get_or_init(|| {
         let mut map = HashMap::new();
-        parse_behaviors_into(&mut map, BEHAVIORS_JSON_STD, "std");
-        parse_behaviors_into(&mut map, BEHAVIORS_JSON_IO, "io");
+        let std_source = resolve_baked_source(
+            "ORBITAL_BEHAVIORS_STD_JSON",
+            "behaviors-registry-std.json",
+            BEHAVIORS_JSON_STD,
+        );
+        let io_source = resolve_baked_source(
+            "ORBITAL_BEHAVIORS_IO_JSON",
+            "behaviors-registry-io.json",
+            BEHAVIORS_JSON_IO,
+        );
+        parse_behaviors_into(&mut map, &std_source, "std");
+        parse_behaviors_into(&mut map, &io_source, "io");
         map
     })
 }
@@ -486,7 +543,7 @@ pub fn factory_signatures_json_io() -> &'static str {
 
 // SYNC-GENERATED:EMBEDDED_STD_BEHAVIORS:BEGIN
 pub static EMBEDDED_STD_BEHAVIORS: phf::Map<&'static str, &'static str> = phf::phf_map! {
-    // === Atoms (358) ===
+    // === Atoms (380) ===
     "std/behaviors/std-agent-activity-log" => include_str!("baked/std/agent/atoms/std-agent-activity-log.orb"),
     "std/behaviors/std-agent-chat-thread" => include_str!("baked/std/agent/atoms/std-agent-chat-thread.orb"),
     "std/behaviors/std-agent-classifier" => include_str!("baked/std/agent/atoms/std-agent-classifier.orb"),
@@ -500,6 +557,26 @@ pub static EMBEDDED_STD_BEHAVIORS: phf::Map<&'static str, &'static str> = phf::p
     "std/behaviors/std-agent-step-progress" => include_str!("baked/std/agent/atoms/std-agent-step-progress.orb"),
     "std/behaviors/std-agent-token-gauge" => include_str!("baked/std/agent/atoms/std-agent-token-gauge.orb"),
     "std/behaviors/std-agent-tool-call" => include_str!("baked/std/agent/atoms/std-agent-tool-call.orb"),
+    "std/behaviors/std-algo-astargraph" => include_str!("baked/std/ui/learning/atoms/std-algo-astargraph.orb"),
+    "std/behaviors/std-algo-astargrid" => include_str!("baked/std/ui/learning/atoms/std-algo-astargrid.orb"),
+    "std/behaviors/std-algo-bfs" => include_str!("baked/std/ui/learning/atoms/std-algo-bfs.orb"),
+    "std/behaviors/std-algo-binarysearch" => include_str!("baked/std/ui/learning/atoms/std-algo-binarysearch.orb"),
+    "std/behaviors/std-algo-bubblesort" => include_str!("baked/std/ui/learning/atoms/std-algo-bubblesort.orb"),
+    "std/behaviors/std-algo-dfs" => include_str!("baked/std/ui/learning/atoms/std-algo-dfs.orb"),
+    "std/behaviors/std-algo-dijkstra" => include_str!("baked/std/ui/learning/atoms/std-algo-dijkstra.orb"),
+    "std/behaviors/std-algo-floodfill" => include_str!("baked/std/ui/learning/atoms/std-algo-floodfill.orb"),
+    "std/behaviors/std-algo-gameoflife" => include_str!("baked/std/ui/learning/atoms/std-algo-gameoflife.orb"),
+    "std/behaviors/std-algo-gridbfs" => include_str!("baked/std/ui/learning/atoms/std-algo-gridbfs.orb"),
+    "std/behaviors/std-algo-heapsort" => include_str!("baked/std/ui/learning/atoms/std-algo-heapsort.orb"),
+    "std/behaviors/std-algo-insertionsort" => include_str!("baked/std/ui/learning/atoms/std-algo-insertionsort.orb"),
+    "std/behaviors/std-algo-mazegen" => include_str!("baked/std/ui/learning/atoms/std-algo-mazegen.orb"),
+    "std/behaviors/std-algo-mergesort" => include_str!("baked/std/ui/learning/atoms/std-algo-mergesort.orb"),
+    "std/behaviors/std-algo-mst" => include_str!("baked/std/ui/learning/atoms/std-algo-mst.orb"),
+    "std/behaviors/std-algo-quicksort" => include_str!("baked/std/ui/learning/atoms/std-algo-quicksort.orb"),
+    "std/behaviors/std-algo-selectionsort" => include_str!("baked/std/ui/learning/atoms/std-algo-selectionsort.orb"),
+    "std/behaviors/std-algo-slidingwindow" => include_str!("baked/std/ui/learning/atoms/std-algo-slidingwindow.orb"),
+    "std/behaviors/std-algo-toposort" => include_str!("baked/std/ui/learning/atoms/std-algo-toposort.orb"),
+    "std/behaviors/std-algo-twopointer" => include_str!("baked/std/ui/learning/atoms/std-algo-twopointer.orb"),
     "std/behaviors/std-anim-tick" => include_str!("baked/std/core/atoms/std-anim-tick.orb"),
     "std/behaviors/std-ap-bill" => include_str!("baked/io/app/atoms/std-ap-bill.orb"),
     "std/behaviors/std-app-layout" => include_str!("baked/std/core/atoms/std-app-layout.orb"),
@@ -768,6 +845,8 @@ pub static EMBEDDED_STD_BEHAVIORS: phf::Map<&'static str, &'static str> = phf::p
     "std/behaviors/ui-animated-graphic" => include_str!("baked/std/ui/marketing/atoms/ui-animated-graphic.orb"),
     "std/behaviors/ui-animated-reveal" => include_str!("baked/std/ui/marketing/atoms/ui-animated-reveal.orb"),
     "std/behaviors/ui-aside" => include_str!("baked/std/ui/core/atoms/ui-aside.orb"),
+    "std/behaviors/ui-atlas-image" => include_str!("baked/std/ui/core/atoms/ui-atlas-image.orb"),
+    "std/behaviors/ui-atlas-panel" => include_str!("baked/std/ui/core/atoms/ui-atlas-panel.orb"),
     "std/behaviors/ui-avatar" => include_str!("baked/std/ui/core/atoms/ui-avatar.orb"),
     "std/behaviors/ui-badge" => include_str!("baked/std/ui/core/atoms/ui-badge.orb"),
     "std/behaviors/ui-box" => include_str!("baked/std/ui/core/atoms/ui-box.orb"),
@@ -845,7 +924,7 @@ pub static EMBEDDED_STD_BEHAVIORS: phf::Map<&'static str, &'static str> = phf::p
     "std/behaviors/ui-vstack" => include_str!("baked/std/ui/core/atoms/ui-vstack.orb"),
     "std/behaviors/ui-waypoint-marker" => include_str!("baked/std/ui/game/2d/atoms/ui-waypoint-marker.orb"),
     "std/behaviors/ui-xp-bar" => include_str!("baked/std/ui/game/2d/atoms/ui-xp-bar.orb"),
-    // === Molecules (171) ===
+    // === Molecules (172) ===
     "std/behaviors/std-about-page" => include_str!("baked/io/marketing/molecules/std-about-page.orb"),
     "std/behaviors/std-agent-fix-loop" => include_str!("baked/std/agent/molecules/std-agent-fix-loop.orb"),
     "std/behaviors/std-agent-learner" => include_str!("baked/std/agent/molecules/std-agent-learner.orb"),
@@ -878,6 +957,7 @@ pub static EMBEDDED_STD_BEHAVIORS: phf::Map<&'static str, &'static str> = phf::p
     "std/behaviors/ui-action-tile" => include_str!("baked/std/ui/game/2d/molecules/ui-action-tile.orb"),
     "std/behaviors/ui-activation-block" => include_str!("baked/std/ui/core/molecules/ui-activation-block.orb"),
     "std/behaviors/ui-alert" => include_str!("baked/std/ui/core/molecules/ui-alert.orb"),
+    "std/behaviors/ui-algorithm-canvas" => include_str!("baked/std/ui/learning/molecules/ui-algorithm-canvas.orb"),
     "std/behaviors/ui-article-section" => include_str!("baked/std/ui/marketing/molecules/ui-article-section.orb"),
     "std/behaviors/ui-behavior-view" => include_str!("baked/std/ui/avl/molecules/ui-behavior-view.orb"),
     "std/behaviors/ui-biology-canvas" => include_str!("baked/std/ui/learning/molecules/ui-biology-canvas.orb"),
@@ -1017,7 +1097,7 @@ pub static EMBEDDED_STD_BEHAVIORS: phf::Map<&'static str, &'static str> = phf::p
     "std/behaviors/ui-wizard-container" => include_str!("baked/std/ui/core/molecules/ui-wizard-container.orb"),
     "std/behaviors/ui-wizard-navigation" => include_str!("baked/std/ui/core/molecules/ui-wizard-navigation.orb"),
     "std/behaviors/ui-wizard-progress" => include_str!("baked/std/ui/core/molecules/ui-wizard-progress.orb"),
-    // === Organisms (197) ===
+    // === Organisms (219) ===
     "std/behaviors/AccountOrbital" => include_str!("baked/io/curated/organisms/AccountOrbital.orb"),
     "std/behaviors/BundleOrbital" => include_str!("baked/io/curated/organisms/BundleOrbital.orb"),
     "std/behaviors/ChargeItemOrbital" => include_str!("baked/io/curated/organisms/ChargeItemOrbital.orb"),
@@ -1026,6 +1106,7 @@ pub static EMBEDDED_STD_BEHAVIORS: phf::Map<&'static str, &'static str> = phf::p
     "std/behaviors/CoverageOrbital" => include_str!("baked/io/curated/organisms/CoverageOrbital.orb"),
     "std/behaviors/EncounterOrbital" => include_str!("baked/io/curated/organisms/EncounterOrbital.orb"),
     "std/behaviors/InvoiceOrbital" => include_str!("baked/io/curated/organisms/InvoiceOrbital.orb"),
+    "std/behaviors/learning-algorithms" => include_str!("baked/std/ui/learning/organisms/learning-algorithms.orb"),
     "std/behaviors/learning-biology" => include_str!("baked/std/ui/learning/organisms/learning-biology.orb"),
     "std/behaviors/learning-biology-lab" => include_str!("baked/std/ui/learning/organisms/learning-biology-lab.orb"),
     "std/behaviors/learning-chemistry" => include_str!("baked/std/ui/learning/organisms/learning-chemistry.orb"),
@@ -1144,6 +1225,7 @@ pub static EMBEDDED_STD_BEHAVIORS: phf::Map<&'static str, &'static str> = phf::p
     "std/behaviors/std-trading-public" => include_str!("baked/io/marketing/organisms/std-trading-public.orb"),
     "std/behaviors/std-wiki" => include_str!("baked/io/app/organisms/std-wiki.orb"),
     "std/behaviors/std-wiki-public" => include_str!("baked/io/marketing/organisms/std-wiki-public.orb"),
+    "std/behaviors/ui-arcade-board-3d" => include_str!("baked/std/ui/game/3d/organisms/ui-arcade-board-3d.orb"),
     "std/behaviors/ui-battle-board" => include_str!("baked/std/ui/game/2d/organisms/ui-battle-board.orb"),
     "std/behaviors/ui-boardgame-board" => include_str!("baked/std/ui/game/2d/organisms/ui-boardgame-board.orb"),
     "std/behaviors/ui-book-chapter-view" => include_str!("baked/std/ui/marketing/organisms/ui-book-chapter-view.orb"),
@@ -1151,11 +1233,13 @@ pub static EMBEDDED_STD_BEHAVIORS: phf::Map<&'static str, &'static str> = phf::p
     "std/behaviors/ui-book-nav-bar" => include_str!("baked/std/ui/marketing/organisms/ui-book-nav-bar.orb"),
     "std/behaviors/ui-book-table-of-contents" => include_str!("baked/std/ui/marketing/organisms/ui-book-table-of-contents.orb"),
     "std/behaviors/ui-book-viewer" => include_str!("baked/std/ui/marketing/organisms/ui-book-viewer.orb"),
+    "std/behaviors/ui-brick-sandbox-board-3d" => include_str!("baked/std/ui/game/3d/organisms/ui-brick-sandbox-board-3d.orb"),
     "std/behaviors/ui-builder-board" => include_str!("baked/std/ui/game/2d/organisms/ui-builder-board.orb"),
     "std/behaviors/ui-card-battler-board" => include_str!("baked/std/ui/game/2d/organisms/ui-card-battler-board.orb"),
     "std/behaviors/ui-case-study-organism" => include_str!("baked/std/ui/marketing/organisms/ui-case-study-organism.orb"),
     "std/behaviors/ui-castle-board" => include_str!("baked/std/ui/game/2d/organisms/ui-castle-board.orb"),
     "std/behaviors/ui-chat-bar" => include_str!("baked/std/ui/core/organisms/ui-chat-bar.orb"),
+    "std/behaviors/ui-city-board-3d" => include_str!("baked/std/ui/game/3d/organisms/ui-city-board-3d.orb"),
     "std/behaviors/ui-city-builder-board" => include_str!("baked/std/ui/game/2d/organisms/ui-city-builder-board.orb"),
     "std/behaviors/ui-classifier-board" => include_str!("baked/std/ui/game/2d/organisms/ui-classifier-board.orb"),
     "std/behaviors/ui-code-runner-panel" => include_str!("baked/std/ui/core/organisms/ui-code-runner-panel.orb"),
@@ -1167,33 +1251,46 @@ pub static EMBEDDED_STD_BEHAVIORS: phf::Map<&'static str, &'static str> = phf::p
     "std/behaviors/ui-entity-list" => include_str!("baked/std/ui/core/organisms/ui-entity-list.orb"),
     "std/behaviors/ui-entity-table" => include_str!("baked/std/ui/core/organisms/ui-entity-table.orb"),
     "std/behaviors/ui-event-handler-board" => include_str!("baked/std/ui/game/2d/organisms/ui-event-handler-board.orb"),
+    "std/behaviors/ui-fantasy-town-board-3d" => include_str!("baked/std/ui/game/3d/organisms/ui-fantasy-town-board-3d.orb"),
     "std/behaviors/ui-feature-grid-organism" => include_str!("baked/std/ui/marketing/organisms/ui-feature-grid-organism.orb"),
     "std/behaviors/ui-fishing-board" => include_str!("baked/std/ui/game/2d/organisms/ui-fishing-board.orb"),
     "std/behaviors/ui-form" => include_str!("baked/std/ui/core/organisms/ui-form.orb"),
     "std/behaviors/ui-form-section" => include_str!("baked/std/ui/core/organisms/ui-form-section.orb"),
     "std/behaviors/ui-game-board-3d" => include_str!("baked/std/ui/game/3d/organisms/ui-game-board-3d.orb"),
+    "std/behaviors/ui-graveyard-board-3d" => include_str!("baked/std/ui/game/3d/organisms/ui-graveyard-board-3d.orb"),
     "std/behaviors/ui-hero-organism" => include_str!("baked/std/ui/marketing/organisms/ui-hero-organism.orb"),
     "std/behaviors/ui-hex-strategy-board" => include_str!("baked/std/ui/game/2d/organisms/ui-hex-strategy-board.orb"),
+    "std/behaviors/ui-hex-strategy-board-3d" => include_str!("baked/std/ui/game/3d/organisms/ui-hex-strategy-board-3d.orb"),
+    "std/behaviors/ui-holiday-board-3d" => include_str!("baked/std/ui/game/3d/organisms/ui-holiday-board-3d.orb"),
     "std/behaviors/ui-holiday-runner-board" => include_str!("baked/std/ui/game/2d/organisms/ui-holiday-runner-board.orb"),
+    "std/behaviors/ui-market-board-3d" => include_str!("baked/std/ui/game/3d/organisms/ui-market-board-3d.orb"),
     "std/behaviors/ui-master-detail" => include_str!("baked/std/ui/core/organisms/ui-master-detail.orb"),
     "std/behaviors/ui-master-detail-layout" => include_str!("baked/std/ui/core/organisms/ui-master-detail-layout.orb"),
     "std/behaviors/ui-match-puzzle-board" => include_str!("baked/std/ui/game/2d/organisms/ui-match-puzzle-board.orb"),
     "std/behaviors/ui-media-gallery" => include_str!("baked/std/ui/core/organisms/ui-media-gallery.orb"),
     "std/behaviors/ui-minigolf-board" => include_str!("baked/std/ui/game/2d/organisms/ui-minigolf-board.orb"),
+    "std/behaviors/ui-minigolf-board-3d" => include_str!("baked/std/ui/game/3d/organisms/ui-minigolf-board-3d.orb"),
     "std/behaviors/ui-modal-slot" => include_str!("baked/std/ui/core/organisms/ui-modal-slot.orb"),
+    "std/behaviors/ui-nature-survival-board-3d" => include_str!("baked/std/ui/game/3d/organisms/ui-nature-survival-board-3d.orb"),
     "std/behaviors/ui-negotiator-board" => include_str!("baked/std/ui/game/2d/organisms/ui-negotiator-board.orb"),
+    "std/behaviors/ui-physics-sandbox-board" => include_str!("baked/std/ui/game/2d/organisms/ui-physics-sandbox-board.orb"),
     "std/behaviors/ui-pinball-board" => include_str!("baked/std/ui/game/2d/organisms/ui-pinball-board.orb"),
     "std/behaviors/ui-pirate-board" => include_str!("baked/std/ui/game/2d/organisms/ui-pirate-board.orb"),
+    "std/behaviors/ui-pirate-board-3d" => include_str!("baked/std/ui/game/3d/organisms/ui-pirate-board-3d.orb"),
     "std/behaviors/ui-platformer-board" => include_str!("baked/std/ui/game/2d/organisms/ui-platformer-board.orb"),
+    "std/behaviors/ui-platformer-board-3d" => include_str!("baked/std/ui/game/3d/organisms/ui-platformer-board-3d.orb"),
     "std/behaviors/ui-pricing-organism" => include_str!("baked/std/ui/marketing/organisms/ui-pricing-organism.orb"),
     "std/behaviors/ui-racing-board" => include_str!("baked/std/ui/game/2d/organisms/ui-racing-board.orb"),
+    "std/behaviors/ui-racing-board-3d" => include_str!("baked/std/ui/game/3d/organisms/ui-racing-board-3d.orb"),
     "std/behaviors/ui-roguelike-board" => include_str!("baked/std/ui/game/2d/organisms/ui-roguelike-board.orb"),
     "std/behaviors/ui-runtime-debugger" => include_str!("baked/std/ui/core/organisms/ui-runtime-debugger.orb"),
     "std/behaviors/ui-segment-renderer" => include_str!("baked/std/ui/core/organisms/ui-segment-renderer.orb"),
     "std/behaviors/ui-sequencer-board" => include_str!("baked/std/ui/game/2d/organisms/ui-sequencer-board.orb"),
     "std/behaviors/ui-showcase-organism" => include_str!("baked/std/ui/marketing/organisms/ui-showcase-organism.orb"),
     "std/behaviors/ui-simulator-board" => include_str!("baked/std/ui/game/2d/organisms/ui-simulator-board.orb"),
+    "std/behaviors/ui-skatepark-board-3d" => include_str!("baked/std/ui/game/3d/organisms/ui-skatepark-board-3d.orb"),
     "std/behaviors/ui-sokoban-board" => include_str!("baked/std/ui/game/2d/organisms/ui-sokoban-board.orb"),
+    "std/behaviors/ui-space-board-3d" => include_str!("baked/std/ui/game/3d/organisms/ui-space-board-3d.orb"),
     "std/behaviors/ui-space-shmup-board" => include_str!("baked/std/ui/game/2d/organisms/ui-space-shmup-board.orb"),
     "std/behaviors/ui-space-station-board" => include_str!("baked/std/ui/game/2d/organisms/ui-space-station-board.orb"),
     "std/behaviors/ui-split-pane" => include_str!("baked/std/ui/core/organisms/ui-split-pane.orb"),
@@ -1210,10 +1307,15 @@ pub static EMBEDDED_STD_BEHAVIORS: phf::Map<&'static str, &'static str> = phf::p
     "std/behaviors/ui-timeline" => include_str!("baked/std/ui/core/organisms/ui-timeline.orb"),
     "std/behaviors/ui-toast-slot" => include_str!("baked/std/ui/core/organisms/ui-toast-slot.orb"),
     "std/behaviors/ui-top-down-shooter-board" => include_str!("baked/std/ui/game/2d/organisms/ui-top-down-shooter-board.orb"),
+    "std/behaviors/ui-topdown-dungeon-board" => include_str!("baked/std/ui/game/2d/organisms/ui-topdown-dungeon-board.orb"),
+    "std/behaviors/ui-topdown-rts-board" => include_str!("baked/std/ui/game/2d/organisms/ui-topdown-rts-board.orb"),
     "std/behaviors/ui-tower-defense-board" => include_str!("baked/std/ui/game/2d/organisms/ui-tower-defense-board.orb"),
+    "std/behaviors/ui-tower-defense-board-3d" => include_str!("baked/std/ui/game/3d/organisms/ui-tower-defense-board-3d.orb"),
+    "std/behaviors/ui-toy-track-board-3d" => include_str!("baked/std/ui/game/3d/organisms/ui-toy-track-board-3d.orb"),
     "std/behaviors/ui-ui-slot-renderer" => include_str!("baked/std/ui/core/organisms/ui-ui-slot-renderer.orb"),
     "std/behaviors/ui-uncontrolled-battle-board" => include_str!("baked/std/ui/game/2d/organisms/ui-uncontrolled-battle-board.orb"),
     "std/behaviors/ui-visual-novel-board" => include_str!("baked/std/ui/game/2d/organisms/ui-visual-novel-board.orb"),
+    "std/behaviors/ui-winter-ski-board" => include_str!("baked/std/ui/game/2d/organisms/ui-winter-ski-board.orb"),
     "std/behaviors/ui-world-map-board" => include_str!("baked/std/ui/game/2d/organisms/ui-world-map-board.orb"),
     // === Templates (21) ===
     "std/behaviors/ui-about-page-template" => include_str!("baked/std/ui/marketing/templates/ui-about-page-template.orb"),
@@ -1245,8 +1347,76 @@ pub static EMBEDDED_STD_BEHAVIORS: phf::Map<&'static str, &'static str> = phf::p
 /// Returns the raw `.orb` JSON content as a `&'static str`, or `None` if the
 /// path is not in the embedded set. The caller is responsible for parsing the
 /// content (typically via the existing schema parser).
+///
+/// If `ORBITAL_STD_BEHAVIORS_DIR` is set (a registry root, e.g.
+/// `packages/almadar-std/behaviors/registry`), a local `.orb` file there wins
+/// over the compiled-in one — this is what lets a local/unpublished std
+/// behavior edit be `uses`-resolved without a full `make sync` re-bake +
+/// Rust rebuild. Unset (the default) is byte-for-byte today's behavior.
 pub fn get_std_behavior_content(canonical_path: &str) -> Option<&'static str> {
+    if let Some(overridden) = std_behaviors_override_index().get(canonical_path) {
+        return Some(*overridden);
+    }
     EMBEDDED_STD_BEHAVIORS.get(canonical_path).copied()
+}
+
+/// Lazily-built index of `ORBITAL_STD_BEHAVIORS_DIR` overrides, keyed by the
+/// canonical `std/behaviors/<name>` path (matching `EMBEDDED_STD_BEHAVIORS`'s
+/// own keys). Empty (and free) when the env var is unset. File contents are
+/// read once and leaked to `'static` so this returns the same reference shape
+/// as the compiled-in map.
+fn std_behaviors_override_index() -> &'static HashMap<String, &'static str> {
+    static INDEX: OnceLock<HashMap<String, &'static str>> = OnceLock::new();
+    INDEX.get_or_init(|| {
+        let Ok(dir) = std::env::var("ORBITAL_STD_BEHAVIORS_DIR") else {
+            return HashMap::new();
+        };
+        let root = std::path::Path::new(&dir);
+        if !root.is_dir() {
+            panic!(
+                "ORBITAL_STD_BEHAVIORS_DIR is set to '{dir}' but that is not a directory"
+            );
+        }
+        let mut index = HashMap::new();
+        collect_orb_overrides(root, &mut index);
+        tracing::warn!(
+            dir = %dir,
+            behaviors_found = index.len(),
+            "ORBITAL_STD_BEHAVIORS_DIR override active — local .orb files win over the compiled-in registry"
+        );
+        index
+    })
+}
+
+/// Recursively walk `dir` collecting every `<name>.orb` file into `index`,
+/// keyed as `std/behaviors/<name>` (the category subdirectory, e.g.
+/// `agent/atoms/`, isn't derivable from the canonical path, so this matches
+/// by basename alone — same convention `EMBEDDED_STD_BEHAVIORS`'s keys use).
+fn collect_orb_overrides(dir: &std::path::Path, index: &mut HashMap<String, &'static str>) {
+    let entries = std::fs::read_dir(dir).unwrap_or_else(|e| {
+        panic!("ORBITAL_STD_BEHAVIORS_DIR: failed to read directory '{}': {e}", dir.display())
+    });
+    for entry in entries {
+        let entry = entry.unwrap_or_else(|e| {
+            panic!("ORBITAL_STD_BEHAVIORS_DIR: failed to read entry in '{}': {e}", dir.display())
+        });
+        let path = entry.path();
+        if path.is_dir() {
+            collect_orb_overrides(&path, index);
+            continue;
+        }
+        if path.extension().and_then(|e| e.to_str()) != Some("orb") {
+            continue;
+        }
+        let Some(basename) = path.file_stem().and_then(|s| s.to_str()) else {
+            continue;
+        };
+        let content = std::fs::read_to_string(&path).unwrap_or_else(|e| {
+            panic!("ORBITAL_STD_BEHAVIORS_DIR: failed to read '{}': {e}", path.display())
+        });
+        let leaked: &'static str = Box::leak(content.into_boxed_str());
+        index.insert(format!("std/behaviors/{basename}"), leaked);
+    }
 }
 
 // ============================================================================

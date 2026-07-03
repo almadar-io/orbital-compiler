@@ -22,6 +22,8 @@ pub static PATTERN_TYPES: LazyLock<HashSet<&'static str>> = LazyLock::new(|| {
         "animated-reveal",
         "article-section",
         "aside",
+        "atlas-image",
+        "atlas-panel",
         "avatar",
         "badge",
         "behavior-view",
@@ -269,6 +271,7 @@ pub static PATTERN_TYPES: LazyLock<HashSet<&'static str>> = LazyLock::new(|| {
         "toast-slot",
         "ui-slot-renderer",
         // Learning Patterns
+        "algorithm-canvas",
         "biology-canvas",
         "chemistry-canvas",
         "learning-canvas",
@@ -351,6 +354,8 @@ pub static PATTERN_TO_CATEGORY: LazyLock<HashMap<&'static str, &'static str>> =
             ("animated-reveal", "component"),
             ("article-section", "component"),
             ("aside", "component"),
+            ("atlas-image", "component"),
+            ("atlas-panel", "component"),
             ("avatar", "component"),
             ("badge", "component"),
             ("behavior-view", "component"),
@@ -598,6 +603,7 @@ pub static PATTERN_TO_CATEGORY: LazyLock<HashMap<&'static str, &'static str>> =
             ("toast-slot", "layout"),
             ("ui-slot-renderer", "layout"),
             // Learning
+            ("algorithm-canvas", "learning"),
             ("biology-canvas", "learning"),
             ("chemistry-canvas", "learning"),
             ("learning-canvas", "learning"),
@@ -911,6 +917,27 @@ pub static PATTERN_PROPS_SCHEMA: LazyLock<HashMap<&'static str, HashSet<&'static
                 .into_iter()
                 .collect(),
             ),
+            (
+                "algorithm-canvas",
+                [
+                    "animate",
+                    "backgroundColor",
+                    "bars",
+                    "cells",
+                    "className",
+                    "error",
+                    "height",
+                    "interactive",
+                    "isLoading",
+                    "onShapeClick",
+                    "pointers",
+                    "shapes",
+                    "title",
+                    "width",
+                ]
+                .into_iter()
+                .collect(),
+            ),
             ("animated-counter", ["className", "duration", "prefix", "suffix", "value"].into_iter().collect()),
             (
                 "animated-graphic",
@@ -951,6 +978,38 @@ pub static PATTERN_PROPS_SCHEMA: LazyLock<HashMap<&'static str, HashSet<&'static
             ),
             ("article-section", ["children", "className", "maxWidth", "title"].into_iter().collect()),
             ("aside", ["children", "className"].into_iter().collect()),
+            (
+                "atlas-image",
+                [
+                    "'aria-hidden'",
+                    "alt",
+                    "asset",
+                    "className",
+                    "fill",
+                    "fit",
+                    "height",
+                    "size",
+                    "style",
+                    "width",
+                ]
+                .into_iter()
+                .collect(),
+            ),
+            (
+                "atlas-panel",
+                [
+                    "'aria-hidden'",
+                    "asset",
+                    "borderSlice",
+                    "borderWidth",
+                    "children",
+                    "className",
+                    "mode",
+                    "style",
+                ]
+                .into_iter()
+                .collect(),
+            ),
             ("auth-layout", ["appName", "backgroundImage", "brandingContent", "logo", "showBranding"].into_iter().collect()),
             (
                 "avatar",
@@ -2234,6 +2293,7 @@ pub static PATTERN_PROPS_SCHEMA: LazyLock<HashMap<&'static str, HashSet<&'static
                 "game-canvas-3d",
                 [
                     "assetLoader",
+                    "assetManifest",
                     "attackTargets",
                     "backgroundColor",
                     "cameraChangeEvent",
@@ -2247,7 +2307,10 @@ pub static PATTERN_PROPS_SCHEMA: LazyLock<HashMap<&'static str, HashSet<&'static
                     "featureRenderer",
                     "features",
                     "fogOfWar",
+                    "interpolateUnits",
                     "isLoading",
+                    "keyMap",
+                    "keyUpMap",
                     "loadingMessage",
                     "onCanvasClick",
                     "onFeatureClick",
@@ -2257,6 +2320,10 @@ pub static PATTERN_PROPS_SCHEMA: LazyLock<HashMap<&'static str, HashSet<&'static
                     "onUnitClick",
                     "orientation",
                     "overlay",
+                    "pixelsPerUnit",
+                    "platforms",
+                    "player",
+                    "playerSprite",
                     "preloadAssets",
                     "scale",
                     "selectedTileIds",
@@ -2269,6 +2336,7 @@ pub static PATTERN_PROPS_SCHEMA: LazyLock<HashMap<&'static str, HashSet<&'static
                     "tileHoverEvent",
                     "tileLeaveEvent",
                     "tileRenderer",
+                    "tileSprites",
                     "tiles",
                     "unitAnimationEvent",
                     "unitClickEvent",
@@ -2277,6 +2345,8 @@ pub static PATTERN_PROPS_SCHEMA: LazyLock<HashMap<&'static str, HashSet<&'static
                     "units",
                     "useInstancing",
                     "validMoves",
+                    "worldHeight",
+                    "worldWidth",
                 ]
                 .into_iter()
                 .collect(),
@@ -2410,12 +2480,16 @@ pub static PATTERN_PROPS_SCHEMA: LazyLock<HashMap<&'static str, HashSet<&'static
             (
                 "game-shell",
                 [
+                    "addons",
                     "appName",
                     "backgroundAsset",
                     "children",
                     "className",
+                    "controls",
+                    "fontFamily",
                     "hud",
                     "hudBackgroundAsset",
+                    "overlay",
                     "showTopBar",
                 ]
                 .into_iter()
@@ -4685,6 +4759,27 @@ pub static PATTERN_PROP_TYPES: LazyLock<HashMap<&'static str, HashMap<&'static s
                 .collect(),
             ),
             (
+                "algorithm-canvas",
+                [
+                    ("className", &["string"] as &[&str]),
+                    ("width", &["number"] as &[&str]),
+                    ("height", &["number"] as &[&str]),
+                    ("title", &["string"] as &[&str]),
+                    ("backgroundColor", &["string"] as &[&str]),
+                    ("bars", &["array"] as &[&str]),
+                    ("cells", &["array"] as &[&str]),
+                    ("pointers", &["array"] as &[&str]),
+                    ("shapes", &["array"] as &[&str]),
+                    ("interactive", &["boolean"] as &[&str]),
+                    ("animate", &["boolean"] as &[&str]),
+                    ("onShapeClick", &["function"] as &[&str]),
+                    ("isLoading", &["boolean"] as &[&str]),
+                    ("error", &["object"] as &[&str]),
+                ]
+                .into_iter()
+                .collect(),
+            ),
+            (
                 "animated-counter",
                 [
                     ("value", &["number", "string"] as &[&str]),
@@ -4745,6 +4840,38 @@ pub static PATTERN_PROP_TYPES: LazyLock<HashMap<&'static str, HashMap<&'static s
                 .collect(),
             ),
             ("aside", [("className", &["string"] as &[&str]), ("children", &["node"] as &[&str])].into_iter().collect()),
+            (
+                "atlas-image",
+                [
+                    ("asset", &["object"] as &[&str]),
+                    ("size", &["number"] as &[&str]),
+                    ("width", &["number"] as &[&str]),
+                    ("height", &["number"] as &[&str]),
+                    ("fill", &["boolean"] as &[&str]),
+                    ("fit", &["string"] as &[&str]),
+                    ("alt", &["string"] as &[&str]),
+                    ("className", &["string"] as &[&str]),
+                    ("style", &["object"] as &[&str]),
+                    ("'aria-hidden'", &["boolean"] as &[&str]),
+                ]
+                .into_iter()
+                .collect(),
+            ),
+            (
+                "atlas-panel",
+                [
+                    ("asset", &["object"] as &[&str]),
+                    ("borderSlice", &["number"] as &[&str]),
+                    ("borderWidth", &["number"] as &[&str]),
+                    ("mode", &["string"] as &[&str]),
+                    ("className", &["string"] as &[&str]),
+                    ("style", &["object"] as &[&str]),
+                    ("children", &["node"] as &[&str]),
+                    ("'aria-hidden'", &["boolean"] as &[&str]),
+                ]
+                .into_iter()
+                .collect(),
+            ),
             (
                 "auth-layout",
                 [
@@ -6429,6 +6556,17 @@ pub static PATTERN_PROP_TYPES: LazyLock<HashMap<&'static str, HashMap<&'static s
                     ("selectedUnitId", &["string"] as &[&str]),
                     ("unitScale", &["number"] as &[&str]),
                     ("scale", &["number"] as &[&str]),
+                    ("keyMap", &["object"] as &[&str]),
+                    ("keyUpMap", &["object"] as &[&str]),
+                    ("player", &["object"] as &[&str]),
+                    ("platforms", &["array"] as &[&str]),
+                    ("worldWidth", &["number"] as &[&str]),
+                    ("worldHeight", &["number"] as &[&str]),
+                    ("pixelsPerUnit", &["number"] as &[&str]),
+                    ("playerSprite", &["object"] as &[&str]),
+                    ("tileSprites", &["object"] as &[&str]),
+                    ("assetManifest", &["object"] as &[&str]),
+                    ("interpolateUnits", &["boolean"] as &[&str]),
                 ]
                 .into_iter()
                 .collect(),
@@ -6588,11 +6726,15 @@ pub static PATTERN_PROP_TYPES: LazyLock<HashMap<&'static str, HashMap<&'static s
                 [
                     ("appName", &["string"] as &[&str]),
                     ("hud", &["node"] as &[&str]),
+                    ("addons", &["node"] as &[&str]),
+                    ("controls", &["node"] as &[&str]),
+                    ("overlay", &["node"] as &[&str]),
                     ("className", &["string"] as &[&str]),
                     ("showTopBar", &["boolean"] as &[&str]),
                     ("children", &["node"] as &[&str]),
                     ("backgroundAsset", &["object"] as &[&str]),
                     ("hudBackgroundAsset", &["object"] as &[&str]),
+                    ("fontFamily", &["string"] as &[&str]),
                 ]
                 .into_iter()
                 .collect(),
@@ -9297,6 +9439,8 @@ pub static PATTERN_PROP_ENUM_VALUES: LazyLock<HashMap<&'static str, HashMap<&'st
                 .collect(),
             ),
             ("article-section", [("maxWidth", &["sm", "md", "lg"] as &[&str])].into_iter().collect()),
+            ("atlas-image", [("fit", &["contain", "cover", "fill"] as &[&str])].into_iter().collect()),
+            ("atlas-panel", [("mode", &["nineSlice", "repeat"] as &[&str])].into_iter().collect()),
             (
                 "avatar",
                 [

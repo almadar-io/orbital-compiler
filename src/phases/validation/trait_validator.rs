@@ -900,12 +900,14 @@ mod tests {
                     is_initial: Some(true),
                     is_terminal: None,
                     description: None,
+                    time_bound_ms: None,
                 },
                 StateDefinition {
                     name: "active".to_string(),
                     is_initial: None,
                     is_terminal: None,
                     description: None,
+                    time_bound_ms: None,
                 },
             ],
             events: Some(vec![
@@ -1026,6 +1028,7 @@ mod tests {
             is_initial: None,
             is_terminal: None,
             description: None,
+            time_bound_ms: None,
         });
 
         let result = validate_trait_definition(&trait_def, "test", &HashSet::new());
@@ -1164,6 +1167,7 @@ mod tests {
             is_initial: None,
             is_terminal: None,
             description: None,
+            time_bound_ms: None,
         });
 
         let result = validate_trait_definition(&trait_def, "test", &HashSet::new());

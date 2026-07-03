@@ -115,6 +115,7 @@ fn schema_for_f1(strict_target_event: &str) -> OrbitalSchema {
                 is_initial: Some(true),
                 is_terminal: None,
                 description: None,
+                time_bound_ms: None,
             }],
             events: Some(vec![]),
             transitions: vec![TransitionDefinition {
@@ -226,6 +227,7 @@ fn schema_with_two_emitters(
                     is_initial: Some(true),
                     is_terminal: None,
                     description: None,
+                    time_bound_ms: None,
                 }],
                 events: Some(vec![]),
                 transitions: vec![TransitionDefinition {

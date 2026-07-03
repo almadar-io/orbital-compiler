@@ -132,6 +132,7 @@ fn schema_with_config(config: HashMap<String, ConfigField>) -> OrbitalSchema {
                 is_initial: Some(true),
                 is_terminal: None,
                 description: None,
+                time_bound_ms: None,
             }],
             events: Some(vec![]),
             transitions: vec![TransitionDefinition {

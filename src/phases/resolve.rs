@@ -31,6 +31,9 @@ pub enum ResolveError {
 
     #[error("Failed to resolve S-expression: {0}")]
     InvalidSExpr(String),
+
+    #[error("Invalid tick interval '{0}': expected 'frame', a duration ('5ms'/'5s'/'1m'/'1h'), or a 5-field cron expression")]
+    InvalidTickInterval(String),
 }
 
 /// Resolve a schema to OIR
@@ -494,11 +497,13 @@ impl<'a> Resolver<'a> {
 
         for state in &sm.states {
             let is_initial = initial_state_name == Some(&state.name);
-            oir_trait.states.push(if is_initial {
+            let mut oir_state = if is_initial {
                 OirState::initial(&state.name)
             } else {
                 OirState::new(&state.name)
-            });
+            };
+            oir_state.time_bound_ms = state.time_bound_ms;
+            oir_trait.states.push(oir_state);
         }
 
         // Resolve events from state machine
@@ -710,16 +715,40 @@ impl<'a> Resolver<'a> {
     ) -> Result<OirTick, ResolveError> {
         let interval = match &tick.interval {
             orbital_core::schema::StringOrNumber::String(s) => {
+                // Order matters: check "ms" before "s" (a suffix of "ms").
                 if s == "frame" {
                     OirInterval::Frame
-                } else if s.ends_with("ms") {
-                    let ms: u64 = s.trim_end_matches("ms").parse().unwrap_or(1000);
+                } else if let Some(digits) = s.strip_suffix("ms") {
+                    let ms: u64 = digits
+                        .parse()
+                        .map_err(|_| ResolveError::InvalidTickInterval(s.clone()))?;
                     OirInterval::Milliseconds { value: ms }
-                } else if s.ends_with("s") {
-                    let s_val: u64 = s.trim_end_matches("s").parse().unwrap_or(1);
-                    OirInterval::Seconds { value: s_val }
+                } else if let Some(digits) = s.strip_suffix("s") {
+                    let value: u64 = digits
+                        .parse()
+                        .map_err(|_| ResolveError::InvalidTickInterval(s.clone()))?;
+                    OirInterval::Seconds { value }
+                } else if let Some(digits) = s.strip_suffix("m") {
+                    let value: u64 = digits
+                        .parse()
+                        .map_err(|_| ResolveError::InvalidTickInterval(s.clone()))?;
+                    OirInterval::Minutes { value }
+                } else if let Some(digits) = s.strip_suffix("h") {
+                    let hours: u64 = digits
+                        .parse()
+                        .map_err(|_| ResolveError::InvalidTickInterval(s.clone()))?;
+                    OirInterval::Milliseconds { value: hours * 60 * 60 * 1000 }
+                } else if let Some(digits) = s.strip_suffix("d") {
+                    let days: u64 = digits
+                        .parse()
+                        .map_err(|_| ResolveError::InvalidTickInterval(s.clone()))?;
+                    OirInterval::Milliseconds { value: days * 24 * 60 * 60 * 1000 }
+                } else if orbital_core::cron::is_valid_cron_expression(s) {
+                    // A real 5-field cron expression (e.g. "0 9 * * *") —
+                    // previously silently collapsed to `Seconds { value: 1 }`.
+                    OirInterval::Cron(s.clone())
                 } else {
-                    OirInterval::Seconds { value: 1 }
+                    return Err(ResolveError::InvalidTickInterval(s.clone()));
                 }
             }
             orbital_core::schema::StringOrNumber::Number(n) => {
@@ -2079,5 +2108,72 @@ mod tests {
         let oir = result.unwrap();
         assert_eq!(oir.name, "TestApp");
         assert_eq!(oir.version, "1.0.0");
+    }
+
+    fn tick_with_interval(interval: orbital_core::schema::StringOrNumber) -> orbital_core::schema::TickDefinition {
+        orbital_core::schema::TickDefinition {
+            name: "testTick".to_string(),
+            interval,
+            guard: None,
+            effects: vec![],
+            applies_to: None,
+            description: None,
+        }
+    }
+
+    fn empty_resolver() -> Resolver<'static> {
+        static SCHEMA: std::sync::OnceLock<OrbitalSchema> = std::sync::OnceLock::new();
+        let schema = SCHEMA.get_or_init(|| OrbitalSchema {
+            name: "Test".to_string(),
+            version: None,
+            description: None,
+            orbitals: vec![],
+            metadata: None,
+        });
+        Resolver::new(schema)
+    }
+
+    #[test]
+    fn resolve_tick_cron_expression_becomes_oir_cron() {
+        let resolver = empty_resolver();
+        let tick = tick_with_interval(orbital_core::schema::StringOrNumber::String(
+            "0 9 * * *".to_string(),
+        ));
+        let resolved = resolver.resolve_tick(&tick).expect("valid cron should resolve");
+        assert_eq!(resolved.interval, OirInterval::Cron("0 9 * * *".to_string()));
+    }
+
+    #[test]
+    fn resolve_tick_garbage_string_is_rejected_not_silently_1s() {
+        let resolver = empty_resolver();
+        let tick = tick_with_interval(orbital_core::schema::StringOrNumber::String(
+            "not a valid interval".to_string(),
+        ));
+        let err = resolver
+            .resolve_tick(&tick)
+            .expect_err("garbage interval must be rejected, not silently default to 1s");
+        assert!(matches!(err, ResolveError::InvalidTickInterval(_)));
+    }
+
+    #[test]
+    fn resolve_tick_duration_suffixes_all_resolve() {
+        let resolver = empty_resolver();
+        let cases: &[(&str, OirInterval)] = &[
+            ("500ms", OirInterval::Milliseconds { value: 500 }),
+            ("30s", OirInterval::Seconds { value: 30 }),
+            ("5m", OirInterval::Minutes { value: 5 }),
+            ("2h", OirInterval::Milliseconds { value: 2 * 60 * 60 * 1000 }),
+            ("1d", OirInterval::Milliseconds { value: 24 * 60 * 60 * 1000 }),
+            ("frame", OirInterval::Frame),
+        ];
+        for (input, expected) in cases {
+            let tick = tick_with_interval(orbital_core::schema::StringOrNumber::String(
+                input.to_string(),
+            ));
+            let resolved = resolver.resolve_tick(&tick).unwrap_or_else(|e| {
+                panic!("expected '{input}' to resolve, got error: {e}")
+            });
+            assert_eq!(&resolved.interval, expected, "mismatch for input '{input}'");
+        }
     }
 }

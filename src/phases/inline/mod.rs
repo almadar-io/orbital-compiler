@@ -1995,6 +1995,7 @@ mod tests {
                     is_initial: Some(true),
                     is_terminal: None,
                     description: None,
+                    time_bound_ms: None,
                 }],
                 events: Some(vec![
                     EventDefinition {
@@ -2089,6 +2090,7 @@ mod tests {
                     is_initial: Some(true),
                     is_terminal: None,
                     description: None,
+                    time_bound_ms: None,
                 }],
                 events: Some(vec![EventDefinition {
                     key: "OPEN".to_string(),

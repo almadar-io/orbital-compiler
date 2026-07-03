@@ -34,6 +34,7 @@ fn make_trait_with_transition(
                 is_initial: Some(true),
                 is_terminal: None,
                 description: None,
+                time_bound_ms: None,
             }],
             events: Some(vec![]),
             transitions: vec![TransitionDefinition {

@@ -1009,12 +1009,14 @@ mod tests {
                     is_initial: true,
                     is_final: false,
                     description: None,
+                    time_bound_ms: None,
                 },
                 OirState {
                     name: "active".to_string(),
                     is_initial: false,
                     is_final: false,
                     description: None,
+                    time_bound_ms: None,
                 },
             ],
             events: vec![

@@ -66,6 +66,7 @@ fn trait_with_trait_binding_in_children(trait_name: &str, binding: &str) -> Trai
                 is_initial: Some(true),
                 is_terminal: None,
                 description: None,
+                time_bound_ms: None,
             }],
             events: Some(vec![]),
             transitions: vec![TransitionDefinition {

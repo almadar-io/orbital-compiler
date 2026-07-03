@@ -94,6 +94,7 @@ fn schema_with_emit(emit: SExpression, declared: EmitDefinition) -> OrbitalSchem
                 is_initial: Some(true),
                 is_terminal: None,
                 description: None,
+                time_bound_ms: None,
             }],
             events: Some(vec![]),
             transitions: vec![TransitionDefinition {
