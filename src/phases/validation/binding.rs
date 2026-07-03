@@ -4,9 +4,11 @@
 //! Ported from `builder/packages/shared/src/orbitals/validation/binding-validator.ts`.
 
 use super::canonical_operators::get_canonical_operator;
+use super::entity_mutation::collect_entity_mutators;
 use super::{ErrorCode, ValidationContext, ValidationError, ValidationResult};
 use orbital_core::schema::{
-    EntityDefinition, OrbitalSchema, PayloadField, SExpression, TraitDefinition, TraitReference,
+    EntityDefinition, Orbital, OrbitalSchema, PayloadField, SExpression, TraitDefinition,
+    TraitReference,
 };
 use regex::Regex;
 use std::collections::{HashMap, HashSet};
@@ -69,6 +71,16 @@ pub fn validate_all_bindings(schema: &OrbitalSchema, ctx: &mut ValidationContext
     // Note: Traits are now only defined inline within orbitals, not at schema level.
     for (i, orbital) in schema.orbitals.iter().enumerate() {
         let known_traits = &orbital_trait_names[i];
+
+        // Group-aware setter context (explicit-binding rule, Task C): union
+        // `(set @entity.X ...)` fields across every trait in this orbital
+        // bound to the SAME `[shared]` entity, so a trait that only READS a
+        // field another trait in the group SETS doesn't false-positive
+        // `BindingEntityFieldNeverSet`. Only populated for `shared` entities —
+        // absent keys fall back to the untouched per-trait behavior below.
+        let shared_group_set_fields =
+            collect_shared_group_set_fields(orbital, &ctx.entity_definitions);
+
         for (j, trait_ref) in orbital.traits.iter().enumerate() {
             if let TraitReference::Inline(trait_def) = trait_ref {
                 let path = format!("orbitals[{}].traits[{}]", i, j);
@@ -77,6 +89,7 @@ pub fn validate_all_bindings(schema: &OrbitalSchema, ctx: &mut ValidationContext
                     &path,
                     &ctx.entity_names,
                     &ctx.entity_definitions,
+                    &shared_group_set_fields,
                 );
                 ctx.merge(result);
 
@@ -103,6 +116,7 @@ pub fn validate_trait_bindings(
     path: &str,
     known_entities: &HashSet<String>,
     entity_definitions: &HashMap<String, EntityDefinition>,
+    shared_group_set_fields: &HashMap<String, HashSet<String>>,
 ) -> ValidationResult {
     let mut result = ValidationResult::new();
 
@@ -228,9 +242,42 @@ pub fn validate_trait_bindings(
         trait_def,
         path,
         &intrinsic_fields,
+        shared_group_set_fields,
     ));
 
     result
+}
+
+/// Union `(set @entity.X ...)` fields across every trait in `orbital` bound
+/// to the same `[shared]` entity. Non-shared entities are omitted entirely —
+/// `validate_entity_fields_have_setters` falls back to per-trait behavior via
+/// `unwrap_or(false)` when a key is absent, so this function only needs to
+/// carry the `[shared]` case. Reuses `entity_mutation::collect_entity_mutators`
+/// (itself built on `collect_entity_field_refs`) rather than re-walking the
+/// trait's SExpression tree a second time.
+fn collect_shared_group_set_fields(
+    orbital: &Orbital,
+    entity_definitions: &HashMap<String, EntityDefinition>,
+) -> HashMap<String, HashSet<String>> {
+    let inline_traits: Vec<&TraitDefinition> = orbital
+        .traits
+        .iter()
+        .filter_map(|t| match t {
+            TraitReference::Inline(def) => Some(def),
+            TraitReference::Reference { .. } => None,
+        })
+        .collect();
+
+    collect_entity_mutators(inline_traits)
+        .into_iter()
+        .filter(|(entity_name, _)| {
+            entity_definitions
+                .get(entity_name)
+                .map(|e| e.shared)
+                .unwrap_or(false)
+        })
+        .map(|(entity_name, field_map)| (entity_name, field_map.into_keys().collect()))
+        .collect()
 }
 
 /// Validate bindings in an expression
@@ -854,10 +901,20 @@ fn validate_entity_field_references(
 /// only for a directly-declared inline entity.
 ///
 /// Skipped when the trait has no `linkedEntity` (no entity to bind to).
+///
+/// `shared_group_set_fields` makes the check group-aware for `[shared]`
+/// entities: a keyed entry is the UNION of `(set @entity.X ...)` fields
+/// across every trait in the orbital bound to that entity (see
+/// `collect_shared_group_set_fields`). A field read by this trait is
+/// satisfied if EITHER this trait sets it OR any trait in the shared group
+/// does. Non-shared entities have no entry in the map, so the OR'd condition
+/// is always `false` and behavior is byte-identical to the old per-trait-only
+/// check.
 fn validate_entity_fields_have_setters(
     trait_def: &TraitDefinition,
     path: &str,
     intrinsic_fields: &HashSet<String>,
+    shared_group_set_fields: &HashMap<String, HashSet<String>>,
 ) -> ValidationResult {
     let mut result = ValidationResult::new();
     if trait_def.linked_entity.is_none() {
@@ -890,11 +947,19 @@ fn validate_entity_fields_have_setters(
         }
     }
 
+    let group_set_fields = trait_def
+        .linked_entity
+        .as_ref()
+        .and_then(|linked| shared_group_set_fields.get(linked));
+
     for (field, first_event) in referenced_fields.iter() {
         if intrinsic_fields.contains(field) {
             continue;
         }
-        if !set_fields.contains(field) {
+        let satisfied_by_group = group_set_fields
+            .map(|group| group.contains(field))
+            .unwrap_or(false);
+        if !set_fields.contains(field) && !satisfied_by_group {
             // Staged as a warning during the rollout so existing atoms in
             // `@almadar/std` keep loading. Graduates to an error after the
             // L4 std audit completes (every render-ui that binds `@entity.X`
@@ -1519,6 +1584,7 @@ mod tests {
         use orbital_core::schema::{FieldDefinition, FieldType};
 
         let entity_def = EntityDefinition {
+            shared: false,
             name: "Task".to_string(),
             fields: vec![
                 FieldDefinition {
@@ -1587,6 +1653,7 @@ mod tests {
         use orbital_core::schema::{FieldDefinition, FieldType};
 
         let entity_def = EntityDefinition {
+            shared: false,
             name: "Task".to_string(),
             fields: vec![FieldDefinition {
                 name: Some("title".to_string()),
@@ -1622,6 +1689,7 @@ mod tests {
         use orbital_core::schema::{FieldDefinition, FieldType};
 
         let entity_def = EntityDefinition {
+            shared: false,
             name: "User".to_string(),
             fields: vec![FieldDefinition {
                 name: Some("email".to_string()),
@@ -1759,7 +1827,7 @@ mod tests {
             Some("PagedItem"),
             vec![("INIT", vec![render_ui])],
         );
-        let result = validate_entity_fields_have_setters(&trait_def, "test", &HashSet::new());
+        let result = validate_entity_fields_have_setters(&trait_def, "test", &HashSet::new(), &HashMap::new());
         assert!(
             result
                 .warnings
@@ -1791,7 +1859,7 @@ mod tests {
             vec![("INIT", vec![render_ui])],
         );
         let intrinsic: HashSet<String> = ["selectedRange".to_string()].into_iter().collect();
-        let result = validate_entity_fields_have_setters(&trait_def, "test", &intrinsic);
+        let result = validate_entity_fields_have_setters(&trait_def, "test", &intrinsic, &HashMap::new());
         assert!(
             result.warnings.is_empty() && result.errors.is_empty(),
             "Intrinsic @entity.selectedRange with no (set) must be exempt — got {:?}",
@@ -1821,7 +1889,7 @@ mod tests {
             Some("PagedItem"),
             vec![("INIT", vec![set_effect, render_ui])],
         );
-        let result = validate_entity_fields_have_setters(&trait_def, "test", &HashSet::new());
+        let result = validate_entity_fields_have_setters(&trait_def, "test", &HashSet::new(), &HashMap::new());
         assert!(
             result.errors.is_empty(),
             "Field with explicit (set) must pass — errors: {:?}",
@@ -1852,7 +1920,7 @@ mod tests {
             Some("PagedItem"),
             vec![("INIT", vec![set_effect]), ("PAGE", vec![render_ui])],
         );
-        let result = validate_entity_fields_have_setters(&trait_def, "test", &HashSet::new());
+        let result = validate_entity_fields_have_setters(&trait_def, "test", &HashSet::new(), &HashMap::new());
         assert!(
             result.errors.is_empty(),
             "Setter in different transition still satisfies the rule — errors: {:?}",
@@ -1877,7 +1945,7 @@ mod tests {
             Some("Item"),
             vec![("INIT", vec![render_ui])],
         );
-        let result = validate_entity_fields_have_setters(&trait_def, "test", &HashSet::new());
+        let result = validate_entity_fields_have_setters(&trait_def, "test", &HashSet::new(), &HashMap::new());
         assert!(
             result.errors.is_empty(),
             "@entity.id is a runtime-meta field; no setter required",
@@ -1899,7 +1967,7 @@ mod tests {
         ]);
         let trait_def =
             build_trait_fixture("LinkedEntityless", None, vec![("INIT", vec![render_ui])]);
-        let result = validate_entity_fields_have_setters(&trait_def, "test", &HashSet::new());
+        let result = validate_entity_fields_have_setters(&trait_def, "test", &HashSet::new(), &HashMap::new());
         assert!(
             result.errors.is_empty(),
             "Trait without linkedEntity should skip the rule",
@@ -1926,7 +1994,7 @@ mod tests {
             Some("PagedItem"),
             vec![("PAGE", vec![set_effect, render_ui])],
         );
-        let result = validate_entity_fields_have_setters(&trait_def, "test", &HashSet::new());
+        let result = validate_entity_fields_have_setters(&trait_def, "test", &HashSet::new(), &HashMap::new());
         assert!(
             result.errors.is_empty(),
             "(set @entity.X @payload.X) is a valid setter — errors: {:?}",
@@ -1977,7 +2045,7 @@ mod tests {
             }
         };
         let result =
-            validate_entity_fields_have_setters(&guard_only_trait, "test", &HashSet::new());
+            validate_entity_fields_have_setters(&guard_only_trait, "test", &HashSet::new(), &HashMap::new());
         assert!(
             result
                 .warnings
@@ -1985,6 +2053,155 @@ mod tests {
                 .any(|e| e.code == ErrorCode::BindingEntityFieldNeverSet),
             "Guard-only @entity.X read with no setter must fail — errors: {:?}",
             result.errors,
+        );
+    }
+
+    // ==========================================================================
+    // Group-aware setter tests (Task C — `[shared]` entities union set_fields
+    // across every trait bound to them via `collect_shared_group_set_fields`).
+    // ==========================================================================
+
+    fn shared_entity_def(name: &str) -> EntityDefinition {
+        EntityDefinition {
+            shared: true,
+            name: name.to_string(),
+            collection: None,
+            persistence: None,
+            instances: None,
+            fields: vec![],
+        }
+    }
+
+    fn orbital_with_traits(traits: Vec<TraitDefinition>) -> Orbital {
+        Orbital {
+            name: "TestOrbital".to_string(),
+            uses: None,
+            theme: None,
+            services: None,
+            entity: orbital_core::schema::EntityRef::Inline(shared_entity_def("Unused")),
+            auxiliary_entities: None,
+            traits: traits.into_iter().map(TraitReference::Inline).collect(),
+            pages: None,
+            emits: None,
+            listens: None,
+            exposes: None,
+            domain_context: None,
+            design: None,
+        }
+    }
+
+    #[test]
+    fn group_aware_setter_shared_entity_pass() {
+        // Trait A only READS @entity.sharedX; Trait B SETS it. Entity is
+        // [shared] — the group-aware check must NOT warn for Trait A.
+        let read_effect = arr(vec![
+            s("render-ui"),
+            s("main"),
+            SExpression::Object({
+                let mut m = std::collections::HashMap::new();
+                m.insert("val".to_string(), s("@entity.sharedX"));
+                m
+            }),
+        ]);
+        let trait_a = build_trait_fixture("ReaderTrait", Some("Pool"), vec![("INIT", vec![read_effect])]);
+        let set_effect = arr(vec![s("set"), s("@entity.sharedX"), SExpression::Number(1.into())]);
+        let trait_b = build_trait_fixture("WriterTrait", Some("Pool"), vec![("INIT", vec![set_effect])]);
+
+        let orbital = orbital_with_traits(vec![trait_a.clone(), trait_b]);
+        let mut entity_defs = HashMap::new();
+        entity_defs.insert("Pool".to_string(), shared_entity_def("Pool"));
+
+        let group = collect_shared_group_set_fields(&orbital, &entity_defs);
+        let result = validate_entity_fields_have_setters(&trait_a, "test", &HashSet::new(), &group);
+        assert!(
+            result.warnings.is_empty() && result.errors.is_empty(),
+            "Trait A's read of a [shared]-group field set by Trait B must be satisfied: {:?}",
+            result.warnings
+        );
+    }
+
+    #[test]
+    fn group_aware_setter_shared_entity_never_set_errors() {
+        // Neither trait in the shared group ever sets @entity.neverSet —
+        // must still warn.
+        let read_effect = arr(vec![
+            s("render-ui"),
+            s("main"),
+            SExpression::Object({
+                let mut m = std::collections::HashMap::new();
+                m.insert("val".to_string(), s("@entity.neverSet"));
+                m
+            }),
+        ]);
+        let trait_a = build_trait_fixture("ReaderTrait", Some("Pool"), vec![("INIT", vec![read_effect])]);
+        let other_set = arr(vec![
+            s("set"),
+            s("@entity.somethingElse"),
+            SExpression::Number(1.into()),
+        ]);
+        let trait_b = build_trait_fixture("WriterTrait", Some("Pool"), vec![("INIT", vec![other_set])]);
+
+        let orbital = orbital_with_traits(vec![trait_a.clone(), trait_b]);
+        let mut entity_defs = HashMap::new();
+        entity_defs.insert("Pool".to_string(), shared_entity_def("Pool"));
+
+        let group = collect_shared_group_set_fields(&orbital, &entity_defs);
+        let result = validate_entity_fields_have_setters(&trait_a, "test", &HashSet::new(), &group);
+        assert!(
+            result
+                .warnings
+                .iter()
+                .any(|e| e.code == ErrorCode::BindingEntityFieldNeverSet),
+            "Neither trait in the shared group sets neverSet — must still warn: {:?}",
+            result.warnings
+        );
+    }
+
+    #[test]
+    fn group_aware_setter_non_shared_entity_unaffected() {
+        // Non-shared entity: Trait B's setter must NOT satisfy Trait A's read
+        // (byte-identical to the pre-Task-C per-trait-only behavior).
+        let read_effect = arr(vec![
+            s("render-ui"),
+            s("main"),
+            SExpression::Object({
+                let mut m = std::collections::HashMap::new();
+                m.insert("val".to_string(), s("@entity.x"));
+                m
+            }),
+        ]);
+        let trait_a = build_trait_fixture("ReaderTrait", Some("Solo"), vec![("INIT", vec![read_effect])]);
+        let set_effect = arr(vec![s("set"), s("@entity.x"), SExpression::Number(1.into())]);
+        let trait_b = build_trait_fixture("WriterTrait", Some("Solo"), vec![("INIT", vec![set_effect])]);
+
+        let orbital = orbital_with_traits(vec![trait_a.clone(), trait_b]);
+        let mut entity_defs = HashMap::new();
+        entity_defs.insert(
+            "Solo".to_string(),
+            EntityDefinition {
+                shared: false,
+                name: "Solo".to_string(),
+                collection: None,
+                persistence: None,
+                instances: None,
+                fields: vec![],
+            },
+        );
+
+        let group = collect_shared_group_set_fields(&orbital, &entity_defs);
+        assert!(
+            group.is_empty(),
+            "Non-shared entities must not appear in the group map: {:?}",
+            group
+        );
+        let result = validate_entity_fields_have_setters(&trait_a, "test", &HashSet::new(), &group);
+        assert!(
+            result
+                .warnings
+                .iter()
+                .any(|e| e.code == ErrorCode::BindingEntityFieldNeverSet),
+            "Non-shared entity must keep per-trait-only behavior — Trait B's setter must not satisfy Trait A: {:?}",
+            result.warnings
         );
     }
 }

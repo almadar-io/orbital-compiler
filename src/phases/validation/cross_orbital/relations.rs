@@ -114,6 +114,7 @@ mod tests {
                 theme: None,
                 services: None,
                 entity: EntityRef::Inline(EntityDefinition {
+                    shared: false,
                     name: "Task".to_string(),
                     collection: None,
                     persistence: None,
@@ -151,6 +152,7 @@ mod tests {
             theme: None,
             services: None,
             entity: EntityRef::Inline(EntityDefinition {
+                shared: false,
                 name: "Patient".to_string(),
                 collection: None,
                 persistence: None,

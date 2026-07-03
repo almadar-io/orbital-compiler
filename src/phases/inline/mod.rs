@@ -864,6 +864,7 @@ mod tests {
             theme: None,
             services: None,
             entity: EntityRef::Inline(EntityDefinition {
+                shared: false,
                 name: format!("{}Entity", name),
                 collection: None,
                 persistence: None,
@@ -1156,6 +1157,7 @@ mod tests {
             theme: None,
             services: Some(vec![ServiceRef::Inline(service_def)]),
             entity: EntityRef::Inline(EntityDefinition {
+                shared: false,
                 name: format!("{}Entity", name),
                 collection: None,
                 persistence: None,
@@ -1350,6 +1352,7 @@ mod tests {
             synonyms: None,
         };
         EntityDefinition {
+            shared: false,
             name: "ModalRecord".to_string(),
             collection: None,
             persistence: Some(Persistence::Runtime),
@@ -2533,6 +2536,7 @@ mod tests {
             theme: None,
             services: None,
             entity: EntityRef::Inline(EntityDefinition {
+                shared: false,
                 name: "ArcadeState".to_string(),
                 collection: None,
                 persistence: None,
@@ -2565,6 +2569,7 @@ mod tests {
             theme: None,
             services: None,
             entity: EntityRef::Inline(EntityDefinition {
+                shared: false,
                 name: "ArcadeCanvas".to_string(),
                 collection: None,
                 persistence: None,
@@ -2640,6 +2645,7 @@ mod tests {
         use orbital_core::schema::FieldType;
 
         let mut caller = EntityDefinition {
+            shared: false,
             name: "MyCartItem".to_string(),
             collection: None,
             persistence: None,
@@ -2650,6 +2656,7 @@ mod tests {
             instances: None,
         };
         let imported = EntityDefinition {
+            shared: false,
             name: "CartItem".to_string(),
             collection: None,
             persistence: None,
@@ -2676,6 +2683,7 @@ mod tests {
         use orbital_core::schema::FieldType;
 
         let mut caller = EntityDefinition {
+            shared: false,
             name: "MyEntity".to_string(),
             collection: None,
             persistence: None,
@@ -2686,6 +2694,7 @@ mod tests {
             instances: None,
         };
         let imported = EntityDefinition {
+            shared: false,
             name: "ImportedEntity".to_string(),
             collection: None,
             persistence: None,
@@ -2709,6 +2718,7 @@ mod tests {
         use orbital_core::schema::FieldType;
 
         let mut caller = EntityDefinition {
+            shared: false,
             name: "MyEntity".to_string(),
             collection: None,
             persistence: None,
@@ -2723,6 +2733,7 @@ mod tests {
             instances: None,
         };
         let imported = EntityDefinition {
+            shared: false,
             name: "ImportedEntity".to_string(),
             collection: None,
             persistence: None,
@@ -2760,6 +2771,7 @@ mod tests {
         use orbital_core::schema::FieldType;
 
         let mut caller = EntityDefinition {
+            shared: false,
             name: "MyEntity".to_string(),
             collection: None,
             persistence: None,
@@ -2767,6 +2779,7 @@ mod tests {
             instances: None,
         };
         let import_browse = EntityDefinition {
+            shared: false,
             name: "BrowseRecord".to_string(),
             collection: None,
             persistence: None,
@@ -2778,6 +2791,7 @@ mod tests {
             instances: None,
         };
         let import_modal = EntityDefinition {
+            shared: false,
             name: "ModalRecord".to_string(),
             collection: None,
             persistence: None,
@@ -2807,6 +2821,7 @@ mod tests {
         use orbital_core::schema::FieldType;
 
         let caller = EntityDefinition {
+            shared: false,
             name: "MyEntity".to_string(),
             collection: None,
             persistence: None,
@@ -2837,6 +2852,7 @@ mod tests {
             theme: None,
             services: None,
             entity: EntityRef::Inline(EntityDefinition {
+                shared: false,
                 name: "StateEntity".to_string(),
                 collection: None,
                 persistence: None,
@@ -2859,6 +2875,7 @@ mod tests {
             theme: None,
             services: None,
             entity: EntityRef::Inline(EntityDefinition {
+                shared: false,
                 name: "ActionEntity".to_string(),
                 collection: None,
                 persistence: None,

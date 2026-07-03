@@ -45,6 +45,7 @@ pub mod cross_registry;
 pub mod effect;
 pub mod emit_payload;
 pub mod entity;
+pub mod entity_mutation;
 pub mod error;
 pub mod icon;
 pub mod literal_default;
@@ -455,6 +456,14 @@ pub fn validate_comprehensive_full_with_phase_f(
 
     // Phase 11c: Cross-registry consistency (Phase 3.5 of Lolo v3 plan)
     cross_registry::validate_cross_registry(schema, &mut ctx);
+
+    // Phase 11d: Multi-trait entity-mutation trio (SPLIT_ENTITY_MUTATION /
+    // SharedEntityFieldConflict / SharedEntityRenderAuthority) + the non-Cron
+    // tick backstop (ORB_TICK_REQUIRES_RUNTIME / ORB_TICK_ASYNC_EFFECT). Runs
+    // post-inline so the fully `uses`-composed trait set and each entity's
+    // `shared`/`persistence` flags are visible.
+    entity_mutation::validate_all_entity_mutations(schema, &mut ctx);
+    entity_mutation::validate_all_tick_guards(schema, &mut ctx);
 
     // Phase 12: Closed circuit validation
     closed_circuit::validate_all_circuits(schema, &mut ctx);

@@ -216,10 +216,10 @@ impl<'a> Resolver<'a> {
             oir_entity.persistence = match persistence {
                 orbital_core::schema::Persistence::Persistent => OirPersistence::Persistent,
                 orbital_core::schema::Persistence::Runtime => OirPersistence::Runtime,
-                orbital_core::schema::Persistence::Singleton => OirPersistence::Singleton,
-                orbital_core::schema::Persistence::Instance => OirPersistence::Instance,
             };
         }
+
+        oir_entity.shared = entity.shared;
 
         for field in &entity.fields {
             oir_entity.fields.push(self.resolve_field(field)?);

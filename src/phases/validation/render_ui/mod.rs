@@ -667,6 +667,7 @@ mod tests {
         entity_defs.insert(
             "Company".to_string(),
             EntityDefinition {
+                shared: false,
                 name: "Company".to_string(),
                 fields: vec![FieldDefinition {
                     name: Some("name".to_string()),
@@ -693,6 +694,7 @@ mod tests {
         entity_defs.insert(
             "Inspection".to_string(),
             EntityDefinition {
+                shared: false,
                 name: "Inspection".to_string(),
                 fields: vec![
                     FieldDefinition {
@@ -784,6 +786,7 @@ mod tests {
         entity_defs.insert(
             "Inspection".to_string(),
             EntityDefinition {
+                shared: false,
                 name: "Inspection".to_string(),
                 fields: vec![FieldDefinition {
                     name: Some("title".to_string()),

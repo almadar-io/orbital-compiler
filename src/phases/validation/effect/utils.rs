@@ -474,6 +474,7 @@ mod tests {
         entity_defs.insert(
             "Inspection".to_string(),
             EntityDefinition {
+                shared: false,
                 name: "Inspection".to_string(),
                 collection: None,
                 persistence: None,
@@ -577,6 +578,7 @@ mod tests {
         entity_defs.insert(
             "Inspection".to_string(),
             EntityDefinition {
+                shared: false,
                 name: "Inspection".to_string(),
                 collection: None,
                 persistence: None,

@@ -45,6 +45,7 @@ fn schema_with_effects(
     declared_emits: Vec<EmitDefinition>,
 ) -> OrbitalSchema {
     let entity = EntityDefinition {
+        shared: false,
         name: "Patient".to_string(),
         collection: Some("patients".to_string()),
         persistence: None,

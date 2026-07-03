@@ -483,6 +483,37 @@ pub enum ErrorCode {
     BindingTraitInvalidPosition,
 
     // =========================================================================
+    // Entity Mutation / Tick Errors (ORB_ENTITY_*, ORB_TICK_*)
+    // =========================================================================
+    /// A non-`[shared]`, `Runtime`-persistence entity is mutated (via `set` or
+    /// a tick write) by ≥2 distinct traits. Each mutator gets an isolated
+    /// per-trait copy, so if one of the mutators' render-ui also reads the
+    /// entity, it only ever sees its own trait's writes — never the others'.
+    /// Staged as a warning: nothing in the corpus declares `[shared]` yet, so
+    /// this rule doubles as the migration worklist for entities that should
+    /// be marked `[shared]`.
+    EntitySplitMutation,
+    /// A `[shared]` entity has ≥2 distinct traits writing the SAME field.
+    /// Coupled mechanics writing one field must be one ordered pipeline, not
+    /// parallel writers — undefined last-write-wins ordering otherwise.
+    SharedEntityFieldConflict,
+    /// A `[shared]` entity is render-ui-read by more than one distinct trait.
+    /// Exactly one render authority is allowed per shared entity, mirroring
+    /// `SlotContention`'s single-owner rule.
+    SharedEntityRenderAuthority,
+    /// A trait runs a non-`Cron` tick (frame/duration interval) against a
+    /// `Persistent` linked entity. Corpus-facing backstop mirroring the lolo
+    /// L1 tick guards; staged as a warning because 5 existing std atoms
+    /// (`std-game-clock`, `std-cooldown`, `std-data-erasure`, `std-lifecycle`,
+    /// `std-reminder-scheduler`) trip it today and are migrated separately.
+    TickRequiresRuntime,
+    /// A non-`Cron` tick effect calls a server-async operator (the canonical
+    /// registry's `std-agent` category — `agent/generate`, `agent/invoke`,
+    /// etc.). Repeated per-tick LLM/agent calls can pile up faster than they
+    /// resolve. Staged as a warning pending a corpus re-classification pass.
+    TickAsyncEffect,
+
+    // =========================================================================
     // Closed Circuit Errors (CIRCUIT_*)
     // =========================================================================
     /// Action emits event with no transition handler
@@ -735,6 +766,13 @@ impl ErrorCode {
             ErrorCode::BindingTraitCycle => "ORB_BINDING_TRAIT_CYCLE",
             ErrorCode::BindingTraitInvalidPosition => "ORB_BINDING_TRAIT_INVALID_POSITION",
 
+            // Entity Mutation / Tick
+            ErrorCode::EntitySplitMutation => "ORB_ENTITY_SPLIT_MUTATION",
+            ErrorCode::SharedEntityFieldConflict => "ORB_SHARED_ENTITY_FIELD_CONFLICT",
+            ErrorCode::SharedEntityRenderAuthority => "ORB_SHARED_ENTITY_RENDER_AUTHORITY",
+            ErrorCode::TickRequiresRuntime => "ORB_TICK_REQUIRES_RUNTIME",
+            ErrorCode::TickAsyncEffect => "ORB_TICK_ASYNC_EFFECT",
+
             // Closed Circuit
             ErrorCode::CircuitOrphanEvent => "CIRCUIT_ORPHAN_EVENT",
             ErrorCode::CircuitDuplicateEvent => "CIRCUIT_DUPLICATE_EVENT",
@@ -929,6 +967,12 @@ impl ErrorCode {
             | ErrorCode::BindingTraitSelfReference
             | ErrorCode::BindingTraitCycle
             | ErrorCode::BindingTraitInvalidPosition => "binding",
+
+            ErrorCode::EntitySplitMutation
+            | ErrorCode::SharedEntityFieldConflict
+            | ErrorCode::SharedEntityRenderAuthority
+            | ErrorCode::TickRequiresRuntime
+            | ErrorCode::TickAsyncEffect => "entity_mutation",
 
             ErrorCode::CircuitOrphanEvent
             | ErrorCode::CircuitDuplicateEvent

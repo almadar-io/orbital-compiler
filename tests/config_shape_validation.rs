@@ -98,6 +98,7 @@ fn metric_spec_items() -> FieldDefinition {
 
 fn schema_with_config(config: HashMap<String, ConfigField>) -> OrbitalSchema {
     let entity = EntityDefinition {
+        shared: false,
         name: "Dashboard".to_string(),
         collection: Some("dashboards".to_string()),
         persistence: None,

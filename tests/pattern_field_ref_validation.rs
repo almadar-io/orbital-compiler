@@ -34,6 +34,7 @@ use std::collections::HashMap;
 
 fn make_entity_with_fields(name: &str, field_names: &[&str]) -> EntityDefinition {
     EntityDefinition {
+        shared: false,
         name: name.to_string(),
         fields: field_names
             .iter()

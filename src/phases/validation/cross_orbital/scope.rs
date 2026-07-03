@@ -260,6 +260,7 @@ mod tests {
             theme: None,
             services: None,
             entity: EntityRef::Inline(EntityDefinition {
+                shared: false,
                 name: "AtomEntity".to_string(),
                 collection: None,
                 persistence: None,
@@ -297,6 +298,7 @@ mod tests {
             theme: None,
             services: None,
             entity: EntityRef::Inline(EntityDefinition {
+                shared: false,
                 name: "Cart".to_string(),
                 collection: None,
                 persistence: None,
