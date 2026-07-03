@@ -2,7 +2,7 @@
 //!
 //! Source: packages/almadar-patterns/src/patterns-registry.json
 //!
-//! Last synced: 2026-07-02
+//! Last synced: 2026-07-03
 //! To regenerate: npx tsx tools/almadar-pattern-sync/index.ts
 //!
 //! DO NOT EDIT MANUALLY - changes will be overwritten on next sync.
@@ -9786,7 +9786,7 @@ pub static PATTERN_PROP_ENUM_VALUES: LazyLock<HashMap<&'static str, HashMap<&'st
                 "game-canvas-3d",
                 [
                     ("orientation", &["standard", "rotated"] as &[&str]),
-                    ("cameraMode", &["pan-zoom", "follow", "fixed"] as &[&str]),
+                    ("cameraMode", &["isometric", "perspective", "top-down", "follow", "chase"] as &[&str]),
                     ("overlay", &["default", "hidden", "minimap"] as &[&str]),
                 ]
                 .into_iter()

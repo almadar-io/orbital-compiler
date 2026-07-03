@@ -262,22 +262,12 @@ pub(crate) fn validate_set_return_type(
     let Some(meta) = entity_field_types.get(entity_field) else {
         return result;
     };
-    // Only an array-form value (operator call / conditional / array literal)
-    // carries an inferrable result type worth checking here. Scalar literals and
-    // bare bindings are covered by the type-compat / enum checks.
-    if !matches!(&arr[2], SExpression::Array(_)) {
-        return result;
-    }
-    let Ok(oir_value) = crate::phases::resolve::resolve_sexpr_standalone(&arr[2]) else {
-        return result; // unresolvable shape → skip, never a false error
-    };
-
-    let ctx = SetTypeCtx {
-        entity: entity_field_types,
-        payload: payload_field_types,
-    };
-    let inferred = crate::type_infer::infer_oir_expr_type(&oir_value, &ctx);
-    if !orbital_core::oir_type_satisfies_field(&inferred, &meta.field_type) {
+    if let Some(inferred) = expr_return_incompatible(
+        &arr[2],
+        &meta.field_type,
+        entity_field_types,
+        payload_field_types,
+    ) {
         result.add_error(
             ValidationError::error(
                 ErrorCode::SetReturnTypeMismatch,
@@ -301,16 +291,50 @@ pub(crate) fn validate_set_return_type(
     result
 }
 
-/// Binding-resolution context for the SET-OP-RETURN inference: resolves a
-/// single-segment `@entity.<f>` / `@payload.<f>` binding to its declared
-/// `OirType` from the validator's field-type maps. Deeper paths and other roots
-/// resolve to `None` → the inferencer treats them as `Json` (conservative).
-struct SetTypeCtx<'a> {
+/// Infer an array-form value expression's result type — through the canonical
+/// `infer_oir_expr_type` derivation, resolving `@entity.<f>` / `@payload.<f>`
+/// bindings via the field-type maps — and return `Some(inferred)` when the
+/// inferred kind is INCOMPATIBLE with `declared_field`, else `None`. The single
+/// shared derivation behind BOTH the `(set @entity.X <expr>)` and the
+/// `(emit EVT { field: <expr> })` return-type backstops, so the two can't drift.
+/// **Never false-positives**: a non-array value (scalar/binding — covered by the
+/// literal/enum checks), an unresolvable shape, or an unknowable `Json` inferred
+/// type all yield `None`.
+pub(crate) fn expr_return_incompatible(
+    value: &SExpression,
+    declared_field: &str,
+    entity_field_types: &HashMap<String, EntityFieldMeta>,
+    payload_field_types: &HashMap<String, String>,
+) -> Option<orbital_core::ir::OirType> {
+    // Only an array-form value (operator call / conditional / array literal)
+    // carries an inferrable result type worth checking here.
+    if !matches!(value, SExpression::Array(_)) {
+        return None;
+    }
+    let oir_value = crate::phases::resolve::resolve_sexpr_standalone(value).ok()?;
+    let ctx = ExprReturnCtx {
+        entity: entity_field_types,
+        payload: payload_field_types,
+    };
+    let inferred = crate::type_infer::infer_oir_expr_type(&oir_value, &ctx);
+    if orbital_core::oir_type_satisfies_field(&inferred, declared_field) {
+        None
+    } else {
+        Some(inferred)
+    }
+}
+
+/// Binding-resolution context for expression-return inference (`set` + `emit`):
+/// resolves a single-segment `@entity.<f>` / `@payload.<f>` binding to its
+/// declared `OirType` from the validator's field-type maps. Deeper paths and
+/// other roots resolve to `None` → the inferencer treats them as `Json`
+/// (conservative).
+struct ExprReturnCtx<'a> {
     entity: &'a HashMap<String, EntityFieldMeta>,
     payload: &'a HashMap<String, String>,
 }
 
-impl crate::type_infer::TypeCtx for SetTypeCtx<'_> {
+impl crate::type_infer::TypeCtx for ExprReturnCtx<'_> {
     fn binding_type(
         &self,
         binding: &orbital_core::ir::OirBinding,

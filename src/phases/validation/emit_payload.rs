@@ -24,6 +24,9 @@ use crate::embedded::{
     get_operator, patterns, EmbeddedOperator, OperatorTypeRef, OperatorTypeRefKind,
 };
 
+use super::effect::{
+    collect_payload_field_types, entity_field_type_map, expr_return_incompatible, EntityFieldMeta,
+};
 use super::error::{ErrorCode, ValidationError};
 use super::{ValidationContext, ValidationResult};
 
@@ -82,6 +85,19 @@ pub fn validate_all_emit_payloads(schema: &OrbitalSchema, ctx: &mut ValidationCo
                 .collect();
             let trait_path = format!("orbitals[{}].traits[{}]", oi, ti);
 
+            // Backstop inputs for the operator-call return-type inference below —
+            // the SAME two maps the `(set …)` return-type check builds, so an
+            // `(emit EVT { f: (op …) })` value is type-checked identically to
+            // `(set @entity.f (op …))`. Both resolve `@entity`/`@payload` bindings
+            // inside the expression; absent entries degrade to `Json` (permissive).
+            let entity_field_types = trait_def
+                .linked_entity
+                .as_ref()
+                .and_then(|e| ctx.entity_definitions.get(e))
+                .map(entity_field_type_map)
+                .unwrap_or_default();
+            let payload_field_types = collect_payload_field_types(trait_def);
+
             for (i, transition) in trait_def.state_machine.transitions.iter().enumerate() {
                 if let Some(effects) = &transition.effects {
                     for (j, effect) in effects.iter().enumerate() {
@@ -90,8 +106,14 @@ pub fn validate_all_emit_payloads(schema: &OrbitalSchema, ctx: &mut ValidationCo
                             trait_path, i, j
                         );
                         if !emit_schemas.is_empty() {
-                            let result =
-                                validate_emit_literal(effect, &path, &emit_schemas, strict);
+                            let result = validate_emit_literal(
+                                effect,
+                                &path,
+                                &emit_schemas,
+                                strict,
+                                &entity_field_types,
+                                &payload_field_types,
+                            );
                             ctx.merge(result);
                         }
                         // V2 Phase 0 P0.8: tie operator `effect.produces` to
@@ -107,8 +129,14 @@ pub fn validate_all_emit_payloads(schema: &OrbitalSchema, ctx: &mut ValidationCo
                     for (j, effect) in tick.effects.iter().enumerate() {
                         let path = format!("{}.ticks[{}].effects[{}]", trait_path, i, j);
                         if !emit_schemas.is_empty() {
-                            let result =
-                                validate_emit_literal(effect, &path, &emit_schemas, strict);
+                            let result = validate_emit_literal(
+                                effect,
+                                &path,
+                                &emit_schemas,
+                                strict,
+                                &entity_field_types,
+                                &payload_field_types,
+                            );
                             ctx.merge(result);
                         }
                         let p08 = validate_emit_success_return(effect, &path, &emit_schemas);
@@ -374,6 +402,8 @@ fn validate_emit_literal(
     path: &str,
     emit_schemas: &HashMap<&str, &[PayloadField]>,
     strict: bool,
+    entity_field_types: &HashMap<String, EntityFieldMeta>,
+    payload_field_types: &HashMap<String, String>,
 ) -> ValidationResult {
     let mut result = ValidationResult::new();
 
@@ -454,7 +484,7 @@ fn validate_emit_literal(
                     );
                 }
                 Some(expected) => {
-                    if let Some(actual) = primitive_type_of(value) {
+                    if let Some(actual) = orbital_core::literal_value_type(value) {
                         if !primitive_types_compatible(expected, actual) {
                             result.add_error(
                                 ValidationError::warning(
@@ -471,6 +501,31 @@ fn validate_emit_literal(
                                 )),
                             );
                         }
+                    } else if let Some(inferred) =
+                        expr_return_incompatible(value, expected, entity_field_types, payload_field_types)
+                    {
+                        // Operator-call payload value (e.g. `(object/get (array/find …) id)`):
+                        // `literal_value_type` returned `None`, so infer its result type through
+                        // the expression, mirroring the `(set …)` backstop. Only a CONCRETE
+                        // incompatible inferred type reaches here — an unresolvable shape or an
+                        // unknowable `Json` inferred type never rejects.
+                        result.add_error(
+                            ValidationError::warning(
+                                ErrorCode::EmitPayloadFieldTypeMismatch,
+                                path,
+                                format!(
+                                    "Emit '{}' field '{}' evaluates to '{}', declared as '{}'",
+                                    event_name,
+                                    key,
+                                    orbital_core::oir_type_kind(&inferred),
+                                    expected
+                                ),
+                            )
+                            .with_suggestion(format!(
+                                "Align the emit value with the declared field_type '{}' (wrap/convert the expression)",
+                                expected
+                            )),
+                        );
                     }
                 }
             }
@@ -480,29 +535,11 @@ fn validate_emit_literal(
     result
 }
 
-/// Return the primitive type name for an S-expression literal value, or
-/// `None` when the value is a binding / compound expression whose type we
-/// can't determine without running the evaluator. Recognised primitives
-/// mirror `@almadar/core`'s `FieldType` enum plus `"array"` for any
-/// array-shaped value.
-fn primitive_type_of(value: &SExpression) -> Option<&'static str> {
-    match value {
-        SExpression::Number(_) => Some("number"),
-        SExpression::Bool(_) => Some("boolean"),
-        SExpression::String(s) => {
-            if s.starts_with('@') || s.contains('@') {
-                // Binding or interpolated expression; defer typing to the
-                // BindingPayloadTypeIncompatible checks.
-                None
-            } else {
-                Some("string")
-            }
-        }
-        SExpression::Null => None,
-        SExpression::Object(_) => Some("object"),
-        SExpression::Array(_) => Some("array"),
-    }
-}
+// The shallow literal-type classifier is `orbital_core::literal_value_type` —
+// the single upstream source both this L2 backstop and the lolo L1 check call,
+// so they never drift. It defers operator applications to `expr_return_incompatible`
+// above (which infers their result type) instead of mis-typing them as `"array"`
+// (CG-EMIT-PAYLOAD-SEXPR).
 
 /// V2 Phase 0 P0.8: for effect calls of the five data operators that carry
 /// an `emit: { success: "X" }` config, check that event X is declared on the

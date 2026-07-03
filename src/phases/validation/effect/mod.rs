@@ -29,8 +29,8 @@ pub(crate) use os_watch::validate_os_watch;
 pub(crate) use persist::validate_persist;
 pub(crate) use r#ref::validate_ref;
 pub(crate) use set::{
-    entity_field_type_map, validate_set, validate_set_enum_value, validate_set_object,
-    validate_set_return_type, validate_set_value_type, EntityFieldMeta,
+    entity_field_type_map, expr_return_incompatible, validate_set, validate_set_enum_value,
+    validate_set_object, validate_set_return_type, validate_set_value_type, EntityFieldMeta,
 };
 pub use utils::effect_operators;
 pub(crate) use utils::{extract_payload_fields, is_valid_event_identifier};
@@ -150,7 +150,7 @@ pub fn validate_trait_effects(
 ///
 /// On duplicate field names across multiple emits, the first declared type
 /// wins (deterministic — iteration order is the declared `emits` order).
-fn collect_payload_field_types(
+pub(crate) fn collect_payload_field_types(
     trait_def: &orbital_core::schema::TraitDefinition,
 ) -> HashMap<String, String> {
     let mut map: HashMap<String, String> = HashMap::new();
