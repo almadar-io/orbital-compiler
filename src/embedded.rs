@@ -294,6 +294,12 @@ impl RequiredFlag {
 pub struct EmbeddedPatternProp {
     #[serde(default)]
     pub types: Vec<String>,
+    /// Bounded string-literal union members (e.g. `VisualStyle`, button
+    /// `variant`), present at any nesting level — top prop OR a nested
+    /// `properties`/`items` field. Codegen consults this to drop an empty
+    /// enum sub-field instead of emitting an invalid `""` (CG-SWEEP-1 Cat 11).
+    #[serde(rename = "enumValues", default)]
+    pub enum_values: Option<Vec<String>>,
     #[serde(default)]
     pub required: RequiredFlag,
     #[serde(default)]

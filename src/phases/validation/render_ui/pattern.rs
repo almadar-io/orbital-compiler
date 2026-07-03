@@ -36,6 +36,59 @@ fn element_required_fields(items: &crate::embedded::EmbeddedPatternProp) -> Vec<
     out
 }
 
+/// Recursively reject a non-empty, non-binding string literal that isn't a
+/// member of a bounded-enum sub-field, at any nesting depth (e.g. an
+/// `Asset.style: VisualStyle` inside an asset-manifest object). This is the
+/// validate-time backstop for the codegen omit of empty enum sub-fields: an
+/// empty string is skipped (codegen drops it rather than emit an invalid `""`),
+/// and `@`-bindings resolve at runtime. Mirrors the top-level enum check in
+/// `validate_pattern` for the sub-fields the registry now carries `enumValues`
+/// for (CG-SWEEP-1 Cat 11b).
+fn validate_nested_enum_values(
+    value: &SExpression,
+    schema: &crate::embedded::EmbeddedPatternProp,
+    path: &str,
+    result: &mut ValidationResult,
+) {
+    match value {
+        SExpression::String(s) => {
+            if let Some(allowed) = schema.enum_values.as_ref() {
+                if !s.is_empty() && !s.starts_with('@') && !allowed.iter().any(|a| a == s) {
+                    result.add_error(
+                        ValidationError::error(
+                            ErrorCode::RenderUIPropTypeMismatch,
+                            path,
+                            format!(
+                                "Enum sub-field value '{}' is not valid — must be one of: {}",
+                                s,
+                                allowed.join(", ")
+                            ),
+                        )
+                        .with_suggestion(format!("Use one of: {}", allowed.join(", "))),
+                    );
+                }
+            }
+        }
+        SExpression::Object(obj) => {
+            if let Some(props) = schema.properties.as_ref() {
+                for (k, v) in obj.iter() {
+                    if let Some(sub) = props.get(k) {
+                        validate_nested_enum_values(v, sub, path, result);
+                    }
+                }
+            }
+        }
+        SExpression::Array(arr) => {
+            if let Some(items) = schema.items.as_deref() {
+                for el in arr {
+                    validate_nested_enum_values(el, items, path, result);
+                }
+            }
+        }
+        _ => {}
+    }
+}
+
 /// Validate a pattern
 pub(super) fn validate_pattern(
     pattern: &SExpression,
@@ -301,6 +354,23 @@ pub(super) fn validate_pattern(
                                     )),
                                 );
                             }
+                        }
+                    }
+
+                    // Nested-enum backstop: recurse into object/array-valued
+                    // props to reject an invalid enum literal in a sub-field the
+                    // top-level check can't see (e.g. `Asset.style` deep in an
+                    // asset manifest). CG-SWEEP-1 Cat 11b.
+                    if matches!(prop_value, SExpression::Object(_) | SExpression::Array(_)) {
+                        if let Some(prop_schema) = crate::embedded::get_pattern(pattern_type)
+                            .and_then(|p| p.props_schema.get(prop_name))
+                        {
+                            validate_nested_enum_values(
+                                prop_value,
+                                prop_schema,
+                                path,
+                                &mut result,
+                            );
                         }
                     }
                 }
