@@ -560,7 +560,7 @@ pub fn factory_signatures_json_io() -> &'static str {
 
 // SYNC-GENERATED:EMBEDDED_STD_BEHAVIORS:BEGIN
 pub static EMBEDDED_STD_BEHAVIORS: phf::Map<&'static str, &'static str> = phf::phf_map! {
-    // === Atoms (383) ===
+    // === Atoms (385) ===
     "std/behaviors/std-agent-activity-log" => include_str!("baked/std/agent/atoms/std-agent-activity-log.orb"),
     "std/behaviors/std-agent-chat-thread" => include_str!("baked/std/agent/atoms/std-agent-chat-thread.orb"),
     "std/behaviors/std-agent-classifier" => include_str!("baked/std/agent/atoms/std-agent-classifier.orb"),
@@ -636,7 +636,7 @@ pub static EMBEDDED_STD_BEHAVIORS: phf::Map<&'static str, &'static str> = phf::p
     "std/behaviors/std-case-study-organism" => include_str!("baked/io/curated/atoms/std-case-study-organism.orb"),
     "std/behaviors/std-change-order" => include_str!("baked/io/app/atoms/std-change-order.orb"),
     "std/behaviors/std-chart-of-accounts" => include_str!("baked/io/app/atoms/std-chart-of-accounts.orb"),
-    "std/behaviors/std-chase-ai" => include_str!("baked/std/ui/game/atoms/std-chase-ai.orb"),
+    "std/behaviors/std-chase-ai" => include_str!("baked/std/ui/game/2d/atoms/std-chase-ai.orb"),
     "std/behaviors/std-checkin" => include_str!("baked/io/app/atoms/std-checkin.orb"),
     "std/behaviors/std-checkout-terminal" => include_str!("baked/io/app/atoms/std-checkout-terminal.orb"),
     "std/behaviors/std-chem-diffusion" => include_str!("baked/std/ui/learning/atoms/std-chem-diffusion.orb"),
@@ -684,7 +684,7 @@ pub static EMBEDDED_STD_BEHAVIORS: phf::Map<&'static str, &'static str> = phf::p
     "std/behaviors/std-flag" => include_str!("baked/std/core-variations/atoms/std-flag.orb"),
     "std/behaviors/std-form-advanced" => include_str!("baked/std/core/atoms/std-form-advanced.orb"),
     "std/behaviors/std-form-builder" => include_str!("baked/io/app/atoms/std-form-builder.orb"),
-    "std/behaviors/std-fx-particles" => include_str!("baked/std/ui/game/atoms/std-fx-particles.orb"),
+    "std/behaviors/std-fx-particles" => include_str!("baked/std/ui/game/2d/atoms/std-fx-particles.orb"),
     "std/behaviors/std-gallery" => include_str!("baked/std/core/atoms/std-gallery.orb"),
     "std/behaviors/std-game-canvas2d" => include_str!("baked/io/game/atoms/std-game-canvas2d.orb"),
     "std/behaviors/std-game-clock" => include_str!("baked/std/core/atoms/std-game-clock.orb"),
@@ -698,6 +698,7 @@ pub static EMBEDDED_STD_BEHAVIORS: phf::Map<&'static str, &'static str> = phf::p
     "std/behaviors/std-graphs-line" => include_str!("baked/std/core-variations/atoms/std-graphs-line.orb"),
     "std/behaviors/std-graphs-pie" => include_str!("baked/std/core-variations/atoms/std-graphs-pie.orb"),
     "std/behaviors/std-graphs-scatter" => include_str!("baked/std/core-variations/atoms/std-graphs-scatter.orb"),
+    "std/behaviors/std-grid-tactics" => include_str!("baked/std/ui/game/2d/atoms/std-grid-tactics.orb"),
     "std/behaviors/std-health-score" => include_str!("baked/io/app/atoms/std-health-score.orb"),
     "std/behaviors/std-help-article" => include_str!("baked/io/app/atoms/std-help-article.orb"),
     "std/behaviors/std-help-category" => include_str!("baked/io/app/atoms/std-help-category.orb"),
@@ -774,6 +775,7 @@ pub static EMBEDDED_STD_BEHAVIORS: phf::Map<&'static str, &'static str> = phf::p
     "std/behaviors/std-prob-galton" => include_str!("baked/std/ui/learning/atoms/std-prob-galton.orb"),
     "std/behaviors/std-prob-montecarlo" => include_str!("baked/std/ui/learning/atoms/std-prob-montecarlo.orb"),
     "std/behaviors/std-prob-walk" => include_str!("baked/std/ui/learning/atoms/std-prob-walk.orb"),
+    "std/behaviors/std-projectiles" => include_str!("baked/std/ui/game/2d/atoms/std-projectiles.orb"),
     "std/behaviors/std-push" => include_str!("baked/std/core/atoms/std-push.orb"),
     "std/behaviors/std-quest" => include_str!("baked/io/game/atoms/std-quest.orb"),
     "std/behaviors/std-question-bank" => include_str!("baked/io/app/atoms/std-question-bank.orb"),
@@ -791,7 +793,7 @@ pub static EMBEDDED_STD_BEHAVIORS: phf::Map<&'static str, &'static str> = phf::p
     "std/behaviors/std-response-collector" => include_str!("baked/io/app/atoms/std-response-collector.orb"),
     "std/behaviors/std-rfi" => include_str!("baked/io/app/atoms/std-rfi.orb"),
     "std/behaviors/std-rich-editor" => include_str!("baked/std/core/atoms/std-rich-editor.orb"),
-    "std/behaviors/std-round-flow" => include_str!("baked/std/ui/game/atoms/std-round-flow.orb"),
+    "std/behaviors/std-round-flow" => include_str!("baked/std/ui/game/2d/atoms/std-round-flow.orb"),
     "std/behaviors/std-route-optimize" => include_str!("baked/io/app/atoms/std-route-optimize.orb"),
     "std/behaviors/std-row-access-control" => include_str!("baked/std/infra/atoms/std-row-access-control.orb"),
     "std/behaviors/std-runbook" => include_str!("baked/io/app/atoms/std-runbook.orb"),
@@ -944,7 +946,7 @@ pub static EMBEDDED_STD_BEHAVIORS: phf::Map<&'static str, &'static str> = phf::p
     "std/behaviors/ui-vstack" => include_str!("baked/std/ui/core/atoms/ui-vstack.orb"),
     "std/behaviors/ui-waypoint-marker" => include_str!("baked/std/ui/game/2d/atoms/ui-waypoint-marker.orb"),
     "std/behaviors/ui-xp-bar" => include_str!("baked/std/ui/game/2d/atoms/ui-xp-bar.orb"),
-    // === Molecules (172) ===
+    // === Molecules (174) ===
     "std/behaviors/std-about-page" => include_str!("baked/io/marketing/molecules/std-about-page.orb"),
     "std/behaviors/std-agent-fix-loop" => include_str!("baked/std/agent/molecules/std-agent-fix-loop.orb"),
     "std/behaviors/std-agent-learner" => include_str!("baked/std/agent/molecules/std-agent-learner.orb"),
@@ -969,6 +971,8 @@ pub static EMBEDDED_STD_BEHAVIORS: phf::Map<&'static str, &'static str> = phf::p
     "std/behaviors/std-source-scope-probe" => include_str!("baked/io/probes/molecules/std-source-scope-probe.orb"),
     "std/behaviors/std-stock-adjustment" => include_str!("baked/io/app/molecules/std-stock-adjustment.orb"),
     "std/behaviors/std-tabs-layout" => include_str!("baked/std/core/molecules/std-tabs-layout.orb"),
+    "std/behaviors/std-tactics-board-2d" => include_str!("baked/std/ui/game/2d/molecules/std-tactics-board-2d.orb"),
+    "std/behaviors/std-tactics-board-3d" => include_str!("baked/std/ui/game/3d/molecules/std-tactics-board-3d.orb"),
     "std/behaviors/std-timeline" => include_str!("baked/io/app/molecules/std-timeline.orb"),
     "std/behaviors/std-wizard-branching" => include_str!("baked/io/app/molecules/std-wizard-branching.orb"),
     "std/behaviors/ui-accordion" => include_str!("baked/std/ui/core/molecules/ui-accordion.orb"),
@@ -1117,7 +1121,7 @@ pub static EMBEDDED_STD_BEHAVIORS: phf::Map<&'static str, &'static str> = phf::p
     "std/behaviors/ui-wizard-container" => include_str!("baked/std/ui/core/molecules/ui-wizard-container.orb"),
     "std/behaviors/ui-wizard-navigation" => include_str!("baked/std/ui/core/molecules/ui-wizard-navigation.orb"),
     "std/behaviors/ui-wizard-progress" => include_str!("baked/std/ui/core/molecules/ui-wizard-progress.orb"),
-    // === Organisms (236) ===
+    // === Organisms (239) ===
     "std/behaviors/AccountOrbital" => include_str!("baked/io/curated/organisms/AccountOrbital.orb"),
     "std/behaviors/BundleOrbital" => include_str!("baked/io/curated/organisms/BundleOrbital.orb"),
     "std/behaviors/ChargeItemOrbital" => include_str!("baked/io/curated/organisms/ChargeItemOrbital.orb"),
@@ -1295,6 +1299,7 @@ pub static EMBEDDED_STD_BEHAVIORS: phf::Map<&'static str, &'static str> = phf::p
     "std/behaviors/ui-form-section" => include_str!("baked/std/ui/core/organisms/ui-form-section.orb"),
     "std/behaviors/ui-game-board-3d" => include_str!("baked/std/ui/game/3d/organisms/ui-game-board-3d.orb"),
     "std/behaviors/ui-graveyard-board-3d" => include_str!("baked/std/ui/game/3d/organisms/ui-graveyard-board-3d.orb"),
+    "std/behaviors/ui-grid-tactics-demo-board" => include_str!("baked/std/ui/game/2d/organisms/ui-grid-tactics-demo-board.orb"),
     "std/behaviors/ui-hero-organism" => include_str!("baked/std/ui/marketing/organisms/ui-hero-organism.orb"),
     "std/behaviors/ui-hex-strategy-board" => include_str!("baked/std/ui/game/2d/organisms/ui-hex-strategy-board.orb"),
     "std/behaviors/ui-hex-strategy-board-3d" => include_str!("baked/std/ui/game/3d/organisms/ui-hex-strategy-board-3d.orb"),
@@ -1339,6 +1344,8 @@ pub static EMBEDDED_STD_BEHAVIORS: phf::Map<&'static str, &'static str> = phf::p
     "std/behaviors/ui-step-flow-organism" => include_str!("baked/std/ui/marketing/organisms/ui-step-flow-organism.orb"),
     "std/behaviors/ui-subagent-trace-panel" => include_str!("baked/std/ui/core/organisms/ui-subagent-trace-panel.orb"),
     "std/behaviors/ui-tabbed-container" => include_str!("baked/std/ui/core/organisms/ui-tabbed-container.orb"),
+    "std/behaviors/ui-tactics-demo-2d" => include_str!("baked/std/ui/game/2d/organisms/ui-tactics-demo-2d.orb"),
+    "std/behaviors/ui-tactics-demo-3d" => include_str!("baked/std/ui/game/3d/organisms/ui-tactics-demo-3d.orb"),
     "std/behaviors/ui-tanks-board" => include_str!("baked/std/ui/game/2d/organisms/ui-tanks-board.orb"),
     "std/behaviors/ui-team-organism" => include_str!("baked/std/ui/marketing/organisms/ui-team-organism.orb"),
     "std/behaviors/ui-timeline" => include_str!("baked/std/ui/core/organisms/ui-timeline.orb"),
