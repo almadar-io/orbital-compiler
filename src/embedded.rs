@@ -682,6 +682,7 @@ pub static EMBEDDED_STD_BEHAVIORS: phf::Map<&'static str, &'static str> = phf::p
     "std/behaviors/std-file-store" => include_str!("baked/std/core/atoms/std-file-store.orb"),
     "std/behaviors/std-filter" => include_str!("baked/std/core/atoms/std-filter.orb"),
     "std/behaviors/std-fx-particles" => include_str!("baked/std/ui/game/atoms/std-fx-particles.orb"),
+    "std/behaviors/std-grid-tactics" => include_str!("baked/std/ui/game/atoms/std-grid-tactics.orb"),
     "std/behaviors/std-flag" => include_str!("baked/std/core-variations/atoms/std-flag.orb"),
     "std/behaviors/std-form-advanced" => include_str!("baked/std/core/atoms/std-form-advanced.orb"),
     "std/behaviors/std-form-builder" => include_str!("baked/io/app/atoms/std-form-builder.orb"),
