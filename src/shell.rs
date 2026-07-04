@@ -372,15 +372,15 @@ pub fn android_shell(shells_dir: &Path) -> BaseShell {
 
 /// Create a Python shell configuration.
 /// Searches multiple locations: shells_dir/python-shell, then
-/// orbital-rust/shells/python-shell from repo root (for monorepo dev
+/// orbital-rust/templates/python-shell from repo root (for monorepo dev
 /// where shells_dir points to packages/ for the TypeScript shell).
 pub fn python_shell(shells_dir: &Path) -> BaseShell {
     let primary = shells_dir.join("python-shell");
     let template_path = if primary.exists() {
         primary
     } else {
-        // Try sibling: if shells_dir is packages/, check ../orbital-rust/shells/python-shell
-        let from_packages = shells_dir.join("../orbital-rust/shells/python-shell");
+        // Try sibling: if shells_dir is packages/, check ../orbital-rust/templates/python-shell
+        let from_packages = shells_dir.join("../orbital-rust/templates/python-shell");
         if from_packages.exists() {
             from_packages
         } else {

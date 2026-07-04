@@ -169,6 +169,30 @@ where
     }
     let output = backend.generate_with_mode(oir, options.mode);
 
+    // Cross-shell operator-completeness backstop: no emitted file may carry the
+    // shared unsupported-operator marker (Python emits it in a `#` comment, TS
+    // in a `/* */` comment). Fail loudly BEFORE writing, rather than shipping a
+    // broken stub the static parity gate can't see — e.g. an operator with no
+    // canonical-registry entry at all.
+    let unsupported: Vec<String> = output
+        .files
+        .iter()
+        .flat_map(|file| {
+            file.content
+                .lines()
+                .filter(|line| line.contains(orbital_core::UNSUPPORTED_OPERATOR_MARKER))
+                .map(move |line| format!("{} — {}", file.path, line.trim()))
+        })
+        .collect();
+    if !unsupported.is_empty() {
+        return Err(GenerateError::Backend(format!(
+            "backend emitted {} unsupported-operator marker(s); the shell has no real \
+             implementation for these operators:\n  {}",
+            unsupported.len(),
+            unsupported.join("\n  ")
+        )));
+    }
+
     // Step 5: Write files
     let generated_dir = output_dir.join(shell.generated_dir());
     std::fs::create_dir_all(&generated_dir)?;

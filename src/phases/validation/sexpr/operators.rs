@@ -294,106 +294,6 @@ pub const EFFECT_OPERATORS: &[&str] = &[
     "update",
 ];
 
-/// Neural network operators (nn module)
-/// See: orbital-shared/std/modules/nn.ts
-pub const NN_OPERATORS: &[&str] = &[
-    // Architecture
-    "nn/sequential",
-    "nn/linear",
-    "nn/relu",
-    "nn/tanh",
-    "nn/sigmoid",
-    "nn/softmax",
-    "nn/dropout",
-    "nn/batchnorm",
-    "nn/layernorm",
-    // Execution
-    "nn/forward",
-    "nn/getWeights",
-    "nn/setWeights",
-    "nn/paramCount",
-    "nn/clone",
-];
-
-/// Tensor operators (tensor module)
-/// See: orbital-shared/std/modules/tensor.ts
-pub const TENSOR_OPERATORS: &[&str] = &[
-    // Creation
-    "tensor/from",
-    "tensor/zeros",
-    "tensor/ones",
-    "tensor/rand",
-    "tensor/randn",
-    // Shape/Indexing
-    "tensor/shape",
-    "tensor/get",
-    "tensor/slice",
-    "tensor/reshape",
-    "tensor/flatten",
-    // Math
-    "tensor/add",
-    "tensor/sub",
-    "tensor/mul",
-    "tensor/div",
-    "tensor/matmul",
-    "tensor/dot",
-    // Reductions
-    "tensor/sum",
-    "tensor/mean",
-    "tensor/max",
-    "tensor/min",
-    "tensor/argmax",
-    "tensor/norm",
-    // Range validation
-    "tensor/allInRange",
-    "tensor/outOfRangeIndices",
-    "tensor/clamp",
-    "tensor/clampPerDim",
-    "tensor/outOfRangeDims",
-    // Conversion
-    "tensor/toArray",
-    "tensor/toList",
-    // Concatenation/Stacking
-    "tensor/cat",
-    "tensor/stack",
-    // Shape manipulation
-    "tensor/transpose",
-    "tensor/unsqueeze",
-    "tensor/squeeze",
-];
-
-/// Training operators (train module)
-/// See: orbital-shared/std/modules/train.ts
-pub const TRAIN_OPERATORS: &[&str] = &[
-    // Training
-    "train/loop",
-    "train/step",
-    // Validation
-    "train/validate",
-    "train/checkRegression",
-    // Constraints
-    "train/checkConstraints",
-    "train/checkWeightMagnitude",
-    "train/checkForbiddenOutputs",
-    // Gradients
-    "train/clipGradients",
-    "train/getGradientNorm",
-    // Weights
-    "train/clipWeights",
-    "train/getMaxWeightMagnitude",
-    // Loss functions
-    "train/mse",
-    "train/crossEntropy",
-    "train/huber",
-    // Optimizers
-    "train/sgd",
-    "train/adam",
-    // RL
-    "train/sampleBatch",
-    "train/computeReturns",
-    "train/computeAdvantages",
-];
-
 pub const OS_OPERATORS: &[&str] = &[
     "os/watch-files",
     "os/watch-process",
@@ -405,75 +305,21 @@ pub const OS_OPERATORS: &[&str] = &[
     "os/debounce",
 ];
 
-/// Graph operators (graph module)
-pub const GRAPH_OPERATORS: &[&str] = &[
-    "graph/from-entities",
-    "graph/from-adjacency",
-    "graph/from-edge-list",
-    "graph/add-self-loops",
-    "graph/to-undirected",
-    "graph/subgraph",
-    "graph/k-hop",
-    "graph/node-features",
-    "graph/edge-index",
-    "graph/edge-features",
-    "graph/num-nodes",
-    "graph/num-edges",
-    "graph/degree",
-    "graph/batch",
-];
-
-/// Contract operators (contract module)
-pub const CONTRACT_OPERATORS: &[&str] = &[
-    "contract/validate-input",
-    "contract/validate-output",
-    "contract/clamp-output",
-    "contract/violations",
-    "contract/entity-to-tensor",
-    "contract/tensor-to-payload",
-];
-
-/// Data preprocessing operators (data module)
-pub const DATA_OPERATORS: &[&str] = &[
-    "data/dataset",
-    "data/dataloader",
-    "data/split",
-    "data/normalize",
-    "data/augment",
-    "data/tokenize",
-    "data/pad",
-];
-
-/// ML effect operators (forward, train, evaluate, checkpoint)
-pub const ML_EFFECT_OPERATORS: &[&str] = &[
-    "forward",
-    "train",
-    "evaluate",
-    "checkpoint/save",
-    "checkpoint/load",
-];
-
-/// Check if an operator is in any known operator list.
+/// Check if an operator is known.
 ///
-/// This consults the embedded `operators.json` registry first (Phase 3 of Lolo v3),
-/// then falls back to the legacy hardcoded constant lists for operators that haven't
-/// been migrated yet (e.g. `nn/*`, `tensor/*`, `train/*`, ML effects). The fallback
-/// will eventually disappear as those operators move into `operators.json`.
+/// The embedded canonical `operators.json` registry is the single source of
+/// truth for the ML operator families (`nn/`, `tensor/`, `train/`, `graph/`,
+/// `contract/`, `data/`, and the bare ML-effect aliases): those legacy
+/// hardcoded lists were retired once canonical became a verified superset. A
+/// few non-ML legacy lists remain (`core`/`effect`/`os`), plus the `agent/` /
+/// `behavior/` namespace prefixes.
 pub(crate) fn is_known_operator(operator: &str) -> bool {
-    // Replaced primary lookup with embedded::is_known_operator() in Phase 3 of Lolo v3 plan.
     if crate::embedded::is_known_operator(operator) {
         return true;
     }
     CORE_OPERATORS.contains(&operator)
         || EFFECT_OPERATORS.contains(&operator)
-        || NN_OPERATORS.contains(&operator)
-        || TENSOR_OPERATORS.contains(&operator)
-        || TRAIN_OPERATORS.contains(&operator)
         || OS_OPERATORS.contains(&operator)
-        || GRAPH_OPERATORS.contains(&operator)
-        || CONTRACT_OPERATORS.contains(&operator)
-        || DATA_OPERATORS.contains(&operator)
-        || ML_EFFECT_OPERATORS.contains(&operator)
         || operator.starts_with("agent/")
         || operator.starts_with("behavior/")
 }

@@ -9,8 +9,5 @@ mod operators;
 mod validate;
 
 pub use arity::ArityRule;
-pub use operators::{
-    CONTRACT_OPERATORS, CORE_OPERATORS, DATA_OPERATORS, EFFECT_OPERATORS, GRAPH_OPERATORS,
-    ML_EFFECT_OPERATORS, NN_OPERATORS, OS_OPERATORS, TENSOR_OPERATORS, TRAIN_OPERATORS,
-};
+pub use operators::{CORE_OPERATORS, EFFECT_OPERATORS, OS_OPERATORS};
 pub use validate::{validate_all_sexprs, validate_sexpr, validate_trait_sexprs, SExprContext};

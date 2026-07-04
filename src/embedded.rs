@@ -210,10 +210,21 @@ pub fn get_operator(name: &str) -> Option<&'static EmbeddedOperator> {
 
 /// Returns true if the operator category targets Rust (or if unknown).
 pub fn is_rust_target(name: &str) -> bool {
-    let cats = categories();
+    is_shell_target(name, "rust")
+}
+
+/// Returns true if the operator's canonical category targets Python.
+pub fn is_python_target(name: &str) -> bool {
+    is_shell_target(name, "python")
+}
+
+/// Returns true if the operator's canonical category lists `shell` in its
+/// `target` set. The single lookup behind the per-shell helpers so the
+/// operator→category→target resolution can never drift between shells.
+pub fn is_shell_target(name: &str, shell: &str) -> bool {
     if let Some(op) = get_operator(name) {
-        if let Some(cat) = cats.get(&op.category) {
-            return cat.target.iter().any(|t| t == "rust");
+        if let Some(cat) = categories().get(&op.category) {
+            return cat.target.iter().any(|t| t == shell);
         }
     }
     false
@@ -1103,7 +1114,7 @@ pub static EMBEDDED_STD_BEHAVIORS: phf::Map<&'static str, &'static str> = phf::p
     "std/behaviors/ui-wizard-container" => include_str!("baked/std/ui/core/molecules/ui-wizard-container.orb"),
     "std/behaviors/ui-wizard-navigation" => include_str!("baked/std/ui/core/molecules/ui-wizard-navigation.orb"),
     "std/behaviors/ui-wizard-progress" => include_str!("baked/std/ui/core/molecules/ui-wizard-progress.orb"),
-    // === Organisms (219) ===
+    // === Organisms (228) ===
     "std/behaviors/AccountOrbital" => include_str!("baked/io/curated/organisms/AccountOrbital.orb"),
     "std/behaviors/BundleOrbital" => include_str!("baked/io/curated/organisms/BundleOrbital.orb"),
     "std/behaviors/ChargeItemOrbital" => include_str!("baked/io/curated/organisms/ChargeItemOrbital.orb"),
@@ -1132,12 +1143,15 @@ pub static EMBEDDED_STD_BEHAVIORS: phf::Map<&'static str, &'static str> = phf::p
     "std/behaviors/std-agent-pipeline" => include_str!("baked/std/agent/organisms/std-agent-pipeline.orb"),
     "std/behaviors/std-agent-reviewer" => include_str!("baked/std/agent/organisms/std-agent-reviewer.orb"),
     "std/behaviors/std-agent-tutor" => include_str!("baked/std/agent/organisms/std-agent-tutor.orb"),
+    "std/behaviors/std-alummaalraqamia" => include_str!("baked/io/app/organisms/std-alummaalraqamia.orb"),
     "std/behaviors/std-api-gateway" => include_str!("baked/io/app/organisms/std-api-gateway.orb"),
     "std/behaviors/std-arcade-game" => include_str!("baked/io/game/organisms/std-arcade-game.orb"),
     "std/behaviors/std-ats-recruiting" => include_str!("baked/io/app/organisms/std-ats-recruiting.orb"),
     "std/behaviors/std-availability-lookup" => include_str!("baked/io/marketing/organisms/std-availability-lookup.orb"),
+    "std/behaviors/std-blaz-klemenc" => include_str!("baked/io/app/organisms/std-blaz-klemenc.orb"),
     "std/behaviors/std-booking-site" => include_str!("baked/io/marketing/organisms/std-booking-site.orb"),
     "std/behaviors/std-booking-system" => include_str!("baked/io/app/organisms/std-booking-system.orb"),
+    "std/behaviors/std-builder" => include_str!("baked/io/app/organisms/std-builder.orb"),
     "std/behaviors/std-campaign-landing" => include_str!("baked/io/marketing/organisms/std-campaign-landing.orb"),
     "std/behaviors/std-careers-site" => include_str!("baked/io/marketing/organisms/std-careers-site.orb"),
     "std/behaviors/std-cicd-pipeline" => include_str!("baked/io/app/organisms/std-cicd-pipeline.orb"),
@@ -1177,9 +1191,13 @@ pub static EMBEDDED_STD_BEHAVIORS: phf::Map<&'static str, &'static str> = phf::p
     "std/behaviors/std-helpdesk" => include_str!("baked/io/app/organisms/std-helpdesk.orb"),
     "std/behaviors/std-hr-portal" => include_str!("baked/io/app/organisms/std-hr-portal.orb"),
     "std/behaviors/std-hr-self-service" => include_str!("baked/io/marketing/organisms/std-hr-self-service.orb"),
+    "std/behaviors/std-inspection-system" => include_str!("baked/io/app/organisms/std-inspection-system.orb"),
     "std/behaviors/std-inventory" => include_str!("baked/io/app/organisms/std-inventory.orb"),
     "std/behaviors/std-iot-dashboard" => include_str!("baked/io/app/organisms/std-iot-dashboard.orb"),
     "std/behaviors/std-iot-public" => include_str!("baked/io/marketing/organisms/std-iot-public.orb"),
+    "std/behaviors/std-iram" => include_str!("baked/io/game/organisms/std-iram.orb"),
+    "std/behaviors/std-kekec" => include_str!("baked/io/game/organisms/std-kekec.orb"),
+    "std/behaviors/std-kflow" => include_str!("baked/io/app/organisms/std-kflow.orb"),
     "std/behaviors/std-lead-capture-site" => include_str!("baked/io/marketing/organisms/std-lead-capture-site.orb"),
     "std/behaviors/std-legal-case" => include_str!("baked/io/app/organisms/std-legal-case.orb"),
     "std/behaviors/std-listings" => include_str!("baked/io/app/organisms/std-listings.orb"),
@@ -1229,8 +1247,10 @@ pub static EMBEDDED_STD_BEHAVIORS: phf::Map<&'static str, &'static str> = phf::p
     "std/behaviors/std-time-tracking" => include_str!("baked/io/app/organisms/std-time-tracking.orb"),
     "std/behaviors/std-trading-dashboard" => include_str!("baked/io/app/organisms/std-trading-dashboard.orb"),
     "std/behaviors/std-trading-public" => include_str!("baked/io/marketing/organisms/std-trading-public.orb"),
+    "std/behaviors/std-trait-wars" => include_str!("baked/io/game/organisms/std-trait-wars.orb"),
     "std/behaviors/std-wiki" => include_str!("baked/io/app/organisms/std-wiki.orb"),
     "std/behaviors/std-wiki-public" => include_str!("baked/io/marketing/organisms/std-wiki-public.orb"),
+    "std/behaviors/std-winning-11" => include_str!("baked/io/app/organisms/std-winning-11.orb"),
     "std/behaviors/ui-arcade-board-3d" => include_str!("baked/std/ui/game/3d/organisms/ui-arcade-board-3d.orb"),
     "std/behaviors/ui-battle-board" => include_str!("baked/std/ui/game/2d/organisms/ui-battle-board.orb"),
     "std/behaviors/ui-boardgame-board" => include_str!("baked/std/ui/game/2d/organisms/ui-boardgame-board.orb"),
@@ -1527,6 +1547,34 @@ mod tests {
             "Rust evaluator missing {} canonical rust-target operators:\n  {}",
             missing.len(),
             missing.join("\n  ")
+        );
+    }
+
+    // Mobile shells (android/ios) are NO-OP-DISPATCH: they interpret
+    // server-returned clientEffects at runtime and never compile S-expr
+    // operators, so no canonical category may target them. If this ever
+    // changes, the exemption must be revisited (that shell would then need its
+    // own operator-completeness gate, like Python's).
+    #[test]
+    fn no_canonical_category_targets_a_mobile_shell() {
+        let doc: serde_json::Value = serde_json::from_str(OPERATORS_JSON).unwrap();
+        let forbidden = ["android", "ios", "kotlin", "swift", "mobile"];
+        let mut offenders = Vec::new();
+        for (cat, meta) in doc["categories"].as_object().unwrap() {
+            if let Some(targets) = meta["target"].as_array() {
+                for t in targets.iter().filter_map(|t| t.as_str()) {
+                    if forbidden.contains(&t) {
+                        offenders.push(format!("{cat} -> {t}"));
+                    }
+                }
+            }
+        }
+        offenders.sort();
+        assert!(
+            offenders.is_empty(),
+            "Mobile shells are NO-OP-DISPATCH and must not be an operator target, \
+             but these categories target one:\n  {}",
+            offenders.join("\n  ")
         );
     }
 
