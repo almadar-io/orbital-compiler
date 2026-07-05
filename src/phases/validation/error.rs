@@ -180,6 +180,10 @@ pub enum ErrorCode {
     RenderUIMissingPatternType,
     /// Invalid prop for pattern
     RenderUIInvalidProp,
+    /// A non-drawable child composed under a canvas draw-host. A draw-host paints
+    /// only neutral drawable descriptors (draw-sprite / draw-shape / draw-text /
+    /// draw-*-layer); DOM chrome belongs in a `hud`/`overlay` slot.
+    RenderUIChildNotDrawable,
     /// Missing required prop for pattern
     RenderUIMissingRequiredProp,
     /// Invalid itemAction configuration
@@ -664,6 +668,7 @@ impl ErrorCode {
             ErrorCode::RenderUIInvalidPattern => "ORB_RUI_INVALID_PATTERN",
             ErrorCode::RenderUIMissingPatternType => "ORB_RUI_MISSING_PATTERN_TYPE",
             ErrorCode::RenderUIInvalidProp => "ORB_RUI_INVALID_PROP",
+            ErrorCode::RenderUIChildNotDrawable => "ORB_RUI_CHILD_NOT_DRAWABLE",
             ErrorCode::RenderUIMissingRequiredProp => "ORB_RUI_MISSING_REQUIRED_PROP",
             ErrorCode::RenderUIInvalidItemAction => "ORB_RUI_INVALID_ITEM_ACTION",
             ErrorCode::RenderUIUnknownItemActionProp => "ORB_RUI_UNKNOWN_ITEM_ACTION_PROP",
@@ -878,6 +883,7 @@ impl ErrorCode {
             | ErrorCode::RenderUIInvalidPattern
             | ErrorCode::RenderUIMissingPatternType
             | ErrorCode::RenderUIInvalidProp
+            | ErrorCode::RenderUIChildNotDrawable
             | ErrorCode::RenderUIMissingRequiredProp
             | ErrorCode::RenderUIInvalidItemAction
             | ErrorCode::RenderUIUnknownItemActionProp

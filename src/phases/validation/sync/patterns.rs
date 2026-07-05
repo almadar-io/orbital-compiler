@@ -2,7 +2,7 @@
 //!
 //! Source: packages/almadar-patterns/src/patterns-registry.json
 //!
-//! Last synced: 2026-07-03
+//! Last synced: 2026-07-05
 //! To regenerate: npx tsx tools/almadar-pattern-sync/index.ts
 //!
 //! DO NOT EDIT MANUALLY - changes will be overwritten on next sync.
@@ -207,6 +207,11 @@ pub static PATTERN_TYPES: LazyLock<HashSet<&'static str>> = LazyLock::new(|| {
         "dashboard-grid",
         "debugger-board",
         "dialogue-bubble",
+        "draw-shape",
+        "draw-shape-layer",
+        "draw-sprite",
+        "draw-sprite-layer",
+        "draw-text",
         "event-handler-board",
         "event-log",
         "game-audio-toggle",
@@ -539,6 +544,11 @@ pub static PATTERN_TO_CATEGORY: LazyLock<HashMap<&'static str, &'static str>> =
             ("dashboard-grid", "game"),
             ("debugger-board", "game"),
             ("dialogue-bubble", "game"),
+            ("draw-shape", "game"),
+            ("draw-shape-layer", "game"),
+            ("draw-sprite", "game"),
+            ("draw-sprite-layer", "game"),
+            ("draw-text", "game"),
             ("event-handler-board", "game"),
             ("event-log", "game"),
             ("game-audio-toggle", "game"),
@@ -704,6 +714,11 @@ pub static PATTERN_REQUIRED_PROPS: LazyLock<HashMap<&'static str, Vec<&'static s
             ("doc-breadcrumb", vec!["items"]),
             ("doc-sidebar", vec!["items"]),
             ("doc-toc", vec!["items"]),
+            ("draw-shape", vec!["type", "shape", "position"]),
+            ("draw-shape-layer", vec!["type", "items"]),
+            ("draw-sprite", vec!["type", "position", "asset"]),
+            ("draw-sprite-layer", vec!["type", "items"]),
+            ("draw-text", vec!["type", "text", "position", "color"]),
             ("entity-cards", vec!["fields"]),
             ("entity-list", vec!["fields"]),
             ("entity-table", vec!["fields"]),
@@ -1226,6 +1241,7 @@ pub static PATTERN_PROPS_SCHEMA: LazyLock<HashMap<&'static str, HashSet<&'static
                     "className",
                     "debug",
                     "diamondTopY",
+                    "drawables",
                     "effectSpriteUrls",
                     "effects",
                     "error",
@@ -1849,6 +1865,66 @@ pub static PATTERN_PROPS_SCHEMA: LazyLock<HashMap<&'static str, HashSet<&'static
                 .collect(),
             ),
             (
+                "draw-shape",
+                [
+                    "anchor",
+                    "fill",
+                    "height",
+                    "offsetX",
+                    "offsetY",
+                    "opacity",
+                    "points",
+                    "position",
+                    "radiusX",
+                    "radiusY",
+                    "shape",
+                    "stroke",
+                    "strokeWidth",
+                    "type",
+                    "width",
+                ]
+                .into_iter()
+                .collect(),
+            ),
+            ("draw-shape-layer", ["items", "type"].into_iter().collect()),
+            (
+                "draw-sprite",
+                [
+                    "anchor",
+                    "asset",
+                    "flipX",
+                    "frame",
+                    "height",
+                    "opacity",
+                    "position",
+                    "rotation",
+                    "shadow",
+                    "type",
+                    "width",
+                ]
+                .into_iter()
+                .collect(),
+            ),
+            ("draw-sprite-layer", ["items", "type"].into_iter().collect()),
+            (
+                "draw-text",
+                [
+                    "align",
+                    "anchor",
+                    "baseline",
+                    "color",
+                    "font",
+                    "offsetX",
+                    "offsetY",
+                    "opacity",
+                    "position",
+                    "text",
+                    "type",
+                ]
+                .into_iter()
+                .collect(),
+            ),
+            (
                 "drawer",
                 [
                     "children",
@@ -2301,6 +2377,7 @@ pub static PATTERN_PROPS_SCHEMA: LazyLock<HashMap<&'static str, HashSet<&'static
                     "canvasClickEvent",
                     "children",
                     "className",
+                    "drawables",
                     "error",
                     "events",
                     "featureClickEvent",
@@ -5151,9 +5228,10 @@ pub static PATTERN_PROP_TYPES: LazyLock<HashMap<&'static str, HashMap<&'static s
                     ("units", &["array"] as &[&str]),
                     ("features", &["array"] as &[&str]),
                     ("effects", &["array"] as &[&str]),
+                    ("drawables", &["array"] as &[&str]),
                     ("platforms", &["array"] as &[&str]),
                     ("player", &["object"] as &[&str]),
-                    ("backgroundImage", &["object"] as &[&str]),
+                    ("backgroundImage", &["asset", "object"] as &[&str]),
                     ("selectedUnitId", &["string"] as &[&str]),
                     ("validMoves", &["array"] as &[&str]),
                     ("attackTargets", &["array"] as &[&str]),
@@ -5957,6 +6035,63 @@ pub static PATTERN_PROP_TYPES: LazyLock<HashMap<&'static str, HashMap<&'static s
                 .collect(),
             ),
             (
+                "draw-shape",
+                [
+                    ("shape", &["string"] as &[&str]),
+                    ("position", &["object"] as &[&str]),
+                    ("anchor", &["object"] as &[&str]),
+                    ("width", &["number"] as &[&str]),
+                    ("height", &["number"] as &[&str]),
+                    ("radiusX", &["number"] as &[&str]),
+                    ("radiusY", &["number"] as &[&str]),
+                    ("offsetX", &["number"] as &[&str]),
+                    ("offsetY", &["number"] as &[&str]),
+                    ("points", &["array"] as &[&str]),
+                    ("fill", &["string"] as &[&str]),
+                    ("stroke", &["string"] as &[&str]),
+                    ("strokeWidth", &["number"] as &[&str]),
+                    ("opacity", &["number"] as &[&str]),
+                ]
+                .into_iter()
+                .collect(),
+            ),
+            ("draw-shape-layer", [("items", &["array"] as &[&str])].into_iter().collect()),
+            (
+                "draw-sprite",
+                [
+                    ("position", &["object"] as &[&str]),
+                    ("asset", &["object"] as &[&str]),
+                    ("anchor", &["object"] as &[&str]),
+                    ("width", &["number"] as &[&str]),
+                    ("height", &["number"] as &[&str]),
+                    ("frame", &["object"] as &[&str]),
+                    ("flipX", &["boolean"] as &[&str]),
+                    ("rotation", &["number"] as &[&str]),
+                    ("opacity", &["number"] as &[&str]),
+                    ("shadow", &["object"] as &[&str]),
+                ]
+                .into_iter()
+                .collect(),
+            ),
+            ("draw-sprite-layer", [("items", &["array"] as &[&str])].into_iter().collect()),
+            (
+                "draw-text",
+                [
+                    ("text", &["string"] as &[&str]),
+                    ("position", &["object"] as &[&str]),
+                    ("anchor", &["object"] as &[&str]),
+                    ("offsetX", &["number"] as &[&str]),
+                    ("offsetY", &["number"] as &[&str]),
+                    ("color", &["string"] as &[&str]),
+                    ("font", &["string"] as &[&str]),
+                    ("align", &["object"] as &[&str]),
+                    ("baseline", &["object"] as &[&str]),
+                    ("opacity", &["number"] as &[&str]),
+                ]
+                .into_iter()
+                .collect(),
+            ),
+            (
                 "drawer",
                 [
                     ("isOpen", &["boolean"] as &[&str]),
@@ -6514,6 +6649,7 @@ pub static PATTERN_PROP_TYPES: LazyLock<HashMap<&'static str, HashMap<&'static s
                 [
                     ("className", &["string"] as &[&str]),
                     ("children", &["node"] as &[&str]),
+                    ("drawables", &["array"] as &[&str]),
                     ("isLoading", &["boolean"] as &[&str]),
                     ("error", &["string"] as &[&str]),
                     ("tiles", &["array"] as &[&str]),
@@ -9649,6 +9785,7 @@ pub static PATTERN_PROP_ENUM_VALUES: LazyLock<HashMap<&'static str, HashMap<&'st
                 .collect(),
             ),
             ("document-viewer", [("documentType", &["pdf", "text", "html", "markdown"] as &[&str])].into_iter().collect()),
+            ("draw-shape", [("shape", &["cell", "rect", "ellipse", "poly"] as &[&str])].into_iter().collect()),
             (
                 "drawer",
                 [
@@ -10266,6 +10403,34 @@ pub static PATTERN_EVENT_LIST_PROPS: LazyLock<HashMap<&'static str, HashMap<&'st
 pub static ACTION_REQUIRED_PATTERNS: LazyLock<HashSet<&'static str>> =
     LazyLock::new(|| ["button", "icon-button", "link"].into_iter().collect());
 
+/// Canvas DRAW-HOST patterns — those declaring a `DrawableNode[]` slot. A draw-host
+/// paints its authored `children` as neutral drawable descriptors (routed to the
+/// `drawables` prop at runtime), so `children` is accepted on it and each child must
+/// be `drawable`. Type-derived (DrawableNode identity), not a name list.
+pub static PATTERN_DRAW_HOST: LazyLock<HashSet<&'static str>> = LazyLock::new(|| {
+    [
+        "canvas-2d",
+        "game-canvas-3d",
+    ]
+    .into_iter()
+    .collect()
+});
+
+/// DRAWABLE patterns — neutral scene descriptors grounded in core `ScenePos`
+/// (draw-sprite / draw-shape / draw-text / draw-*-layer). Only these may compose
+/// under a draw-host's `children`. Type-derived (ScenePos identity), not a name list.
+pub static PATTERN_DRAWABLE: LazyLock<HashSet<&'static str>> = LazyLock::new(|| {
+    [
+        "draw-shape",
+        "draw-shape-layer",
+        "draw-sprite",
+        "draw-sprite-layer",
+        "draw-text",
+    ]
+    .into_iter()
+    .collect()
+});
+
 /// Check if a pattern type is valid
 pub fn is_valid_pattern(pattern_type: &str) -> bool {
     PATTERN_TYPES.contains(pattern_type)
@@ -10289,6 +10454,16 @@ pub fn requires_action(pattern_type: &str) -> bool {
 /// Check if an itemAction prop is valid
 pub fn is_valid_item_action_prop(prop: &str) -> bool {
     VALID_ITEM_ACTION_PROPS.contains(prop)
+}
+
+/// Check if a pattern is a canvas draw-host (accepts painted `children`).
+pub fn is_draw_host(pattern_type: &str) -> bool {
+    PATTERN_DRAW_HOST.contains(pattern_type)
+}
+
+/// Check if a pattern is a neutral drawable (may compose under a draw-host).
+pub fn is_drawable(pattern_type: &str) -> bool {
+    PATTERN_DRAWABLE.contains(pattern_type)
 }
 
 /// Get valid props for a pattern (from PATTERN_PROPS_SCHEMA)

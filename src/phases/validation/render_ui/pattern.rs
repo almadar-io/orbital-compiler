@@ -5,7 +5,7 @@ use super::field_path::{validate_field_paths, validate_pattern_field_ref};
 use super::item_actions::validate_item_actions;
 use super::sync::patterns::{
     get_pattern_props, get_pattern_valid_props, get_prop_enum_values, get_prop_types,
-    is_valid_pattern, requires_action,
+    is_draw_host, is_drawable, is_valid_pattern, requires_action,
 };
 use super::sync::ExtraPatterns;
 use super::{ErrorCode, ValidationError, ValidationResult};
@@ -89,6 +89,35 @@ fn validate_nested_enum_values(
     }
 }
 
+/// A canvas draw-host paints ONLY neutral drawable descriptors. Flag any child
+/// whose registry entry is not `drawable` (e.g. a DOM `button` under a canvas) —
+/// the `drawable` capability is baked from the core `ScenePos` type identity, so
+/// this is data-driven, not a hardcoded name list. Non-object / typeless children
+/// are left to the ordinary recursion (a binding string is not a draw child).
+fn check_child_drawable(child: &SExpression, path: &str, result: &mut ValidationResult) {
+    if let SExpression::Object(obj) = child {
+        if let Some(SExpression::String(child_type)) = obj.get("type") {
+            if !is_drawable(child_type) {
+                result.add_error(
+                    ValidationError::error(
+                        ErrorCode::RenderUIChildNotDrawable,
+                        path,
+                        format!(
+                            "'{}' is not a drawable — a draw-host canvas paints only neutral \
+                             drawable descriptors (draw-sprite / draw-shape / draw-text / \
+                             draw-*-layer)",
+                            child_type
+                        ),
+                    )
+                    .with_suggestion(
+                        "Use a draw-* primitive, or move DOM chrome to a `hud`/`overlay` slot",
+                    ),
+                );
+            }
+        }
+    }
+}
+
 /// Validate a pattern
 pub(super) fn validate_pattern(
     pattern: &SExpression,
@@ -131,6 +160,14 @@ pub(super) fn validate_pattern(
                     for prop_name in obj.keys() {
                         // Skip 'type' - it's the pattern identifier, not a prop
                         if prop_name == "type" {
+                            continue;
+                        }
+                        // A draw-HOST (canvas) paints its authored `children` as neutral
+                        // drawable descriptors — `children` is its scene slot (routed to
+                        // the `drawables` prop at runtime), not a DOM prop, so it's absent
+                        // from the host's propsSchema. Accept it here; each child's
+                        // drawable-ness is gated in the children recursion below.
+                        if prop_name == "children" && is_draw_host(pattern_type) {
                             continue;
                         }
                         let in_core_props = core_props
@@ -504,10 +541,17 @@ pub(super) fn validate_pattern(
                 // type + enum-value checks. Children can be a single pattern
                 // object or an array of patterns; handle both.
                 if let Some(children) = obj.get("children") {
+                    // A draw-host paints ONLY neutral drawable descriptors — gate each
+                    // child's `drawable` capability (baked from the core `ScenePos` type
+                    // identity). DOM chrome under a canvas → ORB_RUI_CHILD_NOT_DRAWABLE.
+                    let host_paints = is_draw_host(pattern_type);
                     match children {
                         SExpression::Array(items) => {
                             for (i, child) in items.iter().enumerate() {
                                 let child_path = format!("{}.children[{}]", path, i);
+                                if host_paints {
+                                    check_child_drawable(child, &child_path, &mut result);
+                                }
                                 result.merge(validate_pattern(
                                     child,
                                     &child_path,
@@ -519,6 +563,9 @@ pub(super) fn validate_pattern(
                         }
                         SExpression::Object(_) => {
                             let child_path = format!("{}.children", path);
+                            if host_paints {
+                                check_child_drawable(children, &child_path, &mut result);
+                            }
                             result.merge(validate_pattern(
                                 children,
                                 &child_path,
