@@ -1142,7 +1142,7 @@ pub static EMBEDDED_STD_BEHAVIORS: phf::Map<&'static str, &'static str> = phf::p
     "std/behaviors/ui-wizard-container" => include_str!("baked/std/ui/core/molecules/ui-wizard-container.orb"),
     "std/behaviors/ui-wizard-navigation" => include_str!("baked/std/ui/core/molecules/ui-wizard-navigation.orb"),
     "std/behaviors/ui-wizard-progress" => include_str!("baked/std/ui/core/molecules/ui-wizard-progress.orb"),
-    // === Organisms (239) ===
+    // === Organisms (240) ===
     "std/behaviors/AccountOrbital" => include_str!("baked/io/curated/organisms/AccountOrbital.orb"),
     "std/behaviors/BundleOrbital" => include_str!("baked/io/curated/organisms/BundleOrbital.orb"),
     "std/behaviors/ChargeItemOrbital" => include_str!("baked/io/curated/organisms/ChargeItemOrbital.orb"),
@@ -1176,6 +1176,7 @@ pub static EMBEDDED_STD_BEHAVIORS: phf::Map<&'static str, &'static str> = phf::p
     "std/behaviors/std-almadar-studio" => include_str!("baked/io/websites/organisms/std-almadar-studio.orb"),
     "std/behaviors/std-almadar-website" => include_str!("baked/io/websites/organisms/std-almadar-website.orb"),
     "std/behaviors/std-almadar-website-blog" => include_str!("baked/io/websites/organisms/std-almadar-website-blog.orb"),
+    "std/behaviors/std-almadar-website-test" => include_str!("baked/io/websites/organisms/std-almadar-website-test.orb"),
     "std/behaviors/std-alummaalraqamia" => include_str!("baked/io/app/organisms/std-alummaalraqamia.orb"),
     "std/behaviors/std-api-gateway" => include_str!("baked/io/app/organisms/std-api-gateway.orb"),
     "std/behaviors/std-arcade-game" => include_str!("baked/io/game/organisms/std-arcade-game.orb"),
@@ -1382,12 +1383,9 @@ pub static EMBEDDED_STD_BEHAVIORS: phf::Map<&'static str, &'static str> = phf::p
     "std/behaviors/ui-visual-novel-board" => include_str!("baked/std/ui/game/2d/organisms/ui-visual-novel-board.orb"),
     "std/behaviors/ui-winter-ski-board" => include_str!("baked/std/ui/game/2d/organisms/ui-winter-ski-board.orb"),
     "std/behaviors/ui-world-map-board" => include_str!("baked/std/ui/game/2d/organisms/ui-world-map-board.orb"),
-    // === Templates (21) ===
+    // === Templates (13) ===
     "std/behaviors/ui-about-page-template" => include_str!("baked/std/ui/marketing/templates/ui-about-page-template.orb"),
     "std/behaviors/ui-auth-layout" => include_str!("baked/std/ui/marketing/templates/ui-auth-layout.orb"),
-    "std/behaviors/ui-battle-template" => include_str!("baked/std/ui/game/2d/templates/ui-battle-template.orb"),
-    "std/behaviors/ui-castle-template" => include_str!("baked/std/ui/game/2d/templates/ui-castle-template.orb"),
-    "std/behaviors/ui-city-builder-template" => include_str!("baked/std/ui/game/2d/templates/ui-city-builder-template.orb"),
     "std/behaviors/ui-counter-template" => include_str!("baked/std/ui/core/templates/ui-counter-template.orb"),
     "std/behaviors/ui-dashboard-layout" => include_str!("baked/std/ui/core/templates/ui-dashboard-layout.orb"),
     "std/behaviors/ui-feature-detail-page-template" => include_str!("baked/std/ui/marketing/templates/ui-feature-detail-page-template.orb"),
@@ -1398,12 +1396,7 @@ pub static EMBEDDED_STD_BEHAVIORS: phf::Map<&'static str, &'static str> = phf::p
     "std/behaviors/ui-game-template" => include_str!("baked/std/ui/game/2d/templates/ui-game-template.orb"),
     "std/behaviors/ui-generic-app-template" => include_str!("baked/std/ui/core/templates/ui-generic-app-template.orb"),
     "std/behaviors/ui-landing-page-template" => include_str!("baked/std/ui/marketing/templates/ui-landing-page-template.orb"),
-    "std/behaviors/ui-platformer-template" => include_str!("baked/std/ui/game/2d/templates/ui-platformer-template.orb"),
     "std/behaviors/ui-pricing-page-template" => include_str!("baked/std/ui/marketing/templates/ui-pricing-page-template.orb"),
-    "std/behaviors/ui-roguelike-template" => include_str!("baked/std/ui/game/2d/templates/ui-roguelike-template.orb"),
-    "std/behaviors/ui-top-down-shooter-template" => include_str!("baked/std/ui/game/2d/templates/ui-top-down-shooter-template.orb"),
-    "std/behaviors/ui-tower-defense-template" => include_str!("baked/std/ui/game/2d/templates/ui-tower-defense-template.orb"),
-    "std/behaviors/ui-world-map-template" => include_str!("baked/std/ui/game/2d/templates/ui-world-map-template.orb"),
 };
 // SYNC-GENERATED:EMBEDDED_STD_BEHAVIORS:END
 

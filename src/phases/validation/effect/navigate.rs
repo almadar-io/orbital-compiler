@@ -5,6 +5,10 @@ use super::extract_payload_fields;
 use orbital_core::schema::SExpression;
 use std::collections::HashMap;
 
+fn is_external_url(path: &str) -> bool {
+    path.starts_with("http://") || path.starts_with("https://")
+}
+
 /// Validate navigate effect
 pub(crate) fn validate_navigate(
     arr: &[SExpression],
@@ -41,7 +45,7 @@ pub(crate) fn validate_navigate(
 
     // Check path format
     if let Some(ref nav_path) = nav_path_str {
-        if !nav_path.starts_with('/') && !nav_path.starts_with('@') {
+        if !is_external_url(nav_path) && !nav_path.starts_with('/') && !nav_path.starts_with('@') {
             result.add_error(
                 ValidationError::warning(
                     ErrorCode::PageInvalidPath,
@@ -50,6 +54,13 @@ pub(crate) fn validate_navigate(
                 )
                 .with_suggestion("Use absolute paths starting with /"),
             );
+        }
+    }
+
+    // External URLs are opened by the client runtime/shell; no page match required.
+    if let Some(ref nav_path) = nav_path_str {
+        if is_external_url(nav_path) {
+            return result;
         }
     }
 
@@ -139,6 +150,10 @@ pub(crate) fn extract_static_path_prefix(expr: &SExpression) -> Option<String> {
                 if op == "str/concat" || op == "concat" {
                     // First argument might be a static string
                     if let SExpression::String(first) = &arr[1] {
+                        // External URLs in dynamic expressions skip page validation entirely.
+                        if is_external_url(first) {
+                            return Some(first.clone());
+                        }
                         // Return the first segment - this helps match against path patterns
                         // For "/inspection/" + dynamic, we get "/inspection/"
                         return Some(first.clone());
