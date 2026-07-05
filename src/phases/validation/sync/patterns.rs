@@ -10408,34 +10408,11 @@ pub static PATTERN_EVENT_LIST_PROPS: LazyLock<HashMap<&'static str, HashMap<&'st
 pub static ACTION_REQUIRED_PATTERNS: LazyLock<HashSet<&'static str>> =
     LazyLock::new(|| ["button", "icon-button", "link"].into_iter().collect());
 
-/// Canvas DRAW-HOST patterns — those declaring a `DrawableNode[]` slot. A draw-host
-/// paints its authored `children` as neutral drawable descriptors (routed to the
-/// `drawables` prop at runtime), so `children` is accepted on it and each child must
-/// be `drawable`. Type-derived (DrawableNode identity), not a name list.
-pub static PATTERN_DRAW_HOST: LazyLock<HashSet<&'static str>> = LazyLock::new(|| {
-    [
-        "canvas-2d",
-        "game-canvas-3d",
-    ]
-    .into_iter()
-    .collect()
-});
-
-/// DRAWABLE patterns — neutral scene descriptors grounded in core `ScenePos`
-/// (draw-sprite / draw-shape / draw-text / draw-*-layer). Only these may compose
-/// under a draw-host's `children`. Type-derived (ScenePos identity), not a name list.
-pub static PATTERN_DRAWABLE: LazyLock<HashSet<&'static str>> = LazyLock::new(|| {
-    [
-        "draw-shape",
-        "draw-shape-layer",
-        "draw-sprite",
-        "draw-sprite-layer",
-        "draw-text",
-        "draw-text-layer",
-    ]
-    .into_iter()
-    .collect()
-});
+// Canvas draw-host + neutral-drawable capability sets live in orbital-core
+// (`orbital_core::drawable`) — the one home shared by the validator here and the
+// orbital-client render_probe. Re-exported so existing `sync::patterns::*` imports
+// keep resolving.
+pub use orbital_core::drawable::{is_draw_host, is_drawable, PATTERN_DRAWABLE, PATTERN_DRAW_HOST};
 
 /// Check if a pattern type is valid
 pub fn is_valid_pattern(pattern_type: &str) -> bool {
@@ -10460,16 +10437,6 @@ pub fn requires_action(pattern_type: &str) -> bool {
 /// Check if an itemAction prop is valid
 pub fn is_valid_item_action_prop(prop: &str) -> bool {
     VALID_ITEM_ACTION_PROPS.contains(prop)
-}
-
-/// Check if a pattern is a canvas draw-host (accepts painted `children`).
-pub fn is_draw_host(pattern_type: &str) -> bool {
-    PATTERN_DRAW_HOST.contains(pattern_type)
-}
-
-/// Check if a pattern is a neutral drawable (may compose under a draw-host).
-pub fn is_drawable(pattern_type: &str) -> bool {
-    PATTERN_DRAWABLE.contains(pattern_type)
 }
 
 /// Get valid props for a pattern (from PATTERN_PROPS_SCHEMA)
