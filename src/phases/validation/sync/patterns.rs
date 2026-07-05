@@ -212,6 +212,7 @@ pub static PATTERN_TYPES: LazyLock<HashSet<&'static str>> = LazyLock::new(|| {
         "draw-sprite",
         "draw-sprite-layer",
         "draw-text",
+        "draw-text-layer",
         "event-handler-board",
         "event-log",
         "game-audio-toggle",
@@ -549,6 +550,7 @@ pub static PATTERN_TO_CATEGORY: LazyLock<HashMap<&'static str, &'static str>> =
             ("draw-sprite", "game"),
             ("draw-sprite-layer", "game"),
             ("draw-text", "game"),
+            ("draw-text-layer", "game"),
             ("event-handler-board", "game"),
             ("event-log", "game"),
             ("game-audio-toggle", "game"),
@@ -719,6 +721,7 @@ pub static PATTERN_REQUIRED_PROPS: LazyLock<HashMap<&'static str, Vec<&'static s
             ("draw-sprite", vec!["type", "position", "asset"]),
             ("draw-sprite-layer", vec!["type", "items"]),
             ("draw-text", vec!["type", "text", "position", "color"]),
+            ("draw-text-layer", vec!["type", "items"]),
             ("entity-cards", vec!["fields"]),
             ("entity-list", vec!["fields"]),
             ("entity-table", vec!["fields"]),
@@ -1924,6 +1927,7 @@ pub static PATTERN_PROPS_SCHEMA: LazyLock<HashMap<&'static str, HashSet<&'static
                 .into_iter()
                 .collect(),
             ),
+            ("draw-text-layer", ["items", "type"].into_iter().collect()),
             (
                 "drawer",
                 [
@@ -6091,6 +6095,7 @@ pub static PATTERN_PROP_TYPES: LazyLock<HashMap<&'static str, HashMap<&'static s
                 .into_iter()
                 .collect(),
             ),
+            ("draw-text-layer", [("items", &["array"] as &[&str])].into_iter().collect()),
             (
                 "drawer",
                 [
@@ -10426,6 +10431,7 @@ pub static PATTERN_DRAWABLE: LazyLock<HashSet<&'static str>> = LazyLock::new(|| 
         "draw-sprite",
         "draw-sprite-layer",
         "draw-text",
+        "draw-text-layer",
     ]
     .into_iter()
     .collect()
