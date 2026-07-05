@@ -197,6 +197,7 @@ pub static PATTERN_TYPES: LazyLock<HashSet<&'static str>> = LazyLock::new(|| {
         "action-palette",
         "action-tile",
         "builder-board",
+        "canvas",
         "canvas-2d",
         "choice-button",
         "classifier-board",
@@ -535,6 +536,7 @@ pub static PATTERN_TO_CATEGORY: LazyLock<HashMap<&'static str, &'static str>> =
             ("action-palette", "game"),
             ("action-tile", "game"),
             ("builder-board", "game"),
+            ("canvas", "game"),
             ("canvas-2d", "game"),
             ("choice-button", "game"),
             ("classifier-board", "game"),
@@ -1228,6 +1230,36 @@ pub static PATTERN_PROPS_SCHEMA: LazyLock<HashMap<&'static str, HashSet<&'static
                     "swipeRightEvent",
                     "timeSlots",
                     "weekStart",
+                ]
+                .into_iter()
+                .collect(),
+            ),
+            (
+                "canvas",
+                [
+                    "backgroundColor",
+                    "backgroundImage",
+                    "camera",
+                    "className",
+                    "drawables",
+                    "fogOfWar",
+                    "isLoading",
+                    "keyMap",
+                    "keyUpMap",
+                    "mode",
+                    "projection",
+                    "shadows",
+                    "showCoordinates",
+                    "showGrid",
+                    "showMinimap",
+                    "showTileInfo",
+                    "tileClickEvent",
+                    "tileHoverEvent",
+                    "tileLeaveEvent",
+                    "unitClickEvent",
+                    "unitScale",
+                    "worldHeight",
+                    "worldWidth",
                 ]
                 .into_iter()
                 .collect(),
@@ -5217,6 +5249,36 @@ pub static PATTERN_PROP_TYPES: LazyLock<HashMap<&'static str, HashMap<&'static s
                     ("swipeLeftEvent", &["string"] as &[&str]),
                     ("swipeRightEvent", &["string"] as &[&str]),
                     ("dayWindow", &["number", "string"] as &[&str]),
+                ]
+                .into_iter()
+                .collect(),
+            ),
+            (
+                "canvas",
+                [
+                    ("mode", &["string"] as &[&str]),
+                    ("drawables", &["array"] as &[&str]),
+                    ("camera", &["object"] as &[&str]),
+                    ("projection", &["string"] as &[&str]),
+                    ("className", &["string"] as &[&str]),
+                    ("isLoading", &["boolean"] as &[&str]),
+                    ("unitScale", &["number"] as &[&str]),
+                    ("showMinimap", &["boolean"] as &[&str]),
+                    ("backgroundImage", &["asset", "object"] as &[&str]),
+                    ("backgroundColor", &["string"] as &[&str]),
+                    ("worldWidth", &["number"] as &[&str]),
+                    ("worldHeight", &["number"] as &[&str]),
+                    ("showGrid", &["boolean"] as &[&str]),
+                    ("shadows", &["boolean"] as &[&str]),
+                    ("showCoordinates", &["boolean"] as &[&str]),
+                    ("showTileInfo", &["boolean"] as &[&str]),
+                    ("fogOfWar", &["array"] as &[&str]),
+                    ("tileClickEvent", &["string"] as &[&str]),
+                    ("unitClickEvent", &["string"] as &[&str]),
+                    ("tileHoverEvent", &["string"] as &[&str]),
+                    ("tileLeaveEvent", &["string"] as &[&str]),
+                    ("keyMap", &["object"] as &[&str]),
+                    ("keyUpMap", &["object"] as &[&str]),
                 ]
                 .into_iter()
                 .collect(),
@@ -9636,6 +9698,15 @@ pub static PATTERN_PROP_ENUM_VALUES: LazyLock<HashMap<&'static str, HashMap<&'st
                 .collect(),
             ),
             ("calendar-grid", [("dayWindow", &["auto"] as &[&str])].into_iter().collect()),
+            (
+                "canvas",
+                [
+                    ("mode", &["2d", "3d"] as &[&str]),
+                    ("projection", &["isometric", "hex", "flat", "free", "side"] as &[&str]),
+                ]
+                .into_iter()
+                .collect(),
+            ),
             (
                 "canvas-2d",
                 [
