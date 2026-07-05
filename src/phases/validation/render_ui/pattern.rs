@@ -1149,7 +1149,17 @@ pub(super) fn classify_prop_type(value: &SExpression) -> &'static str {
         SExpression::String(_) => "string",
         SExpression::Number(_) => "number",
         SExpression::Bool(_) => "boolean",
-        SExpression::Array(_) => "array",
+        // An operator-call SExpr (`(not x)`, `(== a b)`, `(* a b)`, `(array/map ...)`)
+        // is a computed expression, not a literal array — its type is the operator's
+        // return type, resolved by `resolve_binding_type`. `literal_value_type` returns
+        // None for it (the canonical get_operator-backed "computed vs literal" test) and
+        // Some("array") for a genuine literal array; classify the computed case as
+        // "binding" so the static literal-type check defers to the binding resolver
+        // instead of mis-typing every operator call as "array".
+        SExpression::Array(_) => match orbital_core::type_compat::literal_value_type(value) {
+            Some(t) => t,
+            None => "binding",
+        },
         SExpression::Object(_) => "object",
         SExpression::Null => "null",
     }
