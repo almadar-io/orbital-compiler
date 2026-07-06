@@ -1053,6 +1053,35 @@ impl<'a> Resolver<'a> {
                 }))
             }
 
+            // Substrate operators — same pattern as agent/*: lowered as
+            // Custom effects so the codegen backend can emit TypeScript
+            // service-accessor calls. Without this routing, these would
+            // fall through to `OirExpr::Call` and produce invalid TS
+            // (bare `llm/generate(...)` with a `/` in the function name).
+            op_name if op_name.starts_with("llm/")
+                || op_name.starts_with("memory/")
+                || op_name.starts_with("trace/")
+                || op_name.starts_with("session/")
+                || op_name.starts_with("workspace/")
+                || op_name.starts_with("behavior/")
+                || op_name.starts_with("compose/")
+                || op_name.starts_with("integration/")
+                || op_name == "validate/validate"
+            => {
+                let resolved_args: Vec<OirExpr> = args
+                    .iter()
+                    .map(|a| self.resolve_sexpr(a))
+                    .collect::<Result<Vec<_>, _>>()?;
+                let mut args_map = std::collections::HashMap::new();
+                for (i, arg) in resolved_args.into_iter().enumerate() {
+                    args_map.insert(format!("arg{}", i), arg);
+                }
+                Ok(OirExpr::effect(OirEffect::Custom {
+                    name: op_name.to_string(),
+                    args: args_map,
+                }))
+            }
+
             // Function call (also covers namespaced operators like
             // `str/concat`, `crypto/hash`, … that downstream codegen
             // dispatches via OirExpr::Call). String-array literals are

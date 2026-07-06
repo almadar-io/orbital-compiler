@@ -85,13 +85,18 @@ fn walk_for_references(expr: &SExpression, path: &str, result: &mut ValidationRe
 
                 // behavior/* existence check (in case Compose left any unresolved)
                 if let Some(suffix) = op.strip_prefix("behavior/") {
-                    // The behavior name appears as the second arg, e.g.
-                    // (behavior/compose "std-cart" {...}).
-                    // For behavior/<name> shorthand the name is the suffix itself.
+                    // Phase 0 composers + substrate operators take the behavior
+                    // name as the second arg — the suffix is an operator verb,
+                    // not a behavior name. Only non-verb suffixes are treated as
+                    // behavior shorthand references (behavior/<name>).
                     let behavior_name =
-                        if matches!(suffix, "compose" | "wire" | "detect-layout" | "pipe") {
+                        if matches!(suffix, "compose" | "wire" | "detect-layout" | "pipe" | "instantiate" | "call" | "emit-body") {
                             if let Some(SExpression::String(s)) = arr.get(1) {
-                                Some(s.as_str())
+                                if s.starts_with('@') {
+                                    None
+                                } else {
+                                    Some(s.as_str())
+                                }
                             } else {
                                 None
                             }
