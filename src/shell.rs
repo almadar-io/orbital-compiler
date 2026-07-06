@@ -168,6 +168,33 @@ impl Shell for BaseShell {
     }
 }
 
+/// Entry names (file OR dir) present in a shell repo — now a git submodule —
+/// that must NOT be copied into a generated scaffold: build/runtime cruft, plus
+/// repo-only dev entries (CI, git hooks, editor, turbo cache) and the submodule
+/// `.git` gitlink FILE. Mirrors what the shell's npm `files` allowlist excluded
+/// back when the scaffold was baked from the published package instead of
+/// checked out as a submodule. `.git` here is critical: a submodule's `.git` is
+/// a file, so it must be excluded as an entry, not only as a directory.
+fn is_excluded_scaffold_entry(name: &std::ffi::OsStr) -> bool {
+    matches!(
+        name.to_str(),
+        Some(
+            "node_modules"
+                | "generated"
+                | ".git"
+                | ".gitmodules"
+                | ".github"
+                | ".githooks"
+                | ".turbo"
+                | "dist"
+                | "coverage"
+                | ".vscode"
+                | ".idea"
+                | ".npmignore"
+        )
+    )
+}
+
 /// Copy directory recursively
 fn copy_dir_recursive(src: &Path, dst: &Path) -> ShellResult<()> {
     if !dst.exists() {
@@ -179,11 +206,10 @@ fn copy_dir_recursive(src: &Path, dst: &Path) -> ShellResult<()> {
         let path = entry.path();
         let dest_path = dst.join(entry.file_name());
 
+        if is_excluded_scaffold_entry(&entry.file_name()) {
+            continue;
+        }
         if path.is_dir() {
-            // Skip generated directory when copying
-            if entry.file_name() == "generated" {
-                continue;
-            }
             copy_dir_recursive(&path, &dest_path)?;
         } else {
             std::fs::copy(&path, &dest_path)?;
@@ -211,12 +237,10 @@ fn copy_dir_with_replacements(src: &Path, dst: &Path, project_name: &str) -> She
         let path = entry.path();
         let dest_path = dst.join(entry.file_name());
 
+        if is_excluded_scaffold_entry(&entry.file_name()) {
+            continue;
+        }
         if path.is_dir() {
-            // Skip node_modules and generated directories
-            let dir_name = entry.file_name();
-            if dir_name == "node_modules" || dir_name == "generated" || dir_name == ".git" {
-                continue;
-            }
             copy_dir_with_replacements(&path, &dest_path, project_name)?;
         } else {
             // Check if this is a text file that needs placeholder replacement
