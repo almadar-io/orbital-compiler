@@ -2,7 +2,7 @@
 //!
 //! Source: packages/almadar-patterns/src/patterns-registry.json
 //!
-//! Last synced: 2026-07-05
+//! Last synced: 2026-07-06
 //! To regenerate: npx tsx tools/almadar-pattern-sync/index.ts
 //!
 //! DO NOT EDIT MANUALLY - changes will be overwritten on next sync.
@@ -213,7 +213,6 @@ pub static PATTERN_TYPES: LazyLock<HashSet<&'static str>> = LazyLock::new(|| {
         "draw-text-layer",
         "event-log",
         "game-audio-toggle",
-        "game-canvas-3d",
         "game-card",
         "game-hud",
         "game-icon",
@@ -540,7 +539,6 @@ pub static PATTERN_TO_CATEGORY: LazyLock<HashMap<&'static str, &'static str>> =
             ("draw-text-layer", "game"),
             ("event-log", "game"),
             ("game-audio-toggle", "game"),
-            ("game-canvas-3d", "game"),
             ("game-card", "game"),
             ("game-hud", "game"),
             ("game-icon", "game"),
@@ -2234,44 +2232,6 @@ pub static PATTERN_PROPS_SCHEMA: LazyLock<HashMap<&'static str, HashSet<&'static
                 .collect(),
             ),
             ("game-audio-toggle", ["className", "error", "isLoading", "offAsset", "onAsset", "size"].into_iter().collect()),
-            (
-                "game-canvas-3d",
-                [
-                    "backgroundColor",
-                    "cameraChangeEvent",
-                    "cameraMode",
-                    "canvasClickEvent",
-                    "children",
-                    "className",
-                    "drawables",
-                    "error",
-                    "featureClickEvent",
-                    "fogOfWar",
-                    "followTarget",
-                    "isLoading",
-                    "keyMap",
-                    "keyUpMap",
-                    "loadingMessage",
-                    "orientation",
-                    "overlay",
-                    "pixelsPerUnit",
-                    "scale",
-                    "shadows",
-                    "showCoordinates",
-                    "showGrid",
-                    "showTileInfo",
-                    "tileClickEvent",
-                    "tileHoverEvent",
-                    "tileLeaveEvent",
-                    "unitAnimationEvent",
-                    "unitClickEvent",
-                    "unitScale",
-                    "worldHeight",
-                    "worldWidth",
-                ]
-                .into_iter()
-                .collect(),
-            ),
             (
                 "game-card",
                 [
@@ -6190,44 +6150,6 @@ pub static PATTERN_PROP_TYPES: LazyLock<HashMap<&'static str, HashMap<&'static s
                 .collect(),
             ),
             (
-                "game-canvas-3d",
-                [
-                    ("className", &["string"] as &[&str]),
-                    ("children", &["node"] as &[&str]),
-                    ("drawables", &["array"] as &[&str]),
-                    ("isLoading", &["boolean"] as &[&str]),
-                    ("error", &["string"] as &[&str]),
-                    ("fogOfWar", &["array"] as &[&str]),
-                    ("orientation", &["string"] as &[&str]),
-                    ("cameraMode", &["string"] as &[&str]),
-                    ("followTarget", &["object"] as &[&str]),
-                    ("showGrid", &["boolean"] as &[&str]),
-                    ("showCoordinates", &["boolean"] as &[&str]),
-                    ("showTileInfo", &["boolean"] as &[&str]),
-                    ("overlay", &["string"] as &[&str]),
-                    ("shadows", &["boolean"] as &[&str]),
-                    ("backgroundColor", &["string"] as &[&str]),
-                    ("tileClickEvent", &["string"] as &[&str]),
-                    ("unitClickEvent", &["string"] as &[&str]),
-                    ("featureClickEvent", &["string"] as &[&str]),
-                    ("canvasClickEvent", &["string"] as &[&str]),
-                    ("tileHoverEvent", &["string"] as &[&str]),
-                    ("tileLeaveEvent", &["string"] as &[&str]),
-                    ("unitAnimationEvent", &["string"] as &[&str]),
-                    ("cameraChangeEvent", &["string"] as &[&str]),
-                    ("loadingMessage", &["string"] as &[&str]),
-                    ("unitScale", &["number"] as &[&str]),
-                    ("scale", &["number"] as &[&str]),
-                    ("keyMap", &["object"] as &[&str]),
-                    ("keyUpMap", &["object"] as &[&str]),
-                    ("worldWidth", &["number"] as &[&str]),
-                    ("worldHeight", &["number"] as &[&str]),
-                    ("pixelsPerUnit", &["number"] as &[&str]),
-                ]
-                .into_iter()
-                .collect(),
-            ),
-            (
                 "game-card",
                 [
                     ("id", &["string"] as &[&str]),
@@ -9253,16 +9175,6 @@ pub static PATTERN_PROP_ENUM_VALUES: LazyLock<HashMap<&'static str, HashMap<&'st
             ),
             ("form-section-header", [("badgeVariant", &["default", "primary", "success", "warning", "danger"] as &[&str])].into_iter().collect()),
             ("game-audio-toggle", [("size", &["sm", "md", "lg"] as &[&str])].into_iter().collect()),
-            (
-                "game-canvas-3d",
-                [
-                    ("orientation", &["standard", "rotated"] as &[&str]),
-                    ("cameraMode", &["isometric", "perspective", "top-down", "follow", "chase"] as &[&str]),
-                    ("overlay", &["default", "hidden", "minimap"] as &[&str]),
-                ]
-                .into_iter()
-                .collect(),
-            ),
             (
                 "game-card",
                 [
