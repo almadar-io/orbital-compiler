@@ -8,8 +8,8 @@ use super::{
     ValidationResult, VALID_TRAIT_CATEGORIES,
 };
 use orbital_core::schema::{
-    EntityDefinition, OrbitalSchema, Persistence, SExpression, StateMachine, StringOrArray,
-    TraitCategory, TraitDefinition, TraitReference, TransitionDefinition,
+    EntityDefinition, Orbital, OrbitalSchema, Persistence, SExpression, StateMachine,
+    StringOrArray, TraitCategory, TraitDefinition, TraitReference, TransitionDefinition,
 };
 use std::collections::{HashMap, HashSet};
 
@@ -41,65 +41,13 @@ pub fn validate_all_traits(schema: &OrbitalSchema, ctx: &mut ValidationContext) 
         }
     }
 
-    // Check INIT transitions have fetch effects for persistent linked entities
+    // Check persistent entities read by interaction traits are fetched on INIT
+    // by at least one trait in the orbital (entity-scoped, not per-trait: the
+    // datasource idiom loads an entity once; sibling render traits are pure
+    // consumers and must not each carry a duplicate fetch).
     for (i, orbital) in schema.orbitals.iter().enumerate() {
-        for (j, trait_ref) in orbital.traits.iter().enumerate() {
-            if let TraitReference::Inline(trait_def) = trait_ref {
-                if !is_interaction_trait(trait_def) {
-                    continue;
-                }
-                if let Some(linked) = &trait_def.linked_entity {
-                    // Only require fetch for persistent entities
-                    let is_persistent = ctx
-                        .entity_definitions
-                        .get(linked)
-                        .map(|e| matches!(e.persistence, None | Some(Persistence::Persistent)))
-                        .unwrap_or(false);
-
-                    if !is_persistent {
-                        continue;
-                    }
-
-                    let sm = &trait_def.state_machine;
-                    let initial_state = sm
-                        .states
-                        .iter()
-                        .find(|s| s.is_initial.unwrap_or(false))
-                        .map(|s| s.name.as_str());
-
-                    if let Some(initial) = initial_state {
-                        let has_init_with_fetch = sm.transitions.iter().any(|t| {
-                            t.event == "INIT"
-                                && matches_state(&t.from, initial)
-                                && t.effects
-                                    .as_ref()
-                                    .map(|effs| effs.iter().any(|eff| is_fetch_effect(eff, linked)))
-                                    .unwrap_or(false)
-                        });
-
-                        if !has_init_with_fetch {
-                            let path = format!("orbitals[{}].traits[{}]", i, j);
-                            let mut result = ValidationResult::new();
-                            result.add_error(
-                                ValidationError::warning(
-                                    ErrorCode::TraitInitMissingFetch,
-                                    format!("{}.stateMachine.transitions", path),
-                                    format!(
-                                        "INIT transition should include [\"fetch\", \"{}\"] to load entity data",
-                                        linked
-                                    ),
-                                )
-                                .with_suggestion(format!(
-                                    "Add [\"fetch\", \"{}\"] to the INIT transition's effects array",
-                                    linked
-                                )),
-                            );
-                            ctx.merge(result);
-                        }
-                    }
-                }
-            }
-        }
+        let result = validate_orbital_init_fetch(orbital, i, &ctx.entity_definitions);
+        ctx.merge(result);
     }
 
     // Enforce `@rebindable`: a trait imported from an atom and rebound to a
@@ -878,6 +826,116 @@ fn is_fetch_effect(expr: &SExpression, entity_name: &str) -> bool {
     }
 }
 
+/// Entity names fetched (`["fetch", E]` / `["ref", E]`) by INIT transitions
+/// leaving the state machine's initial state.
+fn init_fetch_targets(sm: &StateMachine) -> Vec<&str> {
+    let Some(initial) = sm
+        .states
+        .iter()
+        .find(|s| s.is_initial.unwrap_or(false))
+        .map(|s| s.name.as_str())
+    else {
+        return Vec::new();
+    };
+    let mut targets = Vec::new();
+    for t in &sm.transitions {
+        if t.event != "INIT" || !matches_state(&t.from, initial) {
+            continue;
+        }
+        let Some(effs) = &t.effects else { continue };
+        for eff in effs {
+            if let SExpression::Array(arr) = eff {
+                if arr.len() >= 2 {
+                    if let (SExpression::String(op), SExpression::String(entity)) =
+                        (&arr[0], &arr[1])
+                    {
+                        if op == "fetch" || op == "ref" {
+                            targets.push(entity.as_str());
+                        }
+                    }
+                }
+            }
+        }
+    }
+    targets
+}
+
+/// ORB_T_INIT_MISSING_FETCH, scoped per (orbital, persistent entity): fires
+/// once when interaction traits read a persistent entity but NO trait in the
+/// orbital fetches it on INIT — i.e. the orbital has no datasource for data
+/// its UI displays. A single fetch anywhere in the orbital satisfies every
+/// consumer; requiring one per trait would mandate N duplicate fetches.
+fn validate_orbital_init_fetch(
+    orbital: &Orbital,
+    orbital_index: usize,
+    entity_definitions: &HashMap<String, EntityDefinition>,
+) -> ValidationResult {
+    let mut result = ValidationResult::new();
+    let mut fetched: HashSet<&str> = HashSet::new();
+    // (entity, first consumer trait index) in trait order → deterministic output
+    let mut consumers: Vec<(&str, usize)> = Vec::new();
+    let mut seen: HashSet<&str> = HashSet::new();
+
+    for (j, trait_ref) in orbital.traits.iter().enumerate() {
+        let TraitReference::Inline(trait_def) = trait_ref else {
+            continue;
+        };
+        for target in init_fetch_targets(&trait_def.state_machine) {
+            fetched.insert(target);
+        }
+        if !is_interaction_trait(trait_def) {
+            continue;
+        }
+        let Some(linked) = &trait_def.linked_entity else {
+            continue;
+        };
+        let is_persistent = entity_definitions
+            .get(linked)
+            .map(|e| matches!(e.persistence, None | Some(Persistence::Persistent)))
+            .unwrap_or(false);
+        if !is_persistent {
+            continue;
+        }
+        // Same applicability as the original per-trait rule: only traits with
+        // a resolvable initial state participate.
+        let has_initial = trait_def
+            .state_machine
+            .states
+            .iter()
+            .any(|s| s.is_initial.unwrap_or(false));
+        if !has_initial {
+            continue;
+        }
+        if seen.insert(linked.as_str()) {
+            consumers.push((linked.as_str(), j));
+        }
+    }
+
+    for (entity, j) in consumers {
+        if fetched.contains(entity) {
+            continue;
+        }
+        result.add_error(
+            ValidationError::warning(
+                ErrorCode::TraitInitMissingFetch,
+                format!(
+                    "orbitals[{}].traits[{}].stateMachine.transitions",
+                    orbital_index, j
+                ),
+                format!(
+                    "no trait in this orbital fetches persistent entity \"{}\" on INIT — interaction traits read it but nothing loads it",
+                    entity
+                ),
+            )
+            .with_suggestion(format!(
+                "Add [\"fetch\", \"{}\"] to one datasource trait's INIT transition; sibling render traits read the loaded data and do not each need their own fetch",
+                entity
+            )),
+        );
+    }
+    result
+}
+
 /// Check if a transition 'from' matches a state name
 fn matches_state(from: &StringOrArray, state: &str) -> bool {
     match from {
@@ -1313,5 +1371,101 @@ mod tests {
         );
         let result = validate_event_renames(&r, "test", &known_events());
         assert!(result.is_valid());
+    }
+
+    // ---- entity-scoped INIT fetch (validate_orbital_init_fetch) ----
+
+    fn make_orbital(traits: Vec<TraitDefinition>) -> Orbital {
+        Orbital {
+            name: "TestOrbital".to_string(),
+            uses: None,
+            theme: None,
+            services: None,
+            entity: orbital_core::schema::EntityRef::Inline(make_entity("Item", &["id"])),
+            auxiliary_entities: None,
+            traits: traits.into_iter().map(TraitReference::Inline).collect(),
+            pages: None,
+            emits: None,
+            listens: None,
+            exposes: None,
+            domain_context: None,
+            design: None,
+        }
+    }
+
+    fn make_consumer(name: &str) -> TraitDefinition {
+        let mut t = create_valid_trait();
+        t.name = name.to_string();
+        t.linked_entity = Some("Item".to_string());
+        t
+    }
+
+    fn make_datasource(name: &str) -> TraitDefinition {
+        let mut t = create_valid_trait();
+        t.name = name.to_string();
+        t.category = Some(TraitCategory::Lifecycle);
+        t.linked_entity = Some("Item".to_string());
+        t.state_machine.transitions[0]
+            .effects
+            .get_or_insert_with(Vec::new)
+            .push(SExpression::Array(vec![
+                SExpression::String("fetch".to_string()),
+                SExpression::String("Item".to_string()),
+            ]));
+        t
+    }
+
+    fn entity_defs() -> HashMap<String, EntityDefinition> {
+        let mut m = HashMap::new();
+        m.insert("Item".to_string(), make_entity("Item", &["id"]));
+        m
+    }
+
+    #[test]
+    fn test_init_fetch_fires_once_per_entity_when_nothing_fetches() {
+        let orbital = make_orbital(vec![make_consumer("ViewA"), make_consumer("ViewB")]);
+        let result = validate_orbital_init_fetch(&orbital, 0, &entity_defs());
+        let fetch_errors: Vec<_> = result
+            .errors
+            .iter()
+            .filter(|e| e.code == ErrorCode::TraitInitMissingFetch)
+            .collect();
+        assert_eq!(
+            fetch_errors.len(),
+            1,
+            "expected ONE entity-scoped error, got: {:?}",
+            fetch_errors
+        );
+        assert!(fetch_errors[0].message.contains("Item"));
+    }
+
+    #[test]
+    fn test_init_fetch_satisfied_by_sibling_datasource() {
+        let orbital = make_orbital(vec![
+            make_consumer("ViewA"),
+            make_consumer("ViewB"),
+            make_datasource("DataSource"),
+        ]);
+        let result = validate_orbital_init_fetch(&orbital, 0, &entity_defs());
+        assert!(
+            !result
+                .errors
+                .iter()
+                .any(|e| e.code == ErrorCode::TraitInitMissingFetch),
+            "sibling datasource fetch must satisfy every consumer, got: {:?}",
+            result.errors
+        );
+    }
+
+    #[test]
+    fn test_init_fetch_skips_runtime_entities() {
+        let mut defs = entity_defs();
+        defs.get_mut("Item").unwrap().persistence = Some(Persistence::Runtime);
+        let orbital = make_orbital(vec![make_consumer("ViewA")]);
+        let result = validate_orbital_init_fetch(&orbital, 0, &defs);
+        assert!(result
+            .errors
+            .iter()
+            .all(|e| e.code != ErrorCode::TraitInitMissingFetch));
     }
 }
