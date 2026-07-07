@@ -81,10 +81,16 @@ pub fn validate_trait_effects(
         .and_then(|e| entity_definitions.get(e))
         .map(entity_field_type_map)
         .unwrap_or_default();
+    let per_event_payloads = collect_per_event_payload_field_types(trait_def);
     let payload_field_types = collect_payload_field_types(trait_def);
 
-    // Validate effects in transitions
+    // Validate effects in transitions — scope payload types to the trigger event
+    // so `?result` resolves against the correct event's payload schema.
     for (i, transition) in trait_def.state_machine.transitions.iter().enumerate() {
+        let scoped_payload = per_event_payloads
+            .get(&transition.event)
+            .cloned()
+            .unwrap_or_else(|| payload_field_types.clone());
         if let Some(effects) = &transition.effects {
             for (j, effect) in effects.iter().enumerate() {
                 let effect_path =
@@ -99,7 +105,7 @@ pub fn validate_trait_effects(
                     service_actions,
                     Some(&declared_emits),
                     &entity_field_types,
-                    &payload_field_types,
+                    &scoped_payload,
                 );
                 result.merge(effect_result);
 
@@ -148,8 +154,30 @@ pub fn validate_trait_effects(
 /// so they cannot contribute a type entry; the backstop only fires where a
 /// declared type exists on both the entity and the payload side.
 ///
-/// On duplicate field names across multiple emits, the first declared type
-/// wins (deterministic — iteration order is the declared `emits` order).
+/// Per-event payload field types: `{ event_name -> { field_name -> type } }`.
+/// Each event gets its own scope so that `?result` resolves against the
+/// triggering event's payload, not a flat merge of all emits.
+pub(crate) fn collect_per_event_payload_field_types(
+    trait_def: &orbital_core::schema::TraitDefinition,
+) -> HashMap<String, HashMap<String, String>> {
+    let mut map: HashMap<String, HashMap<String, String>> = HashMap::new();
+    if let Some(emits) = &trait_def.emits {
+        for emit in emits {
+            if let Some(schema) = &emit.payload_schema {
+                let mut fields: HashMap<String, String> = HashMap::new();
+                for field in schema {
+                    fields.insert(field.name.clone(), field.field_type.clone());
+                }
+                map.insert(emit.event.clone(), fields);
+            }
+        }
+    }
+    map
+}
+
+/// Flat (legacy) payload field types — kept for ticks and contexts that
+/// lack a triggering event. On duplicate field names across multiple
+/// emits, the first declared type wins.
 pub(crate) fn collect_payload_field_types(
     trait_def: &orbital_core::schema::TraitDefinition,
 ) -> HashMap<String, String> {

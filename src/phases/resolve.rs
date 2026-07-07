@@ -61,6 +61,28 @@ pub fn resolve_sexpr_standalone(sexpr: &SExpression) -> Result<OirExpr, ResolveE
     Resolver::new(&empty).resolve_sexpr(sexpr)
 }
 
+/// Substrate operators — async ops that reach outside the app via
+/// `getSubstrateService()` (`llm/*`, `workspace/*`, `session/*`, `memory/*`,
+/// `trace/*`, `behavior/*`, `compose/*`, `integration/*`, `validate/validate`).
+/// Valid only as effects (statement position) with an `emit: { success,
+/// failure }` options object; `resolve_sexpr_call` rejects them in expression
+/// (value) position. The effect-resolution arm routes them to
+/// `OirEffect::Custom`. Kept in sync with `is_substrate_operator` in
+/// orbital-shell-typescript (`SUBSTRATE_PREFIXES`) — the compiler crate
+/// cannot depend on the shell crate; the canonical shared home would be
+/// orbital-core (deferred — track in C-EMIT-SUBSTRATE-OPS-MARKER).
+pub(crate) fn is_substrate_op(name: &str) -> bool {
+    name.starts_with("llm/")
+        || name.starts_with("memory/")
+        || name.starts_with("trace/")
+        || name.starts_with("session/")
+        || name.starts_with("workspace/")
+        || name.starts_with("behavior/")
+        || name.starts_with("compose/")
+        || name.starts_with("integration/")
+        || name == "validate/validate"
+}
+
 /// Resolver state
 pub struct Resolver<'a> {
     schema: &'a OrbitalSchema,
@@ -887,6 +909,30 @@ impl<'a> Resolver<'a> {
     }
 
     fn resolve_sexpr_call(&self, op: &str, args: &[SExpression]) -> Result<OirExpr, ResolveError> {
+        // Enforce canonical maxArity (canonical-operators.json). Variadic ops
+        // (maxArity null) skip. Catches the silent-drop bug in binary_op /
+        // unary_op, which keep only the first 1–2 args and discard the rest
+        // (C-EMIT-MAX-ARITY-SILENT-DROP). Aliases absent from the canonical
+        // registry (`add`, `&&`, …) return None here and are still covered by
+        // the per-arm binary/unary minimum checks below.
+        if let Some(meta) = crate::embedded::get_operator(op) {
+            // Substrate ops (llm/*, workspace/*, …) are async EFFECTS — like
+            // fetch/persist (EFFECT_OPERATORS) they carry a trailing options
+            // object and have their own validation, so they skip the static
+            // max-arity check. Consistent with `get_arity_rule` (sexpr
+            // validator), which returns None for them (C-EMIT-SUBSTRATE).
+            if !is_substrate_op(op) {
+                if let Some(max) = meta.max_arity {
+                    if (args.len() as u32) > max {
+                        return Err(ResolveError::InvalidSExpr(format!(
+                            "Operator '{op}' takes at most {max} argument(s), got {}",
+                            args.len()
+                        )));
+                    }
+                }
+            }
+        }
+
         match op {
             // Comparison operators
             "=" | "==" | "eq" => self.binary_op(args, OirExpr::eq),
@@ -1050,6 +1096,7 @@ impl<'a> Resolver<'a> {
                 Ok(OirExpr::effect(OirEffect::Custom {
                     name: op_name.to_string(),
                     args: args_map,
+                    emit: None,
                 }))
             }
 
@@ -1058,17 +1105,22 @@ impl<'a> Resolver<'a> {
             // service-accessor calls. Without this routing, these would
             // fall through to `OirExpr::Call` and produce invalid TS
             // (bare `llm/generate(...)` with a `/` in the function name).
-            op_name if op_name.starts_with("llm/")
-                || op_name.starts_with("memory/")
-                || op_name.starts_with("trace/")
-                || op_name.starts_with("session/")
-                || op_name.starts_with("workspace/")
-                || op_name.starts_with("behavior/")
-                || op_name.starts_with("compose/")
-                || op_name.starts_with("integration/")
-                || op_name == "validate/validate"
-            => {
-                let resolved_args: Vec<OirExpr> = args
+            op_name if is_substrate_op(op_name) => {
+                // A trailing `{ emit: { success, failure } }` options object
+                // (mirroring fetch/persist) carries the completion events.
+                // The op fires `getSubstrateService().invoke(name, args)` and
+                // dispatches the success/failure event on completion — the
+                // `.lolo` async model. Without it the op is fire-and-forget.
+                // Only treated as options when the object has an `emit` key,
+                // so a plain object argument is still passed positionally
+                // (C-EMIT-SUBSTRATE-OPS-MARKER).
+                let (positional, emit_cfg) = match args.last() {
+                    Some(SExpression::Object(obj)) if obj.contains_key("emit") => {
+                        (&args[..args.len() - 1], self.extract_emit_config(obj)?)
+                    }
+                    _ => (args, None),
+                };
+                let resolved_args: Vec<OirExpr> = positional
                     .iter()
                     .map(|a| self.resolve_sexpr(a))
                     .collect::<Result<Vec<_>, _>>()?;
@@ -1079,6 +1131,7 @@ impl<'a> Resolver<'a> {
                 Ok(OirExpr::effect(OirEffect::Custom {
                     name: op_name.to_string(),
                     args: args_map,
+                    emit: emit_cfg,
                 }))
             }
 
@@ -1493,6 +1546,11 @@ impl<'a> Resolver<'a> {
                 // Dynamic path - resolve the path expression and create a set with dynamic target
                 let path_expr = self.resolve_sexpr(&args[0])?;
                 let value = self.resolve_sexpr(&args[1])?;
+                if matches!(value, OirExpr::Effect { .. }) {
+                    return Err(ResolveError::InvalidSExpr(
+                        "set cannot take an effect as a value — substrate/async operators (llm/generate, memory/store, …) are async and reach outside the app. Use them as a top-level effect with an emit options object, e.g. (llm/generate ... { emit: { success: E, failure: F } }), and capture the result via a transition on the success event (C-EMIT-SUBSTRATE-OPS-MARKER).".to_string()
+                    ));
+                }
                 let mut effect = OirEffect::set_dynamic(path_expr, value);
                 if let OirEffect::SetDynamic {
                     emit: ref mut em, ..
@@ -1509,6 +1567,11 @@ impl<'a> Resolver<'a> {
             ResolveError::InvalidSExpr(format!("Invalid binding: {}", target_str))
         })?;
         let value = self.resolve_sexpr(&args[1])?;
+        if matches!(value, OirExpr::Effect { .. }) {
+            return Err(ResolveError::InvalidSExpr(
+                "set cannot take an effect as a value — substrate/async operators (llm/generate, memory/store, …) are async and reach outside the app. Use them as a top-level effect with an emit options object, e.g. (llm/generate ... { emit: { success: E, failure: F } }), and capture the result via a transition on the success event (C-EMIT-SUBSTRATE-OPS-MARKER).".to_string()
+            ));
+        }
         let mut effect = OirEffect::set(target, value);
         if let OirEffect::Set {
             emit: ref mut em, ..
@@ -2204,5 +2267,50 @@ mod tests {
             });
             assert_eq!(&resolved.interval, expected, "mismatch for input '{input}'");
         }
+    }
+
+    // helper: build an s-expr call `[op, ...args]` from string args.
+    fn sexpr_call(op: &str, args: &[&str]) -> SExpression {
+        let mut elems = vec![SExpression::String(op.to_string())];
+        elems.extend(args.iter().map(|a| SExpression::String(a.to_string())));
+        SExpression::Array(elems)
+    }
+
+    #[test]
+    fn max_arity_rejects_excess_args_namespaced_op() {
+        // math/cos: minArity 1, maxArity 1. Two args must error.
+        let sexpr = sexpr_call("math/cos", &["@x", "@y"]);
+        let err = resolve_sexpr_standalone(&sexpr)
+            .expect_err("math/cos with 2 args must be rejected, not silently drop one");
+        assert!(matches!(err, ResolveError::InvalidSExpr(_)), "got {err:?}");
+        let msg = format!("{err}");
+        assert!(msg.contains("math/cos") && msg.contains("at most 1"), "msg: {msg}");
+    }
+
+    #[test]
+    fn max_arity_rejects_excess_args_binary_op() {
+        // vec/add: maxArity 2. Three args must error (the C-EMIT silent-drop case:
+        // binary_op used to keep the first two and discard the third).
+        let sexpr = sexpr_call("vec/add", &["@x", "@y", "@z"]);
+        let err = resolve_sexpr_standalone(&sexpr)
+            .expect_err("vec/add with 3 args must be rejected, not silently drop @z");
+        assert!(matches!(err, ResolveError::InvalidSExpr(_)));
+        let msg = format!("{err}");
+        assert!(msg.contains("vec/add") && msg.contains("at most 2"), "msg: {msg}");
+    }
+
+    #[test]
+    fn variadic_ops_accept_many_args() {
+        // array/concat: maxArity null (variadic). Five args must NOT error.
+        let sexpr = sexpr_call("array/concat", &["@a", "@b", "@c", "@d", "@e"]);
+        assert!(resolve_sexpr_standalone(&sexpr).is_ok(),
+            "variadic op must accept any number of args");
+    }
+
+    #[test]
+    fn exact_max_arity_passes() {
+        // vec/add with exactly 2 args (== maxArity) must resolve cleanly.
+        let sexpr = sexpr_call("vec/add", &["@x", "@y"]);
+        assert!(resolve_sexpr_standalone(&sexpr).is_ok());
     }
 }

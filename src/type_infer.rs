@@ -16,7 +16,7 @@
 //! `@almadar/std` `return_semantics` change, never per-op Rust code.
 
 use crate::phases::validation::canonical_operators::get_canonical_operator;
-use orbital_core::ir::{OirBinaryOp, OirBinding, OirExpr, OirType, OirUnaryOp};
+use orbital_core::ir::{OirBinaryOp, OirBinding, OirExpr, OirModule, OirType, OirUnaryOp};
 
 /// Binding-resolution context the inferencer needs (and only that). Each
 /// consumer supplies its own — the validator from the resolved entity/payload
@@ -109,6 +109,57 @@ pub fn infer_oir_expr_type<C: TypeCtx>(expr: &OirExpr, ctx: &C) -> OirType {
         OirExpr::Reduce { initial, .. } => infer_oir_expr_type(initial, ctx),
         OirExpr::Lambda { .. } | OirExpr::Effect { .. } => OirType::Json,
     }
+}
+
+/// A `TypeCtx` that resolves no bindings — every `@entity.x` / `@payload.x`
+/// / `@config.x` infers to `Json` (unknown). Used by the guard check so bare
+/// binding guards (intentional truthy checks, e.g. `@entity.running`) are
+/// never false-positive-flagged.
+struct NoBindingCtx;
+impl TypeCtx for NoBindingCtx {
+    fn binding_type(&self, _binding: &OirBinding) -> Option<OirType> {
+        None
+    }
+}
+
+/// Phase 4 (C-GUARD-NO-BOOLEAN-CHECK): collect warnings for `when` guard
+/// expressions that resolve to a definitively non-boolean type (`Number` /
+/// `String` / `Array`), which would otherwise run with silent JS truthiness
+/// coercion. Conservative by design — with `NoBindingCtx`, all bindings AND
+/// `and`/`or`/`object/get` infer to `Json` (unknown) and are NOT flagged;
+/// only structural non-boolean exprs (arithmetic, literals, number/string
+/// operator calls like `math/cos`) produce a warning. One warning string per
+/// offending guard, each naming the trait + guard site.
+pub fn collect_guard_type_warnings(module: &OirModule) -> Vec<String> {
+    fn check_guard(guard: &OirExpr, trait_name: &str, site: &str, out: &mut Vec<String>) {
+        match infer_oir_expr_type(guard, &NoBindingCtx) {
+            OirType::Number | OirType::String | OirType::Array { .. } => out.push(format!(
+                "{trait_name}: {site} guard does not return boolean \
+                 (resolves to a non-boolean type) — it will run with JS truthiness coercion"
+            )),
+            _ => {}
+        }
+    }
+
+    let mut warnings = Vec::new();
+    for tr in &module.traits {
+        for t in &tr.transitions {
+            if let Some(g) = &t.guard {
+                check_guard(g, &tr.name, "transition", &mut warnings);
+            }
+        }
+        for tk in &tr.ticks {
+            if let Some(g) = &tk.guard {
+                check_guard(g, &tr.name, "tick", &mut warnings);
+            }
+        }
+        for l in &tr.listeners {
+            if let Some(g) = &l.guard {
+                check_guard(g, &tr.name, "listener", &mut warnings);
+            }
+        }
+    }
+    warnings
 }
 
 fn infer_call<C: TypeCtx>(function: &str, args: &[OirExpr], ctx: &C) -> OirType {
@@ -227,5 +278,108 @@ mod tests {
             infer_oir_expr_type(&call("totally/unknown", vec![]), &NoCtx),
             OirType::Json
         );
+    }
+
+    // ---- Phase 4: collect_guard_type_warnings (C-GUARD-NO-BOOLEAN-CHECK) ----
+    use orbital_core::ir::{
+        OirInterval, OirListener, OirModule, OirTick, OirTrait, OirTransition,
+    };
+
+    fn binop(op: OirBinaryOp, l: OirExpr, r: OirExpr) -> OirExpr {
+        OirExpr::BinaryOp { op, left: Box::new(l), right: Box::new(r) }
+    }
+
+    fn module_with_transition_guard(guard: OirExpr) -> OirModule {
+        let mut tr = OirTransition::new("s", "s2", "e");
+        tr.guard = Some(guard);
+        let mut trait_ = OirTrait::new("MyTrait");
+        trait_.transitions.push(tr);
+        let mut m = OirModule::new("App", "1.0.0");
+        m.traits.push(trait_);
+        m
+    }
+
+    #[test]
+    fn guard_warns_on_arithmetic() {
+        // (+ 1 2) → Number → 1 warning.
+        let m = module_with_transition_guard(binop(
+            OirBinaryOp::Add,
+            OirExpr::Number { value: 1.0 },
+            OirExpr::Number { value: 2.0 },
+        ));
+        let w = collect_guard_type_warnings(&m);
+        assert_eq!(w.len(), 1, "arithmetic guard must warn: {w:?}");
+        assert!(w[0].contains("MyTrait") && w[0].contains("transition"));
+    }
+
+    #[test]
+    fn guard_warns_on_number_literal() {
+        // bare number literal as a guard → Number → 1 warning.
+        let m = module_with_transition_guard(OirExpr::Number { value: 5.0 });
+        assert_eq!(collect_guard_type_warnings(&m).len(), 1);
+    }
+
+    #[test]
+    fn guard_warns_on_string_returning_call() {
+        // (str/concat ...) → String → 1 warning.
+        let m = module_with_transition_guard(call(
+            "str/concat",
+            vec![OirExpr::String { value: "a".into() }],
+        ));
+        assert_eq!(collect_guard_type_warnings(&m).len(), 1);
+    }
+
+    #[test]
+    fn guard_passes_comparison() {
+        // (= x 5) → Boolean → 0 warnings.
+        let m = module_with_transition_guard(binop(
+            OirBinaryOp::Eq,
+            OirExpr::entity_binding(vec!["x".into()]),
+            OirExpr::Number { value: 5.0 },
+        ));
+        assert!(collect_guard_type_warnings(&m).is_empty(),
+            "comparison guard must not warn");
+    }
+
+    #[test]
+    fn guard_passes_and_or() {
+        // (and … …) → Json (JS-truthy union) → must NOT warn (no false positive).
+        let m = module_with_transition_guard(binop(
+            OirBinaryOp::And,
+            OirExpr::entity_binding(vec!["a".into()]),
+            OirExpr::entity_binding(vec!["b".into()]),
+        ));
+        assert!(collect_guard_type_warnings(&m).is_empty(),
+            "and/or guard must not warn (Json truthy semantics)");
+    }
+
+    #[test]
+    fn guard_passes_bare_binding() {
+        // @entity.running → NoBindingCtx → Json → must NOT warn.
+        let m = module_with_transition_guard(OirExpr::entity_binding(vec!["running".into()]));
+        assert!(collect_guard_type_warnings(&m).is_empty(),
+            "bare binding guard must not warn (intentional truthy check)");
+    }
+
+    #[test]
+    fn guard_covers_tick_and_listener() {
+        // number-returning guards on a tick AND a listener → 2 warnings.
+        let mut trait_ = OirTrait::new("MyTrait");
+        let mut tk = OirTick::new("t", OirInterval::Seconds { value: 1 });
+        tk.guard = Some(OirExpr::Number { value: 1.0 });
+        trait_.ticks.push(tk);
+        let mut li = OirListener::new("evt", "trig");
+        li.guard = Some(binop(
+            OirBinaryOp::Add,
+            OirExpr::Number { value: 1.0 },
+            OirExpr::Number { value: 2.0 },
+        ));
+        trait_.listeners.push(li);
+        let mut m = OirModule::new("App", "1.0.0");
+        m.traits.push(trait_);
+        let w = collect_guard_type_warnings(&m);
+        assert_eq!(w.len(), 2, "tick + listener guards must each warn: {w:?}");
+        assert!(w.iter().any(|s| s.contains("tick")));
+        assert!(w.iter().any(|s| s.contains("listener")));
     }
 }

@@ -17,6 +17,13 @@ pub struct ArityRule {
 /// modules); every arm here is for an operator the registry does NOT define, so
 /// the registry lookup always wins when both have it.
 pub(crate) fn get_arity_rule(operator: &str) -> Option<ArityRule> {
+    // Substrate ops (llm/*, workspace/*, …) are async EFFECTS — like
+    // fetch/persist (EFFECT_OPERATORS, below) they carry a trailing options
+    // object and have their own validation, so no static arity rule applies.
+    // Consistent with the max-arity check in resolve_sexpr_call (resolve.rs).
+    if crate::phases::resolve::is_substrate_op(operator) {
+        return None;
+    }
     if let Some(meta) = crate::embedded::get_operator(operator) {
         return Some(ArityRule {
             min: meta.min_arity as usize,
