@@ -836,12 +836,26 @@ fn is_interaction_trait(trait_def: &TraitDefinition) -> bool {
     }
 }
 
-/// Check if state machine has render_ui effects
+/// Check if state machine has render_ui effects. Looks through `if`
+/// wrappers — a conditional whose branches render still renders.
 fn has_render_ui_effects(sm: &StateMachine) -> bool {
+    fn renders(expr: &SExpression) -> bool {
+        if is_render_ui_effect(expr) {
+            return true;
+        }
+        if let SExpression::Array(arr) = expr {
+            if let Some(SExpression::String(op)) = arr.first() {
+                if op == "if" {
+                    return arr.iter().skip(2).any(renders);
+                }
+            }
+        }
+        false
+    }
     for transition in &sm.transitions {
         if let Some(effects) = &transition.effects {
             for effect in effects {
-                if is_render_ui_effect(effect) {
+                if renders(effect) {
                     return true;
                 }
             }

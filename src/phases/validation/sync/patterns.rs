@@ -2,7 +2,7 @@
 //!
 //! Source: packages/almadar-patterns/src/patterns-registry.json
 //!
-//! Last synced: 2026-07-06
+//! Last synced: 2026-07-07
 //! To regenerate: npx tsx tools/almadar-pattern-sync/index.ts
 //!
 //! DO NOT EDIT MANUALLY - changes will be overwritten on next sync.
@@ -904,8 +904,8 @@ pub static PATTERN_PROPS_SCHEMA: LazyLock<HashMap<&'static str, HashSet<&'static
             (
                 "atlas-image",
                 [
-                    "'aria-hidden'",
                     "alt",
+                    "aria-hidden",
                     "asset",
                     "className",
                     "fill",
@@ -921,7 +921,7 @@ pub static PATTERN_PROPS_SCHEMA: LazyLock<HashMap<&'static str, HashSet<&'static
             (
                 "atlas-panel",
                 [
-                    "'aria-hidden'",
+                    "aria-hidden",
                     "asset",
                     "borderSlice",
                     "borderWidth",
@@ -1039,6 +1039,7 @@ pub static PATTERN_PROPS_SCHEMA: LazyLock<HashMap<&'static str, HashSet<&'static
                     "border",
                     "children",
                     "className",
+                    "data-theme",
                     "display",
                     "fullHeight",
                     "fullWidth",
@@ -1076,10 +1077,10 @@ pub static PATTERN_PROPS_SCHEMA: LazyLock<HashMap<&'static str, HashSet<&'static
             (
                 "button",
                 [
-                    "'data-testid'",
                     "action",
                     "actionPayload",
                     "className",
+                    "data-testid",
                     "disabled",
                     "icon",
                     "iconAsset",
@@ -4307,7 +4308,7 @@ pub static PATTERN_PROP_TYPES: LazyLock<HashMap<&'static str, HashMap<&'static s
                     ("alt", &["string"] as &[&str]),
                     ("className", &["string"] as &[&str]),
                     ("style", &["object"] as &[&str]),
-                    ("'aria-hidden'", &["boolean"] as &[&str]),
+                    ("aria-hidden", &["boolean"] as &[&str]),
                 ]
                 .into_iter()
                 .collect(),
@@ -4322,7 +4323,7 @@ pub static PATTERN_PROP_TYPES: LazyLock<HashMap<&'static str, HashMap<&'static s
                     ("className", &["string"] as &[&str]),
                     ("style", &["object"] as &[&str]),
                     ("children", &["node"] as &[&str]),
-                    ("'aria-hidden'", &["boolean"] as &[&str]),
+                    ("aria-hidden", &["boolean"] as &[&str]),
                 ]
                 .into_iter()
                 .collect(),
@@ -4481,6 +4482,7 @@ pub static PATTERN_PROP_TYPES: LazyLock<HashMap<&'static str, HashMap<&'static s
                 "box",
                 [
                     ("className", &["string"] as &[&str]),
+                    ("data-theme", &["string"] as &[&str]),
                     ("padding", &["string"] as &[&str]),
                     ("paddingX", &["string"] as &[&str]),
                     ("paddingY", &["string"] as &[&str]),
@@ -4547,7 +4549,7 @@ pub static PATTERN_PROP_TYPES: LazyLock<HashMap<&'static str, HashMap<&'static s
                     ("actionPayload", &["object"] as &[&str]),
                     ("label", &["string"] as &[&str]),
                     ("disabled", &["boolean"] as &[&str]),
-                    ("'data-testid'", &["string"] as &[&str]),
+                    ("data-testid", &["string"] as &[&str]),
                 ]
                 .into_iter()
                 .collect(),
