@@ -437,8 +437,19 @@ pub(crate) fn rewrite_config_bindings(
                             // a `render-ui` default tree referencing
                             // `@config.cols`) are themselves resolved in
                             // this same pass.
+                            let original = s.clone();
                             *expr = value.clone();
-                            rewrite_config_bindings(expr, config_subs);
+                            // Self-reference guard: a config default whose
+                            // value is the identical `@config.<param>`
+                            // binding (e.g. `startX: @config.startX`)
+                            // would recurse forever. Config defaults must
+                            // be concrete; stop and leave the binding so
+                            // the validator can flag it instead of crashing.
+                            let still_same =
+                                matches!(expr, SExpression::String(ns) if *ns == *original);
+                            if !still_same {
+                                rewrite_config_bindings(expr, config_subs);
+                            }
                         }
                         Some(path) => {
                             // `@config.<param>.<path>` — if the value is an

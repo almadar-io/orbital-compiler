@@ -216,6 +216,28 @@ fn check_config_default_shape(
     path: &str,
 ) -> ValidationResult {
     let mut result = ValidationResult::new();
+    // Reject `@config.*` as a config default: it is self-referential (the
+    // default resolves against the very config block that declares it) and
+    // drives unbounded substitution at inline time. Config defaults must be
+    // concrete values; a consumer overrides via the call-site config block.
+    if let SExpression::String(s) = default {
+        if s.starts_with("@config.") {
+            result.add_error(
+                ValidationError::error(
+                    ErrorCode::TraitConfigShapeMismatch,
+                    path,
+                    format!(
+                        "config default `{}` is self-referential; config defaults must be concrete values",
+                        s
+                    ),
+                )
+                    .with_suggestion(
+                        "replace the @config.* binding with a concrete literal, or drop the default and override at the call site".to_string(),
+                    ),
+            );
+            return result;
+        }
+    }
     // Array slot — `field_type` is `[T]` (string tag) and `items` carries
     // the per-element shape. Verify the value is an array, then recurse
     // each element through the `FieldDefinition` validator.

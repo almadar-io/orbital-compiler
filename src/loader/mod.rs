@@ -85,6 +85,18 @@ pub struct LoaderConfig {
 
     /// Whether to allow paths outside base_path
     pub allow_outside_base_path: bool,
+
+    /// Behavior-package registry roots, mapping a package scope (e.g.
+    /// `almadar-behaviors`, `almadar-std`) to its emitted `behaviors/registry/`
+    /// directory. A bare import like `almadar-behaviors/rpg-hero` resolves to
+    /// `<root>/**/rpg-hero.orb`. Std stays embedded (baked `phf`); this only
+    /// covers non-embedded package paths.
+    pub behaviors_registry_roots: HashMap<String, PathBuf>,
+
+    /// When true and `behaviors_registry_roots` is empty, auto-discover the
+    /// workspace registry roots by walking up from the schema source path to
+    /// the nearest `packages/` directory.
+    pub auto_discover_registries: bool,
 }
 
 impl Default for LoaderConfig {
@@ -94,6 +106,8 @@ impl Default for LoaderConfig {
             std_lib_path: None,
             scoped_paths: HashMap::new(),
             allow_outside_base_path: false,
+            behaviors_registry_roots: HashMap::new(),
+            auto_discover_registries: true,
         }
     }
 }
@@ -226,6 +240,81 @@ impl Default for LoaderCache {
 }
 
 // ============================================================================
+// Behavior-package registry resolution
+// ============================================================================
+
+/// Recursively search `root` for a behavior named `name` (file `<name>.orb`).
+/// Returns the first match (registry trees are flat by name; collisions across
+/// topics/layers are not expected). Pure function — no mutation, no caching.
+pub fn resolve_behavior_in_registry(name: &str, root: &Path) -> Option<PathBuf> {
+    let target = format!("{}.orb", name);
+    let mut stack = vec![root.to_path_buf()];
+    while let Some(dir) = stack.pop() {
+        let Ok(entries) = std::fs::read_dir(&dir) else {
+            continue;
+        };
+        for entry in entries.flatten() {
+            let path = entry.path();
+            if path.is_dir() {
+                stack.push(path);
+            } else if path.file_name().map(|f| f == target.as_str()).unwrap_or(false) {
+                return Some(path);
+            }
+        }
+    }
+    None
+}
+
+/// Resolve a bare `<package>/<behavior-name>` import against configured
+/// `behaviors_registry_roots`. Returns the absolute `.orb` path on hit.
+pub fn resolve_behavior_in_registries(
+    import_path: &str,
+    roots: &HashMap<String, PathBuf>,
+) -> Option<PathBuf> {
+    let (pkg, name) = import_path.split_once('/')?;
+    let root = roots.get(pkg)?;
+    if !root.exists() {
+        return None;
+    }
+    resolve_behavior_in_registry(name, root)
+}
+
+/// Walk up from `source_path` to the nearest ancestor containing a `packages/`
+/// directory, and return the behavior registry roots for the known Almadar
+/// packages that exist there. Used for auto-discovery when no roots are
+/// configured explicitly.
+pub fn discover_registry_roots(source_path: &Path) -> HashMap<String, PathBuf> {
+    let mut roots = HashMap::new();
+    // Canonicalize so relative paths ("./x.lolo") and `.`/`..` components
+    // resolve to a real ancestor before walking up. Fall back to the raw path
+    // if the file doesn't exist yet (synthetic test paths).
+    let resolved = std::fs::canonicalize(source_path).unwrap_or_else(|_| source_path.to_path_buf());
+    let start = if resolved.is_dir() {
+        resolved.clone()
+    } else {
+        resolved.parent().unwrap_or(Path::new(".")).to_path_buf()
+    };
+    let mut cursor: Option<&Path> = Some(&start);
+    while let Some(dir) = cursor {
+        let packages = dir.join("packages");
+        if packages.is_dir() {
+            for (scope, rel) in [
+                ("almadar-std", "almadar-std/behaviors/registry"),
+                ("almadar-behaviors", "almadar-behaviors/behaviors/registry"),
+            ] {
+                let root = packages.join(rel);
+                if root.is_dir() {
+                    roots.insert(scope.to_string(), root);
+                }
+            }
+            return roots;
+        }
+        cursor = dir.parent();
+    }
+    roots
+}
+
+// ============================================================================
 // External Orbital Loader
 // ============================================================================
 
@@ -336,6 +425,24 @@ impl ExternalOrbitalLoader {
                 return Err(LoaderError::PathTraversal(import_path.to_string()));
             }
             return Ok(self.add_orb_extension(path.to_path_buf()));
+        }
+
+        // Behavior-package registry: a bare `<package>/<behavior-name>` import
+        // (e.g. `almadar-behaviors/rpg-hero`) resolves to the emitted
+        // `<pkg>/behaviors/registry/**/<name>.orb`. Std stays embedded (handled
+        // above); this covers non-embedded package paths only.
+        if import_path.contains('/')
+            && !import_path.starts_with("./")
+            && !import_path.starts_with("../")
+            && !import_path.starts_with('@')
+            && !import_path.starts_with("std/")
+        {
+            if let Some(found) = resolve_behavior_in_registries(
+                import_path,
+                &self.config.behaviors_registry_roots,
+            ) {
+                return Ok(found);
+            }
         }
 
         // Default: treat as relative to base path

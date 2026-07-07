@@ -39,7 +39,7 @@ use r#trait::apply_overrides_to_trait;
 #[cfg(test)]
 use rewrite::{rewrite_entity_refs, rewrite_identifiers, rewrite_trait_event_fields};
 
-use crate::loader::{ExternalOrbitalLoader, ImportChain, LoaderConfig, LoaderError};
+use crate::loader::{discover_registry_roots, ExternalOrbitalLoader, ImportChain, LoaderConfig, LoaderError};
 use orbital_core::schema::{
     ConfigProvenanceRecord, EntityDefinition, EntityRef, Orbital, OrbitalSchema, SchemaMetadata,
     ThemeRef, TraitReference,
@@ -165,7 +165,19 @@ pub fn inline_schema(
         return Ok(());
     }
 
-    let mut loader = ExternalOrbitalLoader::new(config.loader_config.clone());
+    // Auto-discover behavior-package registry roots from the source path when
+    // none are configured, so bare imports like `almadar-behaviors/rpg-hero`
+    // resolve against the workspace's emitted `behaviors/registry/` trees.
+    let mut loader_config = config.loader_config.clone();
+    if loader_config.auto_discover_registries && loader_config.behaviors_registry_roots.is_empty() {
+        if let Some(src) = source_path {
+            for (scope, root) in discover_registry_roots(src) {
+                loader_config.behaviors_registry_roots.insert(scope, root);
+            }
+        }
+    }
+
+    let mut loader = ExternalOrbitalLoader::new(loader_config);
     let mut chain = ImportChain::new();
 
     // If we have a source path, add it to the chain
