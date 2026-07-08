@@ -267,3 +267,138 @@ fn three_way_cycle_is_detected() {
         result.errors
     );
 }
+
+// ============================================================================
+// Tests — render-only position restriction (ORB_BINDING_TRAIT_OUTSIDE_RENDER_UI)
+// ============================================================================
+
+/// Build a trait whose transition carries a `@trait.X` binding in a non-
+/// render position: `effect_kind` selects where ("guard" | "fetch" | "set").
+fn trait_with_binding_outside_render(effect_kind: &str, binding: &str) -> TraitDefinition {
+    let binding_sexpr = SExpression::String(binding.to_string());
+    let (guard, effects) = match effect_kind {
+        "guard" => (
+            Some(binding_sexpr.clone()),
+            Some(vec![SExpression::Array(vec![
+                SExpression::String("ref".to_string()),
+                SExpression::String("Item".to_string()),
+            ])]),
+        ),
+        // A `fetch` effect with the @trait binding buried in its options map.
+        "fetch" => (
+            None,
+            Some(vec![SExpression::Array(vec![
+                SExpression::String("fetch".to_string()),
+                SExpression::String("Item".to_string()),
+                SExpression::Object({
+                    let mut m = std::collections::HashMap::new();
+                    m.insert("emit".to_string(), binding_sexpr.clone());
+                    m
+                }),
+            ])]),
+        ),
+        // A `set` effect targeting @trait.X as the field path — nonsense.
+        "set" => (
+            None,
+            Some(vec![SExpression::Array(vec![
+                SExpression::String("set".to_string()),
+                binding_sexpr.clone(),
+                SExpression::String("?payload.x".to_string()),
+            ])]),
+        ),
+        _ => panic!("unknown effect_kind: {effect_kind}"),
+    };
+    TraitDefinition {
+        name: "BadTrait".to_string(),
+        entity_rebindable: None,
+        entity_contract: None,
+        category: None,
+        capabilities: vec![],
+        linked_entity: Some("Item".to_string()),
+        description: None,
+        state_machine: StateMachine {
+            states: vec![StateDefinition {
+                name: "idle".to_string(),
+                is_initial: Some(true),
+                is_terminal: None,
+                description: None,
+                time_bound_ms: None,
+            }],
+            events: Some(vec![]),
+            transitions: vec![TransitionDefinition {
+                from: StringOrArray::Single("idle".to_string()),
+                to: "idle".to_string(),
+                event: "INIT".to_string(),
+                guard,
+                effects,
+            }],
+        },
+        emits: None,
+        listens: None,
+        ticks: None,
+        config: None,
+        data_entities: None,
+        scope: None,
+        source_behavior: None,
+        source_entity_definition: None,
+    }
+}
+
+#[test]
+fn trait_binding_in_guard_is_rejected() {
+    let trait_def = trait_with_binding_outside_render("guard", "@trait.ItemBrowse");
+    let known = known_traits(&["ItemBrowse"]);
+    let result = validate_trait_binding_usage(&trait_def, "orbitals[0].traits[0]", &known);
+    assert!(
+        result
+            .errors
+            .iter()
+            .any(|e| e.code == ErrorCode::BindingTraitOutsideRenderUi),
+        "expected BindingTraitOutsideRenderUi for @trait in a guard, got: {:?}",
+        result.errors
+    );
+}
+
+#[test]
+fn trait_binding_in_fetch_effect_is_rejected() {
+    let trait_def = trait_with_binding_outside_render("fetch", "@trait.ItemBrowse");
+    let known = known_traits(&["ItemBrowse"]);
+    let result = validate_trait_binding_usage(&trait_def, "orbitals[0].traits[0]", &known);
+    assert!(
+        result
+            .errors
+            .iter()
+            .any(|e| e.code == ErrorCode::BindingTraitOutsideRenderUi),
+        "expected BindingTraitOutsideRenderUi for @trait in a fetch effect, got: {:?}",
+        result.errors
+    );
+}
+
+#[test]
+fn trait_binding_in_set_effect_is_rejected() {
+    let trait_def = trait_with_binding_outside_render("set", "@trait.ItemBrowse");
+    let known = known_traits(&["ItemBrowse"]);
+    let result = validate_trait_binding_usage(&trait_def, "orbitals[0].traits[0]", &known);
+    assert!(
+        result
+            .errors
+            .iter()
+            .any(|e| e.code == ErrorCode::BindingTraitOutsideRenderUi),
+        "expected BindingTraitOutsideRenderUi for @trait in a set effect, got: {:?}",
+        result.errors
+    );
+}
+
+#[test]
+fn trait_binding_in_render_ui_is_accepted() {
+    // Sanity: the same binding that's rejected in guards/fetch/set is fine
+    // when it lives in a render-ui children array.
+    let trait_def = trait_with_trait_binding_in_children("ItemLayout", "@trait.ItemBrowse");
+    let known = known_traits(&["ItemBrowse", "ItemLayout"]);
+    let result = validate_trait_binding_usage(&trait_def, "orbitals[0].traits[0]", &known);
+    assert!(
+        result.errors.is_empty(),
+        "expected no errors for @trait in render-ui, got: {:?}",
+        result.errors
+    );
+}

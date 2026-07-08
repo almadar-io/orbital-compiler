@@ -2,7 +2,7 @@
 //!
 //! Source: packages/almadar-patterns/src/patterns-registry.json
 //!
-//! Last synced: 2026-07-07
+//! Last synced: 2026-07-08
 //! To regenerate: npx tsx tools/almadar-pattern-sync/index.ts
 //!
 //! DO NOT EDIT MANUALLY - changes will be overwritten on next sync.

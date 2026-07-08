@@ -485,6 +485,12 @@ pub enum ErrorCode {
     /// `@trait.X` appears outside a `children:` array or a `node`-typed
     /// pattern prop — valid positions are where a subtree can be substituted.
     BindingTraitInvalidPosition,
+    /// `@trait.X` (a render-only, client-side binding) appears outside a
+    /// `render-ui` effect entirely — in a guard, a non-render effect
+    /// (`fetch`/`set`/`persist`/`ref`/`call-service`), or a tick. Trait
+    /// references are render-time composition primitives and have no meaning
+    /// in data/effects/control flow.
+    BindingTraitOutsideRenderUi,
 
     // =========================================================================
     // Entity Mutation / Tick Errors (ORB_ENTITY_*, ORB_TICK_*)
@@ -770,6 +776,7 @@ impl ErrorCode {
             ErrorCode::BindingTraitSelfReference => "ORB_BINDING_TRAIT_SELF_REFERENCE",
             ErrorCode::BindingTraitCycle => "ORB_BINDING_TRAIT_CYCLE",
             ErrorCode::BindingTraitInvalidPosition => "ORB_BINDING_TRAIT_INVALID_POSITION",
+            ErrorCode::BindingTraitOutsideRenderUi => "ORB_BINDING_TRAIT_OUTSIDE_RENDER_UI",
 
             // Entity Mutation / Tick
             ErrorCode::EntitySplitMutation => "ORB_ENTITY_SPLIT_MUTATION",
@@ -972,7 +979,8 @@ impl ErrorCode {
             | ErrorCode::BindingTraitUnknown
             | ErrorCode::BindingTraitSelfReference
             | ErrorCode::BindingTraitCycle
-            | ErrorCode::BindingTraitInvalidPosition => "binding",
+            | ErrorCode::BindingTraitInvalidPosition
+            | ErrorCode::BindingTraitOutsideRenderUi => "binding",
 
             ErrorCode::EntitySplitMutation
             | ErrorCode::SharedEntityFieldConflict

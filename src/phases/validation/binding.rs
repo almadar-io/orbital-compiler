@@ -1036,8 +1036,10 @@ fn is_lambda_scope_operator(op: &str) -> bool {
 ///   [`ErrorCode::BindingTraitUnknown`].
 /// - `@trait.<self>` (current trait references itself) →
 ///   [`ErrorCode::BindingTraitSelfReference`].
-/// - `@trait.Foo.<slot>` where `<slot>` is not a known UI slot →
-///   [`ErrorCode::BindingTraitInvalidSlot`].
+/// - `@trait.X` outside a `render-ui` effect (in a guard, a non-render
+///   effect, or a tick) → [`ErrorCode::BindingTraitOutsideRenderUi`].
+///   `@trait.X` is a render-only, client-side composition primitive with no
+///   meaning in data/effects/control flow.
 pub fn validate_trait_binding_usage(
     trait_def: &TraitDefinition,
     path: &str,
@@ -1046,8 +1048,9 @@ pub fn validate_trait_binding_usage(
     let mut result = ValidationResult::new();
 
     // Walk transitions (guards + effects) and ticks, collecting every
-    // `@trait.*` binding string. Deep-walk into object/array SExpressions so
-    // bindings embedded in pattern trees are picked up.
+    // `@trait.*` binding string. `@trait.X` is a render-only binding: it's
+    // permitted only inside a `render-ui` effect's pattern tree. In a guard,
+    // a non-render effect, or a tick it is meaningless and rejected here.
     for (i, transition) in trait_def.state_machine.transitions.iter().enumerate() {
         let trans_path = format!("{}.stateMachine.transitions[{}]", path, i);
         if let Some(guard) = &transition.guard {
@@ -1057,16 +1060,19 @@ pub fn validate_trait_binding_usage(
                 &trait_def.name,
                 known_traits,
                 &mut result,
+                /* allow_trait_refs */ false,
             );
         }
         if let Some(effects) = &transition.effects {
             for (j, effect) in effects.iter().enumerate() {
+                let is_render = is_render_ui_effect(effect);
                 collect_and_validate_trait_bindings(
                     effect,
                     &format!("{}.effects[{}]", trans_path, j),
                     &trait_def.name,
                     known_traits,
                     &mut result,
+                    is_render,
                 );
             }
         }
@@ -1074,6 +1080,16 @@ pub fn validate_trait_binding_usage(
 
     if let Some(ticks) = &trait_def.ticks {
         for (i, tick) in ticks.iter().enumerate() {
+            if let Some(guard) = &tick.guard {
+                collect_and_validate_trait_bindings(
+                    guard,
+                    &format!("{}.ticks[{}].guard", path, i),
+                    &trait_def.name,
+                    known_traits,
+                    &mut result,
+                    /* allow_trait_refs */ false,
+                );
+            }
             for (j, effect) in tick.effects.iter().enumerate() {
                 collect_and_validate_trait_bindings(
                     effect,
@@ -1081,6 +1097,7 @@ pub fn validate_trait_binding_usage(
                     &trait_def.name,
                     known_traits,
                     &mut result,
+                    /* allow_trait_refs */ false,
                 );
             }
         }
@@ -1089,18 +1106,52 @@ pub fn validate_trait_binding_usage(
     result
 }
 
+/// An effect is `render-ui` when it is the s-expression array
+/// `["render-ui", slot, pattern]` — i.e. its operator (first element) is the
+/// string `"render-ui"`. `@trait.X` is the only render-time binding, so this
+/// is the single operator that may legally contain one.
+fn is_render_ui_effect(effect: &SExpression) -> bool {
+    matches!(effect, SExpression::Array(items) if matches!(items.first(), Some(SExpression::String(op)) if op == "render-ui"))
+}
+
 /// Walk an SExpression tree and validate every `@trait.*` string binding.
 /// Non-binding strings and non-`@trait` bindings are skipped (they're
 /// handled by the general `validate_binding` pass).
+///
+/// `allow_trait_refs` controls the *position* check: when `false`, any
+/// `@trait.X` is rejected as appearing outside a `render-ui` effect (in a
+/// guard, a non-render effect, or a tick). The caller sets it `true` only for
+/// `render-ui` effects, where the finer-grained intra-pattern position check
+/// (`validate_trait_binding_positions`) takes over.
 fn collect_and_validate_trait_bindings(
     expr: &SExpression,
     path: &str,
     current_trait_name: &str,
     known_traits: &HashSet<String>,
     result: &mut ValidationResult,
+    allow_trait_refs: bool,
 ) {
     match expr {
         SExpression::String(s) if s.starts_with("@trait") && s.len() >= 6 => {
+            if !allow_trait_refs {
+                result.add_error(
+                    ValidationError::error(
+                        ErrorCode::BindingTraitOutsideRenderUi,
+                        path,
+                        format!(
+                            "@trait binding '{}' appears outside a render-ui effect; \
+                             @trait references are render-only composition primitives \
+                             and may only be used inside a (render-ui ...) pattern tree",
+                            s
+                        ),
+                    )
+                    .with_suggestion(
+                        "Move the @trait reference into a render-ui children array, \
+                         or replace it with the intended data/payload binding",
+                    ),
+                );
+                return;
+            }
             // Accept the literal `@trait` or `@trait.X[.slot]`; other strings
             // starting with `@trait...` that don't match the binding regex
             // fall through to the format error below.
@@ -1112,6 +1163,16 @@ fn collect_and_validate_trait_bindings(
             ));
         }
         SExpression::Array(arr) => {
+            // A `render-ui` effect that opens anywhere in the tree — at the
+            // top level OR nested inside a conditional/case branch (e.g. a
+            // browse atom's `browseLook` switch over multiple body trees) —
+            // is a valid `@trait` context: its pattern tree composes trait
+            // references. The same is true for `render-ui`-typed config
+            // field defaults, which the inline phase substitutes into such
+            // branches. So once we descend into a `render-ui` array, allow
+            // `@trait` refs for the whole subtree regardless of the
+            // inherited flag.
+            let child_allow = allow_trait_refs || is_render_ui_effect(expr);
             for (i, item) in arr.iter().enumerate() {
                 collect_and_validate_trait_bindings(
                     item,
@@ -1119,6 +1180,7 @@ fn collect_and_validate_trait_bindings(
                     current_trait_name,
                     known_traits,
                     result,
+                    child_allow,
                 );
             }
         }
@@ -1130,6 +1192,7 @@ fn collect_and_validate_trait_bindings(
                     current_trait_name,
                     known_traits,
                     result,
+                    allow_trait_refs,
                 );
             }
         }
