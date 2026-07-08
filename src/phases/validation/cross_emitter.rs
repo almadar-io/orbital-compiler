@@ -106,7 +106,7 @@ pub fn validate_cross_emitter(schema: &OrbitalSchema, ctx: &mut ValidationContex
             let Some(emits) = trait_def.emits.as_deref() else {
                 continue;
             };
-            let trait_path = format!("orbitals[{}].traits[{}]({})", oi, ti, trait_def.name);
+            let trait_path = super::trait_path(oi, &orbital.name, ti, trait_ref);
             for emit in emits {
                 let sig = signature(emit.payload_schema.as_deref().unwrap_or(&[]));
                 emitters.entry(emit.event.clone()).or_default().push((

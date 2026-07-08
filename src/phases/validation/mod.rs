@@ -64,9 +64,33 @@ pub mod trait_validator;
 // Re-export main types
 pub use error::{ErrorCode, Severity, ValidationError, ValidationResult};
 
-use orbital_core::schema::{EntityDefinition, OrbitalSchema};
+use orbital_core::schema::{EntityDefinition, OrbitalSchema, TraitReference};
 use std::collections::HashSet;
 use sync::ExtraPatterns;
+
+/// Build a source-tagged path for a trait that names BOTH the orbital and the
+/// trait (not just array indices), so validation errors point at the trait the
+/// author actually wrote. Indices are retained for disambiguation (e.g. two
+/// auto-pulled siblings that share a name). Shared across the validation
+/// phases so every `@trait` / `linkedEntity` / `stateMachine` error row reads
+/// the same way.
+pub(crate) fn trait_path(
+    orbital_index: usize,
+    orbital_name: &str,
+    trait_index: usize,
+    trait_ref: &TraitReference,
+) -> String {
+    let name = match trait_ref {
+        TraitReference::Inline(td) => td.name.as_str(),
+        TraitReference::Reference { name, reference, .. } => {
+            name.as_deref().or(reference.as_deref()).unwrap_or("<anonymous>")
+        }
+    };
+    format!(
+        "orbitals[{} ({})].traits[{} ({})]",
+        orbital_index, orbital_name, trait_index, name
+    )
+}
 
 /// Required payload fields for a page's INIT event
 #[derive(Debug, Clone, Default)]
@@ -242,7 +266,7 @@ pub fn inline_traits(
             .enumerate()
             .filter_map(move |(j, trait_ref)| match trait_ref {
                 TraitReference::Inline(trait_def) => {
-                    Some((trait_def, format!("orbitals[{}].traits[{}]", i, j)))
+                    Some((trait_def, trait_path(i, &orbital.name, j, trait_ref)))
                 }
                 TraitReference::Reference { .. } => None,
             })

@@ -66,7 +66,7 @@ pub fn validate_all_circuits(schema: &OrbitalSchema, ctx: &mut ValidationContext
     for (i, orbital) in schema.orbitals.iter().enumerate() {
         for (j, trait_ref) in orbital.traits.iter().enumerate() {
             if let TraitReference::Inline(trait_def) = trait_ref {
-                let path = format!("orbitals[{}].traits[{}]", i, j);
+                let path = super::trait_path(i, &orbital.name, j, trait_ref);
                 let result = validate_closed_circuit(trait_def, &path);
                 ctx.merge(result);
             }

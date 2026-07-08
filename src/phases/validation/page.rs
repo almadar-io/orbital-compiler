@@ -161,7 +161,8 @@ pub fn validate_page(
 
         // Validate each trait reference
         for (i, trait_ref) in traits.iter().enumerate() {
-            let trait_path = format!("{}.traits[{}]", path, i);
+            let trait_name = trait_ref.trait_name().unwrap_or("<anonymous>");
+            let trait_path = format!("{}.traits[{} ({})]", path, i, trait_name);
             let trait_result = validate_page_trait_ref(trait_ref, &trait_path, known_traits);
             result.merge(trait_result);
         }

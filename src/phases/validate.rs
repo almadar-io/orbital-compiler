@@ -213,7 +213,11 @@ fn validate_orbital(orbital: &Orbital, index: usize, ctx: &mut ValidationContext
 
     // Validate trait references
     for (i, trait_ref) in orbital.traits.iter().enumerate() {
-        validate_trait_reference(trait_ref, &format!("{}.traits[{}]", path, i), ctx);
+        validate_trait_reference(
+            trait_ref,
+            &crate::phases::validation::trait_path(index, &orbital.name, i, trait_ref),
+            ctx,
+        );
     }
 
     // Validate pages if present (only inline pages, references are validated during resolution)
@@ -504,7 +508,7 @@ fn validate_page(page: &PageDefinition, path: &str, ctx: &mut ValidationContext)
             if let Some(name) = trait_name {
                 if !ctx.trait_names.contains(name) {
                     ctx.add_error(ValidationError::invalid_reference(
-                        format!("{}.traits[{}]", path, i),
+                        format!("{}.traits[{} ({})]", path, i, name),
                         name,
                     ));
                 }

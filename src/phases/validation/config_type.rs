@@ -24,7 +24,7 @@ pub fn validate_all_config_types(schema: &OrbitalSchema, ctx: &mut ValidationCon
 
     for (oi, orbital) in schema.orbitals.iter().enumerate() {
         for (ti, trait_ref) in orbital.traits.iter().enumerate() {
-            let path_prefix = format!("orbitals[{}].traits[{}]", oi, ti);
+            let path_prefix = super::trait_path(oi, &orbital.name, ti, trait_ref);
             match trait_ref {
                 TraitReference::Inline(trait_def) => {
                     if let Some(config) = &trait_def.config {

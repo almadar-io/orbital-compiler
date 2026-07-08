@@ -11,7 +11,7 @@
 use orbital_core::schema::{OrbitalSchema, PayloadField, TraitReference};
 
 use super::error::{ErrorCode, ValidationError};
-use super::ValidationContext;
+use super::{trait_path, ValidationContext};
 
 /// Run payload-field-name validation on every trait's emit and event schemas.
 pub fn validate_payload_field_names(schema: &OrbitalSchema, ctx: &mut ValidationContext) {
@@ -20,12 +20,12 @@ pub fn validate_payload_field_names(schema: &OrbitalSchema, ctx: &mut Validation
             let TraitReference::Inline(trait_def) = trait_ref else {
                 continue;
             };
-            let trait_path = format!("orbitals[{}].traits[{}]", oi, ti);
+            let path = trait_path(oi, &orbital.name, ti, trait_ref);
 
             if let Some(emits) = &trait_def.emits {
                 for emit in emits {
                     if let Some(fields) = &emit.payload_schema {
-                        let where_ = format!("{}.emits({})", trait_path, emit.event);
+                        let where_ = format!("{}.emits({})", path, emit.event);
                         check_fields(fields, &where_, ctx);
                     }
                 }
@@ -34,7 +34,7 @@ pub fn validate_payload_field_names(schema: &OrbitalSchema, ctx: &mut Validation
             if let Some(events) = &trait_def.state_machine.events {
                 for event in events {
                     if let Some(fields) = &event.payload_schema {
-                        let where_ = format!("{}.events({})", trait_path, event.key);
+                        let where_ = format!("{}.events({})", path, event.key);
                         check_fields(fields, &where_, ctx);
                     }
                 }

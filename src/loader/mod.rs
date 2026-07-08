@@ -97,6 +97,14 @@ pub struct LoaderConfig {
     /// workspace registry roots by walking up from the schema source path to
     /// the nearest `packages/` directory.
     pub auto_discover_registries: bool,
+
+    /// Dev workspace mode: resolve `std/behaviors/<name>` imports against
+    /// `behaviors_registry_roots` (the local workspace) BEFORE the embedded
+    /// baked registry, so behavior `.lolo`/`.orb` edits take effect without a
+    /// rebuild + rebake of the `orb` binary. Set via the `ALMADAR_DEV` env var
+    /// (see `CompilerOptions::from_env`). Falls through to the embedded map
+    /// for any behavior not present on disk.
+    pub dev_workspace: bool,
 }
 
 impl Default for LoaderConfig {
@@ -108,6 +116,7 @@ impl Default for LoaderConfig {
             allow_outside_base_path: false,
             behaviors_registry_roots: HashMap::new(),
             auto_discover_registries: true,
+            dev_workspace: false,
         }
     }
 }
@@ -345,6 +354,34 @@ impl ExternalOrbitalLoader {
         from_path: Option<&Path>,
         chain: &mut ImportChain,
     ) -> Result<&LoadedSchema, LoaderError> {
+        // Dev workspace mode: prefer the local workspace registry over the
+        // embedded baked registry so behavior `.lolo`/`.orb` edits apply
+        // without a rebuild + rebake. Only `std/behaviors/<name>` imports that
+        // resolve to a file under a configured registry root are diverted;
+        // anything missing from the workspace falls through to the embedded
+        // map below (production path, unchanged).
+        if self.config.dev_workspace
+            && import_path.starts_with("std/behaviors/")
+            && !self.config.behaviors_registry_roots.is_empty()
+        {
+            let behavior_name = &import_path["std/behaviors/".len()..];
+            let dev_hit = self
+                .config
+                .behaviors_registry_roots
+                .values()
+                .find_map(|root| resolve_behavior_in_registry(behavior_name, root));
+            if let Some(absolute_path) = dev_hit {
+                if let Some(error) = chain.push(&absolute_path) {
+                    return Err(LoaderError::CircularImport(error));
+                }
+                let result = self
+                    .cache
+                    .get_or_insert_with(&absolute_path, || Self::load_file(&absolute_path, import_path));
+                chain.pop();
+                return result;
+            }
+        }
+
         // Sub-unit 3.5.D: check the embedded std behavior registry BEFORE any
         // filesystem resolution. Canonical std paths like
         // `std/behaviors/std-modal` are shipped inside the compiler binary via

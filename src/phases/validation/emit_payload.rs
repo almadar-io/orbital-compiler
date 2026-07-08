@@ -83,7 +83,7 @@ pub fn validate_all_emit_payloads(schema: &OrbitalSchema, ctx: &mut ValidationCo
                 .iter()
                 .map(|e| (e.event.as_str(), e.payload_schema.as_deref().unwrap_or(&[])))
                 .collect();
-            let trait_path = format!("orbitals[{}].traits[{}]", oi, ti);
+            let trait_path = super::trait_path(oi, &orbital.name, ti, trait_ref);
 
             // Backstop inputs for the operator-call return-type inference below —
             // the SAME two maps the `(set …)` return-type check builds, so an

@@ -41,6 +41,7 @@ pub use validation::{
 
 use crate::composition::ComposeError;
 use orbital_core::ir::OirModule;
+use std::path::PathBuf;
 use orbital_core::schema::OrbitalSchema;
 use std::path::Path;
 use thiserror::Error;
@@ -85,6 +86,109 @@ pub struct CompilerOptions {
     pub compose: ComposeConfig,
     /// Verbose output
     pub verbose: bool,
+}
+
+impl CompilerOptions {
+    /// Build options with dev-workspace loader settings from environment
+    /// variables. When `ALMADAR_DEV` is set (any non-empty value other than
+    /// `0`), `std/behaviors/<name>` imports resolve against the local
+    /// workspace registry BEFORE the embedded baked registry, so behavior
+    /// edits take effect without rebuilding + rebaking the `orb` binary.
+    ///
+    /// Registry roots are populated from:
+    ///   1. `ALMADAR_WORKSPACE` (explicit `<repo>/packages` parent) if set, or
+    ///   2. auto-discovery from each schema's source path at inline time
+    ///      (the existing `discover_registry_roots` path, unchanged).
+    ///
+    /// Explicit per-package env overrides take precedence when present:
+    ///   - `ALMADAR_STD_REGISTRY`        → packages/almadar-std/behaviors/registry
+    ///   - `ALMADAR_BEHAVIORS_REGISTRY`  → packages/almadar-behaviors/behaviors/registry
+    ///
+    /// Production binaries ignore all of these (env unset → embedded baked
+    /// registry is authoritative, as before). Rebaking (`make sync && make
+    /// release install`) only needs to run for `cascade --publish`.
+    pub fn from_env() -> Self {
+        let mut opts = Self::default();
+        // Dev mode is ON when:
+        //   - ALMADAR_DEV is set to a truthy value, OR
+        //   - ALMADAR_ROOT is set AND the workspace registry dirs exist under
+        //     it (auto-on whenever you're inside the Almadar workspace, so
+        //     `orb` reads live behavior sources without a rebuild + rebake).
+        //   - ALMADAR_DEV=0 forces it OFF (to exercise the published-binary
+        //     baked-registry path).
+        let dev_on = match std::env::var("ALMADAR_DEV") {
+            Ok(v) => !v.is_empty() && v != "0",
+            Err(_) => {
+                // Auto-enable when ALMADAR_ROOT points at a workspace that
+                // has the behavior registry directories on disk.
+                std::env::var("ALMADAR_ROOT")
+                    .ok()
+                    .map(|root| {
+                        PathBuf::from(&root)
+                            .join("packages/almadar-std/behaviors/registry")
+                            .is_dir()
+                            || PathBuf::from(&root)
+                                .join("packages/almadar-behaviors/behaviors/registry")
+                                .is_dir()
+                    })
+                    .unwrap_or(false)
+            }
+        };
+        if !dev_on {
+            return opts;
+        }
+        opts.inline.loader_config.dev_workspace = true;
+
+        // Per-package explicit overrides win.
+        if let Ok(p) = std::env::var("ALMADAR_STD_REGISTRY") {
+            let root = PathBuf::from(p);
+            if root.is_dir() {
+                opts.inline
+                    .loader_config
+                    .behaviors_registry_roots
+                    .insert("almadar-std".to_string(), root);
+            }
+        }
+        if let Ok(p) = std::env::var("ALMADAR_BEHAVIORS_REGISTRY") {
+            let root = PathBuf::from(p);
+            if root.is_dir() {
+                opts.inline
+                    .loader_config
+                    .behaviors_registry_roots
+                    .insert("almadar-behaviors".to_string(), root);
+            }
+        }
+        // If no explicit roots yet, seed from ALMADAR_WORKSPACE or the
+        // already-set ALMADAR_ROOT (the repo root). Otherwise leave roots
+        // empty so `inline_schema`'s source-path auto-discovery fills them
+        // per file.
+        if opts
+            .inline
+            .loader_config
+            .behaviors_registry_roots
+            .is_empty()
+        {
+            let ws = std::env::var("ALMADAR_WORKSPACE")
+                .or_else(|_| std::env::var("ALMADAR_ROOT"))
+                .ok();
+            if let Some(ws) = ws {
+                let ws_path = PathBuf::from(ws);
+                for (scope, rel) in [
+                    ("almadar-std", "packages/almadar-std/behaviors/registry"),
+                    ("almadar-behaviors", "packages/almadar-behaviors/behaviors/registry"),
+                ] {
+                    let root = ws_path.join(rel);
+                    if root.is_dir() {
+                        opts.inline
+                            .loader_config
+                            .behaviors_registry_roots
+                            .insert(scope.to_string(), root);
+                    }
+                }
+            }
+        }
+        opts
+    }
 }
 
 /// Compile a schema file to OIR

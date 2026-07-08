@@ -4,8 +4,8 @@
 //! Ported from `builder/packages/shared/src/orbitals/validation/trait-validator.ts`.
 
 use super::{
-    is_std_trait, render_ui::is_render_ui_effect, ErrorCode, ValidationContext, ValidationError,
-    ValidationResult, VALID_TRAIT_CATEGORIES,
+    is_std_trait, render_ui::is_render_ui_effect, trait_path, ErrorCode, ValidationContext,
+    ValidationError, ValidationResult, VALID_TRAIT_CATEGORIES,
 };
 use orbital_core::schema::{
     EntityDefinition, Orbital, OrbitalSchema, Persistence, SExpression, StateMachine,
@@ -19,7 +19,7 @@ pub fn validate_all_traits(schema: &OrbitalSchema, ctx: &mut ValidationContext) 
     // Note: Traits are now only defined inline within orbitals, not at schema level.
     for (i, orbital) in schema.orbitals.iter().enumerate() {
         for (j, trait_ref) in orbital.traits.iter().enumerate() {
-            let path = format!("orbitals[{}].traits[{}]", i, j);
+            let path = trait_path(i, &orbital.name, j, trait_ref);
             let result =
                 validate_trait_reference(trait_ref, &path, &ctx.trait_names, &ctx.entity_names);
             ctx.merge(result);
@@ -36,7 +36,7 @@ pub fn validate_all_traits(schema: &OrbitalSchema, ctx: &mut ValidationContext) 
     let trait_events = build_trait_event_sets(schema);
     for (i, orbital) in schema.orbitals.iter().enumerate() {
         for (j, trait_ref) in orbital.traits.iter().enumerate() {
-            let path = format!("orbitals[{}].traits[{}]", i, j);
+            let path = trait_path(i, &orbital.name, j, trait_ref);
             ctx.merge(validate_event_renames(trait_ref, &path, &trait_events));
         }
     }
@@ -60,7 +60,7 @@ pub fn validate_all_traits(schema: &OrbitalSchema, ctx: &mut ValidationContext) 
     for (i, orbital) in schema.orbitals.iter().enumerate() {
         for (j, trait_ref) in orbital.traits.iter().enumerate() {
             if let TraitReference::Inline(trait_def) = trait_ref {
-                let path = format!("orbitals[{}].traits[{}]", i, j);
+                let path = trait_path(i, &orbital.name, j, trait_ref);
                 let result = validate_entity_rebind(trait_def, &path, &ctx.entity_definitions);
                 ctx.merge(result);
             }

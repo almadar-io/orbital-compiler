@@ -131,7 +131,7 @@ pub(crate) fn validate_scope_boundary(schema: &OrbitalSchema) -> ValidationResul
                 continue;
             };
 
-            let path_base = format!("orbitals[{}].traits[{}]", oi, ti);
+            let path_base = crate::phases::validation::trait_path(oi, &orbital.name, ti, trait_ref);
 
             // Check `events:` rename map entries. The SOURCE key is the
             // upstream atom's event name — that's what we look up in
@@ -358,7 +358,7 @@ mod tests {
             "Exactly one ORB_X_INTERNAL_EVENT_EXPOSED expected. Warnings: {:?}",
             result.errors
         );
-        assert!(hits[0].path.contains("orbitals[1].traits[0].events"));
+        assert!(hits[0].path.contains("traits[0 (") && hits[0].path.contains(".events"));
     }
 
     /// Bare reference without `events:` / `listens:` overrides must not

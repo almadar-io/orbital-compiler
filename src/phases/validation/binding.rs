@@ -5,7 +5,7 @@
 
 use super::canonical_operators::get_canonical_operator;
 use super::entity_mutation::collect_entity_mutators;
-use super::{ErrorCode, ValidationContext, ValidationError, ValidationResult};
+use super::{trait_path, ErrorCode, ValidationContext, ValidationError, ValidationResult};
 use orbital_core::schema::{
     EntityDefinition, Orbital, OrbitalSchema, PayloadField, SExpression, TraitDefinition,
     TraitReference,
@@ -83,7 +83,7 @@ pub fn validate_all_bindings(schema: &OrbitalSchema, ctx: &mut ValidationContext
 
         for (j, trait_ref) in orbital.traits.iter().enumerate() {
             if let TraitReference::Inline(trait_def) = trait_ref {
-                let path = format!("orbitals[{}].traits[{}]", i, j);
+                let path = trait_path(i, &orbital.name, j, trait_ref);
                 let result = validate_trait_bindings(
                     trait_def,
                     &path,
@@ -1341,7 +1341,7 @@ pub fn detect_trait_binding_cycles(
                         result.add_error(
                             ValidationError::error(
                                 ErrorCode::BindingTraitCycle,
-                                format!("{}.traits[{}]", orbital_path, idx),
+                                format!("{}.traits[{} ({})]", orbital_path, idx, child_str),
                                 format!(
                                     "@trait reference cycle detected: {}",
                                     cycle_path.join(" -> ")
