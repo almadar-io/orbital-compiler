@@ -1,6 +1,6 @@
 //! Pattern Definitions - Auto-generated from patterns-registry.json
 //!
-//! Source: packages/almadar-patterns/src/patterns-registry.json
+//! Source: packages/almadar-core/src/patterns/patterns-registry.json
 //!
 //! Last synced: 2026-07-09
 //! To regenerate: npx tsx tools/almadar-pattern-sync/index.ts
