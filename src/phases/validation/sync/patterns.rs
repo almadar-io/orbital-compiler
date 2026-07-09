@@ -1152,6 +1152,7 @@ pub static PATTERN_PROPS_SCHEMA: LazyLock<HashMap<&'static str, HashSet<&'static
                     "backgroundImage",
                     "bgColor",
                     "camera",
+                    "cameraPos",
                     "className",
                     "drawables",
                     "error",
@@ -4624,6 +4625,7 @@ pub static PATTERN_PROP_TYPES: LazyLock<HashMap<&'static str, HashMap<&'static s
                     ("scale", &["number"] as &[&str]),
                     ("showMinimap", &["boolean"] as &[&str]),
                     ("followTarget", &["object"] as &[&str]),
+                    ("cameraPos", &["object"] as &[&str]),
                     ("bgColor", &["string"] as &[&str]),
                 ]
                 .into_iter()
