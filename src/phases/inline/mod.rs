@@ -19,6 +19,7 @@ mod entity;
 mod page;
 mod rewrite;
 mod service;
+mod splice;
 #[path = "trait.rs"]
 mod r#trait;
 
@@ -29,8 +30,15 @@ use context::{parse_reference, InlineContext, ParsedReference};
 use entity::{inline_entity, merge_imported_entity_fields};
 use page::{inline_pages, rewrite_page_trait_refs};
 use r#trait::inline_traits;
+// Re-exported at the `inline` namespace so validation passes (e.g.
+// `validation::entity_mutation`) can reach it as
+// `crate::phases::inline::collect_sibling_trait_refs`. The fn lives in the
+// private `r#trait` submodule as `pub(crate)`; without this re-export the path
+// is E0425 (latent — surfaces whenever orbital-compiler recompiles).
+pub(crate) use r#trait::collect_sibling_trait_refs;
 use rewrite::{apply_inline_config_defaults, rewrite_trait_literal_refs, trait_ref_name};
 use service::inline_services;
+use splice::splice_lambda_trait_refs;
 
 // Test-only helpers exercised directly by the unit tests below; gated so a
 // non-test build doesn't flag them as unused.
@@ -115,6 +123,34 @@ pub enum InlineError {
         /// Source-tagged path to the offending trait reference.
         path: String,
     },
+
+    #[error(
+        "Trait '{name}' keeps its own state machine (multiple states, listens, ticks, guards, \
+         or non-render effects) and cannot be expanded per list item at {path} — per-item \
+         interactive traits are not supported; use the list pattern's item events"
+    )]
+    LambdaStatefulTrait {
+        /// The referenced trait that failed the structural render-only test.
+        name: String,
+        /// Source-tagged path to the host trait whose lambda references it.
+        path: String,
+    },
+
+    #[error(
+        "Emit '{event}' from inline-expanded trait '{name}' collides with an emit already \
+         declared on trait '{host}' with a different payload shape at {path} — rename one \
+         or align the payload declarations"
+    )]
+    EmitMergeConflict {
+        /// The colliding event name.
+        event: String,
+        /// The spliced wrapper trait contributing the emit.
+        name: String,
+        /// The host trait the emit was being merged into.
+        host: String,
+        /// Source-tagged path to the host trait.
+        path: String,
+    },
 }
 
 impl InlineError {
@@ -125,6 +161,8 @@ impl InlineError {
         match self {
             InlineError::DuplicateTraitName { path, .. } => path,
             InlineError::EventRenameUnknownKey { path, .. } => path,
+            InlineError::LambdaStatefulTrait { path, .. } => path,
+            InlineError::EmitMergeConflict { path, .. } => path,
             _ => "",
         }
     }
@@ -137,6 +175,8 @@ impl InlineError {
         match self {
             InlineError::EventRenameUnknownKey { .. } => "ORB_T_EVENT_RENAME_UNKNOWN_KEY",
             InlineError::DuplicateTraitName { .. } => "ORB_T_DUPLICATE_NAME",
+            InlineError::LambdaStatefulTrait { .. } => "ORB_T_LAMBDA_STATEFUL_TRAIT",
+            InlineError::EmitMergeConflict { .. } => "ORB_T_EMIT_MERGE_CONFLICT",
             _ => "INLINE_ERROR",
         }
     }
@@ -338,6 +378,12 @@ fn inline_orbital(
                         apply_inline_config_defaults(trait_def, recorder);
                     }
                 }
+                // Lambda-scope splice runs on the top-level target only —
+                // AFTER config-default substitution so wrapper templates
+                // carry the author's expressions, and only once every
+                // `@config.X` is final (an import load defers substitution,
+                // so splicing there would freeze pre-override templates).
+                splice_lambda_trait_refs(orbital, &format!("orbitals[name={}]", orbital.name))?;
             }
             return Ok(());
         }
@@ -588,6 +634,16 @@ fn inline_orbital(
 
     // Inline services
     orbital.services = inline_services(&orbital.services, &ctx)?;
+
+    // Lambda-scope splice for render-only trait references (host-context prop
+    // evaluation). Runs AFTER trait inlining + sibling auto-pull so every
+    // wrapper is a fully substituted `TraitReference::Inline`, and only on the
+    // top-level target (imports defer `@config.X` substitution, so their
+    // templates are not final yet — the consumer's own top-level pass splices
+    // them after its overrides apply).
+    if is_top_level {
+        splice_lambda_trait_refs(orbital, &orbital_path_prefix)?;
+    }
 
     // Inline theme if it's a reference
     if let Some(ThemeRef::Reference(ref_str)) = &orbital.theme {

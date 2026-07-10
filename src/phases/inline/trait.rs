@@ -291,7 +291,12 @@ fn apply_post_subst_overrides_to_trait(
 /// literal `"@trait.SiblingView"`. The form is the full string equal to
 /// `@trait.<Name>` (no trailing path segment) — that's how a render node
 /// addresses a sibling trait's projected view.
-fn collect_sibling_trait_refs(expr: &SExpression, out: &mut HashSet<String>) {
+///
+/// Also the single owner of the `@trait.X`-collection contract for the
+/// lambda-splice pass (inline/splice.rs) and the shared-entity render-
+/// authority attribution (validation/entity_mutation.rs) — no second
+/// `@trait` walker exists.
+pub(crate) fn collect_sibling_trait_refs(expr: &SExpression, out: &mut HashSet<String>) {
     match expr {
         SExpression::String(s) => {
             if let Some(name) = s.strip_prefix("@trait.") {

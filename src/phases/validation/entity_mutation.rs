@@ -82,45 +82,110 @@ pub(super) fn collect_entity_mutators<'a>(
 /// Aggregate, across `traits`, which distinct trait names read ANY
 /// `@entity.<field>` inside a `render-ui` effect. Keyed entity name → set of
 /// reader trait names.
-fn collect_render_ui_readers<'a>(
-    traits: impl IntoIterator<Item = &'a TraitDefinition>,
-) -> HashMap<String, HashSet<String>> {
-    let mut readers: HashMap<String, HashSet<String>> = HashMap::new();
+///
+/// Render-child attribution: a trait that is `@trait.X`-referenced from
+/// ANOTHER trait's render-ui tree in the same orbital is a render CHILD of
+/// that referencer — its entity reads are attributed to the ROOT referencer
+/// (transitively: host → child → grandchild collapse to the root). This is
+/// structural, keyed purely on the `@trait.X` reference graph, so an inline
+/// JSX wrapper forwarding `@entity.*` counts as part of its host authority's
+/// render output, while a genuinely independent (unreferenced) second reader
+/// still counts as its own authority.
+fn collect_render_ui_readers(traits: &[&TraitDefinition]) -> HashMap<String, HashSet<String>> {
+    // Direct readers: (trait name, linked entity) pairs whose render-ui
+    // effects read @entity.*.
+    let mut direct: Vec<(String, String)> = Vec::new();
+    // Reverse render-reference graph: target trait name → trait names whose
+    // render-ui trees reference it via `@trait.<target>`.
+    let mut referenced_by: HashMap<String, HashSet<String>> = HashMap::new();
 
     for trait_def in traits {
-        let Some(linked) = &trait_def.linked_entity else {
-            continue;
-        };
-
         let mut reads_entity = false;
+        let mut refs: HashSet<String> = HashSet::new();
         for transition in &trait_def.state_machine.transitions {
             if let Some(effects) = &transition.effects {
                 for effect in effects {
+                    if !is_render_ui_effect(effect) {
+                        continue;
+                    }
                     if render_ui_effect_reads_entity(effect) {
                         reads_entity = true;
                     }
+                    crate::phases::inline::collect_sibling_trait_refs(effect, &mut refs);
                 }
             }
         }
         if let Some(ticks) = &trait_def.ticks {
             for tick in ticks {
                 for effect in &tick.effects {
+                    if !is_render_ui_effect(effect) {
+                        continue;
+                    }
                     if render_ui_effect_reads_entity(effect) {
                         reads_entity = true;
                     }
+                    crate::phases::inline::collect_sibling_trait_refs(effect, &mut refs);
                 }
             }
         }
 
+        for target in refs {
+            // A self-reference is not a parent edge.
+            if target != trait_def.name {
+                referenced_by
+                    .entry(target)
+                    .or_default()
+                    .insert(trait_def.name.clone());
+            }
+        }
+
         if reads_entity {
-            readers
-                .entry(linked.clone())
-                .or_default()
-                .insert(trait_def.name.clone());
+            if let Some(linked) = &trait_def.linked_entity {
+                direct.push((trait_def.name.clone(), linked.clone()));
+            }
+        }
+    }
+
+    let mut readers: HashMap<String, HashSet<String>> = HashMap::new();
+    for (name, linked) in direct {
+        for root in resolve_render_roots(&name, &referenced_by) {
+            readers.entry(linked.clone()).or_default().insert(root);
         }
     }
 
     readers
+}
+
+/// Walk the reverse render-reference graph upward from `name` to the root
+/// referencer(s) a reader's entity reads are attributed to. A trait nobody
+/// references is its own root. Cycles terminate via the visited set; a pure
+/// cycle with no outside referencer attributes each member to itself.
+fn resolve_render_roots(
+    name: &str,
+    referenced_by: &HashMap<String, HashSet<String>>,
+) -> HashSet<String> {
+    let mut roots: HashSet<String> = HashSet::new();
+    let mut visited: HashSet<&str> = HashSet::new();
+    let mut stack: Vec<&str> = vec![name];
+    while let Some(n) = stack.pop() {
+        if !visited.insert(n) {
+            continue;
+        }
+        match referenced_by.get(n) {
+            Some(parents) if !parents.is_empty() => {
+                for p in parents {
+                    stack.push(p.as_str());
+                }
+            }
+            _ => {
+                roots.insert(n.to_string());
+            }
+        }
+    }
+    if roots.is_empty() {
+        roots.insert(name.to_string());
+    }
+    roots
 }
 
 /// True when `effect` is a `render-ui` call whose subtree contains at least
@@ -168,7 +233,7 @@ fn validate_orbital_entity_mutations(
     let mut result = ValidationResult::new();
 
     let mutators_by_field = collect_entity_mutators(traits.iter().copied());
-    let renderers = collect_render_ui_readers(traits.iter().copied());
+    let renderers = collect_render_ui_readers(traits);
 
     let mut entity_names: HashSet<&String> = HashSet::new();
     entity_names.extend(mutators_by_field.keys());
@@ -649,6 +714,139 @@ mod tests {
                 .iter()
                 .any(|e| e.code == ErrorCode::SharedEntityRenderAuthority),
             "Expected SharedEntityRenderAuthority error: {:?}",
+            result.errors
+        );
+    }
+
+    /// A render-ui effect that reads `@entity.<field>` AND references the
+    /// given sibling traits via `@trait.<name>` children — the shape a host
+    /// authority trait has after inline JSX wrappers are hoisted.
+    fn render_ui_reading_with_refs(field: &str, refs: &[&str]) -> SExpression {
+        arr(vec![
+            s("render-ui"),
+            s("main"),
+            SExpression::Object({
+                let mut m = std::collections::HashMap::new();
+                m.insert("val".to_string(), s(&format!("@entity.{}", field)));
+                m.insert(
+                    "children".to_string(),
+                    SExpression::Array(
+                        refs.iter().map(|r| s(&format!("@trait.{}", r))).collect(),
+                    ),
+                );
+                m
+            }),
+        ])
+    }
+
+    #[test]
+    fn shared_entity_referenced_wrappers_attribute_to_host_authority() {
+        // Host authority reads the shared entity AND references two wrapper
+        // traits from its render tree; each wrapper also reads @entity.*.
+        // Attribution collapses all reads onto the host → exactly one
+        // authority → VALID.
+        let host = trait_with_init_effects(
+            "DeckView",
+            "Pool",
+            vec![render_ui_reading_with_refs("hp", &["InlineW1", "InlineW2"])],
+        );
+        let w1 = trait_with_init_effects("InlineW1", "Pool", vec![render_ui_reading("hp")]);
+        let w2 = trait_with_init_effects("InlineW2", "Pool", vec![render_ui_reading("mana")]);
+        let traits = vec![&host, &w1, &w2];
+        let mut defs = HashMap::new();
+        defs.insert("Pool".to_string(), entity("Pool", true, None));
+        let result = validate_orbital_entity_mutations(&traits, "orbitals[0]", &defs);
+        assert!(
+            !result
+                .all_issues()
+                .any(|e| e.code == ErrorCode::SharedEntityRenderAuthority),
+            "Referenced wrappers must attribute to the host authority: {:?}",
+            result.errors
+        );
+    }
+
+    #[test]
+    fn shared_entity_transitive_wrapper_chain_collapses_to_root() {
+        // host → child (via @trait.Child) → grandchild (via @trait.Grand):
+        // all three read the shared entity; attribution collapses to the
+        // single root → VALID.
+        let host = trait_with_init_effects(
+            "Root",
+            "Pool",
+            vec![render_ui_reading_with_refs("hp", &["Child"])],
+        );
+        let child = trait_with_init_effects(
+            "Child",
+            "Pool",
+            vec![render_ui_reading_with_refs("hp", &["Grand"])],
+        );
+        let grand = trait_with_init_effects("Grand", "Pool", vec![render_ui_reading("hp")]);
+        let traits = vec![&host, &child, &grand];
+        let mut defs = HashMap::new();
+        defs.insert("Pool".to_string(), entity("Pool", true, None));
+        let result = validate_orbital_entity_mutations(&traits, "orbitals[0]", &defs);
+        assert!(
+            !result
+                .all_issues()
+                .any(|e| e.code == ErrorCode::SharedEntityRenderAuthority),
+            "Transitive wrapper chain must collapse to one root authority: {:?}",
+            result.errors
+        );
+    }
+
+    #[test]
+    fn shared_entity_unreferenced_second_reader_still_rejected() {
+        // Host authority + referenced wrapper are fine, but a genuinely
+        // independent second reader (referenced from NO render tree) must
+        // still trip SharedEntityRenderAuthority. Regression pin: the
+        // attribution must never relax the strict single-authority rule.
+        let host = trait_with_init_effects(
+            "DeckView",
+            "Pool",
+            vec![render_ui_reading_with_refs("hp", &["InlineW1"])],
+        );
+        let w1 = trait_with_init_effects("InlineW1", "Pool", vec![render_ui_reading("hp")]);
+        let rogue = trait_with_init_effects("RogueReader", "Pool", vec![render_ui_reading("hp")]);
+        let traits = vec![&host, &w1, &rogue];
+        let mut defs = HashMap::new();
+        defs.insert("Pool".to_string(), entity("Pool", true, None));
+        let result = validate_orbital_entity_mutations(&traits, "orbitals[0]", &defs);
+        assert!(
+            result
+                .errors
+                .iter()
+                .any(|e| e.code == ErrorCode::SharedEntityRenderAuthority),
+            "Unreferenced second reader must still be rejected: {:?}",
+            result.errors
+        );
+    }
+
+    #[test]
+    fn shared_entity_render_ref_cycle_terminates() {
+        // Pure reference cycle: A references B, B references A, both read
+        // the shared entity, nobody outside references either. Attribution
+        // must terminate (no infinite loop); each cycle member attributes to
+        // itself → two authorities → still rejected.
+        let a = trait_with_init_effects(
+            "CycleA",
+            "Pool",
+            vec![render_ui_reading_with_refs("hp", &["CycleB"])],
+        );
+        let b = trait_with_init_effects(
+            "CycleB",
+            "Pool",
+            vec![render_ui_reading_with_refs("mana", &["CycleA"])],
+        );
+        let traits = vec![&a, &b];
+        let mut defs = HashMap::new();
+        defs.insert("Pool".to_string(), entity("Pool", true, None));
+        let result = validate_orbital_entity_mutations(&traits, "orbitals[0]", &defs);
+        assert!(
+            result
+                .errors
+                .iter()
+                .any(|e| e.code == ErrorCode::SharedEntityRenderAuthority),
+            "A pure cycle has no root authority and must still be rejected: {:?}",
             result.errors
         );
     }

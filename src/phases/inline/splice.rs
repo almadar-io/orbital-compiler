@@ -1,0 +1,656 @@
+//! Lambda-scope splice for render-only trait references.
+//!
+//! A `@trait.X` reference inside a `fn`-lambda render subtree (`renderItem`
+//! and any function-typed render prop) cannot survive as a reference: the
+//! referenced trait renders in its OWN context, so the author's prop
+//! expressions (already substituted into its render template by
+//! `apply_overrides_to_trait`) would resolve outside the lambda's per-item
+//! scope. When the referenced trait is structurally render-only, this pass
+//! splices its render template in place of the `@trait.X` string, so the
+//! expressions end up physically inside the lambda and resolve in its scope.
+//! The wrapper's `emits {}` declarations are merged into the host trait.
+//!
+//! Eligibility is structural (never name-based): at most one state, all
+//! transitions guard-free self-loops whose effects are exclusively
+//! `render-ui`, exactly one `render-ui` across the trait, no `listens`, no
+//! `ticks`. `emits` declarations do NOT disqualify. A stateful trait
+//! referenced inside a lambda is a hard error — per-item interactive traits
+//! are not supported.
+//!
+//! Outside lambda scope, references are left untouched (normal trait
+//! composition + render-authority attribution).
+
+use super::r#trait::collect_sibling_trait_refs;
+use super::rewrite::trait_ref_name;
+use super::InlineError;
+use crate::phases::validation::render_ui::is_render_ui_effect;
+use orbital_core::schema::{
+    EmitDefinition, Orbital, PageRef, SExpression, StringOrArray, TraitDefinition, TraitReference,
+};
+use std::collections::{HashMap, HashSet};
+
+/// Eligible render template + the wrapper's emit declarations, or `None`
+/// when the trait is present but not render-only.
+type SpliceEntry = Option<(SExpression, Vec<EmitDefinition>)>;
+
+/// Splice lambda-scoped `@trait.X` references throughout an orbital's
+/// (already inlined) traits, then drop wrapper traits that were fully
+/// consumed by the splice.
+pub(crate) fn splice_lambda_trait_refs(
+    orbital: &mut Orbital,
+    orbital_path: &str,
+) -> Result<(), InlineError> {
+    let mut templates: HashMap<String, SpliceEntry> = HashMap::new();
+    for tr in &orbital.traits {
+        if let TraitReference::Inline(td) = tr {
+            templates.insert(
+                td.name.clone(),
+                render_only_template(td).map(|t| (t, td.emits.clone().unwrap_or_default())),
+            );
+        }
+    }
+    if templates.is_empty() {
+        return Ok(());
+    }
+
+    let mut spliced: HashSet<String> = HashSet::new();
+    for tr in orbital.traits.iter_mut() {
+        let TraitReference::Inline(td) = tr else {
+            continue;
+        };
+        let path = format!("{}.traits[name={}]", orbital_path, td.name);
+        // Seed with the host itself so a self-reference never self-splices.
+        let mut visiting: Vec<String> = vec![td.name.clone()];
+        let mut merged: Vec<(String, EmitDefinition)> = Vec::new();
+        for transition in td.state_machine.transitions.iter_mut() {
+            if let Some(effects) = transition.effects.as_mut() {
+                for effect in effects.iter_mut() {
+                    splice_expr(
+                        effect,
+                        false,
+                        &templates,
+                        &path,
+                        &mut visiting,
+                        &mut merged,
+                        &mut spliced,
+                    )?;
+                }
+            }
+        }
+        if let Some(ticks) = td.ticks.as_mut() {
+            for tick in ticks.iter_mut() {
+                for effect in tick.effects.iter_mut() {
+                    splice_expr(
+                        effect,
+                        false,
+                        &templates,
+                        &path,
+                        &mut visiting,
+                        &mut merged,
+                        &mut spliced,
+                    )?;
+                }
+            }
+        }
+        if !merged.is_empty() {
+            merge_wrapper_emits(td, merged, &path)?;
+        }
+    }
+
+    if !spliced.is_empty() {
+        remove_consumed_wrappers(orbital, &spliced);
+    }
+    Ok(())
+}
+
+/// The structural render-only test. Returns the single render-ui pattern
+/// subtree when the trait qualifies for lambda splicing.
+fn render_only_template(td: &TraitDefinition) -> Option<SExpression> {
+    if td.listens.as_ref().is_some_and(|l| !l.is_empty()) {
+        return None;
+    }
+    if td.ticks.as_ref().is_some_and(|t| !t.is_empty()) {
+        return None;
+    }
+    if td.state_machine.states.len() > 1 {
+        return None;
+    }
+    let mut template: Option<SExpression> = None;
+    for transition in &td.state_machine.transitions {
+        let self_loop = match &transition.from {
+            StringOrArray::Single(f) => *f == transition.to,
+            StringOrArray::Multiple(fs) => fs.iter().all(|f| *f == transition.to),
+        };
+        if !self_loop || transition.guard.is_some() {
+            return None;
+        }
+        for effect in transition.effects.iter().flatten() {
+            if !is_render_ui_effect(effect) {
+                return None;
+            }
+            let SExpression::Array(arr) = effect else {
+                return None;
+            };
+            let pattern = arr.get(2)?;
+            if template.is_some() {
+                // Two render-ui effects — one canonical template does not
+                // exist, so the trait keeps reference semantics.
+                return None;
+            }
+            template = Some(pattern.clone());
+        }
+    }
+    template
+}
+
+/// Recursive in-place splice walker. `in_lambda` becomes true inside the
+/// body of any `["fn"|"lambda", params, body]` form and stays true for the
+/// whole subtree.
+fn splice_expr(
+    expr: &mut SExpression,
+    in_lambda: bool,
+    templates: &HashMap<String, SpliceEntry>,
+    path: &str,
+    visiting: &mut Vec<String>,
+    merged: &mut Vec<(String, EmitDefinition)>,
+    spliced: &mut HashSet<String>,
+) -> Result<(), InlineError> {
+    match expr {
+        SExpression::String(s) if in_lambda => {
+            let Some(name) = s.strip_prefix("@trait.") else {
+                return Ok(());
+            };
+            if name.is_empty() || name.contains('.') {
+                return Ok(());
+            }
+            match templates.get(name) {
+                Some(Some((template, emits))) => {
+                    if visiting.iter().any(|v| v == name) {
+                        // Reference cycle — leave the string for the
+                        // validator rather than looping.
+                        return Ok(());
+                    }
+                    let mut expanded = template.clone();
+                    visiting.push(name.to_string());
+                    // The wrapper's template may itself contain nested
+                    // inline refs (JSX children); they are now inside the
+                    // lambda too, so splice recursively.
+                    splice_expr(
+                        &mut expanded,
+                        true,
+                        templates,
+                        path,
+                        visiting,
+                        merged,
+                        spliced,
+                    )?;
+                    visiting.pop();
+                    for emit in emits {
+                        merged.push((name.to_string(), emit.clone()));
+                    }
+                    spliced.insert(name.to_string());
+                    *expr = expanded;
+                    Ok(())
+                }
+                Some(None) => Err(InlineError::LambdaStatefulTrait {
+                    name: name.to_string(),
+                    path: path.to_string(),
+                }),
+                // Unknown reference — the binding validator owns that error.
+                None => Ok(()),
+            }
+        }
+        SExpression::Array(arr) => {
+            let is_lambda_form = arr.len() == 3
+                && matches!(&arr[0], SExpression::String(op) if op == "fn" || op == "lambda");
+            if is_lambda_form {
+                splice_expr(&mut arr[2], true, templates, path, visiting, merged, spliced)
+            } else {
+                for item in arr.iter_mut() {
+                    splice_expr(item, in_lambda, templates, path, visiting, merged, spliced)?;
+                }
+                Ok(())
+            }
+        }
+        SExpression::Object(map) => {
+            for v in map.values_mut() {
+                splice_expr(v, in_lambda, templates, path, visiting, merged, spliced)?;
+            }
+            Ok(())
+        }
+        _ => Ok(()),
+    }
+}
+
+/// Merge spliced wrappers' emit declarations into the host trait, deduped by
+/// event name. A same-name emit with a structurally different definition is
+/// a hard conflict, never a silent union.
+fn merge_wrapper_emits(
+    host: &mut TraitDefinition,
+    incoming: Vec<(String, EmitDefinition)>,
+    path: &str,
+) -> Result<(), InlineError> {
+    let mut emits = host.emits.take().unwrap_or_default();
+    for (wrapper, emit) in incoming {
+        if let Some(existing) = emits.iter().find(|e| e.event == emit.event) {
+            let same = serde_json::to_value(existing).ok() == serde_json::to_value(&emit).ok();
+            if !same {
+                let event = emit.event.clone();
+                host.emits = Some(emits);
+                return Err(InlineError::EmitMergeConflict {
+                    event,
+                    name: wrapper,
+                    host: host.name.clone(),
+                    path: path.to_string(),
+                });
+            }
+        } else {
+            emits.push(emit);
+        }
+    }
+    if !emits.is_empty() {
+        host.emits = Some(emits);
+    }
+    Ok(())
+}
+
+/// Drop spliced wrapper traits that are no longer referenced anywhere: no
+/// remaining `@trait.<name>` string in any trait body or config default, and
+/// no page lists them. A wrapper still referenced outside a lambda keeps its
+/// declaration (normal composition continues to own it).
+fn remove_consumed_wrappers(orbital: &mut Orbital, spliced: &HashSet<String>) {
+    // Fixpoint: removing an outer wrapper can strand the reference that kept
+    // an inner wrapper alive (nested JSX children), so re-scan survivors
+    // until nothing more drops.
+    loop {
+        let mut still_referenced: HashSet<String> = HashSet::new();
+        for tr in &orbital.traits {
+            if let TraitReference::Inline(td) = tr {
+                for transition in &td.state_machine.transitions {
+                    if let Some(guard) = &transition.guard {
+                        collect_sibling_trait_refs(guard, &mut still_referenced);
+                    }
+                    for effect in transition.effects.iter().flatten() {
+                        collect_sibling_trait_refs(effect, &mut still_referenced);
+                    }
+                }
+                for tick in td.ticks.iter().flatten() {
+                    if let Some(guard) = &tick.guard {
+                        collect_sibling_trait_refs(guard, &mut still_referenced);
+                    }
+                    for effect in &tick.effects {
+                        collect_sibling_trait_refs(effect, &mut still_referenced);
+                    }
+                }
+                for field in td.config.iter().flat_map(|c| c.values()) {
+                    if let Some(default) = &field.default {
+                        collect_sibling_trait_refs(default, &mut still_referenced);
+                    }
+                }
+            }
+        }
+
+        let mut removable: HashSet<&str> = orbital
+            .traits
+            .iter()
+            .filter_map(trait_ref_name)
+            .filter(|n| spliced.contains(*n) && !still_referenced.contains(*n))
+            .collect();
+        if removable.is_empty() {
+            break;
+        }
+
+        // The lowerer lists hoisted synthetics on the authoring trait's page;
+        // those entries are shadows of the (now spliced-away) authoring site
+        // and travel with the trait. Never empty a page though: if removal
+        // would leave a page with zero traits, the trait it lists survives.
+        for page in orbital.pages.iter().flatten() {
+            if let PageRef::Inline(def) = page {
+                let Some(page_traits) = def.traits.as_ref() else {
+                    continue;
+                };
+                let survivors = page_traits
+                    .iter()
+                    .filter_map(trait_ref_name)
+                    .filter(|n| !removable.contains(n))
+                    .count();
+                if survivors == 0 {
+                    for tr in page_traits {
+                        if let Some(name) = trait_ref_name(tr) {
+                            removable.remove(name);
+                        }
+                    }
+                }
+            }
+        }
+        if removable.is_empty() {
+            break;
+        }
+        let removable: HashSet<String> = removable.into_iter().map(String::from).collect();
+
+        for page in orbital.pages.iter_mut().flatten() {
+            if let PageRef::Inline(def) = page {
+                if let Some(page_traits) = def.traits.as_mut() {
+                    page_traits.retain(|tr| {
+                        trait_ref_name(tr).is_none_or(|n| !removable.contains(n))
+                    });
+                }
+            }
+        }
+        orbital
+            .traits
+            .retain(|tr| trait_ref_name(tr).is_none_or(|n| !removable.contains(n)));
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use orbital_core::schema::{
+        EntityDefinition, EntityRef, PayloadField, StateDefinition, StateMachine,
+        TransitionDefinition,
+    };
+
+    fn s(v: &str) -> SExpression {
+        SExpression::String(v.to_string())
+    }
+    fn arr(items: Vec<SExpression>) -> SExpression {
+        SExpression::Array(items)
+    }
+    fn obj(pairs: Vec<(&str, SExpression)>) -> SExpression {
+        SExpression::Object(
+            pairs
+                .into_iter()
+                .map(|(k, v)| (k.to_string(), v))
+                .collect(),
+        )
+    }
+
+    fn render_only_trait(name: &str, pattern: SExpression) -> TraitDefinition {
+        TraitDefinition {
+            name: name.to_string(),
+            entity_rebindable: None,
+            entity_contract: None,
+            category: None,
+            capabilities: vec![],
+            description: None,
+            linked_entity: Some("Item".to_string()),
+            emits: None,
+            listens: None,
+            state_machine: StateMachine {
+                states: vec![StateDefinition {
+                    name: "idle".to_string(),
+                    is_initial: Some(true),
+                    is_terminal: None,
+                    description: None,
+                    time_bound_ms: None,
+                }],
+                events: None,
+                transitions: vec![TransitionDefinition {
+                    from: StringOrArray::Single("idle".to_string()),
+                    to: "idle".to_string(),
+                    event: "INIT".to_string(),
+                    guard: None,
+                    effects: Some(vec![arr(vec![s("render-ui"), s("main"), pattern])]),
+                }],
+            },
+            ticks: None,
+            config: None,
+            data_entities: None,
+            scope: None,
+            source_behavior: None,
+            source_entity_definition: None,
+        }
+    }
+
+    fn emit(event: &str, field: &str) -> EmitDefinition {
+        EmitDefinition {
+            event: event.to_string(),
+            description: None,
+            synonyms: None,
+            tier: None,
+            scope: None,
+            payload_schema: Some(vec![PayloadField {
+                name: field.to_string(),
+                field_type: "string".to_string(),
+                required: None,
+                description: None,
+                properties: None,
+            }]),
+        }
+    }
+
+    fn host_with_render(name: &str, pattern: SExpression) -> TraitDefinition {
+        render_only_trait(name, pattern)
+    }
+
+    fn make_orbital(traits: Vec<TraitDefinition>) -> Orbital {
+        Orbital {
+            name: "TestOrbital".to_string(),
+            uses: None,
+            theme: None,
+            services: None,
+            entity: EntityRef::Inline(EntityDefinition {
+                shared: false,
+                name: "Item".to_string(),
+                collection: None,
+                persistence: None,
+                fields: vec![],
+                instances: None,
+            }),
+            auxiliary_entities: None,
+            traits: traits.into_iter().map(TraitReference::Inline).collect(),
+            pages: None,
+            emits: None,
+            listens: None,
+            exposes: None,
+            domain_context: None,
+            design: None,
+        }
+    }
+
+    fn lambda_render_pattern(body_children: Vec<SExpression>) -> SExpression {
+        obj(vec![
+            ("type", s("data-list")),
+            ("items", s("@entity.parties")),
+            (
+                "renderItem",
+                arr(vec![
+                    s("fn"),
+                    s("party"),
+                    obj(vec![("type", s("stack")), ("children", SExpression::Array(body_children))]),
+                ]),
+            ),
+        ])
+    }
+
+    fn host_pattern_of(orbital: &Orbital, name: &str) -> SExpression {
+        for tr in &orbital.traits {
+            if let TraitReference::Inline(td) = tr {
+                if td.name == name {
+                    let effects = td.state_machine.transitions[0].effects.as_ref().unwrap();
+                    let SExpression::Array(arr) = &effects[0] else {
+                        panic!("render-ui effect")
+                    };
+                    return arr[2].clone();
+                }
+            }
+        }
+        panic!("trait {name} not found");
+    }
+
+    #[test]
+    fn eligibility_accepts_render_only_with_emits() {
+        let mut w = render_only_trait("W", obj(vec![("type", s("badge"))]));
+        w.emits = Some(vec![emit("ACTION", "id")]);
+        assert!(render_only_template(&w).is_some(), "emits must not disqualify");
+    }
+
+    #[test]
+    fn eligibility_rejects_multi_state_listens_ticks_guard() {
+        let base = render_only_trait("W", obj(vec![("type", s("badge"))]));
+
+        let mut multi = base.clone();
+        multi.state_machine.states.push(StateDefinition {
+            name: "open".to_string(),
+            is_initial: None,
+            is_terminal: None,
+            description: None,
+            time_bound_ms: None,
+        });
+        assert!(render_only_template(&multi).is_none(), "multi-state must disqualify");
+
+        let mut listening = base.clone();
+        listening.listens = Some(vec![orbital_core::schema::ListenDefinition {
+            event: "E".to_string(),
+            triggers: None,
+            scope: None,
+            description: None,
+            synonyms: None,
+            tier: None,
+            payload_mapping: None,
+            guard: None,
+            source: None,
+        }]);
+        assert!(render_only_template(&listening).is_none(), "listens must disqualify");
+
+        let mut guarded = base.clone();
+        guarded.state_machine.transitions[0].guard = Some(s("@entity.x"));
+        assert!(render_only_template(&guarded).is_none(), "guard must disqualify");
+
+        let mut non_render = base;
+        non_render.state_machine.transitions[0].effects =
+            Some(vec![arr(vec![s("set"), s("@entity.x"), SExpression::Number(1.into())])]);
+        assert!(
+            render_only_template(&non_render).is_none(),
+            "non-render effect must disqualify"
+        );
+    }
+
+    #[test]
+    fn splices_wrapper_into_lambda_and_merges_emits() {
+        let mut wrapper =
+            render_only_trait("InlineW1", obj(vec![("type", s("badge")), ("label", s("@party.title"))]));
+        wrapper.emits = Some(vec![emit("ACTION", "id")]);
+        let host = host_with_render("Host", lambda_render_pattern(vec![s("@trait.InlineW1")]));
+        let mut orbital = make_orbital(vec![host, wrapper]);
+
+        splice_lambda_trait_refs(&mut orbital, "orbitals[0]").expect("splice must succeed");
+
+        let pattern = host_pattern_of(&orbital, "Host");
+        let json = serde_json::to_string(&pattern).unwrap();
+        assert!(json.contains("@party.title"), "expression must live in the host lambda: {json}");
+        assert!(!json.contains("@trait.InlineW1"), "reference must be spliced away: {json}");
+
+        // Wrapper removed; emits merged onto host.
+        let names: Vec<&str> = orbital
+            .traits
+            .iter()
+            .filter_map(trait_ref_name)
+            .collect();
+        assert_eq!(names, vec!["Host"], "consumed wrapper must be removed");
+        let TraitReference::Inline(host_td) = &orbital.traits[0] else {
+            panic!()
+        };
+        let emits = host_td.emits.as_ref().expect("merged emits");
+        assert!(emits.iter().any(|e| e.event == "ACTION"));
+    }
+
+    #[test]
+    fn nested_wrapper_children_splice_recursively() {
+        let inner = render_only_trait("InlineInner", obj(vec![("type", s("icon"))]));
+        let outer = render_only_trait(
+            "InlineOuter",
+            obj(vec![
+                ("type", s("badge")),
+                ("children", SExpression::Array(vec![s("@trait.InlineInner")])),
+            ]),
+        );
+        let host = host_with_render("Host", lambda_render_pattern(vec![s("@trait.InlineOuter")]));
+        let mut orbital = make_orbital(vec![host, outer, inner]);
+
+        splice_lambda_trait_refs(&mut orbital, "orbitals[0]").expect("splice must succeed");
+
+        let json = serde_json::to_string(&host_pattern_of(&orbital, "Host")).unwrap();
+        assert!(!json.contains("@trait."), "nested refs must splice too: {json}");
+        assert!(json.contains("icon"), "inner template must be present: {json}");
+        assert_eq!(orbital.traits.len(), 1, "both wrappers consumed");
+    }
+
+    #[test]
+    fn stateful_wrapper_in_lambda_errors() {
+        let mut stateful = render_only_trait("Modal", obj(vec![("type", s("modal"))]));
+        stateful.state_machine.states.push(StateDefinition {
+            name: "open".to_string(),
+            is_initial: None,
+            is_terminal: None,
+            description: None,
+            time_bound_ms: None,
+        });
+        let host = host_with_render("Host", lambda_render_pattern(vec![s("@trait.Modal")]));
+        let mut orbital = make_orbital(vec![host, stateful]);
+
+        let err = splice_lambda_trait_refs(&mut orbital, "orbitals[0]").unwrap_err();
+        match err {
+            InlineError::LambdaStatefulTrait { name, .. } => assert_eq!(name, "Modal"),
+            other => panic!("expected LambdaStatefulTrait, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn outside_lambda_reference_is_untouched() {
+        let wrapper = render_only_trait("InlineW1", obj(vec![("type", s("badge"))]));
+        let host = host_with_render(
+            "Host",
+            obj(vec![
+                ("type", s("stack")),
+                ("children", SExpression::Array(vec![s("@trait.InlineW1")])),
+            ]),
+        );
+        let mut orbital = make_orbital(vec![host, wrapper]);
+
+        splice_lambda_trait_refs(&mut orbital, "orbitals[0]").expect("splice must succeed");
+
+        let json = serde_json::to_string(&host_pattern_of(&orbital, "Host")).unwrap();
+        assert!(
+            json.contains("@trait.InlineW1"),
+            "non-lambda positions keep reference semantics: {json}"
+        );
+        assert_eq!(orbital.traits.len(), 2, "wrapper must not be removed");
+    }
+
+    #[test]
+    fn emit_merge_conflict_is_rejected() {
+        let mut wrapper = render_only_trait("InlineW1", obj(vec![("type", s("badge"))]));
+        wrapper.emits = Some(vec![emit("ACTION", "id")]);
+        let mut host = host_with_render("Host", lambda_render_pattern(vec![s("@trait.InlineW1")]));
+        host.emits = Some(vec![emit("ACTION", "differentField")]);
+        let mut orbital = make_orbital(vec![host, wrapper]);
+
+        let err = splice_lambda_trait_refs(&mut orbital, "orbitals[0]").unwrap_err();
+        match err {
+            InlineError::EmitMergeConflict { event, host, .. } => {
+                assert_eq!(event, "ACTION");
+                assert_eq!(host, "Host");
+            }
+            other => panic!("expected EmitMergeConflict, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn wrapper_cycle_terminates_without_splice_loop() {
+        let a = render_only_trait(
+            "CycleA",
+            obj(vec![("type", s("stack")), ("children", SExpression::Array(vec![s("@trait.CycleB")]))]),
+        );
+        let b = render_only_trait(
+            "CycleB",
+            obj(vec![("type", s("stack")), ("children", SExpression::Array(vec![s("@trait.CycleA")]))]),
+        );
+        let host = host_with_render("Host", lambda_render_pattern(vec![s("@trait.CycleA")]));
+        let mut orbital = make_orbital(vec![host, a, b]);
+
+        // Must terminate; the cycle edge stays a reference for the validator.
+        splice_lambda_trait_refs(&mut orbital, "orbitals[0]").expect("cycle must not loop");
+    }
+}
