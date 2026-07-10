@@ -316,6 +316,17 @@ fn collect_sibling_trait_refs(expr: &SExpression, out: &mut HashSet<String>) {
 
 /// Scan a resolved trait's render trees (every SExpr inside transition effects
 /// + guards, and tick effects + guards) for `@trait.<Sibling>` references.
+///
+/// Also scans every config-field DEFAULT value. A `@trait.<Sibling>` reference
+/// can live inside a config-field's default render tree (e.g. std-browse's
+/// `denseBodyContent`/`feedBodyContent` bodies, selected by a `browseLook`
+/// guard) rather than directly in a transition effect. When the effect that
+/// consumes such a field is still an unsubstituted `@config.<field>` binding
+/// — as it is during a deferred import-load inline — the transition walk alone
+/// misses those refs, so the siblings never get pulled into the intermediate
+/// clone and dangle once a downstream consumer substitutes the binding.
+/// Scanning config defaults makes sibling discovery independent of whether the
+/// config binding has been substituted yet.
 fn sibling_trait_refs_of(trait_def: &TraitDefinition) -> HashSet<String> {
     let mut out = HashSet::new();
     for transition in &trait_def.state_machine.transitions {
@@ -335,6 +346,13 @@ fn sibling_trait_refs_of(trait_def: &TraitDefinition) -> HashSet<String> {
             }
             for effect in &tick.effects {
                 collect_sibling_trait_refs(effect, &mut out);
+            }
+        }
+    }
+    if let Some(config) = trait_def.config.as_ref() {
+        for field in config.values() {
+            if let Some(default) = field.default.as_ref() {
+                collect_sibling_trait_refs(default, &mut out);
             }
         }
     }
@@ -427,21 +445,30 @@ pub(crate) fn inline_traits(
                 }
                 // Atom-scope config-default substitution. When an inline
                 // trait carries `@config.X` bindings (e.g. `limit:
-                // @config.pageSize`) and is compiled standalone (no
-                // import call site supplying overrides), the codegen
-                // path emits `Number(undefined)` for those bindings —
-                // see codegen/guard.rs OirBindingRoot::Config which
-                // assumes the inline phase has already substituted
-                // every @config.X with a literal. For Reference traits
-                // the substitution happens in `apply_overrides_to_trait`
-                // (line ~1097); for Inline traits it didn't run at all.
-                // Apply the trait's own declared defaults here so atom
-                // standalone codegen produces `Number(10)` instead of
-                // `Number(undefined)`. Cloning into a new Inline keeps
-                // the rest of the pipeline (which expects a fresh
-                // owned trait_def) unchanged.
+                // @config.pageSize`) and is compiled standalone (no import
+                // call site supplying overrides), the codegen path emits
+                // `Number(undefined)` for those bindings — see codegen/guard.rs
+                // OirBindingRoot::Config which assumes the inline phase has
+                // already substituted every @config.X with a literal.
+                //
+                // Only do this when the orbital is NOT being loaded as an
+                // import for a downstream consumer (`ctx.defer_config_subst`).
+                // On an import load, folding here would substitute `@config.X`
+                // with this atom's OWN declared default BEFORE the consumer's
+                // `apply_overrides_to_trait` pass (which runs afterwards on the
+                // caller's `TraitReference`) can apply the consumer's override
+                // — permanently clobbering the override for any knob that has a
+                // declared default. That is the guard-fold bug: a guard
+                // `["=", "@config.browseLook", "dense"]` was baked to the atom
+                // default `["=", "table", "dense"]` instead of the consumer
+                // override `["=", "dense", "dense"]`. Deferring leaves
+                // `@config.X` live so the override substitution reaches it; the
+                // consumer's own top-level resolution (Reference arm / sibling
+                // pull, both defer=false) then folds it to the effective value.
                 let mut td = trait_def.clone();
-                apply_inline_config_defaults(&mut td, recorder);
+                if !ctx.defer_config_subst {
+                    apply_inline_config_defaults(&mut td, recorder);
+                }
                 result.push(TraitReference::Inline(td));
             }
             TraitReference::Reference {
