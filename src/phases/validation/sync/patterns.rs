@@ -2379,6 +2379,30 @@ pub static PATTERN_PROPS_SCHEMA: LazyLock<HashMap<&'static str, HashSet<&'static
                 .collect(),
             ),
             (
+                "hstack",
+                [
+                    "action",
+                    "actionPayload",
+                    "align",
+                    "as",
+                    "children",
+                    "className",
+                    "flex",
+                    "gap",
+                    "justify",
+                    "onClick",
+                    "onKeyDown",
+                    "responsive",
+                    "reverse",
+                    "role",
+                    "style",
+                    "tabIndex",
+                    "wrap",
+                ]
+                .into_iter()
+                .collect(),
+            ),
+            (
                 "icon",
                 [
                     "animation",
@@ -2430,7 +2454,31 @@ pub static PATTERN_PROPS_SCHEMA: LazyLock<HashMap<&'static str, HashSet<&'static
                 .into_iter()
                 .collect(),
             ),
-            ("input-group", ["className", "leftAddon", "rightAddon"].into_iter().collect()),
+            (
+                "input-group",
+                [
+                    "action",
+                    "className",
+                    "clearable",
+                    "disabled",
+                    "error",
+                    "helperText",
+                    "inputType",
+                    "label",
+                    "leftAddon",
+                    "leftIcon",
+                    "onChange",
+                    "onClear",
+                    "options",
+                    "placeholder",
+                    "rightAddon",
+                    "rightIcon",
+                    "rows",
+                    "value",
+                ]
+                .into_iter()
+                .collect(),
+            ),
             ("install-box", ["className", "command", "label"].into_iter().collect()),
             (
                 "jazari-state-machine",
@@ -4063,6 +4111,30 @@ pub static PATTERN_PROPS_SCHEMA: LazyLock<HashMap<&'static str, HashSet<&'static
                     "userVote",
                     "variant",
                     "voteEvent",
+                ]
+                .into_iter()
+                .collect(),
+            ),
+            (
+                "vstack",
+                [
+                    "action",
+                    "actionPayload",
+                    "align",
+                    "as",
+                    "children",
+                    "className",
+                    "flex",
+                    "gap",
+                    "justify",
+                    "onClick",
+                    "onKeyDown",
+                    "responsive",
+                    "reverse",
+                    "role",
+                    "style",
+                    "tabIndex",
+                    "wrap",
                 ]
                 .into_iter()
                 .collect(),
@@ -6121,6 +6193,30 @@ pub static PATTERN_PROP_TYPES: LazyLock<HashMap<&'static str, HashMap<&'static s
                 .collect(),
             ),
             (
+                "hstack",
+                [
+                    ("gap", &["string"] as &[&str]),
+                    ("align", &["string"] as &[&str]),
+                    ("justify", &["string"] as &[&str]),
+                    ("wrap", &["boolean"] as &[&str]),
+                    ("reverse", &["boolean"] as &[&str]),
+                    ("flex", &["boolean"] as &[&str]),
+                    ("className", &["string"] as &[&str]),
+                    ("style", &["object"] as &[&str]),
+                    ("children", &["node"] as &[&str]),
+                    ("as", &["component"] as &[&str]),
+                    ("onClick", &["function"] as &[&str]),
+                    ("onKeyDown", &["function"] as &[&str]),
+                    ("role", &["string"] as &[&str]),
+                    ("tabIndex", &["number"] as &[&str]),
+                    ("action", &["string"] as &[&str]),
+                    ("actionPayload", &["object"] as &[&str]),
+                    ("responsive", &["boolean"] as &[&str]),
+                ]
+                .into_iter()
+                .collect(),
+            ),
+            (
                 "icon",
                 [
                     ("icon", &["icon", "string"] as &[&str]),
@@ -6175,9 +6271,24 @@ pub static PATTERN_PROP_TYPES: LazyLock<HashMap<&'static str, HashMap<&'static s
             (
                 "input-group",
                 [
+                    ("className", &["string"] as &[&str]),
+                    ("placeholder", &["string"] as &[&str]),
+                    ("value", &["string", "number"] as &[&str]),
+                    ("disabled", &["boolean"] as &[&str]),
+                    ("action", &["string"] as &[&str]),
+                    ("inputType", &["string"] as &[&str]),
+                    ("label", &["string"] as &[&str]),
+                    ("helperText", &["string"] as &[&str]),
+                    ("error", &["string"] as &[&str]),
+                    ("leftIcon", &["icon", "string"] as &[&str]),
+                    ("rightIcon", &["icon", "string"] as &[&str]),
+                    ("clearable", &["boolean"] as &[&str]),
+                    ("onClear", &["function", "string"] as &[&str]),
+                    ("options", &["array"] as &[&str]),
+                    ("rows", &["number"] as &[&str]),
+                    ("onChange", &["function", "string"] as &[&str]),
                     ("leftAddon", &["node", "icon"] as &[&str]),
                     ("rightAddon", &["node", "icon"] as &[&str]),
-                    ("className", &["string"] as &[&str]),
                 ]
                 .into_iter()
                 .collect(),
@@ -8251,6 +8362,30 @@ pub static PATTERN_PROP_TYPES: LazyLock<HashMap<&'static str, HashMap<&'static s
                 .collect(),
             ),
             (
+                "vstack",
+                [
+                    ("gap", &["string"] as &[&str]),
+                    ("align", &["string"] as &[&str]),
+                    ("justify", &["string"] as &[&str]),
+                    ("wrap", &["boolean"] as &[&str]),
+                    ("reverse", &["boolean"] as &[&str]),
+                    ("flex", &["boolean"] as &[&str]),
+                    ("className", &["string"] as &[&str]),
+                    ("style", &["object"] as &[&str]),
+                    ("children", &["node"] as &[&str]),
+                    ("as", &["component"] as &[&str]),
+                    ("onClick", &["function"] as &[&str]),
+                    ("onKeyDown", &["function"] as &[&str]),
+                    ("role", &["string"] as &[&str]),
+                    ("tabIndex", &["number"] as &[&str]),
+                    ("action", &["string"] as &[&str]),
+                    ("actionPayload", &["object"] as &[&str]),
+                    ("responsive", &["boolean"] as &[&str]),
+                ]
+                .into_iter()
+                .collect(),
+            ),
+            (
                 "wizard-container",
                 [
                     ("steps", &["array"] as &[&str]),
@@ -8738,6 +8873,16 @@ pub static PATTERN_PROP_ENUM_VALUES: LazyLock<HashMap<&'static str, HashMap<&'st
                 .collect(),
             ),
             (
+                "hstack",
+                [
+                    ("gap", &["none", "xs", "sm", "md", "lg", "xl", "2xl"] as &[&str]),
+                    ("align", &["start", "center", "end", "stretch", "baseline"] as &[&str]),
+                    ("justify", &["start", "center", "end", "between", "around", "evenly"] as &[&str]),
+                ]
+                .into_iter()
+                .collect(),
+            ),
+            (
                 "icon",
                 [
                     ("size", &["xs", "sm", "md", "lg", "xl"] as &[&str]),
@@ -8749,6 +8894,14 @@ pub static PATTERN_PROP_ENUM_VALUES: LazyLock<HashMap<&'static str, HashMap<&'st
             ),
             (
                 "input",
+                [
+                    ("inputType", &["text", "email", "password", "number", "tel", "url", "search", "date", "datetime-local", "time", "checkbox", "select", "textarea"] as &[&str]),
+                ]
+                .into_iter()
+                .collect(),
+            ),
+            (
+                "input-group",
                 [
                     ("inputType", &["text", "email", "password", "number", "tel", "url", "search", "date", "datetime-local", "time", "checkbox", "select", "textarea"] as &[&str]),
                 ]
@@ -9021,6 +9174,16 @@ pub static PATTERN_PROP_ENUM_VALUES: LazyLock<HashMap<&'static str, HashMap<&'st
                 .into_iter()
                 .collect(),
             ),
+            (
+                "vstack",
+                [
+                    ("gap", &["none", "xs", "sm", "md", "lg", "xl", "2xl"] as &[&str]),
+                    ("align", &["start", "center", "end", "stretch", "baseline"] as &[&str]),
+                    ("justify", &["start", "center", "end", "between", "around", "evenly"] as &[&str]),
+                ]
+                .into_iter()
+                .collect(),
+            ),
         ]
         .into_iter()
         .collect()
@@ -9052,8 +9215,10 @@ pub static PATTERN_EVENT_PROPS: LazyLock<HashMap<&'static str, HashSet<&'static 
             ("floating-action-button", ["action"].into_iter().collect()),
             ("form", ["submitEvent", "cancelEvent"].into_iter().collect()),
             ("form-section", ["submitEvent", "cancelEvent"].into_iter().collect()),
+            ("hstack", ["action"].into_iter().collect()),
             ("infinite-scroll-sentinel", ["loadMoreEvent"].into_iter().collect()),
             ("input", ["action"].into_iter().collect()),
+            ("input-group", ["action"].into_iter().collect()),
             ("number-stepper", ["action"].into_iter().collect()),
             ("overlay", ["action"].into_iter().collect()),
             ("pull-to-refresh", ["refreshEvent"].into_iter().collect()),
@@ -9069,6 +9234,7 @@ pub static PATTERN_EVENT_PROPS: LazyLock<HashMap<&'static str, HashSet<&'static 
             ("text-highlight", ["action", "hoverEvent"].into_iter().collect()),
             ("textarea", ["action"].into_iter().collect()),
             ("upload-drop-zone", ["action"].into_iter().collect()),
+            ("vstack", ["action"].into_iter().collect()),
             ("wizard-container", ["nextEvent", "backEvent", "completeEvent"].into_iter().collect()),
         ]
         .into_iter()
