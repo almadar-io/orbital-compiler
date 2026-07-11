@@ -400,6 +400,9 @@ pub(crate) fn apply_inline_config_defaults(
             }
         }
     }
+    // Standalone atom (no call site): `@config.<knob>` emit-name refs
+    // resolve to the declared defaults collected above (Option B).
+    super::r#trait::resolve_config_ref_emit_names(trait_def, cfg);
 }
 
 /// Phase 3.A: Substitute `@config.<param>` binding strings with concrete

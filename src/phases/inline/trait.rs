@@ -256,32 +256,54 @@ pub(crate) fn apply_overrides_to_trait(
 }
 
 /// Rewrite every `emits[*].event` that is a `@config.<knob>` reference to its
-/// resolved literal. `listens` does not share this surface yet — the parser
-/// only accepts the reference sigil where an emit/listen event name is
-/// expected in `emits {}`; `listens {}` handler dispatch still requires a
-/// leading `Identifier` token (source or bare event), so a config-ref there
-/// would need parser work of its own (not part of this change).
-fn resolve_config_ref_emit_names(
+/// resolved literal, and mirror the rewrite onto the matching
+/// `stateMachine.events[*].key` entries (L1 lowering unions emit keys into the
+/// events registry, so the raw token appears there too). `listens` does not
+/// share this surface yet — the parser only accepts the reference sigil where
+/// an emit event name is expected in `emits {}`; `listens {}` handler dispatch
+/// still requires a leading `Identifier` token (source or bare event), so a
+/// config-ref there would need parser work of its own (not part of this change).
+pub(crate) fn resolve_config_ref_emit_names(
     trait_def: &mut TraitDefinition,
     effective_config: &HashMap<String, SExpression>,
 ) {
-    let Some(emits) = trait_def.emits.as_mut() else {
-        return;
-    };
-    for emit in emits.iter_mut() {
-        if orbital_core::schema::config_ref_event_knob(&emit.event).is_none() {
-            continue;
+    let mut resolved_pairs: Vec<(String, String)> = Vec::new();
+    {
+        let Some(emits) = trait_def.emits.as_ref() else {
+            return;
+        };
+        for emit in emits.iter() {
+            if orbital_core::schema::config_ref_event_knob(&emit.event).is_none() {
+                continue;
+            }
+            match orbital_core::schema::resolve_config_ref_event_name(
+                &emit.event,
+                effective_config,
+                trait_def.config.as_ref(),
+            ) {
+                Ok(resolved) => resolved_pairs.push((emit.event.clone(), resolved)),
+                // Left unresolved on error; the validation phase's
+                // EmitConfigRefInvalid check reports the specific contract
+                // clause that failed (unknown knob / non-string / no default).
+                Err(_) => {}
+            }
         }
-        match orbital_core::schema::resolve_config_ref_event_name(
-            &emit.event,
-            effective_config,
-            trait_def.config.as_ref(),
-        ) {
-            Ok(resolved) => emit.event = resolved,
-            // Left unresolved on error; the validation phase's
-            // ConfigRefEventInvalid check reports the specific contract
-            // clause that failed (unknown knob / non-string / no default).
-            Err(_) => {}
+    }
+    if resolved_pairs.is_empty() {
+        return;
+    }
+    if let Some(emits) = trait_def.emits.as_mut() {
+        for emit in emits.iter_mut() {
+            if let Some((_, to)) = resolved_pairs.iter().find(|(from, _)| from == &emit.event) {
+                emit.event = to.clone();
+            }
+        }
+    }
+    if let Some(events) = trait_def.state_machine.events.as_mut() {
+        for ev in events.iter_mut() {
+            if let Some((_, to)) = resolved_pairs.iter().find(|(from, _)| from == &ev.key) {
+                ev.key = to.clone();
+            }
         }
     }
 }
