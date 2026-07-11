@@ -36,6 +36,11 @@ use r#trait::inline_traits;
 // private `r#trait` submodule as `pub(crate)`; without this re-export the path
 // is E0425 (latent — surfaces whenever orbital-compiler recompiles).
 pub(crate) use r#trait::collect_sibling_trait_refs;
+// Re-exported so `phases::validation::trait_ref_config` (and
+// `inline_schema_with_config_diagnostics`'s public signature above) can name
+// the type as `crate::phases::inline::TraitRefConfigDiagnostic` without
+// reaching into the private `r#trait` submodule directly.
+pub use r#trait::TraitRefConfigDiagnostic;
 use rewrite::{apply_inline_config_defaults, rewrite_trait_literal_refs, trait_ref_name};
 use service::inline_services;
 use splice::splice_lambda_trait_refs;
@@ -201,6 +206,25 @@ pub fn inline_schema(
     config: &InlineConfig,
     source_path: Option<&Path>,
 ) -> Result<(), InlineError> {
+    let mut diagnostics = Vec::new();
+    inline_schema_with_config_diagnostics(schema, config, source_path, &mut diagnostics)
+}
+
+/// Same as [`inline_schema`], but also collects every trait Reference whose
+/// call-site `config` doesn't exactly match the referenced trait's declared
+/// config knobs (unknown keys / missing `!`-required keys). Consumed by
+/// `orb validate`'s call-site config rules
+/// (`ORB_T_CONFIG_UNKNOWN_CALL_SITE_KEY` / `ORB_T_CONFIG_MISSING_REQUIRED_KEY`)
+/// — collection has to happen during inlining because
+/// `apply_overrides_to_trait` folds matched keys into the resolved trait and
+/// silently drops unmatched ones, so the raw call-site key set is gone by
+/// the time `validate_comprehensive_full` runs.
+pub fn inline_schema_with_config_diagnostics(
+    schema: &mut OrbitalSchema,
+    config: &InlineConfig,
+    source_path: Option<&Path>,
+    diagnostics: &mut Vec<r#trait::TraitRefConfigDiagnostic>,
+) -> Result<(), InlineError> {
     if config.skip_inline {
         return Ok(());
     }
@@ -240,6 +264,7 @@ pub fn inline_schema(
             true,
             Some(&mut pulled),
             &mut provenance,
+            diagnostics,
         )?;
         if !pulled.is_empty() {
             pulled_by_orbital.push((idx, pulled));
@@ -358,6 +383,7 @@ fn inline_orbital(
     // the auto-pull loop so `inline_schema` can uniquify cross-orbital collisions.
     pulled_names_sink: Option<&mut Vec<String>>,
     recorder: &mut Vec<ConfigProvenanceRecord>,
+    config_diagnostics: &mut Vec<r#trait::TraitRefConfigDiagnostic>,
 ) -> Result<(), InlineError> {
     // Skip the import-loading + reference-substitution machinery when
     // the orbital has no `uses[]` declarations (e.g. an atom compiled
@@ -440,6 +466,7 @@ fn inline_orbital(
                 false,
                 None,
                 recorder,
+                config_diagnostics,
             )?;
         }
 
@@ -584,9 +611,15 @@ fn inline_orbital(
     // `dispatch-updates` walker reads this path to route UPDATE_SPEC to
     // the right subagent.
     let orbital_path_prefix = format!("orbitals[name={}]", orbital.name);
-    let (inlined_traits, trait_rename_map, pulled_aux_entities, pulled_sibling_names) =
-        inline_traits(&orbital.traits, &ctx, &orbital_path_prefix, recorder)?;
+    let (
+        inlined_traits,
+        trait_rename_map,
+        pulled_aux_entities,
+        pulled_sibling_names,
+        trait_config_diagnostics,
+    ) = inline_traits(&orbital.traits, &ctx, &orbital_path_prefix, recorder)?;
     orbital.traits = inlined_traits;
+    config_diagnostics.extend(trait_config_diagnostics);
     if let Some(sink) = pulled_names_sink {
         *sink = pulled_sibling_names;
     }
@@ -1016,7 +1049,7 @@ mod tests {
             modal_ref(Some("CartItemEditItem"), Some("CartItem")),
         ];
 
-        let (result, _rename_map, _aux, _pulled) =
+        let (result, _rename_map, _aux, _pulled, _cfg_diags) =
             inline_traits(&traits, &ctx, "<test>", &mut Vec::new())
                 .expect("two distinct `name` overrides must inline successfully without collision");
         assert_eq!(result.len(), 2, "both references must be inlined");
@@ -1058,7 +1091,7 @@ mod tests {
             modal_ref(None, Some("CartItem")),
         ];
 
-        let (result, _rename_map, _aux, _pulled) =
+        let (result, _rename_map, _aux, _pulled, _cfg_diags) =
             inline_traits(&traits, &ctx, "<test>", &mut Vec::new())
                 .expect("one renamed + one not-renamed must succeed (no name collision)");
         assert_eq!(result.len(), 2);

@@ -214,6 +214,7 @@ fn good_array_of_metricspec_passes() {
             values: None,
             items: Some(Box::new(metric_spec_items())),
             properties: None,
+            required: None,
         },
     );
     let schema = schema_with_config(config);
@@ -244,6 +245,7 @@ fn string_value_where_number_expected_fails() {
             values: None,
             items: Some(Box::new(metric_spec_items())),
             properties: None,
+            required: None,
         },
     );
     let schema = schema_with_config(config);
@@ -318,6 +320,7 @@ fn bare_string_in_array_of_objects_fails() {
             values: None,
             items: Some(Box::new(format_items)),
             properties: None,
+            required: None,
         },
     );
     let schema = schema_with_config(config);
@@ -348,6 +351,7 @@ fn missing_required_field_fails() {
             values: None,
             items: Some(Box::new(metric_spec_items())),
             properties: None,
+            required: None,
         },
     );
     let schema = schema_with_config(config);
@@ -387,6 +391,7 @@ fn enum_value_outside_allowed_set_fails() {
             values: None,
             items: Some(Box::new(metric_spec_items())),
             properties: None,
+            required: None,
         },
     );
     let schema = schema_with_config(config);
@@ -426,6 +431,7 @@ fn binding_strings_pass_the_check() {
             values: None,
             items: Some(Box::new(metric_spec_items())),
             properties: None,
+            required: None,
         },
     );
     let schema = schema_with_config(config);
@@ -452,6 +458,7 @@ fn array_typed_slot_with_scalar_default_fails() {
             values: None,
             items: Some(Box::new(metric_spec_items())),
             properties: None,
+            required: None,
         },
     );
     let schema = schema_with_config(config);

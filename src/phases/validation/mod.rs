@@ -59,6 +59,7 @@ pub mod sigil_context;
 pub mod slot;
 pub mod sync;
 pub mod theme;
+pub mod trait_ref_config;
 pub mod trait_validator;
 
 // Re-export main types

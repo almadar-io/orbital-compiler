@@ -125,6 +125,16 @@ pub enum ErrorCode {
     /// inline phase where the imported trait's pre-rename event set is still
     /// visible.
     EventRenameUnknownKey,
+    /// A trait Reference's call-site `config` block supplies a key that
+    /// matches no declared config knob on the referenced trait — the
+    /// override silently no-ops (e.g. a stale `entity=` left over from a
+    /// generator regression, or a knob the atom never declared).
+    TraitConfigUnknownCallSiteKey,
+    /// A trait Reference's call site omits a key for a knob the referenced
+    /// trait declares `!` (required). Any value form (literal, `@config.X`
+    /// forward, `@entity.*`, payload ref) satisfies the requirement — only
+    /// a fully missing key fires. The atom's own page binding is exempt.
+    TraitConfigMissingRequiredKey,
 
     // =========================================================================
     // Page Errors (ORB_P_*)
@@ -647,6 +657,8 @@ impl ErrorCode {
             ErrorCode::TraitEntityNotRebindable => "ORB_T_ENTITY_NOT_REBINDABLE",
             ErrorCode::RebindMissingEntityFields => "ORB_T_REBIND_MISSING_FIELDS",
             ErrorCode::EventRenameUnknownKey => "ORB_T_EVENT_RENAME_UNKNOWN_KEY",
+            ErrorCode::TraitConfigUnknownCallSiteKey => "ORB_T_CONFIG_UNKNOWN_CALL_SITE_KEY",
+            ErrorCode::TraitConfigMissingRequiredKey => "ORB_T_CONFIG_MISSING_REQUIRED_KEY",
 
             // Page
             ErrorCode::PageMissingName => "ORB_P_MISSING_NAME",
@@ -865,7 +877,9 @@ impl ErrorCode {
             | ErrorCode::TraitConfigTierInvalid
             | ErrorCode::TraitEntityNotRebindable
             | ErrorCode::RebindMissingEntityFields
-            | ErrorCode::EventRenameUnknownKey => "trait",
+            | ErrorCode::EventRenameUnknownKey
+            | ErrorCode::TraitConfigUnknownCallSiteKey
+            | ErrorCode::TraitConfigMissingRequiredKey => "trait",
 
             ErrorCode::PageMissingName
             | ErrorCode::PageMissingPath

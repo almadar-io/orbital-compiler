@@ -364,6 +364,22 @@ fn sibling_trait_refs_of(trait_def: &TraitDefinition) -> HashSet<String> {
     out
 }
 
+/// One trait Reference whose call-site `config` doesn't exactly match the
+/// referenced trait's declared config knobs. Collected during inlining (the
+/// only point where both the raw call-site key set and the atom's untouched
+/// declaration — including cross-orbital `std/behaviors/*` atoms resolved
+/// via the embedded phf registry — are visible together) and converted into
+/// `ORB_T_CONFIG_UNKNOWN_CALL_SITE_KEY` / `ORB_T_CONFIG_MISSING_REQUIRED_KEY`
+/// validation errors by `phases::validation::trait_ref_config`.
+#[derive(Debug, Clone)]
+pub struct TraitRefConfigDiagnostic {
+    pub path: String,
+    pub reference: String,
+    pub unknown_keys: Vec<String>,
+    pub missing_required_keys: Vec<String>,
+    pub declared_keys: Vec<String>,
+}
+
 pub(crate) type InlinedTraits = (
     Vec<TraitReference>,
     HashMap<String, String>,
@@ -373,6 +389,7 @@ pub(crate) type InlinedTraits = (
     // the `@trait` ref resolves, but identical pulls in two orbitals collide
     // app-wide; `inline_schema` uniquifies those after all orbitals resolve.
     Vec<String>,
+    Vec<TraitRefConfigDiagnostic>,
 );
 
 /// Inline trait references.
@@ -413,6 +430,7 @@ pub(crate) fn inline_traits(
     recorder: &mut Vec<ConfigProvenanceRecord>,
 ) -> Result<InlinedTraits, InlineError> {
     let mut result = Vec::new();
+    let mut config_diagnostics: Vec<TraitRefConfigDiagnostic> = Vec::new();
     // Auxiliary entities surfaced by no-rebind sibling-pulls (see the pull loop).
     let mut pulled_aux_entities: Vec<EntityDefinition> = Vec::new();
     // Track every trait NAME that has already been pushed to `result`.
@@ -553,6 +571,61 @@ pub(crate) fn inline_traits(
                                                     path: trait_path.clone(),
                                                 });
                                             }
+                                        }
+                                    }
+                                    // E1/E2: check the call-site `config`
+                                    // keys against the referenced trait's
+                                    // DECLARED config BEFORE
+                                    // `apply_overrides_to_trait` folds
+                                    // matched keys into `trait_def.config`
+                                    // and silently drops unmatched ones —
+                                    // this is the only point where both the
+                                    // raw call-site key set and the atom's
+                                    // untouched declaration are visible
+                                    // together, even for cross-orbital
+                                    // std/behaviors refs (resolved above via
+                                    // `ctx.get_trait`, which reaches the
+                                    // embedded phf registry).
+                                    {
+                                        let empty_cfg: HashMap<String, ConfigField> =
+                                            HashMap::new();
+                                        let cfg = config.as_ref().unwrap_or(&empty_cfg);
+                                        let declared_keys: std::collections::BTreeSet<String> =
+                                            trait_def
+                                                .config
+                                                .as_ref()
+                                                .map(|m| m.keys().cloned().collect())
+                                                .unwrap_or_default();
+                                        let mut unknown_keys: Vec<String> = cfg
+                                            .keys()
+                                            .filter(|k| !declared_keys.contains(*k))
+                                            .cloned()
+                                            .collect();
+                                        unknown_keys.sort();
+                                        let mut missing_required_keys: Vec<String> = trait_def
+                                            .config
+                                            .as_ref()
+                                            .map(|m| {
+                                                m.iter()
+                                                    .filter(|(k, f)| {
+                                                        f.required.unwrap_or(false)
+                                                            && !cfg.contains_key(k.as_str())
+                                                    })
+                                                    .map(|(k, _)| k.clone())
+                                                    .collect()
+                                            })
+                                            .unwrap_or_default();
+                                        missing_required_keys.sort();
+                                        if !unknown_keys.is_empty()
+                                            || !missing_required_keys.is_empty()
+                                        {
+                                            config_diagnostics.push(TraitRefConfigDiagnostic {
+                                                path: trait_path.clone(),
+                                                reference: original_name.clone(),
+                                                unknown_keys,
+                                                missing_required_keys,
+                                                declared_keys: declared_keys.into_iter().collect(),
+                                            });
                                         }
                                     }
                                     apply_overrides_to_trait(
@@ -764,5 +837,11 @@ pub(crate) fn inline_traits(
         }
     }
 
-    Ok((result, rename_map, pulled_aux_entities, pulled_names))
+    Ok((
+        result,
+        rename_map,
+        pulled_aux_entities,
+        pulled_names,
+        config_diagnostics,
+    ))
 }
