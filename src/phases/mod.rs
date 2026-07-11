@@ -348,4 +348,39 @@ mod tests {
         assert_eq!(oir.name, "TestApp");
         assert_eq!(oir.version, "1.0.0");
     }
+
+    // Wave-8: the wasm mount resolves its schema through `resolve_schema_with_path(.., None)`
+    // and relies on std peers resolving from the embedded `phf` (no filesystem source path).
+    // std-export `uses` Button1/DataList1/Popover1 as `TraitReference::Reference`; after resolve
+    // with `source_path=None` every one must become `TraitReference::Inline`.
+    #[test]
+    fn resolves_embedded_std_uses_with_no_source_path() {
+        use orbital_core::schema::TraitReference;
+
+        let json = crate::embedded::get_std_behavior_content("std/behaviors/std-export")
+            .expect("std-export must be embedded");
+        let schema = parse_json(json).expect("parse std-export");
+
+        // Pre-condition: the three peers are unresolved References before inline.
+        let orbital = &schema.orbitals[0];
+        let refs_before = orbital
+            .traits
+            .iter()
+            .filter(|t| matches!(t, TraitReference::Reference { .. }))
+            .count();
+        assert!(refs_before >= 3, "expected >=3 unresolved refs, got {refs_before}");
+
+        let options = CompilerOptions::default();
+        let resolved = resolve_schema_with_path(schema, &options, None)
+            .expect("resolve std-export with no source path");
+
+        for orbital in &resolved.orbitals {
+            for t in &orbital.traits {
+                assert!(
+                    matches!(t, TraitReference::Inline(_)),
+                    "every trait must inline after resolve; found unresolved Reference"
+                );
+            }
+        }
+    }
 }
