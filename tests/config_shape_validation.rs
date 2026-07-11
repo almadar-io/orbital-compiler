@@ -444,6 +444,160 @@ fn binding_strings_pass_the_check() {
 }
 
 #[test]
+fn computed_sexpr_call_for_array_items_defers() {
+    // The drawable-layer idiom (std-iram / std-simple-rpg / std-kekec):
+    // `items: (array/map @entity.tiles (fn [t] {...}))`. This lowers to
+    // `SExpression::Array(["array/map", @entity.tiles, [fn, [t], {...}]])`
+    // — the same `Array` variant as a literal list, but it's an operator
+    // call whose shape only materializes at runtime. It must defer, not
+    // be misread as a 3-element literal array of MetricSpec objects.
+    let mut config = HashMap::new();
+    let call = SExpression::Array(vec![
+        SExpression::String("array/map".to_string()),
+        SExpression::String("@entity.tiles".to_string()),
+        SExpression::Array(vec![
+            SExpression::String("fn".to_string()),
+            SExpression::Array(vec![SExpression::String("t".to_string())]),
+            SExpression::Object(HashMap::new()),
+        ]),
+    ]);
+    config.insert(
+        "metrics".to_string(),
+        ConfigField {
+            field_type: "[MetricSpec]".to_string(),
+            default: Some(call),
+            label: None,
+            description: None,
+            synonyms: None,
+            tier: None,
+            values: None,
+            items: Some(Box::new(metric_spec_items())),
+            properties: None,
+            required: None,
+        },
+    );
+    let schema = schema_with_config(config);
+    let errs = shape_errors(&schema);
+    assert!(
+        errs.is_empty(),
+        "computed SExpr call should defer, got: {:?}",
+        errs
+    );
+}
+
+#[test]
+fn computed_sexpr_call_nested_in_object_property_defers() {
+    // A per-property value can itself be a computed call, e.g.
+    // `{ label: "Revenue", value: (sum @entity.rows) }`. The per-element
+    // object check must defer that property instead of type-mismatching
+    // it against the declared `number` leaf.
+    let mut config = HashMap::new();
+    let mut metric: HashMap<String, SExpression> = HashMap::new();
+    metric.insert(
+        "label".to_string(),
+        SExpression::String("Revenue".to_string()),
+    );
+    metric.insert(
+        "value".to_string(),
+        SExpression::Array(vec![
+            SExpression::String("array/sum".to_string()),
+            SExpression::String("@entity.rows".to_string()),
+        ]),
+    );
+    config.insert(
+        "metrics".to_string(),
+        ConfigField {
+            field_type: "[MetricSpec]".to_string(),
+            default: Some(SExpression::Array(vec![SExpression::Object(metric)])),
+            label: None,
+            description: None,
+            synonyms: None,
+            tier: None,
+            values: None,
+            items: Some(Box::new(metric_spec_items())),
+            properties: None,
+            required: None,
+        },
+    );
+    let schema = schema_with_config(config);
+    let errs = shape_errors(&schema);
+    assert!(
+        errs.is_empty(),
+        "computed SExpr call nested in an object property should defer, got: {:?}",
+        errs
+    );
+}
+
+#[test]
+fn literal_wrong_shape_still_errors_alongside_computed_defer() {
+    // A literal (non-call) array whose elements are bare strings, not
+    // objects, must still fire — the deferral must not blanket-suppress
+    // real literal mismatches. Reuses the same `[FormatOption]` shape as
+    // `bare_string_in_array_of_objects_fails` to pin that the fix is
+    // additive, not a broadening of what passes.
+    let mut format_props: HashMap<String, FieldDefinition> = HashMap::new();
+    format_props.insert(
+        "id".to_string(),
+        FieldDefinition {
+            name: Some("id".to_string()),
+            field_type: FieldType::String,
+            required: Some(true),
+            primary_key: None,
+            unique: None,
+            default: None,
+            values: None,
+            relation: None,
+            items: None,
+            properties: None,
+            intrinsic: None,
+            description: None,
+            synonyms: None,
+        },
+    );
+    let format_items = FieldDefinition {
+        name: None,
+        field_type: FieldType::Object,
+        required: None,
+        primary_key: None,
+        unique: None,
+        default: None,
+        values: None,
+        relation: None,
+        items: None,
+        properties: Some(format_props),
+        intrinsic: None,
+        description: None,
+        synonyms: None,
+    };
+    let mut config = HashMap::new();
+    config.insert(
+        "formats".to_string(),
+        ConfigField {
+            field_type: "[FormatOption]".to_string(),
+            default: Some(SExpression::Array(vec![SExpression::String(
+                "csv".to_string(),
+            )])),
+            label: None,
+            description: None,
+            synonyms: None,
+            tier: None,
+            values: None,
+            items: Some(Box::new(format_items)),
+            properties: None,
+            required: None,
+        },
+    );
+    let schema = schema_with_config(config);
+    let errs = shape_errors(&schema);
+    assert_eq!(errs.len(), 1, "expected one shape error, got: {:?}", errs);
+    assert!(
+        errs[0].contains("expected an object"),
+        "message: {}",
+        errs[0]
+    );
+}
+
+#[test]
 fn array_typed_slot_with_scalar_default_fails() {
     let mut config = HashMap::new();
     config.insert(

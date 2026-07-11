@@ -17,6 +17,26 @@ use orbital_core::schema::{
 use super::error::{ErrorCode, ValidationError};
 use super::sync::patterns::is_valid_pattern;
 use super::{ValidationContext, ValidationResult, VALID_SLOTS};
+use crate::embedded::is_known_operator;
+
+/// True when `value` is a computed S-expression (a binding reference or an
+/// operator call) rather than a literal — its shape only materializes at
+/// runtime, so structural checks against the declared type must defer to
+/// the runtime/Layer 2 obligation instead of firing statically. Reuses the
+/// same call-detection predicate as `sexpr::validate` (`is_known_operator`
+/// or a namespaced `/` operator name) so "is this a call" has one
+/// definition across the validator.
+fn is_deferred_computed(value: &SExpression) -> bool {
+    if value.is_binding() {
+        return true;
+    }
+    if let SExpression::Array(arr) = value {
+        if let Some(SExpression::String(first)) = arr.first() {
+            return is_known_operator(first) || first.contains('/');
+        }
+    }
+    false
+}
 
 /// Validate all `slot` and `pattern` config fields in the schema.
 pub fn validate_all_config_types(schema: &OrbitalSchema, ctx: &mut ValidationContext) {
@@ -226,6 +246,15 @@ fn check_config_default_shape(
             return result;
         }
     }
+    // Computed S-expression default (e.g. `(array/map @entity.tiles (fn
+    // [t] {...}))`) — an operator call, not a literal. It lowers to the
+    // same `SExpression::Array` variant as a literal array, so it must be
+    // distinguished before the array/object literal checks below run, or
+    // the call's operator/argument slots get misread as literal elements.
+    // Its shape only materializes at runtime — defer to Layer 2.
+    if is_deferred_computed(default) {
+        return result;
+    }
     // Array slot — `field_type` is `[T]` (string tag) and `items` carries
     // the per-element shape. Verify the value is an array, then recurse
     // each element through the `FieldDefinition` validator.
@@ -292,6 +321,12 @@ fn check_field_def_shape(
     path: &str,
 ) -> ValidationResult {
     let mut result = ValidationResult::new();
+    // Same computed-value deferral as the top-level default: a per-element
+    // or per-property value can itself be a binding or an operator call
+    // (e.g. an object property whose value is `(array/map ...)`).
+    if is_deferred_computed(value) {
+        return result;
+    }
     match schema.field_type {
         FieldType::Array => {
             let SExpression::Array(items) = value else {
@@ -387,6 +422,9 @@ fn check_primitive_shape(type_tag: &str, value: &SExpression, path: &str) -> Val
         if s.starts_with('@') {
             return result;
         }
+    }
+    if is_deferred_computed(value) {
+        return result;
     }
     let actual = match value {
         SExpression::String(_) => "string",
