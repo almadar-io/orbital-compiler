@@ -218,6 +218,28 @@ pub(crate) fn apply_overrides_to_trait(
                 }
             }
         }
+        // A reference's config block can DECLARE a brand-new knob rather
+        // than override one of the wrapped trait's (e.g. an alias trait
+        // adding its own `steps : [StepSpec] = [...]`). Those entries have
+        // no match in `declared` above (the wrapped trait never declared
+        // them) and are structurally a declaration, not a plain wiring
+        // value — insert them so the resolved trait carries them as its
+        // OWN declared config. This is what makes the alias's knob surface
+        // visible to any downstream call site that references the ALIAS
+        // (not the wrapped trait): the E1 unknown-call-site-key check reads
+        // `trait_def.config` off whatever `ctx.get_trait` resolves.
+        for (k, cf) in cfg.iter() {
+            let already_declared = trait_def
+                .config
+                .as_ref()
+                .is_some_and(|m| m.contains_key(k));
+            if !already_declared && cf.is_declaration_form() {
+                trait_def
+                    .config
+                    .get_or_insert_with(HashMap::new)
+                    .insert(k.clone(), cf.clone());
+            }
+        }
     }
     if !defer_config_subst && !effective_config.is_empty() {
         let cfg = &effective_config;
@@ -651,12 +673,28 @@ pub(crate) fn inline_traits(
                                         let empty_cfg: HashMap<String, ConfigField> =
                                             HashMap::new();
                                         let cfg = config.as_ref().unwrap_or(&empty_cfg);
-                                        let declared_keys: std::collections::BTreeSet<String> =
+                                        let mut declared_keys: std::collections::BTreeSet<String> =
                                             trait_def
                                                 .config
                                                 .as_ref()
                                                 .map(|m| m.keys().cloned().collect())
                                                 .unwrap_or_default();
+                                        // A `.lolo` alias trait can declare its OWN typed
+                                        // knobs inside the reference's config block (e.g.
+                                        // `trait Alias = Wrapped -> X { config { steps :
+                                        // [StepSpec] = [...] @label "Steps" } }`) — those
+                                        // are NEW knobs on the alias, not overrides of
+                                        // `Wrapped`'s declared config, so they must not be
+                                        // flagged unknown. `is_declaration_form` is the
+                                        // structural signal the lowerer already uses to
+                                        // distinguish a re-declaration from a plain wiring
+                                        // override (`field_type == "unknown"`, no
+                                        // annotations) — no key-name or value sniffing.
+                                        declared_keys.extend(
+                                            cfg.iter()
+                                                .filter(|(_, f)| f.is_declaration_form())
+                                                .map(|(k, _)| k.clone()),
+                                        );
                                         let mut unknown_keys: Vec<String> = cfg
                                             .keys()
                                             .filter(|k| !declared_keys.contains(*k))

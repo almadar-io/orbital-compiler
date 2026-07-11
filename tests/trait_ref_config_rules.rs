@@ -226,3 +226,156 @@ fn required_with_default_supplied_at_call_site_is_clean() {
         diagnostics
     );
 }
+
+// A `.lolo` alias trait (`trait Alias = Wrapped -> X { config { ... } }`)
+// can declare its OWN typed knob inside the reference's config block —
+// structurally a DECLARATION (real type tag / annotation), not a plain
+// wiring override of one of `WidgetView`'s knobs. `alias.orb` below
+// declares a new `steps` knob this way while also overriding the wrapped
+// trait's required `title`/`subtitle` via plain wiring.
+const ALIAS_FIXTURE: &str = r#"{
+  "name": "test-required-config-alias",
+  "version": "1.0.0",
+  "orbitals": [
+    {
+      "name": "AliasOrbital",
+      "uses": [ { "from": "./atom.orb", "as": "AtomAlias" } ],
+      "entity": {
+        "name": "AliasRecord",
+        "persistence": "runtime",
+        "fields": [ { "name": "id", "type": "string", "required": true } ]
+      },
+      "traits": [
+        {
+          "ref": "AtomAlias.traits.WidgetView",
+          "name": "AliasWidgetView",
+          "linkedEntity": "AliasRecord",
+          "config": {
+            "title": { "type": "unknown", "default": "Alias Title" },
+            "subtitle": { "type": "unknown", "default": "Alias Subtitle" },
+            "steps": { "type": "array", "default": [], "label": "Steps" }
+          }
+        }
+      ],
+      "pages": [
+        { "name": "AliasPage", "path": "/alias", "linkedEntity": "AliasRecord", "traits": [ { "ref": "AliasWidgetView" } ] }
+      ]
+    }
+  ]
+}"#;
+
+fn materialize_alias_composer(
+    composer_config_fragment: &str,
+) -> (tempfile::TempDir, std::path::PathBuf, std::path::PathBuf) {
+    let dir = tempfile::TempDir::new().expect("temp dir");
+    std::fs::write(dir.path().join("atom.orb"), ATOM_FIXTURE).expect("write atom");
+    std::fs::write(dir.path().join("alias.orb"), ALIAS_FIXTURE).expect("write alias");
+    let composer_path = dir.path().join("alias_composer.orb");
+    let composer_source = format!(
+        r#"{{
+  "name": "test-required-config-alias-composer",
+  "version": "1.0.0",
+  "orbitals": [
+    {{
+      "name": "AliasComposerOrbital",
+      "uses": [ {{ "from": "./alias.orb", "as": "AliasAlias" }} ],
+      "entity": {{
+        "name": "ComposerRecord",
+        "persistence": "runtime",
+        "fields": [ {{ "name": "id", "type": "string", "required": true }} ]
+      }},
+      "traits": [
+        {{
+          "ref": "AliasAlias.traits.AliasWidgetView",
+          "linkedEntity": "ComposerRecord"{config}
+        }}
+      ]
+    }}
+  ]
+}}"#,
+        config = composer_config_fragment,
+    );
+    std::fs::write(&composer_path, composer_source).expect("write alias composer");
+    let alias_path = dir.path().join("alias.orb");
+    (dir, alias_path, composer_path)
+}
+
+// (f) The alias's own declaration-form knob (`steps`, declared inside its
+// own reference to WidgetView) must not be flagged unknown against
+// WidgetView's declared config — union in the alias's own declarations.
+#[test]
+fn alias_declared_knob_at_alias_site_is_clean() {
+    let dir = tempfile::TempDir::new().expect("temp dir");
+    std::fs::write(dir.path().join("atom.orb"), ATOM_FIXTURE).expect("write atom");
+    let alias_path = dir.path().join("alias.orb");
+    std::fs::write(&alias_path, ALIAS_FIXTURE).expect("write alias");
+
+    let mut schema = parse_file(&alias_path).expect("alias must parse");
+    let mut diagnostics = Vec::new();
+    inline_schema_with_config_diagnostics(
+        &mut schema,
+        &InlineConfig::default(),
+        Some(&alias_path),
+        &mut diagnostics,
+    )
+    .expect("inline must succeed");
+    assert!(
+        diagnostics.is_empty(),
+        "alias's own declaration-form knob 'steps' must not be flagged unknown, got: {:#?}",
+        diagnostics
+    );
+}
+
+// (g) A call site one level up, referencing the ALIAS (not the wrapped
+// trait), passes the alias-declared knob (`steps=`) — must resolve clean.
+// This exercises the case-2 fix: the alias's resolved TraitDefinition must
+// carry `steps` as its own declared config so a downstream reference to
+// the ALIAS sees it as known, not just the wrapped trait's original knobs.
+#[test]
+fn call_site_passing_alias_declared_knob_is_clean() {
+    let config_fragment = r#",
+          "config": {
+            "title": { "type": "unknown", "default": "Composer Title" },
+            "subtitle": { "type": "unknown", "default": "Composer Subtitle" },
+            "steps": { "type": "unknown", "default": [ 1, 2, 3 ] }
+          }"#;
+    let (_dir, _alias_path, composer_path) = materialize_alias_composer(config_fragment);
+    let diagnostics = collect_diagnostics(&composer_path);
+    assert!(
+        diagnostics.is_empty(),
+        "call site passing alias-declared knob 'steps' must be clean, got: {:#?}",
+        diagnostics
+    );
+}
+
+// (h) A genuinely unknown key on the alias (matches neither WidgetView's
+// declared config nor the alias's own declarations) must still fire E1.
+#[test]
+fn genuinely_unknown_key_on_alias_still_fires_e1() {
+    let config_fragment = r#",
+          "config": {
+            "title": { "type": "unknown", "default": "Composer Title" },
+            "subtitle": { "type": "unknown", "default": "Composer Subtitle" },
+            "steps": { "type": "unknown", "default": [ 1, 2, 3 ] },
+            "bogusKnob": { "type": "unknown", "default": "nope" }
+          }"#;
+    let (_dir, _alias_path, composer_path) = materialize_alias_composer(config_fragment);
+    let diagnostics = collect_diagnostics(&composer_path);
+    let result = validate_trait_ref_config_diagnostics(&diagnostics);
+    assert!(
+        result
+            .errors
+            .iter()
+            .any(|e| e.code == ErrorCode::TraitConfigUnknownCallSiteKey
+                && e.message.contains("bogusKnob")),
+        "expected E1 for genuinely unknown key 'bogusKnob', got: {:#?}",
+        result.errors
+    );
+    assert!(
+        result.errors.iter().all(|e| {
+            e.code != ErrorCode::TraitConfigUnknownCallSiteKey || e.message.contains("bogusKnob")
+        }),
+        "no OTHER key should be flagged unknown, got: {:#?}",
+        result.errors
+    );
+}
