@@ -81,6 +81,55 @@ pub(crate) fn apply_overrides_to_trait(
         }
     }
 
+    // 3c. Build the effective config map (key → concrete SExpression value)
+    //     EARLY — same precedence `effective_config` always uses (declared
+    //     defaults, then call-site overrides) — and resolve any
+    //     `@config.<knob>` emit-name reference to its concrete literal
+    //     BEFORE the event-key rename pass below (step 5). Pinned contract:
+    //     `events: {...}` renames target the RESOLVED emit name (e.g.
+    //     ButtonRender's `emits { @config.action -> ... }` resolves to its
+    //     declared default "ACTION", and a call-site `events: {ACTION:
+    //     UPGRADE_WIDGET}` renames THAT). Resolving first means the later
+    //     `rewrite_trait_event_fields` walk (which matches `event_subs`
+    //     keys against the trait's declared event names) sees "ACTION", not
+    //     the still-raw "@config.action" token. Gated the same as the body
+    //     substitution below: a deferred import load leaves the reference
+    //     live for the downstream consumer's own resolution pass.
+    let mut effective_config: HashMap<String, SExpression> = HashMap::new();
+    if let Some(declared) = trait_def.config.as_ref() {
+        for (k, field) in declared.iter() {
+            if let Some(default) = field.default.as_ref() {
+                effective_config.insert(k.clone(), default.clone());
+            }
+        }
+    }
+    if let Some(cfg) = config {
+        for (k, cf) in cfg.iter() {
+            if let Some(v) = cf.default.as_ref() {
+                effective_config.insert(k.clone(), v.clone());
+            }
+        }
+    }
+    if !defer_config_subst {
+        let resolved_knobs = resolve_config_ref_emit_names(trait_def, &effective_config);
+        // Propagate a later `events:` rename onto the same knob's
+        // `effective_config` entry so the body substitution below (step 6,
+        // `rewrite_config_bindings`) emits the FINAL renamed event name
+        // everywhere `@config.<knob>` is read — not just in the structural
+        // `emits`/`state_machine.events` fields resolved above.
+        for knob in resolved_knobs {
+            let current = match effective_config.get(&knob) {
+                Some(SExpression::String(s)) => Some(s.clone()),
+                _ => None,
+            };
+            if let Some(current) = current {
+                if let Some(renamed) = event_subs.get(&current) {
+                    effective_config.insert(knob, SExpression::String(renamed.clone()));
+                }
+            }
+        }
+    }
+
     // 4. Walk SExpressions in transitions and ticks ONCE with both maps.
     if !entity_subs.is_empty() || !event_subs.is_empty() || !field_subs.is_empty() {
         for transition in trait_def.state_machine.transitions.iter_mut() {
@@ -157,26 +206,10 @@ pub(crate) fn apply_overrides_to_trait(
     // exists) and trips TS2339; client-side falls back to `mergedConfig?.X`
     // which works at runtime but loses constant-fold opportunities. Merging
     // keeps both paths consistent and prunes dead branches via the eq-fold.
-    // Build the effective config map (key → concrete SExpression value) for
-    // `@config.X` substitution. Sources in precedence order:
-    //   1. Atom's declared defaults (lowest priority).
-    //   2. Call-site overrides (highest priority — the `default` field of
-    //      each `ConfigField` entry).
-    let mut effective_config: HashMap<String, SExpression> = HashMap::new();
-    if let Some(declared) = trait_def.config.as_ref() {
-        for (k, field) in declared.iter() {
-            if let Some(default) = field.default.as_ref() {
-                effective_config.insert(k.clone(), default.clone());
-            }
-        }
-    }
-    if let Some(cfg) = config {
-        for (k, cf) in cfg.iter() {
-            if let Some(v) = cf.default.as_ref() {
-                effective_config.insert(k.clone(), v.clone());
-            }
-        }
-    }
+    // `effective_config` (key → concrete SExpression value, declared
+    // defaults overridden by call-site values) was already built in step 3c
+    // above — reused here for the body substitution below.
+    //
     // Wrap string-headed array values bound for literal-array slots in the
     // `list` constructor so they are never mis-read as S-expression calls
     // (see `mark_literal_list_in_place`). Type-directed off each slot's
@@ -266,14 +299,6 @@ pub(crate) fn apply_overrides_to_trait(
                 }
             }
         }
-        // 6b. Resolve `@config.<knob>` emit-name references (Option B) to
-        // their effective literal now that call-site config is folded. Runs
-        // in the same top-level-target-only gate as body substitution above
-        // so a deferred import load leaves the reference live for a
-        // downstream consumer to override. Standalone (no call site) still
-        // resolves here because `effective_config` already carries the
-        // atom's own declared defaults.
-        resolve_config_ref_emit_names(trait_def, cfg);
     }
 }
 
@@ -285,25 +310,34 @@ pub(crate) fn apply_overrides_to_trait(
 /// an emit event name is expected in `emits {}`; `listens {}` handler dispatch
 /// still requires a leading `Identifier` token (source or bare event), so a
 /// config-ref there would need parser work of its own (not part of this change).
+///
+/// Returns the knob names that were resolved, so the caller can propagate a
+/// later `events:` rename onto the SAME `effective_config` entry — a
+/// render-ui body literal bound to `@config.<knob>` (e.g. ButtonRender's
+/// `action: @config.action`) is substituted from `effective_config` too, and
+/// must end up holding the FINAL (resolved-then-renamed) event name, not
+/// just the resolved default, or `ORB_X_RENDER_UI_EVENT_LITERAL_STALE` fires.
 pub(crate) fn resolve_config_ref_emit_names(
     trait_def: &mut TraitDefinition,
     effective_config: &HashMap<String, SExpression>,
-) {
-    let mut resolved_pairs: Vec<(String, String)> = Vec::new();
+) -> Vec<String> {
+    let mut resolved_triples: Vec<(String, String, String)> = Vec::new();
     {
         let Some(emits) = trait_def.emits.as_ref() else {
-            return;
+            return Vec::new();
         };
         for emit in emits.iter() {
-            if orbital_core::schema::config_ref_event_knob(&emit.event).is_none() {
+            let Some(knob) = orbital_core::schema::config_ref_event_knob(&emit.event) else {
                 continue;
-            }
+            };
             match orbital_core::schema::resolve_config_ref_event_name(
                 &emit.event,
                 effective_config,
                 trait_def.config.as_ref(),
             ) {
-                Ok(resolved) => resolved_pairs.push((emit.event.clone(), resolved)),
+                Ok(resolved) => {
+                    resolved_triples.push((knob.to_string(), emit.event.clone(), resolved))
+                }
                 // Left unresolved on error; the validation phase's
                 // EmitConfigRefInvalid check reports the specific contract
                 // clause that failed (unknown knob / non-string / no default).
@@ -311,23 +345,28 @@ pub(crate) fn resolve_config_ref_emit_names(
             }
         }
     }
-    if resolved_pairs.is_empty() {
-        return;
+    if resolved_triples.is_empty() {
+        return Vec::new();
     }
     if let Some(emits) = trait_def.emits.as_mut() {
         for emit in emits.iter_mut() {
-            if let Some((_, to)) = resolved_pairs.iter().find(|(from, _)| from == &emit.event) {
+            if let Some((_, _, to)) = resolved_triples
+                .iter()
+                .find(|(_, from, _)| from == &emit.event)
+            {
                 emit.event = to.clone();
             }
         }
     }
     if let Some(events) = trait_def.state_machine.events.as_mut() {
         for ev in events.iter_mut() {
-            if let Some((_, to)) = resolved_pairs.iter().find(|(from, _)| from == &ev.key) {
+            if let Some((_, _, to)) = resolved_triples.iter().find(|(_, from, _)| from == &ev.key)
+            {
                 ev.key = to.clone();
             }
         }
     }
+    resolved_triples.into_iter().map(|(knob, ..)| knob).collect()
 }
 
 /// Phase F.7: Apply post-substitution structural overrides to a resolved
@@ -631,14 +670,70 @@ pub(crate) fn inline_traits(
                                     // union of declared emits and transition
                                     // triggers (`ORB_T_EVENT_RENAME_UNKNOWN_KEY`).
                                     if let Some(map) = events_override.as_ref() {
-                                        let mut known: HashSet<&str> = HashSet::new();
+                                        // Build the same effective per-instance
+                                        // config `apply_overrides_to_trait` will
+                                        // use below (declared defaults, then
+                                        // call-site overrides — but only when
+                                        // this isn't a deferred import load,
+                                        // where the consumer's own override
+                                        // pass hasn't run yet) so a rename's
+                                        // source key is checked against the
+                                        // RESOLVED `@config.<knob>` emit name,
+                                        // not the raw unresolved token.
+                                        let mut effective_config: HashMap<String, SExpression> =
+                                            HashMap::new();
+                                        if let Some(declared) = trait_def.config.as_ref() {
+                                            for (k, field) in declared.iter() {
+                                                if let Some(default) = field.default.as_ref() {
+                                                    effective_config
+                                                        .insert(k.clone(), default.clone());
+                                                }
+                                            }
+                                        }
+                                        if !ctx.defer_config_subst {
+                                            if let Some(cfg) = config.as_ref() {
+                                                for (k, cf) in cfg.iter() {
+                                                    if let Some(v) = cf.default.as_ref() {
+                                                        effective_config
+                                                            .insert(k.clone(), v.clone());
+                                                    }
+                                                }
+                                            }
+                                        }
+                                        let mut known: HashSet<String> = HashSet::new();
                                         if let Some(emits) = &trait_def.emits {
                                             for e in emits {
-                                                known.insert(e.event.as_str());
+                                                if orbital_core::schema::config_ref_event_knob(
+                                                    &e.event,
+                                                )
+                                                .is_some()
+                                                {
+                                                    match orbital_core::schema::resolve_config_ref_event_name(
+                                                        &e.event,
+                                                        &effective_config,
+                                                        trait_def.config.as_ref(),
+                                                    ) {
+                                                        Ok(resolved) => {
+                                                            known.insert(resolved);
+                                                        }
+                                                        // Unresolvable ref (unknown knob /
+                                                        // non-string / no default): keep the
+                                                        // raw token so the EmitConfigRefInvalid
+                                                        // validation check (not this one)
+                                                        // reports the real cause, and a rename
+                                                        // targeting a genuinely different key
+                                                        // still errors here.
+                                                        Err(_) => {
+                                                            known.insert(e.event.clone());
+                                                        }
+                                                    }
+                                                } else {
+                                                    known.insert(e.event.clone());
+                                                }
                                             }
                                         }
                                         for t in &trait_def.state_machine.transitions {
-                                            known.insert(t.event.as_str());
+                                            known.insert(t.event.clone());
                                         }
                                         for from in map.keys() {
                                             // Skip self-maps / empties — they

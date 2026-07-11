@@ -89,6 +89,28 @@ fn cart_effects_override_fixture_path() -> PathBuf {
         .join("../../test-schemas/use-std-behavior/cart-effects-override.orb")
 }
 
+/// Ordering-gap regression fixture — imports `UIButton.traits.ButtonRender`
+/// (the std atom whose `emits { @config.action -> external {...} } }` and
+/// `config { action : string = "ACTION" }` mirror `std-trait-wars.orb`'s
+/// `UpgradeBuildingButtonRender`) and renames its resolved default emit name
+/// `ACTION` to `UPGRADE_WIDGET` via `events`. Before the fix, the
+/// events-rename source-key check ran against the trait's RAW declared emits
+/// (still carrying the literal token `@config.action`), so this legitimate
+/// rename of the RESOLVED name was rejected with `EventRenameUnknownKey`.
+fn button_config_ref_events_fixture_path() -> PathBuf {
+    PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join("../../test-schemas/use-std-behavior/button-config-ref-events.orb")
+}
+
+/// Companion fixture — same shape, but the rename's `from` key
+/// (`NOPE_NOT_A_REAL_EVENT`) names nothing the trait declares (not even
+/// after config-ref resolution). Must still be rejected with
+/// `EventRenameUnknownKey`, proving the fix didn't neuter the check.
+fn button_config_ref_events_unknown_key_fixture_path() -> PathBuf {
+    PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join("../../test-schemas/use-std-behavior/button-config-ref-events-unknown-key.orb")
+}
+
 #[test]
 fn shopping_cart_parses_and_inlines_std_modal() {
     let path = fixture_path();
@@ -358,6 +380,66 @@ fn cart_collision_without_name_overrides_errors() {
         ),
         Err(other) => panic!(
             "expected Err(CompilerError::Inline(InlineError::DuplicateTraitName(...))), \
+             got {:?}",
+            other
+        ),
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Ordering-gap regression — `events:` rename source keys must be checked
+// against RESOLVED `@config.<knob>` emit names, not the raw unresolved
+// token. See `button-config-ref-events.orb` / std-trait-wars.orb.
+// ---------------------------------------------------------------------------
+
+#[test]
+fn button_config_ref_events_rename_of_resolved_default_name_succeeds() {
+    let path = button_config_ref_events_fixture_path();
+    let oir = compile_file(&path, &lowered_oir_options()).expect(
+        "compile_file must succeed: renaming the RESOLVED default emit name \
+         \"ACTION\" (from @config.action's declared default) must not be \
+         rejected as an unknown rename source key",
+    );
+
+    let trait_def = oir
+        .find_trait("UpgradeButtonRender")
+        .expect("lowered OIR must contain the renamed trait UpgradeButtonRender");
+
+    assert!(
+        trait_def.emits.iter().any(|e| e.event == "UPGRADE_WIDGET"),
+        "the @config.action emit must resolve to \"ACTION\" and then be \
+         renamed to \"UPGRADE_WIDGET\" by the events override; got emits {:?}",
+        trait_def.emits.iter().map(|e| &e.event).collect::<Vec<_>>()
+    );
+    assert!(
+        !trait_def.emits.iter().any(|e| e.event == "ACTION"),
+        "the resolved default name \"ACTION\" must not survive alongside the \
+         rename target — the rename must replace it, not add a second entry; \
+         got emits {:?}",
+        trait_def.emits.iter().map(|e| &e.event).collect::<Vec<_>>()
+    );
+}
+
+#[test]
+fn button_config_ref_events_rename_of_truly_unknown_key_still_errors() {
+    let path = button_config_ref_events_unknown_key_fixture_path();
+    let result = compile_file(&path, &lowered_oir_options());
+
+    match result {
+        Err(CompilerError::Inline(InlineError::EventRenameUnknownKey { from, .. })) => {
+            assert_eq!(
+                from, "NOPE_NOT_A_REAL_EVENT",
+                "EventRenameUnknownKey must carry the offending source key"
+            );
+        }
+        Ok(_) => panic!(
+            "expected compile_file to fail with EventRenameUnknownKey when the \
+             rename's source key names nothing the trait declares (even after \
+             config-ref resolution), but compilation succeeded — the fix must \
+             not neuter the unknown-key check"
+        ),
+        Err(other) => panic!(
+            "expected Err(CompilerError::Inline(InlineError::EventRenameUnknownKey(...))), \
              got {:?}",
             other
         ),
