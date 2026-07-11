@@ -1044,7 +1044,7 @@ pub static EMBEDDED_STD_BEHAVIORS: phf::Map<&'static str, &'static str> = phf::p
     "std/behaviors/ui-wizard-container" => include_str!("baked/std/ui/core/molecules/ui-wizard-container.orb"),
     "std/behaviors/ui-wizard-navigation" => include_str!("baked/std/ui/core/molecules/ui-wizard-navigation.orb"),
     "std/behaviors/ui-wizard-progress" => include_str!("baked/std/ui/core/molecules/ui-wizard-progress.orb"),
-    // === Organisms (221) ===
+    // === Organisms (222) ===
     "std/behaviors/learning-algorithms" => include_str!("baked/std/ui/learning/organisms/learning-algorithms.orb"),
     "std/behaviors/learning-biology" => include_str!("baked/std/ui/learning/organisms/learning-biology.orb"),
     "std/behaviors/learning-biology-lab" => include_str!("baked/std/ui/learning/organisms/learning-biology-lab.orb"),
@@ -1150,6 +1150,7 @@ pub static EMBEDDED_STD_BEHAVIORS: phf::Map<&'static str, &'static str> = phf::p
     "std/behaviors/std-service-request-site" => include_str!("baked/io/marketing/organisms/std-service-request-site.orb"),
     "std/behaviors/std-service-research-assistant" => include_str!("baked/io/service/organisms/std-service-research-assistant.orb"),
     "std/behaviors/std-shipment-tracking" => include_str!("baked/io/marketing/organisms/std-shipment-tracking.orb"),
+    "std/behaviors/std-simple-rpg" => include_str!("baked/io/game/organisms/std-simple-rpg.orb"),
     "std/behaviors/std-social-feed" => include_str!("baked/io/app/organisms/std-social-feed.orb"),
     "std/behaviors/std-social-public" => include_str!("baked/io/marketing/organisms/std-social-public.orb"),
     "std/behaviors/std-status-page" => include_str!("baked/io/marketing/organisms/std-status-page.orb"),
