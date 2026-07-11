@@ -289,6 +289,11 @@ pub enum ErrorCode {
     /// Usually a copy-paste leftover or a stale declaration after a
     /// rename; gap #2 defense in `docs/Almadar_Std_Verification.md`.
     EmitDeclaredButUnfired,
+    /// `emits { @config.<knob> -> ... }` references a knob that isn't a
+    /// DECLARED string-typed config field with a default (Option B contract).
+    /// Left unresolved by the inline phase; surfaces here with the specific
+    /// clause that failed.
+    EmitConfigRefInvalid,
     /// render-ui has entity prop but no fetch effect for that entity in the same transition
     EffectMissingFetchForEntityPattern,
     /// `emit:` config carries a key the operator doesn't support
@@ -714,6 +719,7 @@ impl ErrorCode {
             ErrorCode::EffectNavigateMissingPayload => "ORB_EFF_NAVIGATE_MISSING_PAYLOAD",
             ErrorCode::EffectNavigateTargetUnreachable => "ORB_EFF_NAVIGATE_TARGET_UNREACHABLE",
             ErrorCode::EmitDeclaredButUnfired => "ORB_EMIT_DECLARED_BUT_UNFIRED",
+            ErrorCode::EmitConfigRefInvalid => "ORB_EMIT_CONFIG_REF_INVALID",
             ErrorCode::EffectMissingFetchForEntityPattern => "ORB_EFF_MISSING_FETCH_FOR_ENTITY",
             ErrorCode::EffectEmitKeyInvalid => "ORB_EFF_EMIT_KEY_INVALID",
             ErrorCode::EffectEmitInvalidName => "ORB_EFF_EMIT_INVALID_NAME",
@@ -936,7 +942,8 @@ impl ErrorCode {
             | ErrorCode::SetValueTypeMismatch
             | ErrorCode::EnumValueNotMember
             | ErrorCode::SetReturnTypeMismatch
-            | ErrorCode::EmitDeclaredButUnfired => "effect",
+            | ErrorCode::EmitDeclaredButUnfired
+            | ErrorCode::EmitConfigRefInvalid => "effect",
 
             ErrorCode::SExprInvalidOperator
             | ErrorCode::SExprArityMismatch

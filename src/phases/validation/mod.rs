@@ -43,6 +43,7 @@ pub mod cross_emitter;
 pub mod cross_orbital;
 pub mod cross_registry;
 pub mod effect;
+pub mod emit_config_ref;
 pub mod emit_payload;
 pub mod entity;
 pub mod entity_mutation;
@@ -426,6 +427,10 @@ pub fn validate_comprehensive_full_with_phase_f(
 
     // Phase 3b: Config type validation (slot/pattern defaults)
     config_type::validate_all_config_types(schema, &mut ctx);
+
+    // Phase 3c: `emits { @config.<knob> -> ... }` references left
+    // unresolved by inline (unknown knob / non-string / no default).
+    emit_config_ref::validate_all_config_ref_emits(schema, &mut ctx);
 
     // Phase 4: Page validation
     page::validate_all_pages(schema, &mut ctx);

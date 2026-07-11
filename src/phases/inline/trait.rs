@@ -244,6 +244,45 @@ pub(crate) fn apply_overrides_to_trait(
                 }
             }
         }
+        // 6b. Resolve `@config.<knob>` emit-name references (Option B) to
+        // their effective literal now that call-site config is folded. Runs
+        // in the same top-level-target-only gate as body substitution above
+        // so a deferred import load leaves the reference live for a
+        // downstream consumer to override. Standalone (no call site) still
+        // resolves here because `effective_config` already carries the
+        // atom's own declared defaults.
+        resolve_config_ref_emit_names(trait_def, cfg);
+    }
+}
+
+/// Rewrite every `emits[*].event` that is a `@config.<knob>` reference to its
+/// resolved literal. `listens` does not share this surface yet — the parser
+/// only accepts the reference sigil where an emit/listen event name is
+/// expected in `emits {}`; `listens {}` handler dispatch still requires a
+/// leading `Identifier` token (source or bare event), so a config-ref there
+/// would need parser work of its own (not part of this change).
+fn resolve_config_ref_emit_names(
+    trait_def: &mut TraitDefinition,
+    effective_config: &HashMap<String, SExpression>,
+) {
+    let Some(emits) = trait_def.emits.as_mut() else {
+        return;
+    };
+    for emit in emits.iter_mut() {
+        if orbital_core::schema::config_ref_event_knob(&emit.event).is_none() {
+            continue;
+        }
+        match orbital_core::schema::resolve_config_ref_event_name(
+            &emit.event,
+            effective_config,
+            trait_def.config.as_ref(),
+        ) {
+            Ok(resolved) => emit.event = resolved,
+            // Left unresolved on error; the validation phase's
+            // ConfigRefEventInvalid check reports the specific contract
+            // clause that failed (unknown knob / non-string / no default).
+            Err(_) => {}
+        }
     }
 }
 
