@@ -916,12 +916,15 @@ impl<'a> Resolver<'a> {
         // registry (`add`, `&&`, …) return None here and are still covered by
         // the per-arm binary/unary minimum checks below.
         if let Some(meta) = crate::embedded::get_operator(op) {
-            // Substrate ops (llm/*, workspace/*, …) are async EFFECTS — like
-            // fetch/persist (EFFECT_OPERATORS) they carry a trailing options
-            // object and have their own validation, so they skip the static
-            // max-arity check. Consistent with `get_arity_rule` (sexpr
+            // Effect operators are async EFFECTS — like fetch/persist
+            // (EFFECT_OPERATORS) they carry a trailing `{ emit }` envelope
+            // that is not part of the operator's logical arity and have their
+            // own validation, so they skip the static value-operator
+            // max-arity check. Covers substrate ops (llm/*, workspace/*, …)
+            // and every registry op flagged `has_side_effects` (os/*,
+            // browser/*, set, …). Consistent with `get_arity_rule` (sexpr
             // validator), which returns None for them (C-EMIT-SUBSTRATE).
-            if !is_substrate_op(op) {
+            if !is_substrate_op(op) && !meta.has_side_effects {
                 if let Some(max) = meta.max_arity {
                     if (args.len() as u32) > max {
                         return Err(ResolveError::InvalidSExpr(format!(
@@ -1081,6 +1084,46 @@ impl<'a> Resolver<'a> {
                 let ms = self.resolve_sexpr(&args[0])?;
                 let event_type = self.resolve_sexpr(&args[1])?;
                 Ok(OirExpr::effect(OirEffect::OsDebounce { ms, event_type }))
+            }
+
+            // Browser device effects (client host path)
+            //
+            // User-initiated, async device APIs. Each accepts a trailing
+            // `{ emit: { success, failure } }` envelope (mirroring os/watch-*):
+            //   ["browser/open-file-picker", options?, { emit? }]
+            //   ["browser/clipboard-read",            { emit? }]
+            //   ["browser/clipboard-write", text,     { emit? }]
+            //   ["browser/geolocation-current", options?, { emit? }]
+            "browser/open-file-picker" => {
+                let (options, emit_cfg) = self.split_watch_trailing(args)?;
+                Ok(OirExpr::effect(OirEffect::BrowserOpenFilePicker {
+                    options,
+                    emit: emit_cfg,
+                }))
+            }
+            "browser/clipboard-read" => {
+                let emit_cfg = self.extract_watch_only_emit(args)?;
+                Ok(OirExpr::effect(OirEffect::BrowserClipboardRead { emit: emit_cfg }))
+            }
+            "browser/clipboard-write" => {
+                if args.is_empty() {
+                    return Err(ResolveError::InvalidSExpr(
+                        "browser/clipboard-write requires text".to_string(),
+                    ));
+                }
+                let text = self.resolve_sexpr(&args[0])?;
+                let emit_cfg = self.extract_watch_only_emit(&args[1..])?;
+                Ok(OirExpr::effect(OirEffect::BrowserClipboardWrite {
+                    text,
+                    emit: emit_cfg,
+                }))
+            }
+            "browser/geolocation-current" => {
+                let (options, emit_cfg) = self.split_watch_trailing(args)?;
+                Ok(OirExpr::effect(OirEffect::BrowserGeolocationCurrent {
+                    options,
+                    emit: emit_cfg,
+                }))
             }
 
             // Agent operators — lowered as Custom effects so backend can codegen TypeScript

@@ -2,10 +2,11 @@
 
 use super::super::{ErrorCode, PageInitPayload, ValidationError, ValidationResult};
 use super::{
-    effect_operators, validate_call_service, validate_call_service_object, validate_emit,
-    validate_fetch, validate_fetch_object, validate_navigate, validate_os_watch, validate_persist,
-    validate_ref, validate_set, validate_set_enum_value, validate_set_object,
-    validate_set_return_type, validate_set_value_type, DeclaredEmit, EntityFieldMeta,
+    effect_operators, extract_emit_object_ref, validate_call_service,
+    validate_call_service_object, validate_emit, validate_emit_config, validate_fetch,
+    validate_fetch_object, validate_navigate, validate_os_watch, validate_persist, validate_ref,
+    validate_set, validate_set_enum_value, validate_set_object, validate_set_return_type,
+    validate_set_value_type, DeclaredEmit, EntityFieldMeta,
 };
 use super::fetch::validate_fetch_stream;
 use super::validate_send_server;
@@ -325,6 +326,25 @@ pub(crate) fn validate_effect(
                     }
                     os_op if os_op.starts_with("os/watch-") => {
                         result.merge(validate_os_watch(arr, path, declared_emits));
+                    }
+                    browser_op if browser_op.starts_with("browser/") => {
+                        // Client device effects (file picker / clipboard /
+                        // geolocation). One-shot host calls carrying a trailing
+                        // `{ emit: { success, failure } }` envelope — validate
+                        // that the emit targets are declared events, mirroring
+                        // the os/watch-* arm but with success/failure keys.
+                        for arg in arr.iter().skip(1) {
+                            if let SExpression::Object(options) = arg {
+                                if let Some(emit_obj) = extract_emit_object_ref(options) {
+                                    result.merge(validate_emit_config(
+                                        emit_obj,
+                                        &["success", "failure"],
+                                        declared_emits,
+                                        path,
+                                    ));
+                                }
+                            }
+                        }
                     }
                     op if !effect_operators().contains(&op) => {
                         result.add_error(
