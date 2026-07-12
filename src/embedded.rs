@@ -502,6 +502,10 @@ pub struct EmbeddedBehavior {
     /// Composition level: "atom" | "molecule" | "organism".
     #[serde(default)]
     pub level: String,
+    /// Topic within the package (e.g. "agent", "ui", "rpg") — the browser
+    /// catalog groups by `level / topic`; the native catalog mirrors it.
+    #[serde(default)]
+    pub topic: Option<String>,
     #[serde(default)]
     pub family: Option<String>,
     #[serde(default)]
