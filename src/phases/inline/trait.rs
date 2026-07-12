@@ -81,6 +81,29 @@ pub(crate) fn apply_overrides_to_trait(
         }
     }
 
+    // 3b'. Call-site payload capture. A `@payload.<field>` in this reference's
+    //      call-site config is, by position, a read of the COMPOSING effect's
+    //      event payload — the child atom's own payload is not in scope at the
+    //      call site. Tag it `@callsitePayload.<field>` so it is resolved at the
+    //      call site, never in the child's INIT scope. Freshly lowered lolo has
+    //      already tagged this (idempotent here), but a baked / hand-authored
+    //      `.orb` reference carries the untagged form, so tag here too. The
+    //      capture then flows into `effective_config` + the folded declared
+    //      default below, and `contains_callsite_payload` (step 6) keeps the
+    //      bound knob out of the child body.
+    let tagged_config: Option<HashMap<String, ConfigField>> = config.map(|c| {
+        c.iter()
+            .map(|(k, cf)| {
+                let mut cf = cf.clone();
+                if let Some(default) = cf.default.as_mut() {
+                    orbital_core::schema::capture_callsite_payload(default);
+                }
+                (k.clone(), cf)
+            })
+            .collect()
+    });
+    let config = tagged_config.as_ref();
+
     // 3c. Build the effective config map (key → concrete SExpression value)
     //     EARLY — same precedence `effective_config` always uses (declared
     //     defaults, then call-site overrides) — and resolve any
@@ -275,8 +298,21 @@ pub(crate) fn apply_overrides_to_trait(
         }
     }
     if !defer_config_subst && !effective_config.is_empty() {
-        let cfg = &effective_config;
-        record_config_provenance(trait_def, cfg, recorder);
+        record_config_provenance(trait_def, &effective_config, recorder);
+        // Call-site payload captures stay UNSUBSTITUTED in the child body:
+        // a knob whose effective value is a `@callsitePayload.<field>` capture
+        // must remain `@config.<knob>` in the child's render so each engine
+        // resolves the capture against the COMPOSING effect's event payload at
+        // the call site and passes the literal into the child's config (the
+        // capture value is retained on the child's declared config-field default
+        // above, where the call site reads it). Baking it into the child body
+        // would (mis)evaluate it in the child's own INIT scope.
+        let subst_config: HashMap<String, SExpression> = effective_config
+            .iter()
+            .filter(|(_, v)| !orbital_core::schema::contains_callsite_payload(v))
+            .map(|(k, v)| (k.clone(), v.clone()))
+            .collect();
+        let cfg = &subst_config;
         {
             for transition in trait_def.state_machine.transitions.iter_mut() {
                 if let Some(guard) = transition.guard.as_mut() {

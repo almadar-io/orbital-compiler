@@ -23,6 +23,7 @@ pub const CORE_BINDING_ROOTS: &[&str] = &[
     "config",  // Trait configuration
     "trait",   // Trait context
     "user",    // User context
+    "callsitePayload", // Call-site-captured event payload (resolved at the composing effect)
 ];
 
 /// Regex for valid binding format
@@ -107,7 +108,190 @@ pub fn validate_all_bindings(schema: &OrbitalSchema, ctx: &mut ValidationContext
         let cycle_result =
             detect_trait_binding_cycles(&orbital.traits, &format!("orbitals[{}]", i));
         ctx.merge(cycle_result);
+
+        // Call-site payload captures (`@callsitePayload.<field>`) are validated
+        // against the COMPOSING transition's event payload — the transition
+        // whose render effect embeds the capturing child — not the child's own
+        // INIT scope.
+        let capture_result =
+            validate_callsite_payload_captures(orbital, &format!("orbitals[{}]", i));
+        ctx.merge(capture_result);
     }
+}
+
+/// Collect every `@trait.<Name>` reference (bare, no trailing path) from a
+/// render tree, matching the `@trait.X` embedding grammar used everywhere else.
+fn collect_embedded_trait_refs(expr: &SExpression, out: &mut HashSet<String>) {
+    match expr {
+        SExpression::String(s) => {
+            if let Some(name) = s.strip_prefix("@trait.") {
+                if !name.is_empty() && !name.contains('.') {
+                    out.insert(name.to_string());
+                }
+            }
+        }
+        SExpression::Array(items) => {
+            for item in items {
+                collect_embedded_trait_refs(item, out);
+            }
+        }
+        SExpression::Object(map) => {
+            for v in map.values() {
+                collect_embedded_trait_refs(v, out);
+            }
+        }
+        SExpression::Null | SExpression::Bool(_) | SExpression::Number(_) => {}
+    }
+}
+
+/// Validate one captured payload field path against a composing event's payload
+/// schema. Mirrors `validate_payload_field_references` but keys off a plain
+/// dotted path (the `@callsitePayload.<path>` payload) resolved in the composing
+/// event's scope, so the error is identical to a direct `@payload.<field>` on
+/// that event.
+fn validate_captured_payload_path(
+    result: &mut ValidationResult,
+    field_path: &str,
+    payload_fields: Option<&[PayloadField]>,
+    event_name: &str,
+    path: &str,
+) {
+    let segments: Vec<&str> = field_path
+        .split('.')
+        .map(|seg| seg.split('[').next().unwrap_or(seg))
+        .filter(|seg| !seg.is_empty())
+        .collect();
+    if segments.is_empty() {
+        return;
+    }
+    let field_name = segments[0];
+    match payload_fields {
+        Some(fields) => {
+            if let Some(unresolved) = resolve_payload_path(fields, &segments) {
+                let valid_at_level: Vec<String> =
+                    unresolved.siblings.iter().map(|f| f.name.clone()).collect();
+                result.add_error(
+                    ValidationError::error(
+                        ErrorCode::BindingPayloadFieldUndeclared,
+                        path,
+                        format!(
+                            "Payload field '{}' is not declared in event '{}' payload schema",
+                            unresolved.segment, event_name
+                        ),
+                    )
+                    .with_suggestion(format!(
+                        "Add {{ \"name\": \"{}\", \"type\": \"...\" }} to the event's payload array",
+                        unresolved.segment
+                    ))
+                    .with_valid_values(valid_at_level),
+                );
+            }
+        }
+        None => {
+            result.add_error(
+                ValidationError::error(
+                    ErrorCode::BindingPayloadFieldUndeclared,
+                    path,
+                    format!(
+                        "Event '{}' uses @payload.{} but has no payload schema defined",
+                        event_name, field_name
+                    ),
+                )
+                .with_suggestion(format!(
+                    "Add a payload schema to the '{}' event definition, or bind a field the event declares",
+                    event_name
+                )),
+            );
+        }
+    }
+}
+
+/// Validate every call-site payload capture in an orbital against the composing
+/// transition's event payload. A capture lives on a child trait's declared
+/// config-field default as `@callsitePayload.<field>` (the lolo lowerer tagged
+/// it there; the inline phase keeps it out of the child body). The COMPOSING
+/// scope is the transition whose render effect embeds that child via
+/// `@trait.<Child>`, so the field is checked against THAT event's payload.
+fn validate_callsite_payload_captures(orbital: &Orbital, orbital_path: &str) -> ValidationResult {
+    let mut result = ValidationResult::new();
+
+    // child trait name -> its captured payload field paths
+    let mut captures_by_trait: HashMap<&str, Vec<String>> = HashMap::new();
+    for tr in &orbital.traits {
+        if let TraitReference::Inline(def) = tr {
+            let mut paths = Vec::new();
+            if let Some(cfg) = def.config.as_ref() {
+                for field in cfg.values() {
+                    if let Some(default) = field.default.as_ref() {
+                        orbital_core::schema::collect_callsite_payload_paths(default, &mut paths);
+                    }
+                }
+            }
+            if !paths.is_empty() {
+                captures_by_trait.insert(def.name.as_str(), paths);
+            }
+        }
+    }
+    if captures_by_trait.is_empty() {
+        return result;
+    }
+
+    for (ti, tr) in orbital.traits.iter().enumerate() {
+        let TraitReference::Inline(def) = tr else {
+            continue;
+        };
+        let event_payloads: HashMap<&str, &[PayloadField]> = def
+            .state_machine
+            .events
+            .as_ref()
+            .map(|events| {
+                events
+                    .iter()
+                    .filter_map(|e| {
+                        e.payload_schema
+                            .as_ref()
+                            .map(|p| (e.key.as_str(), p.as_slice()))
+                    })
+                    .collect()
+            })
+            .unwrap_or_default();
+
+        for (tri, transition) in def.state_machine.transitions.iter().enumerate() {
+            let mut embedded = HashSet::new();
+            if let Some(guard) = transition.guard.as_ref() {
+                collect_embedded_trait_refs(guard, &mut embedded);
+            }
+            if let Some(effects) = transition.effects.as_ref() {
+                for effect in effects {
+                    collect_embedded_trait_refs(effect, &mut embedded);
+                }
+            }
+            if embedded.is_empty() {
+                continue;
+            }
+            let payload_fields = event_payloads.get(transition.event.as_str()).copied();
+            for child in &embedded {
+                let Some(paths) = captures_by_trait.get(child.as_str()) else {
+                    continue;
+                };
+                for field_path in paths {
+                    let path = format!(
+                        "{}.traits[{}].stateMachine.transitions[{}] (embeds {}: @callsitePayload.{})",
+                        orbital_path, ti, tri, child, field_path
+                    );
+                    validate_captured_payload_path(
+                        &mut result,
+                        field_path,
+                        payload_fields,
+                        &transition.event,
+                        &path,
+                    );
+                }
+            }
+        }
+    }
+
+    result
 }
 
 /// Validate all bindings in a trait
@@ -2151,6 +2335,62 @@ mod tests {
             domain_context: None,
             design: None,
         }
+    }
+
+    #[test]
+    fn callsite_payload_capture_validates_against_composing_event() {
+        use orbital_core::schema::{ConfigField, EventDefinition};
+
+        // Composer trait renders `@trait.Child` on event `Failed` (payload {error}).
+        let render = arr(vec![
+            s("render-ui"),
+            s("main"),
+            SExpression::Object({
+                let mut m = HashMap::new();
+                m.insert("type".to_string(), s("stack"));
+                m.insert("children".to_string(), arr(vec![s("@trait.Child")]));
+                m
+            }),
+        ]);
+        let mut composer = build_trait_fixture("Composer", Some("E"), vec![("Failed", vec![render])]);
+        let ev: EventDefinition = serde_json::from_value(serde_json::json!({
+            "key": "Failed",
+            "payloadSchema": [{ "name": "error", "type": "string" }]
+        }))
+        .unwrap();
+        composer.state_machine.events = Some(vec![ev]);
+
+        // Child trait carries a call-site payload capture on its config default.
+        let make_child = |field: &str| {
+            let mut child = build_trait_fixture("Child", Some("E"), vec![]);
+            let cfg: HashMap<String, ConfigField> = serde_json::from_value(serde_json::json!({
+                "content": { "type": "string", "default": format!("@callsitePayload.{field}") }
+            }))
+            .unwrap();
+            child.config = Some(cfg);
+            child
+        };
+
+        // Undeclared field on the composing event → error (same code as a direct
+        // `@payload.<field>` on that event).
+        let orbital = orbital_with_traits(vec![composer.clone(), make_child("bogus")]);
+        let result = validate_callsite_payload_captures(&orbital, "orbitals[0]");
+        assert!(
+            result.errors.iter().any(|e| e.code
+                == ErrorCode::BindingPayloadFieldUndeclared
+                && e.message.contains("bogus")),
+            "undeclared captured field must error against the composing event: {:?}",
+            result.errors
+        );
+
+        // Field declared on the composing event → no error.
+        let orbital_ok = orbital_with_traits(vec![composer, make_child("error")]);
+        let result_ok = validate_callsite_payload_captures(&orbital_ok, "orbitals[0]");
+        assert!(
+            result_ok.errors.is_empty(),
+            "a captured field declared on the composing event must pass: {:?}",
+            result_ok.errors
+        );
     }
 
     #[test]
