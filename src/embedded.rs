@@ -1770,19 +1770,14 @@ mod std_behavior_embed_tests {
     }
 
     #[test]
-    fn std_rpg_game_resolves() {
-        let content = get_std_behavior_content("std/behaviors/std-rpg-game")
-            .expect("std-rpg-game must be embedded");
-        // Game-tier organisms ship as empty .orb stubs today (the .lolo
-        // sources exist but the registry .orb hasn't been emitted yet).
-        // Skip the parse assertion when the embedded content is empty;
-        // re-enable when std-rpg-game.orb is materialised.
-        if content.trim().is_empty() {
-            return;
-        }
+    fn embedded_behavior_inflates_and_parses() {
+        // std-rpg-game (the previous subject) left the baked map in the P8
+        // game-folder retirement; std-browse is a permanent core atom.
+        let content = get_std_behavior_content("std/behaviors/std-browse")
+            .expect("std-browse must be embedded");
         let parsed: serde_json::Value =
-            serde_json::from_str(content).expect("std-rpg-game must be valid JSON");
-        assert_eq!(parsed["name"], "std-rpg-game");
+            serde_json::from_str(content).expect("std-browse must be valid JSON");
+        assert_eq!(parsed["name"], "std-browse");
     }
 
     #[test]

@@ -13,7 +13,6 @@
 //! entity by accident (should have been `[shared]`), and the inverse —
 //! `[shared]` traits fighting over one field or double-rendering.
 
-use super::canonical_operators::get_canonical_operator;
 use super::render_ui::is_render_ui_effect;
 use super::{ErrorCode, ValidationContext, ValidationError, ValidationResult};
 use orbital_core::schema::{
@@ -432,15 +431,17 @@ fn tick_is_cron(interval: &StringOrNumber) -> bool {
 }
 
 /// Find the first server-async operator call anywhere in `expr`'s tree.
-/// "Async" = the canonical operator registry's `std-agent` category — the
-/// only category where `has_side_effects` is true (LLM/agent calls:
-/// `agent/generate`, `agent/invoke`, `agent/search-code`, ...). Returns the
-/// operator name for the diagnostic message.
+/// "Async" = the baked canonical registry's `std-llm` category (LLM calls:
+/// `llm/generate`, `llm/call-tools`, `llm/embed`, ... — formerly `agent/*`
+/// under `std-agent`). Consults `embedded::get_operator` (the baked
+/// canonical-operators.json, the source of record) — the hand-maintained
+/// static table in `canonical_operators.rs` predates the rename and never
+/// carried these operators, which is how this rule went silently dead.
 fn find_async_operator_call(expr: &SExpression) -> Option<&str> {
     match expr {
         SExpression::Array(arr) => {
             if let Some(SExpression::String(op)) = arr.first() {
-                if get_canonical_operator(op).map(|m| m.category) == Some("std-agent") {
+                if crate::embedded::get_operator(op).is_some_and(|m| m.category == "std-llm") {
                     return Some(op.as_str());
                 }
             }
@@ -917,7 +918,7 @@ mod tests {
 
     #[test]
     fn tick_async_effect_warns() {
-        let async_call = arr(vec![s("agent/generate"), s("prompt")]);
+        let async_call = arr(vec![s("llm/generate"), s("prompt")]);
         let t = trait_with_tick("Chatter", "ChatState", "1s", vec![async_call]);
         let mut defs = HashMap::new();
         defs.insert(
@@ -938,7 +939,7 @@ mod tests {
 
     #[test]
     fn tick_async_effect_exempt_on_cron() {
-        let async_call = arr(vec![s("agent/generate"), s("prompt")]);
+        let async_call = arr(vec![s("llm/generate"), s("prompt")]);
         let t = trait_with_tick("Chatter", "ChatState", "0 9 * * *", vec![async_call]);
         let mut defs = HashMap::new();
         defs.insert(
