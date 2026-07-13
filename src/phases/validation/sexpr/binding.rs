@@ -32,8 +32,12 @@ pub(crate) fn validate_binding(
 
     // Validate binding root
     match root {
-        "entity" | "payload" | "state" | "now" | "config" | "trait" | "user" => {
-            // Valid core binding root
+        "entity" | "payload" | "state" | "now" | "config" | "trait" | "user"
+        | "callsitePayload" => {
+            // Valid core binding root. `callsitePayload` is emitted by the
+            // inline-trait hoisting phase (phases/inline/trait.rs) when an
+            // extracted render block captures `@payload` — same contract the
+            // config-default validator (validation/binding.rs) already allows.
         }
         // Check if this is a lambda-local variable from an enclosing fn/lambda
         _ if lambda_locals.contains(root) => {
