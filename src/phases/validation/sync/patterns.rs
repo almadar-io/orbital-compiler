@@ -2,7 +2,7 @@
 //!
 //! Source: packages/almadar-core/src/patterns/patterns-registry.json
 //!
-//! Last synced: 2026-07-11
+//! Last synced: 2026-07-13
 //! To regenerate: npx tsx tools/almadar-pattern-sync/index.ts
 //!
 //! DO NOT EDIT MANUALLY - changes will be overwritten on next sync.
@@ -1928,8 +1928,19 @@ pub static PATTERN_PROPS_SCHEMA: LazyLock<HashMap<&'static str, HashSet<&'static
             (
                 "draw-sprite",
                 [
-                    "anchor", "asset", "flipX", "frame", "height", "id", "opacity", "position",
-                    "rotation", "shadow", "type", "width",
+                    "anchor",
+                    "animation",
+                    "asset",
+                    "flipX",
+                    "frame",
+                    "height",
+                    "id",
+                    "opacity",
+                    "position",
+                    "rotation",
+                    "shadow",
+                    "type",
+                    "width",
                 ]
                 .into_iter()
                 .collect(),
@@ -6071,6 +6082,7 @@ pub static PATTERN_PROP_TYPES: LazyLock<
                 ("width", &["number"] as &[&str]),
                 ("height", &["number"] as &[&str]),
                 ("frame", &["object"] as &[&str]),
+                ("animation", &["string"] as &[&str]),
                 ("flipX", &["boolean"] as &[&str]),
                 ("rotation", &["number"] as &[&str]),
                 ("opacity", &["number"] as &[&str]),
