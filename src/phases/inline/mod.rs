@@ -52,7 +52,9 @@ use r#trait::apply_overrides_to_trait;
 #[cfg(test)]
 use rewrite::{rewrite_entity_refs, rewrite_identifiers, rewrite_trait_event_fields};
 
-use crate::loader::{discover_registry_roots, ExternalOrbitalLoader, ImportChain, LoaderConfig, LoaderError};
+use crate::loader::{
+    discover_registry_roots, ExternalOrbitalLoader, ImportChain, LoaderConfig, LoaderError,
+};
 use orbital_core::schema::{
     ConfigProvenanceRecord, EntityDefinition, EntityRef, Orbital, OrbitalSchema, SchemaMetadata,
     ThemeRef, TraitReference,

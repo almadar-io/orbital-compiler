@@ -16,13 +16,13 @@ use std::sync::LazyLock;
 
 /// Core binding roots
 pub const CORE_BINDING_ROOTS: &[&str] = &[
-    "entity",  // Current entity data
-    "payload", // Event payload
-    "state",   // Current state name
-    "now",     // Current timestamp
-    "config",  // Trait configuration
-    "trait",   // Trait context
-    "user",    // User context
+    "entity",          // Current entity data
+    "payload",         // Event payload
+    "state",           // Current state name
+    "now",             // Current timestamp
+    "config",          // Trait configuration
+    "trait",           // Trait context
+    "user",            // User context
     "callsitePayload", // Call-site-captured event payload (resolved at the composing effect)
 ];
 
@@ -2074,7 +2074,12 @@ mod tests {
             Some("PagedItem"),
             vec![("INIT", vec![render_ui])],
         );
-        let result = validate_entity_fields_have_setters(&trait_def, "test", &HashSet::new(), &HashMap::new());
+        let result = validate_entity_fields_have_setters(
+            &trait_def,
+            "test",
+            &HashSet::new(),
+            &HashMap::new(),
+        );
         assert!(
             result
                 .warnings
@@ -2106,7 +2111,8 @@ mod tests {
             vec![("INIT", vec![render_ui])],
         );
         let intrinsic: HashSet<String> = ["selectedRange".to_string()].into_iter().collect();
-        let result = validate_entity_fields_have_setters(&trait_def, "test", &intrinsic, &HashMap::new());
+        let result =
+            validate_entity_fields_have_setters(&trait_def, "test", &intrinsic, &HashMap::new());
         assert!(
             result.warnings.is_empty() && result.errors.is_empty(),
             "Intrinsic @entity.selectedRange with no (set) must be exempt — got {:?}",
@@ -2136,7 +2142,12 @@ mod tests {
             Some("PagedItem"),
             vec![("INIT", vec![set_effect, render_ui])],
         );
-        let result = validate_entity_fields_have_setters(&trait_def, "test", &HashSet::new(), &HashMap::new());
+        let result = validate_entity_fields_have_setters(
+            &trait_def,
+            "test",
+            &HashSet::new(),
+            &HashMap::new(),
+        );
         assert!(
             result.errors.is_empty(),
             "Field with explicit (set) must pass — errors: {:?}",
@@ -2167,7 +2178,12 @@ mod tests {
             Some("PagedItem"),
             vec![("INIT", vec![set_effect]), ("PAGE", vec![render_ui])],
         );
-        let result = validate_entity_fields_have_setters(&trait_def, "test", &HashSet::new(), &HashMap::new());
+        let result = validate_entity_fields_have_setters(
+            &trait_def,
+            "test",
+            &HashSet::new(),
+            &HashMap::new(),
+        );
         assert!(
             result.errors.is_empty(),
             "Setter in different transition still satisfies the rule — errors: {:?}",
@@ -2192,7 +2208,12 @@ mod tests {
             Some("Item"),
             vec![("INIT", vec![render_ui])],
         );
-        let result = validate_entity_fields_have_setters(&trait_def, "test", &HashSet::new(), &HashMap::new());
+        let result = validate_entity_fields_have_setters(
+            &trait_def,
+            "test",
+            &HashSet::new(),
+            &HashMap::new(),
+        );
         assert!(
             result.errors.is_empty(),
             "@entity.id is a runtime-meta field; no setter required",
@@ -2214,7 +2235,12 @@ mod tests {
         ]);
         let trait_def =
             build_trait_fixture("LinkedEntityless", None, vec![("INIT", vec![render_ui])]);
-        let result = validate_entity_fields_have_setters(&trait_def, "test", &HashSet::new(), &HashMap::new());
+        let result = validate_entity_fields_have_setters(
+            &trait_def,
+            "test",
+            &HashSet::new(),
+            &HashMap::new(),
+        );
         assert!(
             result.errors.is_empty(),
             "Trait without linkedEntity should skip the rule",
@@ -2241,7 +2267,12 @@ mod tests {
             Some("PagedItem"),
             vec![("PAGE", vec![set_effect, render_ui])],
         );
-        let result = validate_entity_fields_have_setters(&trait_def, "test", &HashSet::new(), &HashMap::new());
+        let result = validate_entity_fields_have_setters(
+            &trait_def,
+            "test",
+            &HashSet::new(),
+            &HashMap::new(),
+        );
         assert!(
             result.errors.is_empty(),
             "(set @entity.X @payload.X) is a valid setter — errors: {:?}",
@@ -2291,8 +2322,12 @@ mod tests {
                 source_entity_definition: None,
             }
         };
-        let result =
-            validate_entity_fields_have_setters(&guard_only_trait, "test", &HashSet::new(), &HashMap::new());
+        let result = validate_entity_fields_have_setters(
+            &guard_only_trait,
+            "test",
+            &HashSet::new(),
+            &HashMap::new(),
+        );
         assert!(
             result
                 .warnings
@@ -2352,7 +2387,8 @@ mod tests {
                 m
             }),
         ]);
-        let mut composer = build_trait_fixture("Composer", Some("E"), vec![("Failed", vec![render])]);
+        let mut composer =
+            build_trait_fixture("Composer", Some("E"), vec![("Failed", vec![render])]);
         let ev: EventDefinition = serde_json::from_value(serde_json::json!({
             "key": "Failed",
             "payloadSchema": [{ "name": "error", "type": "string" }]
@@ -2376,9 +2412,11 @@ mod tests {
         let orbital = orbital_with_traits(vec![composer.clone(), make_child("bogus")]);
         let result = validate_callsite_payload_captures(&orbital, "orbitals[0]");
         assert!(
-            result.errors.iter().any(|e| e.code
-                == ErrorCode::BindingPayloadFieldUndeclared
-                && e.message.contains("bogus")),
+            result
+                .errors
+                .iter()
+                .any(|e| e.code == ErrorCode::BindingPayloadFieldUndeclared
+                    && e.message.contains("bogus")),
             "undeclared captured field must error against the composing event: {:?}",
             result.errors
         );
@@ -2406,9 +2444,21 @@ mod tests {
                 m
             }),
         ]);
-        let trait_a = build_trait_fixture("ReaderTrait", Some("Pool"), vec![("INIT", vec![read_effect])]);
-        let set_effect = arr(vec![s("set"), s("@entity.sharedX"), SExpression::Number(1.into())]);
-        let trait_b = build_trait_fixture("WriterTrait", Some("Pool"), vec![("INIT", vec![set_effect])]);
+        let trait_a = build_trait_fixture(
+            "ReaderTrait",
+            Some("Pool"),
+            vec![("INIT", vec![read_effect])],
+        );
+        let set_effect = arr(vec![
+            s("set"),
+            s("@entity.sharedX"),
+            SExpression::Number(1.into()),
+        ]);
+        let trait_b = build_trait_fixture(
+            "WriterTrait",
+            Some("Pool"),
+            vec![("INIT", vec![set_effect])],
+        );
 
         let orbital = orbital_with_traits(vec![trait_a.clone(), trait_b]);
         let mut entity_defs = HashMap::new();
@@ -2436,13 +2486,18 @@ mod tests {
                 m
             }),
         ]);
-        let trait_a = build_trait_fixture("ReaderTrait", Some("Pool"), vec![("INIT", vec![read_effect])]);
+        let trait_a = build_trait_fixture(
+            "ReaderTrait",
+            Some("Pool"),
+            vec![("INIT", vec![read_effect])],
+        );
         let other_set = arr(vec![
             s("set"),
             s("@entity.somethingElse"),
             SExpression::Number(1.into()),
         ]);
-        let trait_b = build_trait_fixture("WriterTrait", Some("Pool"), vec![("INIT", vec![other_set])]);
+        let trait_b =
+            build_trait_fixture("WriterTrait", Some("Pool"), vec![("INIT", vec![other_set])]);
 
         let orbital = orbital_with_traits(vec![trait_a.clone(), trait_b]);
         let mut entity_defs = HashMap::new();
@@ -2473,9 +2528,21 @@ mod tests {
                 m
             }),
         ]);
-        let trait_a = build_trait_fixture("ReaderTrait", Some("Solo"), vec![("INIT", vec![read_effect])]);
-        let set_effect = arr(vec![s("set"), s("@entity.x"), SExpression::Number(1.into())]);
-        let trait_b = build_trait_fixture("WriterTrait", Some("Solo"), vec![("INIT", vec![set_effect])]);
+        let trait_a = build_trait_fixture(
+            "ReaderTrait",
+            Some("Solo"),
+            vec![("INIT", vec![read_effect])],
+        );
+        let set_effect = arr(vec![
+            s("set"),
+            s("@entity.x"),
+            SExpression::Number(1.into()),
+        ]);
+        let trait_b = build_trait_fixture(
+            "WriterTrait",
+            Some("Solo"),
+            vec![("INIT", vec![set_effect])],
+        );
 
         let orbital = orbital_with_traits(vec![trait_a.clone(), trait_b]);
         let mut entity_defs = HashMap::new();

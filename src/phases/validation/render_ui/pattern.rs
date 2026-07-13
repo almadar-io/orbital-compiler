@@ -4,8 +4,8 @@
 use super::field_path::{validate_field_paths, validate_pattern_field_ref};
 use super::item_actions::validate_item_actions;
 use super::sync::patterns::{
-    get_pattern_props, get_pattern_valid_props, get_prop_enum_values, get_prop_types,
-    is_draw_host, is_drawable, is_valid_pattern, requires_action,
+    get_pattern_props, get_pattern_valid_props, get_prop_enum_values, get_prop_types, is_draw_host,
+    is_drawable, is_valid_pattern, requires_action,
 };
 use super::sync::ExtraPatterns;
 use super::{ErrorCode, ValidationError, ValidationResult};
@@ -402,12 +402,7 @@ pub(super) fn validate_pattern(
                         if let Some(prop_schema) = crate::embedded::get_pattern(pattern_type)
                             .and_then(|p| p.props_schema.get(prop_name))
                         {
-                            validate_nested_enum_values(
-                                prop_value,
-                                prop_schema,
-                                path,
-                                &mut result,
-                            );
+                            validate_nested_enum_values(prop_value, prop_schema, path, &mut result);
                         }
                     }
                 }

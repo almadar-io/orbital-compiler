@@ -281,12 +281,14 @@ mod tests {
     }
 
     // ---- Phase 4: collect_guard_type_warnings (C-GUARD-NO-BOOLEAN-CHECK) ----
-    use orbital_core::ir::{
-        OirInterval, OirListener, OirModule, OirTick, OirTrait, OirTransition,
-    };
+    use orbital_core::ir::{OirInterval, OirListener, OirModule, OirTick, OirTrait, OirTransition};
 
     fn binop(op: OirBinaryOp, l: OirExpr, r: OirExpr) -> OirExpr {
-        OirExpr::BinaryOp { op, left: Box::new(l), right: Box::new(r) }
+        OirExpr::BinaryOp {
+            op,
+            left: Box::new(l),
+            right: Box::new(r),
+        }
     }
 
     fn module_with_transition_guard(guard: OirExpr) -> OirModule {
@@ -337,8 +339,10 @@ mod tests {
             OirExpr::entity_binding(vec!["x".into()]),
             OirExpr::Number { value: 5.0 },
         ));
-        assert!(collect_guard_type_warnings(&m).is_empty(),
-            "comparison guard must not warn");
+        assert!(
+            collect_guard_type_warnings(&m).is_empty(),
+            "comparison guard must not warn"
+        );
     }
 
     #[test]
@@ -349,16 +353,20 @@ mod tests {
             OirExpr::entity_binding(vec!["a".into()]),
             OirExpr::entity_binding(vec!["b".into()]),
         ));
-        assert!(collect_guard_type_warnings(&m).is_empty(),
-            "and/or guard must not warn (Json truthy semantics)");
+        assert!(
+            collect_guard_type_warnings(&m).is_empty(),
+            "and/or guard must not warn (Json truthy semantics)"
+        );
     }
 
     #[test]
     fn guard_passes_bare_binding() {
         // @entity.running → NoBindingCtx → Json → must NOT warn.
         let m = module_with_transition_guard(OirExpr::entity_binding(vec!["running".into()]));
-        assert!(collect_guard_type_warnings(&m).is_empty(),
-            "bare binding guard must not warn (intentional truthy check)");
+        assert!(
+            collect_guard_type_warnings(&m).is_empty(),
+            "bare binding guard must not warn (intentional truthy check)"
+        );
     }
 
     #[test]

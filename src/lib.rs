@@ -38,7 +38,6 @@ pub mod test_generator;
 pub mod type_infer;
 
 pub use composition::ComposeError;
-pub use shell::{BaseShell, Shell, ShellRegistry};
 pub use exhaustive_tests::{
     resolve_transition, ExhaustiveTestGenerator, JourneyStep, TestCase, TestCategory,
     TraitTestResult,
@@ -54,3 +53,4 @@ pub use phases::{
     CompilerError, CompilerOptions, ComposeConfig, ComprehensiveValidationResult, ExtraPatterns,
     SchemaLanguage,
 };
+pub use shell::{BaseShell, Shell, ShellRegistry};

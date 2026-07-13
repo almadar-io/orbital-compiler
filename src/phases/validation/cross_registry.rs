@@ -89,20 +89,28 @@ fn walk_for_references(expr: &SExpression, path: &str, result: &mut ValidationRe
                     // name as the second arg — the suffix is an operator verb,
                     // not a behavior name. Only non-verb suffixes are treated as
                     // behavior shorthand references (behavior/<name>).
-                    let behavior_name =
-                        if matches!(suffix, "compose" | "wire" | "detect-layout" | "pipe" | "instantiate" | "call" | "emit-body") {
-                            if let Some(SExpression::String(s)) = arr.get(1) {
-                                if s.starts_with('@') {
-                                    None
-                                } else {
-                                    Some(s.as_str())
-                                }
-                            } else {
+                    let behavior_name = if matches!(
+                        suffix,
+                        "compose"
+                            | "wire"
+                            | "detect-layout"
+                            | "pipe"
+                            | "instantiate"
+                            | "call"
+                            | "emit-body"
+                    ) {
+                        if let Some(SExpression::String(s)) = arr.get(1) {
+                            if s.starts_with('@') {
                                 None
+                            } else {
+                                Some(s.as_str())
                             }
                         } else {
-                            Some(suffix)
-                        };
+                            None
+                        }
+                    } else {
+                        Some(suffix)
+                    };
                     if let Some(name) = behavior_name {
                         check_behavior_reference(name, path, result);
                     }

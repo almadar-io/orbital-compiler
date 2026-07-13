@@ -84,9 +84,12 @@ pub(crate) fn trait_path(
 ) -> String {
     let name = match trait_ref {
         TraitReference::Inline(td) => td.name.as_str(),
-        TraitReference::Reference { name, reference, .. } => {
-            name.as_deref().or(reference.as_deref()).unwrap_or("<anonymous>")
-        }
+        TraitReference::Reference {
+            name, reference, ..
+        } => name
+            .as_deref()
+            .or(reference.as_deref())
+            .unwrap_or("<anonymous>"),
     };
     format!(
         "orbitals[{} ({})].traits[{} ({})]",

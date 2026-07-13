@@ -285,10 +285,7 @@ pub(crate) fn apply_overrides_to_trait(
         // (not the wrapped trait): the E1 unknown-call-site-key check reads
         // `trait_def.config` off whatever `ctx.get_trait` resolves.
         for (k, cf) in cfg.iter() {
-            let already_declared = trait_def
-                .config
-                .as_ref()
-                .is_some_and(|m| m.contains_key(k));
+            let already_declared = trait_def.config.as_ref().is_some_and(|m| m.contains_key(k));
             if !already_declared && cf.is_declaration_form() {
                 trait_def
                     .config
@@ -396,13 +393,15 @@ pub(crate) fn resolve_config_ref_emit_names(
     }
     if let Some(events) = trait_def.state_machine.events.as_mut() {
         for ev in events.iter_mut() {
-            if let Some((_, _, to)) = resolved_triples.iter().find(|(_, from, _)| from == &ev.key)
-            {
+            if let Some((_, _, to)) = resolved_triples.iter().find(|(_, from, _)| from == &ev.key) {
                 ev.key = to.clone();
             }
         }
     }
-    resolved_triples.into_iter().map(|(knob, ..)| knob).collect()
+    resolved_triples
+        .into_iter()
+        .map(|(knob, ..)| knob)
+        .collect()
 }
 
 /// Phase F.7: Apply post-substitution structural overrides to a resolved

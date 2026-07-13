@@ -298,7 +298,10 @@ fn build_replacements(project_name: &str) -> std::collections::HashMap<&'static 
 
     // App naming
     map.insert("{{APP_NAME}}", project_name.to_string());
-    map.insert("{{APP_TITLE}}", orbital_core::str_utils::to_title_case(project_name));
+    map.insert(
+        "{{APP_TITLE}}",
+        orbital_core::str_utils::to_title_case(project_name),
+    );
 
     // Firebase/hosting (use kebab-case for URLs)
     let kebab_name = orbital_core::str_utils::to_kebab_case_simple(project_name);

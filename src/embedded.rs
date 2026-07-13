@@ -80,8 +80,10 @@ fn baked_str(slot: &'static OnceLock<String>, gz: &'static [u8]) -> &'static str
 // 3.1 — Embedded operators.json
 // ============================================================================
 
-const OPERATORS_JSON_GZ: &[u8] =
-    include_bytes!(concat!(env!("OUT_DIR"), "/baked-gz/canonical-operators.json.gz"));
+const OPERATORS_JSON_GZ: &[u8] = include_bytes!(concat!(
+    env!("OUT_DIR"),
+    "/baked-gz/canonical-operators.json.gz"
+));
 
 /// The raw operators.json text, inflated once on first use.
 fn operators_json() -> &'static str {
@@ -268,8 +270,10 @@ pub fn is_shell_target(name: &str, shell: &str) -> bool {
 // 3.2 — Embedded patterns-registry.json
 // ============================================================================
 
-const PATTERNS_JSON_GZ: &[u8] =
-    include_bytes!(concat!(env!("OUT_DIR"), "/baked-gz/patterns-registry.json.gz"));
+const PATTERNS_JSON_GZ: &[u8] = include_bytes!(concat!(
+    env!("OUT_DIR"),
+    "/baked-gz/patterns-registry.json.gz"
+));
 
 /// The raw patterns-registry.json text, inflated once on first use.
 fn patterns_json() -> &'static str {
@@ -439,8 +443,8 @@ pub fn patterns() -> &'static HashMap<String, EmbeddedPattern> {
             "patterns-registry.json",
             patterns_json(),
         );
-        let parsed: serde_json::Value = serde_json::from_str(&source)
-            .expect("Failed to parse embedded patterns-registry.json");
+        let parsed: serde_json::Value =
+            serde_json::from_str(&source).expect("Failed to parse embedded patterns-registry.json");
         let patterns_obj = parsed
             .get("patterns")
             .and_then(|v| v.as_object())
@@ -477,11 +481,15 @@ pub fn get_pattern(pattern_type: &str) -> Option<&'static EmbeddedPattern> {
 // startup in `behaviors()`; partitions are disjoint by topic so the union
 // has no observable collisions, but if one ever occurs std wins.
 
-const BEHAVIORS_JSON_STD_GZ: &[u8] =
-    include_bytes!(concat!(env!("OUT_DIR"), "/baked-gz/behaviors-registry-std.json.gz"));
+const BEHAVIORS_JSON_STD_GZ: &[u8] = include_bytes!(concat!(
+    env!("OUT_DIR"),
+    "/baked-gz/behaviors-registry-std.json.gz"
+));
 
-const BEHAVIORS_JSON_IO_GZ: &[u8] =
-    include_bytes!(concat!(env!("OUT_DIR"), "/baked-gz/behaviors-registry-io.json.gz"));
+const BEHAVIORS_JSON_IO_GZ: &[u8] = include_bytes!(concat!(
+    env!("OUT_DIR"),
+    "/baked-gz/behaviors-registry-io.json.gz"
+));
 
 /// The raw behaviors-registry-std.json text, inflated once on first use.
 fn behaviors_json_std() -> &'static str {
@@ -579,11 +587,15 @@ pub fn get_behavior(name: &str) -> Option<&'static EmbeddedBehavior> {
 // the orbital binary doesn't need filesystem access to load signatures — and
 // doesn't carry ~100MB of raw JSON in its data section.
 
-const FACTORY_SIGNATURES_JSON_STD_GZ: &[u8] =
-    include_bytes!(concat!(env!("OUT_DIR"), "/baked-gz/factory-signatures-std.json.gz"));
+const FACTORY_SIGNATURES_JSON_STD_GZ: &[u8] = include_bytes!(concat!(
+    env!("OUT_DIR"),
+    "/baked-gz/factory-signatures-std.json.gz"
+));
 
-const FACTORY_SIGNATURES_JSON_IO_GZ: &[u8] =
-    include_bytes!(concat!(env!("OUT_DIR"), "/baked-gz/factory-signatures-io.json.gz"));
+const FACTORY_SIGNATURES_JSON_IO_GZ: &[u8] = include_bytes!(concat!(
+    env!("OUT_DIR"),
+    "/baked-gz/factory-signatures-io.json.gz"
+));
 
 /// Raw JSON content of the std factory-signature catalog (core + agent
 /// topics). Consumers needing the full surface must also read
@@ -1417,11 +1429,17 @@ fn std_behaviors_override_index() -> &'static HashMap<String, &'static str> {
 /// by basename alone — same convention `EMBEDDED_STD_BEHAVIORS`'s keys use).
 fn collect_orb_overrides(dir: &std::path::Path, index: &mut HashMap<String, &'static str>) {
     let entries = std::fs::read_dir(dir).unwrap_or_else(|e| {
-        panic!("ORBITAL_STD_BEHAVIORS_DIR: failed to read directory '{}': {e}", dir.display())
+        panic!(
+            "ORBITAL_STD_BEHAVIORS_DIR: failed to read directory '{}': {e}",
+            dir.display()
+        )
     });
     for entry in entries {
         let entry = entry.unwrap_or_else(|e| {
-            panic!("ORBITAL_STD_BEHAVIORS_DIR: failed to read entry in '{}': {e}", dir.display())
+            panic!(
+                "ORBITAL_STD_BEHAVIORS_DIR: failed to read entry in '{}': {e}",
+                dir.display()
+            )
         });
         let path = entry.path();
         if path.is_dir() {
@@ -1435,7 +1453,10 @@ fn collect_orb_overrides(dir: &std::path::Path, index: &mut HashMap<String, &'st
             continue;
         };
         let content = std::fs::read_to_string(&path).unwrap_or_else(|e| {
-            panic!("ORBITAL_STD_BEHAVIORS_DIR: failed to read '{}': {e}", path.display())
+            panic!(
+                "ORBITAL_STD_BEHAVIORS_DIR: failed to read '{}': {e}",
+                path.display()
+            )
         });
         let leaked: &'static str = Box::leak(content.into_boxed_str());
         index.insert(format!("std/behaviors/{basename}"), leaked);
@@ -1474,10 +1495,21 @@ pub const BINDING_CONTEXT_RULES: &[(&str, &[&str])] = &[
     // @config.X with the literal call-site config value; atom-scope
     // validate sees unresolved @config bindings and must allow them.
     // `user` is the authenticated-user context (@user.id, @user.role).
+    // `callsitePayload` is the call-site-captured event payload emitted by
+    // the inline-trait hoisting phase (phases/inline/trait.rs) when an
+    // extracted render block captured @payload; the runtimes resolve it at
+    // the composing effect (BindingResolver.CALLSITE_PAYLOAD_PREFIX).
     (
         "effect",
         &[
-            "entity", "payload", "state", "now", "trait", "config", "user",
+            "entity",
+            "payload",
+            "state",
+            "now",
+            "trait",
+            "config",
+            "user",
+            "callsitePayload",
         ],
     ),
     // Ticks have no @payload — they fire on a clock, not on an event.
@@ -1679,7 +1711,18 @@ mod tests {
         );
         assert_eq!(
             allowed_sigils_for_context("effect"),
-            Some(&["entity", "payload", "state", "now", "trait", "config", "user"][..])
+            Some(
+                &[
+                    "entity",
+                    "payload",
+                    "state",
+                    "now",
+                    "trait",
+                    "config",
+                    "user",
+                    "callsitePayload"
+                ][..]
+            )
         );
         assert_eq!(
             allowed_sigils_for_context("tick"),

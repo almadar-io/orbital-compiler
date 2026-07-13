@@ -266,7 +266,11 @@ pub fn resolve_behavior_in_registry(name: &str, root: &Path) -> Option<PathBuf> 
             let path = entry.path();
             if path.is_dir() {
                 stack.push(path);
-            } else if path.file_name().map(|f| f == target.as_str()).unwrap_or(false) {
+            } else if path
+                .file_name()
+                .map(|f| f == target.as_str())
+                .unwrap_or(false)
+            {
                 return Some(path);
             }
         }
@@ -374,9 +378,9 @@ impl ExternalOrbitalLoader {
                 if let Some(error) = chain.push(&absolute_path) {
                     return Err(LoaderError::CircularImport(error));
                 }
-                let result = self
-                    .cache
-                    .get_or_insert_with(&absolute_path, || Self::load_file(&absolute_path, import_path));
+                let result = self.cache.get_or_insert_with(&absolute_path, || {
+                    Self::load_file(&absolute_path, import_path)
+                });
                 chain.pop();
                 return result;
             }
@@ -474,10 +478,9 @@ impl ExternalOrbitalLoader {
             && !import_path.starts_with('@')
             && !import_path.starts_with("std/")
         {
-            if let Some(found) = resolve_behavior_in_registries(
-                import_path,
-                &self.config.behaviors_registry_roots,
-            ) {
+            if let Some(found) =
+                resolve_behavior_in_registries(import_path, &self.config.behaviors_registry_roots)
+            {
                 return Ok(found);
             }
         }

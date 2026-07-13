@@ -219,8 +219,11 @@ pub fn validate_all_entity_mutations(schema: &OrbitalSchema, ctx: &mut Validatio
             })
             .collect();
 
-        let result =
-            validate_orbital_entity_mutations(&inline_traits, &orbital_path, &ctx.entity_definitions);
+        let result = validate_orbital_entity_mutations(
+            &inline_traits,
+            &orbital_path,
+            &ctx.entity_definitions,
+        );
         ctx.merge(result);
     }
 }
@@ -549,7 +552,12 @@ mod tests {
         }
     }
 
-    fn trait_with_tick(name: &str, linked_entity: &str, interval: &str, effects: Vec<SExpression>) -> TraitDefinition {
+    fn trait_with_tick(
+        name: &str,
+        linked_entity: &str,
+        interval: &str,
+        effects: Vec<SExpression>,
+    ) -> TraitDefinition {
         let mut t = trait_with_init_effects(name, linked_entity, vec![]);
         t.state_machine.transitions.clear();
         t.ticks = Some(vec![TickDefinition {
@@ -730,9 +738,7 @@ mod tests {
                 m.insert("val".to_string(), s(&format!("@entity.{}", field)));
                 m.insert(
                     "children".to_string(),
-                    SExpression::Array(
-                        refs.iter().map(|r| s(&format!("@trait.{}", r))).collect(),
-                    ),
+                    SExpression::Array(refs.iter().map(|r| s(&format!("@trait.{}", r))).collect()),
                 );
                 m
             }),
@@ -877,7 +883,10 @@ mod tests {
     fn tick_cron_interval_exempt() {
         let t = trait_with_tick("Scheduled", "Job", "0 9 * * *", vec![]);
         let mut defs = HashMap::new();
-        defs.insert("Job".to_string(), entity("Job", false, Some(Persistence::Persistent)));
+        defs.insert(
+            "Job".to_string(),
+            entity("Job", false, Some(Persistence::Persistent)),
+        );
         let result = validate_trait_tick_guards(&t, "test", &defs);
         assert!(
             !result

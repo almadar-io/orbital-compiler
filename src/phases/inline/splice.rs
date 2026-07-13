@@ -204,7 +204,15 @@ fn splice_expr(
             let is_lambda_form = arr.len() == 3
                 && matches!(&arr[0], SExpression::String(op) if op == "fn" || op == "lambda");
             if is_lambda_form {
-                splice_expr(&mut arr[2], true, templates, path, visiting, merged, spliced)
+                splice_expr(
+                    &mut arr[2],
+                    true,
+                    templates,
+                    path,
+                    visiting,
+                    merged,
+                    spliced,
+                )
             } else {
                 for item in arr.iter_mut() {
                     splice_expr(item, in_lambda, templates, path, visiting, merged, spliced)?;
@@ -331,9 +339,8 @@ fn remove_consumed_wrappers(orbital: &mut Orbital, spliced: &HashSet<String>) {
         for page in orbital.pages.iter_mut().flatten() {
             if let PageRef::Inline(def) = page {
                 if let Some(page_traits) = def.traits.as_mut() {
-                    page_traits.retain(|tr| {
-                        trait_ref_name(tr).is_none_or(|n| !removable.contains(n))
-                    });
+                    page_traits
+                        .retain(|tr| trait_ref_name(tr).is_none_or(|n| !removable.contains(n)));
                 }
             }
         }
@@ -358,12 +365,7 @@ mod tests {
         SExpression::Array(items)
     }
     fn obj(pairs: Vec<(&str, SExpression)>) -> SExpression {
-        SExpression::Object(
-            pairs
-                .into_iter()
-                .map(|(k, v)| (k.to_string(), v))
-                .collect(),
-        )
+        SExpression::Object(pairs.into_iter().map(|(k, v)| (k.to_string(), v)).collect())
     }
 
     fn render_only_trait(name: &str, pattern: SExpression) -> TraitDefinition {
@@ -458,7 +460,10 @@ mod tests {
                 arr(vec![
                     s("fn"),
                     s("party"),
-                    obj(vec![("type", s("stack")), ("children", SExpression::Array(body_children))]),
+                    obj(vec![
+                        ("type", s("stack")),
+                        ("children", SExpression::Array(body_children)),
+                    ]),
                 ]),
             ),
         ])
@@ -483,7 +488,10 @@ mod tests {
     fn eligibility_accepts_render_only_with_emits() {
         let mut w = render_only_trait("W", obj(vec![("type", s("badge"))]));
         w.emits = Some(vec![emit("ACTION", "id")]);
-        assert!(render_only_template(&w).is_some(), "emits must not disqualify");
+        assert!(
+            render_only_template(&w).is_some(),
+            "emits must not disqualify"
+        );
     }
 
     #[test]
@@ -498,7 +506,10 @@ mod tests {
             description: None,
             time_bound_ms: None,
         });
-        assert!(render_only_template(&multi).is_none(), "multi-state must disqualify");
+        assert!(
+            render_only_template(&multi).is_none(),
+            "multi-state must disqualify"
+        );
 
         let mut listening = base.clone();
         listening.listens = Some(vec![orbital_core::schema::ListenDefinition {
@@ -512,15 +523,24 @@ mod tests {
             guard: None,
             source: None,
         }]);
-        assert!(render_only_template(&listening).is_none(), "listens must disqualify");
+        assert!(
+            render_only_template(&listening).is_none(),
+            "listens must disqualify"
+        );
 
         let mut guarded = base.clone();
         guarded.state_machine.transitions[0].guard = Some(s("@entity.x"));
-        assert!(render_only_template(&guarded).is_none(), "guard must disqualify");
+        assert!(
+            render_only_template(&guarded).is_none(),
+            "guard must disqualify"
+        );
 
         let mut non_render = base;
-        non_render.state_machine.transitions[0].effects =
-            Some(vec![arr(vec![s("set"), s("@entity.x"), SExpression::Number(1.into())])]);
+        non_render.state_machine.transitions[0].effects = Some(vec![arr(vec![
+            s("set"),
+            s("@entity.x"),
+            SExpression::Number(1.into()),
+        ])]);
         assert!(
             render_only_template(&non_render).is_none(),
             "non-render effect must disqualify"
@@ -529,8 +549,10 @@ mod tests {
 
     #[test]
     fn splices_wrapper_into_lambda_and_merges_emits() {
-        let mut wrapper =
-            render_only_trait("InlineW1", obj(vec![("type", s("badge")), ("label", s("@party.title"))]));
+        let mut wrapper = render_only_trait(
+            "InlineW1",
+            obj(vec![("type", s("badge")), ("label", s("@party.title"))]),
+        );
         wrapper.emits = Some(vec![emit("ACTION", "id")]);
         let host = host_with_render("Host", lambda_render_pattern(vec![s("@trait.InlineW1")]));
         let mut orbital = make_orbital(vec![host, wrapper]);
@@ -539,15 +561,17 @@ mod tests {
 
         let pattern = host_pattern_of(&orbital, "Host");
         let json = serde_json::to_string(&pattern).unwrap();
-        assert!(json.contains("@party.title"), "expression must live in the host lambda: {json}");
-        assert!(!json.contains("@trait.InlineW1"), "reference must be spliced away: {json}");
+        assert!(
+            json.contains("@party.title"),
+            "expression must live in the host lambda: {json}"
+        );
+        assert!(
+            !json.contains("@trait.InlineW1"),
+            "reference must be spliced away: {json}"
+        );
 
         // Wrapper removed; emits merged onto host.
-        let names: Vec<&str> = orbital
-            .traits
-            .iter()
-            .filter_map(trait_ref_name)
-            .collect();
+        let names: Vec<&str> = orbital.traits.iter().filter_map(trait_ref_name).collect();
         assert_eq!(names, vec!["Host"], "consumed wrapper must be removed");
         let TraitReference::Inline(host_td) = &orbital.traits[0] else {
             panic!()
@@ -563,7 +587,10 @@ mod tests {
             "InlineOuter",
             obj(vec![
                 ("type", s("badge")),
-                ("children", SExpression::Array(vec![s("@trait.InlineInner")])),
+                (
+                    "children",
+                    SExpression::Array(vec![s("@trait.InlineInner")]),
+                ),
             ]),
         );
         let host = host_with_render("Host", lambda_render_pattern(vec![s("@trait.InlineOuter")]));
@@ -572,8 +599,14 @@ mod tests {
         splice_lambda_trait_refs(&mut orbital, "orbitals[0]").expect("splice must succeed");
 
         let json = serde_json::to_string(&host_pattern_of(&orbital, "Host")).unwrap();
-        assert!(!json.contains("@trait."), "nested refs must splice too: {json}");
-        assert!(json.contains("icon"), "inner template must be present: {json}");
+        assert!(
+            !json.contains("@trait."),
+            "nested refs must splice too: {json}"
+        );
+        assert!(
+            json.contains("icon"),
+            "inner template must be present: {json}"
+        );
         assert_eq!(orbital.traits.len(), 1, "both wrappers consumed");
     }
 
@@ -641,11 +674,17 @@ mod tests {
     fn wrapper_cycle_terminates_without_splice_loop() {
         let a = render_only_trait(
             "CycleA",
-            obj(vec![("type", s("stack")), ("children", SExpression::Array(vec![s("@trait.CycleB")]))]),
+            obj(vec![
+                ("type", s("stack")),
+                ("children", SExpression::Array(vec![s("@trait.CycleB")])),
+            ]),
         );
         let b = render_only_trait(
             "CycleB",
-            obj(vec![("type", s("stack")), ("children", SExpression::Array(vec![s("@trait.CycleA")]))]),
+            obj(vec![
+                ("type", s("stack")),
+                ("children", SExpression::Array(vec![s("@trait.CycleA")])),
+            ]),
         );
         let host = host_with_render("Host", lambda_render_pattern(vec![s("@trait.CycleA")]));
         let mut orbital = make_orbital(vec![host, a, b]);

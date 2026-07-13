@@ -381,7 +381,13 @@ mod tests {
             SExpression::String("@nextWaypoint.x".to_string()),
         ]);
         let mut result = ValidationResult::new();
-        walk_expr(&expr, "test", SigilContext::Tick, &HashSet::new(), &mut result);
+        walk_expr(
+            &expr,
+            "test",
+            SigilContext::Tick,
+            &HashSet::new(),
+            &mut result,
+        );
         assert!(
             result.is_valid(),
             "let-bound name should be a valid root in the body"
@@ -401,7 +407,13 @@ mod tests {
             SExpression::String("@x".to_string()),
         ]);
         let mut result = ValidationResult::new();
-        walk_expr(&expr, "test", SigilContext::Tick, &HashSet::new(), &mut result);
+        walk_expr(
+            &expr,
+            "test",
+            SigilContext::Tick,
+            &HashSet::new(),
+            &mut result,
+        );
         assert!(
             !result.is_valid(),
             "unknown root in a let value-expr must still be flagged"

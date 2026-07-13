@@ -8,10 +8,10 @@ use super::pattern::classify_prop_type;
 use super::sync::patterns::get_prop_types;
 use super::{ErrorCode, ValidationContext, ValidationError};
 use crate::embedded::{get_pattern, EmbeddedPatternProp};
-use crate::phases::validation::trait_path;
 use crate::phases::validation::render_ui_binding::{
     resolve_binding_type, BindingContext, BindingType,
 };
+use crate::phases::validation::trait_path;
 use orbital_core::schema::{
     OrbitalSchema, PayloadField, SExpression, TraitDefinition, TraitReference,
 };
@@ -86,7 +86,8 @@ pub(super) fn validate_all_render_ui_bindings(schema: &OrbitalSchema, ctx: &mut 
                         let path = format!(
                             "{}.stateMachine.transitions[{}].effects[{}]",
                             trait_path(oi, &orbital.name, ti, trait_ref),
-                            i, j
+                            i,
+                            j
                         );
                         check_render_ui_bindings_in_effect(effect, &bctx, &path, &mut diagnostics);
                     }

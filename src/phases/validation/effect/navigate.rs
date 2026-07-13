@@ -198,10 +198,7 @@ pub(crate) fn find_matching_page_path<'a>(
 
 /// Check if a concrete path matches a pattern with :param placeholders
 /// Validate send-server effect: requires event name arg; optional payload.
-pub(crate) fn validate_send_server(
-    arr: &[SExpression],
-    path: &str,
-) -> ValidationResult {
+pub(crate) fn validate_send_server(arr: &[SExpression], path: &str) -> ValidationResult {
     let mut result = ValidationResult::new();
     if arr.len() < 2 {
         result.add_error(

@@ -69,8 +69,11 @@ fn gzip_tree(root: &Path, dir: &Path, gz_root: &Path, count: &mut u32) {
         fs::create_dir_all(gz_path.parent().expect("gz parent"))
             .unwrap_or_else(|e| panic!("mkdir {gz_path:?}: {e}"));
         let mut enc = GzEncoder::new(Vec::with_capacity(raw.len() / 8), Compression::best());
-        enc.write_all(&raw).unwrap_or_else(|e| panic!("gzip {path:?}: {e}"));
-        let compressed = enc.finish().unwrap_or_else(|e| panic!("gzip finish {path:?}: {e}"));
+        enc.write_all(&raw)
+            .unwrap_or_else(|e| panic!("gzip {path:?}: {e}"));
+        let compressed = enc
+            .finish()
+            .unwrap_or_else(|e| panic!("gzip finish {path:?}: {e}"));
         fs::write(&gz_path, compressed).unwrap_or_else(|e| panic!("write {gz_path:?}: {e}"));
         *count += 1;
     }

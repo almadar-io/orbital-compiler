@@ -759,12 +759,16 @@ impl<'a> Resolver<'a> {
                     let hours: u64 = digits
                         .parse()
                         .map_err(|_| ResolveError::InvalidTickInterval(s.clone()))?;
-                    OirInterval::Milliseconds { value: hours * 60 * 60 * 1000 }
+                    OirInterval::Milliseconds {
+                        value: hours * 60 * 60 * 1000,
+                    }
                 } else if let Some(digits) = s.strip_suffix("d") {
                     let days: u64 = digits
                         .parse()
                         .map_err(|_| ResolveError::InvalidTickInterval(s.clone()))?;
-                    OirInterval::Milliseconds { value: days * 24 * 60 * 60 * 1000 }
+                    OirInterval::Milliseconds {
+                        value: days * 24 * 60 * 60 * 1000,
+                    }
                 } else if orbital_core::cron::is_valid_cron_expression(s) {
                     // A real 5-field cron expression (e.g. "0 9 * * *") —
                     // previously silently collapsed to `Seconds { value: 1 }`.
@@ -1103,7 +1107,9 @@ impl<'a> Resolver<'a> {
             }
             "browser/clipboard-read" => {
                 let emit_cfg = self.extract_watch_only_emit(args)?;
-                Ok(OirExpr::effect(OirEffect::BrowserClipboardRead { emit: emit_cfg }))
+                Ok(OirExpr::effect(OirEffect::BrowserClipboardRead {
+                    emit: emit_cfg,
+                }))
             }
             "browser/clipboard-write" => {
                 if args.is_empty() {
@@ -2245,7 +2251,9 @@ mod tests {
         assert_eq!(oir.version, "1.0.0");
     }
 
-    fn tick_with_interval(interval: orbital_core::schema::StringOrNumber) -> orbital_core::schema::TickDefinition {
+    fn tick_with_interval(
+        interval: orbital_core::schema::StringOrNumber,
+    ) -> orbital_core::schema::TickDefinition {
         orbital_core::schema::TickDefinition {
             name: "testTick".to_string(),
             interval,
@@ -2274,8 +2282,13 @@ mod tests {
         let tick = tick_with_interval(orbital_core::schema::StringOrNumber::String(
             "0 9 * * *".to_string(),
         ));
-        let resolved = resolver.resolve_tick(&tick).expect("valid cron should resolve");
-        assert_eq!(resolved.interval, OirInterval::Cron("0 9 * * *".to_string()));
+        let resolved = resolver
+            .resolve_tick(&tick)
+            .expect("valid cron should resolve");
+        assert_eq!(
+            resolved.interval,
+            OirInterval::Cron("0 9 * * *".to_string())
+        );
     }
 
     #[test]
@@ -2297,17 +2310,27 @@ mod tests {
             ("500ms", OirInterval::Milliseconds { value: 500 }),
             ("30s", OirInterval::Seconds { value: 30 }),
             ("5m", OirInterval::Minutes { value: 5 }),
-            ("2h", OirInterval::Milliseconds { value: 2 * 60 * 60 * 1000 }),
-            ("1d", OirInterval::Milliseconds { value: 24 * 60 * 60 * 1000 }),
+            (
+                "2h",
+                OirInterval::Milliseconds {
+                    value: 2 * 60 * 60 * 1000,
+                },
+            ),
+            (
+                "1d",
+                OirInterval::Milliseconds {
+                    value: 24 * 60 * 60 * 1000,
+                },
+            ),
             ("frame", OirInterval::Frame),
         ];
         for (input, expected) in cases {
             let tick = tick_with_interval(orbital_core::schema::StringOrNumber::String(
                 input.to_string(),
             ));
-            let resolved = resolver.resolve_tick(&tick).unwrap_or_else(|e| {
-                panic!("expected '{input}' to resolve, got error: {e}")
-            });
+            let resolved = resolver
+                .resolve_tick(&tick)
+                .unwrap_or_else(|e| panic!("expected '{input}' to resolve, got error: {e}"));
             assert_eq!(&resolved.interval, expected, "mismatch for input '{input}'");
         }
     }
@@ -2327,7 +2350,10 @@ mod tests {
             .expect_err("math/cos with 2 args must be rejected, not silently drop one");
         assert!(matches!(err, ResolveError::InvalidSExpr(_)), "got {err:?}");
         let msg = format!("{err}");
-        assert!(msg.contains("math/cos") && msg.contains("at most 1"), "msg: {msg}");
+        assert!(
+            msg.contains("math/cos") && msg.contains("at most 1"),
+            "msg: {msg}"
+        );
     }
 
     #[test]
@@ -2339,15 +2365,20 @@ mod tests {
             .expect_err("vec/add with 3 args must be rejected, not silently drop @z");
         assert!(matches!(err, ResolveError::InvalidSExpr(_)));
         let msg = format!("{err}");
-        assert!(msg.contains("vec/add") && msg.contains("at most 2"), "msg: {msg}");
+        assert!(
+            msg.contains("vec/add") && msg.contains("at most 2"),
+            "msg: {msg}"
+        );
     }
 
     #[test]
     fn variadic_ops_accept_many_args() {
         // array/concat: maxArity null (variadic). Five args must NOT error.
         let sexpr = sexpr_call("array/concat", &["@a", "@b", "@c", "@d", "@e"]);
-        assert!(resolve_sexpr_standalone(&sexpr).is_ok(),
-            "variadic op must accept any number of args");
+        assert!(
+            resolve_sexpr_standalone(&sexpr).is_ok(),
+            "variadic op must accept any number of args"
+        );
     }
 
     #[test]

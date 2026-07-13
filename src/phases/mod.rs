@@ -41,9 +41,9 @@ pub use validation::{
 
 use crate::composition::ComposeError;
 use orbital_core::ir::OirModule;
-use std::path::PathBuf;
 use orbital_core::schema::OrbitalSchema;
 use std::path::Path;
+use std::path::PathBuf;
 use thiserror::Error;
 
 /// Compiler error
@@ -175,7 +175,10 @@ impl CompilerOptions {
                 let ws_path = PathBuf::from(ws);
                 for (scope, rel) in [
                     ("almadar-std", "packages/almadar-std/behaviors/registry"),
-                    ("almadar-behaviors", "packages/almadar-behaviors/behaviors/registry"),
+                    (
+                        "almadar-behaviors",
+                        "packages/almadar-behaviors/behaviors/registry",
+                    ),
                 ] {
                     let root = ws_path.join(rel);
                     if root.is_dir() {
@@ -368,7 +371,10 @@ mod tests {
             .iter()
             .filter(|t| matches!(t, TraitReference::Reference { .. }))
             .count();
-        assert!(refs_before >= 3, "expected >=3 unresolved refs, got {refs_before}");
+        assert!(
+            refs_before >= 3,
+            "expected >=3 unresolved refs, got {refs_before}"
+        );
 
         let options = CompilerOptions::default();
         let resolved = resolve_schema_with_path(schema, &options, None)

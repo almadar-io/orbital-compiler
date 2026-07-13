@@ -501,9 +501,12 @@ fn validate_emit_literal(
                                 )),
                             );
                         }
-                    } else if let Some(inferred) =
-                        expr_return_incompatible(value, expected, entity_field_types, payload_field_types)
-                    {
+                    } else if let Some(inferred) = expr_return_incompatible(
+                        value,
+                        expected,
+                        entity_field_types,
+                        payload_field_types,
+                    ) {
                         // Operator-call payload value (e.g. `(object/get (array/find …) id)`):
                         // `literal_value_type` returned `None`, so infer its result type through
                         // the expression, mirroring the `(set …)` backstop. Only a CONCRETE
