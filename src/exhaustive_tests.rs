@@ -996,12 +996,14 @@ mod tests {
     fn create_simple_trait() -> OirTrait {
         OirTrait {
             name: "TestTrait".to_string(),
+            id: None,
             orbital_name: String::new(),
             description: None,
             source: Default::default(),
             category: None,
             capabilities: vec![],
             linked_entity: None,
+            linked_entity_id: None,
             config: None,
             states: vec![
                 OirState {

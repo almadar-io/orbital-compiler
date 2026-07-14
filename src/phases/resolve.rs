@@ -231,6 +231,7 @@ impl<'a> Resolver<'a> {
 
     fn resolve_entity(&self, entity: &EntityDefinition) -> Result<OirEntity, ResolveError> {
         let mut oir_entity = OirEntity::new(&entity.name);
+        oir_entity.id = entity.id.clone();
 
         if let Some(collection) = &entity.collection {
             oir_entity.collection = collection.clone();
@@ -281,6 +282,7 @@ impl<'a> Resolver<'a> {
         if let Some(relation) = &field.relation {
             oir_field.relation = Some(OirRelation {
                 target_entity: relation.entity.clone(),
+                target_entity_id: relation.entity_id.clone(),
                 cardinality: relation
                     .cardinality
                     .as_ref()
@@ -502,8 +504,10 @@ impl<'a> Resolver<'a> {
 
     fn resolve_trait(&self, trait_def: &TraitDefinition) -> Result<OirTrait, ResolveError> {
         let mut oir_trait = OirTrait::new(&trait_def.name);
+        oir_trait.id = trait_def.id.clone();
         oir_trait.description = trait_def.description.clone();
         oir_trait.linked_entity = trait_def.linked_entity.clone();
+        oir_trait.linked_entity_id = trait_def.linked_entity_id.clone();
         oir_trait.source = OirTraitSource::Schema;
 
         if let Some(category) = &trait_def.category {
@@ -611,16 +615,23 @@ impl<'a> Resolver<'a> {
                         orbital_core::schema::ListenSource::Any => {
                             oir.source_any = true;
                         }
-                        orbital_core::schema::ListenSource::Trait { trait_name, .. } => {
+                        orbital_core::schema::ListenSource::Trait {
+                            trait_name,
+                            trait_id,
+                        } => {
                             oir.source_trait = Some(trait_name.clone());
+                            oir.source_trait_id = trait_id.clone();
                         }
                         orbital_core::schema::ListenSource::Orbital {
                             orbital,
+                            orbital_id,
                             trait_name,
-                            ..
+                            trait_id,
                         } => {
                             oir.source_orbital = Some(orbital.clone());
+                            oir.source_orbital_id = orbital_id.clone();
                             oir.source_trait = Some(trait_name.clone());
+                            oir.source_trait_id = trait_id.clone();
                         }
                     }
                 }
@@ -676,6 +687,7 @@ impl<'a> Resolver<'a> {
         emit: &orbital_core::schema::EmitDefinition,
     ) -> Result<OirEmit, ResolveError> {
         let mut oir_emit = OirEmit::new(&emit.event);
+        oir_emit.event_id = emit.event_id.clone();
         oir_emit.description = emit.description.clone();
 
         // Convert scope
@@ -801,6 +813,7 @@ impl<'a> Resolver<'a> {
 
     fn resolve_page(&self, page: &PageDefinition) -> Result<OirPage, ResolveError> {
         let mut oir_page = OirPage::new(&page.name, &page.path);
+        oir_page.id = page.id.clone();
 
         // Resolve sections if present
         if let Some(sections) = &page.sections {
@@ -813,9 +826,9 @@ impl<'a> Resolver<'a> {
         if let Some(traits) = &page.traits {
             for trait_ref in traits {
                 if let Some(trait_name) = trait_ref.trait_name() {
-                    oir_page
-                        .traits
-                        .push(OirTraitBinding::new(trait_name.to_string()));
+                    let mut binding = OirTraitBinding::new(trait_name.to_string());
+                    binding.trait_id = trait_ref.trait_ref_id().map(str::to_string);
+                    oir_page.traits.push(binding);
                 }
             }
         }
