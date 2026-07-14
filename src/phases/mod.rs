@@ -18,6 +18,7 @@
 //! 5. **Resolve**: Resolve all references and produce final OIR
 
 pub mod compose;
+pub mod cross_file_ids;
 pub mod enrich;
 pub mod inline;
 pub mod parse;
@@ -27,6 +28,7 @@ pub mod validate;
 pub mod validation;
 
 pub use compose::{compose_schema, ComposeConfig};
+pub use cross_file_ids::{resolve_cross_file_id_edges, CrossFileIdError};
 pub use enrich::{enrich_schema, EnrichmentConfig};
 pub use inline::{inline_schema, InlineConfig, InlineError};
 pub use parse::{parse_file, parse_json, ParseError};

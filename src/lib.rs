@@ -48,9 +48,9 @@ pub use generate::{
 };
 pub use phases::{
     compile_file, compile_json, compile_schema, compose_schema, parse_file,
-    resolve_schema_with_path, validate_comprehensive, validate_comprehensive_full,
-    validate_comprehensive_with_options, validate_comprehensive_with_patterns, CompileResult,
-    CompilerError, CompilerOptions, ComposeConfig, ComprehensiveValidationResult, ExtraPatterns,
-    SchemaLanguage,
+    resolve_cross_file_id_edges, resolve_schema_with_path, validate_comprehensive,
+    validate_comprehensive_full, validate_comprehensive_with_options,
+    validate_comprehensive_with_patterns, CompileResult, CompilerError, CompilerOptions,
+    ComposeConfig, ComprehensiveValidationResult, CrossFileIdError, ExtraPatterns, SchemaLanguage,
 };
 pub use shell::{BaseShell, Shell, ShellRegistry};
