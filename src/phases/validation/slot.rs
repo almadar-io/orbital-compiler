@@ -416,6 +416,8 @@ mod tests {
             scope: None,
             source_behavior: None,
             source_entity_definition: None,
+            id: None,
+            linked_entity_id: None,
         }
     }
 
@@ -579,6 +581,8 @@ mod tests {
             scope: None,
             source_behavior: None,
             source_entity_definition: None,
+            id: None,
+            linked_entity_id: None,
         }
     }
 
@@ -788,6 +792,8 @@ mod tests {
             scope: None,
             source_behavior: None,
             source_entity_definition: None,
+            id: None,
+            linked_entity_id: None,
         };
         // Second trait renders `main` at INIT to satisfy main-slot coverage and
         // give us a potential contender. If the BFS is correct, contention

@@ -541,6 +541,8 @@ mod tests {
             description: None,
             orbitals: vec![],
             metadata: None,
+            ledger: None,
+            schema_version: None,
         }
     }
 
@@ -655,6 +657,8 @@ mod tests {
             },
             source_behavior: None,
             source_entity_definition: None,
+            id: None,
+            linked_entity_id: None,
         }
     }
 

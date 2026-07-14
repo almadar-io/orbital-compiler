@@ -701,6 +701,8 @@ mod tests {
             description: None,
             orbitals: vec![],
             metadata: None,
+            ledger: None,
+            schema_version: None,
         };
         let loaded = LoadedSchema {
             schema,

@@ -240,6 +240,7 @@ mod tests {
                 synonyms: None,
                 tier: None,
                 payload_schema: None,
+                event_id: None,
             }]),
             listens: None,
             state_machine: StateMachine {
@@ -253,6 +254,8 @@ mod tests {
             scope: None,
             source_behavior: None,
             source_entity_definition: None,
+            id: None,
+            linked_entity_id: None,
         };
         let atom_orbital = Orbital {
             name: "AtomHost".to_string(),
@@ -266,6 +269,7 @@ mod tests {
                 persistence: None,
                 fields: vec![],
                 instances: None,
+                id: None,
             }),
             auxiliary_entities: None,
             traits: vec![TraitReference::Inline(atom)],
@@ -275,6 +279,7 @@ mod tests {
             exposes: None,
             domain_context: None,
             design: None,
+            id: None,
         };
 
         let mut events_rename = HashMap::new();
@@ -288,6 +293,9 @@ mod tests {
             fields: None,
             listens: None,
             emits_scope: None,
+            event_ids: None,
+            linked_entity_id: None,
+            ref_id: None,
         };
         let composer_orbital = Orbital {
             name: "Composer".to_string(),
@@ -304,6 +312,7 @@ mod tests {
                 persistence: None,
                 fields: vec![],
                 instances: None,
+                id: None,
             }),
             auxiliary_entities: None,
             traits: vec![composer_ref],
@@ -313,6 +322,7 @@ mod tests {
             exposes: None,
             domain_context: None,
             design: None,
+            id: None,
         };
 
         OrbitalSchema {
@@ -321,6 +331,8 @@ mod tests {
             description: None,
             orbitals: vec![atom_orbital, composer_orbital],
             metadata: None,
+            ledger: None,
+            schema_version: None,
         }
     }
 

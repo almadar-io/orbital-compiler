@@ -311,11 +311,15 @@ mod tests {
                 fields: None,
                 listens: None,
                 emits_scope: None,
+                event_ids: None,
+                linked_entity_id: None,
+                ref_id: None,
             }]),
             primary_entity: None,
             view_type: None,
             is_initial: None,
             sections: None,
+            id: None,
         }
     }
 
@@ -395,6 +399,9 @@ mod tests {
             fields: None,
             listens: None,
             emits_scope: None,
+            event_ids: None,
+            linked_entity_id: None,
+            ref_id: None,
         }]);
 
         let mut seen_paths = HashSet::new();

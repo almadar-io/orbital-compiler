@@ -342,6 +342,7 @@ mod tests {
                     persistence: None,
                     fields: vec![],
                     instances: None,
+                    id: None,
                 }),
                 auxiliary_entities: None,
                 traits: vec![],
@@ -351,8 +352,11 @@ mod tests {
                 exposes: None,
                 domain_context: None,
                 design: None,
+                id: None,
             }],
             metadata: None,
+            ledger: None,
+            schema_version: None,
         }
     }
 
@@ -387,6 +391,8 @@ mod tests {
                 tier: None,
                 payload_mapping: None,
                 guard: None,
+                event_id: None,
+                triggers_id: None,
             }]),
             state_machine: StateMachine {
                 states: vec![],
@@ -399,6 +405,8 @@ mod tests {
             scope: None,
             source_behavior: None,
             source_entity_definition: None,
+            id: None,
+            linked_entity_id: None,
         })];
 
         let result = validate_event_wiring(&schema);
@@ -439,6 +447,8 @@ mod tests {
                 tier: None,
                 payload_mapping: None,
                 guard: None,
+                event_id: None,
+                triggers_id: None,
             }]),
             state_machine: StateMachine {
                 states: vec![],
@@ -451,6 +461,8 @@ mod tests {
             scope: None,
             source_behavior: None,
             source_entity_definition: None,
+            id: None,
+            linked_entity_id: None,
         })];
 
         let result = validate_event_wiring(&schema);

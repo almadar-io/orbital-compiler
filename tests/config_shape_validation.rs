@@ -118,6 +118,7 @@ fn schema_with_config(config: HashMap<String, ConfigField>) -> OrbitalSchema {
             synonyms: None,
         }],
         instances: None,
+        id: None,
     };
     let trait_def = TraitDefinition {
         name: "KpiStats".to_string(),
@@ -152,6 +153,8 @@ fn schema_with_config(config: HashMap<String, ConfigField>) -> OrbitalSchema {
         scope: None,
         source_behavior: None,
         source_entity_definition: None,
+        id: None,
+        linked_entity_id: None,
     };
     OrbitalSchema {
         name: "TestApp".to_string(),
@@ -171,8 +174,11 @@ fn schema_with_config(config: HashMap<String, ConfigField>) -> OrbitalSchema {
             exposes: None,
             domain_context: None,
             design: None,
+            id: None,
         }],
         metadata: None,
+        ledger: None,
+        schema_version: None,
     }
 }
 

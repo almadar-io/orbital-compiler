@@ -916,6 +916,7 @@ mod entity_prop_contract_tests {
             collection: None,
             persistence: None,
             instances: None,
+            id: None,
         }
     }
 

@@ -483,6 +483,8 @@ mod tests {
             scope: None,
             source_behavior: None,
             source_entity_definition: None,
+            id: None,
+            linked_entity_id: None,
         }
     }
 
@@ -568,6 +570,7 @@ mod tests {
                     description: None,
                     synonyms: None,
                 }],
+                id: None,
             },
         );
         let ctx = BindingContext {

@@ -660,6 +660,7 @@ pub(crate) fn inline_traits(
                 fields: fields_override,
                 listens: listens_override,
                 emits_scope: emits_scope_override,
+                ..
             } => {
                 if let Some(ref_str) = reference {
                     let parsed = parse_reference(ref_str)?;
@@ -1057,7 +1058,7 @@ pub(crate) fn inline_traits(
         if let TraitReference::Inline(trait_def) = trait_ref {
             if let Some(listens) = trait_def.listens.as_mut() {
                 listens.retain(|listen| match &listen.source {
-                    Some(orbital_core::schema::ListenSource::Trait { trait_name }) => {
+                    Some(orbital_core::schema::ListenSource::Trait { trait_name, .. }) => {
                         local_trait_names.contains(trait_name)
                     }
                     _ => true,

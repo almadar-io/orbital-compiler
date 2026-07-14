@@ -46,6 +46,7 @@ fn emit_def(event: &str, fields: Vec<PayloadField>) -> EmitDefinition {
         } else {
             Some(fields)
         },
+        event_id: None,
     }
 }
 
@@ -71,6 +72,7 @@ fn task_entity() -> EntityDefinition {
             synonyms: None,
         }],
         instances: None,
+        id: None,
     }
 }
 
@@ -141,6 +143,8 @@ fn schema_for_f1(strict_target_event: &str) -> OrbitalSchema {
         scope: None,
         source_behavior: None,
         source_entity_definition: None,
+        id: None,
+        linked_entity_id: None,
     };
 
     OrbitalSchema {
@@ -161,8 +165,11 @@ fn schema_for_f1(strict_target_event: &str) -> OrbitalSchema {
             exposes: None,
             domain_context: None,
             design: None,
+            id: None,
         }],
         metadata: None,
+        ledger: None,
+        schema_version: None,
     }
 }
 
@@ -247,6 +254,8 @@ fn schema_with_two_emitters(
             scope: None,
             source_behavior: None,
             source_entity_definition: None,
+            id: None,
+            linked_entity_id: None,
         }
     };
     // F4 narrowing precondition: cross-emitter mismatch only fires when at
@@ -275,7 +284,11 @@ fn schema_with_two_emitters(
                 source: Some(ListenSource::Orbital {
                     orbital: "TestOrbital".to_string(),
                     trait_name: "EmitterA".to_string(),
+                    orbital_id: None,
+                    trait_id: None,
                 }),
+                event_id: None,
+                triggers_id: None,
             }]),
         ))],
         pages: None,
@@ -284,6 +297,7 @@ fn schema_with_two_emitters(
         exposes: None,
         domain_context: None,
         design: None,
+        id: None,
     };
     OrbitalSchema {
         name: "TestApp".to_string(),
@@ -315,10 +329,13 @@ fn schema_with_two_emitters(
                 exposes: None,
                 domain_context: None,
                 design: None,
+                id: None,
             },
             listener_orbital,
         ],
         metadata: None,
+        ledger: None,
+        schema_version: None,
     }
 }
 
@@ -394,6 +411,7 @@ fn schema_with_default(field: FieldDefinition) -> OrbitalSchema {
             field,
         ],
         instances: None,
+        id: None,
     };
     OrbitalSchema {
         name: "TestApp".to_string(),
@@ -413,8 +431,11 @@ fn schema_with_default(field: FieldDefinition) -> OrbitalSchema {
             exposes: None,
             domain_context: None,
             design: None,
+            id: None,
         }],
         metadata: None,
+        ledger: None,
+        schema_version: None,
     }
 }
 

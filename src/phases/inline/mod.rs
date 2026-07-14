@@ -351,8 +351,10 @@ fn uniquify_cross_orbital_pulled_siblings(
                     // `listens` source at the old sibling name; track the rename.
                     if let Some(listens) = td.listens.as_mut() {
                         for listen in listens.iter_mut() {
-                            if let Some(orbital_core::schema::ListenSource::Trait { trait_name }) =
-                                listen.source.as_mut()
+                            if let Some(orbital_core::schema::ListenSource::Trait {
+                                trait_name,
+                                ..
+                            }) = listen.source.as_mut()
                             {
                                 if trait_name == old_name {
                                     *trait_name = new_name.clone();
@@ -826,6 +828,8 @@ mod tests {
             scope: None,
             source_behavior: None,
             source_entity_definition: None,
+            id: None,
+            linked_entity_id: None,
         }
     }
 
@@ -973,6 +977,7 @@ mod tests {
                 persistence: None,
                 fields: vec![],
                 instances: None,
+                id: None,
             }),
             auxiliary_entities: None,
             traits: vec![TraitReference::Inline(trait_def)],
@@ -982,6 +987,7 @@ mod tests {
             exposes: None,
             domain_context: None,
             design: None,
+            id: None,
         }
     }
 
@@ -1008,6 +1014,9 @@ mod tests {
             fields: None,
             listens: None,
             emits_scope: None,
+            event_ids: None,
+            linked_entity_id: None,
+            ref_id: None,
         }
     }
 
@@ -1133,8 +1142,12 @@ mod tests {
                 fields: None,
                 listens: None,
                 emits_scope: None,
+                event_ids: None,
+                linked_entity_id: None,
+                ref_id: None,
             }]),
             sections: None,
+            id: None,
         })]);
 
         let mut rename_map = HashMap::new();
@@ -1183,8 +1196,12 @@ mod tests {
                 fields: None,
                 listens: None,
                 emits_scope: None,
+                event_ids: None,
+                linked_entity_id: None,
+                ref_id: None,
             }]),
             sections: None,
+            id: None,
         })]);
 
         let mut rename_map = HashMap::new();
@@ -1266,6 +1283,7 @@ mod tests {
                 persistence: None,
                 fields: vec![],
                 instances: None,
+                id: None,
             }),
             auxiliary_entities: None,
             traits: vec![],
@@ -1275,6 +1293,7 @@ mod tests {
             exposes: None,
             domain_context: None,
             design: None,
+            id: None,
         }
     }
 
@@ -1467,6 +1486,7 @@ mod tests {
                 make_field("createdAt", FieldType::String),
             ],
             instances: None,
+            id: None,
         }
     }
 
@@ -1489,6 +1509,7 @@ mod tests {
             exposes: None,
             domain_context: None,
             design: None,
+            id: None,
         }
     }
 
@@ -1537,6 +1558,7 @@ mod tests {
             fields: None,
             persistence: None,
             collection: None,
+            extends_id: None,
         });
 
         let result =
@@ -1584,6 +1606,7 @@ mod tests {
             fields: None,
             persistence: None,
             collection: None,
+            extends_id: None,
         });
 
         let result = inline_entity(&entity, &ctx).expect("Extends with rename must inline cleanly");
@@ -1619,6 +1642,7 @@ mod tests {
             ]),
             persistence: None,
             collection: None,
+            extends_id: None,
         });
 
         let result =
@@ -1673,6 +1697,7 @@ mod tests {
             ]),
             persistence: None,
             collection: None,
+            extends_id: None,
         });
 
         let result = inline_entity(&entity, &ctx)
@@ -1749,6 +1774,7 @@ mod tests {
             fields: None,
             persistence: None,
             collection: None,
+            extends_id: None,
         });
 
         let result = inline_entity(&entity, &ctx);
@@ -2144,6 +2170,8 @@ mod tests {
             scope: None,
             source_behavior: None,
             source_entity_definition: None,
+            id: None,
+            linked_entity_id: None,
         };
 
         let mut event_subs = HashMap::new();
@@ -2223,6 +2251,8 @@ mod tests {
             scope: None,
             source_behavior: None,
             source_entity_definition: None,
+            id: None,
+            linked_entity_id: None,
         };
 
         let mut events_arg = HashMap::new();
@@ -2475,6 +2505,8 @@ mod tests {
             scope: None,
             source_behavior: None,
             source_entity_definition: None,
+            id: None,
+            linked_entity_id: None,
         };
 
         let linked = "Target".to_string();
@@ -2645,6 +2677,7 @@ mod tests {
                 persistence: None,
                 fields: vec![],
                 instances: None,
+                id: None,
             }),
             auxiliary_entities: None,
             traits: vec![],
@@ -2654,6 +2687,7 @@ mod tests {
             exposes: None,
             domain_context: None,
             design: None,
+            id: None,
         };
 
         let canvas_page = PageDefinition {
@@ -2664,6 +2698,7 @@ mod tests {
             is_initial: None,
             traits: None,
             sections: None,
+            id: None,
         };
 
         let orb1 = Orbital {
@@ -2678,6 +2713,7 @@ mod tests {
                 persistence: None,
                 fields: vec![],
                 instances: None,
+                id: None,
             }),
             auxiliary_entities: None,
             traits: vec![],
@@ -2687,6 +2723,7 @@ mod tests {
             exposes: None,
             domain_context: None,
             design: None,
+            id: None,
         };
 
         let mut ctx = InlineContext::new();
@@ -2757,6 +2794,7 @@ mod tests {
                 make_field("price", FieldType::Number),
             ],
             instances: None,
+            id: None,
         };
         let imported = EntityDefinition {
             shared: false,
@@ -2769,6 +2807,7 @@ mod tests {
                 make_field("pendingId", FieldType::String),
             ],
             instances: None,
+            id: None,
         };
 
         merge_imported_entity_fields(&mut caller, &imported, false, &HashSet::new());
@@ -2795,6 +2834,7 @@ mod tests {
                 make_field("title", FieldType::String),
             ],
             instances: None,
+            id: None,
         };
         let imported = EntityDefinition {
             shared: false,
@@ -2806,6 +2846,7 @@ mod tests {
                 make_field("status", FieldType::String),
             ],
             instances: None,
+            id: None,
         };
 
         merge_imported_entity_fields(&mut caller, &imported, false, &HashSet::new());
@@ -2834,6 +2875,7 @@ mod tests {
                 make_field("pendingId", FieldType::String),
             ],
             instances: None,
+            id: None,
         };
         let imported = EntityDefinition {
             shared: false,
@@ -2849,6 +2891,7 @@ mod tests {
                 make_field("pendingId", FieldType::String),
             ],
             instances: None,
+            id: None,
         };
 
         merge_imported_entity_fields(&mut caller, &imported, false, &HashSet::new());
@@ -2880,6 +2923,7 @@ mod tests {
             persistence: None,
             fields: vec![make_field("id", FieldType::String)],
             instances: None,
+            id: None,
         };
         let import_browse = EntityDefinition {
             shared: false,
@@ -2892,6 +2936,7 @@ mod tests {
                 make_field("status", FieldType::String),
             ],
             instances: None,
+            id: None,
         };
         let import_modal = EntityDefinition {
             shared: false,
@@ -2904,6 +2949,7 @@ mod tests {
                 make_field("description", FieldType::String),
             ],
             instances: None,
+            id: None,
         };
 
         // First import adds name, status.
@@ -2933,6 +2979,7 @@ mod tests {
                 make_field("title", FieldType::String),
             ],
             instances: None,
+            id: None,
         };
         let original_len = caller.fields.len();
 
@@ -2961,6 +3008,7 @@ mod tests {
                 persistence: None,
                 fields: vec![make_field("stateField", FieldType::String)],
                 instances: None,
+                id: None,
             }),
             auxiliary_entities: None,
             traits: vec![TraitReference::Inline(make_trait("StateTrait"))],
@@ -2970,6 +3018,7 @@ mod tests {
             exposes: None,
             domain_context: None,
             design: None,
+            id: None,
         };
 
         let orb1 = Orbital {
@@ -2987,6 +3036,7 @@ mod tests {
                     make_field("pendingId", FieldType::String),
                 ],
                 instances: None,
+                id: None,
             }),
             auxiliary_entities: None,
             traits: vec![TraitReference::Inline(make_trait("ActionTrait"))],
@@ -2996,6 +3046,7 @@ mod tests {
             exposes: None,
             domain_context: None,
             design: None,
+            id: None,
         };
 
         let mut ctx = InlineContext::new();

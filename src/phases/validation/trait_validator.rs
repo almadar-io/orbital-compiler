@@ -1051,6 +1051,8 @@ mod tests {
             scope: None,
             source_behavior: None,
             source_entity_definition: None,
+            id: None,
+            linked_entity_id: None,
         }
     }
 
@@ -1157,6 +1159,7 @@ mod tests {
                 })
                 .collect(),
             instances: None,
+            id: None,
         }
     }
 
@@ -1273,6 +1276,9 @@ mod tests {
             fields: None,
             listens: None,
             emits_scope: None,
+            event_ids: None,
+            linked_entity_id: None,
+            ref_id: None,
         };
 
         let result = validate_trait_reference(&trait_ref, "test", &HashSet::new(), &HashSet::new());
@@ -1293,6 +1299,9 @@ mod tests {
             fields: None,
             listens: None,
             emits_scope: None,
+            event_ids: None,
+            linked_entity_id: None,
+            ref_id: None,
         };
 
         let result = validate_trait_reference(&trait_ref, "test", &HashSet::new(), &HashSet::new());
@@ -1317,6 +1326,9 @@ mod tests {
             fields: None,
             listens: None,
             emits_scope: None,
+            event_ids: None,
+            linked_entity_id: None,
+            ref_id: None,
         }
     }
 
@@ -1390,6 +1402,7 @@ mod tests {
             exposes: None,
             domain_context: None,
             design: None,
+            id: None,
         }
     }
 

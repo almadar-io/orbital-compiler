@@ -57,6 +57,8 @@ pub fn resolve_sexpr_standalone(sexpr: &SExpression) -> Result<OirExpr, ResolveE
         description: None,
         orbitals: Vec::new(),
         metadata: None,
+        ledger: None,
+        schema_version: None,
     };
     Resolver::new(&empty).resolve_sexpr(sexpr)
 }
@@ -609,12 +611,13 @@ impl<'a> Resolver<'a> {
                         orbital_core::schema::ListenSource::Any => {
                             oir.source_any = true;
                         }
-                        orbital_core::schema::ListenSource::Trait { trait_name } => {
+                        orbital_core::schema::ListenSource::Trait { trait_name, .. } => {
                             oir.source_trait = Some(trait_name.clone());
                         }
                         orbital_core::schema::ListenSource::Orbital {
                             orbital,
                             trait_name,
+                            ..
                         } => {
                             oir.source_orbital = Some(orbital.clone());
                             oir.source_trait = Some(trait_name.clone());
@@ -2241,6 +2244,8 @@ mod tests {
             description: None,
             orbitals: vec![],
             metadata: None,
+            ledger: None,
+            schema_version: None,
         };
 
         let result = resolve_to_oir(&schema);
@@ -2272,6 +2277,8 @@ mod tests {
             description: None,
             orbitals: vec![],
             metadata: None,
+            ledger: None,
+            schema_version: None,
         });
         Resolver::new(schema)
     }

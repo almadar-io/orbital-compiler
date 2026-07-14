@@ -83,6 +83,7 @@ mod tests {
                     persistence: None,
                     fields: vec![],
                     instances: None,
+                    id: None,
                 }),
                 auxiliary_entities: None,
                 traits: vec![],
@@ -92,8 +93,11 @@ mod tests {
                 exposes: None,
                 domain_context: None,
                 design: None,
+                id: None,
             }],
             metadata: None,
+            ledger: None,
+            schema_version: None,
         }
     }
 
@@ -117,6 +121,7 @@ mod tests {
                 synonyms: None,
                 tier: None,
                 payload_schema: None, // Missing payload!
+                event_id: None,
             }]),
             listens: None,
             state_machine: StateMachine {
@@ -130,6 +135,8 @@ mod tests {
             scope: None,
             source_behavior: None,
             source_entity_definition: None,
+            id: None,
+            linked_entity_id: None,
         })];
 
         let result = validate_external_emit_payloads(&schema);
@@ -166,6 +173,7 @@ mod tests {
                     description: Some("The order ID".to_string()),
                     properties: None,
                 }]),
+                event_id: None,
             }]),
             listens: None,
             state_machine: StateMachine {
@@ -179,6 +187,8 @@ mod tests {
             scope: None,
             source_behavior: None,
             source_entity_definition: None,
+            id: None,
+            linked_entity_id: None,
         })];
 
         let result = validate_external_emit_payloads(&schema);
@@ -205,6 +215,7 @@ mod tests {
                 synonyms: None,
                 tier: None,
                 payload_schema: None,
+                event_id: None,
             }]),
             listens: None,
             state_machine: StateMachine {
@@ -218,6 +229,8 @@ mod tests {
             scope: None,
             source_behavior: None,
             source_entity_definition: None,
+            id: None,
+            linked_entity_id: None,
         })];
 
         let result = validate_external_emit_payloads(&schema);

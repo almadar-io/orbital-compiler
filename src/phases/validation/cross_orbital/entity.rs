@@ -59,6 +59,7 @@ mod tests {
                     persistence: None,
                     fields: vec![],
                     instances: None,
+                    id: None,
                 }),
                 auxiliary_entities: None,
                 traits: vec![],
@@ -68,8 +69,11 @@ mod tests {
                 exposes: None,
                 domain_context: None,
                 design: None,
+                id: None,
             }],
             metadata: None,
+            ledger: None,
+            schema_version: None,
         }
     }
 
@@ -95,6 +99,7 @@ mod tests {
                 persistence: None,
                 fields: vec![],
                 instances: None,
+                id: None,
             }),
             auxiliary_entities: None,
             traits: vec![],
@@ -104,6 +109,7 @@ mod tests {
             exposes: None,
             domain_context: None,
             design: None,
+            id: None,
         });
 
         let result = validate_entity_uniqueness(&schema);

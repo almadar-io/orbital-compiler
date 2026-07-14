@@ -225,7 +225,11 @@ fn build_embed_index(orbital: &Orbital) -> (Vec<EmbedSite>, HashMap<String, Vec<
             let mut referenced: HashMap<String, String> = HashMap::new();
             let mut set_fields: HashSet<String> = HashSet::new();
             if let Some(guard) = transition.guard.as_ref() {
-                guard.collect_entity_field_refs(&mut referenced, &mut set_fields, &transition.event);
+                guard.collect_entity_field_refs(
+                    &mut referenced,
+                    &mut set_fields,
+                    &transition.event,
+                );
             }
             if let Some(effects) = transition.effects.as_ref() {
                 for effect in effects {
@@ -2056,6 +2060,7 @@ mod tests {
             collection: None,
             persistence: None,
             instances: None,
+            id: None,
         };
 
         let entity_defs = HashMap::new();
@@ -2108,6 +2113,7 @@ mod tests {
             collection: None,
             persistence: None,
             instances: None,
+            id: None,
         };
 
         let entity_defs = HashMap::new();
@@ -2144,6 +2150,7 @@ mod tests {
             collection: None,
             persistence: None,
             instances: None,
+            id: None,
         };
 
         let mut entity_defs = HashMap::new();
@@ -2234,6 +2241,8 @@ mod tests {
             scope: None,
             source_behavior: None,
             source_entity_definition: None,
+            id: None,
+            linked_entity_id: None,
         }
     }
 
@@ -2300,8 +2309,13 @@ mod tests {
             vec![("INIT", vec![render_ui])],
         );
         let intrinsic: HashSet<String> = ["selectedRange".to_string()].into_iter().collect();
-        let result =
-            validate_entity_fields_have_setters(&trait_def, "test", &intrinsic, &HashMap::new(), None);
+        let result = validate_entity_fields_have_setters(
+            &trait_def,
+            "test",
+            &intrinsic,
+            &HashMap::new(),
+            None,
+        );
         assert!(
             result.warnings.is_empty() && result.errors.is_empty(),
             "Intrinsic @entity.selectedRange with no (set) must be exempt — got {:?}",
@@ -2514,6 +2528,8 @@ mod tests {
                 scope: None,
                 source_behavior: None,
                 source_entity_definition: None,
+                id: None,
+                linked_entity_id: None,
             }
         };
         let result = validate_entity_fields_have_setters(
@@ -2546,6 +2562,7 @@ mod tests {
             persistence: None,
             instances: None,
             fields: vec![],
+            id: None,
         }
     }
 
@@ -2564,6 +2581,7 @@ mod tests {
             exposes: None,
             domain_context: None,
             design: None,
+            id: None,
         }
     }
 
@@ -2606,7 +2624,8 @@ mod tests {
         // `@payload.<field>` on that event).
         let orbital = orbital_with_traits(vec![composer.clone(), make_child("bogus")]);
         let (sites, parents_of) = build_embed_index(&orbital);
-        let result = validate_callsite_payload_captures(&orbital, "orbitals[0]", &sites, &parents_of);
+        let result =
+            validate_callsite_payload_captures(&orbital, "orbitals[0]", &sites, &parents_of);
         assert!(
             result
                 .errors
@@ -2620,8 +2639,12 @@ mod tests {
         // Field declared on the composing event → no error.
         let orbital_ok = orbital_with_traits(vec![composer, make_child("error")]);
         let (sites_ok, parents_of_ok) = build_embed_index(&orbital_ok);
-        let result_ok =
-            validate_callsite_payload_captures(&orbital_ok, "orbitals[0]", &sites_ok, &parents_of_ok);
+        let result_ok = validate_callsite_payload_captures(
+            &orbital_ok,
+            "orbitals[0]",
+            &sites_ok,
+            &parents_of_ok,
+        );
         assert!(
             result_ok.errors.is_empty(),
             "a captured field declared on the composing event must pass: {:?}",
@@ -2734,8 +2757,7 @@ mod tests {
                 m
             }),
         ]);
-        let child =
-            build_trait_fixture("Child", Some("Course"), vec![("INIT", vec![child_read])]);
+        let child = build_trait_fixture("Child", Some("Course"), vec![("INIT", vec![child_read])]);
 
         let orbital = orbital_with_traits(vec![parent.clone(), child.clone()]);
         let (sites, parents_of) = build_embed_index(&orbital);
@@ -2813,7 +2835,8 @@ mod tests {
         entity_defs.insert("Pool".to_string(), shared_entity_def("Pool"));
 
         let group = collect_shared_group_set_fields(&orbital, &entity_defs);
-        let result = validate_entity_fields_have_setters(&trait_a, "test", &HashSet::new(), &group, None);
+        let result =
+            validate_entity_fields_have_setters(&trait_a, "test", &HashSet::new(), &group, None);
         assert!(
             result.warnings.is_empty() && result.errors.is_empty(),
             "Trait A's read of a [shared]-group field set by Trait B must be satisfied: {:?}",
@@ -2852,7 +2875,8 @@ mod tests {
         entity_defs.insert("Pool".to_string(), shared_entity_def("Pool"));
 
         let group = collect_shared_group_set_fields(&orbital, &entity_defs);
-        let result = validate_entity_fields_have_setters(&trait_a, "test", &HashSet::new(), &group, None);
+        let result =
+            validate_entity_fields_have_setters(&trait_a, "test", &HashSet::new(), &group, None);
         assert!(
             result
                 .warnings
@@ -2903,6 +2927,7 @@ mod tests {
                 persistence: None,
                 instances: None,
                 fields: vec![],
+                id: None,
             },
         );
 
@@ -2912,7 +2937,8 @@ mod tests {
             "Non-shared entities must not appear in the group map: {:?}",
             group
         );
-        let result = validate_entity_fields_have_setters(&trait_a, "test", &HashSet::new(), &group, None);
+        let result =
+            validate_entity_fields_have_setters(&trait_a, "test", &HashSet::new(), &group, None);
         assert!(
             result
                 .warnings

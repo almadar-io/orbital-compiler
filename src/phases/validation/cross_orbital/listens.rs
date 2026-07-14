@@ -41,12 +41,13 @@ pub(crate) fn validate_listens_integrity(schema: &OrbitalSchema) -> ValidationRe
             };
             for listen in listens {
                 let (source_orbital, source_trait) = match &listen.source {
-                    Some(ListenSource::Trait { trait_name }) => {
+                    Some(ListenSource::Trait { trait_name, .. }) => {
                         (orbital.name.clone(), trait_name.clone())
                     }
                     Some(ListenSource::Orbital {
                         orbital: o,
                         trait_name,
+                        ..
                     }) => (o.clone(), trait_name.clone()),
                     Some(ListenSource::Any) | None => continue,
                 };

@@ -53,6 +53,8 @@ fn make_trait_with_transition(
         scope: None,
         source_behavior: None,
         source_entity_definition: None,
+        id: None,
+        linked_entity_id: None,
     }
 }
 

@@ -55,6 +55,7 @@ fn declared_emit_with_payload(event: &str, fields: Vec<PayloadField>) -> EmitDef
         tier: None,
         scope: Some(EventScope::Internal),
         payload_schema: Some(fields),
+        event_id: None,
     }
 }
 
@@ -80,6 +81,7 @@ fn schema_with_emit(emit: SExpression, declared: EmitDefinition) -> OrbitalSchem
             synonyms: None,
         }],
         instances: None,
+        id: None,
     };
     let trait_def = TraitDefinition {
         name: "TaskEmitter".to_string(),
@@ -114,6 +116,8 @@ fn schema_with_emit(emit: SExpression, declared: EmitDefinition) -> OrbitalSchem
         scope: None,
         source_behavior: None,
         source_entity_definition: None,
+        id: None,
+        linked_entity_id: None,
     };
     OrbitalSchema {
         name: "TestApp".to_string(),
@@ -133,8 +137,11 @@ fn schema_with_emit(emit: SExpression, declared: EmitDefinition) -> OrbitalSchem
             exposes: None,
             domain_context: None,
             design: None,
+            id: None,
         }],
         metadata: None,
+        ledger: None,
+        schema_version: None,
     }
 }
 

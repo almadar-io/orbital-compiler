@@ -206,7 +206,7 @@ fn is_cross_orbital_reachable(
             // trait is in the listener's own orbital AND that orbital
             // emits the event, single-shape; otherwise we can't tell
             // statically and conservatively assume reachable.
-            Some(ListenSource::Trait { trait_name }) => {
+            Some(ListenSource::Trait { trait_name, .. }) => {
                 let listener_orbital = &listener.orbital_name;
                 let same_orbital_has_emitter = emitters
                     .iter()

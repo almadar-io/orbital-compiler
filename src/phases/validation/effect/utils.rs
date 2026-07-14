@@ -554,6 +554,7 @@ mod tests {
                         relation: Some(RelationDefinition {
                             entity: "Company".to_string(),
                             cardinality: None,
+                            entity_id: None,
                         }),
                         items: None,
                         properties: None,
@@ -563,6 +564,7 @@ mod tests {
                     },
                 ],
                 instances: None,
+                id: None,
             },
         );
 
@@ -658,6 +660,7 @@ mod tests {
                         relation: Some(RelationDefinition {
                             entity: "Company".to_string(),
                             cardinality: None,
+                            entity_id: None,
                         }),
                         items: None,
                         properties: None,
@@ -667,6 +670,7 @@ mod tests {
                     },
                 ],
                 instances: None,
+                id: None,
             },
         );
 

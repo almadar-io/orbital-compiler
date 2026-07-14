@@ -687,6 +687,7 @@ mod tests {
                 collection: Some("companies".to_string()),
                 persistence: None,
                 instances: None,
+                id: None,
             },
         );
 
@@ -721,6 +722,7 @@ mod tests {
                         relation: Some(RelationDefinition {
                             entity: "Company".to_string(),
                             cardinality: None,
+                            entity_id: None,
                         }),
                         items: None,
                         values: None,
@@ -734,6 +736,7 @@ mod tests {
                 collection: Some("inspections".to_string()),
                 persistence: None,
                 instances: None,
+                id: None,
             },
         );
 
@@ -806,6 +809,7 @@ mod tests {
                 collection: Some("inspections".to_string()),
                 persistence: None,
                 instances: None,
+                id: None,
             },
         );
 
@@ -883,6 +887,8 @@ mod tests {
             scope: None,
             source_behavior: None,
             source_entity_definition: None,
+            id: None,
+            linked_entity_id: None,
         }
     }
 

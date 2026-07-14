@@ -57,6 +57,7 @@ fn make_entity_with_fields(name: &str, field_names: &[&str]) -> EntityDefinition
         collection: Some(format!("{}s", name.to_lowercase())),
         persistence: None,
         instances: None,
+        id: None,
     }
 }
 

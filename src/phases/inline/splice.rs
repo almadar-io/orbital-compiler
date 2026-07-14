@@ -402,6 +402,8 @@ mod tests {
             scope: None,
             source_behavior: None,
             source_entity_definition: None,
+            id: None,
+            linked_entity_id: None,
         }
     }
 
@@ -419,6 +421,7 @@ mod tests {
                 description: None,
                 properties: None,
             }]),
+            event_id: None,
         }
     }
 
@@ -439,6 +442,7 @@ mod tests {
                 persistence: None,
                 fields: vec![],
                 instances: None,
+                id: None,
             }),
             auxiliary_entities: None,
             traits: traits.into_iter().map(TraitReference::Inline).collect(),
@@ -448,6 +452,7 @@ mod tests {
             exposes: None,
             domain_context: None,
             design: None,
+            id: None,
         }
     }
 
@@ -522,6 +527,8 @@ mod tests {
             payload_mapping: None,
             guard: None,
             source: None,
+            event_id: None,
+            triggers_id: None,
         }]);
         assert!(
             render_only_template(&listening).is_none(),

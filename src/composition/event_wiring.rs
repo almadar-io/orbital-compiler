@@ -104,6 +104,7 @@ pub fn apply_event_wiring(
                     tier: None,
                     scope: Some(EventScope::External),
                     payload_schema: None,
+                    event_id: None,
                 });
             }
         }
@@ -125,6 +126,8 @@ pub fn apply_event_wiring(
                     payload_mapping: None,
                     guard: None,
                     source: None,
+                    event_id: None,
+                    triggers_id: None,
                 });
             }
         }

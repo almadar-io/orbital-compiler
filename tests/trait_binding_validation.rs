@@ -85,6 +85,8 @@ fn trait_with_trait_binding_in_children(trait_name: &str, binding: &str) -> Trai
         scope: None,
         source_behavior: None,
         source_entity_definition: None,
+        id: None,
+        linked_entity_id: None,
     }
 }
 
@@ -341,6 +343,8 @@ fn trait_with_binding_outside_render(effect_kind: &str, binding: &str) -> TraitD
         scope: None,
         source_behavior: None,
         source_entity_definition: None,
+        id: None,
+        linked_entity_id: None,
     }
 }
 

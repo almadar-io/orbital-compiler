@@ -355,6 +355,7 @@ mod tests {
                 synonyms: None,
             }],
             instances: None,
+            id: None,
         }
     }
 
@@ -442,6 +443,7 @@ mod tests {
         field.relation = Some(RelationDefinition {
             entity: "NonExistent".to_string(),
             cardinality: None,
+            entity_id: None,
         });
         entity.fields.push(field);
 
@@ -461,6 +463,7 @@ mod tests {
         field.relation = Some(RelationDefinition {
             entity: "User".to_string(),
             cardinality: None,
+            entity_id: None,
         });
         entity.fields.push(field);
 

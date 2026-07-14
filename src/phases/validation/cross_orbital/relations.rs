@@ -120,6 +120,7 @@ mod tests {
                     persistence: None,
                     fields: vec![],
                     instances: None,
+                    id: None,
                 }),
                 auxiliary_entities: None,
                 traits: vec![],
@@ -129,8 +130,11 @@ mod tests {
                 exposes: None,
                 domain_context: None,
                 design: None,
+                id: None,
             }],
             metadata: None,
+            ledger: None,
+            schema_version: None,
         }
     }
 
@@ -158,6 +162,7 @@ mod tests {
                 persistence: None,
                 fields: vec![],
                 instances: None,
+                id: None,
             }),
             auxiliary_entities: None,
             traits: vec![],
@@ -167,6 +172,7 @@ mod tests {
             exposes: None,
             domain_context: None,
             design: None,
+            id: None,
         });
         // Point Task.patient at Patient — should resolve cleanly.
         if let EntityRef::Inline(task) = &mut schema.orbitals[0].entity {
@@ -181,6 +187,7 @@ mod tests {
                 relation: Some(RelationDefinition {
                     entity: "Patient".to_string(),
                     cardinality: None,
+                    entity_id: None,
                 }),
                 items: None,
                 properties: None,
@@ -220,6 +227,7 @@ mod tests {
                 relation: Some(RelationDefinition {
                     entity: "Patient".to_string(),
                     cardinality: None,
+                    entity_id: None,
                 }),
                 items: None,
                 properties: None,
@@ -273,6 +281,7 @@ mod tests {
                     relation: Some(RelationDefinition {
                         entity: "Patient".to_string(),
                         cardinality: None,
+                        entity_id: None,
                     }),
                     items: None,
                     properties: None,

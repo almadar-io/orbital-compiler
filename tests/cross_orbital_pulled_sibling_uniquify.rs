@@ -196,7 +196,7 @@ fn cross_orbital_pulled_siblings_are_uniquified() {
         let src = listens
             .iter()
             .find_map(|l| match l.source.as_ref() {
-                Some(ListenSource::Trait { trait_name }) => Some(trait_name.clone()),
+                Some(ListenSource::Trait { trait_name, .. }) => Some(trait_name.clone()),
                 _ => None,
             })
             .expect("listen has a trait source");
