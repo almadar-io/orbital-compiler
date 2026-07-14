@@ -64,6 +64,24 @@ pub fn validate_all_emit_payloads(schema: &OrbitalSchema, ctx: &mut ValidationCo
                     }
                 }
             }
+            // Resolved-config event references. An atom's config field DEFAULT
+            // may carry structured event references (e.g. an `itemActions`
+            // default `[{ event: "OPEN_POLICY", … }]`). The render-ui effect
+            // binds `@config.itemActions`, which the effect walk skips as a
+            // runtime binding — so the fired event lives only in the config
+            // value. The inline phase folds every call-site override into this
+            // same `default` (override where the consumer supplied one, atom
+            // default otherwise), so walking it here reflects the RESOLVED
+            // config for both the standalone atom and any consumer that
+            // inlines it. Same registry-driven `collect_fired_events_recursive`
+            // the effect walk uses — one walker, not a parallel scan.
+            if let Some(config) = &td.config {
+                for field in config.values() {
+                    if let Some(default) = &field.default {
+                        collect_fired_events_recursive(default, &mut all_fired_events);
+                    }
+                }
+            }
         }
     }
 
@@ -733,5 +751,89 @@ fn primitive_types_compatible(declared: &str, actual: &str) -> bool {
         // Entity / relation fields accept object literals at emit time.
         "entity" | "relation" => actual == "object" || actual == "string",
         _ => false,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn has_unfired(ctx: &ValidationContext, event: &str) -> bool {
+        // EmitDeclaredButUnfired is a warning, so it lands in `warnings`;
+        // scan `errors` too in case Phase F escalation ever moves it.
+        ctx.result
+            .errors
+            .iter()
+            .chain(ctx.result.warnings.iter())
+            .any(|e| e.code == ErrorCode::EmitDeclaredButUnfired && e.message.contains(event))
+    }
+
+    /// std-gallery-shaped regression: an atom declares an event whose ONLY
+    /// firing lives in a config field DEFAULT (an `itemActions`-style item
+    /// list carrying `{ event: "OPEN_POLICY" }`). No transition fires it and
+    /// no call-site override exists. Before the resolved-config walk this
+    /// tripped a false-positive `ORB_EMIT_DECLARED_BUT_UNFIRED`.
+    #[test]
+    fn config_default_firing_suppresses_declared_but_unfired() {
+        let json = r#"{
+            "name": "gallery-app",
+            "orbitals": [{
+                "name": "GalleryOrbital",
+                "entity": "GalleryItem",
+                "traits": [{
+                    "name": "GalleryItemGallery",
+                    "emits": [{ "event": "OPEN_POLICY", "payloadSchema": [] }],
+                    "stateMachine": {
+                        "states": [{ "name": "browsing", "isInitial": true }],
+                        "transitions": []
+                    },
+                    "config": {
+                        "itemActions": {
+                            "type": "unknown",
+                            "default": [{ "event": "OPEN_POLICY", "label": "Open" }]
+                        }
+                    }
+                }]
+            }]
+        }"#;
+        let schema: OrbitalSchema = serde_json::from_str(json).expect("schema parses");
+        let mut ctx = ValidationContext::new();
+        validate_all_emit_payloads(&schema, &mut ctx);
+        assert!(
+            !has_unfired(&ctx, "OPEN_POLICY"),
+            "config-default fired event must not warn as declared-but-unfired"
+        );
+    }
+
+    /// Negative control: an event fired NOWHERE — not in effects, ticks, or a
+    /// config default — must still warn. Proves the resolved-config walk did
+    /// not blanket-suppress the rule.
+    #[test]
+    fn truly_unfired_event_still_warns() {
+        let json = r#"{
+            "name": "orphan-app",
+            "orbitals": [{
+                "name": "OrphanOrbital",
+                "entity": "Thing",
+                "traits": [{
+                    "name": "ThingTrait",
+                    "emits": [{ "event": "NEVER_FIRED", "payloadSchema": [] }],
+                    "stateMachine": {
+                        "states": [{ "name": "idle", "isInitial": true }],
+                        "transitions": []
+                    },
+                    "config": {
+                        "label": { "type": "string", "default": "Hello" }
+                    }
+                }]
+            }]
+        }"#;
+        let schema: OrbitalSchema = serde_json::from_str(json).expect("schema parses");
+        let mut ctx = ValidationContext::new();
+        validate_all_emit_payloads(&schema, &mut ctx);
+        assert!(
+            has_unfired(&ctx, "NEVER_FIRED"),
+            "an event fired nowhere must still warn as declared-but-unfired"
+        );
     }
 }

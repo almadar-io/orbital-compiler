@@ -13,8 +13,9 @@ use std::collections::{HashMap, HashSet, VecDeque};
 /// Slots that cannot contain other slots
 pub const LEAF_SLOTS: &[&str] = &["toast", "overlay"];
 
-/// Slots that can only be used in game context
-pub const GAME_ONLY_SLOTS: &[&str] = &["hud-top", "hud-bottom", "hud-left", "hud-right"];
+/// Slots that can only be used in game context. `hud-left`/`hud-right` dropped —
+/// not part of `VALID_SLOTS` (no canonical `UI_SLOTS` entry, zero `.lolo` usage).
+pub const GAME_ONLY_SLOTS: &[&str] = &["hud-top", "hud-bottom"];
 
 /// Validate all slots in a schema
 pub fn validate_all_slots(schema: &OrbitalSchema, ctx: &mut ValidationContext) {

@@ -278,23 +278,36 @@ pub fn inline_traits(
     })
 }
 
-/// Valid UI slots
+/// Valid UI slots. Mirrors `UI_SLOTS` in `@almadar/core`
+/// (`packages/almadar-core/src/types/effect.ts`) exactly — the TS array is
+/// canonical; this list must stay in lockstep with it (see
+/// `valid_slots_matches_canonical_ts_source` in this module's tests).
 pub const VALID_SLOTS: &[&str] = &[
+    // App slots
     "main",
+    "sidebar",
     "modal",
     "drawer",
-    "sidebar",
-    "toast",
     "overlay",
     "center",
+    "toast",
+    "floating",
+    "system",
+    "content",
+    "screen",
+    // Game HUD slots
+    "hud",
     "hud-top",
     "hud-bottom",
-    "hud-left",
-    "hud-right",
-    "floating",
-    "list-header",
-    "list-item",
-    "list-footer",
+    "hud.health",
+    "hud.score",
+    "hud.inventory",
+    "hud.stamina",
+    // Game overlay slots
+    "overlay.inventory",
+    "overlay.dialogue",
+    "overlay.menu",
+    "overlay.pause",
 ];
 
 /// Valid field types
@@ -652,5 +665,44 @@ mod tests {
             "test error",
         ));
         assert!(!ctx.is_valid());
+    }
+
+    /// Parity gate: `VALID_SLOTS` must match `UI_SLOTS` in
+    /// `packages/almadar-core/src/types/effect.ts` exactly. There is no baked
+    /// copy of `effect.ts` under `src/baked/` to diff against at test time (unlike
+    /// `bindings.ts`, see `embedded_validation.rs::sigil_rules_match_ts_source`),
+    /// so this pins the expected set inline — if `UI_SLOTS` changes, this test
+    /// must be hand-updated to match.
+    #[test]
+    fn valid_slots_matches_canonical_ts_source() {
+        const CANONICAL: &[&str] = &[
+            "main",
+            "sidebar",
+            "modal",
+            "drawer",
+            "overlay",
+            "center",
+            "toast",
+            "floating",
+            "system",
+            "content",
+            "screen",
+            "hud",
+            "hud-top",
+            "hud-bottom",
+            "hud.health",
+            "hud.score",
+            "hud.inventory",
+            "hud.stamina",
+            "overlay.inventory",
+            "overlay.dialogue",
+            "overlay.menu",
+            "overlay.pause",
+        ];
+        assert_eq!(
+            VALID_SLOTS, CANONICAL,
+            "VALID_SLOTS drifted from UI_SLOTS in \
+             packages/almadar-core/src/types/effect.ts — update whichever side is stale"
+        );
     }
 }

@@ -82,6 +82,15 @@ pub fn validate_all_bindings(schema: &OrbitalSchema, ctx: &mut ValidationContext
         let shared_group_set_fields =
             collect_shared_group_set_fields(orbital, &ctx.entity_definitions);
 
+        // Render-embed index (`@trait.<Child>` in transition render effects).
+        // Drives BOTH binding fixes: a child trait rendered inside a parent's
+        // transition reads/captures in that transition's scope, so credit its
+        // `@entity.X` reads against the (transitively) embedding parents' same-
+        // transition `(set)`s and resolve its `@callsitePayload` captures up the
+        // embed chain to a real host event.
+        let (embed_sites, embed_parents_of) = build_embed_index(orbital);
+        let embed_set_credit = collect_embed_set_credit(orbital, &embed_sites, &embed_parents_of);
+
         for (j, trait_ref) in orbital.traits.iter().enumerate() {
             if let TraitReference::Inline(trait_def) = trait_ref {
                 let path = trait_path(i, &orbital.name, j, trait_ref);
@@ -91,6 +100,7 @@ pub fn validate_all_bindings(schema: &OrbitalSchema, ctx: &mut ValidationContext
                     &ctx.entity_names,
                     &ctx.entity_definitions,
                     &shared_group_set_fields,
+                    embed_set_credit.get(&trait_def.name),
                 );
                 ctx.merge(result);
 
@@ -110,11 +120,16 @@ pub fn validate_all_bindings(schema: &OrbitalSchema, ctx: &mut ValidationContext
         ctx.merge(cycle_result);
 
         // Call-site payload captures (`@callsitePayload.<field>`) are validated
-        // against the COMPOSING transition's event payload — the transition
-        // whose render effect embeds the capturing child — not the child's own
-        // INIT scope.
-        let capture_result =
-            validate_callsite_payload_captures(orbital, &format!("orbitals[{}]", i));
+        // against the COMPOSING event payload — resolved UP the `@trait.<X>`
+        // embed chain to a real host transition, so a capture nested under a
+        // hoisted render wrapper is checked against the wrapper's host event,
+        // not the wrapper's own (payload-less) INIT.
+        let capture_result = validate_callsite_payload_captures(
+            orbital,
+            &format!("orbitals[{}]", i),
+            &embed_sites,
+            &embed_parents_of,
+        );
         ctx.merge(capture_result);
     }
 }
@@ -142,6 +157,129 @@ fn collect_embedded_trait_refs(expr: &SExpression, out: &mut HashSet<String>) {
         }
         SExpression::Null | SExpression::Bool(_) | SExpression::Number(_) => {}
     }
+}
+
+/// One parent transition that embeds one-or-more child traits via a
+/// `@trait.<Child>` node in its render (transition guard/effects). This is the
+/// structural read-context edge both binding fixes key on: whatever renders a
+/// child — a hand-authored `@trait.X` embed or a lowerer-hoisted inline JSX
+/// child — puts the child inside THIS transition's scope, so the child's entity
+/// reads and payload captures resolve against this transition's `(set)`s and
+/// event payload. Provenance-free by design: the rule is about the embedding
+/// relationship, not how the child trait came to exist.
+struct EmbedSite {
+    parent_name: String,
+    parent_linked_entity: Option<String>,
+    event: String,
+    /// `@entity.<field>` fields written by a `(set …)` on this transition.
+    set_fields: HashSet<String>,
+    /// This transition's event payload schema (from the parent trait's
+    /// `stateMachine.events`), if declared.
+    payload: Option<Vec<PayloadField>>,
+}
+
+/// Build the `@trait.<Child>` render-embed index for one orbital's resolved
+/// (inline) traits. Returns the flat site list plus `child name -> site
+/// indices` (a child can be embedded by several parent transitions). Only
+/// transition guards/effects are scanned — that is where rendering actually
+/// happens, and the inline phase substitutes a hoisted wrapper's
+/// `@config.children` (holding the nested `@trait.<Grandchild>` refs) into its
+/// render body, so a Host→Stack→Typography chain surfaces as two transition
+/// embed edges here.
+fn build_embed_index(orbital: &Orbital) -> (Vec<EmbedSite>, HashMap<String, Vec<usize>>) {
+    let mut sites: Vec<EmbedSite> = Vec::new();
+    let mut parents_of: HashMap<String, Vec<usize>> = HashMap::new();
+    for tr in &orbital.traits {
+        let TraitReference::Inline(def) = tr else {
+            continue;
+        };
+        let event_payloads: HashMap<&str, &[PayloadField]> = def
+            .state_machine
+            .events
+            .as_ref()
+            .map(|events| {
+                events
+                    .iter()
+                    .filter_map(|e| {
+                        e.payload_schema
+                            .as_ref()
+                            .map(|p| (e.key.as_str(), p.as_slice()))
+                    })
+                    .collect()
+            })
+            .unwrap_or_default();
+
+        for transition in &def.state_machine.transitions {
+            let mut embedded = HashSet::new();
+            if let Some(guard) = transition.guard.as_ref() {
+                collect_embedded_trait_refs(guard, &mut embedded);
+            }
+            if let Some(effects) = transition.effects.as_ref() {
+                for effect in effects {
+                    collect_embedded_trait_refs(effect, &mut embedded);
+                }
+            }
+            if embedded.is_empty() {
+                continue;
+            }
+            let mut referenced: HashMap<String, String> = HashMap::new();
+            let mut set_fields: HashSet<String> = HashSet::new();
+            if let Some(guard) = transition.guard.as_ref() {
+                guard.collect_entity_field_refs(&mut referenced, &mut set_fields, &transition.event);
+            }
+            if let Some(effects) = transition.effects.as_ref() {
+                for effect in effects {
+                    effect.collect_entity_field_refs(
+                        &mut referenced,
+                        &mut set_fields,
+                        &transition.event,
+                    );
+                }
+            }
+            let idx = sites.len();
+            sites.push(EmbedSite {
+                parent_name: def.name.clone(),
+                parent_linked_entity: def.linked_entity.clone(),
+                event: transition.event.clone(),
+                set_fields,
+                payload: event_payloads
+                    .get(transition.event.as_str())
+                    .map(|p| p.to_vec()),
+            });
+            for child in embedded {
+                parents_of.entry(child).or_default().push(idx);
+            }
+        }
+    }
+    (sites, parents_of)
+}
+
+/// Every embed site that transitively renders `child` — the child's direct
+/// parents, their parents, and so on up the `@trait.<X>` chain. Walking UP the
+/// chain is what lets a capture / read reach the REAL host transition (e.g.
+/// `Host.CampaignLoadFailed`) through intermediate render wrappers (e.g. a
+/// hoisted `Stack` whose own `INIT` self-loop is not a meaningful scope).
+/// Cycle-guarded by trait name.
+fn transitive_ancestor_sites(
+    child: &str,
+    parents_of: &HashMap<String, Vec<usize>>,
+    sites: &[EmbedSite],
+) -> Vec<usize> {
+    let mut result: Vec<usize> = Vec::new();
+    let mut visited: HashSet<String> = HashSet::new();
+    let mut stack: Vec<String> = vec![child.to_string()];
+    while let Some(name) = stack.pop() {
+        if !visited.insert(name.clone()) {
+            continue;
+        }
+        if let Some(idxs) = parents_of.get(&name) {
+            for &i in idxs {
+                result.push(i);
+                stack.push(sites[i].parent_name.clone());
+            }
+        }
+    }
+    result
 }
 
 /// Validate one captured payload field path against a composing event's payload
@@ -206,13 +344,33 @@ fn validate_captured_payload_path(
     }
 }
 
-/// Validate every call-site payload capture in an orbital against the composing
-/// transition's event payload. A capture lives on a child trait's declared
-/// config-field default as `@callsitePayload.<field>` (the lolo lowerer tagged
-/// it there; the inline phase keeps it out of the child body). The COMPOSING
-/// scope is the transition whose render effect embeds that child via
-/// `@trait.<Child>`, so the field is checked against THAT event's payload.
-fn validate_callsite_payload_captures(orbital: &Orbital, orbital_path: &str) -> ValidationResult {
+/// Split a `@callsitePayload.<path>` field path into index-stripped segments.
+fn payload_path_segments(field_path: &str) -> Vec<&str> {
+    field_path
+        .split('.')
+        .map(|seg| seg.split('[').next().unwrap_or(seg))
+        .filter(|seg| !seg.is_empty())
+        .collect()
+}
+
+/// Validate every call-site payload capture in an orbital against a COMPOSING
+/// event payload found by resolving UP the `@trait.<Child>` embed chain. A
+/// capture lives on a child trait's declared config-field default as
+/// `@callsitePayload.<field>` (the lolo lowerer tagged it there; the inline
+/// phase keeps it out of the child body). The composing scope is the transition
+/// that renders the capturing child — directly, or through one or more hoisted
+/// render wrappers (e.g. a `Stack` whose own `INIT` self-loop carries no
+/// payload). The capture is satisfied when ANY transitively-embedding parent
+/// transition's event declares the field (warning-suppression posture, matching
+/// the `[shared]` group rule); only when NO embedding parent's event declares it
+/// is an error raised — reported against the nearest parent that had SOME
+/// payload schema, else a "no payload schema" diagnostic.
+fn validate_callsite_payload_captures(
+    orbital: &Orbital,
+    orbital_path: &str,
+    embed_sites: &[EmbedSite],
+    embed_parents_of: &HashMap<String, Vec<usize>>,
+) -> ValidationResult {
     let mut result = ValidationResult::new();
 
     // child trait name -> its captured payload field paths
@@ -236,62 +394,84 @@ fn validate_callsite_payload_captures(orbital: &Orbital, orbital_path: &str) -> 
         return result;
     }
 
-    for (ti, tr) in orbital.traits.iter().enumerate() {
-        let TraitReference::Inline(def) = tr else {
+    for (child, paths) in &captures_by_trait {
+        let ancestors = transitive_ancestor_sites(child, embed_parents_of, embed_sites);
+        // A capture only has a determinate composing scope when the child is
+        // rendered somewhere. Orphans (embedded nowhere) can't be resolved — the
+        // original pass silently skipped them, so keep that.
+        if ancestors.is_empty() {
             continue;
-        };
-        let event_payloads: HashMap<&str, &[PayloadField]> = def
-            .state_machine
-            .events
-            .as_ref()
-            .map(|events| {
-                events
-                    .iter()
-                    .filter_map(|e| {
-                        e.payload_schema
-                            .as_ref()
-                            .map(|p| (e.key.as_str(), p.as_slice()))
-                    })
-                    .collect()
-            })
-            .unwrap_or_default();
-
-        for (tri, transition) in def.state_machine.transitions.iter().enumerate() {
-            let mut embedded = HashSet::new();
-            if let Some(guard) = transition.guard.as_ref() {
-                collect_embedded_trait_refs(guard, &mut embedded);
-            }
-            if let Some(effects) = transition.effects.as_ref() {
-                for effect in effects {
-                    collect_embedded_trait_refs(effect, &mut embedded);
-                }
-            }
-            if embedded.is_empty() {
+        }
+        for field_path in paths.iter() {
+            let segments = payload_path_segments(field_path);
+            if segments.is_empty() {
                 continue;
             }
-            let payload_fields = event_payloads.get(transition.event.as_str()).copied();
-            for child in &embedded {
-                let Some(paths) = captures_by_trait.get(child.as_str()) else {
-                    continue;
-                };
-                for field_path in paths {
-                    let path = format!(
-                        "{}.traits[{}].stateMachine.transitions[{}] (embeds {}: @callsitePayload.{})",
-                        orbital_path, ti, tri, child, field_path
-                    );
-                    validate_captured_payload_path(
-                        &mut result,
-                        field_path,
-                        payload_fields,
-                        &transition.event,
-                        &path,
-                    );
-                }
+            let satisfied = ancestors.iter().any(|&i| {
+                matches!(&embed_sites[i].payload, Some(fields)
+                    if resolve_payload_path(fields, &segments).is_none())
+            });
+            if satisfied {
+                continue;
             }
+            // Unsatisfied everywhere up the chain — raise ONE error. Prefer a
+            // parent that DID declare a payload (precise "field not declared in
+            // event X" with valid values); fall back to a "no payload schema"
+            // diagnostic against the nearest parent.
+            let with_schema = ancestors
+                .iter()
+                .map(|&i| &embed_sites[i])
+                .find(|s| s.payload.is_some());
+            let target = with_schema.unwrap_or_else(|| &embed_sites[ancestors[0]]);
+            let path = format!(
+                "{} (embeds {}: @callsitePayload.{})",
+                orbital_path, child, field_path
+            );
+            validate_captured_payload_path(
+                &mut result,
+                field_path,
+                target.payload.as_deref(),
+                &target.event,
+                &path,
+            );
         }
     }
 
     result
+}
+
+/// Per-trait credited `(set @entity.<field>)` fields sourced from the trait's
+/// (transitively) embedding parents — the entity fields a hoisted / embedded
+/// child may READ without a local setter because a parent that renders it set
+/// them in the same render context. Keyed on the render-embed relationship, so
+/// a hand-authored `@trait.X` embed earns the same credit as a lowerer-hoisted
+/// inline child. A parent's sets only credit a child bound to the SAME entity.
+fn collect_embed_set_credit(
+    orbital: &Orbital,
+    embed_sites: &[EmbedSite],
+    embed_parents_of: &HashMap<String, Vec<usize>>,
+) -> HashMap<String, HashSet<String>> {
+    let mut credit: HashMap<String, HashSet<String>> = HashMap::new();
+    for tr in &orbital.traits {
+        let TraitReference::Inline(def) = tr else {
+            continue;
+        };
+        let ancestors = transitive_ancestor_sites(&def.name, embed_parents_of, embed_sites);
+        if ancestors.is_empty() {
+            continue;
+        }
+        let mut fields: HashSet<String> = HashSet::new();
+        for &i in &ancestors {
+            let site = &embed_sites[i];
+            if site.parent_linked_entity == def.linked_entity {
+                fields.extend(site.set_fields.iter().cloned());
+            }
+        }
+        if !fields.is_empty() {
+            credit.insert(def.name.clone(), fields);
+        }
+    }
+    credit
 }
 
 /// Validate all bindings in a trait
@@ -301,6 +481,7 @@ pub fn validate_trait_bindings(
     known_entities: &HashSet<String>,
     entity_definitions: &HashMap<String, EntityDefinition>,
     shared_group_set_fields: &HashMap<String, HashSet<String>>,
+    embed_set_credit: Option<&HashSet<String>>,
 ) -> ValidationResult {
     let mut result = ValidationResult::new();
 
@@ -427,6 +608,7 @@ pub fn validate_trait_bindings(
         path,
         &intrinsic_fields,
         shared_group_set_fields,
+        embed_set_credit,
     ));
 
     result
@@ -1099,6 +1281,7 @@ fn validate_entity_fields_have_setters(
     path: &str,
     intrinsic_fields: &HashSet<String>,
     shared_group_set_fields: &HashMap<String, HashSet<String>>,
+    embed_set_credit: Option<&HashSet<String>>,
 ) -> ValidationResult {
     let mut result = ValidationResult::new();
     if trait_def.linked_entity.is_none() {
@@ -1143,7 +1326,12 @@ fn validate_entity_fields_have_setters(
         let satisfied_by_group = group_set_fields
             .map(|group| group.contains(field))
             .unwrap_or(false);
-        if !set_fields.contains(field) && !satisfied_by_group {
+        // A field a rendering parent set in the same render context (reached via
+        // the `@trait.<Child>` embed chain, same entity) satisfies the read.
+        let satisfied_by_embed = embed_set_credit
+            .map(|credit| credit.contains(field))
+            .unwrap_or(false);
+        if !set_fields.contains(field) && !satisfied_by_group && !satisfied_by_embed {
             // Staged as a warning during the rollout so existing atoms in
             // `@almadar/std` keep loading. Graduates to an error after the
             // L4 std audit completes (every render-ui that binds `@entity.X`
@@ -2079,6 +2267,7 @@ mod tests {
             "test",
             &HashSet::new(),
             &HashMap::new(),
+            None,
         );
         assert!(
             result
@@ -2112,7 +2301,7 @@ mod tests {
         );
         let intrinsic: HashSet<String> = ["selectedRange".to_string()].into_iter().collect();
         let result =
-            validate_entity_fields_have_setters(&trait_def, "test", &intrinsic, &HashMap::new());
+            validate_entity_fields_have_setters(&trait_def, "test", &intrinsic, &HashMap::new(), None);
         assert!(
             result.warnings.is_empty() && result.errors.is_empty(),
             "Intrinsic @entity.selectedRange with no (set) must be exempt — got {:?}",
@@ -2147,6 +2336,7 @@ mod tests {
             "test",
             &HashSet::new(),
             &HashMap::new(),
+            None,
         );
         assert!(
             result.errors.is_empty(),
@@ -2183,6 +2373,7 @@ mod tests {
             "test",
             &HashSet::new(),
             &HashMap::new(),
+            None,
         );
         assert!(
             result.errors.is_empty(),
@@ -2213,6 +2404,7 @@ mod tests {
             "test",
             &HashSet::new(),
             &HashMap::new(),
+            None,
         );
         assert!(
             result.errors.is_empty(),
@@ -2240,6 +2432,7 @@ mod tests {
             "test",
             &HashSet::new(),
             &HashMap::new(),
+            None,
         );
         assert!(
             result.errors.is_empty(),
@@ -2272,6 +2465,7 @@ mod tests {
             "test",
             &HashSet::new(),
             &HashMap::new(),
+            None,
         );
         assert!(
             result.errors.is_empty(),
@@ -2327,6 +2521,7 @@ mod tests {
             "test",
             &HashSet::new(),
             &HashMap::new(),
+            None,
         );
         assert!(
             result
@@ -2410,7 +2605,8 @@ mod tests {
         // Undeclared field on the composing event → error (same code as a direct
         // `@payload.<field>` on that event).
         let orbital = orbital_with_traits(vec![composer.clone(), make_child("bogus")]);
-        let result = validate_callsite_payload_captures(&orbital, "orbitals[0]");
+        let (sites, parents_of) = build_embed_index(&orbital);
+        let result = validate_callsite_payload_captures(&orbital, "orbitals[0]", &sites, &parents_of);
         assert!(
             result
                 .errors
@@ -2423,11 +2619,163 @@ mod tests {
 
         // Field declared on the composing event → no error.
         let orbital_ok = orbital_with_traits(vec![composer, make_child("error")]);
-        let result_ok = validate_callsite_payload_captures(&orbital_ok, "orbitals[0]");
+        let (sites_ok, parents_of_ok) = build_embed_index(&orbital_ok);
+        let result_ok =
+            validate_callsite_payload_captures(&orbital_ok, "orbitals[0]", &sites_ok, &parents_of_ok);
         assert!(
             result_ok.errors.is_empty(),
             "a captured field declared on the composing event must pass: {:?}",
             result_ok.errors
+        );
+    }
+
+    /// One `{ children: [<refs>] }` render-ui effect. Mirrors the post-inline
+    /// shape of a wrapper whose `@config.children` was substituted into its body.
+    fn render_children(refs: Vec<&str>) -> SExpression {
+        arr(vec![
+            s("render-ui"),
+            s("main"),
+            SExpression::Object({
+                let mut m = HashMap::new();
+                m.insert(
+                    "children".to_string(),
+                    arr(refs.into_iter().map(s).collect()),
+                );
+                m
+            }),
+        ])
+    }
+
+    fn callsite_content(field: &str) -> HashMap<String, orbital_core::schema::ConfigField> {
+        serde_json::from_value(serde_json::json!({
+            "content": { "type": "string", "default": format!("@callsitePayload.{field}") }
+        }))
+        .unwrap()
+    }
+
+    // FIX 2 (C-CALLSITEPAYLOAD-EMBED-HOST): a `@callsitePayload` capture nested
+    // under a hoisted render wrapper resolves UP the `@trait` embed chain to the
+    // real host event — not the wrapper's own payload-less INIT self-loop.
+    #[test]
+    fn callsite_payload_capture_resolves_through_nested_render_wrapper() {
+        use orbital_core::schema::EventDefinition;
+        // Host.Failed (payload {error}) renders @trait.Wrapper; Wrapper.INIT (no
+        // payload) renders @trait.Child; Child captures @callsitePayload.error.
+        let mut host = build_trait_fixture(
+            "Host",
+            Some("Campaign"),
+            vec![("Failed", vec![render_children(vec!["@trait.Wrapper"])])],
+        );
+        let ev: EventDefinition = serde_json::from_value(serde_json::json!({
+            "key": "Failed", "payloadSchema": [{ "name": "error", "type": "string" }]
+        }))
+        .unwrap();
+        host.state_machine.events = Some(vec![ev]);
+        let wrapper = build_trait_fixture(
+            "Wrapper",
+            Some("Campaign"),
+            vec![("INIT", vec![render_children(vec!["@trait.Child"])])],
+        );
+        let make_child = |field: &str| {
+            let mut c = build_trait_fixture("Child", Some("Campaign"), vec![]);
+            c.config = Some(callsite_content(field));
+            c
+        };
+
+        // `error` is declared on the host event reached up the chain → clean.
+        let orbital = orbital_with_traits(vec![host.clone(), wrapper.clone(), make_child("error")]);
+        let (sites, parents_of) = build_embed_index(&orbital);
+        let result =
+            validate_callsite_payload_captures(&orbital, "orbitals[0]", &sites, &parents_of);
+        assert!(
+            result.errors.is_empty(),
+            "nested capture must resolve to the host event, not the wrapper INIT: {:?}",
+            result.errors
+        );
+
+        // `bogus` is declared on NO event up the chain → genuine error survives.
+        let orbital_bad = orbital_with_traits(vec![host, wrapper, make_child("bogus")]);
+        let (sites_b, parents_b) = build_embed_index(&orbital_bad);
+        let result_bad =
+            validate_callsite_payload_captures(&orbital_bad, "orbitals[0]", &sites_b, &parents_b);
+        assert!(
+            result_bad
+                .errors
+                .iter()
+                .any(|e| e.code == ErrorCode::BindingPayloadFieldUndeclared
+                    && e.message.contains("bogus")),
+            "a field declared on no composing event up the chain must still error: {:?}",
+            result_bad.errors
+        );
+    }
+
+    // FIX 1 (ORB_BINDING_ENTITY_FIELD_NEVER_SET): a child rendered by a parent
+    // via `@trait.X` may READ a non-shared `@entity.<field>` the PARENT set in
+    // the same render context, without a local setter.
+    #[test]
+    fn embedded_child_entity_read_credited_to_parent_setter() {
+        // Parent.Loaded sets @entity.title (Course, non-shared) AND renders
+        // @trait.Child; Child reads @entity.title with no local setter.
+        let set_title = arr(vec![s("set"), s("@entity.title"), s("t")]);
+        let parent = build_trait_fixture(
+            "Parent",
+            Some("Course"),
+            vec![(
+                "Loaded",
+                vec![set_title, render_children(vec!["@trait.Child"])],
+            )],
+        );
+        let child_read = arr(vec![
+            s("render-ui"),
+            s("main"),
+            SExpression::Object({
+                let mut m = HashMap::new();
+                m.insert("text".to_string(), s("@entity.title"));
+                m
+            }),
+        ]);
+        let child =
+            build_trait_fixture("Child", Some("Course"), vec![("INIT", vec![child_read])]);
+
+        let orbital = orbital_with_traits(vec![parent.clone(), child.clone()]);
+        let (sites, parents_of) = build_embed_index(&orbital);
+        let credit = collect_embed_set_credit(&orbital, &sites, &parents_of);
+        let result = validate_entity_fields_have_setters(
+            &child,
+            "test",
+            &HashSet::new(),
+            &HashMap::new(),
+            credit.get("Child"),
+        );
+        assert!(
+            result.warnings.is_empty() && result.errors.is_empty(),
+            "child's @entity.title read must be credited to the embedding parent's setter: {:?}",
+            result.warnings
+        );
+
+        // Negative: parent does NOT set title → child still warns (no credit).
+        let parent_noset = build_trait_fixture(
+            "Parent",
+            Some("Course"),
+            vec![("Loaded", vec![render_children(vec!["@trait.Child"])])],
+        );
+        let orbital2 = orbital_with_traits(vec![parent_noset, child.clone()]);
+        let (sites2, parents2) = build_embed_index(&orbital2);
+        let credit2 = collect_embed_set_credit(&orbital2, &sites2, &parents2);
+        let result2 = validate_entity_fields_have_setters(
+            &child,
+            "test",
+            &HashSet::new(),
+            &HashMap::new(),
+            credit2.get("Child"),
+        );
+        assert!(
+            result2
+                .warnings
+                .iter()
+                .any(|e| e.code == ErrorCode::BindingEntityFieldNeverSet),
+            "with no parent setter the never-set warning must remain: {:?}",
+            result2.warnings
         );
     }
 
@@ -2465,7 +2813,7 @@ mod tests {
         entity_defs.insert("Pool".to_string(), shared_entity_def("Pool"));
 
         let group = collect_shared_group_set_fields(&orbital, &entity_defs);
-        let result = validate_entity_fields_have_setters(&trait_a, "test", &HashSet::new(), &group);
+        let result = validate_entity_fields_have_setters(&trait_a, "test", &HashSet::new(), &group, None);
         assert!(
             result.warnings.is_empty() && result.errors.is_empty(),
             "Trait A's read of a [shared]-group field set by Trait B must be satisfied: {:?}",
@@ -2504,7 +2852,7 @@ mod tests {
         entity_defs.insert("Pool".to_string(), shared_entity_def("Pool"));
 
         let group = collect_shared_group_set_fields(&orbital, &entity_defs);
-        let result = validate_entity_fields_have_setters(&trait_a, "test", &HashSet::new(), &group);
+        let result = validate_entity_fields_have_setters(&trait_a, "test", &HashSet::new(), &group, None);
         assert!(
             result
                 .warnings
@@ -2564,7 +2912,7 @@ mod tests {
             "Non-shared entities must not appear in the group map: {:?}",
             group
         );
-        let result = validate_entity_fields_have_setters(&trait_a, "test", &HashSet::new(), &group);
+        let result = validate_entity_fields_have_setters(&trait_a, "test", &HashSet::new(), &group, None);
         assert!(
             result
                 .warnings
