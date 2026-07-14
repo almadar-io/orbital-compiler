@@ -2196,6 +2196,7 @@ mod tests {
         let trans = transitions
             .into_iter()
             .map(|(event, effects)| TransitionDefinition {
+                event_id: None,
                 from: StringOrArray::Single("idle".to_string()),
                 to: "idle".to_string(),
                 event: event.to_string(),
@@ -2508,6 +2509,7 @@ mod tests {
                     }],
                     events: None,
                     transitions: vec![TransitionDefinition {
+                        event_id: None,
                         from: StringOrArray::Single("idle".to_string()),
                         to: "idle".to_string(),
                         event: "TRY".to_string(),

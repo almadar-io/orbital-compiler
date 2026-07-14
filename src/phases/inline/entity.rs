@@ -166,7 +166,18 @@ pub(crate) fn inline_entity(
             let parsed = parse_reference(&extends.reference)?;
             match parsed {
                 ParsedReference::Entity { alias } => {
-                    let inherited = ctx.get_entity(&alias)?;
+                    // V4: prefer the dual-carry `extendsId` when present —
+                    // resolves to the same entity node the `extends` alias
+                    // path would. Falls back to `get_entity` unchanged when
+                    // absent or unmatched (pre-id imports).
+                    let inherited = match extends
+                        .extends_id
+                        .as_deref()
+                        .and_then(|id| ctx.get_entity_by_extends_id(&alias, id))
+                    {
+                        Some(e) => EntityRef::Inline(e),
+                        None => ctx.get_entity(&alias)?,
+                    };
                     match inherited {
                         EntityRef::Inline(mut entity_def) => {
                             apply_overrides_to_entity(&mut entity_def, extends);

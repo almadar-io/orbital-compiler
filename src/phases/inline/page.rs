@@ -148,7 +148,18 @@ pub(crate) fn inline_pages(
                         let parsed = parse_reference(&obj.reference)?;
                         match parsed {
                             ParsedReference::Page { alias, name } => {
-                                let inlined = ctx.get_page(&alias, &name)?;
+                                // V4: prefer the dual-carry `refId` when
+                                // present — resolves to the same page node
+                                // the alias.name path would. Falls back to
+                                // `get_page` by name unchanged.
+                                let inlined = match obj
+                                    .ref_id
+                                    .as_deref()
+                                    .and_then(|id| ctx.get_page_by_ref_id(&alias, id))
+                                {
+                                    Some(p) => p,
+                                    None => ctx.get_page(&alias, &name)?,
+                                };
                                 // Phase F.3: Apply path / linked_entity /
                                 // traits overrides via the helper. The path
                                 // override is the original Phase A behavior;

@@ -520,11 +520,14 @@ fn inline_orbital(
             if let TraitReference::Reference {
                 reference: Some(ref ref_str),
                 linked_entity,
+                ref_id,
                 ..
             } = trait_ref
             {
                 if let Ok(ParsedReference::Trait { alias, name }) = parse_reference(ref_str) {
-                    if let Some(imported_entity) = ctx.get_entity_for_trait_orbital(&alias, &name) {
+                    if let Some(imported_entity) =
+                        ctx.get_entity_for_trait_orbital(&alias, &name, ref_id.as_deref())
+                    {
                         let (carries_fields, intrinsic_only) = match linked_entity {
                             // (a) explicit rebind: merge the full field set
                             // (long-standing behavior, unchanged).
@@ -543,9 +546,11 @@ fn inline_orbital(
                             // would mask a genuinely-missing field. Skip those so
                             // ORB_T_REBIND_MISSING_FIELDS can fire. Intrinsic +
                             // provided fields still carry.
-                            let required_data = ctx
-                                .get_trait(&alias, &name)
-                                .ok()
+                            let resolved_trait = ref_id
+                                .as_deref()
+                                .and_then(|rid| ctx.get_trait_by_ref_id(&alias, rid))
+                                .or_else(|| ctx.get_trait(&alias, &name).ok());
+                            let required_data = resolved_trait
                                 .and_then(|tr| match tr {
                                     TraitReference::Inline(td) => td.entity_contract,
                                     _ => None,
@@ -589,11 +594,14 @@ fn inline_orbital(
             if let TraitReference::Reference {
                 reference: Some(ref ref_str),
                 linked_entity: None,
+                ref_id,
                 ..
             } = trait_ref
             {
                 if let Ok(ParsedReference::Trait { alias, name }) = parse_reference(ref_str) {
-                    if let Some(imported_entity) = ctx.get_entity_for_trait_orbital(&alias, &name) {
+                    if let Some(imported_entity) =
+                        ctx.get_entity_for_trait_orbital(&alias, &name, ref_id.as_deref())
+                    {
                         if seen_aux_names.insert(imported_entity.name.clone()) {
                             aux_collected.push(imported_entity);
                         }
@@ -1172,6 +1180,7 @@ mod tests {
             .state_machine
             .transitions
             .push(TransitionDefinition {
+                event_id: None,
                 from: StringOrArray::Single("idle".to_string()),
                 to: "open".to_string(),
                 event: "OPEN".to_string(),
@@ -2552,6 +2561,7 @@ mod tests {
                 }],
                 events: Some(vec![
                     EventDefinition {
+                        id: None,
                         key: "OPEN".to_string(),
                         name: None,
                         description: None,
@@ -2560,6 +2570,7 @@ mod tests {
                         payload_schema: None,
                     },
                     EventDefinition {
+                        id: None,
                         key: "CLOSE".to_string(),
                         name: None,
                         description: None,
@@ -2570,6 +2581,7 @@ mod tests {
                 ]),
                 transitions: vec![
                     TransitionDefinition {
+                        event_id: None,
                         from: StringOrArray::Single("closed".to_string()),
                         to: "open".to_string(),
                         event: "OPEN".to_string(),
@@ -2577,6 +2589,7 @@ mod tests {
                         effects: None,
                     },
                     TransitionDefinition {
+                        event_id: None,
                         from: StringOrArray::Single("open".to_string()),
                         to: "closed".to_string(),
                         event: "CLOSE".to_string(),
@@ -2648,6 +2661,7 @@ mod tests {
                     time_bound_ms: None,
                 }],
                 events: Some(vec![EventDefinition {
+                    id: None,
                     key: "OPEN".to_string(),
                     name: None,
                     description: None,
@@ -2656,6 +2670,7 @@ mod tests {
                     payload_schema: None,
                 }]),
                 transitions: vec![TransitionDefinition {
+                    event_id: None,
                     from: StringOrArray::Single("closed".to_string()),
                     to: "open".to_string(),
                     event: "OPEN".to_string(),
@@ -2901,6 +2916,7 @@ mod tests {
                 events: None,
                 transitions: vec![
                     TransitionDefinition {
+                        event_id: None,
                         from: StringOrArray::Single("idle".to_string()),
                         to: "loading".to_string(),
                         event: "LOAD".to_string(),
@@ -2908,6 +2924,7 @@ mod tests {
                         effects: Some(vec![SExpression::Array(vec![s("fetch"), s("Source")])]),
                     },
                     TransitionDefinition {
+                        event_id: None,
                         from: StringOrArray::Single("editing".to_string()),
                         to: "saved".to_string(),
                         event: "SAVE".to_string(),
@@ -3079,6 +3096,121 @@ mod tests {
                 other
             ),
         }
+    }
+
+    // ------------------------------------------------------------------
+    // V4 id-keyed cross-file resolution (W3c-Rust). `get_trait_by_ref_id`
+    // is tried before the name-based `get_trait`; it must resolve the SAME
+    // node the name path would, and must disambiguate same-named traits
+    // across orbitals that only an id can distinguish. A ref carrying only
+    // a name (no id, the pre-V4 shape) must still fall back to `get_trait`
+    // unchanged.
+    // ------------------------------------------------------------------
+
+    #[test]
+    fn get_trait_by_ref_id_resolves_via_id_when_names_collide() {
+        // Two orbitals under the same alias declare a trait with the SAME
+        // name ("Dup") but distinct ids. The name-based `get_trait` cannot
+        // tell them apart (first match wins); `get_trait_by_ref_id` must
+        // return the one whose id actually matches.
+        let orb0 = make_orbital_with_trait(
+            "OrbZero",
+            TraitDefinition {
+                id: Some("id-zero".to_string()),
+                ..make_trait("Dup")
+            },
+        );
+        let orb1 = make_orbital_with_trait(
+            "OrbOne",
+            TraitDefinition {
+                id: Some("id-one".to_string()),
+                ..make_trait("Dup")
+            },
+        );
+        let mut ctx = InlineContext::new();
+        ctx.add_alias_multi(
+            "Import",
+            vec![orb0, orb1],
+            "std/behaviors/dup-name".to_string(),
+        );
+
+        let resolved = ctx
+            .get_trait_by_ref_id("Import", "id-one")
+            .expect("id match must resolve the orbital-1 trait");
+        match resolved {
+            TraitReference::Inline(def) => {
+                assert_eq!(def.id.as_deref(), Some("id-one"));
+            }
+            other => panic!("expected Inline trait, got {:?}", other),
+        }
+    }
+
+    #[test]
+    fn get_trait_by_ref_id_none_when_absent_falls_back_to_name() {
+        // A trait carrying only a name (no `id` — the pre-V4 shape) is not
+        // found by id. The caller falls back to `get_trait` by name, which
+        // still resolves it: the id path is strictly additive.
+        let orb = make_orbital_with_trait("Orb", make_trait("Legacy"));
+        let mut ctx = InlineContext::new();
+        ctx.add_alias_multi("Import", vec![orb], "std/behaviors/legacy".to_string());
+
+        assert!(
+            ctx.get_trait_by_ref_id("Import", "anything").is_none(),
+            "no orbital carries a matching id, so the id path must return None"
+        );
+        let by_name = ctx
+            .get_trait("Import", "Legacy")
+            .expect("name-based fallback must still resolve");
+        match by_name {
+            TraitReference::Inline(def) => assert_eq!(def.name, "Legacy"),
+            other => panic!("expected Inline trait, got {:?}", other),
+        }
+    }
+
+    #[test]
+    fn get_entity_for_trait_orbital_prefers_ref_id_over_name() {
+        // Mirrors the ambiguous-name scenario above at the entity level:
+        // two orbitals both declare a trait named "Dup" (so the name scan
+        // alone can't disambiguate), each owning its own entity. Passing
+        // the orbital-1 trait's id must return orbital 1's entity, not
+        // orbital 0's (which a name-only lookup would return first).
+        let orb0 = make_orbital_with_trait(
+            "OrbZero",
+            TraitDefinition {
+                id: Some("id-zero".to_string()),
+                ..make_trait("Dup")
+            },
+        );
+        let orb1 = make_orbital_with_trait(
+            "OrbOne",
+            TraitDefinition {
+                id: Some("id-one".to_string()),
+                ..make_trait("Dup")
+            },
+        );
+        let orb1_entity_name = match &orb1.entity {
+            EntityRef::Inline(e) => e.name.clone(),
+            other => panic!("expected Inline entity, got {:?}", other),
+        };
+        let mut ctx = InlineContext::new();
+        ctx.add_alias_multi(
+            "Import",
+            vec![orb0, orb1],
+            "std/behaviors/dup-name".to_string(),
+        );
+
+        let by_id = ctx
+            .get_entity_for_trait_orbital("Import", "Dup", Some("id-one"))
+            .expect("id match must resolve orbital 1's entity");
+        assert_eq!(by_id.name, orb1_entity_name);
+
+        // No id given (pre-V4 shape): falls back to the existing name scan,
+        // which returns the FIRST match — orbital 0's entity. Pinned here
+        // so the fallback path stays unchanged.
+        let by_name = ctx
+            .get_entity_for_trait_orbital("Import", "Dup", None)
+            .expect("name-based fallback must still resolve");
+        assert_eq!(by_name.name, "OrbZeroEntity");
     }
 
     #[test]
@@ -3481,21 +3613,21 @@ mod tests {
 
         // Asking for ActionTrait's orbital should return ActionEntity.
         let entity = ctx
-            .get_entity_for_trait_orbital("Import", "ActionTrait")
+            .get_entity_for_trait_orbital("Import", "ActionTrait", None)
             .expect("should find entity for ActionTrait's orbital");
         assert_eq!(entity.name, "ActionEntity");
         assert_eq!(field_names(&entity), vec!["actionField", "pendingId"]);
 
         // Asking for StateTrait's orbital should return StateEntity.
         let entity = ctx
-            .get_entity_for_trait_orbital("Import", "StateTrait")
+            .get_entity_for_trait_orbital("Import", "StateTrait", None)
             .expect("should find entity for StateTrait's orbital");
         assert_eq!(entity.name, "StateEntity");
         assert_eq!(field_names(&entity), vec!["stateField"]);
 
         // Asking for a non-existent trait should return None.
         assert!(ctx
-            .get_entity_for_trait_orbital("Import", "NoSuchTrait")
+            .get_entity_for_trait_orbital("Import", "NoSuchTrait", None)
             .is_none());
     }
 }

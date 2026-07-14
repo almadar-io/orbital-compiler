@@ -872,6 +872,7 @@ mod tests {
                 }],
                 events: Some(vec![]),
                 transitions: vec![TransitionDefinition {
+                    event_id: None,
                     from: StringOrArray::Single("Browsing".to_string()),
                     to: "Browsing".to_string(),
                     event: "INIT".to_string(),

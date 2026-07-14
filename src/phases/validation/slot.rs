@@ -395,6 +395,7 @@ mod tests {
                 }],
                 events: None,
                 transitions: vec![TransitionDefinition {
+                    event_id: None,
                     from: StringOrArray::Single("idle".to_string()),
                     to: "idle".to_string(),
                     event: "INIT".to_string(),
@@ -498,6 +499,7 @@ mod tests {
         let mut transitions = Vec::new();
         if let Some(slot) = init_slot {
             transitions.push(TransitionDefinition {
+                event_id: None,
                 from: StringOrArray::Single("idle".to_string()),
                 to: "idle".to_string(),
                 event: "INIT".to_string(),
@@ -514,6 +516,7 @@ mod tests {
             });
         }
         transitions.push(TransitionDefinition {
+            event_id: None,
             from: StringOrArray::Single("idle".to_string()),
             to: "second".to_string(),
             event: event_to_second.to_string(),
@@ -530,6 +533,7 @@ mod tests {
         });
         // Loop transition from `second` so it stays reachable and also renders.
         transitions.push(TransitionDefinition {
+            event_id: None,
             from: StringOrArray::Single("second".to_string()),
             to: "second".to_string(),
             event: format!("REFRESH_{}", name),
@@ -743,6 +747,7 @@ mod tests {
             events: None,
             transitions: vec![
                 TransitionDefinition {
+                    event_id: None,
                     from: StringOrArray::Single("idle".to_string()),
                     to: "idle".to_string(),
                     event: "INIT".to_string(),
@@ -759,6 +764,7 @@ mod tests {
                 },
                 // No transition leads to `orphan`, so this render must be ignored.
                 TransitionDefinition {
+                    event_id: None,
                     from: StringOrArray::Single("orphan".to_string()),
                     to: "orphan".to_string(),
                     event: "TICK".to_string(),

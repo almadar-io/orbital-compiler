@@ -669,6 +669,7 @@ pub(crate) fn inline_traits(
             }
             TraitReference::Reference {
                 reference,
+                ref_id,
                 name: name_override,
                 linked_entity,
                 config,
@@ -682,7 +683,18 @@ pub(crate) fn inline_traits(
                     let parsed = parse_reference(ref_str)?;
                     match parsed {
                         ParsedReference::Trait { alias, name } => {
-                            let inlined = ctx.get_trait(&alias, &name)?;
+                            // V4: prefer the ref's dual-carry `ref_id` when
+                            // present — resolves to the same node the name
+                            // path would, but disambiguates same-named
+                            // traits across orbitals. Falls back to the
+                            // name-based `get_trait` unchanged.
+                            let inlined = match ref_id
+                                .as_deref()
+                                .and_then(|rid| ctx.get_trait_by_ref_id(&alias, rid))
+                            {
+                                Some(t) => t,
+                                None => ctx.get_trait(&alias, &name)?,
+                            };
                             // STUDIO-1: capture provenance BEFORE override
                             // application. `source_label` is the imported
                             // behavior's human-readable name (set by
@@ -694,7 +706,8 @@ pub(crate) fn inline_traits(
                             // the trait's linkedEntity without walking
                             // the import graph at runtime.
                             let source_label = ctx.get_entry(&alias)?.source_label.clone();
-                            let source_entity_def = ctx.get_entity_for_trait_orbital(&alias, &name);
+                            let source_entity_def =
+                                ctx.get_entity_for_trait_orbital(&alias, &name, ref_id.as_deref());
                             let provenance = SourceBehaviorMetadata {
                                 behavior: source_label,
                                 alias: alias.clone(),
@@ -1028,8 +1041,10 @@ pub(crate) fn inline_traits(
                     original_name: sibling_name.clone(),
                 });
             }
+            // Sibling pulls come from an `@trait.<Sibling>` string literal in
+            // render-ui — there is no ref object here, so no `ref_id` to try.
             sibling_def.source_entity_definition =
-                ctx.get_entity_for_trait_orbital(&alias, &sibling_name);
+                ctx.get_entity_for_trait_orbital(&alias, &sibling_name, None);
             // No-rebind sibling: it keeps its OWN bound entity (e.g. a
             // step-flow's `ProgressVerticalView`). That entity is auxiliary in
             // the source behavior; carry it into the consumer so the sibling's

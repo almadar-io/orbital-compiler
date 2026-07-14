@@ -174,12 +174,37 @@ impl InlineContext {
     /// entity from the orbital that owns trait `X` (not necessarily orbital 0).
     /// Returns `None` if the trait is not found or the owning orbital has no
     /// inline entity.
+    ///
+    /// `trait_ref_id` is the V4 dual-carry id sibling of the caller's ref
+    /// (trait def `id`, or a `Reference`'s `ref_id`). When present it is
+    /// tried FIRST against every orbital's trait id; only when it is absent
+    /// or matches nothing does the existing name-based scan below run —
+    /// so old imports without ids resolve exactly as before.
     pub(crate) fn get_entity_for_trait_orbital(
         &self,
         alias: &str,
         trait_name: &str,
+        trait_ref_id: Option<&str>,
     ) -> Option<EntityDefinition> {
         let entry = self.aliases.get(alias)?;
+
+        if let Some(want_id) = trait_ref_id {
+            for orbital in &entry.orbitals {
+                let has_trait = orbital.traits.iter().any(|tr| match tr {
+                    TraitReference::Inline(def) => def.id.as_deref() == Some(want_id),
+                    TraitReference::Reference {
+                        ref_id: Some(rid), ..
+                    } => rid == want_id,
+                    _ => false,
+                });
+                if has_trait {
+                    if let EntityRef::Inline(entity_def) = &orbital.entity {
+                        return Some(entity_def.clone());
+                    }
+                }
+            }
+        }
+
         for orbital in &entry.orbitals {
             let has_trait = orbital.traits.iter().any(|tr| match tr {
                 TraitReference::Inline(def) => def.name == trait_name,
@@ -192,6 +217,83 @@ impl InlineContext {
             if has_trait {
                 if let EntityRef::Inline(entity_def) = &orbital.entity {
                     return Some(entity_def.clone());
+                }
+            }
+        }
+        None
+    }
+
+    /// V4: resolve a trait by its dual-carry `ref_id` (an imported
+    /// `TraitDefinition.id`, or a same-alias `Reference`'s own `ref_id`)
+    /// instead of by name. Returns `None` — not an error — when nothing
+    /// matches, so callers try this first and fall back to `get_trait` by
+    /// name unchanged; this never replaces the name path.
+    pub(crate) fn get_trait_by_ref_id(&self, alias: &str, ref_id: &str) -> Option<TraitReference> {
+        let entry = self.aliases.get(alias)?;
+        for orbital in &entry.orbitals {
+            for trait_ref in &orbital.traits {
+                match trait_ref {
+                    TraitReference::Inline(trait_def) => {
+                        if trait_def.id.as_deref() == Some(ref_id) {
+                            return Some(TraitReference::Inline(trait_def.clone()));
+                        }
+                    }
+                    TraitReference::Reference {
+                        ref_id: Some(rid), ..
+                    } => {
+                        if rid == ref_id {
+                            return Some(trait_ref.clone());
+                        }
+                    }
+                    _ => {}
+                }
+            }
+        }
+        None
+    }
+
+    /// V4: resolve a page by its dual-carry `refId` instead of by name.
+    /// Returns `None` when nothing matches so callers fall back to
+    /// `get_page` by name unchanged.
+    pub(crate) fn get_page_by_ref_id(&self, alias: &str, ref_id: &str) -> Option<PageRef> {
+        let entry = self.aliases.get(alias)?;
+        for orbital in &entry.orbitals {
+            if let Some(pages) = &orbital.pages {
+                for page_ref in pages {
+                    if let PageRef::Inline(page_def) = page_ref {
+                        if page_def.id.as_deref() == Some(ref_id) {
+                            return Some(PageRef::Inline(page_def.clone()));
+                        }
+                    }
+                }
+            }
+        }
+        None
+    }
+
+    /// V4: resolve an entity by its dual-carry `extendsId` instead of by
+    /// alias-only lookup. Searches each orbital's primary AND auxiliary
+    /// entities. Returns `None` when nothing matches so callers fall back
+    /// to `get_entity` (alias's first orbital) unchanged.
+    pub(crate) fn get_entity_by_extends_id(
+        &self,
+        alias: &str,
+        extends_id: &str,
+    ) -> Option<EntityDefinition> {
+        let entry = self.aliases.get(alias)?;
+        for orbital in &entry.orbitals {
+            if let EntityRef::Inline(e) = &orbital.entity {
+                if e.id.as_deref() == Some(extends_id) {
+                    return Some(e.clone());
+                }
+            }
+            if let Some(aux) = &orbital.auxiliary_entities {
+                for a in aux {
+                    if let EntityRef::Inline(e) = a {
+                        if e.id.as_deref() == Some(extends_id) {
+                            return Some(e.clone());
+                        }
+                    }
                 }
             }
         }

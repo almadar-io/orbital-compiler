@@ -1069,6 +1069,7 @@ mod tests {
             ],
             events: None,
             transitions: vec![TransitionDefinition {
+                event_id: None,
                 from: StringOrArray::Single("idle".to_string()),
                 to: "viewing".to_string(),
                 event: "VIEW".to_string(),

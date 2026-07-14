@@ -623,6 +623,7 @@ mod tests {
         effects_json: Option<&str>,
     ) -> TransitionDefinition {
         TransitionDefinition {
+            event_id: None,
             from: StringOrArray::Single(from.to_string()),
             to: to.to_string(),
             event: event.to_string(),

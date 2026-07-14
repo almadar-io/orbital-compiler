@@ -984,6 +984,7 @@ mod tests {
             ],
             events: Some(vec![
                 EventDefinition {
+                    id: None,
                     key: "INIT".to_string(),
                     name: Some("Initialize".to_string()),
                     description: None,
@@ -992,6 +993,7 @@ mod tests {
                     payload_schema: None,
                 },
                 EventDefinition {
+                    id: None,
                     key: "START".to_string(),
                     name: Some("Start".to_string()),
                     description: None,
@@ -1005,6 +1007,7 @@ mod tests {
                 // Interaction traits to pass the validator (TraitMissingInitTransition +
                 // TraitMissingRenderUI errors fire otherwise).
                 TransitionDefinition {
+                    event_id: None,
                     from: StringOrArray::Single("idle".to_string()),
                     to: "idle".to_string(),
                     event: "INIT".to_string(),
@@ -1023,6 +1026,7 @@ mod tests {
                     ])]),
                 },
                 TransitionDefinition {
+                    event_id: None,
                     from: StringOrArray::Single("idle".to_string()),
                     to: "active".to_string(),
                     event: "START".to_string(),

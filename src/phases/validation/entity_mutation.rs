@@ -538,6 +538,7 @@ mod tests {
                 }],
                 events: None,
                 transitions: vec![TransitionDefinition {
+                    event_id: None,
                     from: StringOrArray::Single("idle".to_string()),
                     to: "idle".to_string(),
                     event: "INIT".to_string(),
