@@ -15,7 +15,7 @@ use orbital_core::identity::{IdKind, IdentityLedger};
 use orbital_core::schema::{
     EntityRef, FieldDefinition, Orbital, OrbitalSchema, PageRef, TraitReference,
 };
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 use crate::loader::{ExternalOrbitalLoader, ImportChain, LoaderError};
 
@@ -303,6 +303,107 @@ fn resolve_schema_with_imports(
     total
 }
 
+/// Resolve a re-exported trait name inside the import at `from`: `name` may
+/// be either an Inline declaration (found directly in that import's ledger,
+/// the base case) or itself a `TraitReference::Reference` re-export — in
+/// which case this recurses into the alias `name`'s own dotted `ref` until it
+/// bottoms out at a ledger id or a load failure. `cache` memoizes every
+/// `(from, name)` pair resolved so far across the whole `load_imports` call;
+/// `visiting` is the in-flight recursion stack, used purely as a cycle guard
+/// (A re-exports via B, B re-exports via A) — a revisited pair returns `None`
+/// rather than recursing forever.
+fn resolve_trait_in_import(
+    from: &str,
+    name: &str,
+    loader: &mut ExternalOrbitalLoader,
+    cache: &mut HashMap<(String, String), Option<String>>,
+    visiting: &mut HashSet<(String, String)>,
+) -> Option<String> {
+    let key = (from.to_string(), name.to_string());
+    if visiting.contains(&key) {
+        return None;
+    }
+    if let Some(cached) = cache.get(&key) {
+        return cached.clone();
+    }
+
+    visiting.insert(key.clone());
+    let result = resolve_trait_in_import_uncached(from, name, loader, cache, visiting);
+    visiting.remove(&key);
+    cache.insert(key, result.clone());
+    result
+}
+
+/// The single-hop body of `resolve_trait_in_import`, split out only so the
+/// cache/visiting bookkeeping above has one place to live regardless of which
+/// branch below returns.
+fn resolve_trait_in_import_uncached(
+    from: &str,
+    name: &str,
+    loader: &mut ExternalOrbitalLoader,
+    cache: &mut HashMap<(String, String), Option<String>>,
+    visiting: &mut HashSet<(String, String)>,
+) -> Option<String> {
+    let mut chain = ImportChain::new();
+    let loaded = match loader.load(from, None, &mut chain) {
+        Ok(l) => l,
+        Err(err) => {
+            tracing::warn!(
+                from = %from,
+                name = %name,
+                error = %err,
+                "cross-file id resolution: failed to load import while chasing a re-exported trait; ref stays unresolved"
+            );
+            return None;
+        }
+    };
+
+    if let Some(ledger) = loaded.schema.ledger.as_ref() {
+        if let Some(entry) = ledger
+            .entries
+            .values()
+            .find(|e| e.kind == IdKind::Trait && e.baked_name == name)
+        {
+            return Some(entry.id.clone());
+        }
+    }
+
+    for orbital in &loaded.schema.orbitals {
+        for tr in &orbital.traits {
+            let TraitReference::Reference {
+                reference,
+                ref_id,
+                name: tr_name,
+                ..
+            } = tr
+            else {
+                continue;
+            };
+            if tr_name.as_deref() != Some(name) {
+                continue;
+            }
+            if let Some(id) = ref_id {
+                return Some(id.clone());
+            }
+            let Some(r) = reference else { continue };
+            let Some(DottedRef::Trait {
+                alias: alias2,
+                name: name2,
+            }) = parse_dotted(r)
+            else {
+                continue;
+            };
+            let Some(use2) = orbital.uses.iter().flatten().find(|u| u.alias == alias2) else {
+                continue;
+            };
+            let from2 = use2.from.clone();
+            let name2 = name2.to_string();
+            return resolve_trait_in_import(&from2, &name2, loader, cache, visiting);
+        }
+    }
+    None
+}
+
 /// Resolve every distinct `from` path referenced by `schema`'s orbitals into a
 /// `ResolvedImport`, loading each through `loader` once. A load failure or a
 /// ledger-less import is warned and skipped (not a hard error): during the
@@ -313,6 +414,8 @@ fn load_imports(
     loader: &mut ExternalOrbitalLoader,
 ) -> HashMap<String, ResolvedImport> {
     let mut by_from: HashMap<String, ResolvedImport> = HashMap::new();
+    let mut trait_cache: HashMap<(String, String), Option<String>> = HashMap::new();
+    let mut visiting: HashSet<(String, String)> = HashSet::new();
     for orbital in &schema.orbitals {
         for u in orbital.uses.iter().flatten() {
             if by_from.contains_key(&u.from) {
@@ -338,11 +441,36 @@ fn load_imports(
                 );
                 continue;
             };
-            let resolved = ResolvedImport {
-                reverse: build_reverse_index(ledger),
-                entity_id: first_orbital_entity_id(&loaded.schema),
-            };
-            by_from.insert(u.from.clone(), resolved);
+            let mut reverse = build_reverse_index(ledger);
+            // Re-export trait names: not in this import's own ledger (they're
+            // not Inline declarations here), but resolvable transitively via
+            // `resolve_trait_in_import`. Collected before the loop below ends
+            // `loaded`'s borrow, so `loader` is free for the recursive loads.
+            let reexport_names: Vec<String> = loaded
+                .schema
+                .orbitals
+                .iter()
+                .flat_map(|o| o.traits.iter())
+                .filter_map(|tr| match tr {
+                    TraitReference::Reference { name: Some(n), .. } => Some(n.clone()),
+                    _ => None,
+                })
+                .collect();
+            let entity_id = first_orbital_entity_id(&loaded.schema);
+            let from = u.from.clone();
+
+            for name in reexport_names {
+                if reverse.contains_key(&(IdKind::Trait, name.clone())) {
+                    continue;
+                }
+                if let Some(id) =
+                    resolve_trait_in_import(&from, &name, loader, &mut trait_cache, &mut visiting)
+                {
+                    reverse.insert((IdKind::Trait, name), id);
+                }
+            }
+
+            by_from.insert(from, ResolvedImport { reverse, entity_id });
         }
     }
     by_from
@@ -554,5 +682,155 @@ mod tests {
             idx.get(&(IdKind::Trait, "Foo".to_string())).cloned(),
             Some("trt_1".to_string())
         );
+    }
+
+    // --- transitive re-export resolution (end-to-end, real loader/files) ---
+
+    use crate::loader::LoaderConfig;
+
+    const NAV_ORB: &str = r#"{
+        "name": "NavModule",
+        "version": "1.0.0",
+        "orbitals": [
+            {
+                "name": "Nav",
+                "entity": { "name": "NavEntity", "fields": [] },
+                "traits": [
+                    {
+                        "name": "HeroNav",
+                        "id": "trt_hero_nav_1",
+                        "stateMachine": { "states": [{"name":"idle","isInitial":true}], "events": [], "transitions": [] }
+                    }
+                ]
+            }
+        ],
+        "ledger": {
+            "schemaVersion": 1,
+            "entries": {
+                "trt_hero_nav_1": {
+                    "id": "trt_hero_nav_1",
+                    "kind": "trait",
+                    "bakedName": "HeroNav",
+                    "curName": "HeroNav",
+                    "renames": [],
+                    "owner": "std"
+                }
+            }
+        }
+    }"#;
+
+    const FRAME_ORB: &str = r#"{
+        "name": "FrameModule",
+        "version": "1.0.0",
+        "orbitals": [
+            {
+                "name": "Frame",
+                "uses": [ { "from": "./nav.orb", "as": "Nav" } ],
+                "entity": { "name": "FrameEntity", "fields": [] },
+                "traits": [
+                    { "ref": "Nav.traits.HeroNav", "name": "HeroAuthority" }
+                ]
+            }
+        ],
+        "ledger": { "schemaVersion": 1, "entries": {} }
+    }"#;
+
+    /// (a) 2-hop chain: `Frame` re-exports `HeroAuthority` as a bare
+    /// `TraitReference::Reference` pointing at `Nav.traits.HeroNav`, an
+    /// Inline decl. `Alias.traits.HeroAuthority` at the importer must resolve
+    /// transitively to Nav's `HeroNav` id, even though `HeroAuthority` never
+    /// appears in Frame's own ledger.
+    #[test]
+    fn resolves_transitive_reexport_through_two_hops() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        std::fs::write(dir.path().join("nav.orb"), NAV_ORB).expect("write nav.orb");
+        std::fs::write(dir.path().join("frame.orb"), FRAME_ORB).expect("write frame.orb");
+
+        let mut schema = OrbitalSchema {
+            name: "Test".to_string(),
+            version: None,
+            description: None,
+            orbitals: vec![orbital_with_use(
+                "Alias",
+                "./frame.orb",
+                "Alias.traits.HeroAuthority",
+            )],
+            metadata: None,
+            ledger: None,
+            schema_version: None,
+        };
+
+        let config = LoaderConfig {
+            base_path: dir.path().to_path_buf(),
+            ..Default::default()
+        };
+        let mut loader = ExternalOrbitalLoader::new(config);
+
+        let resolved = resolve_cross_file_id_edges(&mut schema, &mut loader).expect("resolve ok");
+        assert_eq!(resolved, 1);
+
+        let TraitReference::Reference { ref_id, .. } = &schema.orbitals[0].traits[0] else {
+            panic!("expected Reference variant");
+        };
+        assert_eq!(ref_id.as_deref(), Some("trt_hero_nav_1"));
+    }
+
+    /// (b) A re-export cycle (`A` re-exports `X` via `B.traits.Y`, `B`
+    /// re-exports `Y` via `A.traits.X`) must terminate — the cycle guard
+    /// returns `None` instead of recursing forever, and the ref stays
+    /// unresolved (no panic, no stack overflow).
+    #[test]
+    fn terminates_on_reexport_cycle_without_stack_overflow() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let a_orb = r#"{
+            "name": "AModule",
+            "orbitals": [
+                {
+                    "name": "A",
+                    "uses": [ { "from": "./b.orb", "as": "B" } ],
+                    "entity": { "name": "AEntity", "fields": [] },
+                    "traits": [ { "ref": "B.traits.Y", "name": "X" } ]
+                }
+            ],
+            "ledger": { "schemaVersion": 1, "entries": {} }
+        }"#;
+        let b_orb = r#"{
+            "name": "BModule",
+            "orbitals": [
+                {
+                    "name": "B",
+                    "uses": [ { "from": "./a.orb", "as": "A" } ],
+                    "entity": { "name": "BEntity", "fields": [] },
+                    "traits": [ { "ref": "A.traits.X", "name": "Y" } ]
+                }
+            ],
+            "ledger": { "schemaVersion": 1, "entries": {} }
+        }"#;
+        std::fs::write(dir.path().join("a.orb"), a_orb).expect("write a.orb");
+        std::fs::write(dir.path().join("b.orb"), b_orb).expect("write b.orb");
+
+        let mut schema = OrbitalSchema {
+            name: "Test".to_string(),
+            version: None,
+            description: None,
+            orbitals: vec![orbital_with_use("Alias", "./a.orb", "Alias.traits.X")],
+            metadata: None,
+            ledger: None,
+            schema_version: None,
+        };
+
+        let config = LoaderConfig {
+            base_path: dir.path().to_path_buf(),
+            ..Default::default()
+        };
+        let mut loader = ExternalOrbitalLoader::new(config);
+
+        let resolved = resolve_cross_file_id_edges(&mut schema, &mut loader).expect("resolve ok");
+        assert_eq!(resolved, 0);
+
+        let TraitReference::Reference { ref_id, .. } = &schema.orbitals[0].traits[0] else {
+            panic!("expected Reference variant");
+        };
+        assert!(ref_id.is_none());
     }
 }
