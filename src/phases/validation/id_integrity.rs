@@ -148,8 +148,15 @@ impl Checker<'_> {
             }
         }
 
-        // Rule 1 — dangling edge.
-        if !self.index.known(id) {
+        // Rule 1 — dangling edge. Only enforceable when the id layer is ACTIVE,
+        // i.e. `schema.ledger` is present. A ledger-less schema is name-
+        // authoritative (dual-carry): populated id refs are then non-
+        // authoritative sugar, and a reference to an inlined / cross-file node
+        // legitimately has no local arena entry — with no ledger there is no id
+        // space to resolve it against, so integrity cannot be enforced. (Factory
+        // orbitals carry baked id refs with no ledger; their names validate.)
+        // Post-flip every schema carries a ledger, so this rule re-activates.
+        if self.index.ledger.is_some() && !self.index.known(id) {
             self.result.add_error(ValidationError::error(
                 ErrorCode::OrbIdUnknownRef,
                 path.clone(),
@@ -537,6 +544,23 @@ mod tests {
             serde_json::json!("ent_GHOST00000000000000000000");
         let codes = id_codes(&run(&parse(v)));
         assert_eq!(codes, vec![ErrorCode::OrbIdUnknownRef], "codes: {codes:?}");
+    }
+
+    #[test]
+    fn unknown_ref_silent_without_ledger() {
+        // G-V4-1: factory-instantiated orbitals carry baked id refs but no
+        // ledger. With no ledger the id layer is inactive (dual-carry: names
+        // authoritative), so a ref with no local arena entry must NOT fire
+        // ORB_ID_UNKNOWN_REF — the names carry the edge and validate.
+        let mut v = healthy_json();
+        v["orbitals"][0]["traits"][0]["linkedEntityId"] =
+            serde_json::json!("ent_GHOST00000000000000000000");
+        v.as_object_mut().unwrap().remove("ledger");
+        let codes = id_codes(&run(&parse(v)));
+        assert!(
+            codes.is_empty(),
+            "ledger-less schema must not fire id-ref integrity: {codes:?}"
+        );
     }
 
     #[test]
