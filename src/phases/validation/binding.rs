@@ -5,6 +5,7 @@
 
 use super::canonical_operators::get_canonical_operator;
 use super::entity_mutation::collect_entity_mutators;
+use super::render_ui::is_render_ui_effect;
 use super::{trait_path, ErrorCode, ValidationContext, ValidationError, ValidationResult};
 use orbital_core::schema::{
     EntityDefinition, Orbital, OrbitalSchema, PayloadField, SExpression, TraitDefinition,
@@ -1480,14 +1481,6 @@ pub fn validate_trait_binding_usage(
     }
 
     result
-}
-
-/// An effect is `render-ui` when it is the s-expression array
-/// `["render-ui", slot, pattern]` — i.e. its operator (first element) is the
-/// string `"render-ui"`. `@trait.X` is the only render-time binding, so this
-/// is the single operator that may legally contain one.
-fn is_render_ui_effect(effect: &SExpression) -> bool {
-    matches!(effect, SExpression::Array(items) if matches!(items.first(), Some(SExpression::String(op)) if op == "render-ui"))
 }
 
 /// Walk an SExpression tree and validate every `@trait.*` string binding.
