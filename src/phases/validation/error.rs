@@ -611,6 +611,23 @@ pub enum ErrorCode {
     SchemaEmptyVersion,
 
     // =========================================================================
+    // Identity Errors (ORB_ID_*) — Rabit V4 Phase 3 dual-carry id integrity
+    // =========================================================================
+    /// A populated dual-carry id field points at an id that is neither a node
+    /// declared in the schema's arena (orbital/entity/trait/page/emit-event)
+    /// nor a `schema.ledger` entry. The edge is dangling.
+    OrbIdUnknownRef,
+    /// Both a reference's name field and its id sibling are populated, but the
+    /// ledger's `curName` for that id disagrees with the name (dual-carry drift).
+    OrbIdNameMismatch,
+    /// An id's kind prefix (`identity::id_kind_of`) disagrees with the reference
+    /// position it occupies (e.g. an `ent_` id sitting in a trait `refId`).
+    OrbIdKindMismatch,
+    /// A ledger row whose id no node in the schema carries — a stale row left
+    /// behind after its node was removed. Warning severity.
+    OrbIdLedgerOrphan,
+
+    // =========================================================================
     // Generic Errors (ORB_GEN_*)
     // =========================================================================
     /// Generic invalid value
@@ -839,6 +856,12 @@ impl ErrorCode {
             ErrorCode::SchemaNoOrbitals => "ORB_S_NO_ORBITALS",
             ErrorCode::SchemaEmptyVersion => "ORB_S_EMPTY_VERSION",
 
+            // Identity
+            ErrorCode::OrbIdUnknownRef => "ORB_ID_UNKNOWN_REF",
+            ErrorCode::OrbIdNameMismatch => "ORB_ID_NAME_MISMATCH",
+            ErrorCode::OrbIdKindMismatch => "ORB_ID_KIND_MISMATCH",
+            ErrorCode::OrbIdLedgerOrphan => "ORB_ID_LEDGER_ORPHAN",
+
             // Generic
             ErrorCode::InvalidValue => "ORB_GEN_INVALID_VALUE",
             ErrorCode::InvalidReference => "ORB_GEN_INVALID_REFERENCE",
@@ -1037,6 +1060,11 @@ impl ErrorCode {
             ErrorCode::SchemaMissingName
             | ErrorCode::SchemaNoOrbitals
             | ErrorCode::SchemaEmptyVersion => "schema",
+
+            ErrorCode::OrbIdUnknownRef
+            | ErrorCode::OrbIdNameMismatch
+            | ErrorCode::OrbIdKindMismatch
+            | ErrorCode::OrbIdLedgerOrphan => "identity",
 
             ErrorCode::InvalidValue
             | ErrorCode::InvalidReference

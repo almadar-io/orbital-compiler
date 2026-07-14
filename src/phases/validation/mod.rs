@@ -49,6 +49,7 @@ pub mod entity;
 pub mod entity_mutation;
 pub mod error;
 pub mod icon;
+pub mod id_integrity;
 pub mod literal_default;
 pub mod page;
 pub mod payload_field_name;
@@ -516,6 +517,11 @@ pub fn validate_comprehensive_full_with_phase_f(
 
     // Phase 13: Icon validation
     icon::validate_all_icons(schema, &mut ctx);
+
+    // Phase 14: Rabit V4 dual-carry id integrity (ORB_ID_*). No-op on legacy
+    // id-free `.orb`; errors on dangling/kind-mismatched/name-drifted id edges,
+    // warns on stale ledger rows.
+    id_integrity::validate_id_integrity(schema, &mut ctx);
 
     ctx.into_result()
 }
