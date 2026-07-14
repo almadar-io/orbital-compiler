@@ -233,6 +233,11 @@ impl LoaderCache {
         self.cache.clear();
     }
 
+    /// Iterate the loaded schemas (filesystem-resolved imports).
+    pub fn schemas(&self) -> impl Iterator<Item = &OrbitalSchema> {
+        self.cache.values().map(|l| &l.schema)
+    }
+
     pub fn len(&self) -> usize {
         self.cache.len()
     }
@@ -630,6 +635,27 @@ impl ExternalOrbitalLoader {
     /// behavior registry, not the filesystem).
     pub fn embedded_cache_size(&self) -> usize {
         self.embedded_cache.len()
+    }
+
+    /// Union of every loaded import's identity ledger (`id → row`), across both
+    /// the filesystem and embedded caches. First writer wins on id collision
+    /// (identical baked ids are byte-equal by construction). Used by the inline
+    /// phase to preserve cross-file ids: a cloned node that references a source
+    /// id gets that source's ledger row copied into the consumer schema.
+    pub fn source_ledger_union(&self) -> HashMap<String, orbital_core::identity::LedgerEntry> {
+        let mut union: HashMap<String, orbital_core::identity::LedgerEntry> = HashMap::new();
+        let schemas = self
+            .cache
+            .schemas()
+            .chain(self.embedded_cache.values().map(|l| &l.schema));
+        for schema in schemas {
+            if let Some(ledger) = &schema.ledger {
+                for (id, row) in &ledger.entries {
+                    union.entry(id.clone()).or_insert_with(|| row.clone());
+                }
+            }
+        }
+        union
     }
 }
 

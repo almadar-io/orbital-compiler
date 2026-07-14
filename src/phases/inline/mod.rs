@@ -278,6 +278,12 @@ pub fn inline_schema_with_config_diagnostics(
 
     uniquify_cross_orbital_pulled_siblings(schema, &pulled_by_orbital);
 
+    // Preserve cross-file identity: copy the ledger rows of any source id that a
+    // cloned node still references but the consumer arena/ledger doesn't carry.
+    // Runs after all orbitals inline (so every reference position is final) and
+    // uses the loader's caches as the source-ledger source of truth.
+    merge_source_ledgers(schema, &loader.source_ledger_union());
+
     // Emit the config→knob provenance into `_metadata.configProvenance` so a
     // consumer (Studio contextual edit) can trace a substituted render-ui
     // literal back to the config knob it came from.
@@ -615,13 +621,24 @@ fn inline_orbital(
     // `dispatch-updates` walker reads this path to route UPDATE_SPEC to
     // the right subagent.
     let orbital_path_prefix = format!("orbitals[name={}]", orbital.name);
+    // Consumer-scope entity name → dual-carry id map, so a `linkedEntity` rebind
+    // rewrites the cloned trait's id sibling to the consumer's entity node (the
+    // primary + any auxiliary entities declared on this orbital, all id-stamped
+    // by L1 before the compiler runs).
+    let entity_ids = collect_orbital_entity_ids(orbital);
     let (
         inlined_traits,
         trait_rename_map,
         pulled_aux_entities,
         pulled_sibling_names,
         trait_config_diagnostics,
-    ) = inline_traits(&orbital.traits, &ctx, &orbital_path_prefix, recorder)?;
+    ) = inline_traits(
+        &orbital.traits,
+        &ctx,
+        &orbital_path_prefix,
+        &entity_ids,
+        recorder,
+    )?;
     orbital.traits = inlined_traits;
     config_diagnostics.extend(trait_config_diagnostics);
     if let Some(sink) = pulled_names_sink {
@@ -691,6 +708,250 @@ fn inline_orbital(
     }
 
     Ok(())
+}
+
+/// Build the consumer-scope entity name → dual-carry id map for an orbital: its
+/// primary inline entity plus every inline auxiliary entity. Used to keep a
+/// rebound `linkedEntity` name's id sibling pointing at the consumer's own
+/// entity node instead of the source file's.
+fn collect_orbital_entity_ids(orbital: &Orbital) -> HashMap<String, String> {
+    let mut ids = HashMap::new();
+    if let EntityRef::Inline(e) = &orbital.entity {
+        if let Some(id) = &e.id {
+            ids.insert(e.name.clone(), id.clone());
+        }
+    }
+    for aux in orbital.auxiliary_entities.iter().flatten() {
+        if let EntityRef::Inline(e) = aux {
+            if let Some(id) = &e.id {
+                ids.insert(e.name.clone(), id.clone());
+            }
+        }
+    }
+    ids
+}
+
+// ============================================================================
+// Cross-file identity-ledger merge (Rabit V4)
+// ============================================================================
+//
+// Inlining clones trait/entity nodes from imported source `.orb` schemas into
+// the consumer. Those clones carry dual-carry ids minted in the SOURCE file,
+// with ledger rows that live in the source schema's ledger — not the consumer's.
+// Where a clone REFERENCES such a foreign id (e.g. a non-rebound `linkedEntity`
+// still pointing at the source entity), the consumer's arena ∪ ledger doesn't
+// know it and `ORB_ID_UNKNOWN_REF` fires. Preserve identity across the file
+// seam by copying the referenced source ledger rows into the consumer ledger.
+//
+// Only ids that are actually referenced-but-unresolved are merged: an id that is
+// a declared consumer node needs no ledger row, and merging an unreferenced
+// source row would create an `ORB_ID_LEDGER_ORPHAN`. This keeps the merge
+// orphan-free by construction (every merged row is carried by a live reference).
+
+/// Copy referenced-but-unknown source ledger rows into the consumer schema's
+/// ledger, preserving cross-file ids. `source_union` is the union of every
+/// loaded import's ledger (`id → row`).
+fn merge_source_ledgers(
+    schema: &mut OrbitalSchema,
+    source_union: &HashMap<String, orbital_core::identity::LedgerEntry>,
+) {
+    if source_union.is_empty() {
+        return;
+    }
+    let declared = collect_declared_ids(schema);
+    let referenced = collect_referenced_ids(schema);
+    let have: HashSet<String> = schema
+        .ledger
+        .as_ref()
+        .map(|l| l.entries.keys().cloned().collect())
+        .unwrap_or_default();
+
+    let mut to_add: Vec<orbital_core::identity::LedgerEntry> = Vec::new();
+    for id in &referenced {
+        if declared.contains(id) || have.contains(id) {
+            continue;
+        }
+        if let Some(row) = source_union.get(id) {
+            to_add.push(row.clone());
+        }
+    }
+    if to_add.is_empty() {
+        return;
+    }
+    let ledger = schema
+        .ledger
+        .get_or_insert_with(|| orbital_core::identity::IdentityLedger {
+            schema_version: 1,
+            entries: HashMap::new(),
+        });
+    for row in to_add {
+        ledger.entries.entry(row.id.clone()).or_insert(row);
+    }
+}
+
+/// Ids carried BY a declaration node (orbital/entity/trait/event/page/field) —
+/// these are arena-known without a ledger row. Mirrors the declaration sites
+/// that `validation::id_integrity::IdIndex::build` treats as arena nodes.
+fn collect_declared_ids(schema: &OrbitalSchema) -> HashSet<String> {
+    fn decl_entity(e: Option<&orbital_core::schema::EntityDefinition>, out: &mut HashSet<String>) {
+        if let Some(id) = e.and_then(|e| e.id.as_ref()) {
+            out.insert(id.clone());
+        }
+    }
+    fn decl_trait(tr: &TraitReference, out: &mut HashSet<String>) {
+        if let TraitReference::Inline(td) = tr {
+            if let Some(id) = &td.id {
+                out.insert(id.clone());
+            }
+            for emit in td.emits.iter().flatten() {
+                if let Some(id) = &emit.event_id {
+                    out.insert(id.clone());
+                }
+            }
+            for de in td.data_entities.iter().flatten() {
+                if let Some(id) = &de.id {
+                    out.insert(id.clone());
+                }
+            }
+        }
+    }
+    let mut out = HashSet::new();
+    for orbital in &schema.orbitals {
+        if let Some(id) = &orbital.id {
+            out.insert(id.clone());
+        }
+        decl_entity(orbital.entity.as_inline(), &mut out);
+        for aux in orbital.auxiliary_entities.iter().flatten() {
+            decl_entity(aux.as_inline(), &mut out);
+        }
+        for tr in &orbital.traits {
+            decl_trait(tr, &mut out);
+        }
+        for page in orbital.pages.iter().flatten() {
+            if let orbital_core::schema::PageRef::Inline(p) = page {
+                if let Some(id) = &p.id {
+                    out.insert(id.clone());
+                }
+                for tr in p.traits.iter().flatten() {
+                    decl_trait(tr, &mut out);
+                }
+            }
+        }
+    }
+    out
+}
+
+/// Ids that appear in a REFERENCE (edge) position — the id siblings a validator
+/// resolves against the arena ∪ ledger. Mirrors the reference walk in
+/// `validation::id_integrity`; kept in step with it.
+fn collect_referenced_ids(schema: &OrbitalSchema) -> HashSet<String> {
+    use orbital_core::schema::{EntityRef, ListenSource, PageRef, TraitReference};
+    let mut out = HashSet::new();
+    let add = |id: &Option<String>, out: &mut HashSet<String>| {
+        if let Some(id) = id {
+            out.insert(id.clone());
+        }
+    };
+
+    fn field_relations(field: &orbital_core::schema::FieldDefinition, out: &mut HashSet<String>) {
+        if let Some(rel) = &field.relation {
+            if let Some(id) = &rel.entity_id {
+                out.insert(id.clone());
+            }
+        }
+        if let Some(items) = &field.items {
+            field_relations(items, out);
+        }
+        for (_, p) in field.properties.iter().flatten() {
+            field_relations(p, out);
+        }
+    }
+
+    let walk_trait_ref = |tr: &TraitReference, out: &mut HashSet<String>| match tr {
+        TraitReference::Inline(td) => {
+            add(&td.linked_entity_id, out);
+            for listen in td.listens.iter().flatten() {
+                add(&listen.event_id, out);
+                add(&listen.triggers_id, out);
+                match &listen.source {
+                    Some(ListenSource::Trait { trait_id, .. }) => add(trait_id, out),
+                    Some(ListenSource::Orbital {
+                        orbital_id,
+                        trait_id,
+                        ..
+                    }) => {
+                        add(orbital_id, out);
+                        add(trait_id, out);
+                    }
+                    Some(ListenSource::Any) | None => {}
+                }
+            }
+            for de in td.data_entities.iter().flatten() {
+                for f in &de.fields {
+                    field_relations(f, out);
+                }
+            }
+        }
+        TraitReference::Reference {
+            ref_id,
+            linked_entity_id,
+            ..
+        } => {
+            add(ref_id, out);
+            add(linked_entity_id, out);
+        }
+    };
+
+    for orbital in &schema.orbitals {
+        match &orbital.entity {
+            EntityRef::Extends(e) => add(&e.extends_id, &mut out),
+            EntityRef::Inline(entity) => {
+                for f in &entity.fields {
+                    field_relations(f, &mut out);
+                }
+            }
+            EntityRef::Reference(_) => {}
+        }
+        for aux in orbital.auxiliary_entities.iter().flatten() {
+            match aux {
+                EntityRef::Extends(e) => add(&e.extends_id, &mut out),
+                EntityRef::Inline(entity) => {
+                    for f in &entity.fields {
+                        field_relations(f, &mut out);
+                    }
+                }
+                EntityRef::Reference(_) => {}
+            }
+        }
+        for tr in &orbital.traits {
+            walk_trait_ref(tr, &mut out);
+        }
+        for page in orbital.pages.iter().flatten() {
+            match page {
+                PageRef::Inline(p) => {
+                    for tr in p.traits.iter().flatten() {
+                        walk_trait_ref(tr, &mut out);
+                    }
+                }
+                PageRef::Object(o) => {
+                    add(&o.ref_id, &mut out);
+                    add(&o.linked_entity_id, &mut out);
+                    if let Some(ref_ids) = &o.trait_ref_ids {
+                        for rid in ref_ids {
+                            if !rid.is_empty() {
+                                out.insert(rid.clone());
+                            }
+                        }
+                    }
+                    for tr in o.traits.iter().flatten() {
+                        walk_trait_ref(tr, &mut out);
+                    }
+                }
+                PageRef::Reference(_) => {}
+            }
+        }
+    }
+    out
 }
 
 // ============================================================================
@@ -842,6 +1103,7 @@ mod tests {
         apply_overrides_to_trait(
             &mut trait_def,
             None,
+            &HashMap::new(),
             None,
             Some("CartItemAddItem"),
             None,
@@ -865,6 +1127,7 @@ mod tests {
         apply_overrides_to_trait(
             &mut trait_def,
             None,
+            &HashMap::new(),
             None,
             Some("ModalRecordModal"),
             None,
@@ -882,6 +1145,7 @@ mod tests {
         apply_overrides_to_trait(
             &mut trait_def,
             None,
+            &HashMap::new(),
             None,
             None,
             None,
@@ -922,6 +1186,7 @@ mod tests {
         apply_overrides_to_trait(
             &mut trait_def,
             Some(&linked),
+            &HashMap::new(),
             None,
             Some("CartItemAddItem"),
             None,
@@ -954,6 +1219,162 @@ mod tests {
                 SExpression::String("CartItem".to_string()),
             ]),
             "rename path must not interfere with linked_entity rewrite"
+        );
+    }
+
+    #[test]
+    fn rebind_remaps_linked_entity_id_to_consumer_node() {
+        // A trait cloned from a source file carries the SOURCE file's entity id
+        // in `linked_entity_id`. When the call site rebinds `linkedEntity` to a
+        // consumer entity, the id sibling MUST be rewritten to the consumer
+        // entity's id in the same operation (dual-carry invariant) — leaving the
+        // foreign id produces `ORB_ID_UNKNOWN_REF` on the composed schema.
+        let mut trait_def = make_trait("ModalRecordModal");
+        trait_def.linked_entity_id = Some("ent_SOURCEFOREIGN00000000000".to_string());
+
+        let mut entity_ids = HashMap::new();
+        entity_ids.insert(
+            "CartItem".to_string(),
+            "ent_CONSUMER0000000000000000".to_string(),
+        );
+
+        let linked = "CartItem".to_string();
+        apply_overrides_to_trait(
+            &mut trait_def,
+            Some(&linked),
+            &entity_ids,
+            None,
+            None,
+            None,
+            None,
+            false,
+            &mut Vec::new(),
+        );
+
+        assert_eq!(trait_def.linked_entity.as_deref(), Some("CartItem"));
+        assert_eq!(
+            trait_def.linked_entity_id.as_deref(),
+            Some("ent_CONSUMER0000000000000000"),
+            "id sibling must be remapped to the consumer node, not left stale"
+        );
+    }
+
+    #[test]
+    fn rebind_to_unknown_target_clears_stale_id_not_dangles() {
+        // When the rebind target is not a node in the consumer arena (empty
+        // map), the stale foreign id is CLEARED (dual-carry drops to name-only)
+        // rather than left dangling — dropping is the correct carry only when the
+        // target genuinely has no node in the composed graph.
+        let mut trait_def = make_trait("ModalRecordModal");
+        trait_def.linked_entity_id = Some("ent_SOURCEFOREIGN00000000000".to_string());
+        let linked = "CartItem".to_string();
+        apply_overrides_to_trait(
+            &mut trait_def,
+            Some(&linked),
+            &HashMap::new(),
+            None,
+            None,
+            None,
+            None,
+            false,
+            &mut Vec::new(),
+        );
+        assert_eq!(trait_def.linked_entity.as_deref(), Some("CartItem"));
+        assert_eq!(
+            trait_def.linked_entity_id, None,
+            "unresolvable rebind target must clear the stale foreign id"
+        );
+    }
+
+    // ------------------------------------------------------------------
+    // Cross-file ledger merge (Rabit V4) — foreign-node-not-merged
+    // ------------------------------------------------------------------
+
+    #[test]
+    fn merge_source_ledgers_preserves_cross_file_id() {
+        use crate::phases::validation::error::ErrorCode;
+        use crate::phases::validation::{id_integrity, ValidationContext};
+        use orbital_core::identity::{IdKind, LedgerEntry, LedgerOwner};
+
+        // Consumer schema: one orbital whose inline trait references a FOREIGN
+        // entity id (`ent_SRC...`) that is neither a declared consumer node nor
+        // in the consumer ledger — the exact shape a non-rebound cross-file
+        // clone leaves behind.
+        let json = serde_json::json!({
+            "name": "Consumer",
+            "orbitals": [{
+                "name": "ConsumerOrbital",
+                "id": "orb_CON0000000000000000000000",
+                "entity": {
+                    "name": "Consumer",
+                    "id": "ent_CON0000000000000000000000",
+                    "fields": [{ "name": "title", "type": "string" }]
+                },
+                "traits": [{
+                    "name": "ImportedWidget",
+                    "id": "trt_IMP0000000000000000000000",
+                    "linkedEntity": "SourceEntity",
+                    "linkedEntityId": "ent_SRC0000000000000000000000",
+                    "stateMachine": { "states": [{ "name": "idle", "isInitial": true }], "transitions": [] }
+                }]
+            }],
+            "schemaVersion": 1,
+            "ledger": {
+                "schemaVersion": 1,
+                "entries": {
+                    "orb_CON0000000000000000000000": { "id": "orb_CON0000000000000000000000", "kind": "orbital", "bakedName": "ConsumerOrbital", "curName": "ConsumerOrbital", "renames": [], "owner": "workspace" },
+                    "ent_CON0000000000000000000000": { "id": "ent_CON0000000000000000000000", "kind": "entity", "bakedName": "Consumer", "curName": "Consumer", "renames": [], "owner": "workspace" },
+                    "trt_IMP0000000000000000000000": { "id": "trt_IMP0000000000000000000000", "kind": "trait", "bakedName": "ImportedWidget", "curName": "ImportedWidget", "renames": [], "owner": "workspace" }
+                }
+            }
+        });
+        let mut schema: OrbitalSchema = serde_json::from_value(json).expect("fixture parses");
+
+        let id_codes = |schema: &OrbitalSchema| -> Vec<ErrorCode> {
+            let mut ctx = ValidationContext::new();
+            id_integrity::validate_id_integrity(schema, &mut ctx);
+            ctx.into_result()
+                .all_issues()
+                .map(|e| e.code)
+                .filter(|c| c.category() == "identity")
+                .collect()
+        };
+
+        // Before the merge: the foreign id dangles.
+        assert_eq!(
+            id_codes(&schema),
+            vec![ErrorCode::OrbIdUnknownRef],
+            "pre-merge: the foreign linkedEntity id must be unknown"
+        );
+
+        // Source ledger union carrying the foreign entity's row.
+        let mut source_union = HashMap::new();
+        source_union.insert(
+            "ent_SRC0000000000000000000000".to_string(),
+            LedgerEntry {
+                id: "ent_SRC0000000000000000000000".to_string(),
+                kind: IdKind::Entity,
+                baked_name: "SourceEntity".to_string(),
+                cur_name: "SourceEntity".to_string(),
+                renames: vec![],
+                owner: LedgerOwner::Std,
+                parent: None,
+            },
+        );
+
+        super::merge_source_ledgers(&mut schema, &source_union);
+
+        // The row is now in the consumer ledger and id integrity is clean.
+        assert!(schema
+            .ledger
+            .as_ref()
+            .unwrap()
+            .entries
+            .contains_key("ent_SRC0000000000000000000000"));
+        assert!(
+            id_codes(&schema).is_empty(),
+            "post-merge: cross-file id must resolve, no ORB_ID_* diagnostics: {:?}",
+            id_codes(&schema)
         );
     }
 
@@ -1033,7 +1454,7 @@ mod tests {
             modal_ref(None, Some("CartItem")),
         ];
 
-        let result = inline_traits(&traits, &ctx, "<test>", &mut Vec::new());
+        let result = inline_traits(&traits, &ctx, "<test>", &HashMap::new(), &mut Vec::new());
         match result {
             Err(InlineError::DuplicateTraitName { name, .. }) => {
                 assert_eq!(
@@ -1061,7 +1482,7 @@ mod tests {
         ];
 
         let (result, _rename_map, _aux, _pulled, _cfg_diags) =
-            inline_traits(&traits, &ctx, "<test>", &mut Vec::new())
+            inline_traits(&traits, &ctx, "<test>", &HashMap::new(), &mut Vec::new())
                 .expect("two distinct `name` overrides must inline successfully without collision");
         assert_eq!(result.len(), 2, "both references must be inlined");
 
@@ -1103,7 +1524,7 @@ mod tests {
         ];
 
         let (result, _rename_map, _aux, _pulled, _cfg_diags) =
-            inline_traits(&traits, &ctx, "<test>", &mut Vec::new())
+            inline_traits(&traits, &ctx, "<test>", &HashMap::new(), &mut Vec::new())
                 .expect("one renamed + one not-renamed must succeed (no name collision)");
         assert_eq!(result.len(), 2);
 
@@ -1237,7 +1658,7 @@ mod tests {
             modal_ref(None, None),
         ];
 
-        let result = inline_traits(&traits, &ctx, "<test>", &mut Vec::new());
+        let result = inline_traits(&traits, &ctx, "<test>", &HashMap::new(), &mut Vec::new());
         match result {
             Err(InlineError::DuplicateTraitName { name, .. }) => {
                 assert_eq!(name, "ModalRecordModal");
@@ -2261,6 +2682,7 @@ mod tests {
         apply_overrides_to_trait(
             &mut trait_def,
             None,
+            &HashMap::new(),
             None,
             None,
             Some(&events_arg),
@@ -2513,6 +2935,7 @@ mod tests {
         apply_overrides_to_trait(
             &mut trait_def,
             Some(&linked),
+            &HashMap::new(),
             None,
             None,
             None,

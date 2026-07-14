@@ -18,6 +18,16 @@ use std::collections::{HashMap, HashSet};
 pub(crate) fn apply_overrides_to_trait(
     trait_def: &mut TraitDefinition,
     linked_entity: Option<&String>,
+    // Consumer-scope entity name → dual-carry id map. When a `linked_entity`
+    // rebind rewrites the trait's `linkedEntity` NAME, the id sibling
+    // (`linked_entity_id`) MUST be rewritten in the same operation to the id of
+    // the rebind target in the consumer arena — otherwise the cloned trait keeps
+    // the SOURCE file's entity id, which resolves to no node in the composed
+    // schema (`ORB_ID_UNKNOWN_REF`). Empty map = no id remap (test / legacy
+    // id-free callers); an unresolved target clears the id (justified: the
+    // rebind target is not a node in the composed graph — a dangling foreign id
+    // is never the right carry).
+    entity_ids: &HashMap<String, String>,
     config: Option<&HashMap<String, ConfigField>>,
     name: Option<&str>,
     events: Option<&HashMap<String, String>>,
@@ -54,6 +64,8 @@ pub(crate) fn apply_overrides_to_trait(
             }
         }
         trait_def.linked_entity = Some(new_entity.clone());
+        // Keep the dual-carry id sibling in lockstep with the rebound name.
+        trait_def.linked_entity_id = entity_ids.get(new_entity).cloned();
     }
 
     // 3. Build the event substitution map directly from the caller args.
@@ -584,6 +596,10 @@ pub(crate) fn inline_traits(
     traits: &[TraitReference],
     ctx: &InlineContext,
     path_prefix: &str,
+    // Consumer-scope entity name → id map, used to keep every rebound
+    // `linkedEntity` name's dual-carry id sibling pointing at the consumer's
+    // entity node (see `apply_overrides_to_trait`).
+    entity_ids: &HashMap<String, String>,
     recorder: &mut Vec<ConfigProvenanceRecord>,
 ) -> Result<InlinedTraits, InlineError> {
     let mut result = Vec::new();
@@ -861,6 +877,7 @@ pub(crate) fn inline_traits(
                                     apply_overrides_to_trait(
                                         &mut trait_def,
                                         linked_entity.as_ref(),
+                                        entity_ids,
                                         config.as_ref(),
                                         name_override.as_deref(),
                                         events_override.as_ref(),
@@ -994,6 +1011,7 @@ pub(crate) fn inline_traits(
             apply_overrides_to_trait(
                 &mut sibling_def,
                 linked_entity.as_ref(),
+                entity_ids,
                 None,
                 None,
                 None,
