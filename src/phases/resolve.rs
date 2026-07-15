@@ -508,6 +508,8 @@ impl<'a> Resolver<'a> {
         oir_trait.description = trait_def.description.clone();
         oir_trait.linked_entity = trait_def.linked_entity.clone();
         oir_trait.linked_entity_id = trait_def.linked_entity_id.clone();
+        oir_trait.entity_ref_ids = trait_def.entity_ref_ids.clone();
+        oir_trait.trait_embed_ids = trait_def.trait_embed_ids.clone();
         oir_trait.source = OirTraitSource::Schema;
 
         if let Some(category) = &trait_def.category {
