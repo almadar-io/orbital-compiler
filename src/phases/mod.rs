@@ -234,6 +234,14 @@ pub fn resolve_schema_with_path(
     options: &CompilerOptions,
     source_path: Option<&Path>,
 ) -> CompileResult<OrbitalSchema> {
+    // Intrinsic identity: a raw/name-only `.orb` reaching the compiler (e.g.
+    // `orb emit ts <name-only.orb>`, which parses through the raw core
+    // deserializer) is stamped here — the single pre-inline chokepoint — so
+    // inline/compose/resolve/codegen never see a ledger-less schema and the
+    // name-fallback rewriters are dead. `.lolo`-emitted and factory-stamped
+    // schemas already carry a ledger and pass through untouched (zero churn).
+    orbital_core::stamp::ensure_stamped(&mut schema);
+
     // Phase 2: Inline (resolve uses declarations — must happen before validation
     //           so that trait/entity/page references are present when checked)
     if options.verbose {

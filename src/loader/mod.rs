@@ -411,11 +411,14 @@ impl ExternalOrbitalLoader {
             let result = match self.embedded_cache.entry(import_path.to_string()) {
                 Entry::Occupied(e) => Ok(e.into_mut()),
                 Entry::Vacant(e) => match serde_json::from_str::<OrbitalSchema>(content) {
-                    Ok(schema) => Ok(e.insert(LoadedSchema {
-                        schema,
-                        source_path: synthetic_path.clone(),
-                        import_path: import_path.to_string(),
-                    })),
+                    Ok(mut schema) => {
+                        orbital_core::stamp::ensure_stamped(&mut schema);
+                        Ok(e.insert(LoadedSchema {
+                            schema,
+                            source_path: synthetic_path.clone(),
+                            import_path: import_path.to_string(),
+                        }))
+                    }
                     Err(parse_err) => Err(LoaderError::InvalidJson(
                         synthetic_path.display().to_string(),
                         parse_err.to_string(),
@@ -610,8 +613,9 @@ impl ExternalOrbitalLoader {
         let content = std::fs::read_to_string(path)?;
 
         // Deserialize directly into the schema (single parse).
-        let schema: OrbitalSchema = serde_json::from_str(&content)
+        let mut schema: OrbitalSchema = serde_json::from_str(&content)
             .map_err(|e| LoaderError::InvalidJson(path.display().to_string(), e.to_string()))?;
+        orbital_core::stamp::ensure_stamped(&mut schema);
 
         Ok(LoadedSchema {
             schema,

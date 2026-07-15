@@ -38,7 +38,8 @@ pub fn parse_file(path: impl AsRef<Path>) -> Result<OrbitalSchema, ParseError> {
 
 /// Parse a JSON string into OrbitalSchema
 pub fn parse_json(json: &str) -> Result<OrbitalSchema, ParseError> {
-    let schema: OrbitalSchema = serde_json::from_str(json)?;
+    let mut schema: OrbitalSchema = serde_json::from_str(json)?;
+    orbital_core::stamp::ensure_stamped(&mut schema);
     Ok(schema)
 }
 
