@@ -243,7 +243,10 @@ pub fn resolve_schema_with_path(
     orbital_core::stamp::ensure_stamped(&mut schema);
 
     // Phase 2: Inline (resolve uses declarations — must happen before validation
-    //           so that trait/entity/page references are present when checked)
+    //           so that trait/entity/page references are present when checked).
+    //           `inline_schema` runs the V4-W4 identity normalization internally
+    //           (right after its own `ensure_stamped`), so `orb validate` — which
+    //           calls the inline entry directly — is covered by the same pass.
     if options.verbose {
         eprintln!("  Phase 2: Inlining...");
     }

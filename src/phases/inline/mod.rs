@@ -16,12 +16,19 @@
 
 mod context;
 mod entity;
+mod identity_normalize;
 mod page;
 mod rewrite;
 mod service;
 mod splice;
 #[path = "trait.rs"]
 mod r#trait;
+
+// V4-W4 pre-inline identity normalization — rewrite id-carrying entity tokens to
+// their current declaration name so a post-stamp rename resolves through the
+// name-based inliner + validators (compiled-path twin of the runtime's
+// `resolveEntityTokensById`). Called from `phases::resolve_schema_with_path`.
+pub use identity_normalize::normalize_identity_tokens;
 
 // Re-exports so the orchestration fns below — and the in-module
 // `#[cfg(test)] mod tests { use super::*; }` block — keep resolving every helper
@@ -238,6 +245,19 @@ pub fn inline_schema_with_config_diagnostics(
     // tokens by the time the cross-orbital dedup rename runs — the invariant
     // that lets the name-fallback rewriters be deleted. No-op when stamped.
     orbital_core::stamp::ensure_stamped(schema);
+
+    // V4-W4 identity normalization (compiled-path twin of the runtime's id-first
+    // resolution). Rewrite every id-carrying reference token — entity tokens
+    // (`@entity`/`fetch`/`persist`/`linkedEntity` via `entityRefIds`/
+    // `linkedEntityId`), `@trait.<x>` embeds (via `traitEmbedIds`), and page trait
+    // `ref`s (via `refId`) — to the CURRENT declaration name, so a post-stamp
+    // rename (declaration + ledger updated, tokens kept canonical) resolves
+    // through the name-based inline loop + the downstream validators. Runs on the
+    // orbital's OWN inline traits before the import inline loop below (imports
+    // carry their own rebind path). Additive: no side-map / no rename →
+    // byte-identical passthrough. This is what lets the factory stop rewriting
+    // tokens (`rebindInlineTraitEntity` / `applyTraitRenames`).
+    normalize_identity_tokens(schema);
 
     // Auto-discover behavior-package registry roots from the source path when
     // none are configured, so bare imports like `almadar-behaviors/rpg-hero`
