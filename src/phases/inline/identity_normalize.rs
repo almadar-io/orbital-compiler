@@ -32,12 +32,16 @@ pub fn normalize_identity_tokens(schema: &mut OrbitalSchema) {
     for orbital in schema.orbitals.iter_mut() {
         let entity_id_to_name = collect_entity_id_names(orbital);
         let trait_id_to_name = collect_trait_id_names(orbital);
-        if entity_id_to_name.is_empty() && trait_id_to_name.is_empty() {
+        let event_id_to_name = collect_event_id_names(orbital);
+        if entity_id_to_name.is_empty()
+            && trait_id_to_name.is_empty()
+            && event_id_to_name.is_empty()
+        {
             continue;
         }
 
         for tr in orbital.traits.iter_mut() {
-            normalize_trait_reference(tr, &entity_id_to_name, &trait_id_to_name);
+            normalize_trait_reference(tr, &entity_id_to_name, &trait_id_to_name, &event_id_to_name);
         }
 
         if let Some(pages) = orbital.pages.as_mut() {
@@ -49,7 +53,12 @@ pub fn normalize_identity_tokens(schema: &mut OrbitalSchema) {
                 };
                 if let Some(pts) = page_traits {
                     for tr in pts.iter_mut() {
-                        normalize_trait_reference(tr, &entity_id_to_name, &trait_id_to_name);
+                        normalize_trait_reference(
+                            tr,
+                            &entity_id_to_name,
+                            &trait_id_to_name,
+                            &event_id_to_name,
+                        );
                     }
                 }
             }
@@ -93,6 +102,24 @@ fn collect_trait_id_names(orbital: &Orbital) -> HashMap<String, String> {
     out
 }
 
+/// `event_id → current event key` across the orbital's own inline traits'
+/// declared events (the `emits` block). Events are first-class — a config knob
+/// typed `event` holds a dispatchable event key, resolved by id so a call-site
+/// `events: { OLD: NEW }` rename threads into the knob value like entity/trait.
+fn collect_event_id_names(orbital: &Orbital) -> HashMap<String, String> {
+    let mut out = HashMap::new();
+    for tr in &orbital.traits {
+        if let TraitReference::Inline(td) = tr {
+            for ev in td.state_machine.events.iter().flatten() {
+                if let Some(id) = &ev.id {
+                    out.insert(id.clone(), ev.key.clone());
+                }
+            }
+        }
+    }
+    out
+}
+
 /// Dispatch identity normalization over one trait reference (own or page),
 /// covering both the inline body tokens / trait ref name AND the config-ref
 /// defaults (`entity`/`trait`-typed knobs carrying a stamped `refId`).
@@ -100,11 +127,17 @@ fn normalize_trait_reference(
     tr: &mut TraitReference,
     entity_id_to_name: &HashMap<String, String>,
     trait_id_to_name: &HashMap<String, String>,
+    event_id_to_name: &HashMap<String, String>,
 ) {
     match tr {
         TraitReference::Inline(td) => {
             normalize_inline_trait(td, entity_id_to_name, trait_id_to_name);
-            normalize_config_ref_tokens(td.config.as_mut(), entity_id_to_name, trait_id_to_name);
+            normalize_config_ref_tokens(
+                td.config.as_mut(),
+                entity_id_to_name,
+                trait_id_to_name,
+                event_id_to_name,
+            );
         }
         TraitReference::Reference {
             reference,
@@ -113,7 +146,12 @@ fn normalize_trait_reference(
             ..
         } => {
             normalize_trait_ref(reference, ref_id.as_deref(), trait_id_to_name);
-            normalize_config_ref_tokens(config.as_mut(), entity_id_to_name, trait_id_to_name);
+            normalize_config_ref_tokens(
+                config.as_mut(),
+                entity_id_to_name,
+                trait_id_to_name,
+                event_id_to_name,
+            );
         }
     }
 }
@@ -129,16 +167,16 @@ fn normalize_inline_trait(
     normalize_trait_embed_tokens(td, trait_id_to_name);
 }
 
-/// Config-ref side: `entity`/`trait`-typed config knobs whose `default` holds a
-/// reference name carry a stamped `refId` (V4-W5). Resolve the current
-/// declaration name of the node the `refId` points at and rewrite the default so
-/// a renamed entity/trait flows into the config value the same way body tokens
-/// do. `event`-typed knobs have no orbital-local id map (events nest in state
-/// machines) and no consumers today, so they pass through.
+/// Config-ref side: `entity`/`trait`/`event`-typed config knobs whose `default`
+/// holds a reference name carry a stamped `refId` (V4-W5). Resolve the current
+/// declaration name/key of the node the `refId` points at and rewrite the
+/// default so a renamed entity/trait/event flows into the config value the same
+/// way body tokens do.
 fn normalize_config_ref_tokens(
     config: Option<&mut HashMap<String, ConfigField>>,
     entity_id_to_name: &HashMap<String, String>,
     trait_id_to_name: &HashMap<String, String>,
+    event_id_to_name: &HashMap<String, String>,
 ) {
     let Some(config) = config else { return };
     for cf in config.values_mut() {
@@ -148,6 +186,7 @@ fn normalize_config_ref_tokens(
         let cur = match cf.field_type.as_str() {
             "entity" => entity_id_to_name.get(ref_id).cloned(),
             "trait" => trait_id_to_name.get(ref_id).map(|n| format!("@trait.{n}")),
+            "event" => event_id_to_name.get(ref_id).cloned(),
             _ => None,
         };
         if let Some(cur) = cur {
@@ -448,11 +487,13 @@ mod tests {
                         "name": "Lifecycle", "id": "trt_b", "linkedEntity": "Record",
                         "config": {
                             "targetEntity": { "type": "entity", "default": "Item", "refId": "ent_a" },
-                            "targetTrait": { "type": "trait", "default": "@trait.Old", "refId": "trt_a" }
+                            "targetTrait": { "type": "trait", "default": "@trait.Old", "refId": "trt_a" },
+                            "targetEvent": { "type": "event", "default": "OLD_EVENT", "refId": "evt_a" }
                         },
                         "stateMachine": {
                             "states": [{ "name": "idle", "isInitial": true }],
-                            "transitions": [{ "from": "idle", "to": "idle", "event": "INIT" }]
+                            "transitions": [{ "from": "idle", "to": "idle", "event": "SAVE" }],
+                            "events": [{ "key": "SAVE", "id": "evt_a" }]
                         }
                     }
                 ]
@@ -471,6 +512,11 @@ mod tests {
         assert_eq!(
             config["targetTrait"].default,
             Some(SExpression::String("@trait.Target".into()))
+        );
+        // event ref resolves by id to the event's current key
+        assert_eq!(
+            config["targetEvent"].default,
+            Some(SExpression::String("SAVE".into()))
         );
     }
 
