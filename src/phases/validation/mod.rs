@@ -135,6 +135,11 @@ pub struct ValidationContext {
     pub entity_definitions: std::collections::HashMap<String, EntityDefinition>,
     /// All trait names (custom + std library)
     pub trait_names: HashSet<String>,
+    /// All inline-trait ids (V4). A page trait ref whose stale `reference` name
+    /// no longer matches `trait_names` (after a cross-orbital dedup rename) is
+    /// still valid when its `ref_id` resolves here — the id-aware page check
+    /// that lets `rewrite_page_trait_refs` be deleted.
+    pub trait_ids: HashSet<String>,
     /// All page paths for duplicate detection
     pub page_paths: HashSet<String>,
     /// All service names for duplicate detection
@@ -174,6 +179,7 @@ impl Default for ValidationContext {
             entity_names: HashSet::new(),
             entity_definitions: std::collections::HashMap::new(),
             trait_names: HashSet::new(),
+            trait_ids: HashSet::new(),
             page_paths: HashSet::new(),
             service_names: HashSet::new(),
             domain: Domain::default(),
@@ -564,6 +570,9 @@ fn collect_names(schema: &OrbitalSchema, ctx: &mut ValidationContext) {
         for trait_ref in &orbital.traits {
             if let TraitReference::Inline(trait_def) = trait_ref {
                 ctx.trait_names.insert(trait_def.name.clone());
+                if let Some(id) = &trait_def.id {
+                    ctx.trait_ids.insert(id.clone());
+                }
                 trait_map.insert(trait_def.name.clone(), trait_def);
             }
         }

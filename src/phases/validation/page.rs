@@ -51,8 +51,14 @@ pub fn validate_all_pages(schema: &OrbitalSchema, ctx: &mut ValidationContext) {
                 // Only validate inline pages, not references (references are validated during resolution)
                 if let Some(page) = page_ref.as_inline() {
                     let check_naming = ctx.schema_language.should_check_ascii_naming();
-                    let result =
-                        validate_page(page, &path, &ctx.trait_names, &mut all_paths, check_naming);
+                    let result = validate_page(
+                        page,
+                        &path,
+                        &ctx.trait_names,
+                        &ctx.trait_ids,
+                        &mut all_paths,
+                        check_naming,
+                    );
                     ctx.merge(result);
                 }
             }
@@ -65,6 +71,7 @@ pub fn validate_page(
     page: &PageDefinition,
     path: &str,
     known_traits: &HashSet<String>,
+    known_trait_ids: &HashSet<String>,
     _seen_paths: &mut HashSet<&str>,
     check_naming: bool,
 ) -> ValidationResult {
@@ -163,7 +170,8 @@ pub fn validate_page(
         for (i, trait_ref) in traits.iter().enumerate() {
             let trait_name = trait_ref.trait_name().unwrap_or("<anonymous>");
             let trait_path = format!("{}.traits[{} ({})]", path, i, trait_name);
-            let trait_result = validate_page_trait_ref(trait_ref, &trait_path, known_traits);
+            let trait_result =
+                validate_page_trait_ref(trait_ref, &trait_path, known_traits, known_trait_ids);
             result.merge(trait_result);
         }
     } else {
@@ -207,6 +215,7 @@ fn validate_page_trait_ref(
     trait_ref: &TraitReference,
     path: &str,
     known_traits: &HashSet<String>,
+    known_trait_ids: &HashSet<String>,
 ) -> ValidationResult {
     let mut result = ValidationResult::new();
 
@@ -226,11 +235,23 @@ fn validate_page_trait_ref(
             }
         }
         TraitReference::Reference {
-            reference, name, ..
+            reference,
+            name,
+            ref_id,
+            ..
         } => {
+            // V4 id-first: when the ref_id resolves to a known inline trait, the
+            // ref is valid regardless of its `reference` name — which may be
+            // stale after a cross-orbital dedup rename (the id is stable). This
+            // is what lets `rewrite_page_trait_refs` be deleted.
+            let id_resolves = ref_id
+                .as_ref()
+                .is_some_and(|id| known_trait_ids.contains(id));
             let trait_name = reference.as_ref().or(name.as_ref());
 
-            if let Some(name) = trait_name {
+            if id_resolves {
+                // ok — id carries the edge
+            } else if let Some(name) = trait_name {
                 if !known_traits.contains(name) && !is_std_trait(name) {
                     result.add_error(
                         ValidationError::error(
@@ -323,12 +344,83 @@ mod tests {
         }
     }
 
+    /// A page whose single trait ref carries `reference` (name) + optional
+    /// `ref_id`. Used to prove the V4 id-first page-ref check.
+    fn page_with_ref(reference: &str, ref_id: Option<&str>) -> PageDefinition {
+        let mut p = create_valid_page();
+        p.traits = Some(vec![TraitReference::Reference {
+            reference: Some(reference.to_string()),
+            name: None,
+            linked_entity: None,
+            config: None,
+            events: None,
+            fields: None,
+            listens: None,
+            emits_scope: None,
+            event_ids: None,
+            linked_entity_id: None,
+            ref_id: ref_id.map(str::to_string),
+        }]);
+        p
+    }
+
     #[test]
     fn test_valid_page() {
         let page = create_valid_page();
         let mut seen_paths = HashSet::new();
-        let result = validate_page(&page, "test", &HashSet::new(), &mut seen_paths, true);
+        let result = validate_page(&page, "test", &HashSet::new(), &HashSet::new(), &mut seen_paths, true);
         assert!(result.is_valid(), "Errors: {:?}", result.errors);
+    }
+
+    #[test]
+    fn page_trait_ref_valid_via_ref_id_when_name_stale() {
+        // V4: after a molecule/dedup rename, a page ref keeps the OLD name but a
+        // STABLE ref_id. With the name absent from `known_traits` but the id in
+        // `known_trait_ids`, the ref is valid — the id carries the edge. This is
+        // what replaced the deleted `rewrite_page_trait_refs` name rewrite.
+        let page = page_with_ref("StaleOldName", Some("trt_current0000000000000000"));
+        let known_traits = HashSet::new(); // stale name is NOT here
+        let known_trait_ids =
+            HashSet::from(["trt_current0000000000000000".to_string()]);
+        let mut seen_paths = HashSet::new();
+        let result = validate_page(
+            &page,
+            "test",
+            &known_traits,
+            &known_trait_ids,
+            &mut seen_paths,
+            true,
+        );
+        assert!(
+            !result
+                .errors
+                .iter()
+                .any(|e| e.code == ErrorCode::PageInvalidTraitRef),
+            "id-resolving page ref must not fire PageInvalidTraitRef: {:?}",
+            result.errors
+        );
+    }
+
+    #[test]
+    fn page_trait_ref_invalid_when_neither_name_nor_id_resolves() {
+        // Neither the name nor the ref_id resolves — a genuine dangling ref.
+        let page = page_with_ref("Ghost", Some("trt_ghost000000000000000000"));
+        let mut seen_paths = HashSet::new();
+        let result = validate_page(
+            &page,
+            "test",
+            &HashSet::new(),
+            &HashSet::new(),
+            &mut seen_paths,
+            true,
+        );
+        assert!(
+            result
+                .errors
+                .iter()
+                .any(|e| e.code == ErrorCode::PageInvalidTraitRef),
+            "unresolvable page ref must fire PageInvalidTraitRef"
+        );
     }
 
     #[test]
@@ -337,7 +429,7 @@ mod tests {
         page.name = String::new();
 
         let mut seen_paths = HashSet::new();
-        let result = validate_page(&page, "test", &HashSet::new(), &mut seen_paths, true);
+        let result = validate_page(&page, "test", &HashSet::new(), &HashSet::new(), &mut seen_paths, true);
         assert!(!result.is_valid());
         assert!(result
             .errors
@@ -351,7 +443,7 @@ mod tests {
         page.path = String::new();
 
         let mut seen_paths = HashSet::new();
-        let result = validate_page(&page, "test", &HashSet::new(), &mut seen_paths, true);
+        let result = validate_page(&page, "test", &HashSet::new(), &HashSet::new(), &mut seen_paths, true);
         assert!(!result.is_valid());
         assert!(result
             .errors
@@ -365,7 +457,7 @@ mod tests {
         page.path = "tasks".to_string(); // Missing leading /
 
         let mut seen_paths = HashSet::new();
-        let result = validate_page(&page, "test", &HashSet::new(), &mut seen_paths, true);
+        let result = validate_page(&page, "test", &HashSet::new(), &HashSet::new(), &mut seen_paths, true);
         assert!(!result.is_valid());
         assert!(result
             .errors
@@ -379,7 +471,7 @@ mod tests {
         page.traits = Some(vec![]);
 
         let mut seen_paths = HashSet::new();
-        let result = validate_page(&page, "test", &HashSet::new(), &mut seen_paths, true);
+        let result = validate_page(&page, "test", &HashSet::new(), &HashSet::new(), &mut seen_paths, true);
         assert!(!result.is_valid());
         assert!(result
             .errors
@@ -405,7 +497,7 @@ mod tests {
         }]);
 
         let mut seen_paths = HashSet::new();
-        let result = validate_page(&page, "test", &HashSet::new(), &mut seen_paths, true);
+        let result = validate_page(&page, "test", &HashSet::new(), &HashSet::new(), &mut seen_paths, true);
         assert!(!result.is_valid());
         assert!(result
             .errors
@@ -418,7 +510,7 @@ mod tests {
         let page = create_valid_page(); // Uses std/List
 
         let mut seen_paths = HashSet::new();
-        let result = validate_page(&page, "test", &HashSet::new(), &mut seen_paths, true);
+        let result = validate_page(&page, "test", &HashSet::new(), &HashSet::new(), &mut seen_paths, true);
         assert!(result.is_valid()); // std traits are always valid
     }
 
@@ -428,7 +520,7 @@ mod tests {
         page.view_type = Some("invalid".to_string());
 
         let mut seen_paths = HashSet::new();
-        let result = validate_page(&page, "test", &HashSet::new(), &mut seen_paths, true);
+        let result = validate_page(&page, "test", &HashSet::new(), &HashSet::new(), &mut seen_paths, true);
         assert!(!result.is_valid());
         assert!(result
             .errors

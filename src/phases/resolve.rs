@@ -824,18 +824,44 @@ impl<'a> Resolver<'a> {
             }
         }
 
-        // Resolve trait bindings
+        // Resolve trait bindings. Prefer the CURRENT name of the trait the
+        // ref_id points at over the page ref's own `reference` name: after a
+        // cross-orbital dedup rename the ref may carry a stale name while its
+        // ref_id stays stable, and codegen/render key off `binding.trait_name`.
+        // Resolving by id here (the OIR-construction seam) means no page-ref
+        // token rewrite is needed downstream. Falls back to the ref name when no
+        // id (unstamped input).
         if let Some(traits) = &page.traits {
             for trait_ref in traits {
-                if let Some(trait_name) = trait_ref.trait_name() {
-                    let mut binding = OirTraitBinding::new(trait_name.to_string());
-                    binding.trait_id = trait_ref.trait_ref_id().map(str::to_string);
+                let trait_id = trait_ref.trait_ref_id();
+                let current_name = trait_id
+                    .and_then(|id| self.trait_name_by_id(id))
+                    .or_else(|| trait_ref.trait_name());
+                if let Some(name) = current_name {
+                    let mut binding = OirTraitBinding::new(name.to_string());
+                    binding.trait_id = trait_id.map(str::to_string);
                     oir_page.traits.push(binding);
                 }
             }
         }
 
         Ok(oir_page)
+    }
+
+    /// Current name of the inline trait carrying `id`, scanning every orbital
+    /// (a page ref_id may point across orbital boundaries). Backs the page
+    /// binding's id-first name resolution.
+    fn trait_name_by_id(&self, id: &str) -> Option<&'a str> {
+        self.schema
+            .orbitals
+            .iter()
+            .flat_map(|o| o.traits.iter())
+            .find_map(|tr| match tr {
+                TraitReference::Inline(td) if td.id.as_deref() == Some(id) => {
+                    Some(td.name.as_str())
+                }
+                _ => None,
+            })
     }
 
     fn resolve_section(&self, section: &SectionDefinition) -> Result<OirSection, ResolveError> {
@@ -2249,6 +2275,42 @@ mod tests {
             OirType::Reference { entity } => assert_eq!(entity, "User"),
             other => panic!("expected Reference, got {:?}", other),
         }
+    }
+
+    #[test]
+    fn page_binding_takes_current_trait_name_via_ref_id() {
+        // V4 codegen surface: a page trait ref carrying a STALE `reference` name
+        // but a stable `refId` must resolve to the trait's CURRENT name in the
+        // OIR binding — this is what replaced the deleted `rewrite_page_trait_refs`
+        // token rewrite for codegen. The inline trait is named "RenamedTrait" and
+        // carries id "trt_x"; the page ref says "OldName" + refId "trt_x".
+        let schema: OrbitalSchema = serde_json::from_value(serde_json::json!({
+            "name": "App",
+            "orbitals": [{
+                "name": "O",
+                "entity": { "name": "E", "fields": [{ "name": "title", "type": "string" }] },
+                "traits": [{
+                    "name": "RenamedTrait",
+                    "id": "trt_x00000000000000000000000",
+                    "stateMachine": { "states": [{ "name": "idle", "isInitial": true }], "transitions": [] }
+                }],
+                "pages": [{
+                    "name": "P",
+                    "path": "/p",
+                    "traits": [{ "ref": "OldName", "refId": "trt_x00000000000000000000000" }]
+                }]
+            }]
+        }))
+        .expect("fixture parses");
+
+        let oir = resolve_to_oir(&schema).expect("resolves");
+        let page = oir.pages.first().expect("one page");
+        let binding = page.traits.first().expect("one binding");
+        assert_eq!(
+            binding.trait_name, "RenamedTrait",
+            "page binding must take the current name resolved via ref_id, not the stale ref name"
+        );
+        assert_eq!(binding.trait_id.as_deref(), Some("trt_x00000000000000000000000"));
     }
 
     #[test]

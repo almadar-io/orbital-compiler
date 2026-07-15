@@ -6,52 +6,6 @@ use super::InlineError;
 use orbital_core::schema::{PageDefinition, PageRef, PageRefObject, TraitReference};
 use std::collections::HashMap;
 
-/// Walk every page's `traits[]` array and apply a `name:` trait-rename map.
-///
-/// Each entry in `pages[].traits[]` is a `TraitReference`. When the entry is
-/// a `Reference` whose `reference` field is a bare trait name (not a dotted
-/// `Alias.traits.X` form) AND that name matches a key in `rename_map`, the
-/// `reference` is rewritten to the new name. Inline trait entries on pages
-/// are left alone — they don't carry the cross-orbital staleness shape.
-///
-/// Why this exists: when a molecule renames an imported atom's trait via
-/// `{ref: "Modal.traits.ModalRecordModal", name: "ArticleAddItem"}`, the
-/// imported atom's page (resolved into the molecule via inline_pages) still
-/// carries `traits: [{ref: "ModalRecordModal"}]` — the page hasn't seen the
-/// rename. Without this rewrite, validate fires `ORB_P_INVALID_TRAIT_REF`
-/// because no trait named `ModalRecordModal` exists in the resolved orbital.
-pub(crate) fn rewrite_page_trait_refs(
-    pages: &mut Option<Vec<PageRef>>,
-    rename_map: &HashMap<String, String>,
-) {
-    let Some(page_list) = pages else { return };
-    for page_ref in page_list.iter_mut() {
-        let PageRef::Inline(page_def) = page_ref else {
-            continue;
-        };
-        let Some(traits) = page_def.traits.as_mut() else {
-            continue;
-        };
-        for trait_ref in traits.iter_mut() {
-            if let TraitReference::Reference {
-                reference: Some(ref mut ref_str),
-                ..
-            } = trait_ref
-            {
-                // Only rewrite bare trait-name refs (no `.traits.` segment).
-                // Cross-alias refs like "Modal.traits.X" were already resolved
-                // by the time inline_pages ran; they shouldn't carry old
-                // names through this layer.
-                if !ref_str.contains('.') {
-                    if let Some(new_name) = rename_map.get(ref_str) {
-                        *ref_str = new_name.clone();
-                    }
-                }
-            }
-        }
-    }
-}
-
 /// Phase F.3: Apply override fields from a `PageRefObject` to a resolved
 /// `PageDefinition`. Mirrors `apply_overrides_to_trait` for pages.
 ///

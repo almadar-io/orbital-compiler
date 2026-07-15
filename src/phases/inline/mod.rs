@@ -28,7 +28,7 @@ mod r#trait;
 // under its original unqualified name after the split into submodules.
 use context::{parse_reference, InlineContext, ParsedReference};
 use entity::{inline_entity, merge_imported_entity_fields};
-use page::{inline_pages, rewrite_page_trait_refs};
+use page::inline_pages;
 use r#trait::inline_traits;
 // Re-exported at the `inline` namespace so validation passes (e.g.
 // `validation::entity_mutation`) can reach it as
@@ -648,7 +648,10 @@ fn inline_orbital(
     let entity_ids = collect_orbital_entity_ids(orbital);
     let (
         inlined_traits,
-        trait_rename_map,
+        // V4: the returned name→name map was consumed only by the deleted
+        // `rewrite_page_trait_refs`; page refs now resolve by `ref_id`. The
+        // trait-declaration renames still happen INSIDE `inline_traits`.
+        _trait_rename_map,
         pulled_aux_entities,
         pulled_sibling_names,
         trait_config_diagnostics,
@@ -694,17 +697,13 @@ fn inline_orbital(
         }
     }
 
-    // Inline pages
+    // Inline pages. V4 intrinsic stamping: a `pages[].traits[]` ref that still
+    // carries a trait's ORIGINAL name after an `inline_traits` rename is
+    // resolved by its stable `ref_id` — the OIR page binding (resolve.rs) takes
+    // the trait's current name by id, and the page validator accepts an id that
+    // resolves in `trait_ids` — so no page-ref token rewrite is needed. The
+    // former `rewrite_page_trait_refs` is deleted.
     orbital.pages = inline_pages(&orbital.pages, &ctx)?;
-
-    // Propagate the trait `name:` rename map from `inline_traits` into the
-    // orbital's pages. Each `pages[].traits[]` entry that references a trait
-    // by its ORIGINAL name needs to be rewritten to the post-rename name —
-    // otherwise validation downstream fires `ORB_P_INVALID_TRAIT_REF` (the
-    // page's trait ref doesn't match any actual trait in the orbital).
-    if !trait_rename_map.is_empty() {
-        rewrite_page_trait_refs(&mut orbital.pages, &trait_rename_map);
-    }
 
     // Inline services
     orbital.services = inline_services(&orbital.services, &ctx)?;
@@ -1560,112 +1559,6 @@ mod tests {
             .collect();
         assert!(names.contains(&"CartItemAddItem"));
         assert!(names.contains(&"ModalRecordModal"));
-    }
-
-    #[test]
-    fn rewrite_page_trait_refs_renames_bare_ref() {
-        // A page with `traits: [{ref: "ModalRecordModal"}]` plus a rename
-        // map { "ModalRecordModal" → "ArticleAddItem" } should produce a
-        // page with `traits: [{ref: "ArticleAddItem"}]`. This is the
-        // page-side companion to the trait-rename pass — without it,
-        // validation downstream fires `ORB_P_INVALID_TRAIT_REF`.
-        use orbital_core::schema::PageDefinition;
-
-        let mut pages = Some(vec![PageRef::Inline(PageDefinition {
-            name: "ModalRecordModalPage".to_string(),
-            path: "/modal".to_string(),
-            view_type: None,
-            primary_entity: None,
-            is_initial: None,
-            traits: Some(vec![TraitReference::Reference {
-                reference: Some("ModalRecordModal".to_string()),
-                name: None,
-                linked_entity: None,
-                config: None,
-                events: None,
-                fields: None,
-                listens: None,
-                emits_scope: None,
-                event_ids: None,
-                linked_entity_id: None,
-                ref_id: None,
-            }]),
-            sections: None,
-            id: None,
-        })]);
-
-        let mut rename_map = HashMap::new();
-        rename_map.insert("ModalRecordModal".to_string(), "ArticleAddItem".to_string());
-
-        rewrite_page_trait_refs(&mut pages, &rename_map);
-
-        let page = pages.as_ref().unwrap().first().unwrap();
-        let PageRef::Inline(def) = page else {
-            panic!("expected inline page");
-        };
-        let traits = def.traits.as_ref().unwrap();
-        match &traits[0] {
-            TraitReference::Reference { reference, .. } => {
-                assert_eq!(
-                    reference.as_deref(),
-                    Some("ArticleAddItem"),
-                    "page-trait ref must be rewritten to the post-rename name"
-                );
-            }
-            _ => panic!("expected Reference variant"),
-        }
-    }
-
-    #[test]
-    fn rewrite_page_trait_refs_skips_dotted_refs() {
-        // A page with `traits: [{ref: "Modal.traits.ModalRecordModal"}]` is
-        // a cross-alias reference that's already been resolved before this
-        // pass runs. Even if the bare-name segment matches a rename-map
-        // key, we shouldn't rewrite — those refs go through a different
-        // resolution path and must remain dotted.
-        use orbital_core::schema::PageDefinition;
-
-        let mut pages = Some(vec![PageRef::Inline(PageDefinition {
-            name: "Page".to_string(),
-            path: "/".to_string(),
-            view_type: None,
-            primary_entity: None,
-            is_initial: None,
-            traits: Some(vec![TraitReference::Reference {
-                reference: Some("Modal.traits.ModalRecordModal".to_string()),
-                name: None,
-                linked_entity: None,
-                config: None,
-                events: None,
-                fields: None,
-                listens: None,
-                emits_scope: None,
-                event_ids: None,
-                linked_entity_id: None,
-                ref_id: None,
-            }]),
-            sections: None,
-            id: None,
-        })]);
-
-        let mut rename_map = HashMap::new();
-        rename_map.insert("ModalRecordModal".to_string(), "ArticleAddItem".to_string());
-
-        rewrite_page_trait_refs(&mut pages, &rename_map);
-
-        let page = pages.as_ref().unwrap().first().unwrap();
-        let PageRef::Inline(def) = page else { panic!() };
-        let traits = def.traits.as_ref().unwrap();
-        match &traits[0] {
-            TraitReference::Reference { reference, .. } => {
-                assert_eq!(
-                    reference.as_deref(),
-                    Some("Modal.traits.ModalRecordModal"),
-                    "dotted refs must NOT be rewritten by the bare-name rename pass"
-                );
-            }
-            _ => panic!(),
-        }
     }
 
     #[test]
