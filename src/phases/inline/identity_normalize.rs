@@ -21,7 +21,8 @@
 
 use super::rewrite::{rewrite_identifiers, rewrite_payload_entity_refs};
 use orbital_core::schema::{
-    EntityRef, Orbital, OrbitalSchema, PageRef, SExpression, TraitDefinition, TraitReference,
+    ConfigField, EntityRef, Orbital, OrbitalSchema, PageRef, SExpression, TraitDefinition,
+    TraitReference,
 };
 use std::collections::HashMap;
 
@@ -36,9 +37,7 @@ pub fn normalize_identity_tokens(schema: &mut OrbitalSchema) {
         }
 
         for tr in orbital.traits.iter_mut() {
-            if let TraitReference::Inline(td) = tr {
-                normalize_inline_trait(td, &entity_id_to_name, &trait_id_to_name);
-            }
+            normalize_trait_reference(tr, &entity_id_to_name, &trait_id_to_name);
         }
 
         if let Some(pages) = orbital.pages.as_mut() {
@@ -50,14 +49,7 @@ pub fn normalize_identity_tokens(schema: &mut OrbitalSchema) {
                 };
                 if let Some(pts) = page_traits {
                     for tr in pts.iter_mut() {
-                        match tr {
-                            TraitReference::Inline(td) => {
-                                normalize_inline_trait(td, &entity_id_to_name, &trait_id_to_name);
-                            }
-                            TraitReference::Reference {
-                                reference, ref_id, ..
-                            } => normalize_trait_ref(reference, ref_id.as_deref(), &trait_id_to_name),
-                        }
+                        normalize_trait_reference(tr, &entity_id_to_name, &trait_id_to_name);
                     }
                 }
             }
@@ -101,6 +93,31 @@ fn collect_trait_id_names(orbital: &Orbital) -> HashMap<String, String> {
     out
 }
 
+/// Dispatch identity normalization over one trait reference (own or page),
+/// covering both the inline body tokens / trait ref name AND the config-ref
+/// defaults (`entity`/`trait`-typed knobs carrying a stamped `refId`).
+fn normalize_trait_reference(
+    tr: &mut TraitReference,
+    entity_id_to_name: &HashMap<String, String>,
+    trait_id_to_name: &HashMap<String, String>,
+) {
+    match tr {
+        TraitReference::Inline(td) => {
+            normalize_inline_trait(td, entity_id_to_name, trait_id_to_name);
+            normalize_config_ref_tokens(td.config.as_mut(), entity_id_to_name, trait_id_to_name);
+        }
+        TraitReference::Reference {
+            reference,
+            ref_id,
+            config,
+            ..
+        } => {
+            normalize_trait_ref(reference, ref_id.as_deref(), trait_id_to_name);
+            normalize_config_ref_tokens(config.as_mut(), entity_id_to_name, trait_id_to_name);
+        }
+    }
+}
+
 /// Rewrite one inline trait's entity tokens, `linkedEntity`, and `@trait.<x>`
 /// embeds to the current declaration names its id side-maps point at.
 fn normalize_inline_trait(
@@ -110,6 +127,35 @@ fn normalize_inline_trait(
 ) {
     normalize_trait_entity_tokens(td, entity_id_to_name);
     normalize_trait_embed_tokens(td, trait_id_to_name);
+}
+
+/// Config-ref side: `entity`/`trait`-typed config knobs whose `default` holds a
+/// reference name carry a stamped `refId` (V4-W5). Resolve the current
+/// declaration name of the node the `refId` points at and rewrite the default so
+/// a renamed entity/trait flows into the config value the same way body tokens
+/// do. `event`-typed knobs have no orbital-local id map (events nest in state
+/// machines) and no consumers today, so they pass through.
+fn normalize_config_ref_tokens(
+    config: Option<&mut HashMap<String, ConfigField>>,
+    entity_id_to_name: &HashMap<String, String>,
+    trait_id_to_name: &HashMap<String, String>,
+) {
+    let Some(config) = config else { return };
+    for cf in config.values_mut() {
+        let Some(ref_id) = cf.ref_id.as_deref() else {
+            continue;
+        };
+        let cur = match cf.field_type.as_str() {
+            "entity" => entity_id_to_name.get(ref_id).cloned(),
+            "trait" => trait_id_to_name.get(ref_id).map(|n| format!("@trait.{n}")),
+            _ => None,
+        };
+        if let Some(cur) = cur {
+            if cf.default.as_ref() != Some(&SExpression::String(cur.clone())) {
+                cf.default = Some(SExpression::String(cur));
+            }
+        }
+    }
 }
 
 /// Entity side: `entity_ref_ids` body tokens (`@entity`, positional
@@ -378,6 +424,54 @@ mod tests {
             SExpression::String("main".into()),
             SExpression::String("@trait.BrowseView".into()),
         ]));
+    }
+
+    /// An `entity`-typed config knob carrying a stamped `refId` rewrites its
+    /// `default` to the renamed entity's current name; a `trait`-typed knob
+    /// rewrites to `@trait.<current>`. Covers both inline and page-ref config.
+    #[test]
+    fn rewrites_config_refs_by_id() {
+        let mut s = schema(json!({
+            "version": "2.0", "name": "T",
+            "orbitals": [{
+                "name": "O",
+                "entity": { "name": "Record", "fields": [], "id": "ent_a" },
+                "traits": [
+                    {
+                        "name": "Target", "id": "trt_a", "linkedEntity": "Record",
+                        "stateMachine": {
+                            "states": [{ "name": "idle", "isInitial": true }],
+                            "transitions": [{ "from": "idle", "to": "idle", "event": "INIT" }]
+                        }
+                    },
+                    {
+                        "name": "Lifecycle", "id": "trt_b", "linkedEntity": "Record",
+                        "config": {
+                            "targetEntity": { "type": "entity", "default": "Item", "refId": "ent_a" },
+                            "targetTrait": { "type": "trait", "default": "@trait.Old", "refId": "trt_a" }
+                        },
+                        "stateMachine": {
+                            "states": [{ "name": "idle", "isInitial": true }],
+                            "transitions": [{ "from": "idle", "to": "idle", "event": "INIT" }]
+                        }
+                    }
+                ]
+            }]
+        }));
+        normalize_identity_tokens(&mut s);
+        let td = match &s.orbitals[0].traits[1] {
+            TraitReference::Inline(td) => td,
+            _ => panic!("inline"),
+        };
+        let config = td.config.as_ref().unwrap();
+        assert_eq!(
+            config["targetEntity"].default,
+            Some(SExpression::String("Record".into()))
+        );
+        assert_eq!(
+            config["targetTrait"].default,
+            Some(SExpression::String("@trait.Target".into()))
+        );
     }
 
     /// No side-map ids present → the schema passes through byte-identical.
