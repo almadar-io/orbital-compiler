@@ -138,6 +138,7 @@ fn schema_with_config(config: HashMap<String, ConfigField>) -> OrbitalSchema {
             }],
             events: Some(vec![]),
             transitions: vec![TransitionDefinition {
+                event_id: None,
                 from: StringOrArray::Single("idle".to_string()),
                 to: "idle".to_string(),
                 event: "INIT".to_string(),
@@ -155,6 +156,8 @@ fn schema_with_config(config: HashMap<String, ConfigField>) -> OrbitalSchema {
         source_entity_definition: None,
         id: None,
         linked_entity_id: None,
+        entity_ref_ids: None,
+        trait_embed_ids: None,
     };
     OrbitalSchema {
         name: "TestApp".to_string(),

@@ -1099,6 +1099,8 @@ mod tests {
             source_entity_definition: None,
             id: None,
             linked_entity_id: None,
+            entity_ref_ids: None,
+            trait_embed_ids: None,
         }
     }
 
@@ -2606,6 +2608,8 @@ mod tests {
             source_entity_definition: None,
             id: None,
             linked_entity_id: None,
+            entity_ref_ids: None,
+            trait_embed_ids: None,
         };
 
         let mut event_subs = HashMap::new();
@@ -2689,6 +2693,8 @@ mod tests {
             source_entity_definition: None,
             id: None,
             linked_entity_id: None,
+            entity_ref_ids: None,
+            trait_embed_ids: None,
         };
 
         let mut events_arg = HashMap::new();
@@ -2946,6 +2952,8 @@ mod tests {
             source_entity_definition: None,
             id: None,
             linked_entity_id: None,
+            entity_ref_ids: None,
+            trait_embed_ids: None,
         };
 
         let linked = "Target".to_string();

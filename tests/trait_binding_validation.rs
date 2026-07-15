@@ -70,6 +70,7 @@ fn trait_with_trait_binding_in_children(trait_name: &str, binding: &str) -> Trai
             }],
             events: Some(vec![]),
             transitions: vec![TransitionDefinition {
+                event_id: None,
                 from: StringOrArray::Single("idle".to_string()),
                 to: "idle".to_string(),
                 event: "INIT".to_string(),
@@ -87,6 +88,8 @@ fn trait_with_trait_binding_in_children(trait_name: &str, binding: &str) -> Trai
         source_entity_definition: None,
         id: None,
         linked_entity_id: None,
+        entity_ref_ids: None,
+        trait_embed_ids: None,
     }
 }
 
@@ -328,6 +331,7 @@ fn trait_with_binding_outside_render(effect_kind: &str, binding: &str) -> TraitD
             }],
             events: Some(vec![]),
             transitions: vec![TransitionDefinition {
+                event_id: None,
                 from: StringOrArray::Single("idle".to_string()),
                 to: "idle".to_string(),
                 event: "INIT".to_string(),
@@ -345,6 +349,8 @@ fn trait_with_binding_outside_render(effect_kind: &str, binding: &str) -> TraitD
         source_entity_definition: None,
         id: None,
         linked_entity_id: None,
+        entity_ref_ids: None,
+        trait_embed_ids: None,
     }
 }
 

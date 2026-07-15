@@ -5,7 +5,7 @@ use super::context::{parse_reference, InlineContext, ParsedReference};
 use super::rewrite::{
     apply_inline_config_defaults, mark_literal_list_in_place, record_config_provenance,
     rewrite_config_bindings, rewrite_entity_field_paths, rewrite_identifiers,
-    rewrite_payload_entity_refs, rewrite_trait_event_fields,
+    rewrite_payload_entity_refs, rewrite_trait_event_fields, stale_entity_rebind_subs,
 };
 use super::InlineError;
 use orbital_core::schema::{
@@ -58,6 +58,16 @@ pub(crate) fn apply_overrides_to_trait(
     //    pre-existing `trait_def.linked_entity` IS the from-key.
     let mut entity_subs: HashMap<String, String> = HashMap::new();
     if let Some(new_entity) = linked_entity {
+        // V4 leverage-ids (id-primary, name-fallback): recover any stale
+        // token name the `entity_ref_ids` side-map ties to this trait's bound
+        // entity id, so a token that kept its OLD name after the bound entity
+        // declaration was renamed is still rebound to `new_entity`. Inserted
+        // FIRST so the name-derived `orig` mapping below can override on the
+        // exact-name key (same value anyway); absent side-map = empty = the
+        // name path is unchanged.
+        for (from, to) in stale_entity_rebind_subs(trait_def, new_entity) {
+            entity_subs.insert(from, to);
+        }
         if let Some(orig) = trait_def.linked_entity.clone() {
             if &orig != new_entity {
                 entity_subs.insert(orig, new_entity.clone());
@@ -1107,4 +1117,157 @@ pub(crate) fn inline_traits(
         pulled_names,
         config_diagnostics,
     ))
+}
+
+#[cfg(test)]
+mod entity_id_reader_tests {
+    use super::*;
+    use orbital_core::schema::{StateDefinition, StateMachine, StringOrArray, TransitionDefinition};
+
+    fn s(v: &str) -> SExpression {
+        SExpression::String(v.to_string())
+    }
+
+    /// A trait bound to entity id `ent-1` whose body references the entity by
+    /// name `token` in an `@<name>.title` read, a `["ref", name]`, and a
+    /// `["fetch", name]`. `linked_entity`/`entity_ref_ids` are set by the
+    /// caller so the two scenarios (renamed vs not) can be expressed.
+    fn trait_with_entity_token(token: &str) -> TraitDefinition {
+        TraitDefinition {
+            name: "Feed".to_string(),
+            entity_rebindable: Some(true),
+            entity_contract: None,
+            category: None,
+            capabilities: vec![],
+            description: None,
+            linked_entity: None,
+            emits: None,
+            listens: None,
+            state_machine: StateMachine {
+                states: vec![StateDefinition {
+                    name: "idle".to_string(),
+                    is_initial: Some(true),
+                    is_terminal: None,
+                    description: None,
+                    time_bound_ms: None,
+                }],
+                events: None,
+                transitions: vec![TransitionDefinition {
+                    event_id: None,
+                    from: StringOrArray::Single("idle".to_string()),
+                    to: "idle".to_string(),
+                    event: "INIT".to_string(),
+                    guard: None,
+                    effects: Some(vec![SExpression::Array(vec![
+                        s("render-ui"),
+                        s("main"),
+                        SExpression::Object(
+                            vec![
+                                ("title".to_string(), s(&format!("@{}.title", token))),
+                                (
+                                    "rows".to_string(),
+                                    SExpression::Array(vec![s("fetch"), s(token)]),
+                                ),
+                                (
+                                    "one".to_string(),
+                                    SExpression::Array(vec![s("ref"), s(token)]),
+                                ),
+                            ]
+                            .into_iter()
+                            .collect(),
+                        ),
+                    ])]),
+                }],
+            },
+            ticks: None,
+            config: None,
+            data_entities: None,
+            scope: None,
+            source_behavior: None,
+            source_entity_definition: None,
+            id: None,
+            linked_entity_id: None,
+            entity_ref_ids: None,
+            trait_embed_ids: None,
+        }
+    }
+
+    fn effect_json(td: &TraitDefinition) -> String {
+        serde_json::to_string(&td.state_machine.transitions[0].effects).unwrap()
+    }
+
+    #[test]
+    fn rebind_rewrites_stale_token_via_entity_ref_id() {
+        // The bound entity declaration was renamed `Product` -> `Item` (id
+        // `ent-1` stable), so `linked_entity` is now `Item` while the body
+        // tokens kept the OLD name `Product`. The `entity_ref_ids` side-map
+        // ties `Product` -> `ent-1`. A rebind to `Cart` must still rewrite the
+        // stale `@Product` / `(ref Product)` / `(fetch Product)` tokens.
+        let mut td = trait_with_entity_token("Product");
+        td.linked_entity = Some("Item".to_string());
+        td.linked_entity_id = Some("ent-1".to_string());
+        td.entity_ref_ids = Some(HashMap::from([("Product".to_string(), "ent-1".to_string())]));
+
+        let entity_ids = HashMap::from([("Cart".to_string(), "ent-9".to_string())]);
+        let mut recorder = Vec::new();
+        apply_overrides_to_trait(
+            &mut td,
+            Some(&"Cart".to_string()),
+            &entity_ids,
+            None,
+            None,
+            None,
+            None,
+            false,
+            &mut recorder,
+        );
+
+        let json = effect_json(&td);
+        assert!(
+            json.contains("@Cart.title") && !json.contains("@Product.title"),
+            "stale @Product token must rebind to @Cart via the side-map id: {json}"
+        );
+        assert!(
+            !json.contains("\"Product\""),
+            "stale (ref/fetch Product) literals must rebind to Cart: {json}"
+        );
+        assert_eq!(td.linked_entity.as_deref(), Some("Cart"));
+        assert_eq!(td.linked_entity_id.as_deref(), Some("ent-9"));
+    }
+
+    #[test]
+    fn rebind_without_side_map_uses_name_path() {
+        // No `entity_ref_ids`: the trait's bound-entity NAME matches its body
+        // tokens (`Product`), so the existing name path rebinds them. Proves
+        // the id path is purely additive — absent the side-map, resolution is
+        // the unchanged name-driven behavior.
+        let mut td = trait_with_entity_token("Product");
+        td.linked_entity = Some("Product".to_string());
+        td.linked_entity_id = Some("ent-1".to_string());
+        assert!(td.entity_ref_ids.is_none(), "fixture has no side-map");
+
+        let entity_ids = HashMap::from([("Cart".to_string(), "ent-9".to_string())]);
+        let mut recorder = Vec::new();
+        apply_overrides_to_trait(
+            &mut td,
+            Some(&"Cart".to_string()),
+            &entity_ids,
+            None,
+            None,
+            None,
+            None,
+            false,
+            &mut recorder,
+        );
+
+        let json = effect_json(&td);
+        assert!(
+            json.contains("@Cart.title") && !json.contains("@Product.title"),
+            "name path must rebind @Product -> @Cart: {json}"
+        );
+        assert!(
+            !json.contains("\"Product\""),
+            "name path must rebind (ref/fetch Product): {json}"
+        );
+    }
 }

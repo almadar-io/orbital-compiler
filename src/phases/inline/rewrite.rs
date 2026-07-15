@@ -319,6 +319,40 @@ pub(crate) fn rewrite_entity_field_paths(
     }
 }
 
+/// V4 leverage-ids reader: given a resolved inline trait and a rebind target
+/// entity name, return the extra `stale-token-name → new_entity` entity
+/// substitutions implied by the trait's `entity_ref_ids` side-map.
+///
+/// When the trait's bound entity declaration was RENAMED (its stable id is
+/// unchanged but the `@entity`/`["ref", X]`/`fetch`/`persist` tokens in the
+/// trait body kept the OLD name), the side-map ties that stale token name to
+/// the bound entity's id (`linked_entity_id`). Matching every side-map entry
+/// whose id equals the bound id recovers those stale names so the existing
+/// `rewrite_identifiers` entity pass still rebinds them — the token no longer
+/// has to physically match `linked_entity`.
+///
+/// ADDITIVE: returns an empty map when the side-map or `linked_entity_id` is
+/// absent (old imports, id-free callers), leaving the name path — the caller's
+/// `trait_def.linked_entity` → `new_entity` substitution — the sole driver, so
+/// resolution is byte-identical to before wherever ids are not populated.
+pub(crate) fn stale_entity_rebind_subs(
+    trait_def: &TraitDefinition,
+    new_entity: &str,
+) -> HashMap<String, String> {
+    let mut out = HashMap::new();
+    if let (Some(bound_id), Some(map)) = (
+        trait_def.linked_entity_id.as_deref(),
+        trait_def.entity_ref_ids.as_ref(),
+    ) {
+        for (token_name, entity_id) in map {
+            if entity_id == bound_id && token_name != new_entity {
+                out.insert(token_name.clone(), new_entity.to_string());
+            }
+        }
+    }
+    out
+}
+
 /// Phase A.1 backwards-compatibility shim: rewrite a single entity name in
 /// an SExpression. New code should call `rewrite_identifiers` directly with
 /// a HashMap. This function is preserved for any callers that still depend

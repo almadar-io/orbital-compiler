@@ -1,7 +1,7 @@
 //! Page reference inlining and call-site overrides.
 
 use super::context::{parse_reference, InlineContext, ParsedReference};
-use super::rewrite::rewrite_identifiers;
+use super::rewrite::{rewrite_identifiers, stale_entity_rebind_subs};
 use super::InlineError;
 use orbital_core::schema::{PageDefinition, PageRef, PageRefObject, TraitReference};
 use std::collections::HashMap;
@@ -90,30 +90,42 @@ fn apply_overrides_to_page(page_def: &mut PageDefinition, obj: &PageRefObject) {
                 if let Some(traits) = page_def.traits.as_mut() {
                     for trait_ref in traits.iter_mut() {
                         if let TraitReference::Inline(inline_trait) = trait_ref {
+                            // V4 leverage-ids: augment the page-primary rebind
+                            // subs with any stale token name the trait's
+                            // `entity_ref_ids` side-map ties to its bound entity
+                            // id (recovers tokens that kept an old name after an
+                            // entity rename). Empty side-map = `trait_subs`
+                            // equals `entity_subs`, so the name path is unchanged.
+                            let mut trait_subs = entity_subs.clone();
+                            for (from, to) in
+                                stale_entity_rebind_subs(inline_trait, new_entity)
+                            {
+                                trait_subs.entry(from).or_insert(to);
+                            }
                             // Rebind the trait's linked_entity if it
                             // matched the original.
                             if let Some(le) = inline_trait.linked_entity.as_mut() {
-                                if let Some(to) = entity_subs.get(le) {
+                                if let Some(to) = trait_subs.get(le) {
                                     *le = to.clone();
                                 }
                             }
                             for transition in inline_trait.state_machine.transitions.iter_mut() {
                                 if let Some(guard) = transition.guard.as_mut() {
-                                    rewrite_identifiers(guard, &entity_subs, &event_subs);
+                                    rewrite_identifiers(guard, &trait_subs, &event_subs);
                                 }
                                 if let Some(effects) = transition.effects.as_mut() {
                                     for effect in effects.iter_mut() {
-                                        rewrite_identifiers(effect, &entity_subs, &event_subs);
+                                        rewrite_identifiers(effect, &trait_subs, &event_subs);
                                     }
                                 }
                             }
                             if let Some(ticks) = inline_trait.ticks.as_mut() {
                                 for tick in ticks.iter_mut() {
                                     if let Some(guard) = tick.guard.as_mut() {
-                                        rewrite_identifiers(guard, &entity_subs, &event_subs);
+                                        rewrite_identifiers(guard, &trait_subs, &event_subs);
                                     }
                                     for effect in tick.effects.iter_mut() {
-                                        rewrite_identifiers(effect, &entity_subs, &event_subs);
+                                        rewrite_identifiers(effect, &trait_subs, &event_subs);
                                     }
                                 }
                             }

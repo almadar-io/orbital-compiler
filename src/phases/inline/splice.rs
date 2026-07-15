@@ -41,12 +41,25 @@ pub(crate) fn splice_lambda_trait_refs(
     orbital_path: &str,
 ) -> Result<(), InlineError> {
     let mut templates: HashMap<String, SpliceEntry> = HashMap::new();
+    // V4 leverage-ids side indexes, built once from the sibling set:
+    //   `id_to_name`      — embedded trait id → its CURRENT name (the
+    //                       `templates` key), so a token whose embed id maps
+    //                       to a renamed sibling still finds the template.
+    //   `embed_ids_by_name` — trait name → its own `trait_embed_ids`, so
+    //                       nested splices switch to the wrapper's side-map
+    //                       when recursing into its expanded template.
+    let mut id_to_name: HashMap<String, String> = HashMap::new();
+    let mut embed_ids_by_name: HashMap<String, Option<HashMap<String, String>>> = HashMap::new();
     for tr in &orbital.traits {
         if let TraitReference::Inline(td) = tr {
             templates.insert(
                 td.name.clone(),
                 render_only_template(td).map(|t| (t, td.emits.clone().unwrap_or_default())),
             );
+            if let Some(id) = td.id.as_deref() {
+                id_to_name.insert(id.to_string(), td.name.clone());
+            }
+            embed_ids_by_name.insert(td.name.clone(), td.trait_embed_ids.clone());
         }
     }
     if templates.is_empty() {
@@ -59,6 +72,10 @@ pub(crate) fn splice_lambda_trait_refs(
             continue;
         };
         let path = format!("{}.traits[name={}]", orbital_path, td.name);
+        // The host's own embed side-map drives id-primary resolution for the
+        // `@trait.X` tokens in ITS body. Cloned so the transitions/ticks below
+        // can borrow `td` mutably while this read-only map is in scope.
+        let host_embed = td.trait_embed_ids.clone();
         // Seed with the host itself so a self-reference never self-splices.
         let mut visiting: Vec<String> = vec![td.name.clone()];
         let mut merged: Vec<(String, EmitDefinition)> = Vec::new();
@@ -69,6 +86,9 @@ pub(crate) fn splice_lambda_trait_refs(
                         effect,
                         false,
                         &templates,
+                        &embed_ids_by_name,
+                        &id_to_name,
+                        host_embed.as_ref(),
                         &path,
                         &mut visiting,
                         &mut merged,
@@ -84,6 +104,9 @@ pub(crate) fn splice_lambda_trait_refs(
                         effect,
                         false,
                         &templates,
+                        &embed_ids_by_name,
+                        &id_to_name,
+                        host_embed.as_ref(),
                         &path,
                         &mut visiting,
                         &mut merged,
@@ -146,10 +169,17 @@ fn render_only_template(td: &TraitDefinition) -> Option<SExpression> {
 /// Recursive in-place splice walker. `in_lambda` becomes true inside the
 /// body of any `["fn"|"lambda", params, body]` form and stays true for the
 /// whole subtree.
+#[allow(clippy::too_many_arguments)]
 fn splice_expr(
     expr: &mut SExpression,
     in_lambda: bool,
     templates: &HashMap<String, SpliceEntry>,
+    embed_ids_by_name: &HashMap<String, Option<HashMap<String, String>>>,
+    id_to_name: &HashMap<String, String>,
+    // The embed side-map of the trait whose body this subtree belongs to
+    // (`None` when it has no `trait_embed_ids`). Switched to the wrapper's own
+    // map when recursing into its expanded template.
+    cur_embed_ids: Option<&HashMap<String, String>>,
     path: &str,
     visiting: &mut Vec<String>,
     merged: &mut Vec<(String, EmitDefinition)>,
@@ -157,12 +187,23 @@ fn splice_expr(
 ) -> Result<(), InlineError> {
     match expr {
         SExpression::String(s) if in_lambda => {
-            let Some(name) = s.strip_prefix("@trait.") else {
+            let Some(token) = s.strip_prefix("@trait.") else {
                 return Ok(());
             };
-            if name.is_empty() || name.contains('.') {
+            if token.is_empty() || token.contains('.') {
                 return Ok(());
             }
+            // V4 leverage-ids (id-primary, name-fallback): resolve the embed
+            // token by the owning trait's `trait_embed_ids` id first — token
+            // → embed id → the renamed sibling's CURRENT name — so a token that
+            // kept its old name after the embedded declaration was renamed
+            // still splices. Absent side-map / unknown id → the token name is
+            // used verbatim, exactly as before.
+            let name: &str = cur_embed_ids
+                .and_then(|m| m.get(token))
+                .and_then(|id| id_to_name.get(id))
+                .map(String::as_str)
+                .unwrap_or(token);
             match templates.get(name) {
                 Some(Some((template, emits))) => {
                     if visiting.iter().any(|v| v == name) {
@@ -174,11 +215,16 @@ fn splice_expr(
                     visiting.push(name.to_string());
                     // The wrapper's template may itself contain nested
                     // inline refs (JSX children); they are now inside the
-                    // lambda too, so splice recursively.
+                    // lambda too, so splice recursively — under the WRAPPER's
+                    // own embed side-map so nested tokens resolve by its ids.
+                    let child_embed = embed_ids_by_name.get(name).and_then(Option::as_ref);
                     splice_expr(
                         &mut expanded,
                         true,
                         templates,
+                        embed_ids_by_name,
+                        id_to_name,
+                        child_embed,
                         path,
                         visiting,
                         merged,
@@ -208,6 +254,9 @@ fn splice_expr(
                     &mut arr[2],
                     true,
                     templates,
+                    embed_ids_by_name,
+                    id_to_name,
+                    cur_embed_ids,
                     path,
                     visiting,
                     merged,
@@ -215,14 +264,36 @@ fn splice_expr(
                 )
             } else {
                 for item in arr.iter_mut() {
-                    splice_expr(item, in_lambda, templates, path, visiting, merged, spliced)?;
+                    splice_expr(
+                        item,
+                        in_lambda,
+                        templates,
+                        embed_ids_by_name,
+                        id_to_name,
+                        cur_embed_ids,
+                        path,
+                        visiting,
+                        merged,
+                        spliced,
+                    )?;
                 }
                 Ok(())
             }
         }
         SExpression::Object(map) => {
             for v in map.values_mut() {
-                splice_expr(v, in_lambda, templates, path, visiting, merged, spliced)?;
+                splice_expr(
+                    v,
+                    in_lambda,
+                    templates,
+                    embed_ids_by_name,
+                    id_to_name,
+                    cur_embed_ids,
+                    path,
+                    visiting,
+                    merged,
+                    spliced,
+                )?;
             }
             Ok(())
         }
@@ -405,6 +476,8 @@ mod tests {
             source_entity_definition: None,
             id: None,
             linked_entity_id: None,
+            entity_ref_ids: None,
+            trait_embed_ids: None,
         }
     }
 
@@ -636,6 +709,60 @@ mod tests {
             InlineError::LambdaStatefulTrait { name, .. } => assert_eq!(name, "Modal"),
             other => panic!("expected LambdaStatefulTrait, got {other:?}"),
         }
+    }
+
+    #[test]
+    fn splices_renamed_embed_via_trait_embed_id() {
+        // V4 leverage-ids: the embedded declaration was renamed
+        // `Card` -> `ProductCard` (its id stayed stable), but the host's
+        // lambda token still says `@trait.Card`. The host's `trait_embed_ids`
+        // maps the stale token `Card` -> the sibling's id, so the splice must
+        // resolve the token by id and find the RENAMED sibling — a token that
+        // matches NO sibling by name.
+        let mut wrapper = render_only_trait(
+            "ProductCard",
+            obj(vec![("type", s("badge")), ("label", s("@party.title"))]),
+        );
+        wrapper.id = Some("trait-card".to_string());
+        let mut host = host_with_render("Host", lambda_render_pattern(vec![s("@trait.Card")]));
+        host.trait_embed_ids = Some(HashMap::from([(
+            "Card".to_string(),
+            "trait-card".to_string(),
+        )]));
+        let mut orbital = make_orbital(vec![host, wrapper]);
+
+        splice_lambda_trait_refs(&mut orbital, "orbitals[0]").expect("splice must succeed");
+
+        let json = serde_json::to_string(&host_pattern_of(&orbital, "Host")).unwrap();
+        assert!(
+            json.contains("@party.title"),
+            "renamed embed template must splice in via id: {json}"
+        );
+        assert!(
+            !json.contains("@trait.Card"),
+            "stale token must resolve away via id: {json}"
+        );
+        let names: Vec<&str> = orbital.traits.iter().filter_map(trait_ref_name).collect();
+        assert_eq!(names, vec!["Host"], "renamed wrapper must be consumed");
+    }
+
+    #[test]
+    fn embed_without_side_map_falls_back_to_name() {
+        // No `trait_embed_ids` on the host: a token whose name matches the
+        // sibling name still splices via the unchanged name path.
+        let wrapper = render_only_trait("InlineW1", obj(vec![("type", s("badge"))]));
+        let host = host_with_render("Host", lambda_render_pattern(vec![s("@trait.InlineW1")]));
+        assert!(host.trait_embed_ids.is_none(), "fixture has no side-map");
+        let mut orbital = make_orbital(vec![host, wrapper]);
+
+        splice_lambda_trait_refs(&mut orbital, "orbitals[0]").expect("splice must succeed");
+
+        let json = serde_json::to_string(&host_pattern_of(&orbital, "Host")).unwrap();
+        assert!(
+            !json.contains("@trait.InlineW1"),
+            "name-path splice must still fire without a side-map: {json}"
+        );
+        assert!(json.contains("badge"), "template must be present: {json}");
     }
 
     #[test]
