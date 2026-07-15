@@ -783,59 +783,6 @@ pub(crate) fn rewrite_trait_event_fields(
     }
 }
 
-/// Rewrite `@trait.<old>` string literals inside a trait's state machine to
-/// `@trait.<new>` so a renamed sibling stays referenced — the NAME-authoritative
-/// fallback. V4 dual-carry: when the token is already covered by the trait's
-/// `trait_embed_ids` side-map, the inline splice + TS codegen resolve it by the
-/// stable embedded-trait id (surviving the rename without any token rewrite), so
-/// this rewrite is SKIPPED and the id path is left to do the work. Only unstamped
-/// / ledger-less (name-authoritative) traits — which have no id to resolve
-/// through — still get the literal rewrite. Once names are stripped (id-only),
-/// this becomes dead and is deleted.
-pub(crate) fn rewrite_trait_literal_refs(td: &mut TraitDefinition, old: &str, new: &str) {
-    if td
-        .trait_embed_ids
-        .as_ref()
-        .is_some_and(|m| m.contains_key(old))
-    {
-        return;
-    }
-    let from = format!("@trait.{}", old);
-    let to = format!("@trait.{}", new);
-    for transition in td.state_machine.transitions.iter_mut() {
-        if let Some(effects) = transition.effects.as_mut() {
-            for eff in effects.iter_mut() {
-                rewrite_sexpr_literal(eff, &from, &to);
-            }
-        }
-        if let Some(guard) = transition.guard.as_mut() {
-            rewrite_sexpr_literal(guard, &from, &to);
-        }
-    }
-}
-
-/// Replace every string-literal `from` with `to` everywhere in an SExpression.
-fn rewrite_sexpr_literal(expr: &mut SExpression, from: &str, to: &str) {
-    match expr {
-        SExpression::String(s) => {
-            if s == from {
-                *s = to.to_string();
-            }
-        }
-        SExpression::Array(items) => {
-            for item in items.iter_mut() {
-                rewrite_sexpr_literal(item, from, to);
-            }
-        }
-        SExpression::Object(map) => {
-            for v in map.values_mut() {
-                rewrite_sexpr_literal(v, from, to);
-            }
-        }
-        _ => {}
-    }
-}
-
 /// Name of a trait reference regardless of kind (inline name or ref target).
 pub(crate) fn trait_ref_name(tr: &TraitReference) -> Option<&str> {
     match tr {

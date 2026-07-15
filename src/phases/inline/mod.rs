@@ -41,7 +41,7 @@ pub(crate) use r#trait::collect_sibling_trait_refs;
 // the type as `crate::phases::inline::TraitRefConfigDiagnostic` without
 // reaching into the private `r#trait` submodule directly.
 pub use r#trait::TraitRefConfigDiagnostic;
-use rewrite::{apply_inline_config_defaults, rewrite_trait_literal_refs, trait_ref_name};
+use rewrite::{apply_inline_config_defaults, trait_ref_name};
 use service::inline_services;
 use splice::splice_lambda_trait_refs;
 
@@ -231,6 +231,14 @@ pub fn inline_schema_with_config_diagnostics(
         return Ok(());
     }
 
+    // Intrinsic identity, belt-and-suspenders: `resolve_schema_with_path`
+    // already stamps before calling inline, but direct `inline_schema` callers
+    // (unit tests, tooling) may hand in a ledger-less schema. Stamp here too so
+    // the id side-maps (`trait_embed_ids`/`entity_ref_ids`) always cover their
+    // tokens by the time the cross-orbital dedup rename runs — the invariant
+    // that lets the name-fallback rewriters be deleted. No-op when stamped.
+    orbital_core::stamp::ensure_stamped(schema);
+
     // Auto-discover behavior-package registry roots from the source path when
     // none are configured, so bare imports like `almadar-behaviors/rpg-hero`
     // resolve against the workspace's emitted `behaviors/registry/` trees.
@@ -352,12 +360,11 @@ fn uniquify_cross_orbital_pulled_siblings(
                     if td.name == *old_name {
                         td.name = new_name.clone();
                     }
-                    // V4 dual-carry: `rewrite_trait_literal_refs` now SKIPS any embed
-                    // token already covered by `trait_embed_ids` (inline splice + TS
-                    // codegen resolve it by id through the renamed sibling). It rewrites
-                    // only name-authoritative (unstamped/ledger-less) traits — the name
-                    // fallback that dual-carry still supports while names are kept.
-                    rewrite_trait_literal_refs(td, old_name, &new_name);
+                    // V4 intrinsic stamping: the renamed sibling's `@trait.<old>`
+                    // embeds are resolved by the inline splice + TS codegen through
+                    // the stable embedded-trait id in `trait_embed_ids` (populated by
+                    // the stamp at the inline entry), so no literal token rewrite is
+                    // needed — the former `rewrite_trait_literal_refs` is deleted.
                     // A sibling-listening parent in the same orbital points its
                     // `listens` source at the old sibling name; track the rename.
                     if let Some(listens) = td.listens.as_mut() {
