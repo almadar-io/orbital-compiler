@@ -148,15 +148,14 @@ impl Checker<'_> {
             }
         }
 
-        // Rule 1 — dangling edge. Only enforceable when the id layer is ACTIVE,
-        // i.e. `schema.ledger` is present. A ledger-less schema is name-
-        // authoritative (dual-carry): populated id refs are then non-
-        // authoritative sugar, and a reference to an inlined / cross-file node
-        // legitimately has no local arena entry — with no ledger there is no id
-        // space to resolve it against, so integrity cannot be enforced. (Factory
-        // orbitals carry baked id refs with no ledger; their names validate.)
-        // Post-flip every schema carries a ledger, so this rule re-activates.
-        if self.index.ledger.is_some() && !self.index.known(id) {
+        // Rule 1 — dangling edge. Intrinsic stamping (`ensure_stamped` at the
+        // compiler's pre-inline chokepoint) upgrades every ledger-less `.orb` on
+        // load, so a schema reaching validation ALWAYS carries a ledger and no
+        // ref is name-authoritative anymore. The check is therefore
+        // unconditional: any populated id that matches no arena node nor ledger
+        // entry is a dangling edge. (The former `ledger.is_some()` bypass —
+        // G-V4-1 — is gone now that name-only inputs can't reach inline.)
+        if !self.index.known(id) {
             self.result.add_error(ValidationError::error(
                 ErrorCode::OrbIdUnknownRef,
                 path.clone(),
@@ -547,19 +546,25 @@ mod tests {
     }
 
     #[test]
-    fn unknown_ref_silent_without_ledger() {
-        // G-V4-1: factory-instantiated orbitals carry baked id refs but no
-        // ledger. With no ledger the id layer is inactive (dual-carry: names
-        // authoritative), so a ref with no local arena entry must NOT fire
-        // ORB_ID_UNKNOWN_REF — the names carry the edge and validate.
+    fn unknown_ref_fires_even_without_ledger() {
+        // Post-intrinsic-stamping (V4 W4): the former G-V4-1 bypass is gone.
+        // `ensure_stamped` upgrades every ledger-less `.orb` on load, so a schema
+        // reaching validation always has a ledger and the id check is
+        // unconditional. A populated id that resolves to no arena node — even
+        // with the ledger stripped (a state that can no longer arise past the
+        // compiler boundary) — is a dangling edge and fires ORB_ID_UNKNOWN_REF.
+        // Stripping the ledger also orphans the event refs (event ids live only
+        // in the ledger, not the declared arena) — so several ORB_ID_UNKNOWN_REF
+        // fire, not just the ghost linkedEntity. The point is that the check no
+        // longer goes SILENT without a ledger.
         let mut v = healthy_json();
         v["orbitals"][0]["traits"][0]["linkedEntityId"] =
             serde_json::json!("ent_GHOST00000000000000000000");
         v.as_object_mut().unwrap().remove("ledger");
         let codes = id_codes(&run(&parse(v)));
         assert!(
-            codes.is_empty(),
-            "ledger-less schema must not fire id-ref integrity: {codes:?}"
+            codes.contains(&ErrorCode::OrbIdUnknownRef),
+            "id check is now unconditional (no ledger bypass): {codes:?}"
         );
     }
 
