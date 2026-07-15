@@ -352,6 +352,11 @@ fn uniquify_cross_orbital_pulled_siblings(
                     if td.name == *old_name {
                         td.name = new_name.clone();
                     }
+                    // V4 dual-carry: `rewrite_trait_literal_refs` now SKIPS any embed
+                    // token already covered by `trait_embed_ids` (inline splice + TS
+                    // codegen resolve it by id through the renamed sibling). It rewrites
+                    // only name-authoritative (unstamped/ledger-less) traits — the name
+                    // fallback that dual-carry still supports while names are kept.
                     rewrite_trait_literal_refs(td, old_name, &new_name);
                     // A sibling-listening parent in the same orbital points its
                     // `listens` source at the old sibling name; track the rename.

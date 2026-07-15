@@ -1004,6 +1004,8 @@ mod tests {
             capabilities: vec![],
             linked_entity: None,
             linked_entity_id: None,
+            entity_ref_ids: None,
+            trait_embed_ids: None,
             config: None,
             states: vec![
                 OirState {

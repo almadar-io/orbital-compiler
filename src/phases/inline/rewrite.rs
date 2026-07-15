@@ -784,8 +784,22 @@ pub(crate) fn rewrite_trait_event_fields(
 }
 
 /// Rewrite `@trait.<old>` string literals inside a trait's state machine to
-/// `@trait.<new>` so a renamed sibling stays referenced.
+/// `@trait.<new>` so a renamed sibling stays referenced — the NAME-authoritative
+/// fallback. V4 dual-carry: when the token is already covered by the trait's
+/// `trait_embed_ids` side-map, the inline splice + TS codegen resolve it by the
+/// stable embedded-trait id (surviving the rename without any token rewrite), so
+/// this rewrite is SKIPPED and the id path is left to do the work. Only unstamped
+/// / ledger-less (name-authoritative) traits — which have no id to resolve
+/// through — still get the literal rewrite. Once names are stripped (id-only),
+/// this becomes dead and is deleted.
 pub(crate) fn rewrite_trait_literal_refs(td: &mut TraitDefinition, old: &str, new: &str) {
+    if td
+        .trait_embed_ids
+        .as_ref()
+        .is_some_and(|m| m.contains_key(old))
+    {
+        return;
+    }
     let from = format!("@trait.{}", old);
     let to = format!("@trait.{}", new);
     for transition in td.state_machine.transitions.iter_mut() {
