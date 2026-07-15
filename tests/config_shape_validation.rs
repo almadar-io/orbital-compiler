@@ -224,6 +224,7 @@ fn good_array_of_metricspec_passes() {
             items: Some(Box::new(metric_spec_items())),
             properties: None,
             required: None,
+            ref_id: None,
         },
     );
     let schema = schema_with_config(config);
@@ -255,6 +256,7 @@ fn string_value_where_number_expected_fails() {
             items: Some(Box::new(metric_spec_items())),
             properties: None,
             required: None,
+            ref_id: None,
         },
     );
     let schema = schema_with_config(config);
@@ -330,6 +332,7 @@ fn bare_string_in_array_of_objects_fails() {
             items: Some(Box::new(format_items)),
             properties: None,
             required: None,
+            ref_id: None,
         },
     );
     let schema = schema_with_config(config);
@@ -361,6 +364,7 @@ fn missing_required_field_fails() {
             items: Some(Box::new(metric_spec_items())),
             properties: None,
             required: None,
+            ref_id: None,
         },
     );
     let schema = schema_with_config(config);
@@ -401,6 +405,7 @@ fn enum_value_outside_allowed_set_fails() {
             items: Some(Box::new(metric_spec_items())),
             properties: None,
             required: None,
+            ref_id: None,
         },
     );
     let schema = schema_with_config(config);
@@ -441,6 +446,7 @@ fn binding_strings_pass_the_check() {
             items: Some(Box::new(metric_spec_items())),
             properties: None,
             required: None,
+            ref_id: None,
         },
     );
     let schema = schema_with_config(config);
@@ -483,6 +489,7 @@ fn computed_sexpr_call_for_array_items_defers() {
             items: Some(Box::new(metric_spec_items())),
             properties: None,
             required: None,
+            ref_id: None,
         },
     );
     let schema = schema_with_config(config);
@@ -526,6 +533,7 @@ fn computed_sexpr_call_nested_in_object_property_defers() {
             items: Some(Box::new(metric_spec_items())),
             properties: None,
             required: None,
+            ref_id: None,
         },
     );
     let schema = schema_with_config(config);
@@ -594,6 +602,7 @@ fn literal_wrong_shape_still_errors_alongside_computed_defer() {
             items: Some(Box::new(format_items)),
             properties: None,
             required: None,
+            ref_id: None,
         },
     );
     let schema = schema_with_config(config);
@@ -622,6 +631,7 @@ fn array_typed_slot_with_scalar_default_fails() {
             items: Some(Box::new(metric_spec_items())),
             properties: None,
             required: None,
+            ref_id: None,
         },
     );
     let schema = schema_with_config(config);
