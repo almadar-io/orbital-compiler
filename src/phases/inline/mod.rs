@@ -29,6 +29,7 @@ mod r#trait;
 // name-based inliner + validators (compiled-path twin of the runtime's
 // `resolveEntityTokensById`). Called from `phases::resolve_schema_with_path`.
 pub use identity_normalize::normalize_identity_tokens;
+use identity_normalize::rewrite_trait_embed_tokens;
 
 // Re-exports so the orchestration fns below — and the in-module
 // `#[cfg(test)] mod tests { use super::*; }` block — keep resolving every helper
@@ -366,6 +367,7 @@ fn uniquify_cross_orbital_pulled_siblings(
     }
     for (orbital_idx, pulled) in pulled_by_orbital {
         let orbital_name = schema.orbitals[*orbital_idx].name.clone();
+        let mut renames: HashMap<String, String> = HashMap::new();
         for old_name in pulled {
             if name_orbital_count.get(old_name).copied().unwrap_or(0) <= 1 {
                 continue;
@@ -380,11 +382,6 @@ fn uniquify_cross_orbital_pulled_siblings(
                     if td.name == *old_name {
                         td.name = new_name.clone();
                     }
-                    // V4 intrinsic stamping: the renamed sibling's `@trait.<old>`
-                    // embeds are resolved by the inline splice + TS codegen through
-                    // the stable embedded-trait id in `trait_embed_ids` (populated by
-                    // the stamp at the inline entry), so no literal token rewrite is
-                    // needed — the former `rewrite_trait_literal_refs` is deleted.
                     // A sibling-listening parent in the same orbital points its
                     // `listens` source at the old sibling name; track the rename.
                     if let Some(listens) = td.listens.as_mut() {
@@ -400,6 +397,21 @@ fn uniquify_cross_orbital_pulled_siblings(
                             }
                         }
                     }
+                }
+            }
+            renames.insert(old_name.clone(), new_name);
+        }
+        // Rewrite the `@trait.<old>` literals this rename orphaned — in effect
+        // trees AND config-field defaults. Id-first resolution cannot cover
+        // these: a pulled sibling that entered the atom as a trait REFERENCE
+        // (std-browse's `DataGrid1`/`DenseTableView` → ui-* atoms) has no local
+        // declaration id at stamp time, so the referrer's `trait_embed_ids`
+        // never carries the token and the name IS the only handle the binding
+        // validator + runtime resolve by.
+        if !renames.is_empty() {
+            for tr in schema.orbitals[*orbital_idx].traits.iter_mut() {
+                if let TraitReference::Inline(td) = tr {
+                    rewrite_trait_embed_tokens(td, &renames);
                 }
             }
         }
@@ -1012,6 +1024,83 @@ mod tests {
 
     fn s(v: &str) -> SExpression {
         SExpression::String(v.to_string())
+    }
+
+    /// A cross-orbital pulled-sibling rename must drag every `@trait.<old>`
+    /// literal with it — in transition effects AND config-field defaults. The
+    /// pulled siblings enter as Reference-trait clones with no local id at
+    /// stamp time, so `trait_embed_ids` cannot cover these tokens and the name
+    /// is the only handle the binding validator + runtime resolve by
+    /// (C-INLINE-TRAIT-CONFIG-AT-TRAIT-RENAME / C-PANEL-INLINE-TRAIT-UNKNOWN).
+    #[test]
+    fn uniquify_rename_rewrites_trait_tokens_in_effects_and_config_defaults() {
+        let orbital = |name: &str| {
+            serde_json::json!({
+                "name": name,
+                "entity": { "name": format!("{name}Item"), "fields": [] },
+                "traits": [
+                    {
+                        "name": "DataGrid1",
+                        "stateMachine": {
+                            "states": [{ "name": "idle", "isInitial": true }],
+                            "transitions": [{ "from": "idle", "to": "idle", "event": "INIT" }]
+                        }
+                    },
+                    {
+                        "name": format!("{name}Browse"),
+                        "config": {
+                            "bodyContent": {
+                                "type": "render-ui",
+                                "default": { "type": "stack", "children": ["@trait.DataGrid1"] }
+                            }
+                        },
+                        "stateMachine": {
+                            "states": [{ "name": "idle", "isInitial": true }],
+                            "transitions": [{
+                                "from": "idle", "to": "idle", "event": "INIT",
+                                "effects": [["render-ui", "main", { "type": "stack", "children": ["@trait.DataGrid1"] }]]
+                            }]
+                        }
+                    }
+                ]
+            })
+        };
+        let mut schema: OrbitalSchema = serde_json::from_value(serde_json::json!({
+            "version": "2.0", "name": "T",
+            "orbitals": [orbital("Alpha"), orbital("Beta")]
+        }))
+        .expect("valid schema");
+
+        uniquify_cross_orbital_pulled_siblings(
+            &mut schema,
+            &[(0, vec!["DataGrid1".to_string()]), (1, vec!["DataGrid1".to_string()])],
+        );
+
+        let serialized = serde_json::to_string(&schema).unwrap();
+        assert!(
+            !serialized.contains("@trait.DataGrid1"),
+            "no dangling pre-rename tokens may remain: {serialized}"
+        );
+        for (idx, orb_name) in [(0usize, "Alpha"), (1usize, "Beta")] {
+            let renamed = format!("{orb_name}DataGrid1");
+            let orb = &schema.orbitals[idx];
+            assert!(
+                orb.traits.iter().any(|t| matches!(t, TraitReference::Inline(td) if td.name == renamed)),
+                "{orb_name}: sibling declaration renamed to {renamed}"
+            );
+            let host = orb
+                .traits
+                .iter()
+                .find_map(|t| match t {
+                    TraitReference::Inline(td) if td.name.ends_with("Browse") => Some(td),
+                    _ => None,
+                })
+                .expect("host trait");
+            let effects_json = serde_json::to_string(&host.state_machine.transitions[0].effects).unwrap();
+            assert!(effects_json.contains(&format!("@trait.{renamed}")), "{orb_name}: effect token rewritten");
+            let config_json = serde_json::to_string(&host.config).unwrap();
+            assert!(config_json.contains(&format!("@trait.{renamed}")), "{orb_name}: config default rewritten");
+        }
     }
 
     #[test]

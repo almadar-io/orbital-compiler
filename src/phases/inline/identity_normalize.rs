@@ -269,17 +269,36 @@ fn normalize_trait_embed_tokens(td: &mut TraitDefinition, trait_id_to_name: &Has
     if trait_subs.is_empty() {
         return;
     }
+    rewrite_trait_embed_tokens(td, &trait_subs);
+}
+
+/// Apply a `@trait.<from>` → `@trait.<to>` substitution map across every token
+/// position a trait body carries: transition effects, tick effects, AND
+/// config-field defaults (std-browse's `bodyContent`/`denseBodyContent` shape —
+/// `apply_inline_config_defaults`/`rewrite_config_bindings` substitute defaults
+/// into effect trees, so a rename that skips them leaves dangling tokens in the
+/// default and in every substituted copy). Shared by the id-driven
+/// normalization above and the name-driven uniquify rename in `inline/mod.rs`
+/// (whose Reference-trait siblings carry no embed id to normalize by).
+pub(super) fn rewrite_trait_embed_tokens(td: &mut TraitDefinition, trait_subs: &HashMap<String, String>) {
     for transition in td.state_machine.transitions.iter_mut() {
         if let Some(effects) = transition.effects.as_mut() {
             for effect in effects.iter_mut() {
-                rewrite_trait_embed_in_sexpr(effect, &trait_subs);
+                rewrite_trait_embed_in_sexpr(effect, trait_subs);
             }
         }
     }
     if let Some(ticks) = td.ticks.as_mut() {
         for tick in ticks.iter_mut() {
             for effect in tick.effects.iter_mut() {
-                rewrite_trait_embed_in_sexpr(effect, &trait_subs);
+                rewrite_trait_embed_in_sexpr(effect, trait_subs);
+            }
+        }
+    }
+    if let Some(config) = td.config.as_mut() {
+        for cf in config.values_mut() {
+            if let Some(default) = cf.default.as_mut() {
+                rewrite_trait_embed_in_sexpr(default, trait_subs);
             }
         }
     }
