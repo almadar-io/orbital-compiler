@@ -1988,6 +1988,67 @@ mod tests {
     }
 
     #[test]
+    fn fc5_item_in_scope_inside_array_map_children() {
+        let known_entities: HashSet<String> = HashSet::new();
+        // ["array/map", "@entity.items", ["fn", "item", { type: badge, label: "@item.name" }]]
+        let node = SExpression::Object(
+            [
+                ("type".to_string(), SExpression::String("badge".to_string())),
+                (
+                    "label".to_string(),
+                    SExpression::String("@item.name".to_string()),
+                ),
+            ]
+            .into_iter()
+            .collect(),
+        );
+        let expr = SExpression::Array(vec![
+            SExpression::String("array/map".to_string()),
+            SExpression::String("@entity.items".to_string()),
+            SExpression::Array(vec![
+                SExpression::String("fn".to_string()),
+                SExpression::String("item".to_string()),
+                node,
+            ]),
+        ]);
+        let result = validate_expr_bindings(&expr, "test", BindingContext::Effect, &known_entities);
+        assert!(
+            !result
+                .errors
+                .iter()
+                .any(|e| e.code == ErrorCode::BindingUnknownRoot),
+            "@item inside an array/map lambda body must be in scope. Errors: {:?}",
+            result.errors
+        );
+    }
+
+    #[test]
+    fn fc5_item_out_of_scope_outside_array_map() {
+        let known_entities: HashSet<String> = HashSet::new();
+        // A bare `@item.name` with no enclosing map/lambda → unknown root.
+        let expr = SExpression::Object(
+            [
+                ("type".to_string(), SExpression::String("badge".to_string())),
+                (
+                    "label".to_string(),
+                    SExpression::String("@item.name".to_string()),
+                ),
+            ]
+            .into_iter()
+            .collect(),
+        );
+        let result = validate_expr_bindings(&expr, "test", BindingContext::Effect, &known_entities);
+        assert!(
+            result
+                .errors
+                .iter()
+                .any(|e| e.code == ErrorCode::BindingUnknownRoot),
+            "@item outside any lambda must be out of scope (unknown root). Errors: {:?}",
+            result.errors
+        );
+    }
+
+    #[test]
     fn test_fn_string_param_lambda_is_valid() {
         let known_entities: HashSet<String> = HashSet::new();
         // ["fn", "h", ["=", "@h.owner", "player"]]

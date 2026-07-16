@@ -536,6 +536,22 @@ pub(super) fn validate_pattern(
                 // type + enum-value checks. Children can be a single pattern
                 // object or an array of patterns; handle both.
                 if let Some(children) = obj.get("children") {
+                    // FC-5: `children: (array/map <coll> (fn item <node>))` — the
+                    // whole value is one dynamic collection producer, not a list.
+                    // Validate the per-item render node; the collection expression
+                    // and the `@item` lambda scope are checked by the binding pass
+                    // (`is_lambda_scope_operator`). Kept verbatim as IR.
+                    if let Some(mc) = children.as_mapped_children() {
+                        let child_path = format!("{}.children", path);
+                        result.merge(validate_pattern(
+                            mc.item_node,
+                            &child_path,
+                            entity_definitions,
+                            extra_patterns,
+                            linked_entity,
+                        ));
+                        return result;
+                    }
                     // A draw-host paints ONLY neutral drawable descriptors — gate each
                     // child's `drawable` capability (baked from the core `ScenePos` type
                     // identity). DOM chrome under a canvas → ORB_RUI_CHILD_NOT_DRAWABLE.
@@ -544,6 +560,19 @@ pub(super) fn validate_pattern(
                         SExpression::Array(items) => {
                             for (i, child) in items.iter().enumerate() {
                                 let child_path = format!("{}.children[{}]", path, i);
+                                // FC-5: a mapped-children entry inside a children
+                                // array — validate its per-item node, never reject
+                                // the `array/map` tuple as an invalid pattern.
+                                if let Some(mc) = child.as_mapped_children() {
+                                    result.merge(validate_pattern(
+                                        mc.item_node,
+                                        &child_path,
+                                        entity_definitions,
+                                        extra_patterns,
+                                        linked_entity,
+                                    ));
+                                    continue;
+                                }
                                 if host_paints {
                                     check_child_drawable(child, &child_path, &mut result);
                                 }

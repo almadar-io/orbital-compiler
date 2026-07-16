@@ -63,6 +63,15 @@ pub enum LoaderError {
     #[error("Scoped package not configured: {0}")]
     ScopedPackageNotConfigured(String),
 
+    #[error(
+        "Unresolvable primitive import '{0}'. Accepted forms:\n  \
+         loader:  std/behaviors/<name>  (e.g. std/behaviors/std-stats)  |  \
+         almadar-behaviors/<name>  (e.g. almadar-behaviors/rpg-hero)\n  \
+         browse:  @std/<topic>/<kind>/<name>.lolo  (e.g. @std/ui/core/atoms/std-stats.lolo)  |  \
+         @behaviors/<topic>/<kind>/<name>.lolo  (e.g. @behaviors/app/molecules/app-crud-manager.lolo)"
+    )]
+    InvalidPrimitiveImport(String),
+
     #[error("IO error: {0}")]
     IoError(#[from] std::io::Error),
 }
@@ -333,6 +342,46 @@ pub fn discover_registry_roots(source_path: &Path) -> HashMap<String, PathBuf> {
 }
 
 // ============================================================================
+// Browse-form specifier mapping (FC-3)
+// ============================================================================
+
+/// Outcome of mapping a `uses ... from "<specifier>"` string to its canonical
+/// loader form.
+pub enum BrowseMapping {
+    /// Not a browse-form specifier — use the original path unchanged.
+    NotBrowseForm,
+    /// A well-formed browse specifier mapped to its canonical loader form.
+    Mapped(String),
+    /// Browse-prefixed but malformed (no primitive name after the alias).
+    Malformed,
+}
+
+/// Map a browse-form primitive specifier — the mount paths the free-compose
+/// agent reads (`@std/…`, `@behaviors/…`) — to the canonical loader specifier.
+///
+/// Deterministic pure string transform: strip the mount alias and the
+/// intermediate topic/kind path, drop a trailing `.lolo`, and route to the
+/// owning registry. `@std/<...>/<name>.lolo` → `std/behaviors/<name>` (embedded
+/// std registry); `@behaviors/<...>/<name>.lolo` → `almadar-behaviors/<name>`
+/// (behaviors package registry). No fuzzy matching — the primitive name is the
+/// path basename verbatim. A browse-prefixed specifier with no basename is
+/// `Malformed`; anything not starting with a mount alias is `NotBrowseForm`.
+pub fn map_browse_specifier(import_path: &str) -> BrowseMapping {
+    for (prefix, package) in [("@std/", "std/behaviors/"), ("@behaviors/", "almadar-behaviors/")] {
+        let Some(rest) = import_path.strip_prefix(prefix) else {
+            continue;
+        };
+        let basename = rest.rsplit('/').next().unwrap_or("");
+        let name = basename.strip_suffix(".lolo").unwrap_or(basename);
+        if name.is_empty() {
+            return BrowseMapping::Malformed;
+        }
+        return BrowseMapping::Mapped(format!("{package}{name}"));
+    }
+    BrowseMapping::NotBrowseForm
+}
+
+// ============================================================================
 // External Orbital Loader
 // ============================================================================
 
@@ -363,6 +412,18 @@ impl ExternalOrbitalLoader {
         from_path: Option<&Path>,
         chain: &mut ImportChain,
     ) -> Result<&LoadedSchema, LoaderError> {
+        // FC-3: accept the browse-form specifier the free-compose agent reads
+        // (`@std/…`, `@behaviors/…`) by mapping it to the canonical loader form
+        // BEFORE embedded/dev/filesystem resolution, so both namespaces converge.
+        let mapped = map_browse_specifier(import_path);
+        let import_path = match &mapped {
+            BrowseMapping::NotBrowseForm => import_path,
+            BrowseMapping::Mapped(canonical) => canonical.as_str(),
+            BrowseMapping::Malformed => {
+                return Err(LoaderError::InvalidPrimitiveImport(import_path.to_string()))
+            }
+        };
+
         // Dev workspace mode: prefer the local workspace registry over the
         // embedded baked registry so behavior `.lolo`/`.orb` edits apply
         // without a rebuild + rebake. Only `std/behaviors/<name>` imports that
@@ -1023,6 +1084,102 @@ mod embedded_loader_tests {
             result.unwrap_err(),
             LoaderError::FileNotFound(_) | LoaderError::IoError(_)
         ));
+    }
+
+    // FC-3: browse-form (`@std/…`, `@behaviors/…`) specifier mapping.
+
+    fn mapped(import_path: &str) -> Option<String> {
+        match map_browse_specifier(import_path) {
+            BrowseMapping::Mapped(s) => Some(s),
+            _ => None,
+        }
+    }
+
+    #[test]
+    fn browse_form_std_maps_to_embedded_registry() {
+        assert_eq!(
+            mapped("@std/ui/core/atoms/std-stats.lolo").as_deref(),
+            Some("std/behaviors/std-stats")
+        );
+        assert_eq!(
+            mapped("@std/ui/core/molecules/ui-calendar-grid.lolo").as_deref(),
+            Some("std/behaviors/ui-calendar-grid")
+        );
+    }
+
+    #[test]
+    fn browse_form_behaviors_maps_to_package_registry() {
+        assert_eq!(
+            mapped("@behaviors/app/molecules/app-crud-manager.lolo").as_deref(),
+            Some("almadar-behaviors/app-crud-manager")
+        );
+        assert_eq!(
+            mapped("@behaviors/game/organisms/rpg-hero.lolo").as_deref(),
+            Some("almadar-behaviors/rpg-hero")
+        );
+    }
+
+    #[test]
+    fn canonical_form_is_left_unchanged() {
+        assert!(matches!(
+            map_browse_specifier("std/behaviors/std-stats"),
+            BrowseMapping::NotBrowseForm
+        ));
+        assert!(matches!(
+            map_browse_specifier("almadar-behaviors/rpg-hero"),
+            BrowseMapping::NotBrowseForm
+        ));
+        assert!(matches!(
+            map_browse_specifier("./health.orb"),
+            BrowseMapping::NotBrowseForm
+        ));
+    }
+
+    #[test]
+    fn malformed_browse_form_is_flagged() {
+        assert!(matches!(
+            map_browse_specifier("@std/"),
+            BrowseMapping::Malformed
+        ));
+        assert!(matches!(
+            map_browse_specifier("@behaviors/app/molecules/"),
+            BrowseMapping::Malformed
+        ));
+    }
+
+    #[test]
+    fn malformed_browse_form_load_errors_with_dual_form_message() {
+        let mut loader = ExternalOrbitalLoader::new(LoaderConfig::default());
+        let mut chain = ImportChain::new();
+        let result = loader.load("@std/", None, &mut chain);
+        assert!(result.is_err());
+        let err = result.unwrap_err();
+        assert!(matches!(err, LoaderError::InvalidPrimitiveImport(_)));
+        let msg = err.to_string();
+        assert!(msg.contains("std/behaviors/std-stats"), "message: {msg}");
+        assert!(
+            msg.contains("@std/ui/core/atoms/std-stats.lolo"),
+            "message: {msg}"
+        );
+        assert!(
+            msg.contains("@behaviors/app/molecules/app-crud-manager.lolo"),
+            "message: {msg}"
+        );
+    }
+
+    #[test]
+    fn browse_form_std_loads_from_embedded() {
+        // The browse alias must resolve the SAME embedded schema the canonical
+        // `std/behaviors/std-modal` import does.
+        let mut loader = ExternalOrbitalLoader::new(LoaderConfig::default());
+        let mut chain = ImportChain::new();
+        let result = loader.load("@std/ui/core/organisms/std-modal.lolo", None, &mut chain);
+        assert!(
+            result.is_ok(),
+            "browse-form std-modal failed: {:?}",
+            result.err()
+        );
+        assert_eq!(result.unwrap().schema.name, "std-modal");
     }
 
     #[test]

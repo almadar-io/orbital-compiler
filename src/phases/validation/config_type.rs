@@ -442,11 +442,25 @@ fn check_primitive_shape(type_tag: &str, value: &SExpression, path: &str) -> Val
         _ => true, // Unknown type tags pass — covered by other validators.
     };
     if !ok {
-        result.add_error(ValidationError::error(
+        let mut err = ValidationError::error(
             ErrorCode::TraitConfigShapeMismatch,
             path,
             format!("expected {}, got {}", type_tag, actual),
-        ));
+        );
+        // An object supplied where a scalar element was expected is the
+        // `[json]`/`[string]`-carries-objects trap: name the typed-alias form
+        // as the precise way to declare an array of object records.
+        if actual == "object" {
+            err = err.with_suggestion(TYPED_ALIAS_ARRAY_HINT);
+        }
+        result.add_error(err);
     }
     result
 }
+
+/// The precise remedy for an object-array config knob: declare a named type
+/// alias and annotate the knob with it, so the object element shape is checked.
+const TYPED_ALIAS_ARRAY_HINT: &str = "to declare an array of object records, \
+define a named type alias — `type Item = { field : T, … }` — then annotate the \
+knob `name : [Item]`. A bare `[json]` array lowers to unconstrained object \
+elements; `[string]`/scalar element types cannot carry objects.";

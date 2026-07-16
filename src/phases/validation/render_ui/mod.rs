@@ -523,6 +523,149 @@ mod tests {
             .any(|e| e.code == ErrorCode::RenderUIUnknownItemActionProp));
     }
 
+    // FC-5 helpers: build the pinned dynamic-children tuple
+    // `["array/map", <coll>, ["fn", <param>, <node>]]`.
+    fn s(v: &str) -> SExpression {
+        SExpression::String(v.to_string())
+    }
+    fn obj(pairs: &[(&str, SExpression)]) -> SExpression {
+        SExpression::Object(
+            pairs
+                .iter()
+                .map(|(k, v)| (k.to_string(), v.clone()))
+                .collect(),
+        )
+    }
+    fn array_map(coll: &str, param: &str, node: SExpression) -> SExpression {
+        SExpression::Array(vec![
+            s("array/map"),
+            s(coll),
+            SExpression::Array(vec![s("fn"), s(param), node]),
+        ])
+    }
+
+    #[test]
+    fn fc5_array_map_children_entry_not_rejected() {
+        // A `children` array entry that is the dynamic-collection tuple must NOT
+        // trip ORB_RUI_INVALID_PATTERN; the per-item node is validated instead.
+        let badge = obj(&[("type", s("badge")), ("label", s("@item.name"))]);
+        let effect = SExpression::Array(vec![
+            s("render-ui"),
+            s("main"),
+            obj(&[
+                ("type", s("stack")),
+                (
+                    "children",
+                    SExpression::Array(vec![array_map("@entity.items", "item", badge)]),
+                ),
+            ]),
+        ]);
+        let entity_defs = HashMap::new();
+        let result = validate_render_ui_effect(&effect, "test", &entity_defs, None, None);
+        assert!(
+            !result
+                .errors
+                .iter()
+                .any(|e| e.code == ErrorCode::RenderUIInvalidPattern),
+            "array/map children entry must not be an invalid pattern. Errors: {:?}",
+            result.errors
+        );
+    }
+
+    #[test]
+    fn fc5_array_map_children_validates_item_node() {
+        // The per-item node IS validated: an unknown pattern type inside the
+        // lambda body still surfaces (proving we recurse, not skip).
+        let bad = obj(&[("type", s("not-a-real-pattern-xyz"))]);
+        let effect = SExpression::Array(vec![
+            s("render-ui"),
+            s("main"),
+            obj(&[
+                ("type", s("stack")),
+                (
+                    "children",
+                    SExpression::Array(vec![array_map("@entity.items", "item", bad)]),
+                ),
+            ]),
+        ]);
+        let entity_defs = HashMap::new();
+        let result = validate_render_ui_effect(&effect, "test", &entity_defs, None, None);
+        assert!(
+            result
+                .errors
+                .iter()
+                .any(|e| e.code == ErrorCode::RenderUIInvalidPattern
+                    && e.message.contains("not-a-real-pattern-xyz")),
+            "the item node must be validated (unknown type surfaces). Errors: {:?}",
+            result.errors
+        );
+    }
+
+    #[test]
+    fn fc5_bare_array_map_children_value_not_rejected() {
+        // `children: (array/map …)` (the whole value, not wrapped in a list).
+        let badge = obj(&[("type", s("badge")), ("label", s("@item.name"))]);
+        let effect = SExpression::Array(vec![
+            s("render-ui"),
+            s("main"),
+            obj(&[
+                ("type", s("stack")),
+                ("children", array_map("@entity.items", "item", badge)),
+            ]),
+        ]);
+        let entity_defs = HashMap::new();
+        let result = validate_render_ui_effect(&effect, "test", &entity_defs, None, None);
+        assert!(
+            !result
+                .errors
+                .iter()
+                .any(|e| e.code == ErrorCode::RenderUIInvalidPattern),
+            "bare array/map children value must not be an invalid pattern. Errors: {:?}",
+            result.errors
+        );
+    }
+
+    #[test]
+    fn fc5_render_item_lambda_accepted_on_collection_pattern() {
+        // renderItem: (fn item <node>) on a collection pattern must NOT be
+        // rejected as an unknown/invalid prop or pattern (callback-kind prop
+        // accepts the lambda form).
+        let badge = obj(&[("type", s("badge")), ("label", s("@item.name"))]);
+        let lambda = SExpression::Array(vec![s("fn"), s("item"), badge]);
+        for pattern in [
+            "data-list",
+            "data-grid",
+            "entity-list",
+            "carousel",
+            "sortable-list",
+            "table-view",
+            "repeatable-form-section",
+        ] {
+            let effect = SExpression::Array(vec![
+                s("render-ui"),
+                s("main"),
+                obj(&[
+                    ("type", s(pattern)),
+                    ("entity", s("@entity")),
+                    ("renderItem", lambda.clone()),
+                ]),
+            ]);
+            let entity_defs = HashMap::new();
+            let result = validate_render_ui_effect(&effect, "test", &entity_defs, None, None);
+            let renderitem_err = result.errors.iter().any(|e| {
+                (e.code == ErrorCode::RenderUIInvalidProp
+                    || e.code == ErrorCode::RenderUIInvalidPattern
+                    || e.code == ErrorCode::RenderUIPropTypeMismatch)
+                    && e.message.contains("renderItem")
+            });
+            assert!(
+                !renderitem_err,
+                "renderItem lambda must be accepted on '{pattern}'. Errors: {:?}",
+                result.errors
+            );
+        }
+    }
+
     #[test]
     fn test_is_render_ui_effect() {
         assert!(is_render_ui_effect(&SExpression::Array(vec![
