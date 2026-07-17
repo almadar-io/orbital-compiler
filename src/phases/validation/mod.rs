@@ -583,14 +583,17 @@ fn collect_names(schema: &OrbitalSchema, ctx: &mut ValidationContext) {
                 if let Some(page) = page_ref.as_inline() {
                     ctx.page_paths.insert(page.path.clone());
 
-                    // Collect INIT payload requirements for this page
+                    // Every inline page is registered so navigate reachability
+                    // (`validate_navigate`) sees the COMPLETE declared-page set —
+                    // its "fires only when pages exist but none match" intent
+                    // needs every page, not only payload-bearing ones. A page
+                    // with no INIT payload contributes empty required/all fields,
+                    // so the payload-requirement branch simply no-ops for it.
+                    // (Restores navigate-typo detection after the redundant L1
+                    // check was removed for RABIT-DEMOTE-EDIT-WORKSPACE-INVISIBLE.)
                     let init_payload = collect_page_init_payload(page, &trait_map);
-                    if !init_payload.required_fields.is_empty()
-                        || !init_payload.all_fields.is_empty()
-                    {
-                        ctx.page_init_payloads
-                            .insert(page.path.clone(), init_payload);
-                    }
+                    ctx.page_init_payloads
+                        .insert(page.path.clone(), init_payload);
                 }
             }
         }
