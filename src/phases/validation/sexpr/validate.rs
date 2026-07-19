@@ -199,40 +199,46 @@ pub(crate) fn validate_sexpr_with_locals(
                         return result;
                     }
                     // Detect `let` bindings: ["let", [[name, valueExpr], ...], body].
-                    // Mirror the evaluator (operators/control.ts `evalLet`): binding
-                    // value-expressions are evaluated in the OUTER scope (parallel
-                    // `let`, not `let*`); only the body sees the bound names. So the
-                    // names are valid roots inside the body but not inside each other.
+                    // SEQUENTIAL `let`: each value-expression sees the names bound
+                    // by EARLIER siblings (and the outer scope); the body sees them
+                    // all. Matches both runtimes (Rust `LetOp`, JS `EffectExecutor`
+                    // `let`). The name is inserted AFTER its own value is validated,
+                    // so a self-reference still errors.
                     if operator == "let" && arr.len() == 3 {
                         let mut extended_locals = lambda_locals.clone();
                         match &arr[1] {
                             SExpression::Array(bindings) => {
                                 for (bi, binding) in bindings.iter().enumerate() {
                                     if let SExpression::Array(pair) = binding {
-                                        if let Some(SExpression::String(name)) = pair.first() {
-                                            extended_locals.insert(name.clone());
-                                        }
                                         if pair.len() >= 2 {
                                             result.merge(validate_sexpr_with_locals(
                                                 &pair[1],
                                                 &format!("{}[1][{}][1]", path, bi),
                                                 context,
                                                 known_entities,
-                                                lambda_locals,
+                                                &extended_locals,
                                             ));
+                                        }
+                                        if let Some(SExpression::String(name)) = pair.first() {
+                                            extended_locals.insert(name.clone());
                                         }
                                     }
                                 }
                             }
                             SExpression::Object(bindings) => {
-                                for (name, value_expr) in bindings {
+                                // Object-form bindings are unordered — credit all
+                                // names first (permissive). lolo lowers `let` to the
+                                // ordered array form above.
+                                for name in bindings.keys() {
                                     extended_locals.insert(name.clone());
+                                }
+                                for (name, value_expr) in bindings {
                                     result.merge(validate_sexpr_with_locals(
                                         value_expr,
                                         &format!("{}[1].{}", path, name),
                                         context,
                                         known_entities,
-                                        lambda_locals,
+                                        &extended_locals,
                                     ));
                                 }
                             }
