@@ -374,6 +374,15 @@ pub(crate) fn rewrite_entity_refs(expr: &mut SExpression, from_entity: &str, to_
 /// scalar. Wrap such values in the `list` literal constructor (`["list", …]`),
 /// which both evaluators return verbatim, so the value is unambiguously data.
 ///
+/// A value that contains a binding anywhere in its tree (`@entity.X`,
+/// `@config.X`, `@payload.X`, …) is NOT literal data — it is a live
+/// expression the runtime must evaluate (e.g. a reactive `drawables` S-expr
+/// composed into `ui-canvas`'s `[json]` slot). Wrapping those froze composed
+/// canvases: the painter received the raw `["list", "array/concat", …]` tree
+/// instead of evaluated descriptors. Skip the wrap when any string in the
+/// tree starts with `@` — the runtime treats those strings as bindings
+/// regardless of wrapping, so the value cannot be pure data.
+///
 /// Type-directed + deterministic — no operator-name heuristic: it fires only
 /// for array-typed slots and only for string-headed array values (object- or
 /// number-headed arrays are already unambiguous and pass through unchanged).
@@ -381,14 +390,29 @@ pub(crate) fn mark_literal_list_in_place(value: &mut SExpression, field_type: &s
     if !(field_type.starts_with('[') && field_type.ends_with(']')) {
         return;
     }
-    if let SExpression::Array(elems) = value {
-        let is_string_headed = matches!(elems.first(), Some(SExpression::String(s)) if s != "list");
-        if is_string_headed {
+    let should_wrap = matches!(
+        value,
+        SExpression::Array(elems)
+            if matches!(elems.first(), Some(SExpression::String(s)) if s != "list")
+    ) && !sexpr_tree_contains_binding(value);
+    if should_wrap {
+        if let SExpression::Array(elems) = value {
             let mut wrapped = Vec::with_capacity(elems.len() + 1);
             wrapped.push(SExpression::String("list".to_string()));
             wrapped.append(elems);
             *value = SExpression::Array(wrapped);
         }
+    }
+}
+
+/// Deep check: does any string in the tree start with `@` (a binding the
+/// runtime resolves)? Bindings make the value a live expression, not data.
+fn sexpr_tree_contains_binding(value: &SExpression) -> bool {
+    match value {
+        SExpression::String(s) => s.starts_with('@'),
+        SExpression::Array(items) => items.iter().any(sexpr_tree_contains_binding),
+        SExpression::Object(map) => map.values().any(sexpr_tree_contains_binding),
+        _ => false,
     }
 }
 
@@ -788,5 +812,77 @@ pub(crate) fn trait_ref_name(tr: &TraitReference) -> Option<&str> {
     match tr {
         TraitReference::Inline(td) => Some(&td.name),
         other => other.trait_name(),
+    }
+}
+
+#[cfg(test)]
+mod literal_list_tests {
+    use super::*;
+    use std::collections::HashMap;
+
+    fn arr(items: Vec<SExpression>) -> SExpression {
+        SExpression::Array(items)
+    }
+
+    #[test]
+    fn wraps_pure_literal_string_headed_list() {
+        let mut v = arr(vec![
+            SExpression::String("path".to_string()),
+            SExpression::String("method".to_string()),
+        ]);
+        mark_literal_list_in_place(&mut v, "[string]");
+        match &v {
+            SExpression::Array(items) => {
+                assert_eq!(items[0], SExpression::String("list".to_string()));
+            }
+            _ => panic!("expected array"),
+        }
+    }
+
+    #[test]
+    fn skips_wrap_when_tree_contains_binding() {
+        // A reactive drawables S-expr composed into a `[json]` slot: the head
+        // is string-headed but the tree carries `@entity` bindings — it must
+        // reach the runtime as a call, not as inert data.
+        let mut food = HashMap::new();
+        food.insert(
+            "x".to_string(),
+            arr(vec![
+                SExpression::String("object/get".to_string()),
+                SExpression::String("@entity.food".to_string()),
+                SExpression::String("x".to_string()),
+            ]),
+        );
+        let mut cell = HashMap::new();
+        cell.insert("type".to_string(), SExpression::String("draw-shape".to_string()));
+        cell.insert("position".to_string(), SExpression::Object(food));
+        let mut v = arr(vec![
+            SExpression::String("array/concat".to_string()),
+            arr(vec![SExpression::Object(cell)]),
+            arr(vec![]),
+        ]);
+        mark_literal_list_in_place(&mut v, "[json]");
+        match &v {
+            SExpression::Array(items) => {
+                assert_eq!(items[0], SExpression::String("array/concat".to_string()));
+            }
+            _ => panic!("expected array"),
+        }
+    }
+
+    #[test]
+    fn ignores_non_array_slots_and_non_string_heads() {
+        let mut scalar = arr(vec![SExpression::String("path".to_string())]);
+        mark_literal_list_in_place(&mut scalar, "string");
+        assert_eq!(
+            scalar,
+            arr(vec![SExpression::String("path".to_string())])
+        );
+        let mut object_headed = arr(vec![SExpression::Object(HashMap::new())]);
+        mark_literal_list_in_place(&mut object_headed, "[json]");
+        match &object_headed {
+            SExpression::Array(items) => assert_eq!(items.len(), 1),
+            _ => panic!("expected array"),
+        }
     }
 }
