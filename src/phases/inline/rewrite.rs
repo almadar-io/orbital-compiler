@@ -405,11 +405,15 @@ pub(crate) fn mark_literal_list_in_place(value: &mut SExpression, field_type: &s
     }
 }
 
-/// Deep check: does any string in the tree start with `@` (a binding the
-/// runtime resolves)? Bindings make the value a live expression, not data.
+/// Deep check: does any leaf in the tree resolve as a binding (`@…`)? A
+/// binding makes the value a live expression the evaluator must resolve, not
+/// inert data. Leaf test routes to the canonical `SExpression::is_binding`
+/// (the same `@`-prefix contract the evaluator keys on) — no local duplicate.
 fn sexpr_tree_contains_binding(value: &SExpression) -> bool {
+    if value.is_binding() {
+        return true;
+    }
     match value {
-        SExpression::String(s) => s.starts_with('@'),
         SExpression::Array(items) => items.iter().any(sexpr_tree_contains_binding),
         SExpression::Object(map) => map.values().any(sexpr_tree_contains_binding),
         _ => false,
