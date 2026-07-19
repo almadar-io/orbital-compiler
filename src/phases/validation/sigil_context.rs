@@ -124,38 +124,46 @@ fn walk_expr(
                         walk_expr(&arr[2], &format!("{}[2]", path), context, &extended, result);
                         return;
                     }
-                    // Detect `let`: ["let", [[name, valueExpr], ...], body]. Like the
-                    // evaluator (parallel `let`), value-expressions are checked in the
-                    // OUTER scope; only the body sees the bound names.
+                    // Detect `let`: ["let", [[name, valueExpr], ...], body].
+                    // SEQUENTIAL `let`: each value-expression sees the names
+                    // bound by EARLIER siblings (and the outer scope); the body
+                    // sees them all. Matches both runtimes (Rust `LetOp`, JS
+                    // `EffectExecutor` `let`). The name is inserted AFTER its own
+                    // value is walked, so a self-reference still fails.
                     if op == "let" {
                         let mut extended = lambda_locals.clone();
                         match &arr[1] {
                             SExpression::Array(bindings) => {
                                 for (bi, binding) in bindings.iter().enumerate() {
                                     if let SExpression::Array(pair) = binding {
-                                        if let Some(SExpression::String(name)) = pair.first() {
-                                            extended.insert(name.clone());
-                                        }
                                         if pair.len() >= 2 {
                                             walk_expr(
                                                 &pair[1],
                                                 &format!("{}[1][{}][1]", path, bi),
                                                 context,
-                                                lambda_locals,
+                                                &extended,
                                                 result,
                                             );
+                                        }
+                                        if let Some(SExpression::String(name)) = pair.first() {
+                                            extended.insert(name.clone());
                                         }
                                     }
                                 }
                             }
                             SExpression::Object(bindings) => {
-                                for (name, value_expr) in bindings {
+                                // Object-form bindings are unordered — credit all
+                                // names first (permissive). lolo lowers `let` to
+                                // the ordered array form above.
+                                for name in bindings.keys() {
                                     extended.insert(name.clone());
+                                }
+                                for (name, value_expr) in bindings {
                                     walk_expr(
                                         value_expr,
                                         &format!("{}[1].{}", path, name),
                                         context,
-                                        lambda_locals,
+                                        &extended,
                                         result,
                                     );
                                 }
@@ -395,10 +403,35 @@ mod tests {
     }
 
     #[test]
-    fn let_value_exprs_are_checked_in_outer_scope() {
-        // Parallel `let`: a binding VALUE referencing an unknown root is still
-        // rejected (the value can't see the let names — only the body can).
-        let expr = SExpression::Array(vec![
+    fn let_value_exprs_see_prior_bindings_only() {
+        // Sequential `let`: a value referencing an EARLIER binding is valid;
+        // a value referencing an unknown root (not a prior binding) is still
+        // flagged. (let ((a @entity.n) (b @a)) @b) — b sees a.
+        let ok = SExpression::Array(vec![
+            SExpression::String("let".to_string()),
+            SExpression::Array(vec![
+                SExpression::Array(vec![
+                    SExpression::String("a".to_string()),
+                    SExpression::String("@entity.n".to_string()),
+                ]),
+                SExpression::Array(vec![
+                    SExpression::String("b".to_string()),
+                    SExpression::String("@a".to_string()),
+                ]),
+            ]),
+            SExpression::String("@b".to_string()),
+        ]);
+        let mut r_ok = ValidationResult::new();
+        walk_expr(&ok, "test", SigilContext::Tick, &HashSet::new(), &mut r_ok);
+        assert!(
+            r_ok.is_valid(),
+            "a later let binding must see an earlier one: {:?}",
+            r_ok
+        );
+
+        // (let ((x @bogus.field)) @x) — @bogus is neither a prior binding nor a
+        // valid sigil, so it is still rejected.
+        let bad = SExpression::Array(vec![
             SExpression::String("let".to_string()),
             SExpression::Array(vec![SExpression::Array(vec![
                 SExpression::String("x".to_string()),
@@ -406,16 +439,10 @@ mod tests {
             ])]),
             SExpression::String("@x".to_string()),
         ]);
-        let mut result = ValidationResult::new();
-        walk_expr(
-            &expr,
-            "test",
-            SigilContext::Tick,
-            &HashSet::new(),
-            &mut result,
-        );
+        let mut r_bad = ValidationResult::new();
+        walk_expr(&bad, "test", SigilContext::Tick, &HashSet::new(), &mut r_bad);
         assert!(
-            !result.is_valid(),
+            !r_bad.is_valid(),
             "unknown root in a let value-expr must still be flagged"
         );
     }

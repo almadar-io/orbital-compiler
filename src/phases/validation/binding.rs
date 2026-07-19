@@ -720,39 +720,54 @@ fn validate_expr_bindings_with_locals(
                             );
                         }
                     }
-                    // Detect `let`: ["let", [[name, valueExpr], ...], body]. Parallel
-                    // `let` (operators/control.ts evalLet): value-exprs in OUTER scope,
-                    // body sees the bound names.
+                    // Detect `let`: ["let", [[name, valueExpr], ...], body].
+                    // SEQUENTIAL `let`: each binding's value-expr sees the
+                    // locals bound by EARLIER bindings in the same `let` (and
+                    // the outer scope); the body sees them all. This matches
+                    // BOTH runtimes — the Rust evaluator's `LetOp` and the JS
+                    // `EffectExecutor` `let` both fold each value against an
+                    // accumulating child scope. (The old parallel model —
+                    // value-exprs in the outer scope only — diverged from
+                    // runtime and falsely rejected `(let ((a …) (b @a)))`.)
                     if op == "let" {
                         let mut extended_locals = lambda_locals.clone();
                         match &arr[1] {
                             SExpression::Array(bindings) => {
                                 for (bi, binding) in bindings.iter().enumerate() {
                                     if let SExpression::Array(pair) = binding {
-                                        if let Some(SExpression::String(name)) = pair.first() {
-                                            extended_locals.insert(name.clone());
-                                        }
+                                        // Validate the value against locals from
+                                        // PRIOR bindings only (name inserted
+                                        // after), so a self-reference still errors.
                                         if pair.len() >= 2 {
                                             result.merge(validate_expr_bindings_with_locals(
                                                 &pair[1],
                                                 &format!("{}[1][{}][1]", path, bi),
                                                 context,
                                                 known_entities,
-                                                lambda_locals,
+                                                &extended_locals,
                                             ));
+                                        }
+                                        if let Some(SExpression::String(name)) = pair.first() {
+                                            extended_locals.insert(name.clone());
                                         }
                                     }
                                 }
                             }
                             SExpression::Object(bindings) => {
-                                for (name, value_expr) in bindings {
+                                // Object-form bindings have no defined order, so
+                                // credit every name before validating any value
+                                // (permissive — never falsely rejects). lolo only
+                                // ever lowers `let` to the ordered array form above.
+                                for name in bindings.keys() {
                                     extended_locals.insert(name.clone());
+                                }
+                                for (name, value_expr) in bindings {
                                     result.merge(validate_expr_bindings_with_locals(
                                         value_expr,
                                         &format!("{}[1].{}", path, name),
                                         context,
                                         known_entities,
-                                        lambda_locals,
+                                        &extended_locals,
                                     ));
                                 }
                             }
@@ -2236,6 +2251,51 @@ mod tests {
                 .iter()
                 .any(|e| e.code == ErrorCode::BindingUnknownRoot),
             "Non-lambda @item should trigger BindingUnknownRoot"
+        );
+    }
+
+    #[test]
+    fn test_sequential_let_binding_sees_prior_siblings() {
+        let known_entities: HashSet<String> = HashSet::new();
+        // (let ((a @entity.n) (b @a)) (set @entity.n @b))
+        // `@a` in b's value and `@b` in the body must resolve to the earlier
+        // bindings — sequential `let`, matching both runtimes.
+        let expr = arr(vec![
+            s("let"),
+            arr(vec![
+                arr(vec![s("a"), s("@entity.n")]),
+                arr(vec![s("b"), s("@a")]),
+            ]),
+            arr(vec![s("set"), s("@entity.n"), s("@b")]),
+        ]);
+        let result = validate_expr_bindings(&expr, "test", BindingContext::Effect, &known_entities);
+        assert!(
+            !result
+                .errors
+                .iter()
+                .any(|e| e.code == ErrorCode::BindingUnknownRoot),
+            "sequential let: a later binding must see earlier siblings; got {:?}",
+            result.errors
+        );
+    }
+
+    #[test]
+    fn test_let_self_reference_still_errors() {
+        let known_entities: HashSet<String> = HashSet::new();
+        // (let ((a @a)) (set @entity.n @a)) — `a` references itself before it is
+        // bound; sequential scope must still reject it.
+        let expr = arr(vec![
+            s("let"),
+            arr(vec![arr(vec![s("a"), s("@a")])]),
+            arr(vec![s("set"), s("@entity.n"), s("@a")]),
+        ]);
+        let result = validate_expr_bindings(&expr, "test", BindingContext::Effect, &known_entities);
+        assert!(
+            result
+                .errors
+                .iter()
+                .any(|e| e.code == ErrorCode::BindingUnknownRoot),
+            "self-referencing let binding @a must still error"
         );
     }
 
