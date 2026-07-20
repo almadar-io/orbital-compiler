@@ -87,16 +87,36 @@ fn collect_entity_id_names(orbital: &Orbital) -> HashMap<String, String> {
     out
 }
 
-/// `trait_id → current declaration name` for the orbital's own inline traits.
-/// Imported reference traits resolve their `ref_id` against the source registry
-/// during inline, so only inline (own) trait ids are recoverable here.
+/// `trait_id → current declaration name` for the orbital's own trait
+/// declarations — inline bodies AND Reference-form declarations (which carry a
+/// LOCAL decl `id` since the composed-surface backbone; their current name is
+/// the `name:` override else the reference's last segment). The imported
+/// TARGET's `ref_id` still resolves against the source registry during inline.
 fn collect_trait_id_names(orbital: &Orbital) -> HashMap<String, String> {
     let mut out = HashMap::new();
     for tr in &orbital.traits {
-        if let TraitReference::Inline(td) = tr {
-            if let Some(id) = &td.id {
-                out.insert(id.clone(), td.name.clone());
+        match tr {
+            TraitReference::Inline(td) => {
+                if let Some(id) = &td.id {
+                    out.insert(id.clone(), td.name.clone());
+                }
             }
+            TraitReference::Reference {
+                id: Some(id),
+                name,
+                reference,
+                ..
+            } => {
+                let current = name.clone().or_else(|| {
+                    reference
+                        .as_ref()
+                        .map(|r| r.rsplit('.').next().unwrap_or(r).to_string())
+                });
+                if let Some(current) = current {
+                    out.insert(id.clone(), current);
+                }
+            }
+            TraitReference::Reference { .. } => {}
         }
     }
     out

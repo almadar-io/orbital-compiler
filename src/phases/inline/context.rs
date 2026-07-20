@@ -238,14 +238,15 @@ impl InlineContext {
                             return Some(TraitReference::Inline(trait_def.clone()));
                         }
                     }
-                    TraitReference::Reference {
-                        ref_id: Some(rid), ..
-                    } => {
-                        if rid == ref_id {
+                    TraitReference::Reference { ref_id: rid, id, .. } => {
+                        // Match the entry's TARGET id (transitive re-export
+                        // semantics) OR its LOCAL declaration id (the
+                        // composed-surface backbone mints one per Reference
+                        // declaration, and cross-file refIds now resolve to it).
+                        if rid.as_deref() == Some(ref_id) || id.as_deref() == Some(ref_id) {
                             return Some(trait_ref.clone());
                         }
                     }
-                    _ => {}
                 }
             }
         }

@@ -1558,6 +1558,7 @@ mod tests {
     /// `Modal.traits.ModalRecordModal` with optional overrides.
     fn modal_ref(name_override: Option<&str>, linked_entity: Option<&str>) -> TraitReference {
         TraitReference::Reference {
+            id: None,
             reference: Some("Modal.traits.ModalRecordModal".to_string()),
             name: name_override.map(|s| s.to_string()),
             linked_entity: linked_entity.map(|s| s.to_string()),

@@ -287,6 +287,7 @@ mod tests {
         let mut events_rename = HashMap::new();
         events_rename.insert("OPEN".to_string(), "ADD_ITEM".to_string());
         let composer_ref = TraitReference::Reference {
+            id: None,
             reference: Some("Lib.traits.Atom".to_string()),
             name: Some("Composed".to_string()),
             linked_entity: Some("Cart".to_string()),
