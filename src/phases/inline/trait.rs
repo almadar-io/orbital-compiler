@@ -103,22 +103,27 @@ pub(crate) fn apply_overrides_to_trait(
         }
     }
 
-    // 3b'. Call-site payload capture. A `@payload.<field>` in this reference's
-    //      call-site config is, by position, a read of the COMPOSING effect's
-    //      event payload — the child atom's own payload is not in scope at the
-    //      call site. Tag it `@callsitePayload.<field>` so it is resolved at the
-    //      call site, never in the child's INIT scope. Freshly lowered lolo has
-    //      already tagged this (idempotent here), but a baked / hand-authored
-    //      `.orb` reference carries the untagged form, so tag here too. The
-    //      capture then flows into `effective_config` + the folded declared
-    //      default below, and `contains_callsite_payload` (step 6) keeps the
-    //      bound knob out of the child body.
+    // 3b'. Call-site payload capture — SCOPE-AWARE. A `@payload.<field>` in this
+    //      reference's call-site config is a capture from the COMPOSING effect's
+    //      event ONLY when the child's own transition that renders the bound knob
+    //      does not itself declare `<field>`. A render-ui body knob the child
+    //      renders in its own data-load transition (e.g. `galleryBodyContent`
+    //      under `BrowseItemLoaded { data }`) resolves `@payload.data` locally —
+    //      blanket-tagging it `@callsitePayload` mis-validated it against the
+    //      wrapper's events (G-RUI-CALLSITE-PAYLOAD-OVERRIDE). `retag_callsite_payload`
+    //      re-derives the tag per field from `local_payload_fields_for_knob`,
+    //      idempotent and source-agnostic (a lower-time eager tag, a baked/
+    //      untagged `.orb`, both converge). The capture then flows into
+    //      `effective_config` + the folded declared default below, and
+    //      `contains_callsite_payload` (step 6) keeps a still-captured knob out
+    //      of the child body.
     let tagged_config: Option<HashMap<String, ConfigField>> = config.map(|c| {
         c.iter()
             .map(|(k, cf)| {
                 let mut cf = cf.clone();
                 if let Some(default) = cf.default.as_mut() {
-                    orbital_core::schema::capture_callsite_payload(default);
+                    let local = local_payload_fields_for_knob(trait_def, k);
+                    orbital_core::schema::retag_callsite_payload(default, &local);
                 }
                 (k.clone(), cf)
             })
@@ -1119,13 +1124,160 @@ pub(crate) fn inline_traits(
     ))
 }
 
+/// True when an SExpression tree contains the bare `@config.<knob>` token
+/// (`token` = `"@config.<knob>"`) as a value — the position where a whole-knob
+/// value (a render-ui body, a scalar) is spliced into the child's own body.
+fn sexpr_references_config(expr: &SExpression, token: &str) -> bool {
+    match expr {
+        SExpression::String(s) => s == token,
+        SExpression::Array(items) => items.iter().any(|i| sexpr_references_config(i, token)),
+        SExpression::Object(map) => map.values().any(|v| sexpr_references_config(v, token)),
+        _ => false,
+    }
+}
+
+/// Payload fields that resolve in the CHILD's own scope for a given call-site
+/// knob: the union of `payloadSchema` fields of every event whose transition
+/// (in the child's own state machine) renders `@config.<knob>`. When the child
+/// renders the knob under `BrowseItemLoaded { data, totalCount }`, a
+/// `@payload.data` in the override reads the child's own loaded data — local,
+/// not a call-site capture. Empty when the child never renders the knob itself
+/// (the knob flows up to a composing parent) — then every payload field stays a
+/// call-site capture, preserving the leaf-embed error case
+/// (`content={?error}` on a TypographyRender rendered under `INIT {}`).
+fn local_payload_fields_for_knob(
+    trait_def: &TraitDefinition,
+    knob: &str,
+) -> HashSet<String> {
+    let event_fields: HashMap<&str, &Vec<orbital_core::schema::PayloadField>> = trait_def
+        .state_machine
+        .events
+        .as_ref()
+        .map(|events| {
+            events
+                .iter()
+                .filter_map(|e| e.payload_schema.as_ref().map(|p| (e.key.as_str(), p)))
+                .collect()
+        })
+        .unwrap_or_default();
+
+    let token = format!("@config.{knob}");
+    let mut out = HashSet::new();
+    for tr in &trait_def.state_machine.transitions {
+        let renders = tr
+            .effects
+            .as_ref()
+            .is_some_and(|effs| effs.iter().any(|e| sexpr_references_config(e, &token)));
+        if !renders {
+            continue;
+        }
+        if let Some(fields) = event_fields.get(tr.event.as_str()) {
+            out.extend(fields.iter().map(|f| f.name.clone()));
+        }
+    }
+    out
+}
+
 #[cfg(test)]
 mod entity_id_reader_tests {
     use super::*;
-    use orbital_core::schema::{StateDefinition, StateMachine, StringOrArray, TransitionDefinition};
+    use orbital_core::schema::{
+        EventDefinition, PayloadField, StateDefinition, StateMachine, StringOrArray,
+        TransitionDefinition,
+    };
 
     fn s(v: &str) -> SExpression {
         SExpression::String(v.to_string())
+    }
+
+    fn payload_field(name: &str) -> PayloadField {
+        PayloadField {
+            name: name.to_string(),
+            field_type: "string".to_string(),
+            required: None,
+            description: None,
+            properties: None,
+        }
+    }
+
+    /// A child trait that renders `@config.<knob>` under a transition whose
+    /// event declares `<payload_field>`. Mirrors std-browse rendering
+    /// `galleryBodyContent` under `BrowseItemLoaded { data }`.
+    fn trait_rendering_knob(knob: &str, event: &str, payload_field_name: Option<&str>) -> TraitDefinition {
+        let events = payload_field_name.map(|f| {
+            vec![EventDefinition {
+                key: event.to_string(),
+                id: None,
+                name: None,
+                description: None,
+                synonyms: None,
+                tier: None,
+                payload_schema: Some(vec![payload_field(f)]),
+            }]
+        });
+        TraitDefinition {
+            name: "Body".to_string(),
+            entity_rebindable: Some(true),
+            entity_contract: None,
+            category: None,
+            capabilities: vec![],
+            description: None,
+            linked_entity: None,
+            emits: None,
+            listens: None,
+            state_machine: StateMachine {
+                states: vec![StateDefinition {
+                    name: "s".to_string(),
+                    is_initial: Some(true),
+                    is_terminal: None,
+                    description: None,
+                    time_bound_ms: None,
+                }],
+                events,
+                transitions: vec![TransitionDefinition {
+                    event_id: None,
+                    from: StringOrArray::Single("s".to_string()),
+                    to: "s".to_string(),
+                    event: event.to_string(),
+                    guard: None,
+                    effects: Some(vec![SExpression::Array(vec![
+                        s("render-ui"),
+                        s("main"),
+                        s(&format!("@config.{knob}")),
+                    ])]),
+                }],
+            },
+            ticks: None,
+            config: None,
+            data_entities: None,
+            scope: None,
+            source_behavior: None,
+            source_entity_definition: None,
+            id: None,
+            linked_entity_id: None,
+            entity_ref_ids: None,
+            trait_embed_ids: None,
+        }
+    }
+
+    #[test]
+    fn local_fields_include_rendering_transition_payload() {
+        // Knob rendered under an event that declares `data` → data is local.
+        let td = trait_rendering_knob("galleryBodyContent", "BrowseItemLoaded", Some("data"));
+        let local = local_payload_fields_for_knob(&td, "galleryBodyContent");
+        assert!(local.contains("data"), "data must be local: {local:?}");
+        // A knob the child never renders itself → no local fields (flows up).
+        let none = local_payload_fields_for_knob(&td, "idleContent");
+        assert!(none.is_empty(), "unrendered knob has no local fields: {none:?}");
+    }
+
+    #[test]
+    fn leaf_render_under_init_has_no_local_payload() {
+        // A leaf that renders `@config.content` under INIT (no payload) → no
+        // local fields, so `@payload.error` stays a call-site capture.
+        let td = trait_rendering_knob("content", "INIT", None);
+        let local = local_payload_fields_for_knob(&td, "content");
+        assert!(local.is_empty(), "INIT-rendered leaf has no local payload: {local:?}");
     }
 
     /// A trait bound to entity id `ent-1` whose body references the entity by
