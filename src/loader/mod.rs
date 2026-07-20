@@ -60,6 +60,13 @@ pub enum LoaderError {
     #[error("Standard library path not configured")]
     StdLibNotConfigured,
 
+    #[error(
+        "Unknown std import path '{given}' — this behavior exists as '{canonical}'. \
+         Std imports use the flat canonical form std/behaviors/<name>; topic/kind \
+         folders from the browse tree never appear in import paths."
+    )]
+    StdImportNotCanonical { given: String, canonical: String },
+
     #[error("Scoped package not configured: {0}")]
     ScopedPackageNotConfigured(String),
 
@@ -559,11 +566,46 @@ impl ExternalOrbitalLoader {
     }
 
     fn resolve_std_path(&self, import_path: &str) -> Result<PathBuf, LoaderError> {
-        let std_lib_path = self
-            .config
-            .std_lib_path
-            .as_ref()
-            .ok_or(LoaderError::StdLibNotConfigured)?;
+        let std_lib_path = match self.config.std_lib_path.as_ref() {
+            Some(p) => p,
+            // No on-disk std lib is configured, so this `std/...` specifier has
+            // fallen past every canonical resolution surface (dev registry
+            // roots, embedded phf). Distinguish the AUTHORING mistakes from the
+            // genuine environment gap before erroring — StdLibNotConfigured is
+            // classified as validator INFRA downstream ("do not edit, retry"),
+            // which turns a fixable bad import into an unfixable dead end
+            // (battery 2026-07-20 free-lolo-infra-approval:
+            // `std/infra/atoms/std-approval-gate` retried 9× to no avail).
+            None => {
+                let basename = {
+                    let b = import_path.rsplit('/').next().unwrap_or("");
+                    b.strip_suffix(".lolo")
+                        .or_else(|| b.strip_suffix(".orb"))
+                        .unwrap_or(b)
+                };
+                let canonical = format!("std/behaviors/{basename}");
+                let known_canonically = canonical != import_path
+                    && (crate::embedded::get_std_behavior_content(&canonical).is_some()
+                        || self
+                            .config
+                            .behaviors_registry_roots
+                            .values()
+                            .any(|root| resolve_behavior_in_registry(basename, root).is_some()));
+                if known_canonically {
+                    return Err(LoaderError::StdImportNotCanonical {
+                        given: import_path.to_string(),
+                        canonical,
+                    });
+                }
+                // Dev workspace with registry roots: the full searchable std
+                // universe was consulted and missed — the behavior does not
+                // exist under any accepted form. An authoring error, not infra.
+                if self.config.dev_workspace && !self.config.behaviors_registry_roots.is_empty() {
+                    return Err(LoaderError::InvalidPrimitiveImport(import_path.to_string()));
+                }
+                return Err(LoaderError::StdLibNotConfigured);
+            }
+        };
 
         // std/behaviors/game-core -> std_lib_path/behaviors/game-core.orb
         let relative_path = &import_path[4..]; // Remove "std/"
@@ -880,6 +922,49 @@ mod tests {
         assert!(matches!(
             result.unwrap_err(),
             LoaderError::StdLibNotConfigured
+        ));
+    }
+
+    #[test]
+    fn test_topic_qualified_std_import_of_known_behavior_is_authoring_error() {
+        // `std/<topic>/<kind>/<name>` copied from the browse tree must surface
+        // the canonical correction, not the infra-classified StdLibNotConfigured.
+        let config = LoaderConfig {
+            base_path: fixtures_dir(),
+            std_lib_path: None,
+            ..Default::default()
+        };
+        let loader = ExternalOrbitalLoader::new(config);
+
+        let result = loader.resolve_path("std/ui/core/atoms/std-modal", None);
+        match result.unwrap_err() {
+            LoaderError::StdImportNotCanonical { given, canonical } => {
+                assert_eq!(given, "std/ui/core/atoms/std-modal");
+                assert_eq!(canonical, "std/behaviors/std-modal");
+            }
+            other => panic!("expected StdImportNotCanonical, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn test_dev_workspace_unknown_std_import_is_authoring_error() {
+        // Dev mode with registry roots: the full searchable std universe was
+        // consulted and missed — an authoring error, never infra.
+        let mut roots = HashMap::new();
+        roots.insert("std".to_string(), fixtures_dir());
+        let config = LoaderConfig {
+            base_path: fixtures_dir(),
+            std_lib_path: None,
+            dev_workspace: true,
+            behaviors_registry_roots: roots,
+            ..Default::default()
+        };
+        let loader = ExternalOrbitalLoader::new(config);
+
+        let result = loader.resolve_path("std/nowhere/no-such-behavior", None);
+        assert!(matches!(
+            result.unwrap_err(),
+            LoaderError::InvalidPrimitiveImport(_)
         ));
     }
 
