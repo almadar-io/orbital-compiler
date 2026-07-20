@@ -313,6 +313,13 @@ fn validate_captured_payload_path(
             if let Some(unresolved) = resolve_payload_path(fields, &segments) {
                 let valid_at_level: Vec<String> =
                     unresolved.siblings.iter().map(|f| f.name.clone()).collect();
+                let suggestion = payload_sigil_hybrid_suggestion(&segments, Some(fields))
+                    .unwrap_or_else(|| {
+                        format!(
+                            "Add {{ \"name\": \"{}\", \"type\": \"...\" }} to the event's payload array",
+                            unresolved.segment
+                        )
+                    });
                 result.add_error(
                     ValidationError::error(
                         ErrorCode::BindingPayloadFieldUndeclared,
@@ -322,15 +329,18 @@ fn validate_captured_payload_path(
                             unresolved.segment, event_name
                         ),
                     )
-                    .with_suggestion(format!(
-                        "Add {{ \"name\": \"{}\", \"type\": \"...\" }} to the event's payload array",
-                        unresolved.segment
-                    ))
+                    .with_suggestion(suggestion)
                     .with_valid_values(valid_at_level),
                 );
             }
         }
         None => {
+            let suggestion = payload_sigil_hybrid_suggestion(&segments, None).unwrap_or_else(|| {
+                format!(
+                    "Add a payload schema to the '{}' event definition, or bind a field the event declares",
+                    event_name
+                )
+            });
             result.add_error(
                 ValidationError::error(
                     ErrorCode::BindingPayloadFieldUndeclared,
@@ -340,10 +350,7 @@ fn validate_captured_payload_path(
                         event_name, field_name
                     ),
                 )
-                .with_suggestion(format!(
-                    "Add a payload schema to the '{}' event definition, or bind a field the event declares",
-                    event_name
-                )),
+                .with_suggestion(suggestion),
             );
         }
     }
@@ -1017,6 +1024,29 @@ struct UnresolvedPayloadSegment<'a> {
     siblings: &'a [PayloadField],
 }
 
+/// `?payload.<field>` lexes as ONE dotted payload sigil and lowers to
+/// `@payload.payload.<field>` — an author reaching for the (illegal) hybrid
+/// form, not a field literally named "payload". Detected when the path's head
+/// is `payload`, deeper segments follow, and the schema declares no field
+/// actually named `payload`; returns the corrective suggestion.
+fn payload_sigil_hybrid_suggestion(
+    segments: &[&str],
+    payload_fields: Option<&[PayloadField]>,
+) -> Option<String> {
+    if segments.len() < 2 || segments[0] != "payload" {
+        return None;
+    }
+    if let Some(fields) = payload_fields {
+        if fields.iter().any(|f| f.name == "payload") {
+            return None;
+        }
+    }
+    let rest = segments[1..].join(".");
+    Some(format!(
+        "the `?` sigil already denotes the event payload — `?payload.{rest}` lowers to `@payload.payload.{rest}`; write `?{rest}` or `@payload.{rest}` instead"
+    ))
+}
+
 /// Walk `segments` (already `@payload.`-stripped + index-stripped) through the
 /// payload schema, descending into each matched field's `properties`. Returns
 /// `None` when every segment resolves, or the first segment that doesn't (with
@@ -1078,6 +1108,13 @@ fn validate_payload_field_references(
                     if let Some(unresolved) = resolve_payload_path(fields, &segments) {
                         let valid_at_level: Vec<String> =
                             unresolved.siblings.iter().map(|f| f.name.clone()).collect();
+                        let suggestion = payload_sigil_hybrid_suggestion(&segments, Some(fields))
+                            .unwrap_or_else(|| {
+                                format!(
+                                    "Add {{ \"name\": \"{}\", \"type\": \"...\" }} to the event's payload array",
+                                    unresolved.segment
+                                )
+                            });
                         result.add_error(
                             ValidationError::error(
                                 ErrorCode::BindingPayloadFieldUndeclared,
@@ -1087,16 +1124,20 @@ fn validate_payload_field_references(
                                     unresolved.segment, event_name
                                 ),
                             )
-                            .with_suggestion(format!(
-                                "Add {{ \"name\": \"{}\", \"type\": \"...\" }} to the event's payload array",
-                                unresolved.segment
-                            ))
+                            .with_suggestion(suggestion)
                             .with_valid_values(valid_at_level),
                         );
                     }
                 }
                 None => {
                     // No payload schema defined for this event
+                    let suggestion = payload_sigil_hybrid_suggestion(&segments, None)
+                        .unwrap_or_else(|| {
+                            format!(
+                                "Add a payload schema to the '{}' event definition: {{ \"key\": \"{}\", \"name\": \"...\", \"payload\": [{{ \"name\": \"{}\", \"type\": \"...\" }}] }}",
+                                event_name, event_name, field_name
+                            )
+                        });
                     result.add_error(
                         ValidationError::error(
                             ErrorCode::BindingPayloadFieldUndeclared,
@@ -1106,10 +1147,7 @@ fn validate_payload_field_references(
                                 event_name, field_name
                             ),
                         )
-                        .with_suggestion(format!(
-                            "Add a payload schema to the '{}' event definition: {{ \"key\": \"{}\", \"name\": \"...\", \"payload\": [{{ \"name\": \"{}\", \"type\": \"...\" }}] }}",
-                            event_name, event_name, field_name
-                        )),
+                        .with_suggestion(suggestion),
                     );
                 }
             }
@@ -1976,6 +2014,60 @@ mod tests {
         }];
         let result = validate_payload_field_references(&expr, "test", Some(&fields), "READ");
         assert!(result.errors.is_empty());
+    }
+
+    #[test]
+    fn test_payload_sigil_hybrid_gets_corrective_suggestion() {
+        // `?payload.date` lowers to `@payload.payload.date` — the suggestion
+        // must name the sigil mistake, not "add a field named payload".
+        let expr = SExpression::String("@payload.payload.date".to_string());
+        let fields = vec![PayloadField {
+            name: "date".to_string(),
+            field_type: "string".to_string(),
+            required: Some(true),
+            description: None,
+            properties: None,
+        }];
+        let result = validate_payload_field_references(&expr, "test", Some(&fields), "SLOT_CLICK");
+        let err = result
+            .errors
+            .iter()
+            .find(|e| e.code == ErrorCode::BindingPayloadFieldUndeclared)
+            .expect("hybrid path must still error");
+        let suggestion = err.suggestion.as_deref().unwrap_or("");
+        assert!(suggestion.contains("`?date`"), "got suggestion: {suggestion}");
+        assert!(suggestion.contains("`@payload.date`"), "got suggestion: {suggestion}");
+    }
+
+    #[test]
+    fn test_payload_field_literally_named_payload_keeps_default_suggestion() {
+        // A schema that DOES declare a field named `payload` is not the hybrid
+        // mistake — deeper misses under it keep the generic suggestion.
+        let expr = SExpression::String("@payload.payload.missing".to_string());
+        let fields = vec![PayloadField {
+            name: "payload".to_string(),
+            field_type: "object".to_string(),
+            required: Some(true),
+            description: None,
+            properties: Some(vec![PayloadField {
+                name: "present".to_string(),
+                field_type: "string".to_string(),
+                required: Some(true),
+                description: None,
+                properties: None,
+            }]),
+        }];
+        let result = validate_payload_field_references(&expr, "test", Some(&fields), "READ");
+        let err = result
+            .errors
+            .iter()
+            .find(|e| e.code == ErrorCode::BindingPayloadFieldUndeclared)
+            .expect("missing nested field must error");
+        let suggestion = err.suggestion.as_deref().unwrap_or("");
+        assert!(
+            !suggestion.contains("sigil"),
+            "legit `payload`-named field must not get the hybrid hint: {suggestion}"
+        );
     }
 
     #[test]

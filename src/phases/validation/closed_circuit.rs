@@ -55,6 +55,9 @@ struct ItemActionInfo {
     in_state: String,
     /// Slot where this action appears
     slot: String,
+    /// True when declared in an `itemActions` array (a per-row action on the
+    /// declaring component) rather than an `actions` button group.
+    from_item_actions: bool,
     /// Path for error reporting
     path: String,
 }
@@ -272,6 +275,7 @@ fn extract_item_actions(render_ui_effects: &[RenderUIInfo]) -> Vec<ItemActionInf
                         pattern_type: pattern_type.clone(),
                         in_state: render_ui.to_state.clone(),
                         slot: render_ui.slot.clone(),
+                        from_item_actions: action_prop == "itemActions",
                         path: format!("{}.props.{}", render_ui.path, action_prop),
                     });
                 }
@@ -996,6 +1000,14 @@ fn validate_state_appropriate_actions(
     }
 
     for action in item_actions {
+        // A per-row `itemActions` entry is a row action on its declaring
+        // component, never a form/list button — its event name carries no
+        // form or list semantics (a data-list row legitimately named CANCEL
+        // is "cancel this item", not a form cancel). Only `actions` button
+        // groups are subject to the state-appropriateness name checks.
+        if action.from_item_actions {
+            continue;
+        }
         let patterns_in_state = state_patterns.get(action.in_state.as_str());
 
         // Check form actions in non-form states
@@ -1094,6 +1106,7 @@ mod tests {
             pattern_type: "entity-table".to_string(),
             in_state: "idle".to_string(),
             slot: "main".to_string(),
+            from_item_actions: true,
             path: "test.path".to_string(),
         }];
 
@@ -1115,11 +1128,57 @@ mod tests {
             pattern_type: "entity-table".to_string(),
             in_state: "idle".to_string(),
             slot: "main".to_string(),
+            from_item_actions: true,
             path: "test.path".to_string(),
         }];
 
         let result = validate_action_component_match(&item_actions, "test");
         assert!(!result.is_valid()); // SAVE is invalid on entity-table
+    }
+
+    fn render_ui_info(pattern_type: &str, to_state: &str) -> RenderUIInfo {
+        RenderUIInfo {
+            slot: "main".to_string(),
+            pattern_type: Some(pattern_type.to_string()),
+            props: None,
+            to_state: to_state.to_string(),
+            path: "test.path".to_string(),
+        }
+    }
+
+    fn item_action(action: &str, in_state: &str, from_item_actions: bool) -> ItemActionInfo {
+        ItemActionInfo {
+            action: action.to_string(),
+            event: action.to_string(),
+            pattern_type: "data-list".to_string(),
+            in_state: in_state.to_string(),
+            slot: "main".to_string(),
+            from_item_actions,
+            path: "test.path".to_string(),
+        }
+    }
+
+    #[test]
+    fn test_row_action_named_cancel_is_not_a_form_action() {
+        // A data-list row action named CANCEL ("cancel this appointment") in a
+        // state with no form pattern must NOT trip the form-action name check.
+        let actions = vec![item_action("CANCEL", "idle", true)];
+        let renders = vec![render_ui_info("data-list", "idle")];
+        let result = validate_state_appropriate_actions(&actions, &renders, "test");
+        assert!(result.is_valid());
+    }
+
+    #[test]
+    fn test_button_group_cancel_in_non_form_state_still_flagged() {
+        // The same name in an `actions` button group (e.g. on an alert) keeps
+        // the state-appropriateness check.
+        let actions = vec![item_action("CANCEL", "idle", false)];
+        let renders = vec![render_ui_info("alert", "idle")];
+        let result = validate_state_appropriate_actions(&actions, &renders, "test");
+        assert!(result
+            .errors
+            .iter()
+            .any(|e| e.code == ErrorCode::CircuitActionComponentMismatch));
     }
 
     #[test]
