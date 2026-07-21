@@ -365,9 +365,19 @@ fn uniquify_cross_orbital_pulled_siblings(
             *name_orbital_count.entry(n).or_default() += 1;
         }
     }
+    // Stamp-before-rename: a display rename applies to the DECLARATION + the
+    // ledger. The first copy of a stamped pulled sibling keeps its id (ledger
+    // row renamed along); every ADDITIONAL copy of the same source trait is a
+    // distinct declaration and gets its own deterministic identity
+    // (`derive_id(source_id, orbital_name)` + a cloned ledger row) — one ledger
+    // row cannot carry two curNames.
+    let mut id_claimed: HashSet<String> = HashSet::new();
     for (orbital_idx, pulled) in pulled_by_orbital {
         let orbital_name = schema.orbitals[*orbital_idx].name.clone();
         let mut renames: HashMap<String, String> = HashMap::new();
+        // (source_id, new_name, derived_copy_id) — applied to the ledger after
+        // the trait borrow ends.
+        let mut ledger_ops: Vec<(String, String, Option<String>)> = Vec::new();
         for old_name in pulled {
             if name_orbital_count.get(old_name).copied().unwrap_or(0) <= 1 {
                 continue;
@@ -381,6 +391,16 @@ fn uniquify_cross_orbital_pulled_siblings(
                 if let TraitReference::Inline(td) = tr {
                     if td.name == *old_name {
                         td.name = new_name.clone();
+                        if let Some(source_id) = td.id.clone() {
+                            if id_claimed.insert(source_id.clone()) {
+                                ledger_ops.push((source_id, new_name.clone(), None));
+                            } else {
+                                let copy_id =
+                                    orbital_core::identity::derive_id(&source_id, &orbital_name);
+                                td.id = Some(copy_id.clone());
+                                ledger_ops.push((source_id, new_name.clone(), Some(copy_id)));
+                            }
+                        }
                     }
                     // A sibling-listening parent in the same orbital points its
                     // `listens` source at the old sibling name; track the rename.
@@ -400,6 +420,38 @@ fn uniquify_cross_orbital_pulled_siblings(
                 }
             }
             renames.insert(old_name.clone(), new_name);
+        }
+        if !ledger_ops.is_empty() {
+            if let Some(ledger) = schema.ledger.as_mut() {
+                let at = orbital_core::time_util::now_rfc3339();
+                for (source_id, new_name, copy_id) in &ledger_ops {
+                    match copy_id {
+                        None => ledger.rename(source_id, new_name, &at),
+                        Some(copy_id) => {
+                            if let Some(src) = ledger.entries.get(source_id).cloned() {
+                                let mut rename_hist = src.renames;
+                                rename_hist.push(orbital_core::identity::RenameRecord {
+                                    from: src.cur_name,
+                                    to: new_name.clone(),
+                                    at: at.clone(),
+                                });
+                                ledger.entries.insert(
+                                    copy_id.clone(),
+                                    orbital_core::identity::LedgerEntry {
+                                        id: copy_id.clone(),
+                                        kind: src.kind,
+                                        baked_name: src.baked_name,
+                                        cur_name: new_name.clone(),
+                                        renames: rename_hist,
+                                        owner: src.owner,
+                                        parent: src.parent,
+                                    },
+                                );
+                            }
+                        }
+                    }
+                }
+            }
         }
         // Rewrite the `@trait.<old>` literals this rename orphaned — in effect
         // trees AND config-field defaults. Id-first resolution cannot cover
@@ -1101,6 +1153,84 @@ mod tests {
             let config_json = serde_json::to_string(&host.config).unwrap();
             assert!(config_json.contains(&format!("@trait.{renamed}")), "{orb_name}: config default rewritten");
         }
+    }
+
+    /// Stamped pulled siblings: the first renamed copy keeps its id and drags
+    /// the ledger row's curName along; a second copy of the SAME source id is
+    /// a distinct declaration — it gets a deterministic derived id + its own
+    /// ledger row, since one row cannot carry two curNames
+    /// (ORB_ID_NAME_MISMATCH storm on app organisms composing shared atoms).
+    #[test]
+    fn uniquify_rename_propagates_identity_per_copy() {
+        let orbital = |name: &str| {
+            serde_json::json!({
+                "name": name,
+                "entity": { "name": format!("{name}Item"), "fields": [] },
+                "traits": [{
+                    "name": "CloseButton",
+                    "id": "trt_CLOSE0000000000000000000000",
+                    "stateMachine": {
+                        "states": [{ "name": "idle", "isInitial": true }],
+                        "transitions": [{ "from": "idle", "to": "idle", "event": "INIT" }]
+                    }
+                }]
+            })
+        };
+        let mut schema: OrbitalSchema = serde_json::from_value(serde_json::json!({
+            "version": "2.0", "name": "T",
+            "orbitals": [orbital("Alpha"), orbital("Beta")],
+            "schemaVersion": 1,
+            "ledger": {
+                "schemaVersion": 1,
+                "entries": {
+                    "trt_CLOSE0000000000000000000000": {
+                        "id": "trt_CLOSE0000000000000000000000",
+                        "kind": "trait",
+                        "bakedName": "CloseButton",
+                        "curName": "CloseButton",
+                        "renames": [],
+                        "owner": "workspace"
+                    }
+                }
+            }
+        }))
+        .expect("valid schema");
+
+        uniquify_cross_orbital_pulled_siblings(
+            &mut schema,
+            &[
+                (0, vec!["CloseButton".to_string()]),
+                (1, vec!["CloseButton".to_string()]),
+            ],
+        );
+
+        let ledger = schema.ledger.as_ref().expect("ledger kept");
+        assert_eq!(
+            ledger.cur_name("trt_CLOSE0000000000000000000000"),
+            Some("AlphaCloseButton"),
+            "first copy renames the source row"
+        );
+        let beta_td = match &schema.orbitals[1].traits[0] {
+            TraitReference::Inline(td) => td,
+            other => panic!("inline expected: {other:?}"),
+        };
+        assert_eq!(beta_td.name, "BetaCloseButton");
+        let beta_id = beta_td.id.as_deref().expect("second copy re-minted");
+        assert_ne!(beta_id, "trt_CLOSE0000000000000000000000");
+        assert_eq!(
+            ledger.cur_name(beta_id),
+            Some("BetaCloseButton"),
+            "second copy carries its own ledger row"
+        );
+        let alpha_td = match &schema.orbitals[0].traits[0] {
+            TraitReference::Inline(td) => td,
+            other => panic!("inline expected: {other:?}"),
+        };
+        assert_eq!(
+            alpha_td.id.as_deref(),
+            Some("trt_CLOSE0000000000000000000000"),
+            "first copy keeps the source id"
+        );
     }
 
     #[test]

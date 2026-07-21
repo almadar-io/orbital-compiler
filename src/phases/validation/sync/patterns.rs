@@ -66,7 +66,9 @@ pub static PATTERN_TYPES: LazyLock<HashSet<&'static str>> = LazyLock::new(|| {
         "menu",
         "number-stepper",
         "option-constraint-group",
+        "page-transition",
         "popover",
+        "presence",
         "progress-bar",
         "progress-dots",
         "pull-quote",
@@ -374,7 +376,9 @@ pub static PATTERN_TO_CATEGORY: LazyLock<HashMap<&'static str, &'static str>> =
             ("menu", "component"),
             ("number-stepper", "component"),
             ("option-constraint-group", "component"),
+            ("page-transition", "component"),
             ("popover", "component"),
+            ("presence", "component"),
             ("progress-bar", "component"),
             ("progress-dots", "component"),
             ("pull-quote", "component"),
@@ -701,9 +705,11 @@ pub static PATTERN_REQUIRED_PROPS: LazyLock<HashMap<&'static str, Vec<&'static s
             ("navigation", vec!["items"]),
             ("notification", vec!["message"]),
             ("option-constraint-group", vec!["groupId", "title", "options"]),
+            ("page-transition", vec!["locationKey", "children"]),
             ("pagination", vec!["currentPage", "totalPages"]),
             ("popover", vec!["content", "children"]),
             ("positioned-canvas", vec!["items"]),
+            ("presence", vec!["show", "children"]),
             ("pricing-card", vec!["name", "price", "features", "action"]),
             ("pricing-grid", vec!["plans"]),
             ("pricing-page-template", vec!["entity"]),
@@ -2727,6 +2733,7 @@ pub static PATTERN_PROPS_SCHEMA: LazyLock<HashMap<&'static str, HashSet<&'static
                     "isOpen",
                     "look",
                     "onClose",
+                    "onExited",
                     "showCloseButton",
                     "size",
                     "swipeDownToClose",
@@ -2844,6 +2851,7 @@ pub static PATTERN_PROPS_SCHEMA: LazyLock<HashMap<&'static str, HashSet<&'static
                 .into_iter()
                 .collect(),
             ),
+            ("page-transition", ["children", "className", "locationKey"].into_iter().collect()),
             (
                 "pagination",
                 [
@@ -2908,6 +2916,7 @@ pub static PATTERN_PROPS_SCHEMA: LazyLock<HashMap<&'static str, HashSet<&'static
                 .into_iter()
                 .collect(),
             ),
+            ("presence", ["children", "className", "show"].into_iter().collect()),
             (
                 "pricing-card",
                 [
@@ -6624,6 +6633,7 @@ pub static PATTERN_PROP_TYPES: LazyLock<HashMap<&'static str, HashMap<&'static s
                 [
                     ("isOpen", &["boolean"] as &[&str]),
                     ("onClose", &["function"] as &[&str]),
+                    ("onExited", &["function"] as &[&str]),
                     ("title", &["string"] as &[&str]),
                     ("children", &["node"] as &[&str]),
                     ("footer", &["node"] as &[&str]),
@@ -6771,6 +6781,16 @@ pub static PATTERN_PROP_TYPES: LazyLock<HashMap<&'static str, HashMap<&'static s
                 .collect(),
             ),
             (
+                "page-transition",
+                [
+                    ("locationKey", &["string"] as &[&str]),
+                    ("children", &["node"] as &[&str]),
+                    ("className", &["string"] as &[&str]),
+                ]
+                .into_iter()
+                .collect(),
+            ),
+            (
                 "pagination",
                 [
                     ("currentPage", &["number"] as &[&str]),
@@ -6853,6 +6873,16 @@ pub static PATTERN_PROP_TYPES: LazyLock<HashMap<&'static str, HashMap<&'static s
                     ("selectEvent", &["string"] as &[&str]),
                     ("moveEvent", &["string"] as &[&str]),
                     ("className", &["string"] as &[&str]),
+                ]
+                .into_iter()
+                .collect(),
+            ),
+            (
+                "presence",
+                [
+                    ("show", &["boolean"] as &[&str]),
+                    ("className", &["string"] as &[&str]),
+                    ("children", &["node"] as &[&str]),
                 ]
                 .into_iter()
                 .collect(),
