@@ -2,7 +2,7 @@
 //!
 //! Source: packages/almadar-core/src/patterns/patterns-registry.json
 //!
-//! Last synced: 2026-07-16
+//! Last synced: 2026-07-21
 //! To regenerate: npx tsx tools/almadar-pattern-sync/index.ts
 //!
 //! DO NOT EDIT MANUALLY - changes will be overwritten on next sync.
@@ -2566,7 +2566,7 @@ pub static PATTERN_PROPS_SCHEMA: LazyLock<HashMap<&'static str, HashSet<&'static
                 .into_iter()
                 .collect(),
             ),
-            ("loading-state", ["className", "message", "title"].into_iter().collect()),
+            ("loading-state", ["className", "fullPage", "message", "title"].into_iter().collect()),
             (
                 "map-view",
                 [
@@ -6429,6 +6429,7 @@ pub static PATTERN_PROP_TYPES: LazyLock<HashMap<&'static str, HashMap<&'static s
                     ("title", &["string"] as &[&str]),
                     ("message", &["string"] as &[&str]),
                     ("className", &["string"] as &[&str]),
+                    ("fullPage", &["boolean"] as &[&str]),
                 ]
                 .into_iter()
                 .collect(),
