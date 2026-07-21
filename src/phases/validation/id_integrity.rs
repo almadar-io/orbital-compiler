@@ -22,7 +22,7 @@
 use orbital_core::identity::{id_kind_of, IdKind};
 use orbital_core::schema::{
     EntityDefinition, EntityRef, FieldDefinition, ListenSource, Orbital, OrbitalSchema, PageRef,
-    TraitReference,
+    SExpression, TraitReference,
 };
 use std::collections::{HashMap, HashSet};
 
@@ -114,6 +114,29 @@ fn declare_trait(
         if let Some(id) = &de.id {
             declared.insert(id.clone(), (IdKind::Entity, de.name.clone()));
         }
+    }
+}
+
+/// Collect bare `@trait.<Name>` embed tokens from an S-expression tree — the
+/// same token shape `orbital_core::stamp` scans an INLINE trait's whole body
+/// for at stamp time (render-ui `children`, `renderItem`/fn-form lambda bodies,
+/// config defaults alike, no lambda special-casing needed since the walk is
+/// unconditional). Stamp only builds that `traitEmbedIds` id side-map for
+/// Inline traits, so a Reference trait's `config` carries these as bare names
+/// with no id sibling — this walker recovers them for name-based resolution.
+fn collect_trait_embed_names(expr: &SExpression, out: &mut HashSet<String>) {
+    match expr {
+        SExpression::String(s) => {
+            if let Some(rest) = s.strip_prefix("@trait.") {
+                let name = rest.split(['.', '[']).next().unwrap_or(rest);
+                if !name.is_empty() {
+                    out.insert(name.to_string());
+                }
+            }
+        }
+        SExpression::Array(items) => items.iter().for_each(|i| collect_trait_embed_names(i, out)),
+        SExpression::Object(map) => map.values().for_each(|v| collect_trait_embed_names(v, out)),
+        SExpression::Null | SExpression::Bool(_) | SExpression::Number(_) => {}
     }
 }
 
@@ -351,12 +374,38 @@ impl Checker<'_> {
                 for (di, de) in td.data_entities.iter().flatten().enumerate() {
                     self.walk_entity(de, &format!("{path}.dataEntities[{di}]"));
                 }
+                // Render-tree carriers: `@trait.<Name>` embed tokens anywhere in
+                // this trait's transition/tick effects and config defaults
+                // (render-ui `children`, fn-form lambda bodies alike). Most
+                // resolve via the stamp-time `traitEmbedIds` id side-map, but a
+                // token introduced by INLINE's config-override substitution (a
+                // `uses`-pulled Reference trait merged into an Inline body)
+                // postdates that stamp and carries no id sibling — the walk
+                // falls back to the same ledger name lookup the rest of it uses.
+                let mut embed_names: HashSet<String> = HashSet::new();
+                for transition in &td.state_machine.transitions {
+                    for effect in transition.effects.iter().flatten() {
+                        collect_trait_embed_names(effect, &mut embed_names);
+                    }
+                }
+                for tick in td.ticks.iter().flatten() {
+                    for effect in &tick.effects {
+                        collect_trait_embed_names(effect, &mut embed_names);
+                    }
+                }
+                for (_, cf) in td.config.iter().flatten() {
+                    if let Some(default) = &cf.default {
+                        collect_trait_embed_names(default, &mut embed_names);
+                    }
+                }
+                self.note_trait_embed_names(embed_names, td.trait_embed_ids.as_ref());
             }
             TraitReference::Reference {
                 reference,
                 ref_id,
                 linked_entity,
                 linked_entity_id,
+                config,
                 ..
             } => {
                 self.check(
@@ -371,6 +420,44 @@ impl Checker<'_> {
                     linked_entity.as_deref(),
                     format!("{path}.linkedEntity"),
                 );
+                // A Reference trait carries no `traitEmbedIds` side-map at all
+                // (stamp only scans Inline bodies) — a config default like
+                // `children: ["@trait.Foo"]` is a bare NAME, resolved by the
+                // ledger lookup.
+                if let Some(config) = config {
+                    let mut embed_names: HashSet<String> = HashSet::new();
+                    for cf in config.values() {
+                        if let Some(default) = &cf.default {
+                            collect_trait_embed_names(default, &mut embed_names);
+                        }
+                    }
+                    self.note_trait_embed_names(embed_names, None);
+                }
+            }
+        }
+    }
+
+    /// Resolve a set of bare `@trait.<Name>` embed names to ids and mark them
+    /// seen: the trait's own id side-map first (authoritative when present),
+    /// else the ledger's name lookup (covers a name with no id sibling).
+    fn note_trait_embed_names(
+        &mut self,
+        names: HashSet<String>,
+        embed_ids: Option<&HashMap<String, String>>,
+    ) {
+        for id in embed_ids.iter().flat_map(|m| m.values()) {
+            self.seen.insert(id.clone());
+        }
+        for name in names {
+            if embed_ids.is_some_and(|m| m.contains_key(&name)) {
+                continue;
+            }
+            if let Some(id) = self
+                .index
+                .ledger
+                .and_then(|l| l.resolve_name(IdKind::Trait, &name))
+            {
+                self.seen.insert(id.to_string());
             }
         }
     }
@@ -645,6 +732,91 @@ mod tests {
         assert!(
             id_codes(&run(&parse(v))).is_empty(),
             "event row with a live parent trait must not be an orphan"
+        );
+    }
+
+    #[test]
+    fn render_tree_embed_via_id_side_map_is_not_orphan() {
+        // A sibling trait carried ONLY by a render-tree `@trait.Widget` embed —
+        // recorded in the host's `traitEmbedIds` id side-map, no other node
+        // referencing it — must not be flagged orphan.
+        let mut v = healthy_json();
+        v["orbitals"][0]["traits"][0]["traitEmbedIds"] =
+            serde_json::json!({ "Widget": "trt_WIDGET0000000000000000000" });
+        v["ledger"]["entries"]["trt_WIDGET0000000000000000000"] = serde_json::json!({
+            "id": "trt_WIDGET0000000000000000000",
+            "kind": "trait",
+            "bakedName": "Widget",
+            "curName": "Widget",
+            "renames": [],
+            "owner": "workspace"
+        });
+        let result = run(&parse(v));
+        assert!(
+            id_codes(&result).is_empty(),
+            "id side-map embed must not orphan: {:?}",
+            id_codes(&result)
+        );
+    }
+
+    #[test]
+    fn render_tree_embed_removed_still_orphans() {
+        // Same ledger row as above, but with no `traitEmbedIds` entry carrying
+        // it — rule 4 must still catch genuinely stale rows.
+        let mut v = healthy_json();
+        v["ledger"]["entries"]["trt_WIDGET0000000000000000000"] = serde_json::json!({
+            "id": "trt_WIDGET0000000000000000000",
+            "kind": "trait",
+            "bakedName": "Widget",
+            "curName": "Widget",
+            "renames": [],
+            "owner": "workspace"
+        });
+        let codes = id_codes(&run(&parse(v)));
+        assert_eq!(
+            codes,
+            vec![ErrorCode::OrbIdLedgerOrphan],
+            "codes: {codes:?}"
+        );
+    }
+
+    #[test]
+    fn fn_form_lambda_body_embed_is_not_orphan() {
+        // `traitEmbedIds` only covers Inline-trait bodies at stamp time; a
+        // Reference trait's config can carry a bare `@trait.<Name>` NAME (no id
+        // sibling) nested inside a `renderItem` fn-form lambda body. Resolved by
+        // name through the ledger, it must not orphan.
+        let mut v = healthy_json();
+        v["orbitals"][0]["traits"]
+            .as_array_mut()
+            .unwrap()
+            .push(serde_json::json!({
+                "ref": "SomeLib.traits.SomeRender",
+                "name": "ChildHost",
+                "linkedEntity": "Task",
+                "linkedEntityId": "ent_TASK000000000000000000000",
+                "config": {
+                    "renderItem": {
+                        "type": "unknown",
+                        "default": ["fn", ["item"], ["render-ui", "main",
+                            { "type": "stack", "children": ["@trait.LambdaWidget"] }
+                        ]]
+                    }
+                }
+            }));
+        v["ledger"]["entries"]["trt_LAMBDAWIDGET00000000000"] = serde_json::json!({
+            "id": "trt_LAMBDAWIDGET00000000000",
+            "kind": "trait",
+            "bakedName": "LambdaWidget",
+            "curName": "LambdaWidget",
+            "renames": [],
+            "owner": "workspace"
+        });
+        let result = run(&parse(v));
+        assert!(
+            id_codes(&result).is_empty(),
+            "name-only embed inside a fn-form lambda body must not orphan: {:?}",
+            id_codes(&result)
         );
     }
 }
