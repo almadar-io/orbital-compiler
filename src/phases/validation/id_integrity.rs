@@ -8,6 +8,10 @@
 //!   a declared arena node nor a `schema.ledger` entry.
 //! - `ORB_ID_NAME_MISMATCH` (error) — a reference carries BOTH a name and its id
 //!   sibling, but the ledger's `curName` for that id disagrees with the name.
+//!   A `curName` in `@config.<key>` form is a config-forward alias: it is
+//!   satisfied (no error) exactly when the owning trait's (`parent`) config
+//!   `<key>` value equals the call-site name — both are legitimate views of
+//!   the same event (authored forward vs resolved runtime name).
 //! - `ORB_ID_KIND_MISMATCH` (error) — an id's prefix kind (`id_kind_of`)
 //!   disagrees with the position it occupies.
 //! - `ORB_ID_LEDGER_ORPHAN` (warning) — a ledger row no node carries (stale).
@@ -35,12 +39,17 @@ struct IdIndex<'a> {
     ledger: Option<&'a orbital_core::identity::IdentityLedger>,
     declared: HashMap<String, (IdKind, String)>,
     trait_ids: HashSet<String>,
+    /// Per-trait string config values (`trait id → key → value`), from
+    /// `ConfigField.default` — the resolution source for `@config.<key>`
+    /// event forwards.
+    config_values: HashMap<String, HashMap<String, String>>,
 }
 
 impl<'a> IdIndex<'a> {
     fn build(schema: &'a OrbitalSchema) -> Self {
         let mut declared: HashMap<String, (IdKind, String)> = HashMap::new();
         let mut trait_ids: HashSet<String> = HashSet::new();
+        let mut config_values: HashMap<String, HashMap<String, String>> = HashMap::new();
 
         for orbital in &schema.orbitals {
             if let Some(id) = &orbital.id {
@@ -51,7 +60,7 @@ impl<'a> IdIndex<'a> {
                 declare_entity(aux.as_inline(), &mut declared);
             }
             for tr in &orbital.traits {
-                declare_trait(tr, &mut declared, &mut trait_ids);
+                declare_trait(tr, &mut declared, &mut trait_ids, &mut config_values);
             }
             for page in orbital.pages.iter().flatten() {
                 if let PageRef::Inline(p) = page {
@@ -59,7 +68,7 @@ impl<'a> IdIndex<'a> {
                         declared.insert(id.clone(), (IdKind::Page, p.name.clone()));
                     }
                     for tr in p.traits.iter().flatten() {
-                        declare_trait(tr, &mut declared, &mut trait_ids);
+                        declare_trait(tr, &mut declared, &mut trait_ids, &mut config_values);
                     }
                 }
             }
@@ -69,6 +78,7 @@ impl<'a> IdIndex<'a> {
             ledger: schema.ledger.as_ref(),
             declared,
             trait_ids,
+            config_values,
         }
     }
 
@@ -79,6 +89,28 @@ impl<'a> IdIndex<'a> {
 
     fn cur_name(&self, id: &str) -> Option<&str> {
         self.ledger.and_then(|l| l.cur_name(id))
+    }
+
+    /// Rule-2 alias: a ledger `curName` in `@config.<key>` form is a
+    /// config-forward — the authored view of an event whose call sites carry
+    /// the RESOLVED name. Accepted exactly when the owning trait's (ledger
+    /// `parent`) config `<key>` value equals the call-site name; anything
+    /// else is still a genuine drift.
+    fn config_forward_matches(&self, id: &str, cur: &str, name: &str) -> bool {
+        let Some(key) = cur.strip_prefix("@config.") else {
+            return false;
+        };
+        let Some(parent) = self
+            .ledger
+            .and_then(|l| l.entries.get(id))
+            .and_then(|e| e.parent.as_deref())
+        else {
+            return false;
+        };
+        self.config_values
+            .get(parent)
+            .and_then(|cfg| cfg.get(key))
+            .is_some_and(|v| v == name)
     }
 }
 
@@ -96,6 +128,7 @@ fn declare_trait(
     tr: &TraitReference,
     declared: &mut HashMap<String, (IdKind, String)>,
     trait_ids: &mut HashSet<String>,
+    config_values: &mut HashMap<String, HashMap<String, String>>,
 ) {
     let TraitReference::Inline(td) = tr else {
         return;
@@ -103,6 +136,18 @@ fn declare_trait(
     if let Some(id) = &td.id {
         declared.insert(id.clone(), (IdKind::Trait, td.name.clone()));
         trait_ids.insert(id.clone());
+        if let Some(config) = &td.config {
+            let values: HashMap<String, String> = config
+                .iter()
+                .filter_map(|(k, f)| match &f.default {
+                    Some(SExpression::String(v)) => Some((k.clone(), v.clone())),
+                    _ => None,
+                })
+                .collect();
+            if !values.is_empty() {
+                config_values.insert(id.clone(), values);
+            }
+        }
     }
     // Emits are the id-bearing declaration site for events.
     for emit in td.emits.iter().flatten() {
@@ -192,7 +237,7 @@ impl Checker<'_> {
         if let (Some(name), Some(cur)) =
             (name.filter(|n| !n.contains('.')), self.index.cur_name(id))
         {
-            if cur != name {
+            if cur != name && !self.index.config_forward_matches(id, cur, name) {
                 self.result.add_error(ValidationError::error(
                     ErrorCode::OrbIdNameMismatch,
                     path,
@@ -664,6 +709,53 @@ mod tests {
         assert_eq!(
             codes,
             vec![ErrorCode::OrbIdNameMismatch],
+            "codes: {codes:?}"
+        );
+    }
+
+    #[test]
+    fn config_forward_alias_is_accepted() {
+        let mut v = healthy_json();
+        // Authored view: the emit's ledger row keeps the `@config.<key>` forward
+        // while every call site carries the RESOLVED name (the config value).
+        v["ledger"]["entries"]["evt_REFRESH0000000000000000"]["curName"] =
+            serde_json::json!("@config.onRefresh");
+        v["orbitals"][0]["traits"][0]["config"] = serde_json::json!({
+            "onRefresh": { "type": "string", "default": "REFRESH" }
+        });
+        let codes = id_codes(&run(&parse(v)));
+        assert!(
+            codes.is_empty(),
+            "config-forward curName resolved by the owning trait's config must be silent (emit + listens sites): {codes:?}"
+        );
+    }
+
+    #[test]
+    fn config_forward_alias_rejects_unresolved_name() {
+        let mut v = healthy_json();
+        // Forward form in the ledger, but the call-site name does NOT equal the
+        // config value — still a genuine drift.
+        v["ledger"]["entries"]["evt_REFRESH0000000000000000"]["curName"] =
+            serde_json::json!("@config.onRefresh");
+        v["orbitals"][0]["traits"][0]["config"] = serde_json::json!({
+            "onRefresh": { "type": "string", "default": "RELOAD" }
+        });
+        let codes = id_codes(&run(&parse(v)));
+        assert!(
+            codes.iter().all(|c| *c == ErrorCode::OrbIdNameMismatch) && !codes.is_empty(),
+            "codes: {codes:?}"
+        );
+    }
+
+    #[test]
+    fn config_forward_alias_requires_the_config_key() {
+        let mut v = healthy_json();
+        // Forward form with no matching config entry on the owning trait.
+        v["ledger"]["entries"]["evt_REFRESH0000000000000000"]["curName"] =
+            serde_json::json!("@config.onRefresh");
+        let codes = id_codes(&run(&parse(v)));
+        assert!(
+            codes.iter().all(|c| *c == ErrorCode::OrbIdNameMismatch) && !codes.is_empty(),
             "codes: {codes:?}"
         );
     }
