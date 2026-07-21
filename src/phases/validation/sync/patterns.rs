@@ -672,7 +672,6 @@ pub static PATTERN_REQUIRED_PROPS: LazyLock<HashMap<&'static str, Vec<&'static s
             ("flip-card", vec!["front", "back"]),
             ("flip-container", vec!["flipped", "children"]),
             ("form", vec!["fields"]),
-            ("form-actions", vec!["children"]),
             ("form-field", vec!["label", "children"]),
             ("form-layout", vec!["children"]),
             ("form-section", vec!["fields"]),
@@ -2071,20 +2070,15 @@ pub static PATTERN_PROPS_SCHEMA: LazyLock<HashMap<&'static str, HashSet<&'static
             (
                 "form-actions",
                 [
-                    "activeFilters",
-                    "align",
                     "children",
                     "className",
-                    "error",
-                    "isLoading",
-                    "page",
-                    "pageSize",
-                    "searchValue",
-                    "selectedIds",
-                    "sortBy",
-                    "sortDirection",
-                    "sticky",
-                    "totalCount",
+                    "entity",
+                    "filters",
+                    "look",
+                    "orientation",
+                    "primary",
+                    "secondary",
+                    "variant",
                 ]
                 .into_iter()
                 .collect(),
@@ -5842,20 +5836,15 @@ pub static PATTERN_PROP_TYPES: LazyLock<HashMap<&'static str, HashMap<&'static s
             (
                 "form-actions",
                 [
-                    ("className", &["string"] as &[&str]),
-                    ("isLoading", &["boolean"] as &[&str]),
-                    ("error", &["object"] as &[&str]),
-                    ("sortBy", &["string"] as &[&str]),
-                    ("sortDirection", &["string"] as &[&str]),
-                    ("searchValue", &["string"] as &[&str]),
-                    ("page", &["number"] as &[&str]),
-                    ("pageSize", &["number"] as &[&str]),
-                    ("totalCount", &["number"] as &[&str]),
-                    ("activeFilters", &["object"] as &[&str]),
-                    ("selectedIds", &["array"] as &[&str]),
                     ("children", &["node"] as &[&str]),
-                    ("sticky", &["boolean"] as &[&str]),
-                    ("align", &["string"] as &[&str]),
+                    ("primary", &["object"] as &[&str]),
+                    ("secondary", &["array"] as &[&str]),
+                    ("variant", &["string"] as &[&str]),
+                    ("orientation", &["string"] as &[&str]),
+                    ("className", &["string"] as &[&str]),
+                    ("entity", &["string"] as &[&str]),
+                    ("filters", &["array"] as &[&str]),
+                    ("look", &["string"] as &[&str]),
                 ]
                 .into_iter()
                 .collect(),
@@ -8806,8 +8795,9 @@ pub static PATTERN_PROP_ENUM_VALUES: LazyLock<HashMap<&'static str, HashMap<&'st
             (
                 "form-actions",
                 [
-                    ("sortDirection", &["asc", "desc"] as &[&str]),
-                    ("align", &["left", "right", "between", "center"] as &[&str]),
+                    ("variant", &["default", "segmented", "toggle"] as &[&str]),
+                    ("orientation", &["horizontal", "vertical"] as &[&str]),
+                    ("look", &["right-aligned-buttons", "floating-bar", "inline-row", "dropdown-menu", "command-palette-trigger"] as &[&str]),
                 ]
                 .into_iter()
                 .collect(),
