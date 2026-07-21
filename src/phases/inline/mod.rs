@@ -3699,6 +3699,66 @@ mod tests {
     }
 
     #[test]
+    fn merge_entity_fields_self_relation_retargets_id_with_name() {
+        // Caller (rebind target) has its own stamped id; imported entity has a
+        // self-relational field (e.g. ThreadPost.replies : [ThreadPost]) whose
+        // relation must be retargeted to the caller BOTH by name and by id — a
+        // dual-carry mismatch (ORB_ID_NAME_MISMATCH) fires if the id sibling is
+        // left pointing at the imported entity's own ledger row.
+        use orbital_core::schema::{Cardinality, FieldType, RelationDefinition};
+
+        let mut caller = EntityDefinition {
+            shared: false,
+            name: "Ticket".to_string(),
+            collection: None,
+            persistence: None,
+            fields: vec![make_field("id", FieldType::String)],
+            instances: None,
+            id: Some("ent_CALLER_TICKET".to_string()),
+        };
+
+        let mut replies_field = make_field("replies", FieldType::Relation);
+        replies_field.relation = Some(RelationDefinition {
+            entity: "ThreadPost".to_string(),
+            entity_id: Some("ent_IMPORTED_THREADPOST".to_string()),
+            cardinality: Some(Cardinality::Many),
+        });
+        let imported = EntityDefinition {
+            shared: false,
+            name: "ThreadPost".to_string(),
+            collection: None,
+            persistence: None,
+            fields: vec![make_field("id", FieldType::String), replies_field],
+            instances: None,
+            id: Some("ent_IMPORTED_THREADPOST".to_string()),
+        };
+
+        merge_imported_entity_fields(&mut caller, &imported, false, &HashSet::new());
+
+        let merged = caller
+            .fields
+            .iter()
+            .find(|f| f.name.as_deref() == Some("replies"))
+            .expect("replies field must be merged onto the caller entity");
+        let rel = merged
+            .relation
+            .as_ref()
+            .expect("merged replies field must keep its relation");
+
+        assert_eq!(rel.entity, "Ticket", "relation name must retarget to the caller entity");
+        assert_eq!(
+            rel.entity_id.as_deref(),
+            Some("ent_CALLER_TICKET"),
+            "relation id must move together with the name to the caller entity's own id"
+        );
+        assert_ne!(
+            rel.entity_id.as_deref(),
+            Some("ent_IMPORTED_THREADPOST"),
+            "the imported source entity's id must not survive the retarget"
+        );
+    }
+
+    #[test]
     fn get_entity_for_trait_orbital_finds_correct_orbital() {
         // Multi-orbital import: trait lives in orbital 1, its entity should
         // be returned (not orbital 0's entity).

@@ -541,6 +541,17 @@ impl<'a> Resolver<'a> {
             for event in events {
                 // EventDefinition has key and name (optional)
                 let event_key = &event.key;
+                // A config-forward event (`@config.<knob> -> external { ... }`)
+                // resolves its key to the knob's effective value earlier in the
+                // inline phase (`resolve_config_ref_emit_names`). An unset knob
+                // legitimately resolves to its declared default — which can be
+                // `""` (the "this optional event slot is unfulfilled" contract,
+                // e.g. `extraAddonEvent : string = ""`). Such a slot has no
+                // event to carry, so it must not become an OirEvent at all —
+                // every codegen backend would otherwise emit an empty-name row.
+                if event_key.is_empty() {
+                    continue;
+                }
                 let mut oir_event = OirEvent::new(event_key);
                 oir_event.description = event.name.clone();
 
@@ -576,6 +587,9 @@ impl<'a> Resolver<'a> {
 
         // Also add events from transitions if not already added
         for trans in &sm.transitions {
+            if trans.event.is_empty() {
+                continue;
+            }
             if !oir_trait.events.iter().any(|e| e.key == trans.event) {
                 oir_trait.events.push(OirEvent::new(&trans.event));
             }
@@ -2311,6 +2325,81 @@ mod tests {
             "page binding must take the current name resolved via ref_id, not the stale ref name"
         );
         assert_eq!(binding.trait_id.as_deref(), Some("trt_x00000000000000000000000"));
+    }
+
+    #[test]
+    fn config_forward_event_resolved_empty_is_omitted_from_oir() {
+        // Mirrors what the inline phase leaves behind for a config-forward
+        // event (`@config.extraAddonEvent -> external {...}`) whose knob is
+        // unset at every call site: `resolve_config_ref_event_name` resolves
+        // it to the knob's declared default, `""` — a real, deliberate value
+        // meaning "this optional event slot is unfulfilled", not a
+        // substitution failure. Resolve must not turn that into an OirEvent.
+        let schema: OrbitalSchema = serde_json::from_value(serde_json::json!({
+            "name": "App",
+            "orbitals": [{
+                "name": "O",
+                "entity": { "name": "E", "fields": [{ "name": "title", "type": "string" }] },
+                "traits": [{
+                    "name": "Board",
+                    "stateMachine": {
+                        "states": [{ "name": "idle", "isInitial": true }],
+                        "transitions": [],
+                        "events": [{
+                            "key": "",
+                            "name": "extra addon event",
+                            "payloadSchema": [{ "name": "id", "type": "string" }]
+                        }]
+                    }
+                }]
+            }]
+        }))
+        .expect("fixture parses");
+
+        let oir = resolve_to_oir(&schema).expect("resolves");
+        let board = oir.traits.iter().find(|t| t.name == "Board").expect("trait present");
+        assert!(
+            board.events.iter().all(|e| !e.key.is_empty()),
+            "an unfulfilled config-forward event slot must not become an OirEvent: {:?}",
+            board.events
+        );
+        assert!(board.events.is_empty());
+    }
+
+    #[test]
+    fn config_forward_event_resolved_to_a_name_survives_with_payload_schema() {
+        // Same slot, but the knob resolved to a concrete literal (what the
+        // inline phase leaves behind when a call site sets it, e.g.
+        // `extraAddonEvent: "PRODUCE"`) — the event must reach OIR intact.
+        let schema: OrbitalSchema = serde_json::from_value(serde_json::json!({
+            "name": "App",
+            "orbitals": [{
+                "name": "O",
+                "entity": { "name": "E", "fields": [{ "name": "title", "type": "string" }] },
+                "traits": [{
+                    "name": "Board",
+                    "stateMachine": {
+                        "states": [{ "name": "idle", "isInitial": true }],
+                        "transitions": [],
+                        "events": [{
+                            "key": "PRODUCE",
+                            "name": "extra addon event",
+                            "payloadSchema": [{ "name": "id", "type": "string" }]
+                        }]
+                    }
+                }]
+            }]
+        }))
+        .expect("fixture parses");
+
+        let oir = resolve_to_oir(&schema).expect("resolves");
+        let board = oir.traits.iter().find(|t| t.name == "Board").expect("trait present");
+        let event = board
+            .events
+            .iter()
+            .find(|e| e.key == "PRODUCE")
+            .expect("named config-forward event survives");
+        assert!(event.payload_schema.as_ref().expect("payload schema kept").contains_key("id"));
     }
 
     #[test]

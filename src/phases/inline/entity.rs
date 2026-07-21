@@ -96,6 +96,7 @@ pub(crate) fn merge_imported_entity_fields(
     // ORB_X_UNRESOLVED_RELATION_TARGET). Relations targeting OTHER entities are
     // left alone — only the self-reference (== imported_entity.name) is rewritten.
     let new_name = caller_entity.name.clone();
+    let new_id = caller_entity.id.clone();
     let old_name = imported_entity.name.as_str();
 
     for field in &imported_entity.fields {
@@ -110,29 +111,35 @@ pub(crate) fn merge_imported_entity_fields(
             }
             if !existing_names.contains(fname) {
                 let mut f = field.clone();
-                rewrite_self_relation_target(&mut f, old_name, &new_name);
+                rewrite_self_relation_target(&mut f, old_name, &new_name, new_id.as_deref());
                 caller_entity.fields.push(f);
             }
         }
     }
 }
 
-/// Retarget a field's self-referential `relation.entity` from `old` to `new`,
+/// Retarget a field's self-referential `relation.entity` (and its dual-carry
+/// `relation.entity_id`) from `old`/imported-entity-id to `new`/`new_id`,
 /// recursing into array `items` and object `properties` so nested relations
 /// (e.g. an object field's `replies` relation) are rewritten too. Only relations
-/// whose target equals `old` (the imported entity's own name) are changed.
-fn rewrite_self_relation_target(field: &mut FieldDefinition, old: &str, new: &str) {
+/// whose target equals `old` (the imported entity's own name) are changed. The
+/// id sibling MUST move together with the name — leaving the imported entity's
+/// id in place while renaming the target dangles a ledger-mismatched reference
+/// (`ORB_ID_NAME_MISMATCH`: the id still resolves to the imported entity's own
+/// ledger row, not the rebind target's).
+fn rewrite_self_relation_target(field: &mut FieldDefinition, old: &str, new: &str, new_id: Option<&str>) {
     if let Some(rel) = field.relation.as_mut() {
         if rel.entity == old {
             rel.entity = new.to_string();
+            rel.entity_id = new_id.map(str::to_string);
         }
     }
     if let Some(items) = field.items.as_mut() {
-        rewrite_self_relation_target(items, old, new);
+        rewrite_self_relation_target(items, old, new, new_id);
     }
     if let Some(props) = field.properties.as_mut() {
         for v in props.values_mut() {
-            rewrite_self_relation_target(v, old, new);
+            rewrite_self_relation_target(v, old, new, new_id);
         }
     }
 }
