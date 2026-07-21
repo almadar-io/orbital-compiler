@@ -1102,6 +1102,20 @@ pub(crate) fn inline_traits(
         })
         .collect();
 
+    // Post-dedup id alignment: a skipped duplicate pull (seen_names) leaves its
+    // host's listens resolving by NAME to the surviving declaration while the
+    // `traitId` side-map still carries the DROPPED copy's id — the survivor's
+    // ledger row then disagrees with the reference name downstream
+    // (ORB_ID_NAME_MISMATCH at listens[..].source). The name is the handle
+    // after dedup; the id must follow the surviving declaration.
+    let local_inline_trait_ids: HashMap<String, Option<String>> = result
+        .iter()
+        .filter_map(|tr| match tr {
+            TraitReference::Inline(td) => Some((td.name.clone(), td.id.clone())),
+            _ => None,
+        })
+        .collect();
+
     for trait_ref in result.iter_mut() {
         if let TraitReference::Inline(trait_def) = trait_ref {
             if let Some(listens) = trait_def.listens.as_mut() {
@@ -1111,6 +1125,19 @@ pub(crate) fn inline_traits(
                     }
                     _ => true,
                 });
+                for listen in listens.iter_mut() {
+                    if let Some(orbital_core::schema::ListenSource::Trait {
+                        trait_name,
+                        trait_id,
+                    }) = listen.source.as_mut()
+                    {
+                        if let Some(decl_id) = local_inline_trait_ids.get(trait_name.as_str()) {
+                            if trait_id != decl_id {
+                                *trait_id = decl_id.clone();
+                            }
+                        }
+                    }
+                }
             }
         }
     }
