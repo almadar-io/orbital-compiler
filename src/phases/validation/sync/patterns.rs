@@ -2190,6 +2190,7 @@ pub static PATTERN_PROPS_SCHEMA: LazyLock<HashMap<&'static str, HashSet<&'static
                     "children",
                     "className",
                     "controls",
+                    "data-theme",
                     "fontFamily",
                     "hud",
                     "hudBackgroundAsset",
@@ -6013,6 +6014,7 @@ pub static PATTERN_PROP_TYPES: LazyLock<HashMap<&'static str, HashMap<&'static s
                     ("backgroundAsset", &["object"] as &[&str]),
                     ("hudBackgroundAsset", &["object"] as &[&str]),
                     ("fontFamily", &["string"] as &[&str]),
+                    ("data-theme", &["string"] as &[&str]),
                 ]
                 .into_iter()
                 .collect(),
