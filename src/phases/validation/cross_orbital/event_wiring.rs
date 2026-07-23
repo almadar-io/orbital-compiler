@@ -53,12 +53,14 @@ pub(crate) fn validate_event_wiring(schema: &OrbitalSchema) -> ValidationResult 
 
     // Process inline traits in orbitals
     // Note: Traits are now only defined inline within orbitals, not at schema level.
+    let mut soft_emitted_events: HashMap<String, HashSet<String>> = HashMap::new();
     for orbital in &schema.orbitals {
         for trait_ref in &orbital.traits {
             if let TraitReference::Inline(trait_def) = trait_ref {
                 collect_trait_events(
                     trait_def,
                     &mut emitted_events,
+                    &mut soft_emitted_events,
                     &mut listened_events_all,
                     &mut listened_events_strict,
                 );
@@ -82,7 +84,10 @@ pub(crate) fn validate_event_wiring(schema: &OrbitalSchema) -> ValidationResult 
     // declare "any source" and may subscribe to runtime-fired events that never
     // appear in the static schema.
     for (event, listeners) in &listened_events_strict {
-        if !emitted_events.contains_key(event) && !trigger_events.contains_key(event) {
+        if !emitted_events.contains_key(event)
+            && !soft_emitted_events.contains_key(event)
+            && !trigger_events.contains_key(event)
+        {
             for listener in listeners {
                 result.add_error(
                     ValidationError::warning(
@@ -161,6 +166,12 @@ pub(crate) fn validate_event_wiring(schema: &OrbitalSchema) -> ValidationResult 
 pub(crate) fn collect_trait_events(
     trait_def: &TraitDefinition,
     emitted: &mut HashMap<String, HashSet<String>>,
+    // Producible-but-undeclared events (effect emit-option maps, pattern
+    // event props). These SATISFY listeners (orphan/source checks) but do
+    // not DEMAND one — a configured extra channel with no subscriber is not
+    // an unused emission, because the canonical event still drives the
+    // circuit.
+    soft_emitted: &mut HashMap<String, HashSet<String>>,
     listened_all: &mut HashMap<String, HashSet<String>>,
     listened_strict: &mut HashMap<String, HashSet<String>>,
 ) {
@@ -250,6 +261,127 @@ pub(crate) fn collect_trait_events(
             }
         }
     }
+
+    // Collect the trait's remaining PRODUCIBLE events — effect emit-option
+    // maps and render-ui pattern event props — so scoped listeners on them
+    // don't false-positive as orphans. Soft: satisfies listeners, never
+    // demands one.
+    for event_name in collect_effect_produced_events(trait_def) {
+        if !internal_events.contains(&event_name) {
+            soft_emitted
+                .entry(event_name)
+                .or_default()
+                .insert(trait_def.name.clone());
+        }
+    }
+}
+
+/// Events a trait can PRODUCE beyond `emits` declarations and literal
+/// `["emit", X]` arrays:
+/// - effect emit-option maps — `emit: {success|failure|on_message|on_change}`
+///   on fetch / persist / call-service / ref / os-watch / set effects (the
+///   slot-key universe of every `validate_emit_config` call site), plus the
+///   string form `emit: "X"`. A `[lifecycle]` fetcher whose only production
+///   of `FooLoaded` is its fetch emit map was invisible to the emitter index
+///   (C-VALIDATE-ORPHAN-LISTENER-LIFECYCLE-FETCH).
+/// - render-ui pattern event props (registry `kind: event|event-ref|callback`,
+///   e.g. search-input / filter-group `event`) and event-list descriptor
+///   fields — the component fires `UI:<value>`, so the configured name IS an
+///   emission of this trait. Mirrors the runtime wiring lint's
+///   `producibleEvents` crediting.
+///
+/// `@`-prefixed values (unresolved bindings) are never credited.
+pub(crate) fn collect_effect_produced_events(trait_def: &TraitDefinition) -> HashSet<String> {
+    use orbital_core::schema::SExpression;
+
+    fn credit(value: &SExpression, out: &mut HashSet<String>) {
+        if let SExpression::String(ev) = value {
+            if !ev.is_empty() && !ev.starts_with('@') {
+                out.insert(ev.clone());
+            }
+        }
+    }
+
+    fn walk(expr: &SExpression, out: &mut HashSet<String>) {
+        match expr {
+            SExpression::Array(items) => {
+                for item in items {
+                    walk(item, out);
+                }
+            }
+            SExpression::Object(map) => {
+                match map.get("emit") {
+                    Some(SExpression::Object(emit_map)) => {
+                        for (slot, slot_v) in emit_map {
+                            if matches!(
+                                slot.as_str(),
+                                "success" | "failure" | "on_message" | "on_change"
+                            ) {
+                                credit(slot_v, out);
+                            }
+                        }
+                    }
+                    Some(other) => credit(other, out),
+                    None => {}
+                }
+                if let Some(SExpression::String(pattern_type)) = map.get("type") {
+                    use crate::phases::validation::sync::patterns::{
+                        PATTERN_EVENT_LIST_PROPS, PATTERN_EVENT_PROPS,
+                    };
+                    let static_props = PATTERN_EVENT_PROPS.get(pattern_type.as_str());
+                    let list_props = PATTERN_EVENT_LIST_PROPS.get(pattern_type.as_str());
+                    let meta = crate::embedded::get_pattern(pattern_type);
+                    for (k, v) in map {
+                        let is_event_prop = static_props
+                            .is_some_and(|props| props.contains(k.as_str()))
+                            || meta.is_some_and(|p| {
+                                p.props_schema
+                                    .get(k.as_str())
+                                    .and_then(|prop| prop.kind.as_deref())
+                                    .is_some_and(|kind| {
+                                        matches!(kind, "event" | "event-ref" | "callback")
+                                    })
+                            });
+                        if is_event_prop {
+                            credit(v, out);
+                        }
+                        if let Some(field) = list_props.and_then(|m| m.get(k.as_str())) {
+                            if let SExpression::Array(descriptors) = v {
+                                for descriptor in descriptors {
+                                    if let SExpression::Object(dm) = descriptor {
+                                        if let Some(ev) = dm.get(*field) {
+                                            credit(ev, out);
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+                for v in map.values() {
+                    walk(v, out);
+                }
+            }
+            _ => {}
+        }
+    }
+
+    let mut out = HashSet::new();
+    for transition in &trait_def.state_machine.transitions {
+        if let Some(effects) = &transition.effects {
+            for effect in effects {
+                walk(effect, &mut out);
+            }
+        }
+    }
+    if let Some(ticks) = &trait_def.ticks {
+        for tick in ticks {
+            for effect in &tick.effects {
+                walk(effect, &mut out);
+            }
+        }
+    }
+    out
 }
 
 /// Extract event name from an emit effect
@@ -477,6 +609,177 @@ mod tests {
                 .any(|e| e.code == ErrorCode::CrossOrbitalOrphanListener),
             "Internal listen with no emitter should still produce ORB_X_ORPHAN_LISTENER. \
              Warnings: {:?}",
+            result.errors
+        );
+    }
+
+    // =========================================================================
+    // Producible-event crediting (soft emissions): pattern event props +
+    // effect emit-option maps satisfy listeners without demanding one.
+    // =========================================================================
+
+    fn bare_trait(name: &str) -> TraitDefinition {
+        TraitDefinition {
+            name: name.to_string(),
+            entity_rebindable: None,
+            entity_contract: None,
+            category: None,
+            capabilities: vec![],
+            description: None,
+            linked_entity: Some("Task".to_string()),
+            emits: None,
+            listens: None,
+            state_machine: StateMachine {
+                states: vec![],
+                events: None,
+                transitions: vec![],
+            },
+            ticks: None,
+            config: None,
+            data_entities: None,
+            scope: None,
+            source_behavior: None,
+            source_entity_definition: None,
+            id: None,
+            linked_entity_id: None,
+            entity_ref_ids: None,
+            trait_embed_ids: None,
+        }
+    }
+
+    fn render_ui_with_event_prop(pattern_type: &str, prop: &str, event: &str) -> SExpression {
+        use std::collections::HashMap as Map;
+        let mut node: Map<String, SExpression> = Map::new();
+        node.insert(
+            "type".to_string(),
+            SExpression::String(pattern_type.to_string()),
+        );
+        node.insert(prop.to_string(), SExpression::String(event.to_string()));
+        SExpression::Array(vec![
+            SExpression::String("render-ui".to_string()),
+            SExpression::String("main".to_string()),
+            SExpression::Object(node),
+        ])
+    }
+
+    fn scoped_listener(name: &str, source_trait: &str, event: &str) -> TraitDefinition {
+        let mut td = bare_trait(name);
+        td.listens = Some(vec![orbital_core::schema::ListenDefinition {
+            event: event.to_string(),
+            triggers: Some("REFRESH".to_string()),
+            scope: None,
+            source: Some(orbital_core::schema::ListenSource::Trait {
+                trait_name: source_trait.to_string(),
+                trait_id: None,
+            }),
+            description: None,
+            synonyms: None,
+            tier: None,
+            payload_mapping: None,
+            guard: None,
+            event_id: None,
+            triggers_id: None,
+        }]);
+        td
+    }
+
+    use orbital_core::schema::{SExpression, StateDefinition, TransitionDefinition};
+
+    fn trait_with_effect(name: &str, effect: SExpression) -> TraitDefinition {
+        let mut td = bare_trait(name);
+        td.state_machine = StateMachine {
+            states: vec![StateDefinition {
+                name: "idle".to_string(),
+                is_initial: Some(true),
+                is_terminal: None,
+                description: None,
+                time_bound_ms: None,
+            }],
+            events: None,
+            transitions: vec![TransitionDefinition {
+                from: orbital_core::StringOrArray::Single("idle".to_string()),
+                to: "idle".to_string(),
+                event: "INIT".to_string(),
+                event_id: None,
+                guard: None,
+                effects: Some(vec![effect]),
+            }],
+        };
+        td
+    }
+
+    /// A scoped listener on a filter-group's configured `event` prop value is
+    /// satisfied (the component fires `UI:<value>`), and the configured value
+    /// alone does NOT trip the unused-emission check when nobody listens.
+    #[test]
+    fn pattern_event_prop_satisfies_scoped_listener_without_demanding_one() {
+        // Listener present: no orphan.
+        let mut schema = create_minimal_schema();
+        schema.orbitals[0].traits = vec![
+            TraitReference::Inline(trait_with_effect(
+                "TaskFilter",
+                render_ui_with_event_prop("filter-group", "event", "TASK_FILTER"),
+            )),
+            TraitReference::Inline(scoped_listener("TaskList", "TaskFilter", "TASK_FILTER")),
+        ];
+        let result = validate_event_wiring(&schema);
+        assert!(
+            !result
+                .errors
+                .iter()
+                .any(|e| e.code == ErrorCode::CrossOrbitalOrphanListener),
+            "configured pattern event prop must satisfy the scoped listener; got {:?}",
+            result.errors
+        );
+
+        // No listener: soft emission demands nothing.
+        let mut schema = create_minimal_schema();
+        schema.orbitals[0].traits = vec![TraitReference::Inline(trait_with_effect(
+            "TaskFilter",
+            render_ui_with_event_prop("filter-group", "event", "TASK_FILTER"),
+        ))];
+        let result = validate_event_wiring(&schema);
+        assert!(
+            !result
+                .errors
+                .iter()
+                .any(|e| e.code == ErrorCode::CrossOrbitalUnusedEmission),
+            "a configured-but-unconsumed pattern event prop is a soft emission, \
+             not an unused one; got {:?}",
+            result.errors
+        );
+    }
+
+    /// A `[lifecycle]`-style fetcher whose only production of an event is its
+    /// fetch `emit: {success}` map satisfies a scoped std-stats-style listener.
+    #[test]
+    fn fetch_emit_map_satisfies_scoped_listener() {
+        use std::collections::HashMap as Map;
+        let mut emit_map: Map<String, SExpression> = Map::new();
+        emit_map.insert(
+            "success".to_string(),
+            SExpression::String("SummaryLoaded".to_string()),
+        );
+        let mut options: Map<String, SExpression> = Map::new();
+        options.insert("emit".to_string(), SExpression::Object(emit_map));
+        let fetch_effect = SExpression::Array(vec![
+            SExpression::String("fetch".to_string()),
+            SExpression::String("Task".to_string()),
+            SExpression::Object(options),
+        ]);
+
+        let mut schema = create_minimal_schema();
+        schema.orbitals[0].traits = vec![
+            TraitReference::Inline(trait_with_effect("SummaryData", fetch_effect)),
+            TraitReference::Inline(scoped_listener("SummaryStats", "SummaryData", "SummaryLoaded")),
+        ];
+        let result = validate_event_wiring(&schema);
+        assert!(
+            !result
+                .errors
+                .iter()
+                .any(|e| e.code == ErrorCode::CrossOrbitalOrphanListener),
+            "fetch emit-map event must satisfy the scoped listener; got {:?}",
             result.errors
         );
     }

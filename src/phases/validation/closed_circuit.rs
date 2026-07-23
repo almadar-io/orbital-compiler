@@ -67,10 +67,24 @@ pub fn validate_all_circuits(schema: &OrbitalSchema, ctx: &mut ValidationContext
     // Validate orbital inline traits
     // Note: Traits are now only defined inline within orbitals, not at schema level.
     for (i, orbital) in schema.orbitals.iter().enumerate() {
+        // The bus broadcasts UI-fired events orbital-wide: an action event a
+        // SIBLING trait's transition handles (the ui-page-header `actions`
+        // shape — the header renders the button, the catalog trait owns
+        // CREATE) closes the circuit just as an own-transition would
+        // (C-ORPHAN-EVENT-PAGEHEADER-ACTIONS).
+        let orbital_handled: HashSet<String> = orbital
+            .traits
+            .iter()
+            .filter_map(|tr| match tr {
+                TraitReference::Inline(td) => Some(td),
+                _ => None,
+            })
+            .flat_map(|td| extract_handled_events(&td.state_machine))
+            .collect();
         for (j, trait_ref) in orbital.traits.iter().enumerate() {
             if let TraitReference::Inline(trait_def) = trait_ref {
                 let path = super::trait_path(i, &orbital.name, j, trait_ref);
-                let result = validate_closed_circuit(trait_def, &path);
+                let result = validate_closed_circuit(trait_def, &path, &orbital_handled);
                 ctx.merge(result);
             }
         }
@@ -88,8 +102,15 @@ use orbital_core::slots::OVERLAY_SLOTS;
 /// Events that are valid exit events for overlay slots
 const OVERLAY_EXIT_EVENTS: &[&str] = &["CLOSE", "CANCEL", "DISMISS", "SAVE", "SUBMIT", "CONFIRM"];
 
-/// Validate closed circuit for a single trait
-pub fn validate_closed_circuit(trait_def: &TraitDefinition, path: &str) -> ValidationResult {
+/// Validate closed circuit for a single trait. `orbital_handled` is the
+/// union of EVERY sibling trait's transition triggers in the same orbital —
+/// the orphan-event check accepts a sibling-handled (or emits-declared)
+/// action event as a closed circuit, since the bus broadcasts orbital-wide.
+pub fn validate_closed_circuit(
+    trait_def: &TraitDefinition,
+    path: &str,
+    orbital_handled: &HashSet<String>,
+) -> ValidationResult {
     let mut result = ValidationResult::new();
 
     let state_machine = &trait_def.state_machine;
@@ -98,9 +119,21 @@ pub fn validate_closed_circuit(trait_def: &TraitDefinition, path: &str) -> Valid
     let render_ui_effects = extract_render_ui_effects(trait_def, path);
     let item_actions = extract_item_actions(&render_ui_effects);
     let handled_events = extract_handled_events(state_machine);
+    let declared_emits: HashSet<String> = trait_def
+        .emits
+        .iter()
+        .flatten()
+        .map(|e| e.event.clone())
+        .collect();
 
     // Run validations
-    result.merge(validate_orphan_events(&item_actions, &handled_events, path));
+    result.merge(validate_orphan_events(
+        &item_actions,
+        &handled_events,
+        orbital_handled,
+        &declared_emits,
+        path,
+    ));
     result.merge(validate_dead_handlers(&item_actions, state_machine, path));
     result.merge(validate_duplicate_events(&item_actions, path));
     result.merge(validate_action_component_match(&item_actions, path));
@@ -329,16 +362,24 @@ fn get_state_transitions(
     result
 }
 
-/// Detect orphan events (events emitted by UI with no transition handler)
+/// Detect orphan events (events emitted by UI with no transition handler).
+/// A sibling trait's transition or the owner's declared emit closes the
+/// circuit too — the bus broadcasts orbital-wide, and an emits-declared
+/// action event is an outward contract for another orbital's listener.
 fn validate_orphan_events(
     item_actions: &[ItemActionInfo],
     handled_events: &HashSet<String>,
+    orbital_handled: &HashSet<String>,
+    declared_emits: &HashSet<String>,
     _path: &str,
 ) -> ValidationResult {
     let mut result = ValidationResult::new();
 
     for action in item_actions {
-        if !handled_events.contains(&action.event) {
+        if !handled_events.contains(&action.event)
+            && !orbital_handled.contains(&action.event)
+            && !declared_emits.contains(&action.event)
+        {
             result.add_error(
                 ValidationError::error(
                     ErrorCode::CircuitOrphanEvent,
@@ -1110,14 +1151,35 @@ mod tests {
             path: "test.path".to_string(),
         }];
 
+        let empty: HashSet<String> = HashSet::new();
         let handled_events: HashSet<String> = HashSet::new(); // Empty - no handlers
-        let result = validate_orphan_events(&item_actions, &handled_events, "test");
+        let result = validate_orphan_events(&item_actions, &handled_events, &empty, &empty, "test");
         assert!(!result.is_valid()); // Should fail - orphan event
 
         let mut handled_events_with_view = HashSet::new();
         handled_events_with_view.insert("VIEW".to_string());
-        let result2 = validate_orphan_events(&item_actions, &handled_events_with_view, "test");
+        let result2 = validate_orphan_events(
+            &item_actions,
+            &handled_events_with_view,
+            &empty,
+            &empty,
+            "test",
+        );
         assert!(result2.is_valid()); // Should pass - event is handled
+
+        // A SIBLING trait's transition closes the circuit too (page-header
+        // actions shape); so does a declared emit.
+        let mut sibling_handled = HashSet::new();
+        sibling_handled.insert("VIEW".to_string());
+        let result3 =
+            validate_orphan_events(&item_actions, &handled_events, &sibling_handled, &empty, "test");
+        assert!(result3.is_valid(), "sibling-handled event must close the circuit");
+
+        let mut declared = HashSet::new();
+        declared.insert("VIEW".to_string());
+        let result4 =
+            validate_orphan_events(&item_actions, &handled_events, &empty, &declared, "test");
+        assert!(result4.is_valid(), "emits-declared event must close the circuit");
     }
 
     #[test]

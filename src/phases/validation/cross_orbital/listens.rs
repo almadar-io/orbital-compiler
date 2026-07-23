@@ -28,6 +28,12 @@ pub(crate) fn validate_listens_integrity(schema: &OrbitalSchema) -> ValidationRe
                     entry.insert(emit.event.clone());
                 }
             }
+            // Producible-but-undeclared events: effect emit-option maps and
+            // render-ui pattern event props (e.g. search-input/filter-group
+            // `event` — the component fires `UI:<value>`). Same crediting as
+            // the orphan-listener emitter index; without it a scoped listen on
+            // a configured event name false-positives as unresolved.
+            entry.extend(super::event_wiring::collect_effect_produced_events(td));
         }
     }
 

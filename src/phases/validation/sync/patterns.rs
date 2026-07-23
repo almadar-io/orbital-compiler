@@ -2,7 +2,7 @@
 //!
 //! Source: packages/almadar-core/src/patterns/patterns-registry.json
 //!
-//! Last synced: 2026-07-22
+//! Last synced: 2026-07-23
 //! To regenerate: npx tsx tools/almadar-pattern-sync/index.ts
 //!
 //! DO NOT EDIT MANUALLY - changes will be overwritten on next sync.
@@ -609,7 +609,11 @@ pub static PATTERN_TO_CATEGORY: LazyLock<HashMap<&'static str, &'static str>> =
 /// Valid itemAction props (to detect hallucinated props from LLMs)
 pub static VALID_ITEM_ACTION_PROPS: LazyLock<HashSet<&'static str>> = LazyLock::new(|| {
     [
-        "label", "event", "icon", "variant", "disabled", "hidden", "confirm", "payload", "href",
+        // Navigation converged on navigatesTo (row-field interpolation, the
+        // JS components' implemented prop); href was never honored by any layer
+        // (C-ITEMACTION-HREF-CONTRACT-DIVERGENCE).
+        "label", "event", "icon", "variant", "disabled", "hidden", "confirm", "payload",
+        "navigatesTo",
     ]
     .into_iter()
     .collect()
@@ -1970,7 +1974,9 @@ pub static PATTERN_PROPS_SCHEMA: LazyLock<HashMap<&'static str, HashSet<&'static
                 "filter-group",
                 [
                     "className",
+                    "clearEvent",
                     "entity",
+                    "event",
                     "filters",
                     "isLoading",
                     "look",
@@ -5726,6 +5732,8 @@ pub static PATTERN_PROP_TYPES: LazyLock<HashMap<&'static str, HashMap<&'static s
                     ("query", &["string"] as &[&str]),
                     ("isLoading", &["boolean"] as &[&str]),
                     ("look", &["string"] as &[&str]),
+                    ("event", &["string"] as &[&str]),
+                    ("clearEvent", &["string"] as &[&str]),
                 ]
                 .into_iter()
                 .collect(),
@@ -9176,8 +9184,8 @@ pub static PATTERN_PROP_ENUM_VALUES: LazyLock<HashMap<&'static str, HashMap<&'st
                     ("variant", &["h1", "h2", "h3", "h4", "h5", "h6", "heading", "subheading", "body1", "body2", "body", "caption", "overline", "small", "large", "label"] as &[&str]),
                     ("color", &["primary", "secondary", "muted", "error", "success", "warning", "inherit"] as &[&str]),
                     ("align", &["left", "center", "right"] as &[&str]),
-                    ("weight", &["light", "normal", "medium", "semibold", "bold"] as &[&str]),
-                    ("size", &["xs", "sm", "md", "lg", "xl", "2xl", "3xl"] as &[&str]),
+                    ("weight", &["none", "light", "normal", "medium", "semibold", "bold"] as &[&str]),
+                    ("size", &["none", "xs", "sm", "md", "lg", "xl", "2xl", "3xl"] as &[&str]),
                     ("overflow", &["visible", "hidden", "wrap", "clamp-2", "clamp-3"] as &[&str]),
                 ]
                 .into_iter()
@@ -9234,6 +9242,7 @@ pub static PATTERN_EVENT_PROPS: LazyLock<HashMap<&'static str, HashSet<&'static 
             ("data-grid", ["selectionEvent", "loadMoreEvent"].into_iter().collect()),
             ("data-list", ["reorderEvent", "itemClickEvent", "swipeLeftEvent", "swipeRightEvent", "longPressEvent", "loadMoreEvent"].into_iter().collect()),
             ("drawer", ["closeEvent"].into_iter().collect()),
+            ("filter-group", ["event", "clearEvent"].into_iter().collect()),
             ("floating-action-button", ["action"].into_iter().collect()),
             ("form", ["submitEvent", "cancelEvent"].into_iter().collect()),
             ("form-section", ["submitEvent", "cancelEvent"].into_iter().collect()),
@@ -9246,6 +9255,7 @@ pub static PATTERN_EVENT_PROPS: LazyLock<HashMap<&'static str, HashSet<&'static 
             ("pull-to-refresh", ["refreshEvent"].into_iter().collect()),
             ("radio", ["action"].into_iter().collect()),
             ("range-slider", ["action"].into_iter().collect()),
+            ("search-input", ["event"].into_iter().collect()),
             ("select", ["action"].into_iter().collect()),
             ("sortable-list", ["reorderEvent"].into_iter().collect()),
             ("stack", ["action"].into_iter().collect()),

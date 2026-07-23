@@ -2,6 +2,7 @@
 //! sibling auto-pull, and source-scoped listener pruning.
 
 use super::context::{parse_reference, InlineContext, ParsedReference};
+use super::identity_normalize::rewrite_trait_embed_tokens;
 use super::rewrite::{
     apply_inline_config_defaults, mark_literal_list_in_place, record_config_provenance,
     rewrite_config_bindings, rewrite_entity_field_paths, rewrite_identifiers,
@@ -632,6 +633,12 @@ pub(crate) fn inline_traits(
     // entries become stale after the rename and fail validation with
     // `ORB_P_INVALID_TRAIT_REF`.
     let mut rename_map: HashMap<String, String> = HashMap::new();
+    // Per-trait event renames applied at the call site (`events {OLD: NEW}`),
+    // keyed by the trait's FINAL name. A pulled sibling's source-scoped listen
+    // names the host's emit by its pre-rename name; Phase 9.5 chases the
+    // listen through this map so the route survives the rename
+    // (C-EVENTS-RENAME-MISSES-FETCH-EMIT-MAP's listener half).
+    let mut event_renames_by_trait: HashMap<String, HashMap<String, String>> = HashMap::new();
     // App atoms keep a hand-rolled main trait and embed a curated variation as
     // a SIBLING trait, referencing it inside the main trait's render-ui as the
     // string literal `@trait.<SiblingName>`. When an organism composes ONLY the
@@ -642,7 +649,10 @@ pub(crate) fn inline_traits(
     // siblings the cloned body references — applying the SAME rebind a
     // hand-written sibling ref would have, keeping the sibling's original name
     // so `@trait.<SiblingName>` resolves.
-    let mut sibling_pull_work: Vec<(String, String, Option<String>)> = Vec::new();
+    // (alias, sibling name, linkedEntity rebind, PULLING PARENT's final name).
+    // The parent name lets a cross-alias name collision rewrite exactly that
+    // parent's `@trait.<Sibling>` tokens to the disambiguated pull name.
+    let mut sibling_pull_work: Vec<(String, String, Option<String>, String)> = Vec::new();
 
     for (idx, trait_ref) in traits.iter().enumerate() {
         let trait_path = format!("{path_prefix}.traits[{idx}]");
@@ -916,6 +926,19 @@ pub(crate) fn inline_traits(
                                     if trait_def.name != original_name {
                                         rename_map.insert(original_name, trait_def.name.clone());
                                     }
+                                    if let Some(evmap) = events_override.as_ref() {
+                                        let pruned: HashMap<String, String> = evmap
+                                            .iter()
+                                            .filter(|(from, to)| {
+                                                from != to && !from.is_empty() && !to.is_empty()
+                                            })
+                                            .map(|(from, to)| (from.clone(), to.clone()))
+                                            .collect();
+                                        if !pruned.is_empty() {
+                                            event_renames_by_trait
+                                                .insert(trait_def.name.clone(), pruned);
+                                        }
+                                    }
                                     // Phase F.7: replace the trait's
                                     // listens and/or set every emit's scope
                                     // to the caller-supplied values. These
@@ -956,6 +979,7 @@ pub(crate) fn inline_traits(
                                             alias.clone(),
                                             sibling,
                                             linked_entity.clone(),
+                                            trait_def.name.clone(),
                                         ));
                                     }
                                     result.push(TraitReference::Inline(trait_def));
@@ -1017,10 +1041,54 @@ pub(crate) fn inline_traits(
     {
         let mut worklist = sibling_pull_work;
         let mut visited: HashSet<(String, String)> = HashSet::new();
-        while let Some((alias, sibling_name, linked_entity)) = worklist.pop() {
-            // Already present in the consumer (explicit comp or prior pull): skip.
-            if seen_names.contains(&sibling_name) {
+        // Final name each pulled sibling landed under, keyed by (alias, source
+        // name). Inline chrome names are numbered PER SOURCE ATOM
+        // (`InlineButtonRender26` exists in many atoms), so a name-only dedup
+        // silently binds the second atom's parent tree to the FIRST atom's
+        // trait (cross-atom capture — the std-finance-tracker Charge button
+        // firing REPRINT_RECEIPT). Cross-alias collisions instead pull under
+        // an alias-prefixed name and rewrite the pulling parent's tokens.
+        let mut pulled_as: HashMap<(String, String), String> = HashMap::new();
+        // Consumer-declared names (explicit composition) keep first-wins skip.
+        let consumer_declared: HashSet<String> = seen_names.clone();
+        // Rewrite one parent's `@trait.<from>` tokens to the disambiguated
+        // name, scoped to that parent only (never schema-wide).
+        let rewrite_parent = |result: &mut Vec<TraitReference>, parent: &str, from: &str, to: &str| {
+            let subs: HashMap<String, String> =
+                HashMap::from([(from.to_string(), to.to_string())]);
+            for tr in result.iter_mut() {
+                if let TraitReference::Inline(td) = tr {
+                    if td.name == parent {
+                        rewrite_trait_embed_tokens(td, &subs);
+                    }
+                }
+            }
+        };
+        while let Some((alias, sibling_name, linked_entity, parent_name)) = worklist.pop() {
+            // Resolve where this (alias, sibling) should land.
+            let mut final_name = sibling_name.clone();
+            if let Some(existing) = pulled_as.get(&(alias.clone(), sibling_name.clone())) {
+                // Already pulled from THIS alias — shared instance. If it
+                // landed under a disambiguated name, this parent's tokens
+                // still say the source name and need the same rewrite.
+                if existing != &sibling_name {
+                    rewrite_parent(&mut result, &parent_name, &sibling_name, existing);
+                }
                 continue;
+            }
+            if seen_names.contains(&sibling_name) {
+                if consumer_declared.contains(&sibling_name) {
+                    // Explicit composition wins (documented override surface).
+                    continue;
+                }
+                // Taken by a DIFFERENT alias's pull: disambiguate.
+                final_name = format!("{alias}{sibling_name}");
+                if seen_names.contains(&final_name) {
+                    // Even the prefixed name is taken by something that is not
+                    // this (alias, name) pull — leave the token dangling for
+                    // the validator rather than capture a wrong trait.
+                    continue;
+                }
             }
             if !visited.insert((alias.clone(), sibling_name.clone())) {
                 continue;
@@ -1047,6 +1115,15 @@ pub(crate) fn inline_traits(
                 ctx.defer_config_subst,
                 recorder,
             );
+            if final_name != sibling_name {
+                // Cross-alias disambiguation: rename the pulled copy and point
+                // the pulling parent's tokens at it. The copy's own body still
+                // references ITS atom's siblings by source name — those pulls
+                // recurse below carrying THIS copy as parent, so they follow
+                // the same collision handling.
+                sibling_def.name = final_name.clone();
+                rewrite_parent(&mut result, &parent_name, &sibling_name, &final_name);
+            }
             // Provenance + source entity, mirroring the main ref path so Studio
             // and the mock generator treat the pulled sibling like any ref.
             if let Ok(entry) = ctx.get_entry(&alias) {
@@ -1072,12 +1149,14 @@ pub(crate) fn inline_traits(
                     }
                 }
             }
-            // Recurse into the rebound sibling's own `@trait.Y` references.
+            // Recurse into the rebound sibling's own `@trait.Y` references,
+            // with this pull (under its FINAL name) as the parent.
             for next in sibling_trait_refs_of(&sibling_def) {
-                worklist.push((alias.clone(), next, linked_entity.clone()));
+                worklist.push((alias.clone(), next, linked_entity.clone(), final_name.clone()));
             }
-            seen_names.insert(sibling_def.name.clone());
-            pulled_names.push(sibling_def.name.clone());
+            pulled_as.insert((alias.clone(), sibling_name.clone()), final_name.clone());
+            seen_names.insert(final_name.clone());
+            pulled_names.push(final_name);
             result.push(TraitReference::Inline(sibling_def));
         }
     }
@@ -1119,6 +1198,40 @@ pub(crate) fn inline_traits(
     for trait_ref in result.iter_mut() {
         if let TraitReference::Inline(trait_def) = trait_ref {
             if let Some(listens) = trait_def.listens.as_mut() {
+                // Rewrite listen SOURCES through the consumer's rename map
+                // BEFORE the retain: a sub-trait pulled alongside a renamed
+                // host still names the host's ORIGINAL trait as its source
+                // (`DataGrid1 listens { Host.EVENT -> X }` with the consumer
+                // binding the host as `TransactionHost`). Without the rewrite
+                // the retain below sees a non-local name and silently drops
+                // the route — and renaming the host is the universal case.
+                for listen in listens.iter_mut() {
+                    if let Some(orbital_core::schema::ListenSource::Trait { trait_name, .. }) =
+                        listen.source.as_mut()
+                    {
+                        if let Some(renamed) = rename_map.get(trait_name.as_str()) {
+                            *trait_name = renamed.clone();
+                        }
+                    }
+                    // The listen's EVENT follows the source trait's call-site
+                    // event renames too — a sibling listening for the host's
+                    // `BrowseItemLoaded` must listen for `CoursesLoaded` once
+                    // the host's emit was renamed, or the route (and the
+                    // emitter index) dangles on the pre-rename name.
+                    let source_name = match listen.source.as_ref() {
+                        Some(orbital_core::schema::ListenSource::Trait { trait_name, .. }) => {
+                            Some(trait_name.clone())
+                        }
+                        _ => None,
+                    };
+                    if let Some(source_name) = source_name {
+                        if let Some(subs) = event_renames_by_trait.get(source_name.as_str()) {
+                            if let Some(new_event) = subs.get(&listen.event) {
+                                listen.event = new_event.clone();
+                            }
+                        }
+                    }
+                }
                 listens.retain(|listen| match &listen.source {
                     Some(orbital_core::schema::ListenSource::Trait { trait_name, .. }) => {
                         local_trait_names.contains(trait_name)

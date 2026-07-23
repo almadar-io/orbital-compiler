@@ -542,6 +542,26 @@ fn collect_names(schema: &OrbitalSchema, ctx: &mut ValidationContext) {
 
     // Collect entity names, trait names, page paths, and service names from orbitals
     // Note: Traits are now only defined inline within orbitals, not at schema level.
+    // PRIMARY entity names declared in MORE than one orbital (the same
+    // grouping ORB_X_DUPLICATE_ENTITY reports; auxiliary entities repeat
+    // legitimately — every orbital's filter pulls FilterTarget). A duplicated
+    // name's definition is ambiguous (which orbital's field list?), so it is
+    // removed from `entity_definitions` below: field-level binding checks
+    // skip definitions they can't resolve, leaving ORB_X_DUPLICATE_ENTITY as
+    // the single actionable error instead of a phantom FIELD_NOT_FOUND
+    // cascade validated against whichever same-named entity happened to win
+    // the map insert.
+    let mut primary_names: std::collections::HashSet<&str> = std::collections::HashSet::new();
+    let mut duplicated_entities: std::collections::HashSet<String> =
+        std::collections::HashSet::new();
+    for orbital in &schema.orbitals {
+        if let Some(entity) = orbital.entity.as_inline() {
+            if !primary_names.insert(entity.name.as_str()) {
+                duplicated_entities.insert(entity.name.clone());
+            }
+        }
+    }
+
     for orbital in &schema.orbitals {
         // Entity name and definition (only for inline entities, not references)
         if let Some(entity) = orbital.entity.as_inline() {
@@ -606,6 +626,13 @@ fn collect_names(schema: &OrbitalSchema, ctx: &mut ValidationContext) {
                 }
             }
         }
+    }
+
+    // Ambiguous (duplicated-primary) definitions carry no field authority —
+    // see the comment above `duplicated_entities`. Names stay registered so
+    // existence checks (linkedEntity, fetch targets) still pass.
+    for name in &duplicated_entities {
+        ctx.entity_definitions.remove(name);
     }
 }
 

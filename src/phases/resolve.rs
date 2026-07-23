@@ -581,7 +581,19 @@ impl<'a> Resolver<'a> {
                     oir_event.payload_required_fields = required;
                 }
 
-                oir_trait.events.push(oir_event);
+                // `sm.events` can carry the same key twice (a bare machine
+                // event plus a payload-schema'd declaration). One OirEvent per
+                // key — the payload-typed entry wins — or every downstream
+                // keyed emission (payload maps, action creators, useUIEvents
+                // lists) duplicates the key (TS1117/TS2300).
+                match oir_trait.events.iter_mut().find(|e| e.key == oir_event.key) {
+                    Some(existing) => {
+                        if existing.payload_schema.is_none() && oir_event.payload_schema.is_some() {
+                            *existing = oir_event;
+                        }
+                    }
+                    None => oir_trait.events.push(oir_event),
+                }
             }
         }
 

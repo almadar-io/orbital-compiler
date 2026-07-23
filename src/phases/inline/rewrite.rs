@@ -215,6 +215,39 @@ fn rewrite_identifiers_inner(
             let pattern_meta = pattern_type.as_deref().and_then(get_pattern);
 
             for (k, v) in map.iter_mut() {
+                // 0) Effect emit-options map. fetch/persist/call-service/ref/
+                //    os-watch/set effects carry `emit: {success|failure|
+                //    on_message|on_change: "EVENT"}` (the slot-key universe of
+                //    every `validate_emit_config` call site) and the string
+                //    form `emit: "EVENT"`. A call-site `events {OLD: NEW}`
+                //    rename that skips these leaves the atom's fetch success
+                //    emit firing the pre-rename name →
+                //    ORB_EFF_EMIT_UNDECLARED_EVENT per fetch site
+                //    (C-EVENTS-RENAME-MISSES-FETCH-EMIT-MAP).
+                if k == "emit" {
+                    match v {
+                        SExpression::String(ev) => {
+                            if let Some(to) = event_subs.get(ev) {
+                                *ev = to.clone();
+                            }
+                        }
+                        SExpression::Object(emit_map) => {
+                            for (slot, slot_v) in emit_map.iter_mut() {
+                                if matches!(
+                                    slot.as_str(),
+                                    "success" | "failure" | "on_message" | "on_change"
+                                ) {
+                                    if let SExpression::String(ev) = slot_v {
+                                        if let Some(to) = event_subs.get(ev) {
+                                            *ev = to.clone();
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                        _ => {}
+                    }
+                }
                 // 1) Direct event-valued prop (kind: "event" / "event-ref" /
                 //    "event-listen" / "callback" in registry). Rewrite the
                 //    string value via event_subs unless it's a binding

@@ -42,6 +42,8 @@ fn is_deferred_computed(value: &SExpression) -> bool {
 pub fn validate_all_config_types(schema: &OrbitalSchema, ctx: &mut ValidationContext) {
     let mut result = ValidationResult::new();
 
+    result.merge(validate_dangling_config_refs(schema));
+
     for (oi, orbital) in schema.orbitals.iter().enumerate() {
         for (ti, trait_ref) in orbital.traits.iter().enumerate() {
             let path_prefix = super::trait_path(oi, &orbital.name, ti, trait_ref);
@@ -464,3 +466,327 @@ const TYPED_ALIAS_ARRAY_HINT: &str = "to declare an array of object records, \
 define a named type alias — `type Item = { field : T, … }` — then annotate the \
 knob `name : [Item]`. A bare `[json]` array lowers to unconstrained object \
 elements; `[string]`/scalar element types cannot carry objects.";
+
+/// C-CONFIG-DANGLING-REF-NO-VALIDATE: a literal `@config.<key>` in a resolved
+/// trait's body (config defaults, transition effects, tick effects) whose key
+/// is declared by NEITHER the owning trait NOR any transitive `@trait.X`
+/// referrer chain is a dangling reference — at runtime the forward has no
+/// schema to chain through and the component receives the literal string
+/// (silent empty subtree / `.map` crash class). Referrer-declared keys are
+/// LEGIT: `buildResolvedTraitConfigs` chains a child's `@config.fields`
+/// through its embedder, so only keys unreachable from the whole chain flag.
+fn validate_dangling_config_refs(schema: &OrbitalSchema) -> ValidationResult {
+    use std::collections::{HashMap, HashSet};
+
+    fn config_key_of(s: &str) -> Option<&str> {
+        let rest = s.strip_prefix("@config.")?;
+        let end = rest.find(['.', '[']).unwrap_or(rest.len());
+        let key = &rest[..end];
+        if key.is_empty() || !key.chars().all(|c| c.is_ascii_alphanumeric() || c == '_') {
+            return None;
+        }
+        Some(key)
+    }
+
+    fn collect_config_keys(expr: &SExpression, out: &mut HashSet<String>) {
+        collect_config_keys_inner(expr, None, out);
+    }
+
+    /// `prop_context` is Some((prop_key, pattern_has_prop)) when `expr` is the
+    /// direct value of a prop on a registry-known pattern node. A SELF-NAMED
+    /// token there (`amount: "@config.amount"` on a stat-display) is the
+    /// pattern layer's declaration-form default for an unset prop — enrich
+    /// materializes it and the component resolves/nulls it — not a forward
+    /// that needs a declaring trait. Everything else collects.
+    fn collect_config_keys_inner(
+        expr: &SExpression,
+        prop_context: Option<(&str, bool)>,
+        out: &mut HashSet<String>,
+    ) {
+        match expr {
+            SExpression::String(s) => {
+                if let Some(key) = config_key_of(s) {
+                    let is_declaration_default = matches!(
+                        prop_context,
+                        Some((prop_key, true)) if prop_key == key
+                    );
+                    if !is_declaration_default {
+                        out.insert(key.to_string());
+                    }
+                }
+            }
+            SExpression::Array(items) => {
+                for item in items {
+                    collect_config_keys_inner(item, None, out);
+                }
+            }
+            SExpression::Object(map) => {
+                let pattern_props = match map.get("type") {
+                    Some(SExpression::String(ty)) => {
+                        crate::pattern_registry::get_props_schema(ty.as_str())
+                    }
+                    _ => None,
+                };
+                for (k, v) in map {
+                    let ctx = pattern_props
+                        .map(|props| (k.as_str(), props.contains_key(k.as_str())));
+                    collect_config_keys_inner(v, ctx, out);
+                }
+            }
+            _ => {}
+        }
+    }
+
+    fn collect_trait_refs(expr: &SExpression, out: &mut HashSet<String>) {
+        match expr {
+            SExpression::String(s) => {
+                if let Some(rest) = s.strip_prefix("@trait.") {
+                    let end = rest.find(['.', '[']).unwrap_or(rest.len());
+                    if end > 0 {
+                        out.insert(rest[..end].to_string());
+                    }
+                }
+            }
+            SExpression::Array(items) => {
+                for item in items {
+                    collect_trait_refs(item, out);
+                }
+            }
+            SExpression::Object(map) => {
+                for v in map.values() {
+                    collect_trait_refs(v, out);
+                }
+            }
+            _ => {}
+        }
+    }
+
+    let mut result = ValidationResult::new();
+
+    for (oi, orbital) in schema.orbitals.iter().enumerate() {
+        // Declared knob keys per trait + child -> referrers adjacency (the
+        // same config-OR-state-machine scan core's embed walkers use).
+        let mut declared: HashMap<&str, HashSet<&str>> = HashMap::new();
+        let mut referrers: HashMap<String, Vec<&str>> = HashMap::new();
+        for trait_ref in &orbital.traits {
+            let TraitReference::Inline(td) = trait_ref else {
+                continue;
+            };
+            let keys: HashSet<&str> = td
+                .config
+                .iter()
+                .flat_map(|c| c.keys())
+                .map(|k| k.as_str())
+                .collect();
+            declared.insert(td.name.as_str(), keys);
+            let mut children: HashSet<String> = HashSet::new();
+            for cf in td.config.iter().flat_map(|c| c.values()) {
+                if let Some(default) = &cf.default {
+                    collect_trait_refs(default, &mut children);
+                }
+            }
+            for transition in &td.state_machine.transitions {
+                for effect in transition.effects.iter().flatten() {
+                    collect_trait_refs(effect, &mut children);
+                }
+            }
+            for tick in td.ticks.iter().flatten() {
+                for effect in &tick.effects {
+                    collect_trait_refs(effect, &mut children);
+                }
+            }
+            for child in children {
+                if child != td.name {
+                    referrers.entry(child).or_default().push(td.name.as_str());
+                }
+            }
+        }
+        // Undirected embed adjacency: forwards chain UP through referrers
+        // (`buildResolvedTraitConfigs`), and a parent's effect tree also
+        // inherits its CHILDREN's materialized pattern props whose defaults
+        // are self-forward tokens (`amount: "@config.amount"` declared on the
+        // embedded stat-display) — so a key declared anywhere in the embed
+        // component is reachable; only component-wide undeclared keys dangle.
+        let mut adjacency: HashMap<&str, Vec<&str>> = HashMap::new();
+        for (child, parents) in &referrers {
+            for parent in parents {
+                adjacency.entry(child.as_str()).or_default().push(parent);
+                adjacency.entry(parent).or_default().push(child.as_str());
+            }
+        }
+
+        let key_reachable = |owner: &str, key: &str| -> bool {
+            let mut queue = vec![owner];
+            let mut seen: HashSet<&str> = HashSet::new();
+            while let Some(name) = queue.pop() {
+                if !seen.insert(name) {
+                    continue;
+                }
+                if declared.get(name).is_some_and(|keys| keys.contains(key)) {
+                    return true;
+                }
+                if let Some(neighbors) = adjacency.get(name) {
+                    queue.extend(neighbors.iter().copied());
+                }
+            }
+            false
+        };
+
+        for (ti, trait_ref) in orbital.traits.iter().enumerate() {
+            let TraitReference::Inline(td) = trait_ref else {
+                continue;
+            };
+            let mut used: HashSet<String> = HashSet::new();
+            for cf in td.config.iter().flat_map(|c| c.values()) {
+                if let Some(default) = &cf.default {
+                    collect_config_keys(default, &mut used);
+                }
+            }
+            for transition in &td.state_machine.transitions {
+                for effect in transition.effects.iter().flatten() {
+                    collect_config_keys(effect, &mut used);
+                }
+            }
+            for tick in td.ticks.iter().flatten() {
+                for effect in &tick.effects {
+                    collect_config_keys(effect, &mut used);
+                }
+            }
+            let mut dangling: Vec<&String> = used
+                .iter()
+                .filter(|key| !key_reachable(&td.name, key))
+                .collect();
+            dangling.sort();
+            for key in dangling {
+                let path = format!(
+                    "orbitals[{} ({})].traits[{} ({})]",
+                    oi, orbital.name, ti, td.name
+                );
+                result.add_error(
+                    ValidationError::error(
+                        ErrorCode::ConfigDanglingRef,
+                        path,
+                        format!(
+                            "`@config.{}` — no trait in {}'s referrer chain declares config knob '{}'; \
+                             the forward cannot resolve and renders as the literal string",
+                            key, td.name, key
+                        ),
+                    )
+                    .with_suggestion(format!(
+                        "Declare `{}` on the owning trait (or its embedder) or remove the reference",
+                        key
+                    )),
+                );
+            }
+        }
+    }
+
+    result
+}
+
+#[cfg(test)]
+mod dangling_config_tests {
+    use super::*;
+
+    fn schema_from_json(json: &str) -> OrbitalSchema {
+        serde_json::from_str(json).expect("fixture parses")
+    }
+
+    const TRUE_DANGLE: &str = r#"{
+      "name": "t", "version": "1.0.0",
+      "orbitals": [{
+        "name": "O",
+        "entity": { "name": "W", "fields": [] },
+        "traits": [{
+          "name": "Panel",
+          "stateMachine": {
+            "states": [{ "name": "idle", "isInitial": true }],
+            "transitions": [{
+              "from": "idle", "to": "idle", "event": "INIT",
+              "effects": [["render-ui", "main", { "type": "typography", "content": "@config.missingTitle" }]]
+            }]
+          }
+        }]
+      }]
+    }"#;
+
+    const DECLARATION_DEFAULT: &str = r#"{
+      "name": "t", "version": "1.0.0",
+      "orbitals": [{
+        "name": "O",
+        "entity": { "name": "W", "fields": [] },
+        "traits": [{
+          "name": "Panel",
+          "stateMachine": {
+            "states": [{ "name": "idle", "isInitial": true }],
+            "transitions": [{
+              "from": "idle", "to": "idle", "event": "INIT",
+              "effects": [["render-ui", "main", { "type": "stat-display", "label": "@config.label" }]]
+            }]
+          }
+        }]
+      }]
+    }"#;
+
+    const REFERRER_DECLARED: &str = r#"{
+      "name": "t", "version": "1.0.0",
+      "orbitals": [{
+        "name": "O",
+        "entity": { "name": "W", "fields": [] },
+        "traits": [
+          {
+            "name": "Child",
+            "stateMachine": {
+              "states": [{ "name": "idle", "isInitial": true }],
+              "transitions": [{
+                "from": "idle", "to": "idle", "event": "INIT",
+                "effects": [["render-ui", "main", { "type": "typography", "content": "@config.fields" }]]
+              }]
+            }
+          },
+          {
+            "name": "Parent",
+            "config": { "fields": { "type": "string", "default": "x" } },
+            "stateMachine": {
+              "states": [{ "name": "idle", "isInitial": true }],
+              "transitions": [{
+                "from": "idle", "to": "idle", "event": "INIT",
+                "effects": [["render-ui", "main", { "type": "stack", "children": ["@trait.Child"] }]]
+              }]
+            }
+          }
+        ]
+      }]
+    }"#;
+
+    fn dangles(json: &str) -> usize {
+        validate_dangling_config_refs(&schema_from_json(json))
+            .errors
+            .iter()
+            .filter(|e| e.code == ErrorCode::ConfigDanglingRef)
+            .count()
+    }
+
+    #[test]
+    fn flags_component_wide_undeclared_key() {
+        assert_eq!(dangles(TRUE_DANGLE), 1, "undeclared key must flag");
+    }
+
+    #[test]
+    fn accepts_self_named_pattern_declaration_default() {
+        assert_eq!(
+            dangles(DECLARATION_DEFAULT),
+            0,
+            "self-named pattern-prop declaration default is the enrich idiom, not a dangle"
+        );
+    }
+
+    #[test]
+    fn accepts_key_declared_by_embed_component() {
+        assert_eq!(
+            dangles(REFERRER_DECLARED),
+            0,
+            "a key declared anywhere in the undirected embed component is reachable"
+        );
+    }
+}

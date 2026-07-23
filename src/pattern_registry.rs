@@ -91,6 +91,11 @@ pub struct PropSchema {
     /// build a named-arg → object-payload wrapper at the dispatch site.
     #[serde(rename = "callbackArgs", default)]
     pub callback_args: Option<Vec<CallbackArg>>,
+    /// Numeric literal-union props (`cols: 1 | 2 | … | 6`). The TS codegen
+    /// asserts a `Number(...)` coercion down to this union so the component
+    /// prop typechecks; validation mirrors the string `enumValues` rule.
+    #[serde(rename = "numericEnumValues", default)]
+    pub numeric_enum_values: Option<Vec<f64>>,
     /// For `kind: "event-ref"` from an `EventEmit<P>` brand.
     #[serde(rename = "emitPayloadSchema", default)]
     pub emit_payload_schema: Option<Vec<RegistryPayloadField>>,

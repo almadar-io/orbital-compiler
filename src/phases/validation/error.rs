@@ -404,6 +404,8 @@ pub enum ErrorCode {
     BindingInvalidFormat,
     /// Unknown binding root
     BindingUnknownRoot,
+    /// `@config.<key>` literal whose key no reachable config schema declares
+    ConfigDanglingRef,
     /// Invalid binding path
     BindingInvalidPath,
     /// @state binding should not have path
@@ -780,6 +782,7 @@ impl ErrorCode {
             // Binding
             ErrorCode::BindingInvalidFormat => "ORB_BINDING_INVALID_FORMAT",
             ErrorCode::BindingUnknownRoot => "ORB_BINDING_UNKNOWN_ROOT",
+            ErrorCode::ConfigDanglingRef => "ORB_CONFIG_DANGLING_REF",
             ErrorCode::BindingInvalidPath => "ORB_BINDING_INVALID_PATH",
             ErrorCode::BindingStateNoPath => "ORB_BINDING_STATE_NO_PATH",
             ErrorCode::BindingNowNoPath => "ORB_BINDING_NOW_NO_PATH",
@@ -1002,6 +1005,7 @@ impl ErrorCode {
 
             ErrorCode::BindingInvalidFormat
             | ErrorCode::BindingUnknownRoot
+            | ErrorCode::ConfigDanglingRef
             | ErrorCode::BindingInvalidPath
             | ErrorCode::BindingStateNoPath
             | ErrorCode::BindingNowNoPath
