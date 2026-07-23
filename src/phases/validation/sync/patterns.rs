@@ -2,7 +2,7 @@
 //!
 //! Source: packages/almadar-core/src/patterns/patterns-registry.json
 //!
-//! Last synced: 2026-07-21
+//! Last synced: 2026-07-22
 //! To regenerate: npx tsx tools/almadar-pattern-sync/index.ts
 //!
 //! DO NOT EDIT MANUALLY - changes will be overwritten on next sync.
@@ -5471,7 +5471,7 @@ pub static PATTERN_PROP_TYPES: LazyLock<HashMap<&'static str, HashMap<&'static s
                 [
                     ("isOpen", &["boolean"] as &[&str]),
                     ("onClose", &["function"] as &[&str]),
-                    ("title", &["string"] as &[&str]),
+                    ("title", &["node"] as &[&str]),
                     ("children", &["node"] as &[&str]),
                     ("footer", &["node"] as &[&str]),
                     ("position", &["string"] as &[&str]),
@@ -8603,15 +8603,7 @@ pub static PATTERN_PROP_ENUM_VALUES: LazyLock<HashMap<&'static str, HashMap<&'st
                 .into_iter()
                 .collect(),
             ),
-            (
-                "code-block",
-                [
-                    ("language", &["text", "json", "javascript", "js", "typescript", "ts", "jsx", "tsx", "css", "markdown", "md", "bash", "shell", "sh", "yaml", "yml", "rust", "python", "py", "sql", "diff", "toml", "go", "graphql", "html", "xml", "orb", "lolo"] as &[&str]),
-                    ("mode", &["code", "diff"] as &[&str]),
-                ]
-                .into_iter()
-                .collect(),
-            ),
+            ("code-block", [("mode", &["code", "diff"] as &[&str])].into_iter().collect()),
             (
                 "confirm-dialog",
                 [
