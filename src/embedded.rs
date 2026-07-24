@@ -1131,7 +1131,8 @@ pub static EMBEDDED_STD_BEHAVIORS: phf::Map<&'static str, &'static [u8]> = phf::
     "std/behaviors/ui-wizard-container" => include_bytes!(concat!(env!("OUT_DIR"), "/baked-gz/std/ui/core/molecules/ui-wizard-container.orb.gz")),
     "std/behaviors/ui-wizard-navigation" => include_bytes!(concat!(env!("OUT_DIR"), "/baked-gz/std/ui/core/molecules/ui-wizard-navigation.orb.gz")),
     "std/behaviors/ui-wizard-progress" => include_bytes!(concat!(env!("OUT_DIR"), "/baked-gz/std/ui/core/molecules/ui-wizard-progress.orb.gz")),
-    // === Organisms (230) ===
+    // === Organisms (231) ===
+    "std/behaviors/kflow-learning-companion" => include_bytes!(concat!(env!("OUT_DIR"), "/baked-gz/io/app/organisms/kflow-learning-companion.orb.gz")),
     "std/behaviors/learning-algorithms" => include_bytes!(concat!(env!("OUT_DIR"), "/baked-gz/std/ui/learning/organisms/learning-algorithms.orb.gz")),
     "std/behaviors/learning-biology" => include_bytes!(concat!(env!("OUT_DIR"), "/baked-gz/std/ui/learning/organisms/learning-biology.orb.gz")),
     "std/behaviors/learning-biology-lab" => include_bytes!(concat!(env!("OUT_DIR"), "/baked-gz/std/ui/learning/organisms/learning-biology-lab.orb.gz")),

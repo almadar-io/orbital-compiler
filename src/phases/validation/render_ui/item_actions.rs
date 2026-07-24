@@ -35,14 +35,16 @@ pub(super) fn validate_item_actions(item_actions: &SExpression, path: &str) -> V
                 }
 
                 // Check for required event prop
-                if !obj.contains_key("event") && !obj.contains_key("href") {
+                if !obj.contains_key("event") && !obj.contains_key("navigatesTo") {
                     result.add_error(
                         ValidationError::error(
                             ErrorCode::RenderUIInvalidItemAction,
                             &action_path,
-                            "itemAction must have 'event' or 'href' property",
+                            "itemAction must have 'event' or 'navigatesTo' property",
                         )
-                        .with_suggestion("Add event: 'EVENT_NAME' to emit an event"),
+                        .with_suggestion(
+                            "Add event: 'EVENT_NAME' to emit an event, or navigatesTo: '/route/{{row.id}}' to navigate",
+                        ),
                     );
                 }
             }
