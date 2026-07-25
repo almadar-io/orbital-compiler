@@ -485,13 +485,17 @@ impl<'a> Resolver<'a> {
         }
         match trimmed.to_lowercase().as_str() {
             "string" => OirType::String,
-            "number" => OirType::Number,
+            // Keep the numeric/collection arms converged with
+            // `parse_payload_field_type` — a `float` config knob emitted
+            // `string` when this arm lacked the aliases (TS2352 on the
+            // DEFAULT_CONFIG cast).
+            "number" | "float" | "double" => OirType::Number,
             "integer" | "int" => OirType::Integer,
             "boolean" | "bool" => OirType::Boolean,
             "date" => OirType::Date,
             "datetime" | "timestamp" => OirType::DateTime,
-            "array" => OirType::array(OirType::Json),
-            "object" | "json" => OirType::Json,
+            "array" | "list" => OirType::array(OirType::Json),
+            "object" | "json" | "tensor" => OirType::Json,
             // Layer 3 — render-ui SExpr tree carried as a config knob value.
             // Lowered to Json so codegen emits a JSON-shaped TS type
             // (the variant author supplies any tree; runtime substitutes).
@@ -662,6 +666,19 @@ impl<'a> Resolver<'a> {
                             oir.source_trait_id = trait_id.clone();
                         }
                     }
+                }
+                // Carry the listen refinement surface (`when` guard + `with{}`
+                // projection) into OIR — dropping it here silently stripped it
+                // from every compiled shell (C-OIR-LISTENER-DROPS-WITH-AND-GUARD).
+                if let Some(guard) = &listen.guard {
+                    oir.guard = Some(self.resolve_sexpr(guard)?);
+                }
+                if let Some(mapping) = &listen.payload_mapping {
+                    let mut resolved = std::collections::HashMap::new();
+                    for (field, expr) in mapping {
+                        resolved.insert(field.clone(), self.resolve_sexpr(expr)?);
+                    }
+                    oir.payload_mapping = Some(resolved);
                 }
                 oir_trait.listeners.push(oir);
             }
