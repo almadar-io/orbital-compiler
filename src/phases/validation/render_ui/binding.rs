@@ -257,6 +257,13 @@ fn walk_pattern_props(
                 || *t == "node"   // any rendered value is a ReactNode
                 || *t == "string" && resolved_str == "trait"  // @trait.X used as label fallback
                 || (*t == "icon" && resolved_str == "string")
+                // Date props: both render boundaries coerce a serialized
+                // string / epoch number into a real `Date` (runtime
+                // `UISlotRenderer`, compiled `pattern/registry.rs`), so a
+                // datetime field or a timestamp-returning operator
+                // satisfies them.
+                || (matches!(*t, "date" | "datetime" | "timestamp")
+                    && matches!(resolved_str, "string" | "number"))
         });
         if !compatible {
             diagnostics.push(

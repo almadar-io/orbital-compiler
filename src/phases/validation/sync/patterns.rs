@@ -2,7 +2,7 @@
 //!
 //! Source: packages/almadar-core/src/patterns/patterns-registry.json
 //!
-//! Last synced: 2026-07-24
+//! Last synced: 2026-07-25
 //! To regenerate: npx tsx tools/almadar-pattern-sync/index.ts
 //!
 //! DO NOT EDIT MANUALLY - changes will be overwritten on next sync.
@@ -1107,7 +1107,9 @@ pub static PATTERN_PROPS_SCHEMA: LazyLock<HashMap<&'static str, HashSet<&'static
             (
                 "calendar-grid",
                 [
+                    "children",
                     "className",
+                    "colorField",
                     "dayWindow",
                     "events",
                     "longPressEvent",
@@ -1115,9 +1117,12 @@ pub static PATTERN_PROPS_SCHEMA: LazyLock<HashMap<&'static str, HashSet<&'static
                     "onDayClick",
                     "onEventClick",
                     "onSlotClick",
+                    "renderItem",
+                    "startField",
                     "swipeLeftEvent",
                     "swipeRightEvent",
                     "timeSlots",
+                    "titleField",
                     "weekStart",
                 ]
                 .into_iter()
@@ -4656,6 +4661,11 @@ pub static PATTERN_PROP_TYPES: LazyLock<HashMap<&'static str, HashMap<&'static s
                     ("swipeLeftEvent", &["string"] as &[&str]),
                     ("swipeRightEvent", &["string"] as &[&str]),
                     ("dayWindow", &["number", "string"] as &[&str]),
+                    ("titleField", &["string"] as &[&str]),
+                    ("startField", &["string"] as &[&str]),
+                    ("colorField", &["string"] as &[&str]),
+                    ("children", &["function"] as &[&str]),
+                    ("renderItem", &["function"] as &[&str]),
                 ]
                 .into_iter()
                 .collect(),

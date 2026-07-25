@@ -638,7 +638,7 @@ pub fn factory_signatures_json_io() -> &'static str {
 // Values are gzip bytes (build.rs → $OUT_DIR/baked-gz/…), inflated lazily by
 // `get_std_behavior_content` — the baked corpus is ~31MB raw, ~2MB gzipped.
 pub static EMBEDDED_STD_BEHAVIORS: phf::Map<&'static str, &'static [u8]> = phf::phf_map! {
-    // === Atoms (324) ===
+    // === Atoms (331) ===
     "std/behaviors/rpg-dialogue" => include_bytes!(concat!(env!("OUT_DIR"), "/baked-gz/io/rpg/atoms/rpg-dialogue.orb.gz")),
     "std/behaviors/rpg-enemies" => include_bytes!(concat!(env!("OUT_DIR"), "/baked-gz/io/rpg/atoms/rpg-enemies.orb.gz")),
     "std/behaviors/rpg-flow" => include_bytes!(concat!(env!("OUT_DIR"), "/baked-gz/io/rpg/atoms/rpg-flow.orb.gz")),
@@ -786,6 +786,13 @@ pub static EMBEDDED_STD_BEHAVIORS: phf::Map<&'static str, &'static [u8]> = phf::
     "std/behaviors/std-matter" => include_bytes!(concat!(env!("OUT_DIR"), "/baked-gz/io/app/atoms/std-matter.orb.gz")),
     "std/behaviors/std-membership" => include_bytes!(concat!(env!("OUT_DIR"), "/baked-gz/io/app/atoms/std-membership.orb.gz")),
     "std/behaviors/std-menu" => include_bytes!(concat!(env!("OUT_DIR"), "/baked-gz/io/app/atoms/std-menu.orb.gz")),
+    "std/behaviors/std-ml-classify" => include_bytes!(concat!(env!("OUT_DIR"), "/baked-gz/std/ml/atoms/std-ml-classify.orb.gz")),
+    "std/behaviors/std-ml-exact-check" => include_bytes!(concat!(env!("OUT_DIR"), "/baked-gz/std/ml/atoms/std-ml-exact-check.orb.gz")),
+    "std/behaviors/std-ml-infer" => include_bytes!(concat!(env!("OUT_DIR"), "/baked-gz/std/ml/atoms/std-ml-infer.orb.gz")),
+    "std/behaviors/std-ml-label-capture" => include_bytes!(concat!(env!("OUT_DIR"), "/baked-gz/std/ml/atoms/std-ml-label-capture.orb.gz")),
+    "std/behaviors/std-ml-lookup" => include_bytes!(concat!(env!("OUT_DIR"), "/baked-gz/std/ml/atoms/std-ml-lookup.orb.gz")),
+    "std/behaviors/std-ml-posterior" => include_bytes!(concat!(env!("OUT_DIR"), "/baked-gz/std/ml/atoms/std-ml-posterior.orb.gz")),
+    "std/behaviors/std-ml-similarity" => include_bytes!(concat!(env!("OUT_DIR"), "/baked-gz/std/ml/atoms/std-ml-similarity.orb.gz")),
     "std/behaviors/std-mod-queue" => include_bytes!(concat!(env!("OUT_DIR"), "/baked-gz/std/infra/atoms/std-mod-queue.orb.gz")),
     "std/behaviors/std-modal" => include_bytes!(concat!(env!("OUT_DIR"), "/baked-gz/std/ui/core/atoms/std-modal.orb.gz")),
     "std/behaviors/std-moderation-rule" => include_bytes!(concat!(env!("OUT_DIR"), "/baked-gz/io/app/atoms/std-moderation-rule.orb.gz")),
@@ -963,7 +970,7 @@ pub static EMBEDDED_STD_BEHAVIORS: phf::Map<&'static str, &'static [u8]> = phf::
     "std/behaviors/ui-typewriter-text" => include_bytes!(concat!(env!("OUT_DIR"), "/baked-gz/std/ui/core/atoms/ui-typewriter-text.orb.gz")),
     "std/behaviors/ui-typography" => include_bytes!(concat!(env!("OUT_DIR"), "/baked-gz/std/ui/core/atoms/ui-typography.orb.gz")),
     "std/behaviors/ui-vstack" => include_bytes!(concat!(env!("OUT_DIR"), "/baked-gz/std/ui/core/atoms/ui-vstack.orb.gz")),
-    // === Molecules (167) ===
+    // === Molecules (169) ===
     "std/behaviors/rpg-dungeon-board" => include_bytes!(concat!(env!("OUT_DIR"), "/baked-gz/io/rpg/molecules/rpg-dungeon-board.orb.gz")),
     "std/behaviors/std-agent-fix-loop" => include_bytes!(concat!(env!("OUT_DIR"), "/baked-gz/std/agent/molecules/std-agent-fix-loop.orb.gz")),
     "std/behaviors/std-agent-planner" => include_bytes!(concat!(env!("OUT_DIR"), "/baked-gz/std/agent/molecules/std-agent-planner.orb.gz")),
@@ -975,6 +982,8 @@ pub static EMBEDDED_STD_BEHAVIORS: phf::Map<&'static str, &'static [u8]> = phf::
     "std/behaviors/std-cart" => include_bytes!(concat!(env!("OUT_DIR"), "/baked-gz/io/app/molecules/std-cart.orb.gz")),
     "std/behaviors/std-crew-board-2d" => include_bytes!(concat!(env!("OUT_DIR"), "/baked-gz/std/ui/game/molecules/std-crew-board-2d.orb.gz")),
     "std/behaviors/std-dungeon-board-2d" => include_bytes!(concat!(env!("OUT_DIR"), "/baked-gz/std/ui/game/molecules/std-dungeon-board-2d.orb.gz")),
+    "std/behaviors/std-escalating-decision" => include_bytes!(concat!(env!("OUT_DIR"), "/baked-gz/std/ml/molecules/std-escalating-decision.orb.gz")),
+    "std/behaviors/std-knowledge-tracing" => include_bytes!(concat!(env!("OUT_DIR"), "/baked-gz/std/ml/molecules/std-knowledge-tracing.orb.gz")),
     "std/behaviors/std-ledger-entry-form" => include_bytes!(concat!(env!("OUT_DIR"), "/baked-gz/io/app/molecules/std-ledger-entry-form.orb.gz")),
     "std/behaviors/std-market-board-3d" => include_bytes!(concat!(env!("OUT_DIR"), "/baked-gz/std/ui/game/molecules/std-market-board-3d.orb.gz")),
     "std/behaviors/std-multi-party-transaction" => include_bytes!(concat!(env!("OUT_DIR"), "/baked-gz/io/app/molecules/std-multi-party-transaction.orb.gz")),

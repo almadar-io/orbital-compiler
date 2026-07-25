@@ -1,6 +1,6 @@
 // Auto-generated from @almadar/std canonical-operators.json by @almadar-io/almadar-pattern-sync.
 // DO NOT EDIT MANUALLY.
-// Total operators targeting Rust: 236
+// Total operators targeting Rust: 239
 
 /// Operator metadata derived from the canonical @almadar/std registry.
 #[derive(Debug, Clone)]
@@ -113,6 +113,16 @@ pub static CANONICAL_OPERATORS: &[OperatorMeta] = &[
         return_semantics: None,
     },
     OperatorMeta {
+        name: "==",
+        category: "comparison",
+        min_arity: 2,
+        max_arity: Some(2),
+        return_type: "boolean",
+        description: "Equal to (canonical .lolo spelling)",
+        has_side_effects: false,
+        return_semantics: None,
+    },
+    OperatorMeta {
         name: ">",
         category: "comparison",
         min_arity: 2,
@@ -199,6 +209,16 @@ pub static CANONICAL_OPERATORS: &[OperatorMeta] = &[
         max_arity: None,
         return_type: "array",
         description: "Concatenate arrays",
+        has_side_effects: false,
+        return_semantics: None,
+    },
+    OperatorMeta {
+        name: "array/cosine",
+        category: "std-array",
+        min_arity: 2,
+        max_arity: Some(2),
+        return_type: "number",
+        description: "Cosine similarity between two numeric vectors, in [-1, 1] (1 = identical direction). The building block for \"is this answer semantically the reference answer\" checks over embeddings. Pure math — usable in guards and value position, unlike the async llm/* substrate operators.",
         has_side_effects: false,
         return_semantics: None,
     },
@@ -389,6 +409,16 @@ pub static CANONICAL_OPERATORS: &[OperatorMeta] = &[
         max_arity: Some(2),
         return_type: "number",
         description: "Minimum value (optionally by field)",
+        has_side_effects: false,
+        return_semantics: None,
+    },
+    OperatorMeta {
+        name: "array/nearest",
+        category: "std-array",
+        min_arity: 2,
+        max_arity: Some(2),
+        return_type: "object",
+        description: "Find the candidate vector nearest a query vector by cosine similarity. Returns { index, score, margin } — index/score of the best match, and margin (best score minus second-best), which is what makes an abstaining gate possible: a small margin means the top match is not confidently distinguished from the runner-up.",
         has_side_effects: false,
         return_semantics: None,
     },
@@ -2409,7 +2439,7 @@ mod tests {
 
     #[test]
     fn test_canonical_operators_count() {
-        assert_eq!(CANONICAL_OPERATORS.len(), 236);
+        assert_eq!(CANONICAL_OPERATORS.len(), 239);
     }
 
     #[test]

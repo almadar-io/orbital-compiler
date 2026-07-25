@@ -313,6 +313,7 @@ fn config_field_to_binding(cf: &ConfigField) -> BindingType {
         "boolean" => BindingType::Boolean,
         "array" | "[object]" | "[string]" | "[number]" => BindingType::Array,
         "object" => BindingType::Object,
+        "datetime" | "date" | "timestamp" => BindingType::Datetime,
         // Literal-union types like `"underline" | "default" | "pills"`
         // resolve to string (every member is a string literal). Cheap
         // heuristic: if the type contains a `"`, assume string-union.
