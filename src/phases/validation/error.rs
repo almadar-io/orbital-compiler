@@ -45,6 +45,9 @@ pub enum ErrorCode {
     EntityInvalidRelation,
     /// Enum field has no values
     EntityEmptyEnumValues,
+    /// A literal default on a semantic-domain field does not satisfy that domain
+    /// (`email : email = "not-an-email"`).
+    EntitySemanticValueInvalid,
     /// Phase F.3: an entity field declares `values: [...]` (literal-union)
     /// AND `default: <X>`, but X is not one of the declared values. Error.
     LiteralUnionDefaultMismatch,
@@ -655,6 +658,7 @@ impl ErrorCode {
             ErrorCode::EntityMissingCollection => "ORB_E_MISSING_COLLECTION",
             ErrorCode::EntityInvalidRelation => "ORB_E_INVALID_RELATION",
             ErrorCode::EntityEmptyEnumValues => "ORB_E_EMPTY_ENUM_VALUES",
+            ErrorCode::EntitySemanticValueInvalid => "ORB_E_SEMANTIC_VALUE_INVALID",
             ErrorCode::LiteralUnionDefaultMismatch => "ORB_E_LITERAL_UNION_DEFAULT_MISMATCH",
 
             // Trait
@@ -884,6 +888,7 @@ impl ErrorCode {
             | ErrorCode::EntityMissingCollection
             | ErrorCode::EntityInvalidRelation
             | ErrorCode::EntityEmptyEnumValues
+            | ErrorCode::EntitySemanticValueInvalid
             | ErrorCode::EntityNameShadowsTraitUnion
             | ErrorCode::LiteralUnionDefaultMismatch => "entity",
 

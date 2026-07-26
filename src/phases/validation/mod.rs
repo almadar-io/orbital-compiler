@@ -325,10 +325,19 @@ pub const VALID_FIELD_TYPES: &[&str] = &[
     "date",
     "datetime",
     "timestamp",
+    // Semantic string domains.
+    "email",
+    "url",
+    "phone",
+    "uuid",
+    "image",
     "array",
     "object",
     "enum",
     "relation",
+    // `trait` was missing here while being a real `FieldType` variant — a latent
+    // bug that would reject any trait-typed field reaching this check.
+    "trait",
     "slot",
     "pattern",
 ];

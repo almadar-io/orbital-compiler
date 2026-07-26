@@ -252,6 +252,35 @@ pub fn validate_field(
         );
     }
 
+    // A literal default on a semantic-domain field must satisfy that domain.
+    // Routes through orbital-core's single owner so L1 (lolo) and L2 cannot drift
+    // on what counts as a valid email/url/phone/uuid.
+    if let Some(kind) = orbital_core::type_compat::semantic_string_kind(&type_str) {
+        if let Some(orbital_core::schema::SExpression::String(literal)) = field.default.as_ref() {
+            if literal.is_empty() {
+                result.add_error(
+                    ValidationError::error(
+                        ErrorCode::EntitySemanticValueInvalid,
+                        format!("{}.default", path),
+                        format!("A '{}' field cannot default to an empty string", kind),
+                    )
+                    .with_suggestion(
+                        "Drop the default — the mock generator synthesizes a valid value",
+                    ),
+                );
+            } else if !orbital_core::type_compat::semantic_string_value_valid(kind, literal) {
+                result.add_error(
+                    ValidationError::error(
+                        ErrorCode::EntitySemanticValueInvalid,
+                        format!("{}.default", path),
+                        format!("'{}' is not a valid {}", literal, kind),
+                    )
+                    .with_suggestion(format!("Provide a valid {} or drop the default", kind)),
+                );
+            }
+        }
+    }
+
     // Validate enum fields have values
     if field.field_type == FieldType::Enum {
         if let Some(values) = &field.values {
@@ -318,6 +347,11 @@ fn field_type_to_string(field_type: &FieldType) -> String {
         FieldType::Date => "date".to_string(),
         FieldType::Datetime => "datetime".to_string(),
         FieldType::Timestamp => "timestamp".to_string(),
+        FieldType::Email => "email".to_string(),
+        FieldType::Url => "url".to_string(),
+        FieldType::Phone => "phone".to_string(),
+        FieldType::Uuid => "uuid".to_string(),
+        FieldType::Image => "image".to_string(),
         FieldType::Array => "array".to_string(),
         FieldType::Object => "object".to_string(),
         FieldType::Enum => "enum".to_string(),

@@ -2,7 +2,7 @@
 //!
 //! Source: packages/almadar-core/src/patterns/patterns-registry.json
 //!
-//! Last synced: 2026-07-25
+//! Last synced: 2026-07-26
 //! To regenerate: npx tsx tools/almadar-pattern-sync/index.ts
 //!
 //! DO NOT EDIT MANUALLY - changes will be overwritten on next sync.
@@ -52,6 +52,9 @@ pub static PATTERN_TYPES: LazyLock<HashSet<&'static str>> = LazyLock::new(|| {
         "graph-view",
         "hstack",
         "icon",
+        "import-preview-tree",
+        "import-progress",
+        "import-source-picker",
         "infinite-scroll-sentinel",
         "input",
         "install-box",
@@ -362,6 +365,9 @@ pub static PATTERN_TO_CATEGORY: LazyLock<HashMap<&'static str, &'static str>> =
             ("graph-view", "component"),
             ("hstack", "component"),
             ("icon", "component"),
+            ("import-preview-tree", "component"),
+            ("import-progress", "component"),
+            ("import-source-picker", "component"),
             ("infinite-scroll-sentinel", "component"),
             ("input", "component"),
             ("install-box", "component"),
@@ -691,6 +697,9 @@ pub static PATTERN_REQUIRED_PROPS: LazyLock<HashMap<&'static str, Vec<&'static s
             ("grid", vec!["children"]),
             ("health-bar", vec!["current", "max"]),
             ("hero-section", vec!["title", "subtitle"]),
+            ("import-preview-tree", vec!["units", "entityDisplay"]),
+            ("import-progress", vec!["step"]),
+            ("import-source-picker", vec!["sources"]),
             ("infinite-scroll-sentinel", vec!["loadMoreEvent"]),
             ("install-box", vec!["command"]),
             ("landing-page-template", vec!["entity"]),
@@ -2432,6 +2441,24 @@ pub static PATTERN_PROPS_SCHEMA: LazyLock<HashMap<&'static str, HashSet<&'static
                 .into_iter()
                 .collect(),
             ),
+            (
+                "import-preview-tree",
+                [
+                    "cancelLabel",
+                    "className",
+                    "confirmLabel",
+                    "entityDisplay",
+                    "indent",
+                    "onCancel",
+                    "onConfirm",
+                    "skipped",
+                    "units",
+                ]
+                .into_iter()
+                .collect(),
+            ),
+            ("import-progress", ["className", "counts", "labels", "step"].into_iter().collect()),
+            ("import-source-picker", ["className", "moreSources", "onFilesSelected", "onSelect", "sources", "title"].into_iter().collect()),
             (
                 "infinite-scroll-sentinel",
                 [
@@ -6257,6 +6284,46 @@ pub static PATTERN_PROP_TYPES: LazyLock<HashMap<&'static str, HashMap<&'static s
                 .collect(),
             ),
             (
+                "import-preview-tree",
+                [
+                    ("units", &["array"] as &[&str]),
+                    ("skipped", &["array"] as &[&str]),
+                    ("entityDisplay", &["object"] as &[&str]),
+                    ("onConfirm", &["function"] as &[&str]),
+                    ("onCancel", &["function"] as &[&str]),
+                    ("confirmLabel", &["string"] as &[&str]),
+                    ("cancelLabel", &["string"] as &[&str]),
+                    ("indent", &["number"] as &[&str]),
+                    ("className", &["string"] as &[&str]),
+                ]
+                .into_iter()
+                .collect(),
+            ),
+            (
+                "import-progress",
+                [
+                    ("step", &["string"] as &[&str]),
+                    ("counts", &["object"] as &[&str]),
+                    ("labels", &["object"] as &[&str]),
+                    ("className", &["string"] as &[&str]),
+                ]
+                .into_iter()
+                .collect(),
+            ),
+            (
+                "import-source-picker",
+                [
+                    ("sources", &["array"] as &[&str]),
+                    ("onSelect", &["function"] as &[&str]),
+                    ("onFilesSelected", &["function"] as &[&str]),
+                    ("title", &["string"] as &[&str]),
+                    ("moreSources", &["node"] as &[&str]),
+                    ("className", &["string"] as &[&str]),
+                ]
+                .into_iter()
+                .collect(),
+            ),
+            (
                 "infinite-scroll-sentinel",
                 [
                     ("loadMoreEvent", &["string"] as &[&str]),
@@ -8932,6 +8999,7 @@ pub static PATTERN_PROP_ENUM_VALUES: LazyLock<HashMap<&'static str, HashMap<&'st
                 .into_iter()
                 .collect(),
             ),
+            ("import-progress", [("step", &["fetching", "mapping", "reviewing", "committing", "done", "failed"] as &[&str])].into_iter().collect()),
             (
                 "input",
                 [

@@ -276,6 +276,12 @@ fn field_type_to_binding(ft: &FieldType) -> BindingType {
         FieldType::Number => BindingType::Number,
         FieldType::Boolean => BindingType::Boolean,
         FieldType::Date | FieldType::Datetime | FieldType::Timestamp => BindingType::Datetime,
+        // Semantic domains bind as strings — a render slot treats them as text.
+        FieldType::Email
+        | FieldType::Url
+        | FieldType::Phone
+        | FieldType::Uuid
+        | FieldType::Image => BindingType::String,
         FieldType::Array => BindingType::Array,
         FieldType::Object => BindingType::Object,
         FieldType::Enum => BindingType::String,

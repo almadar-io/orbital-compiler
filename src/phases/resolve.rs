@@ -3,7 +3,8 @@
 //! Resolves all references and produces the final OIR (Orbital Intermediate Representation).
 
 use orbital_core::ir::{
-    OirBinaryOp, OirBinding, OirCardinality, OirConfigFieldType, OirEffect, OirEmit, OirEmitConfig,
+    OirBinaryOp, OirBinding, OirCardinality, OirConfigFieldType, OirConstraint, OirEffect, OirEmit,
+    OirEmitConfig,
     OirEntity, OirEvent, OirEventScope, OirExpr, OirField, OirInterval, OirListener, OirMetadata,
     OirModule, OirPage, OirPattern, OirPayloadField, OirPersistence, OirRelation, OirSection,
     OirState, OirTick, OirTrait, OirTraitBinding, OirTraitSource, OirTransition, OirTransitionFrom,
@@ -278,6 +279,19 @@ impl<'a> Resolver<'a> {
         // Add enum values
         oir_field.enum_values = field.values.clone();
 
+        // Attach the constraint the declared domain implies. `OirConstraint::{Email,
+        // Url,Uuid}` and the zod `.email()`/`.url()`/`.uuid()` emitter were both
+        // already built and never fed — nothing ever populated `constraints`, and a
+        // dead `let _ = OirConstraint::Email` keepalive existed to prove it. This is
+        // the line that lights the pipeline up.
+        match field.field_type {
+            FieldType::Email => oir_field.constraints.push(OirConstraint::Email),
+            FieldType::Url | FieldType::Image => oir_field.constraints.push(OirConstraint::Url),
+            FieldType::Uuid => oir_field.constraints.push(OirConstraint::Uuid),
+            FieldType::Phone => oir_field.constraints.push(OirConstraint::Phone),
+            _ => {}
+        }
+
         // Add relation
         if let Some(relation) = &field.relation {
             oir_field.relation = Some(OirRelation {
@@ -317,6 +331,11 @@ impl<'a> Resolver<'a> {
             FieldType::Boolean => Ok(OirType::Boolean),
             FieldType::Date => Ok(OirType::Date),
             FieldType::Datetime | FieldType::Timestamp => Ok(OirType::DateTime),
+            FieldType::Email => Ok(OirType::Email),
+            FieldType::Url => Ok(OirType::Url),
+            FieldType::Phone => Ok(OirType::Phone),
+            FieldType::Uuid => Ok(OirType::Uuid),
+            FieldType::Image => Ok(OirType::Image),
             FieldType::Array => Ok(OirType::array(OirType::Json)), // Nested type would need items
             FieldType::Object => Ok(OirType::Json),
             FieldType::Enum => Ok(OirType::enum_type("Enum")),
