@@ -638,7 +638,7 @@ pub fn factory_signatures_json_io() -> &'static str {
 // Values are gzip bytes (build.rs → $OUT_DIR/baked-gz/…), inflated lazily by
 // `get_std_behavior_content` — the baked corpus is ~31MB raw, ~2MB gzipped.
 pub static EMBEDDED_STD_BEHAVIORS: phf::Map<&'static str, &'static [u8]> = phf::phf_map! {
-    // === Atoms (331) ===
+    // === Atoms (337) ===
     "std/behaviors/rpg-dialogue" => include_bytes!(concat!(env!("OUT_DIR"), "/baked-gz/io/rpg/atoms/rpg-dialogue.orb.gz")),
     "std/behaviors/rpg-enemies" => include_bytes!(concat!(env!("OUT_DIR"), "/baked-gz/io/rpg/atoms/rpg-enemies.orb.gz")),
     "std/behaviors/rpg-flow" => include_bytes!(concat!(env!("OUT_DIR"), "/baked-gz/io/rpg/atoms/rpg-flow.orb.gz")),
@@ -715,6 +715,7 @@ pub static EMBEDDED_STD_BEHAVIORS: phf::Map<&'static str, &'static [u8]> = phf::
     "std/behaviors/std-cross-reference" => include_bytes!(concat!(env!("OUT_DIR"), "/baked-gz/std/infra/atoms/std-cross-reference.orb.gz")),
     "std/behaviors/std-customer-account" => include_bytes!(concat!(env!("OUT_DIR"), "/baked-gz/io/app/atoms/std-customer-account.orb.gz")),
     "std/behaviors/std-dashboard-grid-embedded" => include_bytes!(concat!(env!("OUT_DIR"), "/baked-gz/std/ui/core/atoms/std-dashboard-grid-embedded.orb.gz")),
+    "std/behaviors/std-data-collector" => include_bytes!(concat!(env!("OUT_DIR"), "/baked-gz/std/ml/atoms/std-data-collector.orb.gz")),
     "std/behaviors/std-data-erasure" => include_bytes!(concat!(env!("OUT_DIR"), "/baked-gz/std/infra/atoms/std-data-erasure.orb.gz")),
     "std/behaviors/std-date-range" => include_bytes!(concat!(env!("OUT_DIR"), "/baked-gz/std/ui/core/atoms/std-date-range.orb.gz")),
     "std/behaviors/std-device-fleet" => include_bytes!(concat!(env!("OUT_DIR"), "/baked-gz/io/app/atoms/std-device-fleet.orb.gz")),
@@ -742,6 +743,7 @@ pub static EMBEDDED_STD_BEHAVIORS: phf::Map<&'static str, &'static [u8]> = phf::
     "std/behaviors/std-gather" => include_bytes!(concat!(env!("OUT_DIR"), "/baked-gz/std/ui/game/atoms/std-gather.orb.gz")),
     "std/behaviors/std-geosearch" => include_bytes!(concat!(env!("OUT_DIR"), "/baked-gz/std/ui/core/atoms/std-geosearch.orb.gz")),
     "std/behaviors/std-gold" => include_bytes!(concat!(env!("OUT_DIR"), "/baked-gz/std/ui/game/atoms/std-gold.orb.gz")),
+    "std/behaviors/std-graph-builder" => include_bytes!(concat!(env!("OUT_DIR"), "/baked-gz/std/ml/atoms/std-graph-builder.orb.gz")),
     "std/behaviors/std-graphs" => include_bytes!(concat!(env!("OUT_DIR"), "/baked-gz/std/ui/core/atoms/std-graphs.orb.gz")),
     "std/behaviors/std-gravity-flap" => include_bytes!(concat!(env!("OUT_DIR"), "/baked-gz/io/game/atoms/std-gravity-flap.orb.gz")),
     "std/behaviors/std-grid-tactics" => include_bytes!(concat!(env!("OUT_DIR"), "/baked-gz/std/ui/game/atoms/std-grid-tactics.orb.gz")),
@@ -751,6 +753,7 @@ pub static EMBEDDED_STD_BEHAVIORS: phf::Map<&'static str, &'static [u8]> = phf::
     "std/behaviors/std-helpdesk-ticket" => include_bytes!(concat!(env!("OUT_DIR"), "/baked-gz/io/app/atoms/std-helpdesk-ticket.orb.gz")),
     "std/behaviors/std-hero-nav" => include_bytes!(concat!(env!("OUT_DIR"), "/baked-gz/std/ui/game/atoms/std-hero-nav.orb.gz")),
     "std/behaviors/std-image-upload-multi" => include_bytes!(concat!(env!("OUT_DIR"), "/baked-gz/std/ui/core/atoms/std-image-upload-multi.orb.gz")),
+    "std/behaviors/std-import" => include_bytes!(concat!(env!("OUT_DIR"), "/baked-gz/std/ui/core/atoms/std-import.orb.gz")),
     "std/behaviors/std-incident" => include_bytes!(concat!(env!("OUT_DIR"), "/baked-gz/io/app/atoms/std-incident.orb.gz")),
     "std/behaviors/std-insurance-claim" => include_bytes!(concat!(env!("OUT_DIR"), "/baked-gz/io/app/atoms/std-insurance-claim.orb.gz")),
     "std/behaviors/std-interview-slot" => include_bytes!(concat!(env!("OUT_DIR"), "/baked-gz/io/app/atoms/std-interview-slot.orb.gz")),
@@ -786,6 +789,7 @@ pub static EMBEDDED_STD_BEHAVIORS: phf::Map<&'static str, &'static [u8]> = phf::
     "std/behaviors/std-matter" => include_bytes!(concat!(env!("OUT_DIR"), "/baked-gz/io/app/atoms/std-matter.orb.gz")),
     "std/behaviors/std-membership" => include_bytes!(concat!(env!("OUT_DIR"), "/baked-gz/io/app/atoms/std-membership.orb.gz")),
     "std/behaviors/std-menu" => include_bytes!(concat!(env!("OUT_DIR"), "/baked-gz/io/app/atoms/std-menu.orb.gz")),
+    "std/behaviors/std-migration-job" => include_bytes!(concat!(env!("OUT_DIR"), "/baked-gz/std/infra/atoms/std-migration-job.orb.gz")),
     "std/behaviors/std-ml-classify" => include_bytes!(concat!(env!("OUT_DIR"), "/baked-gz/std/ml/atoms/std-ml-classify.orb.gz")),
     "std/behaviors/std-ml-exact-check" => include_bytes!(concat!(env!("OUT_DIR"), "/baked-gz/std/ml/atoms/std-ml-exact-check.orb.gz")),
     "std/behaviors/std-ml-infer" => include_bytes!(concat!(env!("OUT_DIR"), "/baked-gz/std/ml/atoms/std-ml-infer.orb.gz")),
@@ -884,6 +888,7 @@ pub static EMBEDDED_STD_BEHAVIORS: phf::Map<&'static str, &'static [u8]> = phf::
     "std/behaviors/std-ticket-tier" => include_bytes!(concat!(env!("OUT_DIR"), "/baked-gz/io/app/atoms/std-ticket-tier.orb.gz")),
     "std/behaviors/std-time-entry" => include_bytes!(concat!(env!("OUT_DIR"), "/baked-gz/io/app/atoms/std-time-entry.orb.gz")),
     "std/behaviors/std-timesheet" => include_bytes!(concat!(env!("OUT_DIR"), "/baked-gz/io/app/atoms/std-timesheet.orb.gz")),
+    "std/behaviors/std-tokenizer" => include_bytes!(concat!(env!("OUT_DIR"), "/baked-gz/std/ml/atoms/std-tokenizer.orb.gz")),
     "std/behaviors/std-trade-order" => include_bytes!(concat!(env!("OUT_DIR"), "/baked-gz/io/app/atoms/std-trade-order.orb.gz")),
     "std/behaviors/std-trial" => include_bytes!(concat!(env!("OUT_DIR"), "/baked-gz/io/app/atoms/std-trial.orb.gz")),
     "std/behaviors/std-vehicle" => include_bytes!(concat!(env!("OUT_DIR"), "/baked-gz/io/app/atoms/std-vehicle.orb.gz")),
@@ -892,6 +897,7 @@ pub static EMBEDDED_STD_BEHAVIORS: phf::Map<&'static str, &'static [u8]> = phf::
     "std/behaviors/std-vote" => include_bytes!(concat!(env!("OUT_DIR"), "/baked-gz/std/ui/core/atoms/std-vote.orb.gz")),
     "std/behaviors/std-waitlist" => include_bytes!(concat!(env!("OUT_DIR"), "/baked-gz/io/app/atoms/std-waitlist.orb.gz")),
     "std/behaviors/std-warehouse" => include_bytes!(concat!(env!("OUT_DIR"), "/baked-gz/io/app/atoms/std-warehouse.orb.gz")),
+    "std/behaviors/std-weight-validator" => include_bytes!(concat!(env!("OUT_DIR"), "/baked-gz/std/ml/atoms/std-weight-validator.orb.gz")),
     "std/behaviors/std-wizard" => include_bytes!(concat!(env!("OUT_DIR"), "/baked-gz/std/ui/core/atoms/std-wizard.orb.gz")),
     "std/behaviors/std-work-order" => include_bytes!(concat!(env!("OUT_DIR"), "/baked-gz/io/app/atoms/std-work-order.orb.gz")),
     "std/behaviors/std-xp" => include_bytes!(concat!(env!("OUT_DIR"), "/baked-gz/std/ui/game/atoms/std-xp.orb.gz")),
@@ -970,7 +976,7 @@ pub static EMBEDDED_STD_BEHAVIORS: phf::Map<&'static str, &'static [u8]> = phf::
     "std/behaviors/ui-typewriter-text" => include_bytes!(concat!(env!("OUT_DIR"), "/baked-gz/std/ui/core/atoms/ui-typewriter-text.orb.gz")),
     "std/behaviors/ui-typography" => include_bytes!(concat!(env!("OUT_DIR"), "/baked-gz/std/ui/core/atoms/ui-typography.orb.gz")),
     "std/behaviors/ui-vstack" => include_bytes!(concat!(env!("OUT_DIR"), "/baked-gz/std/ui/core/atoms/ui-vstack.orb.gz")),
-    // === Molecules (169) ===
+    // === Molecules (172) ===
     "std/behaviors/rpg-dungeon-board" => include_bytes!(concat!(env!("OUT_DIR"), "/baked-gz/io/rpg/molecules/rpg-dungeon-board.orb.gz")),
     "std/behaviors/std-agent-fix-loop" => include_bytes!(concat!(env!("OUT_DIR"), "/baked-gz/std/agent/molecules/std-agent-fix-loop.orb.gz")),
     "std/behaviors/std-agent-planner" => include_bytes!(concat!(env!("OUT_DIR"), "/baked-gz/std/agent/molecules/std-agent-planner.orb.gz")),
@@ -1064,6 +1070,9 @@ pub static EMBEDDED_STD_BEHAVIORS: phf::Map<&'static str, &'static [u8]> = phf::
     "std/behaviors/ui-grid" => include_bytes!(concat!(env!("OUT_DIR"), "/baked-gz/std/ui/core/molecules/ui-grid.orb.gz")),
     "std/behaviors/ui-header" => include_bytes!(concat!(env!("OUT_DIR"), "/baked-gz/std/ui/core/molecules/ui-header.orb.gz")),
     "std/behaviors/ui-hero-section" => include_bytes!(concat!(env!("OUT_DIR"), "/baked-gz/std/ui/marketing/molecules/ui-hero-section.orb.gz")),
+    "std/behaviors/ui-import-preview-tree" => include_bytes!(concat!(env!("OUT_DIR"), "/baked-gz/std/ui/core/molecules/ui-import-preview-tree.orb.gz")),
+    "std/behaviors/ui-import-progress" => include_bytes!(concat!(env!("OUT_DIR"), "/baked-gz/std/ui/core/molecules/ui-import-progress.orb.gz")),
+    "std/behaviors/ui-import-source-picker" => include_bytes!(concat!(env!("OUT_DIR"), "/baked-gz/std/ui/core/molecules/ui-import-source-picker.orb.gz")),
     "std/behaviors/ui-input-group" => include_bytes!(concat!(env!("OUT_DIR"), "/baked-gz/std/ui/core/molecules/ui-input-group.orb.gz")),
     "std/behaviors/ui-install-box" => include_bytes!(concat!(env!("OUT_DIR"), "/baked-gz/std/ui/marketing/molecules/ui-install-box.orb.gz")),
     "std/behaviors/ui-jazari-state-machine" => include_bytes!(concat!(env!("OUT_DIR"), "/baked-gz/std/ui/core/molecules/ui-jazari-state-machine.orb.gz")),
