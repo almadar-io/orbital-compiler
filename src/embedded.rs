@@ -1149,7 +1149,7 @@ pub static EMBEDDED_STD_BEHAVIORS: phf::Map<&'static str, &'static [u8]> = phf::
     "std/behaviors/ui-wizard-container" => include_bytes!(concat!(env!("OUT_DIR"), "/baked-gz/std/ui/core/molecules/ui-wizard-container.orb.gz")),
     "std/behaviors/ui-wizard-navigation" => include_bytes!(concat!(env!("OUT_DIR"), "/baked-gz/std/ui/core/molecules/ui-wizard-navigation.orb.gz")),
     "std/behaviors/ui-wizard-progress" => include_bytes!(concat!(env!("OUT_DIR"), "/baked-gz/std/ui/core/molecules/ui-wizard-progress.orb.gz")),
-    // === Organisms (231) ===
+    // === Organisms (230) ===
     "std/behaviors/kflow-learning-companion" => include_bytes!(concat!(env!("OUT_DIR"), "/baked-gz/io/app/organisms/kflow-learning-companion.orb.gz")),
     "std/behaviors/learning-algorithms" => include_bytes!(concat!(env!("OUT_DIR"), "/baked-gz/std/ui/learning/organisms/learning-algorithms.orb.gz")),
     "std/behaviors/learning-biology" => include_bytes!(concat!(env!("OUT_DIR"), "/baked-gz/std/ui/learning/organisms/learning-biology.orb.gz")),
@@ -1250,7 +1250,6 @@ pub static EMBEDDED_STD_BEHAVIORS: phf::Map<&'static str, &'static [u8]> = phf::
     "std/behaviors/std-project-manager" => include_bytes!(concat!(env!("OUT_DIR"), "/baked-gz/io/app/organisms/std-project-manager.orb.gz")),
     "std/behaviors/std-project-portal" => include_bytes!(concat!(env!("OUT_DIR"), "/baked-gz/io/marketing/organisms/std-project-portal.orb.gz")),
     "std/behaviors/std-property-mgmt" => include_bytes!(concat!(env!("OUT_DIR"), "/baked-gz/io/app/organisms/std-property-mgmt.orb.gz")),
-    "std/behaviors/std-property-mgmt-4" => include_bytes!(concat!(env!("OUT_DIR"), "/baked-gz/io/app/organisms/std-property-mgmt-4.orb.gz")),
     "std/behaviors/std-property-site" => include_bytes!(concat!(env!("OUT_DIR"), "/baked-gz/io/marketing/organisms/std-property-site.orb.gz")),
     "std/behaviors/std-public-help-center" => include_bytes!(concat!(env!("OUT_DIR"), "/baked-gz/io/app/organisms/std-public-help-center.orb.gz")),
     "std/behaviors/std-public-report" => include_bytes!(concat!(env!("OUT_DIR"), "/baked-gz/io/marketing/organisms/std-public-report.orb.gz")),
