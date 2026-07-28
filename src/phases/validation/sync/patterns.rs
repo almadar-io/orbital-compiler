@@ -4065,6 +4065,7 @@ pub static PATTERN_PROPS_SCHEMA: LazyLock<HashMap<&'static str, HashSet<&'static
                     "className",
                     "color",
                     "content",
+                    "format",
                     "id",
                     "level",
                     "overflow",
@@ -8386,6 +8387,7 @@ pub static PATTERN_PROP_TYPES: LazyLock<HashMap<&'static str, HashMap<&'static s
                     ("id", &["string"] as &[&str]),
                     ("className", &["string"] as &[&str]),
                     ("style", &["object"] as &[&str]),
+                    ("format", &["string"] as &[&str]),
                     ("content", &["node"] as &[&str]),
                     ("children", &["node"] as &[&str]),
                 ]
@@ -9265,6 +9267,7 @@ pub static PATTERN_PROP_ENUM_VALUES: LazyLock<HashMap<&'static str, HashMap<&'st
                     ("weight", &["none", "light", "normal", "medium", "semibold", "bold"] as &[&str]),
                     ("size", &["none", "xs", "sm", "md", "lg", "xl", "2xl", "3xl"] as &[&str]),
                     ("overflow", &["visible", "hidden", "wrap", "clamp-2", "clamp-3"] as &[&str]),
+                    ("format", &["none", "date", "time", "datetime", "number", "currency", "percent"] as &[&str]),
                 ]
                 .into_iter()
                 .collect(),

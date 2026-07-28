@@ -2185,6 +2185,7 @@ mod tests {
 
         let entity_def = EntityDefinition {
             shared: false,
+            identity: false,
             name: "Task".to_string(),
             fields: vec![
                 FieldDefinition {
@@ -2255,6 +2256,7 @@ mod tests {
 
         let entity_def = EntityDefinition {
             shared: false,
+            identity: false,
             name: "Task".to_string(),
             fields: vec![FieldDefinition {
                 name: Some("title".to_string()),
@@ -2292,6 +2294,7 @@ mod tests {
 
         let entity_def = EntityDefinition {
             shared: false,
+            identity: false,
             name: "User".to_string(),
             fields: vec![FieldDefinition {
                 name: Some("email".to_string()),
@@ -2769,6 +2772,7 @@ mod tests {
     fn shared_entity_def(name: &str) -> EntityDefinition {
         EntityDefinition {
             shared: true,
+            identity: false,
             name: name.to_string(),
             collection: None,
             persistence: None,
@@ -3134,6 +3138,7 @@ mod tests {
             "Solo".to_string(),
             EntityDefinition {
                 shared: false,
+                identity: false,
                 name: "Solo".to_string(),
                 collection: None,
                 persistence: None,

@@ -370,6 +370,7 @@ mod tests {
     fn create_valid_entity() -> EntityDefinition {
         EntityDefinition {
             shared: false,
+            identity: false,
             name: "Task".to_string(),
             collection: Some("tasks".to_string()),
             persistence: Some(Persistence::Persistent),

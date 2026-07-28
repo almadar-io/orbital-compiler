@@ -524,6 +524,7 @@ mod tests {
             "Inspection".to_string(),
             EntityDefinition {
                 shared: false,
+                identity: false,
                 name: "Inspection".to_string(),
                 collection: None,
                 persistence: None,
@@ -630,6 +631,7 @@ mod tests {
             "Inspection".to_string(),
             EntityDefinition {
                 shared: false,
+                identity: false,
                 name: "Inspection".to_string(),
                 collection: None,
                 persistence: None,

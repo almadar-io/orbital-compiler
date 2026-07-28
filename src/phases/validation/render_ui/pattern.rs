@@ -923,6 +923,7 @@ mod entity_prop_contract_tests {
     fn entity_with_fields(name: &str, field_names: &[&str]) -> EntityDefinition {
         EntityDefinition {
             shared: false,
+            identity: false,
             name: name.to_string(),
             fields: field_names
                 .iter()

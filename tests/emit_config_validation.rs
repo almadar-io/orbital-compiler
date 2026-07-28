@@ -46,6 +46,7 @@ fn schema_with_effects(
 ) -> OrbitalSchema {
     let entity = EntityDefinition {
         shared: false,
+        identity: false,
         name: "Patient".to_string(),
         collection: Some("patients".to_string()),
         persistence: None,

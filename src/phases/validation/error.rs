@@ -614,6 +614,20 @@ pub enum ErrorCode {
     SchemaNoOrbitals,
     /// Schema version is empty
     SchemaEmptyVersion,
+    /// More than one differently-named `[identity]` entity in one composed
+    /// program. `@user` is a single root resolving to a single viewer, so two
+    /// declarations make every `@user.x` ambiguous. (Same-name duplicates are
+    /// already rejected upstream by `validate_entity_uniqueness`.)
+    SchemaIdentityNotUnique,
+    /// A literal compared against an `@user.<field>` whose declared type is a
+    /// closed vocabulary is not one of that vocabulary's members — a branch that
+    /// can never be taken. The bug class that let std-healthcare's `"patient"`
+    /// and std-lms's `"student"` ship green.
+    SchemaRoleLiteralNotMember,
+    /// `@user.<field>` names a field the declared `[identity]` entity does not
+    /// have. Resolves to null at runtime, so the guard silently takes its
+    /// negative branch.
+    SchemaUnknownIdentityField,
 
     // =========================================================================
     // Identity Errors (ORB_ID_*) — Rabit V4 Phase 3 dual-carry id integrity
@@ -862,6 +876,9 @@ impl ErrorCode {
             ErrorCode::SchemaMissingName => "ORB_S_MISSING_NAME",
             ErrorCode::SchemaNoOrbitals => "ORB_S_NO_ORBITALS",
             ErrorCode::SchemaEmptyVersion => "ORB_S_EMPTY_VERSION",
+            ErrorCode::SchemaIdentityNotUnique => "ORB_S_IDENTITY_NOT_UNIQUE",
+            ErrorCode::SchemaRoleLiteralNotMember => "ORB_S_ROLE_LITERAL_NOT_MEMBER",
+            ErrorCode::SchemaUnknownIdentityField => "ORB_S_UNKNOWN_IDENTITY_FIELD",
 
             // Identity
             ErrorCode::OrbIdUnknownRef => "ORB_ID_UNKNOWN_REF",

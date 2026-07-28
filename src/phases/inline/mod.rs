@@ -1654,6 +1654,7 @@ mod tests {
             services: None,
             entity: EntityRef::Inline(EntityDefinition {
                 shared: false,
+                identity: false,
                 name: format!("{}Entity", name),
                 collection: None,
                 persistence: None,
@@ -1855,6 +1856,7 @@ mod tests {
             services: Some(vec![ServiceRef::Inline(service_def)]),
             entity: EntityRef::Inline(EntityDefinition {
                 shared: false,
+                identity: false,
                 name: format!("{}Entity", name),
                 collection: None,
                 persistence: None,
@@ -2052,6 +2054,7 @@ mod tests {
         };
         EntityDefinition {
             shared: false,
+            identity: false,
             name: "ModalRecord".to_string(),
             collection: None,
             persistence: Some(Persistence::Runtime),
@@ -3380,6 +3383,7 @@ mod tests {
             services: None,
             entity: EntityRef::Inline(EntityDefinition {
                 shared: false,
+                identity: false,
                 name: "ArcadeState".to_string(),
                 collection: None,
                 persistence: None,
@@ -3416,6 +3420,7 @@ mod tests {
             services: None,
             entity: EntityRef::Inline(EntityDefinition {
                 shared: false,
+                identity: false,
                 name: "ArcadeCanvas".to_string(),
                 collection: None,
                 persistence: None,
@@ -3494,6 +3499,7 @@ mod tests {
 
         let mut caller = EntityDefinition {
             shared: false,
+            identity: false,
             name: "MyCartItem".to_string(),
             collection: None,
             persistence: None,
@@ -3506,6 +3512,7 @@ mod tests {
         };
         let imported = EntityDefinition {
             shared: false,
+            identity: false,
             name: "CartItem".to_string(),
             collection: None,
             persistence: None,
@@ -3534,6 +3541,7 @@ mod tests {
 
         let mut caller = EntityDefinition {
             shared: false,
+            identity: false,
             name: "MyEntity".to_string(),
             collection: None,
             persistence: None,
@@ -3546,6 +3554,7 @@ mod tests {
         };
         let imported = EntityDefinition {
             shared: false,
+            identity: false,
             name: "ImportedEntity".to_string(),
             collection: None,
             persistence: None,
@@ -3571,6 +3580,7 @@ mod tests {
 
         let mut caller = EntityDefinition {
             shared: false,
+            identity: false,
             name: "MyEntity".to_string(),
             collection: None,
             persistence: None,
@@ -3587,6 +3597,7 @@ mod tests {
         };
         let imported = EntityDefinition {
             shared: false,
+            identity: false,
             name: "ImportedEntity".to_string(),
             collection: None,
             persistence: None,
@@ -3626,6 +3637,7 @@ mod tests {
 
         let mut caller = EntityDefinition {
             shared: false,
+            identity: false,
             name: "MyEntity".to_string(),
             collection: None,
             persistence: None,
@@ -3635,6 +3647,7 @@ mod tests {
         };
         let import_browse = EntityDefinition {
             shared: false,
+            identity: false,
             name: "BrowseRecord".to_string(),
             collection: None,
             persistence: None,
@@ -3648,6 +3661,7 @@ mod tests {
         };
         let import_modal = EntityDefinition {
             shared: false,
+            identity: false,
             name: "ModalRecord".to_string(),
             collection: None,
             persistence: None,
@@ -3679,6 +3693,7 @@ mod tests {
 
         let caller = EntityDefinition {
             shared: false,
+            identity: false,
             name: "MyEntity".to_string(),
             collection: None,
             persistence: None,
@@ -3709,6 +3724,7 @@ mod tests {
 
         let mut caller = EntityDefinition {
             shared: false,
+            identity: false,
             name: "Ticket".to_string(),
             collection: None,
             persistence: None,
@@ -3725,6 +3741,7 @@ mod tests {
         });
         let imported = EntityDefinition {
             shared: false,
+            identity: false,
             name: "ThreadPost".to_string(),
             collection: None,
             persistence: None,
@@ -3771,6 +3788,7 @@ mod tests {
             services: None,
             entity: EntityRef::Inline(EntityDefinition {
                 shared: false,
+                identity: false,
                 name: "StateEntity".to_string(),
                 collection: None,
                 persistence: None,
@@ -3796,6 +3814,7 @@ mod tests {
             services: None,
             entity: EntityRef::Inline(EntityDefinition {
                 shared: false,
+                identity: false,
                 name: "ActionEntity".to_string(),
                 collection: None,
                 persistence: None,

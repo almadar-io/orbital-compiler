@@ -811,6 +811,7 @@ mod tests {
             "Company".to_string(),
             EntityDefinition {
                 shared: false,
+                identity: false,
                 name: "Company".to_string(),
                 fields: vec![FieldDefinition {
                     name: Some("name".to_string()),
@@ -839,6 +840,7 @@ mod tests {
             "Inspection".to_string(),
             EntityDefinition {
                 shared: false,
+                identity: false,
                 name: "Inspection".to_string(),
                 fields: vec![
                     FieldDefinition {
@@ -933,6 +935,7 @@ mod tests {
             "Inspection".to_string(),
             EntityDefinition {
                 shared: false,
+                identity: false,
                 name: "Inspection".to_string(),
                 fields: vec![FieldDefinition {
                     name: Some("title".to_string()),

@@ -517,6 +517,7 @@ mod tests {
             fields: Vec::new(),
             instances: None,
             shared: false,
+            identity: false,
         }
     }
 

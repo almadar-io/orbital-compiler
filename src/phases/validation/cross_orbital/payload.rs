@@ -178,6 +178,7 @@ mod tests {
             services: None,
             entity: EntityRef::Inline(EntityDefinition {
                 shared: false,
+                identity: false,
                 name: entity.to_string(),
                 collection: None,
                 persistence: None,

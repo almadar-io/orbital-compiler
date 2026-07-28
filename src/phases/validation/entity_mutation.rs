@@ -470,6 +470,7 @@ mod tests {
     fn entity(name: &str, shared: bool, persistence: Option<Persistence>) -> EntityDefinition {
         EntityDefinition {
             shared,
+            identity: false,
             name: name.to_string(),
             collection: None,
             persistence,

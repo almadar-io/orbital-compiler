@@ -560,6 +560,7 @@ mod tests {
             "Article".to_string(),
             EntityDefinition {
                 shared: false,
+                identity: false,
                 name: "Article".to_string(),
                 collection: None,
                 persistence: None,

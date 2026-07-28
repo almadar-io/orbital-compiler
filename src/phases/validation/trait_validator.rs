@@ -1143,6 +1143,7 @@ mod tests {
     fn make_entity(name: &str, fields: &[&str]) -> EntityDefinition {
         EntityDefinition {
             shared: false,
+            identity: false,
             name: name.to_string(),
             collection: None,
             persistence: None,

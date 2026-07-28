@@ -53,6 +53,7 @@ fn emit_def(event: &str, fields: Vec<PayloadField>) -> EmitDefinition {
 fn task_entity() -> EntityDefinition {
     EntityDefinition {
         shared: false,
+        identity: false,
         name: "Task".to_string(),
         collection: Some("tasks".to_string()),
         persistence: None,
@@ -395,6 +396,7 @@ fn f2_matching_emitters_pass() {
 fn schema_with_default(field: FieldDefinition) -> OrbitalSchema {
     let entity = EntityDefinition {
         shared: false,
+        identity: false,
         name: "Order".to_string(),
         collection: Some("orders".to_string()),
         persistence: None,
