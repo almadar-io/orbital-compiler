@@ -63,6 +63,7 @@ pub mod sync;
 pub mod theme;
 pub mod trait_ref_config;
 pub mod trait_validator;
+pub mod user_identity;
 
 // Re-export main types
 pub use error::{ErrorCode, Severity, ValidationError, ValidationResult};
@@ -518,6 +519,11 @@ pub fn validate_comprehensive_full_with_phase_f(
 
     // Phase 11c: Cross-registry consistency (Phase 3.5 of Lolo v3 plan)
     cross_registry::validate_cross_registry(schema, &mut ctx);
+
+    // Phase 11c2: `[identity]` entity rules — the declared shape of `@user`.
+    // No-ops entirely when the program declares no identity entity. Runs
+    // post-inline so config knob defaults carry their call-site values.
+    user_identity::validate_user_identity(schema, &mut ctx);
 
     // Phase 11d: Multi-trait entity-mutation trio (SPLIT_ENTITY_MUTATION /
     // SharedEntityFieldConflict / SharedEntityRenderAuthority) + the non-Cron
