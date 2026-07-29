@@ -1085,7 +1085,10 @@ impl ErrorCode {
 
             ErrorCode::SchemaMissingName
             | ErrorCode::SchemaNoOrbitals
-            | ErrorCode::SchemaEmptyVersion => "schema",
+            | ErrorCode::SchemaEmptyVersion
+            | ErrorCode::SchemaIdentityNotUnique
+            | ErrorCode::SchemaRoleLiteralNotMember
+            | ErrorCode::SchemaUnknownIdentityField => "schema",
 
             ErrorCode::OrbIdUnknownRef
             | ErrorCode::OrbIdNameMismatch

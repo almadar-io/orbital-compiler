@@ -649,10 +649,21 @@ pub(crate) fn inline_traits(
     // siblings the cloned body references — applying the SAME rebind a
     // hand-written sibling ref would have, keeping the sibling's original name
     // so `@trait.<SiblingName>` resolves.
-    // (alias, sibling name, linkedEntity rebind, PULLING PARENT's final name).
-    // The parent name lets a cross-alias name collision rewrite exactly that
-    // parent's `@trait.<Sibling>` tokens to the disambiguated pull name.
-    let mut sibling_pull_work: Vec<(String, String, Option<String>, String)> = Vec::new();
+    // (alias, sibling name, linkedEntity rebind, PULLING PARENT's final name,
+    // OWNER's final name). The parent name lets a name collision rewrite exactly
+    // that parent's `@trait.<Sibling>` tokens to the disambiguated pull name; the
+    // owner is the top-level consumer trait that started the chain, and is the
+    // unit a pulled sibling belongs to (see `pulled_as` below).
+    let mut sibling_pull_work: Vec<(String, String, Option<String>, String, String)> = Vec::new();
+    // Per-owner source-name → final-name map for the traits materialised under
+    // that owner: the owner itself (keyed by the atom's original trait name) plus
+    // every sibling pulled for it. A pulled copy's source-scoped `listens` names
+    // its host and co-siblings by their ATOM names; resolving them through the
+    // orbital-wide `rename_map` cannot work once one atom is bound twice, because
+    // that map holds one entry per source name.
+    let mut owner_subs: HashMap<String, HashMap<String, String>> = HashMap::new();
+    // Pulled sibling final name → the owner it was materialised for.
+    let mut pulled_owner: HashMap<String, String> = HashMap::new();
 
     for (idx, trait_ref) in traits.iter().enumerate() {
         let trait_path = format!("{path_prefix}.traits[{idx}]");
@@ -923,6 +934,10 @@ pub(crate) fn inline_traits(
                                         ctx.defer_config_subst,
                                         recorder,
                                     );
+                                    owner_subs
+                                        .entry(trait_def.name.clone())
+                                        .or_default()
+                                        .insert(original_name.clone(), trait_def.name.clone());
                                     if trait_def.name != original_name {
                                         rename_map.insert(original_name, trait_def.name.clone());
                                     }
@@ -979,6 +994,7 @@ pub(crate) fn inline_traits(
                                             alias.clone(),
                                             sibling,
                                             linked_entity.clone(),
+                                            trait_def.name.clone(),
                                             trait_def.name.clone(),
                                         ));
                                     }
@@ -1040,15 +1056,22 @@ pub(crate) fn inline_traits(
     let mut pulled_names: Vec<String> = Vec::new();
     {
         let mut worklist = sibling_pull_work;
-        let mut visited: HashSet<(String, String)> = HashSet::new();
+        let mut visited: HashSet<(String, String, String)> = HashSet::new();
         // Final name each pulled sibling landed under, keyed by (alias, source
-        // name). Inline chrome names are numbered PER SOURCE ATOM
+        // name, OWNER). Inline chrome names are numbered PER SOURCE ATOM
         // (`InlineButtonRender26` exists in many atoms), so a name-only dedup
         // silently binds the second atom's parent tree to the FIRST atom's
         // trait (cross-atom capture — the std-finance-tracker Charge button
-        // firing REPRINT_RECEIPT). Cross-alias collisions instead pull under
-        // an alias-prefixed name and rewrite the pulling parent's tokens.
-        let mut pulled_as: HashMap<(String, String), String> = HashMap::new();
+        // firing REPRINT_RECEIPT). The owner is in the key because a sibling is
+        // materialised PER EMBEDDER, not per atom: two rebinds of one atom in one
+        // orbital (`ChannelRail -> Channel` and `ChatThread -> ChatMessage`, both
+        // `std-browse`) carry different entity rebinds, different call-site
+        // config, and different hosts to listen to, so one shared copy can only
+        // serve one of them. Collisions pull under an owner-prefixed name and
+        // rewrite the pulling parent's tokens; owner names are unique within the
+        // orbital, so the prefixed name is unique by construction. This subsumes
+        // the cross-ALIAS case — an owner pulls from exactly one alias.
+        let mut pulled_as: HashMap<(String, String, String), String> = HashMap::new();
         // Consumer-declared names (explicit composition) keep first-wins skip.
         let consumer_declared: HashSet<String> = seen_names.clone();
         // Rewrite one parent's `@trait.<from>` tokens to the disambiguated
@@ -1064,12 +1087,15 @@ pub(crate) fn inline_traits(
                 }
             }
         };
-        while let Some((alias, sibling_name, linked_entity, parent_name)) = worklist.pop() {
-            // Resolve where this (alias, sibling) should land.
+        while let Some((alias, sibling_name, linked_entity, parent_name, owner)) = worklist.pop() {
+            // Resolve where this (alias, sibling, owner) should land.
             let mut final_name = sibling_name.clone();
-            if let Some(existing) = pulled_as.get(&(alias.clone(), sibling_name.clone())) {
-                // Already pulled from THIS alias — shared instance. If it
-                // landed under a disambiguated name, this parent's tokens
+            if let Some(existing) =
+                pulled_as.get(&(alias.clone(), sibling_name.clone(), owner.clone()))
+            {
+                // Already pulled for THIS owner — shared within the owner's own
+                // instantiation (two traits of one atom embedding one sibling).
+                // If it landed under a disambiguated name, this parent's tokens
                 // still say the source name and need the same rewrite.
                 if existing != &sibling_name {
                     rewrite_parent(&mut result, &parent_name, &sibling_name, existing);
@@ -1081,16 +1107,16 @@ pub(crate) fn inline_traits(
                     // Explicit composition wins (documented override surface).
                     continue;
                 }
-                // Taken by a DIFFERENT alias's pull: disambiguate.
-                final_name = format!("{alias}{sibling_name}");
+                // Taken by ANOTHER owner's pull: disambiguate under this owner.
+                final_name = format!("{owner}{sibling_name}");
                 if seen_names.contains(&final_name) {
                     // Even the prefixed name is taken by something that is not
-                    // this (alias, name) pull — leave the token dangling for
-                    // the validator rather than capture a wrong trait.
+                    // this pull — leave the token dangling for the validator
+                    // rather than capture a wrong trait.
                     continue;
                 }
             }
-            if !visited.insert((alias.clone(), sibling_name.clone())) {
+            if !visited.insert((alias.clone(), sibling_name.clone(), owner.clone())) {
                 continue;
             }
             // The sibling must exist as a trait in the SAME source atom.
@@ -1116,7 +1142,7 @@ pub(crate) fn inline_traits(
                 recorder,
             );
             if final_name != sibling_name {
-                // Cross-alias disambiguation: rename the pulled copy and point
+                // Per-owner disambiguation: rename the pulled copy and point
                 // the pulling parent's tokens at it. The copy's own body still
                 // references ITS atom's siblings by source name — those pulls
                 // recurse below carrying THIS copy as parent, so they follow
@@ -1152,9 +1178,23 @@ pub(crate) fn inline_traits(
             // Recurse into the rebound sibling's own `@trait.Y` references,
             // with this pull (under its FINAL name) as the parent.
             for next in sibling_trait_refs_of(&sibling_def) {
-                worklist.push((alias.clone(), next, linked_entity.clone(), final_name.clone()));
+                worklist.push((
+                    alias.clone(),
+                    next,
+                    linked_entity.clone(),
+                    final_name.clone(),
+                    owner.clone(),
+                ));
             }
-            pulled_as.insert((alias.clone(), sibling_name.clone()), final_name.clone());
+            pulled_as.insert(
+                (alias.clone(), sibling_name.clone(), owner.clone()),
+                final_name.clone(),
+            );
+            owner_subs
+                .entry(owner.clone())
+                .or_default()
+                .insert(sibling_name.clone(), final_name.clone());
+            pulled_owner.insert(final_name.clone(), owner);
             seen_names.insert(final_name.clone());
             pulled_names.push(final_name);
             result.push(TraitReference::Inline(sibling_def));
@@ -1197,6 +1237,13 @@ pub(crate) fn inline_traits(
 
     for trait_ref in result.iter_mut() {
         if let TraitReference::Inline(trait_def) = trait_ref {
+            // A pulled sibling resolves its listen sources against ITS OWNER's
+            // map, not the orbital-wide `rename_map`: the map holds one entry per
+            // source name, so when one atom is bound twice the second rebind
+            // overwrites the first and every copy would point at the last host.
+            let own_subs = pulled_owner
+                .get(&trait_def.name)
+                .and_then(|owner| owner_subs.get(owner));
             if let Some(listens) = trait_def.listens.as_mut() {
                 // Rewrite listen SOURCES through the consumer's rename map
                 // BEFORE the retain: a sub-trait pulled alongside a renamed
@@ -1209,7 +1256,10 @@ pub(crate) fn inline_traits(
                     if let Some(orbital_core::schema::ListenSource::Trait { trait_name, .. }) =
                         listen.source.as_mut()
                     {
-                        if let Some(renamed) = rename_map.get(trait_name.as_str()) {
+                        if let Some(renamed) = own_subs
+                            .and_then(|subs| subs.get(trait_name.as_str()))
+                            .or_else(|| rename_map.get(trait_name.as_str()))
+                        {
                             *trait_name = renamed.clone();
                         }
                     }
