@@ -986,7 +986,7 @@ pub static EMBEDDED_STD_BEHAVIORS: phf::Map<&'static str, &'static [u8]> = phf::
     "std/behaviors/ui-typewriter-text" => include_bytes!(concat!(env!("OUT_DIR"), "/baked-gz/std/ui/core/atoms/ui-typewriter-text.orb.gz")),
     "std/behaviors/ui-typography" => include_bytes!(concat!(env!("OUT_DIR"), "/baked-gz/std/ui/core/atoms/ui-typography.orb.gz")),
     "std/behaviors/ui-vstack" => include_bytes!(concat!(env!("OUT_DIR"), "/baked-gz/std/ui/core/atoms/ui-vstack.orb.gz")),
-    // === Molecules (176) ===
+    // === Molecules (177) ===
     "std/behaviors/dnd-character-hud" => include_bytes!(concat!(env!("OUT_DIR"), "/baked-gz/io/dnd/molecules/dnd-character-hud.orb.gz")),
     "std/behaviors/dnd-dungeon-board" => include_bytes!(concat!(env!("OUT_DIR"), "/baked-gz/io/dnd/molecules/dnd-dungeon-board.orb.gz")),
     "std/behaviors/rpg-dungeon-board" => include_bytes!(concat!(env!("OUT_DIR"), "/baked-gz/io/rpg/molecules/rpg-dungeon-board.orb.gz")),
@@ -1059,6 +1059,7 @@ pub static EMBEDDED_STD_BEHAVIORS: phf::Map<&'static str, &'static [u8]> = phf::
     "std/behaviors/ui-draw-text-layer" => include_bytes!(concat!(env!("OUT_DIR"), "/baked-gz/std/ui/game/molecules/ui-draw-text-layer.orb.gz")),
     "std/behaviors/ui-drawer" => include_bytes!(concat!(env!("OUT_DIR"), "/baked-gz/std/ui/core/molecules/ui-drawer.orb.gz")),
     "std/behaviors/ui-edge-decoration" => include_bytes!(concat!(env!("OUT_DIR"), "/baked-gz/std/ui/core/molecules/ui-edge-decoration.orb.gz")),
+    "std/behaviors/ui-emoji-picker" => include_bytes!(concat!(env!("OUT_DIR"), "/baked-gz/std/ui/core/molecules/ui-emoji-picker.orb.gz")),
     "std/behaviors/ui-empty-state" => include_bytes!(concat!(env!("OUT_DIR"), "/baked-gz/std/ui/core/molecules/ui-empty-state.orb.gz")),
     "std/behaviors/ui-error-boundary" => include_bytes!(concat!(env!("OUT_DIR"), "/baked-gz/std/ui/core/molecules/ui-error-boundary.orb.gz")),
     "std/behaviors/ui-error-state" => include_bytes!(concat!(env!("OUT_DIR"), "/baked-gz/std/ui/core/molecules/ui-error-state.orb.gz")),

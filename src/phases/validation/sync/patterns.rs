@@ -2,7 +2,7 @@
 //!
 //! Source: packages/almadar-core/src/patterns/patterns-registry.json
 //!
-//! Last synced: 2026-07-28
+//! Last synced: 2026-07-29
 //! To regenerate: npx tsx tools/almadar-pattern-sync/index.ts
 //!
 //! DO NOT EDIT MANUALLY - changes will be overwritten on next sync.
@@ -43,6 +43,7 @@ pub static PATTERN_TYPES: LazyLock<HashSet<&'static str>> = LazyLock::new(|| {
         "day-cell",
         "doc-toc",
         "edge-decoration",
+        "emoji-picker",
         "file-tree",
         "flex",
         "floating-action-button",
@@ -357,6 +358,7 @@ pub static PATTERN_TO_CATEGORY: LazyLock<HashMap<&'static str, &'static str>> =
             ("day-cell", "component"),
             ("doc-toc", "component"),
             ("edge-decoration", "component"),
+            ("emoji-picker", "component"),
             ("file-tree", "component"),
             ("flex", "component"),
             ("floating-action-button", "component"),
@@ -1149,6 +1151,7 @@ pub static PATTERN_PROPS_SCHEMA: LazyLock<HashMap<&'static str, HashSet<&'static
                     "className",
                     "drawables",
                     "featureClickEvent",
+                    "fit",
                     "fogOfWar",
                     "isLoading",
                     "keyMap",
@@ -1164,6 +1167,7 @@ pub static PATTERN_PROPS_SCHEMA: LazyLock<HashMap<&'static str, HashSet<&'static
                     "tileClickEvent",
                     "tileHoverEvent",
                     "tileLeaveEvent",
+                    "tileWidth",
                     "unitClickEvent",
                     "unitScale",
                     "worldHeight",
@@ -1182,6 +1186,7 @@ pub static PATTERN_PROPS_SCHEMA: LazyLock<HashMap<&'static str, HashSet<&'static
                     "className",
                     "drawables",
                     "error",
+                    "fit",
                     "followTarget",
                     "isLoading",
                     "keyMap",
@@ -1192,6 +1197,7 @@ pub static PATTERN_PROPS_SCHEMA: LazyLock<HashMap<&'static str, HashSet<&'static
                     "tileClickEvent",
                     "tileHoverEvent",
                     "tileLeaveEvent",
+                    "tileWidth",
                     "unitClickEvent",
                 ]
                 .into_iter()
@@ -1838,6 +1844,7 @@ pub static PATTERN_PROPS_SCHEMA: LazyLock<HashMap<&'static str, HashSet<&'static
                 .collect(),
             ),
             ("edge-decoration", ["className", "color", "opacity", "side", "strokeWidth", "variant", "width"].into_iter().collect()),
+            ("emoji-picker", ["className", "pickEvent", "position", "triggerIcon", "triggerLabel"].into_iter().collect()),
             (
                 "empty-state",
                 [
@@ -2947,7 +2954,21 @@ pub static PATTERN_PROPS_SCHEMA: LazyLock<HashMap<&'static str, HashSet<&'static
                 .into_iter()
                 .collect(),
             ),
-            ("popover", ["children", "className", "content", "position", "showArrow", "trigger"].into_iter().collect()),
+            (
+                "popover",
+                [
+                    "children",
+                    "className",
+                    "content",
+                    "onOpenChange",
+                    "open",
+                    "position",
+                    "showArrow",
+                    "trigger",
+                ]
+                .into_iter()
+                .collect(),
+            ),
             (
                 "positioned-canvas",
                 [
@@ -3883,6 +3904,7 @@ pub static PATTERN_PROPS_SCHEMA: LazyLock<HashMap<&'static str, HashSet<&'static
                     "groupBy",
                     "isLoading",
                     "itemActions",
+                    "itemClickEvent",
                     "look",
                     "maxInlineActions",
                     "pageSize",
@@ -4720,6 +4742,8 @@ pub static PATTERN_PROP_TYPES: LazyLock<HashMap<&'static str, HashMap<&'static s
                     ("isLoading", &["boolean"] as &[&str]),
                     ("unitScale", &["number"] as &[&str]),
                     ("showMinimap", &["boolean"] as &[&str]),
+                    ("fit", &["boolean"] as &[&str]),
+                    ("tileWidth", &["number"] as &[&str]),
                     ("backgroundImage", &["asset", "object"] as &[&str]),
                     ("backgroundColor", &["string"] as &[&str]),
                     ("worldWidth", &["number"] as &[&str]),
@@ -4758,6 +4782,8 @@ pub static PATTERN_PROP_TYPES: LazyLock<HashMap<&'static str, HashMap<&'static s
                     ("keyUpMap", &["object"] as &[&str]),
                     ("camera", &["string"] as &[&str]),
                     ("scale", &["number"] as &[&str]),
+                    ("tileWidth", &["number"] as &[&str]),
+                    ("fit", &["boolean"] as &[&str]),
                     ("showMinimap", &["boolean"] as &[&str]),
                     ("followTarget", &["object"] as &[&str]),
                     ("cameraPos", &["object"] as &[&str]),
@@ -5583,6 +5609,18 @@ pub static PATTERN_PROP_TYPES: LazyLock<HashMap<&'static str, HashMap<&'static s
                     ("color", &["string"] as &[&str]),
                     ("strokeWidth", &["number"] as &[&str]),
                     ("width", &["number"] as &[&str]),
+                    ("className", &["string"] as &[&str]),
+                ]
+                .into_iter()
+                .collect(),
+            ),
+            (
+                "emoji-picker",
+                [
+                    ("pickEvent", &["string"] as &[&str]),
+                    ("position", &["string"] as &[&str]),
+                    ("triggerIcon", &["icon", "string"] as &[&str]),
+                    ("triggerLabel", &["string"] as &[&str]),
                     ("className", &["string"] as &[&str]),
                 ]
                 .into_iter()
@@ -6972,6 +7010,8 @@ pub static PATTERN_PROP_TYPES: LazyLock<HashMap<&'static str, HashMap<&'static s
                     ("position", &["string"] as &[&str]),
                     ("trigger", &["string"] as &[&str]),
                     ("showArrow", &["boolean"] as &[&str]),
+                    ("open", &["boolean"] as &[&str]),
+                    ("onOpenChange", &["function"] as &[&str]),
                     ("className", &["string"] as &[&str]),
                 ]
                 .into_iter()
@@ -8140,6 +8180,7 @@ pub static PATTERN_PROP_TYPES: LazyLock<HashMap<&'static str, HashMap<&'static s
                     ("fields", &["array"] as &[&str]),
                     ("itemActions", &["array"] as &[&str]),
                     ("maxInlineActions", &["number"] as &[&str]),
+                    ("itemClickEvent", &["string"] as &[&str]),
                     ("selectable", &["boolean"] as &[&str]),
                     ("selectEvent", &["string"] as &[&str]),
                     ("selectedIds", &["array"] as &[&str]),
@@ -8844,6 +8885,7 @@ pub static PATTERN_PROP_ENUM_VALUES: LazyLock<HashMap<&'static str, HashMap<&'st
                 .into_iter()
                 .collect(),
             ),
+            ("emoji-picker", [("position", &["top", "bottom"] as &[&str])].into_iter().collect()),
             (
                 "empty-state",
                 [
@@ -9355,6 +9397,7 @@ pub static PATTERN_EVENT_PROPS: LazyLock<HashMap<&'static str, HashSet<&'static 
             ("data-grid", ["selectionEvent", "loadMoreEvent"].into_iter().collect()),
             ("data-list", ["reorderEvent", "itemClickEvent", "swipeLeftEvent", "swipeRightEvent", "longPressEvent", "loadMoreEvent"].into_iter().collect()),
             ("drawer", ["closeEvent"].into_iter().collect()),
+            ("emoji-picker", ["pickEvent"].into_iter().collect()),
             ("filter-group", ["event", "clearEvent"].into_iter().collect()),
             ("floating-action-button", ["action"].into_iter().collect()),
             ("form", ["submitEvent", "cancelEvent"].into_iter().collect()),
@@ -9374,7 +9417,7 @@ pub static PATTERN_EVENT_PROPS: LazyLock<HashMap<&'static str, HashSet<&'static 
             ("stack", ["action"].into_iter().collect()),
             ("star-rating", ["action"].into_iter().collect()),
             ("state-graph", ["nodeClickEvent"].into_iter().collect()),
-            ("table-view", ["selectEvent", "sortEvent"].into_iter().collect()),
+            ("table-view", ["itemClickEvent", "selectEvent", "sortEvent"].into_iter().collect()),
             ("tag-input", ["addEvent", "removeEvent"].into_iter().collect()),
             ("text-highlight", ["action", "hoverEvent"].into_iter().collect()),
             ("textarea", ["action"].into_iter().collect()),
