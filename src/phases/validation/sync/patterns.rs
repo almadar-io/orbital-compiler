@@ -2,7 +2,7 @@
 //!
 //! Source: packages/almadar-core/src/patterns/patterns-registry.json
 //!
-//! Last synced: 2026-07-27
+//! Last synced: 2026-07-28
 //! To regenerate: npx tsx tools/almadar-pattern-sync/index.ts
 //!
 //! DO NOT EDIT MANUALLY - changes will be overwritten on next sync.
@@ -207,6 +207,7 @@ pub static PATTERN_TYPES: LazyLock<HashSet<&'static str>> = LazyLock::new(|| {
         "control-grid",
         "dashboard-grid",
         "dialogue-bubble",
+        "draw-group",
         "draw-shape",
         "draw-shape-layer",
         "draw-sprite",
@@ -520,6 +521,7 @@ pub static PATTERN_TO_CATEGORY: LazyLock<HashMap<&'static str, &'static str>> =
             ("control-grid", "game"),
             ("dashboard-grid", "game"),
             ("dialogue-bubble", "game"),
+            ("draw-group", "game"),
             ("draw-shape", "game"),
             ("draw-shape-layer", "game"),
             ("draw-sprite", "game"),
@@ -667,6 +669,7 @@ pub static PATTERN_REQUIRED_PROPS: LazyLock<HashMap<&'static str, Vec<&'static s
             ("doc-breadcrumb", vec!["items"]),
             ("doc-sidebar", vec!["items"]),
             ("doc-toc", vec!["items"]),
+            ("draw-group", vec!["type", "position", "items"]),
             ("draw-shape", vec!["type", "shape", "position"]),
             ("draw-shape-layer", vec!["type", "items"]),
             ("draw-sprite", vec!["type", "position", "asset"]),
@@ -1616,6 +1619,7 @@ pub static PATTERN_PROPS_SCHEMA: LazyLock<HashMap<&'static str, HashSet<&'static
                     "dndRoot",
                     "dragGroup",
                     "dropEvent",
+                    "emptyMessage",
                     "entity",
                     "error",
                     "fields",
@@ -1636,6 +1640,9 @@ pub static PATTERN_PROPS_SCHEMA: LazyLock<HashMap<&'static str, HashSet<&'static
                     "reorderEvent",
                     "reorderable",
                     "senderField",
+                    "senderLabelField",
+                    "sortBy",
+                    "sortDirection",
                     "sortable",
                     "swipeLeftActions",
                     "swipeLeftEvent",
@@ -1728,10 +1735,12 @@ pub static PATTERN_PROPS_SCHEMA: LazyLock<HashMap<&'static str, HashSet<&'static
                 .into_iter()
                 .collect(),
             ),
+            ("draw-group", ["id", "items", "opacity", "position", "rotate", "scale", "type"].into_iter().collect()),
             (
                 "draw-shape",
                 [
                     "anchor",
+                    "d",
                     "fill",
                     "height",
                     "id",
@@ -2268,8 +2277,10 @@ pub static PATTERN_PROPS_SCHEMA: LazyLock<HashMap<&'static str, HashSet<&'static
                     "nodeSpacing",
                     "nodes",
                     "onBadgeClick",
+                    "onMarkClick",
                     "onNodeClick",
                     "onNodeDoubleClick",
+                    "proposedEdges",
                     "repulsion",
                     "selectedNodeId",
                     "showLabels",
@@ -5275,7 +5286,9 @@ pub static PATTERN_PROP_TYPES: LazyLock<HashMap<&'static str, HashMap<&'static s
                     ("variant", &["string"] as &[&str]),
                     ("groupBy", &["string"] as &[&str]),
                     ("senderField", &["string"] as &[&str]),
+                    ("senderLabelField", &["string"] as &[&str]),
                     ("currentUser", &["string"] as &[&str]),
+                    ("emptyMessage", &["string"] as &[&str]),
                     ("className", &["string"] as &[&str]),
                     ("isLoading", &["boolean"] as &[&str]),
                     ("error", &["object"] as &[&str]),
@@ -5291,6 +5304,8 @@ pub static PATTERN_PROP_TYPES: LazyLock<HashMap<&'static str, HashMap<&'static s
                     ("children", &["function"] as &[&str]),
                     ("renderItem", &["function"] as &[&str]),
                     ("pageSize", &["number"] as &[&str]),
+                    ("sortBy", &["string"] as &[&str]),
+                    ("sortDirection", &["string"] as &[&str]),
                     ("look", &["string"] as &[&str]),
                 ]
                 .into_iter()
@@ -5449,6 +5464,19 @@ pub static PATTERN_PROP_TYPES: LazyLock<HashMap<&'static str, HashMap<&'static s
                 .collect(),
             ),
             (
+                "draw-group",
+                [
+                    ("id", &["string"] as &[&str]),
+                    ("position", &["object"] as &[&str]),
+                    ("scale", &["number"] as &[&str]),
+                    ("rotate", &["number"] as &[&str]),
+                    ("opacity", &["number"] as &[&str]),
+                    ("items", &["array"] as &[&str]),
+                ]
+                .into_iter()
+                .collect(),
+            ),
+            (
                 "draw-shape",
                 [
                     ("id", &["string"] as &[&str]),
@@ -5462,6 +5490,7 @@ pub static PATTERN_PROP_TYPES: LazyLock<HashMap<&'static str, HashMap<&'static s
                     ("offsetX", &["number"] as &[&str]),
                     ("offsetY", &["number"] as &[&str]),
                     ("points", &["array"] as &[&str]),
+                    ("d", &["string"] as &[&str]),
                     ("fill", &["string"] as &[&str]),
                     ("stroke", &["string"] as &[&str]),
                     ("strokeWidth", &["number"] as &[&str]),
@@ -6099,6 +6128,7 @@ pub static PATTERN_PROP_TYPES: LazyLock<HashMap<&'static str, HashMap<&'static s
                     ("title", &["string"] as &[&str]),
                     ("nodes", &["array"] as &[&str]),
                     ("edges", &["array"] as &[&str]),
+                    ("proposedEdges", &["array"] as &[&str]),
                     ("similarity", &["array"] as &[&str]),
                     ("height", &["number"] as &[&str]),
                     ("showLabels", &["boolean"] as &[&str]),
@@ -6106,6 +6136,7 @@ pub static PATTERN_PROP_TYPES: LazyLock<HashMap<&'static str, HashMap<&'static s
                     ("draggable", &["boolean"] as &[&str]),
                     ("actions", &["array"] as &[&str]),
                     ("onNodeClick", &["function"] as &[&str]),
+                    ("onMarkClick", &["function"] as &[&str]),
                     ("onNodeDoubleClick", &["function"] as &[&str]),
                     ("onBadgeClick", &["function"] as &[&str]),
                     ("nodeClickEvent", &["string"] as &[&str]),
@@ -8766,6 +8797,7 @@ pub static PATTERN_PROP_ENUM_VALUES: LazyLock<HashMap<&'static str, HashMap<&'st
                 [
                     ("gap", &["none", "sm", "md", "lg"] as &[&str]),
                     ("variant", &["default", "card", "compact", "message"] as &[&str]),
+                    ("sortDirection", &["asc", "desc"] as &[&str]),
                     ("look", &["dense", "spacious", "striped", "borderless", "card-rows"] as &[&str]),
                 ]
                 .into_iter()
@@ -8791,7 +8823,7 @@ pub static PATTERN_PROP_ENUM_VALUES: LazyLock<HashMap<&'static str, HashMap<&'st
                 .collect(),
             ),
             ("document-viewer", [("documentType", &["pdf", "text", "html", "markdown"] as &[&str])].into_iter().collect()),
-            ("draw-shape", [("shape", &["cell", "rect", "ellipse", "poly"] as &[&str])].into_iter().collect()),
+            ("draw-shape", [("shape", &["cell", "rect", "ellipse", "poly", "path"] as &[&str])].into_iter().collect()),
             (
                 "drawer",
                 [
