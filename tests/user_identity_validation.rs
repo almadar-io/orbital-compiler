@@ -88,10 +88,12 @@ fn a_declared_role_literal_is_accepted() {
     assert!(codes.is_empty(), "expected no errors, got {codes:?}");
 }
 
-/// The backward-compatibility guarantee. Without it every committed `.orb` and
-/// all six std atoms that read `@user` would fail instantly.
+/// The backward-compatibility guarantee, updated for I.3: an undeclared program
+/// gets the implicit DEFAULT identity shape, whose `role` carries no members —
+/// so any literal comparison stays legal. Without this, every committed `.orb`
+/// and all six std atoms that read `@user` would fail instantly.
 #[test]
-fn without_a_declared_identity_entity_every_rule_no_ops() {
+fn without_a_declared_identity_entity_role_literals_stay_legal() {
     let codes = run(schema_with(
         json!([role_field(&["clinician", "frontdesk"])]),
         json!([trait_with_role_branch("patient")]),
@@ -99,8 +101,47 @@ fn without_a_declared_identity_entity_every_rule_no_ops() {
     ));
     assert!(
         codes.is_empty(),
-        "an undeclared program must be untouched, got {codes:?}"
+        "the default identity's unconstrained role must accept any literal, got {codes:?}"
     );
+}
+
+/// The I.3 default-shape arm: a field nothing can ever carry (not on the
+/// default id/uid/email/name/role shape, and no [identity] entity to extend it)
+/// is an error even in an undeclared program.
+#[test]
+fn without_a_declared_identity_entity_an_unknown_field_is_still_an_error() {
+    let trait_def = json!({
+        "name": "Shell",
+        "linkedEntity": "Person",
+        "category": "interaction",
+        "stateMachine": {
+            "events": [],
+            "states": [],
+            "transitions": [{
+                "from": "idle", "event": "GO", "to": "idle",
+                "guard": ["=", "@user.department", "ops"]
+            }]
+        }
+    });
+    let codes = run(schema_with(json!([]), json!([trait_def]), false));
+    assert_eq!(codes, vec!["ORB_S_UNKNOWN_IDENTITY_FIELD".to_string()]);
+
+    // The default shape's own fields stay readable.
+    let ok_trait = json!({
+        "name": "Shell",
+        "linkedEntity": "Person",
+        "category": "interaction",
+        "stateMachine": {
+            "events": [],
+            "states": [],
+            "transitions": [{
+                "from": "idle", "event": "GO", "to": "idle",
+                "guard": ["=", "@user.role", "anything"]
+            }]
+        }
+    });
+    let codes = run(schema_with(json!([]), json!([ok_trait]), false));
+    assert!(codes.is_empty(), "default-shape fields must stay readable, got {codes:?}");
 }
 
 /// `=` and `==` both occur in committed `.orb` files.

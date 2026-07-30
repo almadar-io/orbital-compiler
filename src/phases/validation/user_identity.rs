@@ -3,11 +3,16 @@
 //! Named `user_identity` rather than `identity` because `identity`/`id_integrity`
 //! already mean the Rabit V4 dual-carry NODE ids in this crate.
 //!
-//! Every rule here **no-ops when the program declares no `[identity]` entity**.
-//! That is not a convenience: the std library reads `@user` from six atoms that
-//! cannot possibly declare an identity of their own, and every committed `.orb`
-//! predates the tag. Gating on the declaration is what makes these rules purely
-//! additive — the win is exactly proportional to declaring.
+//! A program with no `[identity]` entity is validated against the **implicit
+//! default identity shape** — what `normalizeUserContext` produces (id, uid,
+//! email, name) plus an unconstrained `role : string`, minus `permissions`
+//! (`Almadar_LOLO_Identity.md` §11 "Also settled", lands with I.3). The corpus
+//! reads `@user` on exactly those fields, and the std library's six `@user`
+//! atoms read only `id`/`role`, so the default keeps every existing program
+//! compiling while making a typo'd field (which nothing can ever carry) an
+//! error. `role` carries no declared members in the default, so no literal
+//! comparison can be rejected without a declaration — the membership win stays
+//! exactly proportional to declaring.
 //!
 //! The walk is over the whole serialized trait rather than over guards alone.
 //! std-healthcare's 13 dead `"patient"` comparisons live in **config knob
@@ -103,45 +108,77 @@ pub fn validate_user_identity(schema: &OrbitalSchema, ctx: &mut ValidationContex
         );
     }
 
-    // Undeclared identity ⇒ every remaining rule no-ops.
-    let Some(identity) = declared.first() else {
-        ctx.merge(result);
-        return;
+    // Undeclared identity ⇒ `@user` still carries the implicit DEFAULT shape —
+    // what `normalizeUserContext` produces (id, uid, email, name) plus an
+    // unconstrained `role : string`, minus `permissions`
+    // (`Almadar_LOLO_Identity.md` §11 "Also settled"). `role` has no declared
+    // members, so no literal comparison can be rejected; only a field outside
+    // the shape (a typo nothing can ever carry) is an error.
+    let default_identity;
+    let (identity, declared_in_source) = match declared.first() {
+        Some(identity) => (*identity, true),
+        None => {
+            default_identity = default_identity_shape();
+            (&default_identity, false)
+        }
     };
 
     for (trait_def, path) in super::inline_traits(schema) {
         let Ok(value) = serde_json::to_value(trait_def) else {
             continue;
         };
-        walk(&value, &path, identity, &mut result);
+        walk(&value, &path, identity, declared_in_source, &mut result);
     }
 
     ctx.merge(result);
 }
 
-fn walk(value: &Value, path: &str, identity: &EntityDefinition, result: &mut ValidationResult) {
+/// The implicit `@user` shape of a program with no `[identity]` entity.
+fn default_identity_shape() -> EntityDefinition {
+    serde_json::from_value(serde_json::json!({
+        "name": "@user",
+        "fields": [
+            { "name": "id", "type": "string" },
+            { "name": "uid", "type": "string" },
+            { "name": "email", "type": "string" },
+            { "name": "name", "type": "string" },
+            { "name": "role", "type": "string" }
+        ]
+    }))
+    .expect("default identity shape must deserialize")
+}
+
+fn walk(
+    value: &Value,
+    path: &str,
+    identity: &EntityDefinition,
+    declared_in_source: bool,
+    result: &mut ValidationResult,
+) {
     match value {
-        Value::String(s) => check_field_exists(s, path, identity, result),
+        Value::String(s) => check_field_exists(s, path, identity, declared_in_source, result),
         Value::Array(items) => {
             check_comparison(items, path, identity, result);
             for (i, item) in items.iter().enumerate() {
-                walk(item, &format!("{}[{}]", path, i), identity, result);
+                walk(item, &format!("{}[{}]", path, i), identity, declared_in_source, result);
             }
         }
         Value::Object(map) => {
             for (k, v) in map {
-                walk(v, &format!("{}.{}", path, k), identity, result);
+                walk(v, &format!("{}.{}", path, k), identity, declared_in_source, result);
             }
         }
         _ => {}
     }
 }
 
-/// `@user.<field>` must name a declared field of the identity entity.
+/// `@user.<field>` must name a declared field of the identity entity — or, when
+/// no `[identity]` entity is declared, a field of the implicit default shape.
 fn check_field_exists(
     s: &str,
     path: &str,
     identity: &EntityDefinition,
+    declared_in_source: bool,
     result: &mut ValidationResult,
 ) {
     let Some(field) = user_field_of(s) else {
@@ -156,22 +193,39 @@ fn check_field_exists(
         .filter_map(|f| f.name.as_deref())
         .collect();
     declared.sort_unstable();
-    result.add_error(
-        ValidationError::error(
-            ErrorCode::SchemaUnknownIdentityField,
-            path,
+    let (message, suggestion) = if declared_in_source {
+        (
             format!(
                 "`@user.{}` is not a field of the [identity] entity `{}`. It resolves to null, \
                  so every branch reading it silently takes its negative arm.",
                 field, identity.name
             ),
+            format!(
+                "Declare `{}` on entity {}, or read one of: {}",
+                field,
+                identity.name,
+                declared.join(", ")
+            ),
         )
-        .with_suggestion(format!(
-            "Declare `{}` on entity {}, or read one of: {}",
-            field,
-            identity.name,
-            declared.join(", ")
-        )),
+    } else {
+        (
+            format!(
+                "`@user.{}` is not part of the default identity shape ({}). No [identity] \
+                 entity is declared, so nothing can carry this field — it resolves to null and \
+                 every branch reading it silently takes its negative arm.",
+                field,
+                declared.join(", ")
+            ),
+            format!(
+                "Declare an [identity] entity carrying `{}`, or read one of: {}",
+                field,
+                declared.join(", ")
+            ),
+        )
+    };
+    result.add_error(
+        ValidationError::error(ErrorCode::SchemaUnknownIdentityField, path, message)
+            .with_suggestion(suggestion),
     );
 }
 
