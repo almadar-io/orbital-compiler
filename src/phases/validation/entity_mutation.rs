@@ -475,6 +475,7 @@ mod tests {
             create_policy: None,
             update_policy: None,
             delete_policy: None,
+            access_waivers: None,
             name: name.to_string(),
             collection: None,
             persistence,

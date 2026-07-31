@@ -67,6 +67,7 @@ fn schema_with_emit(emit: SExpression, declared: EmitDefinition) -> OrbitalSchem
         create_policy: None,
         update_policy: None,
         delete_policy: None,
+        access_waivers: None,
         name: "Task".to_string(),
         collection: Some("tasks".to_string()),
         persistence: None,

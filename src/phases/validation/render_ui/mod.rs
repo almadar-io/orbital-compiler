@@ -816,6 +816,7 @@ mod tests {
                 create_policy: None,
                 update_policy: None,
                 delete_policy: None,
+                access_waivers: None,
                 name: "Company".to_string(),
                 fields: vec![FieldDefinition {
                     name: Some("name".to_string()),
@@ -849,6 +850,7 @@ mod tests {
                 create_policy: None,
                 update_policy: None,
                 delete_policy: None,
+                access_waivers: None,
                 name: "Inspection".to_string(),
                 fields: vec![
                     FieldDefinition {
@@ -948,6 +950,7 @@ mod tests {
                 create_policy: None,
                 update_policy: None,
                 delete_policy: None,
+                access_waivers: None,
                 name: "Inspection".to_string(),
                 fields: vec![FieldDefinition {
                     name: Some("title".to_string()),

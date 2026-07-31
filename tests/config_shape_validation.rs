@@ -104,6 +104,7 @@ fn schema_with_config(config: HashMap<String, ConfigField>) -> OrbitalSchema {
         create_policy: None,
         update_policy: None,
         delete_policy: None,
+        access_waivers: None,
         name: "Dashboard".to_string(),
         collection: Some("dashboards".to_string()),
         persistence: None,

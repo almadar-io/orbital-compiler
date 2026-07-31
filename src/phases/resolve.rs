@@ -1086,8 +1086,8 @@ impl<'a> Resolver<'a> {
             }),
 
             // Logical operators
-            "and" | "&&" => self.binary_op(args, OirExpr::and),
-            "or" | "||" => self.binary_op(args, OirExpr::or),
+            "and" | "&&" => self.variadic_binary_op(args, OirExpr::and),
+            "or" | "||" => self.variadic_binary_op(args, OirExpr::or),
             "not" | "!" => self.unary_op(args, OirExpr::not),
 
             // Arithmetic operators
@@ -1359,6 +1359,32 @@ impl<'a> Resolver<'a> {
                 Ok(OirExpr::call(op, resolved_args))
             }
         }
+    }
+
+    /// Left-fold a genuinely associative operator over ALL its arguments:
+    /// `(or A B C)` → `Or(Or(A, B), C)`.
+    ///
+    /// `binary_op` reads only `args[0..2]`. That is correct for a fixed-arity
+    /// operator, whose excess args the max-arity check above already rejects —
+    /// but `and`/`or` are declared VARIADIC, so they sail past that check and
+    /// then lost every argument from the third on, silently. A three-branch
+    /// `(or supervisor-clause agent-clause customer-clause)` lowered to just
+    /// the first two, so the third branch could never match and the guard
+    /// denied a viewer the source plainly allowed.
+    fn variadic_binary_op<F>(&self, args: &[SExpression], f: F) -> Result<OirExpr, ResolveError>
+    where
+        F: Fn(OirExpr, OirExpr) -> OirExpr,
+    {
+        if args.len() < 2 {
+            return Err(ResolveError::InvalidSExpr(
+                "Binary operation requires 2 arguments".to_string(),
+            ));
+        }
+        let mut acc = self.resolve_sexpr(&args[0])?;
+        for arg in &args[1..] {
+            acc = f(acc, self.resolve_sexpr(arg)?);
+        }
+        Ok(acc)
     }
 
     fn binary_op<F>(&self, args: &[SExpression], f: F) -> Result<OirExpr, ResolveError>
@@ -2629,5 +2655,39 @@ mod tests {
         // vec/add with exactly 2 args (== maxArity) must resolve cleanly.
         let sexpr = sexpr_call("vec/add", &["@x", "@y"]);
         assert!(resolve_sexpr_standalone(&sexpr).is_ok());
+    }
+
+    #[test]
+    fn variadic_or_keeps_every_branch() {
+        // `(or A B C)` must lower to `Or(Or(A,B), C)`. Before the fold, args[2..]
+        // were dropped: std-helpdesk's three-role @read silently lost its
+        // customer branch, so no customer could ever read their own ticket.
+        let expr = SExpression::Array(vec![
+            SExpression::String("or".to_string()),
+            SExpression::Bool(false),
+            SExpression::Bool(false),
+            SExpression::Bool(true),
+        ]);
+        let lowered = resolve_sexpr_standalone(&expr).expect("lowers");
+        let round_tripped = lowered.to_sexpression().expect("has a guard form");
+        let json = serde_json::to_string(&round_tripped.to_canonical_json()).expect("serializes");
+        assert_eq!(
+            json, r#"["or",["or",false,false],true]"#,
+            "every branch of a variadic or must survive lowering"
+        );
+    }
+
+    #[test]
+    fn variadic_and_keeps_every_branch() {
+        let expr = SExpression::Array(vec![
+            SExpression::String("and".to_string()),
+            SExpression::Bool(true),
+            SExpression::Bool(true),
+            SExpression::Bool(false),
+        ]);
+        let lowered = resolve_sexpr_standalone(&expr).expect("lowers");
+        let round_tripped = lowered.to_sexpression().expect("has a guard form");
+        let json = serde_json::to_string(&round_tripped.to_canonical_json()).expect("serializes");
+        assert_eq!(json, r#"["and",["and",true,true],false]"#);
     }
 }

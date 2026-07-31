@@ -2190,6 +2190,7 @@ mod tests {
             create_policy: None,
             update_policy: None,
             delete_policy: None,
+            access_waivers: None,
             name: "Task".to_string(),
             fields: vec![
                 FieldDefinition {
@@ -2265,6 +2266,7 @@ mod tests {
             create_policy: None,
             update_policy: None,
             delete_policy: None,
+            access_waivers: None,
             name: "Task".to_string(),
             fields: vec![FieldDefinition {
                 name: Some("title".to_string()),
@@ -2307,6 +2309,7 @@ mod tests {
             create_policy: None,
             update_policy: None,
             delete_policy: None,
+            access_waivers: None,
             name: "User".to_string(),
             fields: vec![FieldDefinition {
                 name: Some("email".to_string()),
@@ -2789,6 +2792,7 @@ mod tests {
             create_policy: None,
             update_policy: None,
             delete_policy: None,
+            access_waivers: None,
             name: name.to_string(),
             collection: None,
             persistence: None,
@@ -3159,6 +3163,7 @@ mod tests {
                 create_policy: None,
                 update_policy: None,
                 delete_policy: None,
+                access_waivers: None,
                 name: "Solo".to_string(),
                 collection: None,
                 persistence: None,

@@ -40,6 +40,7 @@ fn make_entity_with_fields(name: &str, field_names: &[&str]) -> EntityDefinition
         create_policy: None,
         update_policy: None,
         delete_policy: None,
+        access_waivers: None,
         name: name.to_string(),
         fields: field_names
             .iter()

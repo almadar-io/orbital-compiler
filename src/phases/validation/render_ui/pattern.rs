@@ -928,6 +928,7 @@ mod entity_prop_contract_tests {
             create_policy: None,
             update_policy: None,
             delete_policy: None,
+            access_waivers: None,
             name: name.to_string(),
             fields: field_names
                 .iter()

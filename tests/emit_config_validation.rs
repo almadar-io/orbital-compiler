@@ -51,6 +51,7 @@ fn schema_with_effects(
         create_policy: None,
         update_policy: None,
         delete_policy: None,
+        access_waivers: None,
         name: "Patient".to_string(),
         collection: Some("patients".to_string()),
         persistence: None,

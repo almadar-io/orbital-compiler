@@ -59,6 +59,7 @@ mod tests {
                     create_policy: None,
                     update_policy: None,
                     delete_policy: None,
+                    access_waivers: None,
                     name: "Task".to_string(),
                     collection: None,
                     persistence: None,
@@ -104,6 +105,7 @@ mod tests {
                 create_policy: None,
                 update_policy: None,
                 delete_policy: None,
+                access_waivers: None,
                 name: "Task".to_string(), // Duplicate
                 collection: None,
                 persistence: None,

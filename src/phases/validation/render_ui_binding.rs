@@ -565,6 +565,7 @@ mod tests {
                 create_policy: None,
                 update_policy: None,
                 delete_policy: None,
+                access_waivers: None,
                 name: "Article".to_string(),
                 collection: None,
                 persistence: None,

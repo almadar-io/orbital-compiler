@@ -522,6 +522,7 @@ mod tests {
             create_policy: None,
             update_policy: None,
             delete_policy: None,
+            access_waivers: None,
         }
     }
 
