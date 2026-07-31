@@ -518,6 +518,10 @@ mod tests {
             instances: None,
             shared: false,
             identity: false,
+            read_policy: None,
+            create_policy: None,
+            update_policy: None,
+            delete_policy: None,
         }
     }
 

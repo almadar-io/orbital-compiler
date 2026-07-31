@@ -2,7 +2,7 @@
 //!
 //! Source: packages/almadar-core/src/patterns/patterns-registry.json
 //!
-//! Last synced: 2026-07-29
+//! Last synced: 2026-07-31
 //! To regenerate: npx tsx tools/almadar-pattern-sync/index.ts
 //!
 //! DO NOT EDIT MANUALLY - changes will be overwritten on next sync.
@@ -1148,6 +1148,7 @@ pub static PATTERN_PROPS_SCHEMA: LazyLock<HashMap<&'static str, HashSet<&'static
                     "backgroundColor",
                     "backgroundImage",
                     "camera",
+                    "children",
                     "className",
                     "drawables",
                     "featureClickEvent",
@@ -1183,6 +1184,7 @@ pub static PATTERN_PROPS_SCHEMA: LazyLock<HashMap<&'static str, HashSet<&'static
                     "bgColor",
                     "camera",
                     "cameraPos",
+                    "children",
                     "className",
                     "drawables",
                     "error",
@@ -1746,17 +1748,22 @@ pub static PATTERN_PROPS_SCHEMA: LazyLock<HashMap<&'static str, HashSet<&'static
                 "draw-shape",
                 [
                     "anchor",
+                    "animation",
                     "d",
                     "fill",
+                    "gradient",
                     "height",
                     "id",
                     "offsetX",
                     "offsetY",
                     "opacity",
+                    "pivot",
                     "points",
                     "position",
                     "radiusX",
                     "radiusY",
+                    "rotate",
+                    "shadow",
                     "shape",
                     "stroke",
                     "strokeWidth",
@@ -4761,6 +4768,7 @@ pub static PATTERN_PROP_TYPES: LazyLock<HashMap<&'static str, HashMap<&'static s
                     ("featureClickEvent", &["string"] as &[&str]),
                     ("keyMap", &["object"] as &[&str]),
                     ("keyUpMap", &["object"] as &[&str]),
+                    ("children", &["node"] as &[&str]),
                 ]
                 .into_iter()
                 .collect(),
@@ -4788,6 +4796,7 @@ pub static PATTERN_PROP_TYPES: LazyLock<HashMap<&'static str, HashMap<&'static s
                     ("followTarget", &["object"] as &[&str]),
                     ("cameraPos", &["object"] as &[&str]),
                     ("bgColor", &["string"] as &[&str]),
+                    ("children", &["node"] as &[&str]),
                 ]
                 .into_iter()
                 .collect(),
@@ -5518,8 +5527,13 @@ pub static PATTERN_PROP_TYPES: LazyLock<HashMap<&'static str, HashMap<&'static s
                     ("points", &["array"] as &[&str]),
                     ("d", &["string"] as &[&str]),
                     ("fill", &["string"] as &[&str]),
+                    ("gradient", &["object"] as &[&str]),
                     ("stroke", &["string"] as &[&str]),
                     ("strokeWidth", &["number"] as &[&str]),
+                    ("rotate", &["number"] as &[&str]),
+                    ("pivot", &["object"] as &[&str]),
+                    ("shadow", &["object"] as &[&str]),
+                    ("animation", &["object"] as &[&str]),
                     ("opacity", &["number"] as &[&str]),
                 ]
                 .into_iter()

@@ -2186,6 +2186,10 @@ mod tests {
         let entity_def = EntityDefinition {
             shared: false,
             identity: false,
+            read_policy: None,
+            create_policy: None,
+            update_policy: None,
+            delete_policy: None,
             name: "Task".to_string(),
             fields: vec![
                 FieldDefinition {
@@ -2257,6 +2261,10 @@ mod tests {
         let entity_def = EntityDefinition {
             shared: false,
             identity: false,
+            read_policy: None,
+            create_policy: None,
+            update_policy: None,
+            delete_policy: None,
             name: "Task".to_string(),
             fields: vec![FieldDefinition {
                 name: Some("title".to_string()),
@@ -2295,6 +2303,10 @@ mod tests {
         let entity_def = EntityDefinition {
             shared: false,
             identity: false,
+            read_policy: None,
+            create_policy: None,
+            update_policy: None,
+            delete_policy: None,
             name: "User".to_string(),
             fields: vec![FieldDefinition {
                 name: Some("email".to_string()),
@@ -2773,6 +2785,10 @@ mod tests {
         EntityDefinition {
             shared: true,
             identity: false,
+            read_policy: None,
+            create_policy: None,
+            update_policy: None,
+            delete_policy: None,
             name: name.to_string(),
             collection: None,
             persistence: None,
@@ -3139,6 +3155,10 @@ mod tests {
             EntityDefinition {
                 shared: false,
                 identity: false,
+                read_policy: None,
+                create_policy: None,
+                update_policy: None,
+                delete_policy: None,
                 name: "Solo".to_string(),
                 collection: None,
                 persistence: None,

@@ -638,7 +638,7 @@ pub fn factory_signatures_json_io() -> &'static str {
 // Values are gzip bytes (build.rs → $OUT_DIR/baked-gz/…), inflated lazily by
 // `get_std_behavior_content` — the baked corpus is ~31MB raw, ~2MB gzipped.
 pub static EMBEDDED_STD_BEHAVIORS: phf::Map<&'static str, &'static [u8]> = phf::phf_map! {
-    // === Atoms (347) ===
+    // === Atoms (351) ===
     "std/behaviors/dnd-combat" => include_bytes!(concat!(env!("OUT_DIR"), "/baked-gz/io/dnd/atoms/dnd-combat.orb.gz")),
     "std/behaviors/dnd-dice" => include_bytes!(concat!(env!("OUT_DIR"), "/baked-gz/io/dnd/atoms/dnd-dice.orb.gz")),
     "std/behaviors/dnd-dungeon-gen" => include_bytes!(concat!(env!("OUT_DIR"), "/baked-gz/io/dnd/atoms/dnd-dungeon-gen.orb.gz")),
@@ -907,6 +907,10 @@ pub static EMBEDDED_STD_BEHAVIORS: phf::Map<&'static str, &'static [u8]> = phf::
     "std/behaviors/std-wizard" => include_bytes!(concat!(env!("OUT_DIR"), "/baked-gz/std/ui/core/atoms/std-wizard.orb.gz")),
     "std/behaviors/std-work-order" => include_bytes!(concat!(env!("OUT_DIR"), "/baked-gz/io/app/atoms/std-work-order.orb.gz")),
     "std/behaviors/std-xp" => include_bytes!(concat!(env!("OUT_DIR"), "/baked-gz/std/ui/game/atoms/std-xp.orb.gz")),
+    "std/behaviors/svg-palette" => include_bytes!(concat!(env!("OUT_DIR"), "/baked-gz/io/svg/atoms/svg-palette.orb.gz")),
+    "std/behaviors/svg-primitives" => include_bytes!(concat!(env!("OUT_DIR"), "/baked-gz/io/svg/atoms/svg-primitives.orb.gz")),
+    "std/behaviors/svg-shading" => include_bytes!(concat!(env!("OUT_DIR"), "/baked-gz/io/svg/atoms/svg-shading.orb.gz")),
+    "std/behaviors/svg-silhouette" => include_bytes!(concat!(env!("OUT_DIR"), "/baked-gz/io/svg/atoms/svg-silhouette.orb.gz")),
     "std/behaviors/ui-animated-counter" => include_bytes!(concat!(env!("OUT_DIR"), "/baked-gz/std/ui/marketing/atoms/ui-animated-counter.orb.gz")),
     "std/behaviors/ui-animated-graphic" => include_bytes!(concat!(env!("OUT_DIR"), "/baked-gz/std/ui/marketing/atoms/ui-animated-graphic.orb.gz")),
     "std/behaviors/ui-animated-reveal" => include_bytes!(concat!(env!("OUT_DIR"), "/baked-gz/std/ui/marketing/atoms/ui-animated-reveal.orb.gz")),
@@ -1164,7 +1168,7 @@ pub static EMBEDDED_STD_BEHAVIORS: phf::Map<&'static str, &'static [u8]> = phf::
     "std/behaviors/ui-wizard-container" => include_bytes!(concat!(env!("OUT_DIR"), "/baked-gz/std/ui/core/molecules/ui-wizard-container.orb.gz")),
     "std/behaviors/ui-wizard-navigation" => include_bytes!(concat!(env!("OUT_DIR"), "/baked-gz/std/ui/core/molecules/ui-wizard-navigation.orb.gz")),
     "std/behaviors/ui-wizard-progress" => include_bytes!(concat!(env!("OUT_DIR"), "/baked-gz/std/ui/core/molecules/ui-wizard-progress.orb.gz")),
-    // === Organisms (232) ===
+    // === Organisms (239) ===
     "std/behaviors/dnd-dungeon-delver" => include_bytes!(concat!(env!("OUT_DIR"), "/baked-gz/io/dnd/organisms/dnd-dungeon-delver.orb.gz")),
     "std/behaviors/dnd-svg-gallery" => include_bytes!(concat!(env!("OUT_DIR"), "/baked-gz/io/dnd/organisms/dnd-svg-gallery.orb.gz")),
     "std/behaviors/kflow-learning-companion" => include_bytes!(concat!(env!("OUT_DIR"), "/baked-gz/io/app/organisms/kflow-learning-companion.orb.gz")),
@@ -1300,6 +1304,13 @@ pub static EMBEDDED_STD_BEHAVIORS: phf::Map<&'static str, &'static [u8]> = phf::
     "std/behaviors/std-wiki" => include_bytes!(concat!(env!("OUT_DIR"), "/baked-gz/io/app/organisms/std-wiki.orb.gz")),
     "std/behaviors/std-wiki-public" => include_bytes!(concat!(env!("OUT_DIR"), "/baked-gz/io/marketing/organisms/std-wiki-public.orb.gz")),
     "std/behaviors/std-winning-11" => include_bytes!(concat!(env!("OUT_DIR"), "/baked-gz/io/app/organisms/std-winning-11.orb.gz")),
+    "std/behaviors/svg-board-overlay" => include_bytes!(concat!(env!("OUT_DIR"), "/baked-gz/io/svg/organisms/svg-board-overlay.orb.gz")),
+    "std/behaviors/svg-card-token" => include_bytes!(concat!(env!("OUT_DIR"), "/baked-gz/io/svg/organisms/svg-card-token.orb.gz")),
+    "std/behaviors/svg-effect-vfx" => include_bytes!(concat!(env!("OUT_DIR"), "/baked-gz/io/svg/organisms/svg-effect-vfx.orb.gz")),
+    "std/behaviors/svg-feature-object" => include_bytes!(concat!(env!("OUT_DIR"), "/baked-gz/io/svg/organisms/svg-feature-object.orb.gz")),
+    "std/behaviors/svg-terrain-tile" => include_bytes!(concat!(env!("OUT_DIR"), "/baked-gz/io/svg/organisms/svg-terrain-tile.orb.gz")),
+    "std/behaviors/svg-ui-widget" => include_bytes!(concat!(env!("OUT_DIR"), "/baked-gz/io/svg/organisms/svg-ui-widget.orb.gz")),
+    "std/behaviors/svg-unit-token" => include_bytes!(concat!(env!("OUT_DIR"), "/baked-gz/io/svg/organisms/svg-unit-token.orb.gz")),
     "std/behaviors/test-catalog" => include_bytes!(concat!(env!("OUT_DIR"), "/baked-gz/io/app/organisms/test-catalog.orb.gz")),
     "std/behaviors/ui-arcade-board-3d" => include_bytes!(concat!(env!("OUT_DIR"), "/baked-gz/std/ui/game/organisms/ui-arcade-board-3d.orb.gz")),
     "std/behaviors/ui-arena-board" => include_bytes!(concat!(env!("OUT_DIR"), "/baked-gz/std/ui/game/organisms/ui-arena-board.orb.gz")),

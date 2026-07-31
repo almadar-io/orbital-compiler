@@ -470,6 +470,10 @@ mod tests {
                 entity: EntityRef::Inline(EntityDefinition {
                     shared: false,
                     identity: false,
+                    read_policy: None,
+                    create_policy: None,
+                    update_policy: None,
+                    delete_policy: None,
                     name: "Task".to_string(),
                     collection: None,
                     persistence: None,

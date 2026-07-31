@@ -46,6 +46,7 @@ pub mod effect;
 pub mod emit_config_ref;
 pub mod emit_payload;
 pub mod entity;
+pub mod entity_access;
 pub mod entity_mutation;
 pub mod error;
 pub mod icon;
@@ -524,6 +525,12 @@ pub fn validate_comprehensive_full_with_phase_f(
     // No-ops entirely when the program declares no identity entity. Runs
     // post-inline so config knob defaults carry their call-site values.
     user_identity::validate_user_identity(schema, &mut ctx);
+
+    // Phase 11c3: entity access directives (`@read`/`@create`/`@update`/
+    // `@delete`) — field/binding checks on the four per-row authorization
+    // predicates. Runs immediately after identity for the same reason (needs
+    // the resolved `[identity]` entity, post-inline).
+    entity_access::validate_entity_access(schema, &mut ctx);
 
     // Phase 11d: Multi-trait entity-mutation trio (SPLIT_ENTITY_MUTATION /
     // SharedEntityFieldConflict / SharedEntityRenderAuthority) + the non-Cron

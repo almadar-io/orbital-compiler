@@ -246,6 +246,28 @@ impl<'a> Resolver<'a> {
         }
 
         oir_entity.shared = entity.shared;
+        oir_entity.identity = entity.identity;
+
+        oir_entity.read_policy = entity
+            .read_policy
+            .as_ref()
+            .map(|e| self.resolve_sexpr(e))
+            .transpose()?;
+        oir_entity.create_policy = entity
+            .create_policy
+            .as_ref()
+            .map(|e| self.resolve_sexpr(e))
+            .transpose()?;
+        oir_entity.update_policy = entity
+            .update_policy
+            .as_ref()
+            .map(|e| self.resolve_sexpr(e))
+            .transpose()?;
+        oir_entity.delete_policy = entity
+            .delete_policy
+            .as_ref()
+            .map(|e| self.resolve_sexpr(e))
+            .transpose()?;
 
         for field in &entity.fields {
             oir_entity.fields.push(self.resolve_field(field)?);

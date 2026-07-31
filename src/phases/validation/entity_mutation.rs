@@ -471,6 +471,10 @@ mod tests {
         EntityDefinition {
             shared,
             identity: false,
+            read_policy: None,
+            create_policy: None,
+            update_policy: None,
+            delete_policy: None,
             name: name.to_string(),
             collection: None,
             persistence,

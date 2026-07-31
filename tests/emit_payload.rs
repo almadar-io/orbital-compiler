@@ -63,6 +63,10 @@ fn schema_with_emit(emit: SExpression, declared: EmitDefinition) -> OrbitalSchem
     let entity = EntityDefinition {
         shared: false,
         identity: false,
+        read_policy: None,
+        create_policy: None,
+        update_policy: None,
+        delete_policy: None,
         name: "Task".to_string(),
         collection: Some("tasks".to_string()),
         persistence: None,

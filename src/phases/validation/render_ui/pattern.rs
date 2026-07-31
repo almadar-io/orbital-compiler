@@ -924,6 +924,10 @@ mod entity_prop_contract_tests {
         EntityDefinition {
             shared: false,
             identity: false,
+            read_policy: None,
+            create_policy: None,
+            update_policy: None,
+            delete_policy: None,
             name: name.to_string(),
             fields: field_names
                 .iter()

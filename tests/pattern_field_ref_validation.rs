@@ -36,6 +36,10 @@ fn make_entity_with_fields(name: &str, field_names: &[&str]) -> EntityDefinition
     EntityDefinition {
         shared: false,
         identity: false,
+        read_policy: None,
+        create_policy: None,
+        update_policy: None,
+        delete_policy: None,
         name: name.to_string(),
         fields: field_names
             .iter()

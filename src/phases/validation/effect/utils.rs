@@ -525,6 +525,10 @@ mod tests {
             EntityDefinition {
                 shared: false,
                 identity: false,
+                read_policy: None,
+                create_policy: None,
+                update_policy: None,
+                delete_policy: None,
                 name: "Inspection".to_string(),
                 collection: None,
                 persistence: None,
@@ -632,6 +636,10 @@ mod tests {
             EntityDefinition {
                 shared: false,
                 identity: false,
+                read_policy: None,
+                create_policy: None,
+                update_policy: None,
+                delete_policy: None,
                 name: "Inspection".to_string(),
                 collection: None,
                 persistence: None,

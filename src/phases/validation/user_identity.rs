@@ -29,11 +29,13 @@ use serde_json::Value;
 const USER_SIGIL: &str = "@user.";
 
 /// Comparison operators whose two operands are compared for equality. `=` and
-/// `==` both occur in committed `.orb` files.
-const EQUALITY_OPS: &[&str] = &["=", "==", "!=", "!==", "eq", "neq"];
+/// `==` both occur in committed `.orb` files. Shared with `entity_access.rs`.
+pub(super) const EQUALITY_OPS: &[&str] = &["=", "==", "!=", "!==", "eq", "neq"];
 
-/// Every `[identity]` entity declared anywhere in the schema.
-fn identity_entities(schema: &OrbitalSchema) -> Vec<&EntityDefinition> {
+/// Every `[identity]` entity declared anywhere in the schema. Shared with
+/// `entity_access.rs`, which needs the same "what does `@user` resolve to"
+/// answer for the four access directives.
+pub(super) fn identity_entities(schema: &OrbitalSchema) -> Vec<&EntityDefinition> {
     let mut out = Vec::new();
     for orbital in &schema.orbitals {
         for er in std::iter::once(&orbital.entity).chain(orbital.auxiliary_entities.iter().flatten())
@@ -51,7 +53,7 @@ fn identity_entities(schema: &OrbitalSchema) -> Vec<&EntityDefinition> {
 /// The declared vocabulary for an identity field, following `items` for the
 /// array form. `roles : ["a" | "b"]` keeps the union on the ELEMENT, so a
 /// multi-valued role field must be read through `items`.
-fn vocabulary(field: &FieldDefinition) -> Option<&Vec<String>> {
+pub(super) fn vocabulary(field: &FieldDefinition) -> Option<&Vec<String>> {
     if let Some(values) = field.values.as_ref().filter(|v| !v.is_empty()) {
         return Some(values);
     }
@@ -63,7 +65,7 @@ fn vocabulary(field: &FieldDefinition) -> Option<&Vec<String>> {
 }
 
 /// Look a field up on the identity entity by name.
-fn identity_field<'a>(identity: &'a EntityDefinition, name: &str) -> Option<&'a FieldDefinition> {
+pub(super) fn identity_field<'a>(identity: &'a EntityDefinition, name: &str) -> Option<&'a FieldDefinition> {
     identity
         .fields
         .iter()
@@ -72,7 +74,7 @@ fn identity_field<'a>(identity: &'a EntityDefinition, name: &str) -> Option<&'a 
 
 /// `@user.role` → `Some("role")`. Only a direct field read; `@user` alone and
 /// deeper paths (`@user.profile.x`) are not field claims this rule can judge.
-fn user_field_of(s: &str) -> Option<&str> {
+pub(super) fn user_field_of(s: &str) -> Option<&str> {
     let rest = s.strip_prefix(USER_SIGIL)?;
     if rest.is_empty() || rest.contains('.') || rest.contains('[') {
         return None;
@@ -134,7 +136,7 @@ pub fn validate_user_identity(schema: &OrbitalSchema, ctx: &mut ValidationContex
 }
 
 /// The implicit `@user` shape of a program with no `[identity]` entity.
-fn default_identity_shape() -> EntityDefinition {
+pub(super) fn default_identity_shape() -> EntityDefinition {
     serde_json::from_value(serde_json::json!({
         "name": "@user",
         "fields": [
@@ -231,7 +233,7 @@ fn check_field_exists(
 
 /// A literal compared against a closed-vocabulary `@user.<field>` must be one of
 /// that field's declared members.
-fn check_comparison(
+pub(super) fn check_comparison(
     items: &[Value],
     path: &str,
     identity: &EntityDefinition,

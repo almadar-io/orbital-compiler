@@ -812,6 +812,10 @@ mod tests {
             EntityDefinition {
                 shared: false,
                 identity: false,
+                read_policy: None,
+                create_policy: None,
+                update_policy: None,
+                delete_policy: None,
                 name: "Company".to_string(),
                 fields: vec![FieldDefinition {
                     name: Some("name".to_string()),
@@ -841,6 +845,10 @@ mod tests {
             EntityDefinition {
                 shared: false,
                 identity: false,
+                read_policy: None,
+                create_policy: None,
+                update_policy: None,
+                delete_policy: None,
                 name: "Inspection".to_string(),
                 fields: vec![
                     FieldDefinition {
@@ -936,6 +944,10 @@ mod tests {
             EntityDefinition {
                 shared: false,
                 identity: false,
+                read_policy: None,
+                create_policy: None,
+                update_policy: None,
+                delete_policy: None,
                 name: "Inspection".to_string(),
                 fields: vec![FieldDefinition {
                     name: Some("title".to_string()),

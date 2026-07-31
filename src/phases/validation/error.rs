@@ -628,6 +628,19 @@ pub enum ErrorCode {
     /// have. Resolves to null at runtime, so the guard silently takes its
     /// negative branch.
     SchemaUnknownIdentityField,
+    /// `@entity.<field>` (or `(object/get @entity field)`) inside an
+    /// `@read`/`@create`/`@update`/`@delete` directive names a field the
+    /// OWNING entity does not have.
+    SchemaAccessPolicyUnknownEntityField,
+    /// An access directive reads a binding root other than `@entity`/`@user` —
+    /// the directive has no call site, so `@payload`/`@config`/`@state` are
+    /// not meaningful there.
+    SchemaAccessPolicyInvalidBinding,
+    /// An access directive reads `@user` in a program declaring no `[identity]`
+    /// entity. Unlike a bare pre-existing `@user` read (which falls back to the
+    /// implicit default shape), a NEW authorization construct must have a real
+    /// roster — that is what makes personas switchable.
+    SchemaAccessPolicyRequiresIdentity,
 
     // =========================================================================
     // Identity Errors (ORB_ID_*) — Rabit V4 Phase 3 dual-carry id integrity
@@ -879,6 +892,9 @@ impl ErrorCode {
             ErrorCode::SchemaIdentityNotUnique => "ORB_S_IDENTITY_NOT_UNIQUE",
             ErrorCode::SchemaRoleLiteralNotMember => "ORB_S_ROLE_LITERAL_NOT_MEMBER",
             ErrorCode::SchemaUnknownIdentityField => "ORB_S_UNKNOWN_IDENTITY_FIELD",
+            ErrorCode::SchemaAccessPolicyUnknownEntityField => "ORB_S_ACCESS_POLICY_UNKNOWN_ENTITY_FIELD",
+            ErrorCode::SchemaAccessPolicyInvalidBinding => "ORB_S_ACCESS_POLICY_INVALID_BINDING",
+            ErrorCode::SchemaAccessPolicyRequiresIdentity => "ORB_S_ACCESS_POLICY_REQUIRES_IDENTITY",
 
             // Identity
             ErrorCode::OrbIdUnknownRef => "ORB_ID_UNKNOWN_REF",
@@ -1088,7 +1104,10 @@ impl ErrorCode {
             | ErrorCode::SchemaEmptyVersion
             | ErrorCode::SchemaIdentityNotUnique
             | ErrorCode::SchemaRoleLiteralNotMember
-            | ErrorCode::SchemaUnknownIdentityField => "schema",
+            | ErrorCode::SchemaUnknownIdentityField
+            | ErrorCode::SchemaAccessPolicyUnknownEntityField
+            | ErrorCode::SchemaAccessPolicyInvalidBinding
+            | ErrorCode::SchemaAccessPolicyRequiresIdentity => "schema",
 
             ErrorCode::OrbIdUnknownRef
             | ErrorCode::OrbIdNameMismatch

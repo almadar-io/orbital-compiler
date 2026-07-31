@@ -47,6 +47,10 @@ fn schema_with_effects(
     let entity = EntityDefinition {
         shared: false,
         identity: false,
+        read_policy: None,
+        create_policy: None,
+        update_policy: None,
+        delete_policy: None,
         name: "Patient".to_string(),
         collection: Some("patients".to_string()),
         persistence: None,
