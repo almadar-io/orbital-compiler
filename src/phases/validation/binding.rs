@@ -1377,6 +1377,40 @@ fn validate_entity_fields_have_setters(
         .as_ref()
         .and_then(|linked| shared_group_set_fields.get(linked));
 
+    // `(persist update|delete X @entity)` hands the WHOLE row to the effect, so
+    // the row key is never a `@entity.id` read and the loop below cannot see
+    // it. Credit it as a read on the transition that writes.
+    if !set_fields.contains("id") {
+        if let Some(event) = persist_row_write_event(trait_def) {
+            let group_credits_id = group_set_fields
+                .map(|group| group.contains("id"))
+                .unwrap_or(false);
+            let embed_credits_id = embed_set_credit
+                .map(|credit| credit.contains("id"))
+                .unwrap_or(false);
+            if !group_credits_id && !embed_credits_id {
+                result.add_error(
+                    ValidationError::phase_f_warning(
+                        ErrorCode::BindingPersistRowIdNeverSet,
+                        path,
+                        format!(
+                            "trait {:?} runs (persist update|delete {} @entity) on event {:?} \
+                             but no transition runs (set @entity.id <value>); the whole row is \
+                             passed, so the write lands on the row keyed by the empty string",
+                            trait_def.name, trait_linked_entity, event
+                        ),
+                    )
+                    .with_suggestion(format!(
+                        "Bind the row key before the write — (set @entity.id ?row.id) on the \
+                         transition that selects the {} row, or ?data.id on the fetch success \
+                         that loaded it",
+                        trait_linked_entity
+                    )),
+                );
+            }
+        }
+    }
+
     for (field, first_event) in referenced_fields.iter() {
         if intrinsic_fields.contains(field) {
             continue;
@@ -1418,6 +1452,33 @@ fn validate_entity_fields_have_setters(
     }
 
     result
+}
+
+/// The first event whose effects run `(persist update|delete <Entity> @entity)`
+/// — a row-keyed write that carries the id implicitly. `create` is excluded:
+/// the store mints the key.
+fn persist_row_write_event(trait_def: &TraitDefinition) -> Option<String> {
+    for transition in trait_def.state_machine.transitions.iter() {
+        let Some(effects) = transition.effects.as_ref() else {
+            continue;
+        };
+        for effect in effects {
+            if expr_persists_whole_row(effect) {
+                return Some(transition.event.clone());
+            }
+        }
+    }
+    None
+}
+
+fn expr_persists_whole_row(expr: &SExpression) -> bool {
+    let SExpression::Array(items) = expr else {
+        return false;
+    };
+    let is_row_write = matches!(items.first(), Some(SExpression::String(op)) if op == "persist")
+        && matches!(items.get(1), Some(SExpression::String(action)) if action == "update" || action == "delete")
+        && matches!(items.get(3), Some(SExpression::String(data)) if data == "@entity");
+    is_row_write || items.iter().any(expr_persists_whole_row)
 }
 
 /// Check if an operator introduces an implicit @item/@index lambda scope.
@@ -2512,6 +2573,81 @@ mod tests {
                 .any(|e| e.code == ErrorCode::BindingEntityFieldNeverSet),
             "Reading @entity.currentPage with no (set) must produce BindingEntityFieldNeverSet — got {:?}",
             result.errors,
+        );
+    }
+
+    /// POSITIVE CONTROL: `(persist update X @entity)` hands over the whole row,
+    /// so `id` is never an `@entity.id` read and the sibling never-set check is
+    /// structurally blind to it. Without this the write lands on row "".
+    #[test]
+    fn test_persist_update_whole_row_without_id_setter_warns() {
+        let persist = arr(vec![s("persist"), s("update"), s("Ticket"), s("@entity")]);
+        let trait_def =
+            build_trait_fixture("SaveTicket", Some("Ticket"), vec![("SAVE", vec![persist])]);
+        let result = validate_entity_fields_have_setters(
+            &trait_def,
+            "test",
+            &HashSet::new(),
+            &HashMap::new(),
+            None,
+        );
+        assert!(
+            result
+                .warnings
+                .iter()
+                .any(|e| e.code == ErrorCode::BindingPersistRowIdNeverSet),
+            "(persist update Ticket @entity) with no (set @entity.id) must warn — got {:?}",
+            result.warnings,
+        );
+    }
+
+    /// NEGATIVE CONTROL: the row key IS bound, so there is nothing to report.
+    #[test]
+    fn test_persist_update_with_id_setter_is_silent() {
+        let set_id = arr(vec![s("set"), s("@entity.id"), s("?row.id")]);
+        let persist = arr(vec![s("persist"), s("update"), s("Ticket"), s("@entity")]);
+        let trait_def = build_trait_fixture(
+            "SaveTicket",
+            Some("Ticket"),
+            vec![("SELECT", vec![set_id]), ("SAVE", vec![persist])],
+        );
+        let result = validate_entity_fields_have_setters(
+            &trait_def,
+            "test",
+            &HashSet::new(),
+            &HashMap::new(),
+            None,
+        );
+        assert!(
+            !result
+                .warnings
+                .iter()
+                .any(|e| e.code == ErrorCode::BindingPersistRowIdNeverSet),
+            "A bound row key must not warn — got {:?}",
+            result.warnings,
+        );
+    }
+
+    /// `create` mints its own key — it must never be reported.
+    #[test]
+    fn test_persist_create_whole_row_is_not_a_row_keyed_write() {
+        let persist = arr(vec![s("persist"), s("create"), s("Ticket"), s("@entity")]);
+        let trait_def =
+            build_trait_fixture("NewTicket", Some("Ticket"), vec![("SAVE", vec![persist])]);
+        let result = validate_entity_fields_have_setters(
+            &trait_def,
+            "test",
+            &HashSet::new(),
+            &HashMap::new(),
+            None,
+        );
+        assert!(
+            !result
+                .warnings
+                .iter()
+                .any(|e| e.code == ErrorCode::BindingPersistRowIdNeverSet),
+            "(persist create …) must not warn — got {:?}",
+            result.warnings,
         );
     }
 

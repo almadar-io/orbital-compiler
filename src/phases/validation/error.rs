@@ -492,6 +492,13 @@ pub enum ErrorCode {
     /// via `uses` get checked too. Defense-in-depth backstop for the L1
     /// `LowerError::EntityFieldNeverSet` check.
     BindingEntityFieldNeverSet,
+    /// `(persist update|delete <Entity> @entity)` passes the WHOLE row, so the
+    /// row key never appears as an `@entity.id` read and
+    /// `BindingEntityFieldNeverSet` cannot see it. An unbound `id` makes the
+    /// write land on the row keyed by the empty string — silently, while the
+    /// entity is unpoliced; as a hard denial once an `@update` directive
+    /// forces the row to be loaded.
+    BindingPersistRowIdNeverSet,
     /// `@trait` binding with no trait name — bare `@trait` is not resolvable.
     BindingTraitMissingName,
     /// `@trait.X` trait name doesn't match the `PascalCase` identifier pattern.
@@ -576,6 +583,15 @@ pub enum ErrorCode {
     IconNotFound,
 
     // =========================================================================
+    // Operator Literal Errors (ORB_OP_*)
+    // =========================================================================
+    /// A `time/*` operator was given a unit literal outside the vocabulary.
+    /// Unchecked, it throws at evaluation time — and inside a read predicate
+    /// that means rows are dropped fail-closed while the run still reports PASS
+    /// (`S-CALENDAR-RANGE-FILTER-USES-UNSUPPORTED-TIME-UNITS`).
+    OperatorInvalidTimeUnit,
+
+    // =========================================================================
     // Query Singleton Errors (ORB_QUERY_*)
     // =========================================================================
     /// Query singleton missing search field
@@ -641,6 +657,12 @@ pub enum ErrorCode {
     /// implicit default shape), a NEW authorization construct must have a real
     /// roster — that is what makes personas switchable.
     SchemaAccessPolicyRequiresIdentity,
+    /// Two entity declarations bind the same `persistent:` collection and
+    /// declare DIFFERENT access directives. One table cannot honestly have two
+    /// visibility rules, and the runtime's collection-level inheritance has no
+    /// principled way to choose
+    /// (`R-SHADOW-ENTITY-SHARES-COLLECTION-DIRECTIVES-DONT-APPLY`).
+    SchemaCollectionPolicyConflict,
 
     // =========================================================================
     // Identity Errors (ORB_ID_*) — Rabit V4 Phase 3 dual-carry id integrity
@@ -839,6 +861,7 @@ impl ErrorCode {
             }
             ErrorCode::BindingEntityFieldNotFound => "ORB_BINDING_ENTITY_FIELD_NOT_FOUND",
             ErrorCode::BindingEntityFieldNeverSet => "ORB_BINDING_ENTITY_FIELD_NEVER_SET",
+            ErrorCode::BindingPersistRowIdNeverSet => "ORB_BINDING_PERSIST_ROW_ID_NEVER_SET",
             ErrorCode::BindingTraitMissingName => "ORB_BINDING_TRAIT_MISSING_NAME",
             ErrorCode::BindingTraitInvalidFormat => "ORB_BINDING_TRAIT_INVALID_FORMAT",
             ErrorCode::BindingTraitUnknown => "ORB_BINDING_TRAIT_UNKNOWN",
@@ -869,6 +892,7 @@ impl ErrorCode {
             ErrorCode::IconInvalidFormat => "ORB_UI_ICON_INVALID_FORMAT",
             ErrorCode::IconEmpty => "ORB_UI_ICON_EMPTY",
             ErrorCode::IconNotFound => "ORB_UI_ICON_NOT_FOUND",
+            ErrorCode::OperatorInvalidTimeUnit => "ORB_OP_INVALID_TIME_UNIT",
 
             // Query Singleton
             ErrorCode::QueryMissingSearchField => "ORB_QUERY_MISSING_SEARCH",
@@ -895,6 +919,7 @@ impl ErrorCode {
             ErrorCode::SchemaAccessPolicyUnknownEntityField => "ORB_S_ACCESS_POLICY_UNKNOWN_ENTITY_FIELD",
             ErrorCode::SchemaAccessPolicyInvalidBinding => "ORB_S_ACCESS_POLICY_INVALID_BINDING",
             ErrorCode::SchemaAccessPolicyRequiresIdentity => "ORB_S_ACCESS_POLICY_REQUIRES_IDENTITY",
+            ErrorCode::SchemaCollectionPolicyConflict => "ORB_S_COLLECTION_POLICY_CONFLICT",
 
             // Identity
             ErrorCode::OrbIdUnknownRef => "ORB_ID_UNKNOWN_REF",
@@ -1060,6 +1085,7 @@ impl ErrorCode {
             | ErrorCode::EmitSuccessPayloadReturnMismatch
             | ErrorCode::BindingEntityFieldNotFound
             | ErrorCode::BindingEntityFieldNeverSet
+            | ErrorCode::BindingPersistRowIdNeverSet
             | ErrorCode::BindingTraitMissingName
             | ErrorCode::BindingTraitInvalidFormat
             | ErrorCode::BindingTraitUnknown
@@ -1086,6 +1112,8 @@ impl ErrorCode {
 
             ErrorCode::IconInvalidFormat | ErrorCode::IconEmpty | ErrorCode::IconNotFound => "icon",
 
+            ErrorCode::OperatorInvalidTimeUnit => "operator",
+
             ErrorCode::QueryMissingSearchField
             | ErrorCode::QueryMissingRecommendedFields
             | ErrorCode::QueryUnsupportedPattern
@@ -1107,7 +1135,8 @@ impl ErrorCode {
             | ErrorCode::SchemaUnknownIdentityField
             | ErrorCode::SchemaAccessPolicyUnknownEntityField
             | ErrorCode::SchemaAccessPolicyInvalidBinding
-            | ErrorCode::SchemaAccessPolicyRequiresIdentity => "schema",
+            | ErrorCode::SchemaAccessPolicyRequiresIdentity
+            | ErrorCode::SchemaCollectionPolicyConflict => "schema",
 
             ErrorCode::OrbIdUnknownRef
             | ErrorCode::OrbIdNameMismatch
