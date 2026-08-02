@@ -161,24 +161,48 @@ pub(crate) fn apply_overrides_to_trait(
             }
         }
     }
-    if !defer_config_subst {
-        let resolved_knobs = resolve_config_ref_emit_names(trait_def, &effective_config);
-        // Propagate a later `events:` rename onto the same knob's
-        // `effective_config` entry so the body substitution below (step 6,
-        // `rewrite_config_bindings`) emits the FINAL renamed event name
-        // everywhere `@config.<knob>` is read — not just in the structural
-        // `emits`/`state_machine.events` fields resolved above.
-        for knob in resolved_knobs {
-            let current = match effective_config.get(&knob) {
-                Some(SExpression::String(s)) => Some(s.clone()),
-                _ => None,
-            };
-            if let Some(current) = current {
-                if let Some(renamed) = event_subs.get(&current) {
-                    effective_config.insert(knob, SExpression::String(renamed.clone()));
+    // Fold an `events:` rename of a `@config.<knob>` emit name into BOTH the
+    // knob's `effective_config` entry (so the step-6 body substitution emits
+    // the final name everywhere `@config.<knob>` is read) AND the knob's
+    // DECLARED default. The declared default is the only carrier that
+    // survives a deferred import load: there the structural resolution below
+    // is gated off (emits stay raw `@config.<knob>` for the consumer's own
+    // pass) and the step-5 rename walk matches nothing against the raw
+    // token, so without this fold the rename is silently dropped and every
+    // consumer's button emits the raw pattern slot
+    // (S-EVENTS-RENAME-LOST-WHEN-AN-ATOM-IS-IMPORTED).
+    if !event_subs.is_empty() {
+        let renames: Vec<(String, String)> = trait_def
+            .emits
+            .as_ref()
+            .map(|emits| {
+                emits
+                    .iter()
+                    .filter_map(|emit| {
+                        let knob = orbital_core::schema::config_ref_event_knob(&emit.event)?;
+                        let resolved = orbital_core::schema::resolve_config_ref_event_name(
+                            &emit.event,
+                            &effective_config,
+                            trait_def.config.as_ref(),
+                        )
+                        .ok()?;
+                        let renamed = event_subs.get(&resolved)?;
+                        Some((knob.to_string(), renamed.clone()))
+                    })
+                    .collect()
+            })
+            .unwrap_or_default();
+        for (knob, renamed) in renames {
+            effective_config.insert(knob.clone(), SExpression::String(renamed.clone()));
+            if let Some(cfg) = trait_def.config.as_mut() {
+                if let Some(field) = cfg.get_mut(&knob) {
+                    field.default = Some(SExpression::String(renamed));
                 }
             }
         }
+    }
+    if !defer_config_subst {
+        resolve_config_ref_emit_names(trait_def, &effective_config);
     }
 
     // 4. Walk SExpressions in transitions and ticks ONCE with both maps.
