@@ -160,6 +160,13 @@ impl<'a> Resolver<'a> {
             // Note: EntityRef::Reference would be resolved by pre-processing
         }
 
+        // Access is a property of the DATA, so an entity that declares no
+        // directive adopts the one declared on its `persistent:` collection —
+        // otherwise a spliced-in atom entity sharing the organism's collection
+        // emits no policy const and the generated server serves it ALLOW-ALL
+        // (`R-SHADOW-ENTITY-SHARES-COLLECTION-DIRECTIVES-DONT-APPLY`).
+        module.resolve_collection_policy_inheritance();
+
         // Resolve inline traits from orbitals. Stamp each with its
         // owning orbital name so codegen / runtime can build the
         // qualified `Orbital.Trait` bus scope (gap #13). Without this,

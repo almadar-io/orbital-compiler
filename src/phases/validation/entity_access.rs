@@ -40,8 +40,72 @@ fn sigil_root(s: &str) -> Option<&str> {
     Some(rest.split(['.', '[']).next().unwrap_or(rest))
 }
 
+/// Two entity declarations over one `persistent:` collection must not declare
+/// different access directives.
+///
+/// Access is a property of the DATA, so the runtime resolves policies by
+/// collection: an entity that declares nothing inherits from a sibling bound to
+/// the same collection, which is what stops an organism's `@read` from being
+/// bypassed by a std-atom trait fetching its own entity on that collection
+/// (`R-SHADOW-ENTITY-SHARES-COLLECTION-DIRECTIVES-DONT-APPLY`). Inheritance is
+/// only well-defined while at most one declaration per collection exists; two
+/// different ones are ambiguous and are rejected here rather than silently
+/// resolved by declaration order.
+fn validate_collection_policy_agreement(schema: &OrbitalSchema, result: &mut ValidationResult) {
+    use std::collections::HashMap;
+
+    // collection -> (entity that declared it, its four directives as JSON)
+    let mut declared: HashMap<&str, (&str, Value)> = HashMap::new();
+
+    for orbital in &schema.orbitals {
+        for er in
+            std::iter::once(&orbital.entity).chain(orbital.auxiliary_entities.iter().flatten())
+        {
+            let EntityRef::Inline(entity) = er else {
+                continue;
+            };
+            let Some(collection) = entity.collection.as_deref() else {
+                continue;
+            };
+            let directives = [
+                &entity.read_policy,
+                &entity.create_policy,
+                &entity.update_policy,
+                &entity.delete_policy,
+            ];
+            if directives.iter().all(|d| d.is_none()) {
+                continue;
+            }
+            let Ok(shape) = serde_json::to_value(directives) else {
+                continue;
+            };
+
+            match declared.get(collection) {
+                None => {
+                    declared.insert(collection, (entity.name.as_str(), shape));
+                }
+                Some((first, first_shape)) if *first_shape != shape => {
+                    result.add_error(ValidationError::error(
+                        ErrorCode::SchemaCollectionPolicyConflict,
+                        format!("{}.@access", entity.name),
+                        format!(
+                            "entities `{}` and `{}` both bind collection `{}` but declare \
+                             different access directives. One collection is one table and cannot \
+                             have two visibility rules — give them identical directives, or bind \
+                             one of them to its own collection.",
+                            first, entity.name, collection
+                        ),
+                    ));
+                }
+                Some(_) => {}
+            }
+        }
+    }
+}
+
 pub fn validate_entity_access(schema: &OrbitalSchema, ctx: &mut ValidationContext) {
     let mut result = ValidationResult::new();
+    validate_collection_policy_agreement(schema, &mut result);
     let identity_declared = !identity_entities(schema).is_empty();
     let default_identity;
     let identity = match identity_entities(schema).into_iter().next() {
@@ -117,6 +181,7 @@ fn walk(
         Value::Array(items) => {
             check_comparison(items, path, identity, result);
             check_object_get(items, path, owner, identity, uses_user, result);
+            check_owner_field_identity_typed(items, path, owner, identity, result);
             for (i, item) in items.iter().enumerate() {
                 walk(item, &format!("{}[{}]", path, i), owner, identity, uses_user, result);
             }
@@ -257,6 +322,100 @@ fn check_object_get(
         }
         _ => {}
     }
+}
+
+/// `["=", (object/get @entity F), @user.id]` — `F` must be a RELATION to the
+/// `[identity]` entity.
+///
+/// This is what `ORB_S_OWNER_FIELD_NOT_IDENTITY_TYPED` was always specified to
+/// mean; it was originally pointed at `std-row-access-control`'s `ownerField`
+/// knob, and Phase D deleted every `RowAccessGate` mount, so it validated
+/// nothing. Re-targeted at the access directive, which is the only sound
+/// enforcement point left.
+///
+/// Why it matters: a plain scalar compared to `@user.id` type-checks and reads
+/// like ownership, but the seeder only stamps viewer ids onto DECLARED
+/// relations, so the predicate matches NO row and the policy silently denies
+/// everyone. That is exactly the `std-helpdesk` `customerEmail` defect, found
+/// by hand after it shipped.
+fn check_owner_field_identity_typed(
+    items: &[Value],
+    path: &str,
+    owner: &EntityDefinition,
+    identity: &EntityDefinition,
+    result: &mut ValidationResult,
+) {
+    let Some(Value::String(op)) = items.first() else {
+        return;
+    };
+    if op != "=" && op != "==" {
+        return;
+    }
+    let args = &items[1..];
+    if args.len() < 2 {
+        return;
+    }
+    // Both operand orders: whichever side reads the viewer's identity key.
+    let compares_user_key = args.iter().any(|a| match a {
+        Value::String(s) => s == "@user.id",
+        Value::Array(inner) => matches!(
+            (inner.first(), inner.get(1), inner.get(2)),
+            (Some(Value::String(o)), Some(Value::String(r)), Some(Value::String(f)))
+                if o == "object/get" && r == "@user" && f == "id"
+        ),
+        _ => false,
+    });
+    if !compares_user_key {
+        return;
+    }
+    // …and whichever side reads a field off the candidate row, in either the
+    // bare dotted form or the `object/get` call form.
+    let Some(field_name) = args.iter().find_map(|a| match a {
+        Value::String(s) => entity_field_of(s),
+        Value::Array(inner) => match (inner.first(), inner.get(1), inner.get(2)) {
+            (Some(Value::String(o)), Some(Value::String(r)), Some(Value::String(f)))
+                if o == "object/get" && r == "@entity" =>
+            {
+                Some(f.as_str())
+            }
+            _ => None,
+        },
+        _ => None,
+    }) else {
+        return;
+    };
+    // `id` is the row's own key — an identity entity comparing itself to the
+    // viewer is the self-read shape, not a mistyped owner column.
+    if field_name == "id" {
+        return;
+    }
+    let Some(field) = field_on(owner, field_name) else {
+        return; // unknown field: SchemaAccessPolicyUnknownEntityField owns that
+    };
+    let targets_identity = field
+        .relation
+        .as_ref()
+        .is_some_and(|r| r.entity == identity.name);
+    if targets_identity {
+        return;
+    }
+    result.add_error(
+        ValidationError::error(
+            ErrorCode::SchemaOwnerFieldNotIdentityTyped,
+            path,
+            format!(
+                "`{}.{}` is compared to `@user.id` but is not a relation to the [identity] \
+                 entity `{}` — it is `{:?}`. Viewer ids are only ever stamped onto declared \
+                 relations, so this predicate matches no row and the directive denies everyone.",
+                owner.name, field_name, identity.name, field.field_type
+            ),
+        )
+        .with_suggestion(format!(
+            "Type `{}` as a relation to {} (`{} : {}`), or compare against the field the \
+             viewer value actually lives in",
+            field_name, identity.name, field_name, identity.name
+        )),
+    );
 }
 
 fn check_entity_field(

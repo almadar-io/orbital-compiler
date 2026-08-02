@@ -34,7 +34,11 @@ fn schema_with_ticket_policies(
                 "collection": "tickets",
                 "fields": [
                     { "name": "id", "type": "string" },
-                    { "name": "assignee", "type": "string" }
+                    // A RELATION to the identity entity, which is what
+                    // std-helpdesk actually declares — a bare string here
+                    // would (correctly) trip ORB_S_OWNER_FIELD_NOT_IDENTITY_TYPED.
+                    { "name": "assignee", "type": "relation",
+                      "relation": { "entity": "Person", "cardinality": "one" } }
                 ],
                 "read_policy": read,
                 "create_policy": create,
@@ -203,4 +207,69 @@ fn an_entity_with_no_directives_produces_no_errors() {
         }]
     });
     assert!(run(schema).is_empty());
+}
+
+/// POSITIVE CONTROL for `ORB_S_OWNER_FIELD_NOT_IDENTITY_TYPED`: an owner column
+/// compared to `@user.id` that is a bare scalar rather than a relation. It
+/// type-checks and reads like ownership, but viewer ids are only ever stamped
+/// onto declared relations — so the predicate matches no row and the directive
+/// denies everyone. This is the shipped `std-helpdesk` `customerEmail` defect.
+#[test]
+fn an_owner_column_compared_to_the_viewer_must_be_identity_typed() {
+    let schema = json!({
+        "name": "App",
+        "orbitals": [{
+            "name": "TicketOrbital",
+            "entity": {
+                "name": "Ticket",
+                "persistence": "persistent",
+                "collection": "tickets",
+                "fields": [
+                    { "name": "id", "type": "string" },
+                    { "name": "customerEmail", "type": "email" }
+                ],
+                "read_policy": ["=", ["object/get", "@entity", "customerEmail"], "@user.id"]
+            },
+            "auxiliaryEntities": [{
+                "name": "Person",
+                "identity": true,
+                "persistence": "persistent",
+                "collection": "people",
+                "fields": [{ "name": "id", "type": "string" }]
+            }],
+            "traits": [],
+            "pages": []
+        }]
+    });
+    assert_eq!(run(schema), vec!["ORB_S_OWNER_FIELD_NOT_IDENTITY_TYPED"]);
+}
+
+/// NEGATIVE CONTROL: the identity entity reading its OWN row. `@entity.id` is
+/// the row's own key, not a mistyped owner column — the self-read shape S3b
+/// added across the corpus must stay silent.
+#[test]
+fn an_entity_reading_its_own_key_is_not_a_mistyped_owner_column() {
+    let schema = json!({
+        "name": "App",
+        "orbitals": [{
+            "name": "StaffOrbital",
+            "entity": {
+                "name": "Staff",
+                "persistence": "persistent",
+                "collection": "staff",
+                "fields": [{ "name": "id", "type": "string" }],
+                "read_policy": ["=", ["object/get", "@entity", "id"], "@user.id"]
+            },
+            "auxiliaryEntities": [{
+                "name": "Person",
+                "identity": true,
+                "persistence": "persistent",
+                "collection": "people",
+                "fields": [{ "name": "id", "type": "string" }]
+            }],
+            "traits": [],
+            "pages": []
+        }]
+    });
+    assert!(run(schema).is_empty(), "reading @entity.id must not warn");
 }

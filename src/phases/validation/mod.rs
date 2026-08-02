@@ -19,6 +19,7 @@
 //! - [`binding`] - Binding validation (@entity, @payload)
 //! - [`closed_circuit`] - UI→Event→Transition flow
 //! - [`icon`] - Lucide icon names
+//! - [`time_unit`] - `time/*` unit literals
 //!
 //! # Usage
 //!
@@ -50,6 +51,7 @@ pub mod entity_access;
 pub mod entity_mutation;
 pub mod error;
 pub mod icon;
+pub mod time_unit;
 pub mod id_integrity;
 pub mod literal_default;
 pub mod page;
@@ -545,6 +547,11 @@ pub fn validate_comprehensive_full_with_phase_f(
 
     // Phase 13: Icon validation
     icon::validate_all_icons(schema, &mut ctx);
+
+    // Phase 13b: `time/*` unit literals (ORB_OP_INVALID_TIME_UNIT). An unknown
+    // unit throws at evaluation time, which inside a read predicate drops rows
+    // fail-closed while the run still reports PASS.
+    time_unit::validate_all_time_units(schema, &mut ctx);
 
     // Phase 14: Rabit V4 dual-carry id integrity (ORB_ID_*). No-op on legacy
     // id-free `.orb`; errors on dangling/kind-mismatched/name-drifted id edges,

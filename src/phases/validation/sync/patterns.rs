@@ -2,7 +2,7 @@
 //!
 //! Source: packages/almadar-core/src/patterns/patterns-registry.json
 //!
-//! Last synced: 2026-07-31
+//! Last synced: 2026-08-02
 //! To regenerate: npx tsx tools/almadar-pattern-sync/index.ts
 //!
 //! DO NOT EDIT MANUALLY - changes will be overwritten on next sync.
@@ -1748,13 +1748,32 @@ pub static PATTERN_PROPS_SCHEMA: LazyLock<HashMap<&'static str, HashSet<&'static
                 .into_iter()
                 .collect(),
             ),
-            ("draw-group", ["clip", "id", "items", "opacity", "position", "rotate", "scale", "type"].into_iter().collect()),
+            (
+                "draw-group",
+                [
+                    "animation",
+                    "bone",
+                    "clip",
+                    "id",
+                    "items",
+                    "opacity",
+                    "position",
+                    "rotate",
+                    "rotation",
+                    "scale",
+                    "skeleton",
+                    "type",
+                ]
+                .into_iter()
+                .collect(),
+            ),
             (
                 "draw-mesh",
                 [
                     "animation",
                     "castShadow",
                     "depth",
+                    "faces",
                     "height",
                     "id",
                     "material",
@@ -1769,8 +1788,11 @@ pub static PATTERN_PROPS_SCHEMA: LazyLock<HashMap<&'static str, HashSet<&'static
                     "rotation",
                     "segments",
                     "shape",
+                    "skin",
                     "tube",
                     "type",
+                    "uvs",
+                    "vertices",
                     "width",
                 ]
                 .into_iter()
@@ -1822,6 +1844,7 @@ pub static PATTERN_PROPS_SCHEMA: LazyLock<HashMap<&'static str, HashSet<&'static
                     "frame",
                     "height",
                     "id",
+                    "loop",
                     "opacity",
                     "position",
                     "rotation",
@@ -5545,6 +5568,10 @@ pub static PATTERN_PROP_TYPES: LazyLock<HashMap<&'static str, HashMap<&'static s
                     ("position", &["object"] as &[&str]),
                     ("scale", &["number"] as &[&str]),
                     ("rotate", &["number"] as &[&str]),
+                    ("rotation", &["array"] as &[&str]),
+                    ("bone", &["string"] as &[&str]),
+                    ("skeleton", &["boolean"] as &[&str]),
+                    ("animation", &["object"] as &[&str]),
                     ("opacity", &["number"] as &[&str]),
                     ("clip", &["string"] as &[&str]),
                     ("items", &["array"] as &[&str]),
@@ -5566,6 +5593,10 @@ pub static PATTERN_PROP_TYPES: LazyLock<HashMap<&'static str, HashMap<&'static s
                     ("radiusBottom", &["number"] as &[&str]),
                     ("tube", &["number"] as &[&str]),
                     ("segments", &["number"] as &[&str]),
+                    ("vertices", &["array"] as &[&str]),
+                    ("faces", &["array"] as &[&str]),
+                    ("uvs", &["array"] as &[&str]),
+                    ("skin", &["object"] as &[&str]),
                     ("rotation", &["array"] as &[&str]),
                     ("pivot", &["string"] as &[&str]),
                     ("material", &["object"] as &[&str]),
@@ -5624,6 +5655,7 @@ pub static PATTERN_PROP_TYPES: LazyLock<HashMap<&'static str, HashMap<&'static s
                     ("height", &["number"] as &[&str]),
                     ("frame", &["object"] as &[&str]),
                     ("animation", &["string"] as &[&str]),
+                    ("loop", &["boolean"] as &[&str]),
                     ("flipX", &["boolean"] as &[&str]),
                     ("rotation", &["number"] as &[&str]),
                     ("opacity", &["number"] as &[&str]),
@@ -8954,7 +8986,7 @@ pub static PATTERN_PROP_ENUM_VALUES: LazyLock<HashMap<&'static str, HashMap<&'st
             (
                 "draw-mesh",
                 [
-                    ("shape", &["box", "sphere", "capsule", "cylinder", "cone", "torus", "plane", "circle"] as &[&str]),
+                    ("shape", &["box", "sphere", "capsule", "cylinder", "cone", "torus", "plane", "circle", "polyhedron"] as &[&str]),
                     ("pivot", &["bottom", "center"] as &[&str]),
                 ]
                 .into_iter()

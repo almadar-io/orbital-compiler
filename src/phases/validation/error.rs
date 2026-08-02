@@ -648,6 +648,14 @@ pub enum ErrorCode {
     /// `@read`/`@create`/`@update`/`@delete` directive names a field the
     /// OWNING entity does not have.
     SchemaAccessPolicyUnknownEntityField,
+    /// An access directive compares an `@entity.<field>` against `@user.id`,
+    /// but `<field>` is not a relation to the `[identity]` entity. The
+    /// comparison is then between a free-text scalar and a roster id — it
+    /// type-checks, reads like ownership, and matches nothing, because the
+    /// seeder only stamps viewer ids onto DECLARED relations. This is the
+    /// `customerEmail` trap: a policy that silently denies everyone while
+    /// looking correct.
+    SchemaOwnerFieldNotIdentityTyped,
     /// An access directive reads a binding root other than `@entity`/`@user` —
     /// the directive has no call site, so `@payload`/`@config`/`@state` are
     /// not meaningful there.
@@ -917,6 +925,7 @@ impl ErrorCode {
             ErrorCode::SchemaRoleLiteralNotMember => "ORB_S_ROLE_LITERAL_NOT_MEMBER",
             ErrorCode::SchemaUnknownIdentityField => "ORB_S_UNKNOWN_IDENTITY_FIELD",
             ErrorCode::SchemaAccessPolicyUnknownEntityField => "ORB_S_ACCESS_POLICY_UNKNOWN_ENTITY_FIELD",
+            ErrorCode::SchemaOwnerFieldNotIdentityTyped => "ORB_S_OWNER_FIELD_NOT_IDENTITY_TYPED",
             ErrorCode::SchemaAccessPolicyInvalidBinding => "ORB_S_ACCESS_POLICY_INVALID_BINDING",
             ErrorCode::SchemaAccessPolicyRequiresIdentity => "ORB_S_ACCESS_POLICY_REQUIRES_IDENTITY",
             ErrorCode::SchemaCollectionPolicyConflict => "ORB_S_COLLECTION_POLICY_CONFLICT",
@@ -1134,6 +1143,7 @@ impl ErrorCode {
             | ErrorCode::SchemaRoleLiteralNotMember
             | ErrorCode::SchemaUnknownIdentityField
             | ErrorCode::SchemaAccessPolicyUnknownEntityField
+            | ErrorCode::SchemaOwnerFieldNotIdentityTyped
             | ErrorCode::SchemaAccessPolicyInvalidBinding
             | ErrorCode::SchemaAccessPolicyRequiresIdentity
             | ErrorCode::SchemaCollectionPolicyConflict => "schema",
