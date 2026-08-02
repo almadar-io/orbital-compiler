@@ -16,6 +16,7 @@
 
 use std::collections::HashMap;
 
+use orbital_core::events::is_bus_excluded_event;
 use orbital_core::schema::{
     EventScope, OrbitalSchema, PayloadField, SExpression, TraitDefinition, TraitReference,
 };
@@ -396,7 +397,12 @@ fn collect_fired_events_recursive(
                         // the value. Treating `@`-prefixed strings as
                         // fired would suppress legitimate orphan
                         // detection.
-                        if !s.starts_with('@') {
+                        // …and skip bus-excluded names. A `Button
+                        // action={INIT}` is a DEAD control (the bus never
+                        // delivers INIT/LOAD/$MOUNT), so counting it as an
+                        // emitter let the dead button suppress the very
+                        // warning that would have found it.
+                        if !s.starts_with('@') && !is_bus_excluded_event(s) {
                             fired.insert(s.clone());
                         }
                     }
@@ -834,6 +840,73 @@ mod tests {
         assert!(
             has_unfired(&ctx, "NEVER_FIRED"),
             "an event fired nowhere must still warn as declared-but-unfired"
+        );
+    }
+
+    /// POSITIVE CONTROL for the bus-exclusion fix. The only thing naming INIT
+    /// is a `Button action={INIT}` — a control the bus never delivers, so it
+    /// is DEAD. Counting it as an emitter let the dead button suppress the
+    /// very warning that would have found it.
+    #[test]
+    fn a_dead_lifecycle_button_does_not_count_as_an_emitter() {
+        let json = r#"{
+            "name": "dead-button-app",
+            "orbitals": [{
+                "name": "ProbeOrbital",
+                "entity": "Probe",
+                "traits": [{
+                    "name": "ProbeTrait",
+                    "emits": [{ "event": "INIT", "payloadSchema": [] }],
+                    "stateMachine": {
+                        "states": [{ "name": "idle", "isInitial": true }],
+                        "transitions": [{
+                            "from": "idle", "to": "idle", "event": "INIT",
+                            "effects": [["render-ui", "main", {
+                                "type": "button", "action": "INIT", "label": "Retry"
+                            }]]
+                        }]
+                    }
+                }]
+            }]
+        }"#;
+        let schema: OrbitalSchema = serde_json::from_str(json).expect("schema parses");
+        let mut ctx = ValidationContext::new();
+        validate_all_emit_payloads(&schema, &mut ctx);
+        assert!(
+            has_unfired(&ctx, "INIT"),
+            "a bus-excluded affordance must not satisfy the declared-but-unfired check"
+        );
+    }
+
+    /// NEGATIVE CONTROL: a NON-lifecycle affordance still counts as firing.
+    #[test]
+    fn a_live_button_still_counts_as_an_emitter() {
+        let json = r#"{
+            "name": "live-button-app",
+            "orbitals": [{
+                "name": "ProbeOrbital",
+                "entity": "Probe",
+                "traits": [{
+                    "name": "ProbeTrait",
+                    "emits": [{ "event": "RETRY", "payloadSchema": [] }],
+                    "stateMachine": {
+                        "states": [{ "name": "idle", "isInitial": true }],
+                        "transitions": [{
+                            "from": "idle", "to": "idle", "event": "INIT",
+                            "effects": [["render-ui", "main", {
+                                "type": "button", "action": "RETRY", "label": "Retry"
+                            }]]
+                        }]
+                    }
+                }]
+            }]
+        }"#;
+        let schema: OrbitalSchema = serde_json::from_str(json).expect("schema parses");
+        let mut ctx = ValidationContext::new();
+        validate_all_emit_payloads(&schema, &mut ctx);
+        assert!(
+            !has_unfired(&ctx, "RETRY"),
+            "a deliverable affordance must still satisfy the check"
         );
     }
 }
