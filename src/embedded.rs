@@ -281,6 +281,38 @@ fn patterns_json() -> &'static str {
     baked_str(&S, PATTERNS_JSON_GZ)
 }
 
+// ============================================================================
+// 3.1b — Embedded themes-registry.json (built-in @almadar-ui/themes/ names)
+// ============================================================================
+
+const THEMES_JSON_GZ: &[u8] = include_bytes!(concat!(
+    env!("OUT_DIR"),
+    "/baked-gz/themes-registry.json.gz"
+));
+
+/// The raw themes-registry.json text, inflated once on first use.
+fn themes_json() -> &'static str {
+    static S: OnceLock<String> = OnceLock::new();
+    baked_str(&S, THEMES_JSON_GZ)
+}
+
+/// The built-in theme names harvested from `@almadar-ui/themes/*.css`.
+/// These (plus any orbital-declared inline theme names) form the valid-theme
+/// set the theme-reference validator accepts.
+pub fn builtin_theme_names() -> &'static [String] {
+    static NAMES: OnceLock<Vec<String>> = OnceLock::new();
+    NAMES.get_or_init(|| {
+        #[derive(Deserialize)]
+        struct ThemesRegistry {
+            #[serde(default)]
+            themes: Vec<String>,
+        }
+        let registry: ThemesRegistry = serde_json::from_str(themes_json())
+            .expect("baked themes-registry.json is corrupt — rebuild orbital-compiler");
+        registry.themes
+    })
+}
+
 /// A single field of an emit/listen payload schema, mirroring trait
 /// `payloadSchema` entries so L1/L2 consumers can compare the component's
 /// documented bus shape against the trait's declared `emits {}` payload.
@@ -1664,6 +1696,12 @@ pub const BINDING_CONTEXT_RULES: &[(&str, &[&str])] = &[
             "config",
             "user",
             "callsitePayload",
+            // Render-resolved schema sigils — config-default only, sourced
+            // from the OrbitalSchema at compile time (the compiler resolves
+            // them to concrete values during inline). Allowed in effect
+            // context because render-ui is validated here.
+            "pages",
+            "currentTheme",
         ],
     ),
     // Ticks have no @payload — they fire on a clock, not on an event.
@@ -1874,7 +1912,9 @@ mod tests {
                     "trait",
                     "config",
                     "user",
-                    "callsitePayload"
+                    "callsitePayload",
+                    "pages",
+                    "currentTheme"
                 ][..]
             )
         );

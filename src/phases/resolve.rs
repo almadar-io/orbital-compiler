@@ -3,7 +3,7 @@
 //! Resolves all references and produces the final OIR (Orbital Intermediate Representation).
 
 use orbital_core::ir::{
-    OirBinaryOp, OirBinding, OirCardinality, OirConfigFieldType, OirConstraint, OirEffect, OirEmit,
+    OirBinaryOp, OirBinding, OirBindingRoot, OirCardinality, OirConfigFieldType, OirConstraint, OirEffect, OirEmit,
     OirEmitConfig,
     OirEntity, OirEvent, OirEventScope, OirExpr, OirField, OirInterval, OirListener, OirMetadata,
     OirModule, OirPage, OirPattern, OirPayloadField, OirPersistence, OirRelation, OirSection,
@@ -234,8 +234,186 @@ impl<'a> Resolver<'a> {
             checksum: None,
         };
 
+        // P3 — resolve render-resolved schema sigils (`@pages`/`@currentTheme`)
+        // to concrete values from each trait's host orbital. These are
+        // config-default-only bindings sourced from the OrbitalSchema; they
+        // must not survive as bindings into codegen (which has no schema
+        // context). `@pages` → `NavItem[]` (`href = page.path`,
+        // `label = page.name`); `@currentTheme` → the `data-theme` key
+        // string derived from `Orbital.theme`.
+        for oir_trait in &mut module.traits {
+            let page_entries: Vec<(String, String)> = self
+                .schema
+                .orbitals
+                .iter()
+                .find(|o| o.name == oir_trait.orbital_name)
+                .and_then(|o| o.pages.as_ref())
+                .map(|ps| {
+                    ps.iter()
+                        .filter_map(|pr| self.get_page_from_ref(pr))
+                        .map(|p| (p.path.clone(), p.name.clone()))
+                        .collect()
+                })
+                .unwrap_or_default();
+            let theme_key = self
+                .schema
+                .orbitals
+                .iter()
+                .find(|o| o.name == oir_trait.orbital_name)
+                .and_then(|o| o.theme.as_ref())
+                .map(theme_data_key)
+                .unwrap_or_default();
+            for trans in &mut oir_trait.transitions {
+                for effect in &mut trans.effects {
+                    let old = std::mem::replace(effect, OirExpr::Null);
+                    *effect = substitute_schema_sigils(old, &page_entries, &theme_key);
+                }
+            }
+        }
+
         Ok(module)
     }
+}
+
+/// Derive the `data-theme` selector-key string from an orbital's `Orbital.theme`.
+/// `Reference(name)` → the name; `Inline(ThemeDefinition { name, .. })` → the
+/// name; `None` → empty. The active-variant suffix (`-light`/`-dark`) is the
+/// variant-axis open decision; for now the base name is the key.
+fn theme_data_key(theme: &ThemeRef) -> String {
+    match theme {
+        ThemeRef::Reference(name) => name.clone(),
+        ThemeRef::Inline(def) => def.name.clone(),
+    }
+}
+
+/// Recursively substitute render-resolved schema sigils with their concrete
+/// values. `@pages` → a `NavItem[]` array; `@currentTheme` → the `data-theme`
+/// key string. Every other expression form is rebuilt with substituted
+/// children so the sigils resolve anywhere they appear (including inside
+/// conditional/computed overrides like `(if @user.prefersDark "x" @currentTheme)`).
+fn substitute_schema_sigils(
+    expr: OirExpr,
+    pages: &[(String, String)],
+    theme_key: &str,
+) -> OirExpr {
+    let sub = |e: OirExpr| substitute_schema_sigils(e, pages, theme_key);
+    match expr {
+        OirExpr::Binding { binding } => match binding.root {
+            OirBindingRoot::Pages => OirExpr::array(
+                pages
+                    .iter()
+                    .map(|(path, name)| {
+                        let mut fields = HashMap::new();
+                        fields.insert("href".to_string(), OirExpr::string(path.clone()));
+                        fields.insert("label".to_string(), OirExpr::string(name.clone()));
+                        OirExpr::object(fields)
+                    })
+                    .collect(),
+            ),
+            OirBindingRoot::CurrentTheme => OirExpr::string(theme_key.to_string()),
+            _ => OirExpr::binding(binding),
+        },
+        OirExpr::Array { items } => OirExpr::array(items.into_iter().map(sub).collect()),
+        OirExpr::Object { fields } => {
+            OirExpr::object(fields.into_iter().map(|(k, v)| (k, sub(v))).collect())
+        }
+        OirExpr::BinaryOp { op, left, right } => OirExpr::BinaryOp {
+            op,
+            left: Box::new(sub(*left)),
+            right: Box::new(sub(*right)),
+        },
+        OirExpr::UnaryOp { op, operand } => OirExpr::UnaryOp {
+            op,
+            operand: Box::new(sub(*operand)),
+        },
+        OirExpr::Conditional {
+            condition,
+            then_branch,
+            else_branch,
+        } => OirExpr::Conditional {
+            condition: Box::new(sub(*condition)),
+            then_branch: Box::new(sub(*then_branch)),
+            else_branch: Box::new(sub(*else_branch)),
+        },
+        OirExpr::Call { function, args } => {
+            OirExpr::Call { function, args: args.into_iter().map(sub).collect() }
+        }
+        OirExpr::Map { source, variable, body } => OirExpr::Map {
+            source: Box::new(sub(*source)),
+            variable,
+            body: Box::new(sub(*body)),
+        },
+        OirExpr::Filter { source, variable, predicate } => OirExpr::Filter {
+            source: Box::new(sub(*source)),
+            variable,
+            predicate: Box::new(sub(*predicate)),
+        },
+        OirExpr::Reduce { source, variable, accumulator, initial, body } => OirExpr::Reduce {
+            source: Box::new(sub(*source)),
+            variable,
+            accumulator,
+            initial: Box::new(sub(*initial)),
+            body: Box::new(sub(*body)),
+        },
+        OirExpr::Lambda { params, body } => OirExpr::Lambda {
+            params,
+            body: Box::new(sub(*body)),
+        },
+        OirExpr::Effect { effect } => {
+            // render-ui carries its props (navItems, data-theme, …) as
+            // `OirValue`s inside `OirPattern.config`; substitute there.
+            let mut eff = *effect;
+            if let OirEffect::RenderUi { pattern, .. } = &mut eff {
+                for v in pattern.config.values_mut() {
+                    *v = substitute_value_sigils(v.clone(), pages, theme_key);
+                }
+            }
+            OirExpr::Effect { effect: Box::new(eff) }
+        }
+        // Literals — pass through.
+        other => other,
+    }
+}
+
+/// The `OirValue` twin of `substitute_schema_sigils` — render-ui props are
+/// stored as `OirValue`s, so `@pages`/`@currentTheme` appearing there need
+/// their own recursive substitution.
+fn substitute_value_sigils(
+    value: OirValue,
+    pages: &[(String, String)],
+    theme_key: &str,
+) -> OirValue {
+    match value {
+        OirValue::String(s) if s == "@pages" => OirValue::Array(
+            pages
+                .iter()
+                .map(|(path, name)| {
+                    OirValue::Object(
+                        [
+                            ("href".to_string(), OirValue::String(path.clone())),
+                            ("label".to_string(), OirValue::String(name.clone())),
+                        ]
+                        .into_iter()
+                        .collect(),
+                    )
+                })
+                .collect(),
+        ),
+        OirValue::String(s) if s == "@currentTheme" => OirValue::String(theme_key.to_string()),
+        OirValue::Array(items) => OirValue::Array(
+            items.into_iter().map(|v| substitute_value_sigils(v, pages, theme_key)).collect(),
+        ),
+        OirValue::Object(fields) => OirValue::Object(
+            fields
+                .into_iter()
+                .map(|(k, v)| (k, substitute_value_sigils(v, pages, theme_key)))
+                .collect(),
+        ),
+        other => other,
+    }
+}
+
+impl<'a> Resolver<'a> {
 
     fn resolve_entity(&self, entity: &EntityDefinition) -> Result<OirEntity, ResolveError> {
         let mut oir_entity = OirEntity::new(&entity.name);

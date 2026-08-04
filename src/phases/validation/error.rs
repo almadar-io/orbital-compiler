@@ -696,6 +696,9 @@ pub enum ErrorCode {
     InvalidValue,
     /// Generic invalid reference format
     InvalidReference,
+    /// Theme reference names a theme not in the valid set (built-in
+    /// `@almadar-ui/themes/` registry ∪ orbital-declared inline themes)
+    UnknownTheme,
     /// Generic missing required field
     MissingField,
     /// Generic duplicate entity/item
@@ -939,6 +942,7 @@ impl ErrorCode {
             // Generic
             ErrorCode::InvalidValue => "ORB_GEN_INVALID_VALUE",
             ErrorCode::InvalidReference => "ORB_GEN_INVALID_REFERENCE",
+            ErrorCode::UnknownTheme => "ORB_X_UNKNOWN_THEME",
             ErrorCode::MissingField => "ORB_GEN_MISSING_FIELD",
             ErrorCode::DuplicateEntity => "ORB_GEN_DUPLICATE",
         }
@@ -1155,6 +1159,7 @@ impl ErrorCode {
 
             ErrorCode::InvalidValue
             | ErrorCode::InvalidReference
+            | ErrorCode::UnknownTheme
             | ErrorCode::MissingField
             | ErrorCode::DuplicateEntity => "generic",
         }
@@ -1165,6 +1170,74 @@ impl fmt::Display for ErrorCode {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "{}", self.as_str())
     }
+}
+
+/// S16a — the PRIMARY error an author hits when they write the implicit
+/// collection shorthand in a `children:` position: an operator name lands where
+/// a UI pattern type was expected, and `Unknown pattern type: 'array/map'`
+/// names neither the cause nor the cure. Source-tagged: the caller resolves the
+/// name through the embedded operator registry first, so this only fires for a
+/// REAL operator, never for a genuine pattern typo.
+pub fn collection_operator_as_pattern(code: ErrorCode, path: &str, op: &str) -> ValidationError {
+    ValidationError::error(
+        code,
+        path,
+        format!(
+            "'{}' is an operator, not a UI pattern type — a collection callback in a \
+             `children:` position must use the explicit lambda form.",
+            op
+        ),
+    )
+    .with_suggestion(format!(
+        "Write `({} <collection> (fn (item) <node>))`. The implicit shorthand \
+         `({} <collection> {{ … }})` is only recognised outside `children:`; here the \
+         body is not treated as a lambda, so @item never comes into scope. <node> may be \
+         a raw `type:` object or a JSX element.",
+        op, op
+    ))
+}
+
+/// S16 — the one diagnostic for an out-of-scope `@item` / `@index`, shared by
+/// both emitters of the class (`binding.rs`'s unknown-root arm and
+/// `sigil_context.rs`'s context-rules arm) so the two can never drift.
+///
+/// `item` / `index` are bound ONLY by the collection-callback arm of each
+/// walker, so reaching either call site proves the binding escaped its
+/// callback. The generic "allowed sigils" advice is actively wrong here: no
+/// other sigil names the element being iterated, so it sends the author down a
+/// path with no fix at the end.
+///
+/// ⚠️ The remedy is the EXPLICIT lambda, not "avoid JSX". Verified 2026-08-04
+/// with two probes identical but for the map shape: `(array/map @entity.rows
+/// (fn (item) <Alias.traits.X content={@item.title} />))` validates 0/0, while
+/// the implicit-`@item` shorthand `(array/map @entity.rows { … @item … })` in a
+/// `children:` position fails — only the pinned 3-tuple `["array/map", <coll>,
+/// ["fn", <param>, <node>]]` is recognised there (`SExpression::
+/// as_mapped_children`). With no recognised lambda, hoisted JSX has nothing for
+/// `splice_lambda_trait_refs` to splice back into, which is what strands the
+/// binding. JSX inside a lambda is fine and is used throughout the shipped
+/// corpus.
+///
+/// Severity is unchanged at both sites: `binding.rs` used `ValidationError::
+/// warning`, which is the documented shim that already produces a blocking
+/// error, so this replaces the wording only.
+pub fn out_of_scope_collection_local(code: ErrorCode, path: &str, root: &str) -> ValidationError {
+    ValidationError::error(
+        code,
+        path,
+        format!(
+            "Binding @{} is not in scope here — @item / @index are bound only inside a \
+             collection callback (array/map, array/filter, …).",
+            root
+        ),
+    )
+    .with_suggestion(
+        "Under `children:` the collection callback must use the EXPLICIT lambda form — \
+         `(array/map <collection> (fn (item) <node>))`. The implicit shorthand \
+         `(array/map <collection> { … })` is not recognised there, so its body is not \
+         treated as a lambda and @item never comes into scope. Both a raw `type:` object \
+         and a JSX element are valid as <node>.",
+    )
 }
 
 /// A validation error with full context

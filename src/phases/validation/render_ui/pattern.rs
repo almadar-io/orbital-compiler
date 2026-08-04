@@ -139,7 +139,13 @@ pub(super) fn validate_pattern(
                     .unwrap_or(false);
 
                 if !in_core && !in_extra {
-                    result.add_error(
+                    result.add_error(if crate::embedded::get_operator(pattern_type).is_some() {
+                        super::super::error::collection_operator_as_pattern(
+                            ErrorCode::RenderUIInvalidPattern,
+                            path,
+                            pattern_type,
+                        )
+                    } else {
                         ValidationError::warning(
                             ErrorCode::RenderUIInvalidPattern,
                             path,
@@ -147,8 +153,8 @@ pub(super) fn validate_pattern(
                         )
                         .with_suggestion(
                             "Use a known pattern type or ensure custom pattern is registered",
-                        ),
-                    );
+                        )
+                    });
                 }
 
                 // Validate pattern props against registry schema
@@ -627,11 +633,19 @@ pub(super) fn validate_pattern(
                 .map(|ep| ep.contains_pattern(pattern_type))
                 .unwrap_or(false);
             if !in_core && !in_extra {
-                result.add_error(ValidationError::warning(
-                    ErrorCode::RenderUIInvalidPattern,
-                    path,
-                    format!("Unknown pattern type: '{}'", pattern_type),
-                ));
+                result.add_error(if crate::embedded::get_operator(pattern_type).is_some() {
+                    super::super::error::collection_operator_as_pattern(
+                        ErrorCode::RenderUIInvalidPattern,
+                        path,
+                        pattern_type,
+                    )
+                } else {
+                    ValidationError::warning(
+                        ErrorCode::RenderUIInvalidPattern,
+                        path,
+                        format!("Unknown pattern type: '{}'", pattern_type),
+                    )
+                });
             }
         }
         SExpression::Null => {

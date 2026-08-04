@@ -5,8 +5,10 @@
 
 use super::error::{ErrorCode, ValidationError, ValidationResult};
 use super::ValidationContext;
+use crate::embedded::builtin_theme_names;
 use orbital_core::schema::{OrbitalSchema, ThemeDefinition, ThemeRef};
 use regex::Regex;
+use std::collections::HashSet;
 use std::sync::LazyLock;
 
 static THEME_REF_REGEX: LazyLock<Regex> =
@@ -14,17 +16,36 @@ static THEME_REF_REGEX: LazyLock<Regex> =
 
 /// Validate all themes in a schema
 pub fn validate_all_themes(schema: &OrbitalSchema, ctx: &mut ValidationContext) {
+    // The valid-theme set for references = built-in `@almadar-ui/themes/`
+    // registry (baked) ∪ this program's own orbital-declared inline themes.
+    let inline_names: HashSet<&str> = schema
+        .orbitals
+        .iter()
+        .filter_map(|o| o.theme.as_ref())
+        .filter_map(|t| t.as_inline())
+        .map(|t| t.name.as_str())
+        .collect();
     for (i, orbital) in schema.orbitals.iter().enumerate() {
         if let Some(theme_ref) = &orbital.theme {
             let path = format!("orbitals[{}].theme", i);
-            let result = validate_theme_ref(theme_ref, &path);
+            let result = validate_theme_ref(theme_ref, &path, &inline_names);
             ctx.merge(result);
         }
     }
 }
 
-/// Validate a theme reference (inline or reference string)
-pub fn validate_theme_ref(theme_ref: &ThemeRef, path: &str) -> ValidationResult {
+/// Validate a theme reference (inline or reference string).
+///
+/// A `Reference` is valid when it names a theme in the built-in
+/// `@almadar-ui/themes/` registry OR one of the program's own
+/// orbital-declared inline themes. The legacy `Alias.theme` import form is
+/// also accepted (resolved by the inline phase). Anything else is
+/// `ORB_X_UNKNOWN_THEME`.
+pub fn validate_theme_ref(
+    theme_ref: &ThemeRef,
+    path: &str,
+    inline_names: &HashSet<&str>,
+) -> ValidationResult {
     let mut result = ValidationResult::new();
 
     match theme_ref {
@@ -33,13 +54,12 @@ pub fn validate_theme_ref(theme_ref: &ThemeRef, path: &str) -> ValidationResult 
             result.merge(theme_result);
         }
         ThemeRef::Reference(ref_str) => {
-            // Validate reference format: "Alias.theme"
-            if !is_valid_theme_reference(ref_str) {
+            if !is_valid_theme_reference(ref_str, inline_names) {
                 result.add_error(ValidationError::error(
-                    ErrorCode::InvalidReference,
+                    ErrorCode::UnknownTheme,
                     path,
                     format!(
-                        "Invalid theme reference '{}'. Must be in format 'Alias.theme'",
+                        "Unknown theme '{}'. Must be a built-in theme name (e.g. linear-clean, terminal) or an orbital-declared inline theme.",
                         ref_str
                     ),
                 ));
@@ -125,9 +145,17 @@ pub fn validate_theme_definition(theme: &ThemeDefinition, path: &str) -> Validat
     result
 }
 
-/// Check if a theme reference is valid format: "Alias.theme"
-fn is_valid_theme_reference(ref_str: &str) -> bool {
-    THEME_REF_REGEX.is_match(ref_str)
+/// Check if a theme reference is valid: a built-in registry name, an
+/// orbital-declared inline theme name, or the legacy `Alias.theme` import
+/// form (resolved by the inline phase).
+fn is_valid_theme_reference(ref_str: &str, inline_names: &HashSet<&str>) -> bool {
+    if THEME_REF_REGEX.is_match(ref_str) {
+        return true;
+    }
+    if inline_names.contains(ref_str) {
+        return true;
+    }
+    builtin_theme_names().iter().any(|n| n == ref_str)
 }
 
 /// Check if a value is a valid CSS color (hex, rgb, hsl, named)
@@ -194,11 +222,21 @@ mod tests {
 
     #[test]
     fn test_valid_theme_reference() {
-        assert!(is_valid_theme_reference("Ocean.theme"));
-        assert!(is_valid_theme_reference("MyTheme.theme"));
-        assert!(!is_valid_theme_reference("ocean.theme")); // must start with uppercase
-        assert!(!is_valid_theme_reference("Ocean.themes")); // must be .theme
-        assert!(!is_valid_theme_reference("Ocean")); // missing .theme
+        let empty: HashSet<&str> = HashSet::new();
+        // Legacy Alias.theme import form still accepted.
+        assert!(is_valid_theme_reference("Ocean.theme", &empty));
+        assert!(is_valid_theme_reference("MyTheme.theme", &empty));
+        assert!(!is_valid_theme_reference("ocean.theme", &empty)); // must start with uppercase
+        assert!(!is_valid_theme_reference("Ocean.themes", &empty)); // must be .theme
+        // Built-in registry names accepted.
+        assert!(is_valid_theme_reference("linear-clean", &empty));
+        assert!(is_valid_theme_reference("terminal", &empty));
+        // Orbital-declared inline theme names accepted.
+        let mut inline = HashSet::new();
+        inline.insert("my-custom");
+        assert!(is_valid_theme_reference("my-custom", &inline));
+        // Unknown rejected.
+        assert!(!is_valid_theme_reference("does-not-exist", &empty));
     }
 
     #[test]

@@ -25,6 +25,8 @@ pub const CORE_BINDING_ROOTS: &[&str] = &[
     "trait",           // Trait context
     "user",            // User context
     "callsitePayload", // Call-site-captured event payload (resolved at the composing effect)
+    "pages",           // Render-resolved schema sigil — the host orbital's pages (NavItem[])
+    "currentTheme",    // Render-resolved schema sigil — the host orbital's data-theme key
 ];
 
 /// Regex for valid binding format
@@ -936,6 +938,16 @@ pub fn validate_binding(
                 .with_valid_values(known_entities.iter().cloned().collect()),
             );
         }
+    } else if root == "item" || root == "index" {
+        // S16 — same class as `sigil_context.rs`'s arm, same one diagnostic:
+        // callers strip lambda-locals before reaching here (see
+        // `validate_expr_bindings_with_locals`), so `item`/`index` at this
+        // point escaped its collection callback.
+        result.add_error(super::error::out_of_scope_collection_local(
+            ErrorCode::BindingUnknownRoot,
+            path,
+            root,
+        ));
     } else {
         result.add_error(
             ValidationError::warning(

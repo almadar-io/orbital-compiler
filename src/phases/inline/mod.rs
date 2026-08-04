@@ -802,10 +802,11 @@ fn inline_orbital(
         splice_lambda_trait_refs(orbital, &orbital_path_prefix)?;
     }
 
-    // Inline theme if it's a reference
+    // Inline theme if it's a reference. Only `Alias.theme` import-form
+    // references are resolved here; bare built-in/inline theme names stay
+    // as `Reference`s (they resolve at render via `@currentTheme`).
     if let Some(ThemeRef::Reference(ref_str)) = &orbital.theme {
-        let parsed = parse_reference(ref_str)?;
-        if let ParsedReference::Theme { alias } = parsed {
+        if let Ok(ParsedReference::Theme { alias }) = parse_reference(ref_str) {
             orbital.theme = Some(ctx.get_theme(&alias)?);
         }
     }

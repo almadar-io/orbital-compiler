@@ -265,6 +265,21 @@ fn check_binding_sigil(
     {
         return;
     }
+    // S16 — `item` / `index` are exactly the names the collection-callback arm
+    // of `walk_expr` binds, so reaching here means the author used one OUTSIDE
+    // any callback. The generic "allowed sigils" advice below is actively wrong
+    // for this case: no other sigil substitutes for the element being iterated.
+    // The usual cause is JSX inside a lambda body — L1 hoists that into its own
+    // synthesized trait, whose scope starts empty, stranding the `@item` that
+    // was in scope at the authoring site.
+    if root == "item" || root == "index" {
+        result.add_error(super::error::out_of_scope_collection_local(
+            error_code_for_context(context, root),
+            path,
+            root,
+        ));
+        return;
+    }
     // Anything else: check the embedded rules.
     let allowed = embedded::allowed_sigils_for_context(context.name())
         .expect("BINDING_CONTEXT_RULES must define this context");
@@ -358,6 +373,59 @@ mod tests {
             &HashSet::new(),
             &mut result,
         );
+        assert!(result.is_valid());
+    }
+
+    /// S16 — an out-of-scope `@item` must not be answered with "use @entity /
+    /// @payload / …": none of them names the element being iterated. The
+    /// diagnostic has to state the real cause (JSX in a lambda is hoisted into
+    /// its own trait) and the real remedy (raw `type:` object form).
+    #[test]
+    fn out_of_scope_item_gets_the_hoist_diagnostic_not_the_sigil_list() {
+        let mut result = ValidationResult::new();
+        check_binding_sigil(
+            "@item.id",
+            "test",
+            SigilContext::Effect,
+            &HashSet::new(),
+            &mut result,
+        );
+        assert!(!result.is_valid());
+        let err = &result.errors[0];
+        assert!(
+            err.message.contains("not in scope"),
+            "message must say out-of-scope, got: {}",
+            err.message
+        );
+        assert!(
+            !err.message.contains("Allowed sigils"),
+            "must NOT offer the generic sigil list, got: {}",
+            err.message
+        );
+        let suggestion = err.suggestion.as_deref().unwrap_or("");
+        // The remedy is the EXPLICIT lambda. It must NOT tell the author to
+        // avoid JSX — JSX inside a lambda validates 0/0 and is used throughout
+        // the shipped corpus; an earlier draft of this message said otherwise.
+        assert!(
+            suggestion.contains("(fn (item)"),
+            "suggestion must prescribe the explicit lambda form, got: {}",
+            suggestion
+        );
+        assert!(
+            !suggestion.contains("instead of a JSX") && !suggestion.contains("avoid JSX"),
+            "suggestion must not steer the author away from JSX, got: {}",
+            suggestion
+        );
+    }
+
+    /// The same root INSIDE a collection callback stays valid — the diagnostic
+    /// must not fire merely because the name is `item`.
+    #[test]
+    fn item_in_scope_is_still_accepted() {
+        let mut locals = HashSet::new();
+        locals.insert("item".to_string());
+        let mut result = ValidationResult::new();
+        check_binding_sigil("@item.id", "test", SigilContext::Effect, &locals, &mut result);
         assert!(result.is_valid());
     }
 

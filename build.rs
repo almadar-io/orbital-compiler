@@ -20,6 +20,7 @@ fn main() {
     println!("cargo:rerun-if-changed=build.rs");
     println!("cargo:rerun-if-changed=src/baked/canonical-operators.json");
     println!("cargo:rerun-if-changed=src/baked/patterns-registry.json");
+    println!("cargo:rerun-if-changed=src/baked/themes-registry.json");
     println!("cargo:rerun-if-changed=src/baked/behaviors-registry-std.json");
     println!("cargo:rerun-if-changed=src/baked/behaviors-registry-io.json");
     println!("cargo:rerun-if-changed=src/baked/factory-signatures-std.json");
