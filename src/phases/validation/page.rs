@@ -341,6 +341,8 @@ mod tests {
             view_type: None,
             is_initial: None,
             sections: None,
+            icon: None,
+            label: None,
             id: None,
         }
     }

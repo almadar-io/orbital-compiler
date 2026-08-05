@@ -59,7 +59,7 @@ pub fn validate_theme_ref(
                     ErrorCode::UnknownTheme,
                     path,
                     format!(
-                        "Unknown theme '{}'. Must be a built-in theme name (e.g. linear-clean, terminal) or an orbital-declared inline theme.",
+                        "Unknown theme '{}'. Must be a built-in theme key (the full data-theme value, e.g. linear-clean-light, terminal-dark, game-adventure-dark) or an orbital-declared inline theme.",
                         ref_str
                     ),
                 ));
@@ -228,9 +228,11 @@ mod tests {
         assert!(is_valid_theme_reference("MyTheme.theme", &empty));
         assert!(!is_valid_theme_reference("ocean.theme", &empty)); // must start with uppercase
         assert!(!is_valid_theme_reference("Ocean.themes", &empty)); // must be .theme
-        // Built-in registry names accepted.
-        assert!(is_valid_theme_reference("linear-clean", &empty));
-        assert!(is_valid_theme_reference("terminal", &empty));
+        // Built-in registry keys accepted (full <base>-<variant> data-theme values).
+        assert!(is_valid_theme_reference("linear-clean-light", &empty));
+        assert!(is_valid_theme_reference("terminal-dark", &empty));
+        // Bare base names are NOT valid (the CSS defines only suffixed keys).
+        assert!(!is_valid_theme_reference("linear-clean", &empty));
         // Orbital-declared inline theme names accepted.
         let mut inline = HashSet::new();
         inline.insert("my-custom");

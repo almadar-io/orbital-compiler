@@ -3431,6 +3431,8 @@ mod tests {
             is_initial: None,
             traits: None,
             sections: None,
+            icon: None,
+            label: None,
             id: None,
         };
 
