@@ -50,6 +50,7 @@ pub mod entity;
 pub mod entity_access;
 pub mod entity_mutation;
 pub mod error;
+pub mod expectations;
 pub mod icon;
 pub mod time_unit;
 pub mod id_integrity;
@@ -262,6 +263,15 @@ pub const STD_TRAITS: &[&str] = &[
 /// Check if a trait name is a standard library trait
 pub fn is_std_trait(name: &str) -> bool {
     STD_TRAITS.contains(&name) || name.starts_with("std/")
+}
+
+/// Field type in the lowercase kind vocabulary `set_value_type_compatible`
+/// speaks (the serde spelling IS that vocabulary).
+pub(crate) fn field_type_str(field: &orbital_core::schema::FieldDefinition) -> String {
+    serde_json::to_value(&field.field_type)
+        .ok()
+        .and_then(|v| v.as_str().map(String::from))
+        .unwrap_or_default()
 }
 
 /// Iterate every inline trait definition in the schema, yielding the trait and
@@ -534,6 +544,12 @@ pub fn validate_comprehensive_full_with_phase_f(
     // the resolved `[identity]` entity, post-inline).
     entity_access::validate_entity_access(schema, &mut ctx);
 
+    // Phase 11c4: `expects` consumer-side requirement declarations —
+    // persist-payload self-consistency against the consumer's own declared
+    // shape (every schema), and the compose link-checks
+    // (ORB_S_EXPECTATION_*/ORB_S_EXPECTED_FIELD_*) for multi-orbital schemas.
+    expectations::validate_expectations(schema, &mut ctx);
+
     // Phase 11d: Multi-trait entity-mutation trio (SPLIT_ENTITY_MUTATION /
     // SharedEntityFieldConflict / SharedEntityRenderAuthority) + the non-Cron
     // tick backstop (ORB_TICK_REQUIRES_RUNTIME / ORB_TICK_ASYNC_EFFECT). Runs
@@ -613,6 +629,16 @@ fn collect_names(schema: &OrbitalSchema, ctx: &mut ValidationContext) {
                         .insert(aux_entity.name.clone(), aux_entity.clone());
                 }
             }
+        }
+
+        // `expects entity X` — the consumer's promise that a sibling provides
+        // X. Names only (never `entity_definitions`: an expectation carries no
+        // field authority), so relation fields, persist/fetch targets, and
+        // `linkedEntity` rebinds naming X resolve standalone. A genuinely
+        // absent provider is caught by the compose link-check
+        // (`ORB_S_EXPECTATION_UNSATISFIED`), never here.
+        for name in expectations::expected_entity_names(orbital) {
+            ctx.entity_names.insert(name.to_string());
         }
 
         // Inline trait names and build trait map

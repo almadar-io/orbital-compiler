@@ -2954,6 +2954,7 @@ mod tests {
         Orbital {
             name: "TestOrbital".to_string(),
             uses: None,
+            expects: None,
             theme: None,
             services: None,
             entity: orbital_core::schema::EntityRef::Inline(shared_entity_def("Unused")),

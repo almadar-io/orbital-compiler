@@ -507,6 +507,7 @@ mod tests {
         Orbital {
             name: "TestOrbital".to_string(),
             uses: None,
+            expects: None,
             theme: None,
             services: None,
             entity: EntityRef::Inline(EntityDefinition {

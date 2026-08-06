@@ -13,8 +13,9 @@
 
 use super::user_identity::{
     check_comparison, default_identity_shape, identity_entities, identity_field, user_field_of,
+    IdentitySource,
 };
-use super::{ErrorCode, ValidationContext, ValidationError, ValidationResult};
+use super::{field_type_str, ErrorCode, ValidationContext, ValidationError, ValidationResult};
 use orbital_core::schema::{EntityDefinition, EntityRef, FieldDefinition, OrbitalSchema};
 use serde_json::Value;
 
@@ -106,17 +107,45 @@ fn validate_collection_policy_agreement(schema: &OrbitalSchema, result: &mut Val
 pub fn validate_entity_access(schema: &OrbitalSchema, ctx: &mut ValidationContext) {
     let mut result = ValidationResult::new();
     validate_collection_policy_agreement(schema, &mut result);
-    let identity_declared = !identity_entities(schema).is_empty();
-    let default_identity;
-    let identity = match identity_entities(schema).into_iter().next() {
-        Some(identity) => identity,
-        None => {
-            default_identity = default_identity_shape();
-            &default_identity
-        }
-    };
+    let declared_identity = identity_entities(schema).into_iter().next();
+    let default_identity = default_identity_shape();
 
     for orbital in &schema.orbitals {
+        // Per-orbital identity environment: a declared [identity] entity wins
+        // schema-wide; otherwise the orbital's own `expects identity …
+        // { shape }` is its declared source of truth; otherwise the implicit
+        // default shape (today's behavior for undeclared programs).
+        let expectation = super::expectations::identity_expectation(orbital);
+        let expectation_entity;
+        let (identity, source) = match (declared_identity, &expectation) {
+            (Some(identity), _) => (identity, IdentitySource::Declared),
+            (None, Some(exp)) if exp.shape.is_some() => {
+                expectation_entity = super::expectations::shape_as_identity_entity(
+                    exp.name.unwrap_or("@user"),
+                    exp.shape.unwrap_or(&[]),
+                );
+                (
+                    &expectation_entity,
+                    IdentitySource::Expectation {
+                        orbital: orbital.name.as_str(),
+                        entity: exp.name,
+                    },
+                )
+            }
+            (None, _) => (&default_identity, IdentitySource::Default),
+        };
+        // Any `expects identity` — bare included — satisfies the roster
+        // requirement for this orbital's own policy directives.
+        let identity_declared = declared_identity.is_some() || expectation.is_some();
+        // A named `expects identity X` counts X as identity-typed for the
+        // owner-field check (owner-typing resolves against the declaration).
+        let mut identity_names: Vec<&str> = vec![identity.name.as_str()];
+        if let Some(name) = expectation.as_ref().and_then(|e| e.name) {
+            if !identity_names.contains(&name) {
+                identity_names.push(name);
+            }
+        }
+
         for er in
             std::iter::once(&orbital.entity).chain(orbital.auxiliary_entities.iter().flatten())
         {
@@ -140,6 +169,8 @@ pub fn validate_entity_access(schema: &OrbitalSchema, ctx: &mut ValidationContex
                     &path,
                     entity,
                     identity,
+                    source,
+                    &identity_names,
                     &mut uses_user,
                     &mut result,
                 );
@@ -173,22 +204,42 @@ fn walk(
     path: &str,
     owner: &EntityDefinition,
     identity: &EntityDefinition,
+    source: IdentitySource,
+    identity_names: &[&str],
     uses_user: &mut bool,
     result: &mut ValidationResult,
 ) {
     match value {
-        Value::String(s) => check_binding(s, path, owner, identity, uses_user, result),
+        Value::String(s) => check_binding(s, path, owner, identity, source, uses_user, result),
         Value::Array(items) => {
             check_comparison(items, path, identity, result);
-            check_object_get(items, path, owner, identity, uses_user, result);
-            check_owner_field_identity_typed(items, path, owner, identity, result);
+            check_object_get(items, path, owner, identity, source, uses_user, result);
+            check_owner_field_identity_typed(items, path, owner, identity_names, result);
             for (i, item) in items.iter().enumerate() {
-                walk(item, &format!("{}[{}]", path, i), owner, identity, uses_user, result);
+                walk(
+                    item,
+                    &format!("{}[{}]", path, i),
+                    owner,
+                    identity,
+                    source,
+                    identity_names,
+                    uses_user,
+                    result,
+                );
             }
         }
         Value::Object(map) => {
             for (k, v) in map {
-                walk(v, &format!("{}.{}", path, k), owner, identity, uses_user, result);
+                walk(
+                    v,
+                    &format!("{}.{}", path, k),
+                    owner,
+                    identity,
+                    source,
+                    identity_names,
+                    uses_user,
+                    result,
+                );
             }
         }
         _ => {}
@@ -201,6 +252,7 @@ fn check_binding(
     path: &str,
     owner: &EntityDefinition,
     identity: &EntityDefinition,
+    source: IdentitySource,
     uses_user: &mut bool,
     result: &mut ValidationResult,
 ) {
@@ -221,30 +273,7 @@ fn check_binding(
                     // `validate_user_identity`'s trait-body walk never sees
                     // them — this is the one place that checks @user.<field>
                     // inside an access directive.
-                    let mut declared: Vec<&str> = identity
-                        .fields
-                        .iter()
-                        .filter_map(|f| f.name.as_deref())
-                        .collect();
-                    declared.sort_unstable();
-                    result.add_error(
-                        ValidationError::error(
-                            ErrorCode::SchemaUnknownIdentityField,
-                            path,
-                            format!(
-                                "`@user.{}` is not a field of the [identity] entity `{}`. It \
-                                 resolves to null, so this access directive silently denies \
-                                 everyone.",
-                                field, identity.name
-                            ),
-                        )
-                        .with_suggestion(format!(
-                            "Declare `{}` on entity {}, or read one of: {}",
-                            field,
-                            identity.name,
-                            declared.join(", ")
-                        )),
-                    );
+                    unknown_user_field(s, field, path, identity, source, result);
                 }
             }
         }
@@ -266,6 +295,70 @@ fn check_binding(
     }
 }
 
+/// An `@user.<field>` read inside an access directive that the identity shape
+/// does not declare. Expectation-sourced shapes report the consumer's own
+/// declaration (`ORB_S_EXPECTATION_FIELD_UNDECLARED`); everything else keeps
+/// today's `ORB_S_UNKNOWN_IDENTITY_FIELD`.
+fn unknown_user_field(
+    binding_repr: &str,
+    field: &str,
+    path: &str,
+    identity: &EntityDefinition,
+    source: IdentitySource,
+    result: &mut ValidationResult,
+) {
+    let mut declared: Vec<&str> = identity
+        .fields
+        .iter()
+        .filter_map(|f| f.name.as_deref())
+        .collect();
+    declared.sort_unstable();
+    if let IdentitySource::Expectation { orbital, entity } = source {
+        let expectation = match entity {
+            Some(name) => format!("`expects identity {}`", name),
+            None => "`expects identity`".to_string(),
+        };
+        result.add_error(
+            ValidationError::error(
+                ErrorCode::SchemaExpectationFieldUndeclared,
+                path,
+                format!(
+                    "`{}` reads `{}`, but its {} declaration only declares: {}. The declaration \
+                     is this orbital's own source of truth for the `@user` fields it reads.",
+                    orbital,
+                    binding_repr,
+                    expectation,
+                    declared.join(", ")
+                ),
+            )
+            .with_suggestion(format!(
+                "Add `{}` to the expects shape, or read one of: {}",
+                field,
+                declared.join(", ")
+            )),
+        );
+        return;
+    }
+    result.add_error(
+        ValidationError::error(
+            ErrorCode::SchemaUnknownIdentityField,
+            path,
+            format!(
+                "`{}` is not a field of the [identity] entity `{}`. It \
+                 resolves to null, so this access directive silently denies \
+                 everyone.",
+                binding_repr, identity.name
+            ),
+        )
+        .with_suggestion(format!(
+            "Declare `{}` on entity {}, or read one of: {}",
+            field,
+            identity.name,
+            declared.join(", ")
+        )),
+    );
+}
+
 /// `(object/get @entity field)` / `(object/get @user field)` — the call-shape
 /// authors actually use in the corpus (`std-helpdesk.lolo`), alongside the
 /// bare dotted-string form `check_binding` already handles.
@@ -274,6 +367,7 @@ fn check_object_get(
     path: &str,
     owner: &EntityDefinition,
     identity: &EntityDefinition,
+    source: IdentitySource,
     uses_user: &mut bool,
     result: &mut ValidationResult,
 ) {
@@ -294,29 +388,13 @@ fn check_object_get(
         "@user" => {
             *uses_user = true;
             if identity_field(identity, field).is_none() {
-                let mut declared: Vec<&str> = identity
-                    .fields
-                    .iter()
-                    .filter_map(|f| f.name.as_deref())
-                    .collect();
-                declared.sort_unstable();
-                result.add_error(
-                    ValidationError::error(
-                        ErrorCode::SchemaUnknownIdentityField,
-                        path,
-                        format!(
-                            "`(object/get @user \"{}\")` is not a field of the [identity] entity \
-                             `{}`. It resolves to null, so this access directive silently denies \
-                             everyone.",
-                            field, identity.name
-                        ),
-                    )
-                    .with_suggestion(format!(
-                        "Declare `{}` on entity {}, or read one of: {}",
-                        field,
-                        identity.name,
-                        declared.join(", ")
-                    )),
+                unknown_user_field(
+                    &format!("(object/get @user \"{}\")", field),
+                    field,
+                    path,
+                    identity,
+                    source,
+                    result,
                 );
             }
         }
@@ -342,7 +420,7 @@ fn check_owner_field_identity_typed(
     items: &[Value],
     path: &str,
     owner: &EntityDefinition,
-    identity: &EntityDefinition,
+    identity_names: &[&str],
     result: &mut ValidationResult,
 ) {
     let Some(Value::String(op)) = items.first() else {
@@ -395,25 +473,30 @@ fn check_owner_field_identity_typed(
     let targets_identity = field
         .relation
         .as_ref()
-        .is_some_and(|r| r.entity == identity.name);
+        .is_some_and(|r| identity_names.contains(&r.entity.as_str()));
     if targets_identity {
         return;
     }
+    let identity_name = identity_names.first().copied().unwrap_or("@user");
+    let actual = match &field.relation {
+        Some(r) => format!("a relation to `{}`", r.entity),
+        None => format!("`{}`", field_type_str(field)),
+    };
     result.add_error(
         ValidationError::error(
             ErrorCode::SchemaOwnerFieldNotIdentityTyped,
             path,
             format!(
                 "`{}.{}` is compared to `@user.id` but is not a relation to the [identity] \
-                 entity `{}` — it is `{:?}`. Viewer ids are only ever stamped onto declared \
+                 entity `{}` — it is {}. Viewer ids are only ever stamped onto declared \
                  relations, so this predicate matches no row and the directive denies everyone.",
-                owner.name, field_name, identity.name, field.field_type
+                owner.name, field_name, identity_name, actual
             ),
         )
         .with_suggestion(format!(
             "Type `{}` as a relation to {} (`{} : {}`), or compare against the field the \
              viewer value actually lives in",
-            field_name, identity.name, field_name, identity.name
+            field_name, identity_name, field_name, identity_name
         )),
     );
 }

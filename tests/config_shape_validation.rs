@@ -172,6 +172,7 @@ fn schema_with_config(config: HashMap<String, ConfigField>) -> OrbitalSchema {
         orbitals: vec![Orbital {
             name: "TestOrbital".to_string(),
             uses: None,
+            expects: None,
             theme: None,
             services: None,
             entity: EntityRef::Inline(entity),

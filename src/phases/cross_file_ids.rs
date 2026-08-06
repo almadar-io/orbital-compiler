@@ -551,6 +551,7 @@ mod tests {
                 from: from.to_string(),
                 alias: alias.to_string(),
             }]),
+            expects: None,
             theme: None,
             services: None,
             entity: EntityRef::Inline(empty_entity("ConsumerEntity")),

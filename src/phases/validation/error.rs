@@ -671,6 +671,26 @@ pub enum ErrorCode {
     /// principled way to choose
     /// (`R-SHADOW-ENTITY-SHARES-COLLECTION-DIRECTIVES-DONT-APPLY`).
     SchemaCollectionPolicyConflict,
+    /// Compose link-check: an orbital's `expects entity X` / `expects identity
+    /// X` names a requirement no orbital in the program provides. The message
+    /// names WHO ASKED — the consumer orbital — so the repair is attributable.
+    SchemaExpectationUnsatisfied,
+    /// Compose link-check: the named provider entity exists but lacks the
+    /// expected kind (e.g. `expects identity Customer` where `Customer`
+    /// carries no `[identity]` tag).
+    SchemaExpectationProviderMismatch,
+    /// Compose link-check: the provider entity declares no field with an
+    /// expected shape name. Names consumer, provider, and field.
+    SchemaExpectedFieldNotProvided,
+    /// Compose link-check: the provider has the expected field but with an
+    /// incompatible type (per orbital-core's `type_compat`; literal unions use
+    /// subset semantics — every expected member must be a provider member).
+    SchemaExpectedFieldTypeMismatch,
+    /// Standalone AND compose self-consistency: the consumer uses a field it
+    /// did not declare — an `@user.<field>` read outside its `expects
+    /// identity` shape, or a `persist` payload field outside its `expects
+    /// entity` shape. The consumer's declaration is its own source of truth.
+    SchemaExpectationFieldUndeclared,
 
     // =========================================================================
     // Identity Errors (ORB_ID_*) — Rabit V4 Phase 3 dual-carry id integrity
@@ -932,6 +952,11 @@ impl ErrorCode {
             ErrorCode::SchemaAccessPolicyInvalidBinding => "ORB_S_ACCESS_POLICY_INVALID_BINDING",
             ErrorCode::SchemaAccessPolicyRequiresIdentity => "ORB_S_ACCESS_POLICY_REQUIRES_IDENTITY",
             ErrorCode::SchemaCollectionPolicyConflict => "ORB_S_COLLECTION_POLICY_CONFLICT",
+            ErrorCode::SchemaExpectationUnsatisfied => "ORB_S_EXPECTATION_UNSATISFIED",
+            ErrorCode::SchemaExpectationProviderMismatch => "ORB_S_EXPECTATION_PROVIDER_MISMATCH",
+            ErrorCode::SchemaExpectedFieldNotProvided => "ORB_S_EXPECTED_FIELD_NOT_PROVIDED",
+            ErrorCode::SchemaExpectedFieldTypeMismatch => "ORB_S_EXPECTED_FIELD_TYPE_MISMATCH",
+            ErrorCode::SchemaExpectationFieldUndeclared => "ORB_S_EXPECTATION_FIELD_UNDECLARED",
 
             // Identity
             ErrorCode::OrbIdUnknownRef => "ORB_ID_UNKNOWN_REF",
@@ -1150,7 +1175,12 @@ impl ErrorCode {
             | ErrorCode::SchemaOwnerFieldNotIdentityTyped
             | ErrorCode::SchemaAccessPolicyInvalidBinding
             | ErrorCode::SchemaAccessPolicyRequiresIdentity
-            | ErrorCode::SchemaCollectionPolicyConflict => "schema",
+            | ErrorCode::SchemaCollectionPolicyConflict
+            | ErrorCode::SchemaExpectationUnsatisfied
+            | ErrorCode::SchemaExpectationProviderMismatch
+            | ErrorCode::SchemaExpectedFieldNotProvided
+            | ErrorCode::SchemaExpectedFieldTypeMismatch
+            | ErrorCode::SchemaExpectationFieldUndeclared => "schema",
 
             ErrorCode::OrbIdUnknownRef
             | ErrorCode::OrbIdNameMismatch

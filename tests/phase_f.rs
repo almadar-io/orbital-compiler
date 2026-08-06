@@ -163,6 +163,7 @@ fn schema_for_f1(strict_target_event: &str) -> OrbitalSchema {
         orbitals: vec![Orbital {
             name: "TestOrbital".to_string(),
             uses: None,
+            expects: None,
             theme: None,
             services: None,
             entity: EntityRef::Inline(task_entity()),
@@ -277,6 +278,7 @@ fn schema_with_two_emitters(
     let listener_orbital = Orbital {
         name: "ListenerOrbital".to_string(),
         uses: None,
+        expects: None,
         theme: None,
         services: None,
         entity: EntityRef::Inline(task_entity()),
@@ -319,6 +321,7 @@ fn schema_with_two_emitters(
             Orbital {
                 name: "TestOrbital".to_string(),
                 uses: None,
+                expects: None,
                 theme: None,
                 services: None,
                 entity: EntityRef::Inline(task_entity()),
@@ -438,6 +441,7 @@ fn schema_with_default(field: FieldDefinition) -> OrbitalSchema {
         orbitals: vec![Orbital {
             name: "TestOrbital".to_string(),
             uses: None,
+            expects: None,
             theme: None,
             services: None,
             entity: EntityRef::Inline(entity),

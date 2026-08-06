@@ -125,6 +125,7 @@ fn schema_with_effects(
         orbitals: vec![Orbital {
             name: "TestOrbital".to_string(),
             uses: None,
+            expects: None,
             theme: None,
             services: None,
             entity: EntityRef::Inline(entity),

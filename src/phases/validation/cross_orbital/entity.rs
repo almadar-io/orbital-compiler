@@ -50,6 +50,7 @@ mod tests {
             orbitals: vec![Orbital {
                 name: "TaskOrbital".to_string(),
                 uses: None,
+                expects: None,
                 theme: None,
                 services: None,
                 entity: EntityRef::Inline(EntityDefinition {
@@ -96,6 +97,7 @@ mod tests {
         schema.orbitals.push(Orbital {
             name: "AnotherOrbital".to_string(),
             uses: None,
+            expects: None,
             theme: None,
             services: None,
             entity: EntityRef::Inline(EntityDefinition {

@@ -1651,6 +1651,7 @@ mod tests {
         Orbital {
             name: name.to_string(),
             uses: None,
+            expects: None,
             theme: None,
             services: None,
             entity: EntityRef::Inline(EntityDefinition {
@@ -1858,6 +1859,7 @@ mod tests {
         Orbital {
             name: name.to_string(),
             uses: None,
+            expects: None,
             theme: None,
             services: Some(vec![ServiceRef::Inline(service_def)]),
             entity: EntityRef::Inline(EntityDefinition {
@@ -2094,6 +2096,7 @@ mod tests {
         Orbital {
             name: name.to_string(),
             uses: None,
+            expects: None,
             theme: None,
             services: None,
             entity: EntityRef::Inline(entity_def),
@@ -3395,6 +3398,7 @@ mod tests {
         let orb0 = Orbital {
             name: "ArcadeState".to_string(),
             uses: None,
+            expects: None,
             theme: None,
             services: None,
             entity: EntityRef::Inline(EntityDefinition {
@@ -3439,6 +3443,7 @@ mod tests {
         let orb1 = Orbital {
             name: "ArcadeCanvas".to_string(),
             uses: None,
+            expects: None,
             theme: None,
             services: None,
             entity: EntityRef::Inline(EntityDefinition {
@@ -3872,6 +3877,7 @@ mod tests {
         let orb0 = Orbital {
             name: "StateOrbital".to_string(),
             uses: None,
+            expects: None,
             theme: None,
             services: None,
             entity: EntityRef::Inline(EntityDefinition {
@@ -3903,6 +3909,7 @@ mod tests {
         let orb1 = Orbital {
             name: "ActionOrbital".to_string(),
             uses: None,
+            expects: None,
             theme: None,
             services: None,
             entity: EntityRef::Inline(EntityDefinition {

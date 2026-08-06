@@ -21,9 +21,23 @@
 //! very organism that motivated the rule.
 
 use super::{ErrorCode, ValidationContext, ValidationError, ValidationResult};
-use orbital_core::schema::{EntityDefinition, EntityRef, FieldDefinition, OrbitalSchema};
+use orbital_core::schema::{EntityDefinition, EntityRef, FieldDefinition, OrbitalSchema, TraitReference};
 use orbital_core::type_compat::enum_value_is_member;
 use serde_json::Value;
+
+/// Where the identity shape a `@user` check resolves against came from. An
+/// `expects identity X { shape }` is the consumer's own declared source of
+/// truth — reads outside it fail with `ORB_S_EXPECTATION_FIELD_UNDECLARED`
+/// rather than the unknown-identity-field code.
+#[derive(Clone, Copy)]
+pub(super) enum IdentitySource<'a> {
+    /// A real `[identity]` entity declared in the schema.
+    Declared,
+    /// No declaration anywhere — the implicit default shape.
+    Default,
+    /// The orbital's own `expects identity` declaration (shape present).
+    Expectation { orbital: &'a str, entity: Option<&'a str> },
+}
 
 /// The sigil root this module is about.
 const USER_SIGIL: &str = "@user.";
@@ -116,20 +130,60 @@ pub fn validate_user_identity(schema: &OrbitalSchema, ctx: &mut ValidationContex
     // (`Almadar_LOLO_Identity.md` §11 "Also settled"). `role` has no declared
     // members, so no literal comparison can be rejected; only a field outside
     // the shape (a typo nothing can ever carry) is an error.
-    let default_identity;
-    let (identity, declared_in_source) = match declared.first() {
-        Some(identity) => (*identity, true),
-        None => {
-            default_identity = default_identity_shape();
-            (&default_identity, false)
-        }
-    };
+    //
+    // Per-orbital resolution: a declared `[identity]` entity wins schema-wide.
+    // Otherwise an orbital's own `expects identity … { shape }` is its declared
+    // source of truth (self-consistency: reads outside the declared shape fail
+    // against the orbital's OWN declaration). A shape-less `expects identity`
+    // leaves the default shape in place — existence-only, as unchecked as today.
+    let default_identity = default_identity_shape();
+    let declared_identity = declared.first().copied();
 
-    for (trait_def, path) in super::inline_traits(schema) {
-        let Ok(value) = serde_json::to_value(trait_def) else {
-            continue;
+    for (i, orbital) in schema.orbitals.iter().enumerate() {
+        let expectation_entity;
+        let (identity, source) = match declared_identity {
+            Some(identity) => (identity, IdentitySource::Declared),
+            None => match super::expectations::identity_expectation(orbital) {
+                Some(exp) if exp.shape.is_some() => {
+                    expectation_entity = super::expectations::shape_as_identity_entity(
+                        exp.name.unwrap_or("@user"),
+                        exp.shape.unwrap_or(&[]),
+                    );
+                    (
+                        &expectation_entity,
+                        IdentitySource::Expectation {
+                            orbital: orbital.name.as_str(),
+                            entity: exp.name,
+                        },
+                    )
+                }
+                _ => (&default_identity, IdentitySource::Default),
+            },
         };
-        walk(&value, &path, identity, declared_in_source, &mut result);
+        for (j, trait_ref) in orbital.traits.iter().enumerate() {
+            let TraitReference::Inline(trait_def) = trait_ref else {
+                continue;
+            };
+            // An `expects identity` declaration covers the orbital's AUTHORED
+            // surface — its own inline traits and call-site config. Bodies
+            // inlined from `uses[]` imports carry `source_behavior`; their
+            // internal `@user` reads are the imported behavior's own contract
+            // and invisible to derivation, so checking them against the
+            // derived declaration manufactures false mismatches
+            // (G-EXPECT-DERIVE-IMPORTS: std-browse's scopeField filter reads
+            // `@user.id` in every BrowseList consumer → spurious
+            // FIELD_UNDECLARED → demote on a params-{} factory build).
+            if matches!(source, IdentitySource::Expectation { .. })
+                && trait_def.source_behavior.is_some()
+            {
+                continue;
+            }
+            let path = super::trait_path(i, &orbital.name, j, trait_ref);
+            let Ok(value) = serde_json::to_value(trait_def) else {
+                continue;
+            };
+            walk(&value, &path, identity, source, &mut result);
+        }
     }
 
     ctx.merge(result);
@@ -154,20 +208,20 @@ fn walk(
     value: &Value,
     path: &str,
     identity: &EntityDefinition,
-    declared_in_source: bool,
+    source: IdentitySource,
     result: &mut ValidationResult,
 ) {
     match value {
-        Value::String(s) => check_field_exists(s, path, identity, declared_in_source, result),
+        Value::String(s) => check_field_exists(s, path, identity, source, result),
         Value::Array(items) => {
             check_comparison(items, path, identity, result);
             for (i, item) in items.iter().enumerate() {
-                walk(item, &format!("{}[{}]", path, i), identity, declared_in_source, result);
+                walk(item, &format!("{}[{}]", path, i), identity, source, result);
             }
         }
         Value::Object(map) => {
             for (k, v) in map {
-                walk(v, &format!("{}.{}", path, k), identity, declared_in_source, result);
+                walk(v, &format!("{}.{}", path, k), identity, source, result);
             }
         }
         _ => {}
@@ -175,12 +229,13 @@ fn walk(
 }
 
 /// `@user.<field>` must name a declared field of the identity entity — or, when
-/// no `[identity]` entity is declared, a field of the implicit default shape.
+/// no `[identity]` entity is declared, a field of the orbital's `expects
+/// identity` shape (its own declaration) or the implicit default shape.
 fn check_field_exists(
     s: &str,
     path: &str,
     identity: &EntityDefinition,
-    declared_in_source: bool,
+    source: IdentitySource,
     result: &mut ValidationResult,
 ) {
     let Some(field) = user_field_of(s) else {
@@ -195,6 +250,34 @@ fn check_field_exists(
         .filter_map(|f| f.name.as_deref())
         .collect();
     declared.sort_unstable();
+    if let IdentitySource::Expectation { orbital, entity } = source {
+        let expectation = match entity {
+            Some(name) => format!("`expects identity {}`", name),
+            None => "`expects identity`".to_string(),
+        };
+        result.add_error(
+            ValidationError::error(
+                ErrorCode::SchemaExpectationFieldUndeclared,
+                path,
+                format!(
+                    "`{}` reads `@user.{}`, but its {} declaration only declares: {}. The \
+                     declaration is this orbital's own source of truth for the `@user` fields \
+                     it reads.",
+                    orbital,
+                    field,
+                    expectation,
+                    declared.join(", ")
+                ),
+            )
+            .with_suggestion(format!(
+                "Add `{}` to the expects shape, or read one of: {}",
+                field,
+                declared.join(", ")
+            )),
+        );
+        return;
+    }
+    let declared_in_source = matches!(source, IdentitySource::Declared);
     let (message, suggestion) = if declared_in_source {
         (
             format!(

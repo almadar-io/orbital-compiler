@@ -27,6 +27,10 @@ pub(crate) fn validate_relation_targets(schema: &OrbitalSchema) -> ValidationRes
         if let Some(entity) = orbital.entity.as_inline() {
             entity_names.insert(entity.name.as_str());
         }
+        // `expects entity X` licenses relation targets naming X standalone; a
+        // genuinely absent provider is the compose link-check's job
+        // (`ORB_S_EXPECTATION_UNSATISFIED`), not this warning's.
+        entity_names.extend(super::super::expectations::expected_entity_names(orbital));
     }
 
     // Walk every inline entity's fields and recurse into array `items` and
@@ -111,6 +115,7 @@ mod tests {
             orbitals: vec![Orbital {
                 name: "TaskOrbital".to_string(),
                 uses: None,
+                expects: None,
                 theme: None,
                 services: None,
                 entity: EntityRef::Inline(EntityDefinition {
@@ -159,6 +164,7 @@ mod tests {
         schema.orbitals.push(Orbital {
             name: "PatientOrbital".to_string(),
             uses: None,
+            expects: None,
             theme: None,
             services: None,
             entity: EntityRef::Inline(EntityDefinition {

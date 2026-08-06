@@ -262,6 +262,7 @@ mod tests {
         let atom_orbital = Orbital {
             name: "AtomHost".to_string(),
             uses: None,
+            expects: None,
             theme: None,
             services: None,
             entity: EntityRef::Inline(EntityDefinition {
@@ -312,6 +313,7 @@ mod tests {
                 from: "local/does-not-matter".to_string(),
                 alias: "Lib".to_string(),
             }]),
+            expects: None,
             theme: None,
             services: None,
             entity: EntityRef::Inline(EntityDefinition {
