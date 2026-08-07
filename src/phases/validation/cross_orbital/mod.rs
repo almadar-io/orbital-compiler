@@ -117,15 +117,16 @@ pub fn validate_cross_orbital(schema: &OrbitalSchema, ctx: &mut ValidationContex
     ctx.merge(result);
 }
 
-/// Collect all trait definitions from schema
+/// Collect all trait definitions from schema, each paired with its owning
+/// orbital's name.
 /// Note: Traits are now only defined inline within orbitals, not at schema level.
-pub(crate) fn collect_all_traits(schema: &OrbitalSchema) -> Vec<&TraitDefinition> {
-    let mut traits: Vec<&TraitDefinition> = Vec::new();
+pub(crate) fn collect_all_traits(schema: &OrbitalSchema) -> Vec<(&str, &TraitDefinition)> {
+    let mut traits: Vec<(&str, &TraitDefinition)> = Vec::new();
 
     for orbital in &schema.orbitals {
         for trait_ref in &orbital.traits {
             if let TraitReference::Inline(trait_def) = trait_ref {
-                traits.push(trait_def);
+                traits.push((orbital.name.as_str(), trait_def));
             }
         }
     }

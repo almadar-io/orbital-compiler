@@ -40,7 +40,7 @@ pub(crate) fn validate_scope_boundary(schema: &OrbitalSchema) -> ValidationResul
     // inline in one of the schema's orbitals (true after the inline phase
     // for anything referenced from another orbital in the same workspace).
     let mut in_schema_emits: HashMap<String, &Vec<EmitDefinition>> = HashMap::new();
-    for trait_def in collect_all_traits(schema) {
+    for (_, trait_def) in collect_all_traits(schema) {
         if let Some(emits) = &trait_def.emits {
             in_schema_emits.insert(trait_def.name.clone(), emits);
         }

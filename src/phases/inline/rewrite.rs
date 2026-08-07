@@ -2,7 +2,9 @@
 
 use crate::embedded::get_pattern;
 use crate::phases::validation::sync::patterns::{PATTERN_EVENT_LIST_PROPS, PATTERN_EVENT_PROPS};
-use orbital_core::schema::{ConfigProvenanceRecord, SExpression, TraitDefinition, TraitReference};
+use orbital_core::schema::{
+    ConfigProvenanceRecord, ListenSource, SExpression, TraitDefinition, TraitReference,
+};
 use std::collections::{HashMap, HashSet};
 
 /// Phase F.3: Generic identifier-substitution walker for SExpressions.
@@ -829,11 +831,21 @@ pub(crate) fn rewrite_trait_event_fields(
     }
 
     // listens[*].event and listens[*].triggers — the trait's inbound event
-    // declarations and any internal trigger mapping.
+    // declarations and any internal trigger mapping. A sourced listen's
+    // `event` names an event in the SOURCE trait's vocabulary, not this
+    // trait's, so the call-site rename map covers only the trigger side;
+    // the event side follows the source trait's own renames via
+    // `event_renames_by_trait` in `inline_traits`.
     if let Some(listens) = trait_def.listens.as_mut() {
         for listen in listens.iter_mut() {
-            if let Some(to) = event_subs.get(&listen.event) {
-                listen.event = to.clone();
+            let sourced = matches!(
+                listen.source,
+                Some(ListenSource::Trait { .. }) | Some(ListenSource::Orbital { .. })
+            );
+            if !sourced {
+                if let Some(to) = event_subs.get(&listen.event) {
+                    listen.event = to.clone();
+                }
             }
             if let Some(triggers) = listen.triggers.as_mut() {
                 if let Some(to) = event_subs.get(triggers) {
