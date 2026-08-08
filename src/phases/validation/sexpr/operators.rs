@@ -333,7 +333,7 @@ fn known_operator_names() -> impl Iterator<Item = &'static str> {
         .chain(OS_OPERATORS.iter().copied())
 }
 
-fn edit_distance(a: &str, b: &str) -> usize {
+pub(crate) fn edit_distance(a: &str, b: &str) -> usize {
     let a: Vec<char> = a.chars().collect();
     let b: Vec<char> = b.chars().collect();
     let mut prev: Vec<usize> = (0..=b.len()).collect();

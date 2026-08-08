@@ -166,11 +166,27 @@ pub(crate) fn validate_set_value_type(
                     entity_field, entity_ty, payload_field, payload_ty
                 ),
             )
-            .with_suggestion(format!(
-                "Align the payload field '{}' type with the entity field '{}' type, or set a \
-                 converted value.",
-                payload_field, entity_field
-            )),
+            .with_suggestion(if entity_ty == "relation" {
+                // The source often looks IDENTICAL on both sides (`topics :
+                // [ReviewTopic]` in the entity AND the payload) — the entity
+                // side lowers to `relation` because the element type is a
+                // persistent entity, which no amount of re-reading the source
+                // reveals (observed: ~100 turns across 3 agents on one such
+                // mismatch).
+                format!(
+                    "`@entity.{entity_field}` is a RELATION: a list of a persistent entity type \
+                     lowers to `relation`, even though the source declaration looks like a plain \
+                     list. Relations are populated by `persist` effects/queries, never `set` from \
+                     a payload. For a runtime list, declare a plain shaped type at orbital level \
+                     (`type Row = {{ field : type … }}`) and type the field `[Row]`."
+                )
+            } else {
+                format!(
+                    "Align the payload field '{}' type with the entity field '{}' type, or set a \
+                     converted value.",
+                    payload_field, entity_field
+                )
+            }),
         );
     }
 

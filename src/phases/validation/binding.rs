@@ -1142,14 +1142,26 @@ fn validate_payload_field_references(
                     }
                 }
                 None => {
-                    // No payload schema defined for this event
-                    let suggestion = payload_sigil_hybrid_suggestion(&segments, None)
-                        .unwrap_or_else(|| {
+                    // No payload schema defined for this event. Lifecycle
+                    // events structurally carry no payload — telling the
+                    // author to "add a payload schema" to INIT sends a model
+                    // in circles (observed: Run 19); the fix is to not read
+                    // @payload there at all.
+                    let is_lifecycle = matches!(event_name, "INIT" | "LOAD" | "$MOUNT");
+                    let suggestion = if is_lifecycle {
+                        format!(
+                            "'{event_name}' is a lifecycle event and carries NO payload — @payload.{field_name} \
+                             can never resolve here. Read entity/config state instead, or move this \
+                             logic to the transition for the event that actually delivers '{field_name}'."
+                        )
+                    } else {
+                        payload_sigil_hybrid_suggestion(&segments, None).unwrap_or_else(|| {
                             format!(
-                                "Add a payload schema to the '{}' event definition: {{ \"key\": \"{}\", \"name\": \"...\", \"payload\": [{{ \"name\": \"{}\", \"type\": \"...\" }}] }}",
-                                event_name, event_name, field_name
+                                "declare the field in the event's `emits` payload block: `{} -> external {{ {} : <type> }}` — an event read via @payload.{} must declare that field",
+                                event_name, field_name, field_name
                             )
-                        });
+                        })
+                    };
                     result.add_error(
                         ValidationError::error(
                             ErrorCode::BindingPayloadFieldUndeclared,

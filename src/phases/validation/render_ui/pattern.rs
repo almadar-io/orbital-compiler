@@ -202,11 +202,17 @@ pub(super) fn validate_pattern(
                                         prop_name, pattern_type
                                     ),
                                 )
-                                .with_valid_values(valid_values)
-                                .with_suggestion(format!(
-                                    "Check pattern registry for valid props for '{}'",
-                                    pattern_type
-                                )),
+                                .with_suggestion(match suggest_prop(&prop_name, &valid_values) {
+                                    Some(close) => format!(
+                                        "unknown prop — did you mean '{close}'? valid props for '{pattern_type}': {}",
+                                        valid_values.join(", ")
+                                    ),
+                                    None => format!(
+                                        "valid props for '{pattern_type}': {}",
+                                        valid_values.join(", ")
+                                    ),
+                                })
+                                .with_valid_values(valid_values),
                             );
                         }
                     }
@@ -1208,4 +1214,28 @@ pub(super) fn classify_prop_type(value: &SExpression) -> &'static str {
         SExpression::Object(_) => "object",
         SExpression::Null => "null",
     }
+}
+
+/// Did-you-mean for an unknown render-ui prop. Prop confusions are usually a
+/// wrong SUFFIX on the right stem (`timeField` → `timeAxis`), which plain
+/// edit distance misses — so score by longest common prefix (≥4) first, then
+/// fall back to edit distance ≤2 (`titel` → `title`).
+fn suggest_prop(unknown: &str, valid: &[String]) -> Option<String> {
+    fn common_prefix_len(a: &str, b: &str) -> usize {
+        a.chars().zip(b.chars()).take_while(|(x, y)| x == y).count()
+    }
+    let by_prefix = valid
+        .iter()
+        .map(|v| (common_prefix_len(unknown, v), v))
+        .filter(|(p, _)| *p >= 4)
+        .max_by_key(|(p, _)| *p);
+    if let Some((_, v)) = by_prefix {
+        return Some(v.clone());
+    }
+    valid
+        .iter()
+        .map(|v| (crate::phases::validation::sexpr::operators::edit_distance(unknown, v), v))
+        .filter(|(d, _)| *d <= 2)
+        .min_by_key(|(d, _)| *d)
+        .map(|(_, v)| v.clone())
 }
