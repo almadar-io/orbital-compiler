@@ -70,20 +70,11 @@ pub fn resolve_sexpr_standalone(sexpr: &SExpression) -> Result<OirExpr, ResolveE
 /// Valid only as effects (statement position) with an `emit: { success,
 /// failure }` options object; `resolve_sexpr_call` rejects them in expression
 /// (value) position. The effect-resolution arm routes them to
-/// `OirEffect::Custom`. Kept in sync with `is_substrate_operator` in
-/// orbital-shell-typescript (`SUBSTRATE_PREFIXES`) — the compiler crate
-/// cannot depend on the shell crate; the canonical shared home would be
-/// orbital-core (deferred — track in C-EMIT-SUBSTRATE-OPS-MARKER).
+/// `OirEffect::Custom`. Delegates to the canonical predicate in
+/// `orbital_core::ir::is_substrate_operator` — the single source of truth
+/// shared with the TS and Python shells (closes C-EMIT-SUBSTRATE-OPS-MARKER).
 pub(crate) fn is_substrate_op(name: &str) -> bool {
-    name.starts_with("llm/")
-        || name.starts_with("memory/")
-        || name.starts_with("trace/")
-        || name.starts_with("session/")
-        || name.starts_with("workspace/")
-        || name.starts_with("behavior/")
-        || name.starts_with("compose/")
-        || name.starts_with("integration/")
-        || name == "validate/validate"
+    orbital_core::ir::is_substrate_operator(name)
 }
 
 /// Resolver state
