@@ -274,15 +274,18 @@ pub(crate) fn validate_sexpr_with_locals(
 
                     // Check operator validity (only warn for namespaced operators that aren't known)
                     if !is_known_operator(operator) && operator.contains('/') {
+                        let suggestion = super::operators::suggest_operator(operator)
+                            .unwrap_or_else(|| {
+                                "Use a known operator or ensure custom operator is registered"
+                                    .to_string()
+                            });
                         result.add_error(
                             ValidationError::warning(
                                 ErrorCode::SExprInvalidOperator,
                                 path,
                                 format!("Unknown operator: '{}'", operator),
                             )
-                            .with_suggestion(
-                                "Use a known operator or ensure custom operator is registered",
-                            ),
+                            .with_suggestion(suggestion),
                         );
                     }
 

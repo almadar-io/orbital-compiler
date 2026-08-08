@@ -162,6 +162,9 @@ fn check_operator_reference(op: &str, path: &str, result: &mut ValidationResult)
     {
         return;
     }
+    let suggestion = super::sexpr::operators::suggest_operator(op).unwrap_or_else(|| {
+        "Use a registered operator — `orb signatures` lists the canonical set".to_string()
+    });
     result.add_error(
         ValidationError::warning(
             ErrorCode::SExprInvalidOperator,
@@ -171,7 +174,7 @@ fn check_operator_reference(op: &str, path: &str, result: &mut ValidationResult)
                 op
             ),
         )
-        .with_suggestion("Add the operator to packages/almadar-operators/operators.json"),
+        .with_suggestion(suggestion),
     );
 }
 

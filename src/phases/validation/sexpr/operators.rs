@@ -323,3 +323,58 @@ pub(crate) fn is_known_operator(operator: &str) -> bool {
         || operator.starts_with("agent/")
         || operator.starts_with("behavior/")
 }
+
+fn known_operator_names() -> impl Iterator<Item = &'static str> {
+    crate::embedded::operators()
+        .keys()
+        .map(String::as_str)
+        .chain(CORE_OPERATORS.iter().copied())
+        .chain(EFFECT_OPERATORS.iter().copied())
+        .chain(OS_OPERATORS.iter().copied())
+}
+
+fn edit_distance(a: &str, b: &str) -> usize {
+    let a: Vec<char> = a.chars().collect();
+    let b: Vec<char> = b.chars().collect();
+    let mut prev: Vec<usize> = (0..=b.len()).collect();
+    let mut curr = vec![0usize; b.len() + 1];
+    for (i, ca) in a.iter().enumerate() {
+        curr[0] = i + 1;
+        for (j, cb) in b.iter().enumerate() {
+            let cost = usize::from(ca != cb);
+            curr[j + 1] = (prev[j] + cost).min(prev[j + 1] + 1).min(curr[j] + 1);
+        }
+        std::mem::swap(&mut prev, &mut curr);
+    }
+    prev[b.len()]
+}
+
+/// Did-you-mean for an unknown operator: exact basename in another namespace
+/// first (`array/floor` → `math/floor`), then closest names by edit distance.
+pub(crate) fn suggest_operator(unknown: &str) -> Option<String> {
+    let basename = unknown.rsplit('/').next().unwrap_or(unknown);
+    let mut namespace_hits: Vec<&str> = known_operator_names()
+        .filter(|k| k.contains('/') && k.rsplit('/').next() == Some(basename))
+        .collect();
+    namespace_hits.sort_unstable();
+    namespace_hits.dedup();
+    if !namespace_hits.is_empty() {
+        let list = namespace_hits
+            .iter()
+            .map(|k| format!("'{k}'"))
+            .collect::<Vec<_>>()
+            .join(", ");
+        return Some(format!("did you mean {list}?"));
+    }
+    let mut best: Option<(usize, &str)> = None;
+    for k in known_operator_names() {
+        if k.len().abs_diff(unknown.len()) > 2 {
+            continue;
+        }
+        let d = edit_distance(unknown, k);
+        if d <= 2 && best.is_none_or(|(bd, _)| d < bd) {
+            best = Some((d, k));
+        }
+    }
+    best.map(|(_, k)| format!("did you mean '{k}'?"))
+}

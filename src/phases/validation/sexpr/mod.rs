@@ -5,7 +5,7 @@
 
 mod arity;
 mod binding;
-mod operators;
+pub(crate) mod operators;
 mod validate;
 
 pub use arity::ArityRule;
