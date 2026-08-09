@@ -135,7 +135,9 @@ pub(crate) fn validate_event_wiring(schema: &OrbitalSchema) -> ValidationResult 
                             emitter, event
                         ),
                     )
-                    .with_suggestion("Add a listener for the event or remove the emission"),
+                    .with_suggestion(format!(
+                        "Consume it where it fires: add a transition arm `{event} -> <state>` in the emitting trait (the usual pattern for persist/fetch success|failure events), declare the event `-> external` if a SIBLING orbital consumes it, or remove it from the emit config"
+                    )),
                 );
             }
         }

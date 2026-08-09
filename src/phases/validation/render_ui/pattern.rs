@@ -151,9 +151,12 @@ pub(super) fn validate_pattern(
                             path,
                             format!("Unknown pattern type: '{}'", pattern_type),
                         )
-                        .with_suggestion(
-                            "Use a known pattern type or ensure custom pattern is registered",
-                        )
+                        .with_suggestion(suggest_pattern_type(pattern_type).unwrap_or_else(
+                            || {
+                                "Use a known pattern type or ensure custom pattern is registered"
+                                    .to_string()
+                            },
+                        ))
                     });
                 }
 
@@ -646,11 +649,15 @@ pub(super) fn validate_pattern(
                         pattern_type,
                     )
                 } else {
-                    ValidationError::warning(
+                    let mut err = ValidationError::warning(
                         ErrorCode::RenderUIInvalidPattern,
                         path,
                         format!("Unknown pattern type: '{}'", pattern_type),
-                    )
+                    );
+                    if let Some(sugg) = suggest_pattern_type(pattern_type) {
+                        err = err.with_suggestion(sugg);
+                    }
+                    err
                 });
             }
         }
@@ -913,6 +920,31 @@ mod element_shape_tests {
         let mut got = element_required_fields(&items);
         got.sort();
         assert_eq!(got, vec!["id".to_string(), "title".to_string()]);
+    }
+}
+
+#[cfg(test)]
+mod suggest_pattern_type_tests {
+    use super::suggest_pattern_type;
+
+    #[test]
+    fn ui_prefix_conflation_names_the_real_pattern() {
+        // Run 22: TopicManager oscillated on `ui-data-grid` (std behavior
+        // name) for the pattern `data-grid`.
+        let sugg = suggest_pattern_type("ui-data-grid").expect("suggestion expected");
+        assert!(sugg.contains("did you mean 'data-grid'?"), "got: {sugg}");
+        assert!(sugg.contains("BEHAVIOR name"), "got: {sugg}");
+    }
+
+    #[test]
+    fn near_miss_gets_edit_distance_suggestion() {
+        let sugg = suggest_pattern_type("buttom").expect("suggestion expected");
+        assert!(sugg.contains("did you mean 'button'?"), "got: {sugg}");
+    }
+
+    #[test]
+    fn unrelated_name_gets_none() {
+        assert!(suggest_pattern_type("zzz-nonexistent-thing-xyz").is_none());
     }
 }
 
@@ -1238,4 +1270,46 @@ fn suggest_prop(unknown: &str, valid: &[String]) -> Option<String> {
         .filter(|(d, _)| *d <= 2)
         .min_by_key(|(d, _)| *d)
         .map(|(_, v)| v.clone())
+}
+
+/// Did-you-mean for an unknown pattern TYPE. The dominant confusion is the
+/// std BEHAVIOR naming convention leaking into the pattern slot — run 22:
+/// TopicManager oscillated on `ui-data-grid` for the real pattern `data-grid`
+/// with only a generic "use a known pattern type" suggestion. Order: strip a
+/// `ui-` prefix (behavior-name conflation, exact hit), then the same
+/// prefix/edit-distance scoring as props.
+fn suggest_pattern_type(unknown: &str) -> Option<String> {
+    use crate::phases::validation::sync::patterns::PATTERN_TYPES;
+    if let Some(stripped) = unknown.strip_prefix("ui-") {
+        if PATTERN_TYPES.contains(stripped) {
+            return Some(format!(
+                "did you mean '{stripped}'? `{unknown}` is the std BEHAVIOR name — the render-ui pattern `type:` is '{stripped}'"
+            ));
+        }
+    }
+    let valid: Vec<String> = PATTERN_TYPES.iter().map(|s| s.to_string()).collect();
+    if let Some(s) = suggest_prop(unknown, &valid).map(|v| format!("did you mean '{v}'?")) {
+        return Some(s);
+    }
+    // Token fallback (run 40: `ui-calendar` — edit distance reaches nothing,
+    // but the 'calendar' token names exactly the calendar-grid pattern).
+    let mut token_hits: Vec<&str> = Vec::new();
+    for token in unknown.split(['-', '_']).filter(|t| t.len() >= 4) {
+        for p in PATTERN_TYPES.iter() {
+            if p.contains(token) && !token_hits.contains(p) {
+                token_hits.push(p);
+            }
+        }
+    }
+    if !token_hits.is_empty() && token_hits.len() <= 4 {
+        let list = token_hits
+            .iter()
+            .map(|p| format!("'{p}'"))
+            .collect::<Vec<_>>()
+            .join(", ");
+        return Some(format!(
+            "no pattern named '{unknown}' — registered patterns sharing a name token: {list}"
+        ));
+    }
+    None
 }

@@ -289,7 +289,11 @@ pub(crate) fn validate_sexpr_with_locals(
                         );
                     }
 
-                    // Check arity
+                    // Check arity. The message carries the offending call
+                    // rendered as source so it stays actionable even when the
+                    // resolved line is approximate (inline-spliced subtrees —
+                    // config defaults, trait refs — have no spans of their
+                    // own, so the line points at the reference site).
                     if let Some(arity) = get_arity_rule(operator) {
                         let arg_count = arr.len() - 1; // Exclude operator
                         if arg_count < arity.min {
@@ -297,21 +301,28 @@ pub(crate) fn validate_sexpr_with_locals(
                                 ErrorCode::SExprArityMismatch,
                                 path,
                                 format!(
-                                    "Operator '{}' requires at least {} argument(s), got {}",
-                                    operator, arity.min, arg_count
+                                    "Operator '{}' requires at least {} argument(s), got {} — in {}",
+                                    operator, arity.min, arg_count, render_sexpr_brief(expr)
                                 ),
                             ));
                         }
                         if let Some(max) = arity.max {
                             if arg_count > max {
-                                result.add_error(ValidationError::error(
+                                let mut err = ValidationError::error(
                                     ErrorCode::SExprArityMismatch,
                                     path,
                                     format!(
-                                        "Operator '{}' takes at most {} argument(s), got {}",
-                                        operator, max, arg_count
+                                        "Operator '{}' takes at most {} argument(s), got {} — in {}",
+                                        operator, max, arg_count, render_sexpr_brief(expr)
                                     ),
-                                ));
+                                );
+                                err = err.with_suggestion(
+                                    infix_in_args_suggestion(operator, &arr[1..], max)
+                                        .unwrap_or_else(|| format!(
+                                            "Remove the extra argument(s) — '{operator}' takes at most {max}"
+                                        )),
+                                );
+                                result.add_error(err);
                             }
                         }
                     }
@@ -396,6 +407,55 @@ pub(crate) fn validate_sexpr_with_locals(
     result
 }
 
+/// Render a failing s-expression as `.lolo`-flavoured source for diagnostics:
+/// atoms in full, nested calls elided to `(head …)`, objects to `{…}` — the
+/// top-level call stays greppable without dumping whole subtrees.
+pub(crate) fn render_sexpr_brief(expr: &SExpression) -> String {
+    match expr {
+        SExpression::String(s) => s.clone(),
+        SExpression::Number(n) => n.to_string(),
+        SExpression::Bool(b) => b.to_string(),
+        SExpression::Null => "null".to_string(),
+        SExpression::Object(_) => "{…}".to_string(),
+        SExpression::Array(items) => {
+            let parts: Vec<String> = items
+                .iter()
+                .map(|it| match it {
+                    SExpression::Array(inner) => match inner.first() {
+                        Some(SExpression::String(h)) => format!("({h} …)"),
+                        _ => "(…)".to_string(),
+                    },
+                    other => render_sexpr_brief(other),
+                })
+                .collect();
+            format!("({})", parts.join(" "))
+        }
+    }
+}
+
+/// Detect an infix operator written INSIDE a prefix call's argument list —
+/// `(object/get @item reviewCount > 0)` for `(> (object/get @item
+/// reviewCount) 0)` — and suggest the prefix rewrite built from the actual
+/// pieces. Only consulted once the call has ALREADY failed max-arity (the
+/// call is wrong regardless; this only guesses the intent), and never for a
+/// token in first position (the rewrite needs a non-empty left side).
+fn infix_in_args_suggestion(operator: &str, args: &[SExpression], _max: usize) -> Option<String> {
+    const INFIX_TOKENS: [&str; 12] = [
+        ">", "<", ">=", "<=", "=", "==", "!=", "+", "-", "*", "/", "%",
+    ];
+    let (idx, token) = args.iter().enumerate().skip(1).find_map(|(i, a)| match a {
+        SExpression::String(s) if INFIX_TOKENS.contains(&s.as_str()) => Some((i, s.clone())),
+        _ => None,
+    })?;
+    let left: Vec<String> = args[..idx].iter().map(render_sexpr_brief).collect();
+    let right: Vec<String> = args[idx + 1..].iter().map(render_sexpr_brief).collect();
+    Some(format!(
+        "s-expressions are prefix — '{token}' cannot appear inside the argument list. Wrap the call instead: ({token} ({operator} {}) {})",
+        left.join(" "),
+        right.join(" ")
+    ))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -443,6 +503,61 @@ mod tests {
             .errors
             .iter()
             .any(|e| e.code == ErrorCode::SExprArityMismatch));
+    }
+
+    #[test]
+    fn arity_mismatch_message_renders_the_offending_call() {
+        // Run 19 (C-LOWERED-OPERATOR-LEAK, refined): the failing expression
+        // lived inside an inline-spliced config default, so the resolved line
+        // pointed at the reference site. The message must carry the call
+        // itself so the author can find it by searching.
+        let expr = SExpression::Array(vec![
+            SExpression::String("object/get".to_string()),
+            SExpression::String("@item".to_string()),
+            SExpression::String("reviewCount".to_string()),
+            SExpression::String(">".to_string()),
+            SExpression::Number(0.0),
+        ]);
+
+        let result = validate_sexpr(&expr, "test", SExprContext::Effect, &HashSet::new());
+        let err = result
+            .errors
+            .iter()
+            .find(|e| e.code == ErrorCode::SExprArityMismatch)
+            .expect("arity error expected");
+        assert!(
+            err.message.contains("(object/get @item reviewCount > 0)"),
+            "message should render the call, got: {}",
+            err.message
+        );
+        // The infix `>` sits past object/get's max arity — the suggestion
+        // must show the prefix rewrite built from the actual pieces.
+        let suggestion = err.suggestion.as_deref().expect("suggestion expected");
+        assert!(
+            suggestion.contains("(> (object/get @item reviewCount) 0)"),
+            "suggestion should show the prefix rewrite, got: {suggestion}"
+        );
+    }
+
+    #[test]
+    fn arity_mismatch_without_infix_token_gets_generic_suggestion() {
+        let expr = SExpression::Array(vec![
+            SExpression::String("not".to_string()),
+            SExpression::Bool(true),
+            SExpression::Bool(false),
+        ]);
+
+        let result = validate_sexpr(&expr, "test", SExprContext::Guard, &HashSet::new());
+        let err = result
+            .errors
+            .iter()
+            .find(|e| e.code == ErrorCode::SExprArityMismatch)
+            .expect("arity error expected");
+        let suggestion = err.suggestion.as_deref().expect("suggestion expected");
+        assert!(
+            suggestion.contains("Remove the extra argument"),
+            "got: {suggestion}"
+        );
     }
 
     #[test]

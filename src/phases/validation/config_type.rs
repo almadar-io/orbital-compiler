@@ -332,11 +332,17 @@ fn check_field_def_shape(
     match schema.field_type {
         FieldType::Array => {
             let SExpression::Array(items) = value else {
-                result.add_error(ValidationError::error(
-                    ErrorCode::TraitConfigShapeMismatch,
-                    path,
-                    "expected an array".to_string(),
-                ));
+                result.add_error(
+                    ValidationError::error(
+                        ErrorCode::TraitConfigShapeMismatch,
+                        path,
+                        format!(
+                            "expected an array, got {}",
+                            super::sexpr::render_sexpr_brief(value)
+                        ),
+                    )
+                    .with_suggestion("wrap the value(s) in `[ … ]`".to_string()),
+                );
                 return result;
             };
             if let Some(inner) = &schema.items {
@@ -348,11 +354,29 @@ fn check_field_def_shape(
         }
         FieldType::Object => {
             let SExpression::Object(map) = value else {
-                result.add_error(ValidationError::error(
+                // Name what was FOUND and the expected member keys — the bare
+                // "expected an object" left a run-22 agent with nothing to
+                // act on (no line resolves for config(…) paths).
+                let expected_fields = schema.properties.as_ref().map(|p| {
+                    let mut keys: Vec<&str> = p.keys().map(String::as_str).collect();
+                    keys.sort_unstable();
+                    keys.join(", ")
+                });
+                let mut err = ValidationError::error(
                     ErrorCode::TraitConfigShapeMismatch,
                     path,
-                    "expected an object".to_string(),
-                ));
+                    format!(
+                        "expected an object, got {}",
+                        super::sexpr::render_sexpr_brief(value)
+                    ),
+                );
+                err = err.with_suggestion(match &expected_fields {
+                    Some(keys) => {
+                        format!("write this entry as an object literal `{{ … }}` with fields: {keys}")
+                    }
+                    None => "write this entry as an object literal `{ … }`".to_string(),
+                });
+                result.add_error(err);
                 return result;
             };
             if let Some(props) = &schema.properties {

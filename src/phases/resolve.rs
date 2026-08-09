@@ -1633,7 +1633,7 @@ impl<'a> Resolver<'a> {
                 "emit requires event name".to_string(),
             ));
         }
-        let event = self.sexpr_as_str(&args[0])?;
+        let event = self.sexpr_as_str(&args[0], "(emit …) argument 1 — the event name")?;
         let payload = if args.len() > 1 {
             Some(self.resolve_sexpr(&args[1])?)
         } else {
@@ -1658,8 +1658,8 @@ impl<'a> Resolver<'a> {
                 "persist requires operation and entity".to_string(),
             ));
         }
-        let operation = self.sexpr_as_str(&args[0])?;
-        let entity = self.sexpr_as_str(&args[1])?;
+        let operation = self.sexpr_as_str(&args[0], "(persist …) argument 1 — the operation (create|update|delete)")?;
+        let entity = self.sexpr_as_str(&args[1], "(persist …) argument 2 — the entity name")?;
 
         // The trailing arg may be an options object carrying `emit:`. When
         // present, the data arg shifts one position back. Options objects
@@ -1711,7 +1711,7 @@ impl<'a> Resolver<'a> {
                 "fetch requires entity name".to_string(),
             ));
         }
-        let entity = self.sexpr_as_str(&args[0])?;
+        let entity = self.sexpr_as_str(&args[0], "(fetch …) argument 1 — the entity name")?;
 
         // Check if args[1] is an options object with { id, include, filter, ... }
         // This supports: ["fetch", "Entity", { "id": "@payload.id" }]
@@ -1879,7 +1879,7 @@ impl<'a> Resolver<'a> {
                 "fetch-stream requires entity name".to_string(),
             ));
         }
-        let entity = self.sexpr_as_str(&args[0])?;
+        let entity = self.sexpr_as_str(&args[0], "(fetch-stream …) argument 1 — the entity name")?;
 
         if args.len() > 1 {
             if let SExpression::Object(obj) = &args[1] {
@@ -1977,7 +1977,7 @@ impl<'a> Resolver<'a> {
             }
         }
 
-        let target_str = self.sexpr_as_str(&args[0])?;
+        let target_str = self.sexpr_as_str(&args[0], "(set …) argument 1 — the binding target (e.g. @entity.field)")?;
         let target = OirBinding::parse(&target_str).ok_or_else(|| {
             ResolveError::InvalidSExpr(format!("Invalid binding: {}", target_str))
         })?;
@@ -2013,12 +2013,12 @@ impl<'a> Resolver<'a> {
                 "render-ui requires slot and pattern".to_string(),
             ));
         }
-        let slot = self.sexpr_as_str(&args[0])?;
+        let slot = self.sexpr_as_str(&args[0], "(render-ui …) argument 1 — the slot name")?;
 
         // Handle null pattern - used to clear a slot
         let pattern = if matches!(&args[1], SExpression::Null) {
             OirPattern::new("clear")
-        } else if let Ok(pattern_type) = self.sexpr_as_str(&args[1]) {
+        } else if let Ok(pattern_type) = self.sexpr_as_str(&args[1], "(render-ui …) argument 2 — the pattern") {
             OirPattern::new(pattern_type)
         } else if let SExpression::Object(obj) = &args[1] {
             let pattern_type = obj
@@ -2080,8 +2080,8 @@ impl<'a> Resolver<'a> {
                 "call-service requires service name and action".to_string(),
             ));
         }
-        let service = self.sexpr_as_str(&args[0])?;
-        let method = self.sexpr_as_str(&args[1])?;
+        let service = self.sexpr_as_str(&args[0], "(call-service …) argument 1 — the service name")?;
+        let method = self.sexpr_as_str(&args[1], "(call-service …) argument 2 — the action name")?;
 
         // Detect trailing options object carrying `emit:`. Only pulled out
         // of the args list if it actually carries an `emit:` key — a plain
@@ -2122,7 +2122,7 @@ impl<'a> Resolver<'a> {
                 "ref requires entity type".to_string(),
             ));
         }
-        let entity_type = self.sexpr_as_str(&args[0])?;
+        let entity_type = self.sexpr_as_str(&args[0], "(ref …) argument 1 — the entity type")?;
 
         if args.len() > 1 {
             if let SExpression::Object(obj) = &args[1] {
@@ -2333,7 +2333,7 @@ impl<'a> Resolver<'a> {
                 "deref requires entity type".to_string(),
             ));
         }
-        let entity_type = self.sexpr_as_str(&args[0])?;
+        let entity_type = self.sexpr_as_str(&args[0], "(deref …) argument 1 — the entity type")?;
 
         if args.len() > 1 {
             let id = self.resolve_sexpr(&args[1])?;
@@ -2350,7 +2350,7 @@ impl<'a> Resolver<'a> {
                 "swap! requires entity type, id, and transform".to_string(),
             ));
         }
-        let entity_type = self.sexpr_as_str(&args[0])?;
+        let entity_type = self.sexpr_as_str(&args[0], "(swap! …) argument 1 — the entity type")?;
         let id = self.resolve_sexpr(&args[1])?;
         let transform = self.resolve_sexpr(&args[2])?;
         Ok(OirExpr::effect(OirEffect::swap(entity_type, id, transform)))
@@ -2363,7 +2363,7 @@ impl<'a> Resolver<'a> {
                 "watch requires entity type and effects array".to_string(),
             ));
         }
-        let entity_type = self.sexpr_as_str(&args[0])?;
+        let entity_type = self.sexpr_as_str(&args[0], "(watch …) argument 1 — the entity type")?;
 
         let effects = if let SExpression::Array(arr) = &args[1] {
             arr.iter()
@@ -2399,10 +2399,25 @@ impl<'a> Resolver<'a> {
         Ok(OirExpr::effect(OirEffect::atomic(effects)))
     }
 
-    fn sexpr_as_str(&self, sexpr: &SExpression) -> Result<String, ResolveError> {
+    /// `what` names the operator + argument slot (e.g. "(emit …) argument 1 —
+    /// the event name") so a resolve-stage failure is actionable instead of a
+    /// bare "Expected string" with no context (T-RESOLVE-OPAQUE).
+    fn sexpr_as_str(&self, sexpr: &SExpression, what: &str) -> Result<String, ResolveError> {
         match sexpr {
             SExpression::String(s) => Ok(s.clone()),
-            _ => Err(ResolveError::InvalidSExpr("Expected string".to_string())),
+            other => {
+                let shape = match other {
+                    SExpression::Object(_) => "an object",
+                    SExpression::Array(_) => "a list",
+                    SExpression::Number(_) => "a number",
+                    SExpression::Bool(_) => "a boolean",
+                    SExpression::Null => "null",
+                    SExpression::String(_) => unreachable!(),
+                };
+                Err(ResolveError::InvalidSExpr(format!(
+                    "{what} must be a string, got {shape}"
+                )))
+            }
         }
     }
 

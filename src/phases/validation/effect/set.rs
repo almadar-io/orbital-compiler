@@ -74,14 +74,19 @@ pub(crate) fn validate_set(
                 );
             }
         }
-        _ => {
+        other => {
+            // Render what was actually written — run 32: a computed set
+            // target spun with no visibility into the offending expression.
             result.add_error(
                 ValidationError::error(
                     ErrorCode::EffectSetInvalidBinding,
                     path,
-                    "set binding must be a string starting with @ or a path expression",
+                    format!(
+                        "set's first argument must be a `@entity.field` binding, got {}",
+                        crate::phases::validation::sexpr::render_sexpr_brief(other)
+                    ),
                 )
-                .with_suggestion("Use: [\"set\", \"@entity.field\", value] or [\"set\", [\"path\", \"field\", \"@payload.subField\"], value]"),
+                .with_suggestion("write `(set @entity.<field> <value>)` — the target is always a literal binding, never a computed expression; to update a looked-up row use `persist update` with the row id"),
             );
         }
     }
@@ -296,11 +301,26 @@ pub(crate) fn validate_set_return_type(
                     orbital_core::oir_type_kind(&inferred)
                 ),
             )
-            .with_suggestion(format!(
-                "Return a '{}'-typed value (wrap/convert the expression), or change the \
-                 field type.",
-                meta.field_type
-            )),
+            .with_suggestion(if meta.field_type == "relation" {
+                // Same teaching as the SET_VALUE arm above — run 29:
+                // `(set @entity.days [])` on `days : [ActivityDay]` spun 4+
+                // sessions against the generic "wrap/convert" text because
+                // nothing said WHY the plain-looking list is a relation.
+                format!(
+                    "`@entity.{entity_field}` is a RELATION: a list of a persistent entity type \
+                     lowers to `relation`, even though the source declaration looks like a plain \
+                     list. Relations are populated by `persist` effects/queries, never `set` \
+                     (not even to `[]` — a relation needs no initialization). For a runtime \
+                     list, declare a plain shaped type at orbital level \
+                     (`type Row = {{ field : type … }}`) and type the field `[Row]`."
+                )
+            } else {
+                format!(
+                    "Return a '{}'-typed value (wrap/convert the expression), or change the \
+                     field type.",
+                    meta.field_type
+                )
+            }),
         );
     }
 

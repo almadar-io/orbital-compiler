@@ -348,8 +348,8 @@ fn validate_captured_payload_path(
                     ErrorCode::BindingPayloadFieldUndeclared,
                     path,
                     format!(
-                        "Event '{}' uses @payload.{} but has no payload schema defined",
-                        event_name, field_name
+                        "Event '{}' uses @payload.{} (.lolo spelling: `?{}` or `@payload.{}`) but has no payload schema defined",
+                        event_name, field_name, field_name, field_name
                     ),
                 )
                 .with_suggestion(suggestion),
@@ -1151,8 +1151,9 @@ fn validate_payload_field_references(
                     let suggestion = if is_lifecycle {
                         format!(
                             "'{event_name}' is a lifecycle event and carries NO payload — @payload.{field_name} \
-                             can never resolve here. Read entity/config state instead, or move this \
-                             logic to the transition for the event that actually delivers '{field_name}'."
+                             (written `?{field_name}` in .lolo) can never resolve here. Read entity/config \
+                             state instead, or move this logic to the transition for the event that \
+                             actually delivers '{field_name}'."
                         )
                     } else {
                         payload_sigil_hybrid_suggestion(&segments, None).unwrap_or_else(|| {
@@ -1167,8 +1168,8 @@ fn validate_payload_field_references(
                             ErrorCode::BindingPayloadFieldUndeclared,
                             path,
                             format!(
-                                "Event '{}' uses @payload.{} but has no payload schema defined",
-                                event_name, field_name
+                                "Event '{}' uses @payload.{} (.lolo spelling: `?{}` or `@payload.{}`) but has no payload schema defined",
+                                event_name, field_name, field_name, field_name
                             ),
                         )
                         .with_suggestion(suggestion),

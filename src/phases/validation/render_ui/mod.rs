@@ -352,10 +352,12 @@ fn walk_pattern_for_trait_positions(
                             s, prop_desc, pattern_desc
                         ),
                     )
-                    .with_suggestion(
-                        "Move the @trait reference into a `children:` array, or use \
-                         a pattern prop that accepts a node (e.g. `front`, `back`)",
-                    ),
+                    .with_suggestion(format!(
+                        "Move the @trait reference into a `children:` array — e.g. delete the \
+                         `{prop_desc}:` prop and add `{s}` as an element of the enclosing \
+                         `children: [ …, {s} ]` (custom props like `{prop_desc}` are not slots) — \
+                         or use a pattern prop that accepts a node (e.g. `front`, `back`)"
+                    )),
                 );
             }
         }

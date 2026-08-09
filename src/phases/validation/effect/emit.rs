@@ -24,19 +24,56 @@ pub(crate) fn validate_emit(arr: &[SExpression], path: &str) -> ValidationResult
     // Post-Phase 2.5: event names are nominal identifiers declared via
     // `type X = Event<T>`. Any valid identifier (MixedCase or UPPER_SNAKE)
     // is accepted; the type system checks resolvability.
-    if let SExpression::String(event_name) = &arr[1] {
-        if !is_valid_event_identifier(event_name) {
-            result.add_error(
-                ValidationError::warning(
-                    ErrorCode::TraitEventInvalidName,
-                    path,
-                    format!(
-                        "Event name '{}' is not a valid identifier",
-                        event_name
+    match &arr[1] {
+        SExpression::String(event_name) => {
+            if !is_valid_event_identifier(event_name) {
+                result.add_error(
+                    ValidationError::warning(
+                        ErrorCode::TraitEventInvalidName,
+                        path,
+                        format!(
+                            "Event name '{}' is not a valid identifier",
+                            event_name
+                        ),
+                    )
+                    .with_suggestion(
+                        "Declare the event via `type EventName = Event<Payload>` and reference it by identifier",
                     ),
+                );
+            }
+        }
+        // A non-string first argument previously fell through validation and
+        // died in the resolve phase as a bare "Expected string" with no
+        // location (T-RESOLVE-OPAQUE). The object shape is the signature of
+        // a forgotten event name: `(emit { data: ?data })`.
+        SExpression::Object(_) => {
+            result.add_error(
+                ValidationError::error(
+                    ErrorCode::EffectEmitInvalidName,
+                    path,
+                    "emit's first argument must be the event name, but an object was passed — this looks like the payload with the event name missing",
                 )
                 .with_suggestion(
-                    "Declare the event via `type EventName = Event<Payload>` and reference it by identifier",
+                    "Write `(emit EVENT_NAME { … })` — the event name comes first, then the payload object. The event must be declared in the trait's `emits` block.",
+                ),
+            );
+        }
+        other => {
+            let shape = match other {
+                SExpression::Array(_) => "a list",
+                SExpression::Number(_) => "a number",
+                SExpression::Bool(_) => "a boolean",
+                SExpression::Null => "null",
+                SExpression::Object(_) | SExpression::String(_) => unreachable!(),
+            };
+            result.add_error(
+                ValidationError::error(
+                    ErrorCode::EffectEmitInvalidName,
+                    path,
+                    format!("emit's first argument must be the event name (a string identifier), got {shape}"),
+                )
+                .with_suggestion(
+                    "Write `(emit EVENT_NAME)` or `(emit EVENT_NAME { … })` with an event declared in the trait's `emits` block",
                 ),
             );
         }
@@ -157,5 +194,61 @@ pub(crate) fn extract_emit_object_ref(
     match options.get("emit")? {
         SExpression::Object(obj) => Some(obj),
         _ => None,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn emit_with_object_first_arg_is_a_hard_error_naming_the_missing_event() {
+        // `(emit { data: ?data })` — the run-19 TopicManager shape that
+        // previously fell through validation and died in the resolve phase as
+        // an uncoded "Expected string" (T-RESOLVE-OPAQUE).
+        let arr = vec![
+            SExpression::String("emit".to_string()),
+            SExpression::Object(std::collections::HashMap::from([(
+                "data".to_string(),
+                SExpression::String("?data".to_string()),
+            )])),
+        ];
+
+        let result = validate_emit(&arr, "test.path");
+        let err = result
+            .errors
+            .iter()
+            .find(|e| e.code == ErrorCode::EffectEmitInvalidName)
+            .expect("hard error expected for object-as-event-name");
+        assert!(err.message.contains("event name missing"), "got: {}", err.message);
+        assert!(err
+            .suggestion
+            .as_deref()
+            .unwrap_or_default()
+            .contains("(emit EVENT_NAME { … })"));
+    }
+
+    #[test]
+    fn emit_with_number_first_arg_is_a_hard_error() {
+        let arr = vec![
+            SExpression::String("emit".to_string()),
+            SExpression::Number(42.0),
+        ];
+
+        let result = validate_emit(&arr, "test.path");
+        assert!(result
+            .errors
+            .iter()
+            .any(|e| e.code == ErrorCode::EffectEmitInvalidName && e.message.contains("a number")));
+    }
+
+    #[test]
+    fn emit_with_valid_identifier_stays_clean() {
+        let arr = vec![
+            SExpression::String("emit".to_string()),
+            SExpression::String("TOPIC_SAVED".to_string()),
+        ];
+
+        assert!(validate_emit(&arr, "test.path").errors.is_empty());
     }
 }
