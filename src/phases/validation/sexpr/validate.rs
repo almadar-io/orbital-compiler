@@ -327,6 +327,45 @@ pub(crate) fn validate_sexpr_with_locals(
                         }
                     }
 
+                    // A lambda belongs only in the operator's declared callback
+                    // slot (registry `lambdaArgPosition`); a `(fn …)` form in any
+                    // other argument position is decidable wrong argument order —
+                    // both evaluators would silently consume the lambda as a value
+                    // (the corpus-wide `(array/reduce arr (fn …) init)` class).
+                    if operator != "fn" && operator != "lambda" {
+                        if let Some(lambda_pos) = crate::embedded::get_operator(operator)
+                            .and_then(|m| m.lambda_arg_position)
+                        {
+                            for (i, arg) in arr.iter().skip(1).enumerate() {
+                                if i as u32 == lambda_pos {
+                                    continue;
+                                }
+                                if let SExpression::Array(inner) = arg {
+                                    if matches!(inner.first(), Some(SExpression::String(h)) if h == "fn" || h == "lambda")
+                                    {
+                                        result.add_error(
+                                            ValidationError::error(
+                                                ErrorCode::SExprLambdaArgPosition,
+                                                path,
+                                                format!(
+                                                    "Operator '{}' takes its lambda at argument {}, but a (fn …) form is at argument {} — wrong argument order, in {}",
+                                                    operator,
+                                                    lambda_pos + 1,
+                                                    i + 1,
+                                                    render_sexpr_brief(expr)
+                                                ),
+                                            )
+                                            .with_suggestion(format!(
+                                                "Move the lambda to argument {} — e.g. array/reduce is (array/reduce arr init (fn (acc x) …))",
+                                                lambda_pos + 1
+                                            )),
+                                        );
+                                    }
+                                }
+                            }
+                        }
+                    }
+
                     // Recursively validate arguments
                     for (i, arg) in arr.iter().skip(1).enumerate() {
                         let arg_result = validate_sexpr_with_locals(
@@ -503,6 +542,95 @@ mod tests {
             .errors
             .iter()
             .any(|e| e.code == ErrorCode::SExprArityMismatch));
+    }
+
+    fn reduce_lambda() -> SExpression {
+        SExpression::Array(vec![
+            SExpression::String("fn".to_string()),
+            SExpression::Array(vec![
+                SExpression::String("acc".to_string()),
+                SExpression::String("x".to_string()),
+            ]),
+            SExpression::Array(vec![
+                SExpression::String("+".to_string()),
+                SExpression::String("@acc".to_string()),
+                SExpression::String("@x".to_string()),
+            ]),
+        ])
+    }
+
+    #[test]
+    fn reduce_lambda_in_init_slot_is_rejected() {
+        // The silent corpus-wide class: (array/reduce arr (fn …) init).
+        let expr = SExpression::Array(vec![
+            SExpression::String("array/reduce".to_string()),
+            SExpression::String("@entity.items".to_string()),
+            reduce_lambda(),
+            SExpression::Number(0.0),
+        ]);
+        let result = validate_sexpr(&expr, "test", SExprContext::Guard, &HashSet::new());
+        assert!(result
+            .errors
+            .iter()
+            .any(|e| e.code == ErrorCode::SExprLambdaArgPosition));
+    }
+
+    #[test]
+    fn reduce_spec_order_is_clean() {
+        let expr = SExpression::Array(vec![
+            SExpression::String("array/reduce".to_string()),
+            SExpression::String("@entity.items".to_string()),
+            SExpression::Number(0.0),
+            reduce_lambda(),
+        ]);
+        let result = validate_sexpr(&expr, "test", SExprContext::Guard, &HashSet::new());
+        assert!(
+            !result
+                .errors
+                .iter()
+                .any(|e| e.code == ErrorCode::SExprLambdaArgPosition),
+            "Errors: {:?}",
+            result.errors
+        );
+    }
+
+    #[test]
+    fn reduce_legacy_raw_body_reducer_is_not_flagged() {
+        // JS runtime accepts a raw body expression (binds @acc/@item) at the
+        // reducer slot; the position check must not require a (fn …) there.
+        let expr = SExpression::Array(vec![
+            SExpression::String("array/reduce".to_string()),
+            SExpression::String("@entity.items".to_string()),
+            SExpression::Number(0.0),
+            SExpression::Array(vec![
+                SExpression::String("+".to_string()),
+                SExpression::String("@acc".to_string()),
+                SExpression::String("@item".to_string()),
+            ]),
+        ]);
+        let result = validate_sexpr(&expr, "test", SExprContext::Guard, &HashSet::new());
+        assert!(
+            !result
+                .errors
+                .iter()
+                .any(|e| e.code == ErrorCode::SExprLambdaArgPosition),
+            "Errors: {:?}",
+            result.errors
+        );
+    }
+
+    #[test]
+    fn map_lambda_in_array_slot_is_rejected() {
+        let expr = SExpression::Array(vec![
+            SExpression::String("array/map".to_string()),
+            reduce_lambda(),
+            SExpression::String("@entity.items".to_string()),
+        ]);
+        let result = validate_sexpr(&expr, "test", SExprContext::Guard, &HashSet::new());
+        assert!(result
+            .errors
+            .iter()
+            .any(|e| e.code == ErrorCode::SExprLambdaArgPosition));
     }
 
     #[test]

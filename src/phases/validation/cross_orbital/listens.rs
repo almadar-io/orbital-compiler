@@ -69,6 +69,36 @@ pub(crate) fn validate_listens_integrity(schema: &OrbitalSchema) -> ValidationRe
                     .map(|events| events.contains(&listen.event))
                     .unwrap_or(false);
                 if !resolved {
+                    // A bare `Trait.EVENT` source resolves against the
+                    // listener's OWN orbital only. When the named trait does
+                    // declare the event in a SIBLING orbital, the qualified
+                    // `Orbital.Trait.EVENT` form already routes there on every
+                    // path (static + both runtimes) — name it.
+                    let sibling_hit = matches!(
+                        &listen.source,
+                        Some(ListenSource::Trait { .. })
+                    )
+                    .then(|| {
+                        trait_emits.iter().find_map(|((o, t), events)| {
+                            (t == &source_trait
+                                && o != &source_orbital
+                                && events.contains(&listen.event))
+                            .then(|| o.clone())
+                        })
+                    })
+                    .flatten();
+                    let suggestion = match sibling_hit {
+                        Some(o) => format!(
+                            "Trait '{}' declares event '{}' in sibling orbital '{}' — a bare \
+                             `Trait.EVENT` listen only resolves within this orbital; write the \
+                             qualified form `{}.{}.{}`.",
+                            source_trait, listen.event, o, o, source_trait, listen.event
+                        ),
+                        None => "Either declare the event in the source trait's `emits` block, or \
+                                 remove the listens entry. Cross-orbital channels require the source \
+                                 trait to declare the emit explicitly."
+                            .to_string(),
+                    };
                     result.add_error(
                         ValidationError::error(
                             ErrorCode::CrossOrbitalListenSourceUnresolved,
@@ -79,11 +109,7 @@ pub(crate) fn validate_listens_integrity(schema: &OrbitalSchema) -> ValidationRe
                                 orbital.name, td.name, source_orbital, source_trait, listen.event
                             ),
                         )
-                        .with_suggestion(
-                            "Either declare the event in the source trait's `emits` block, or \
-                             remove the listens entry. Cross-orbital channels require the source \
-                             trait to declare the emit explicitly.",
-                        ),
+                        .with_suggestion(suggestion),
                     );
                 }
             }

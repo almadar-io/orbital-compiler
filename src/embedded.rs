@@ -194,6 +194,12 @@ pub struct EmbeddedOperator {
     /// passes.
     #[serde(rename = "requiresEmitSuccess", default)]
     pub requires_emit_success: bool,
+    /// 0-indexed argument position of the operator's lambda/callback, when it
+    /// takes one. The sexpr validator rejects a `(fn …)` form at any OTHER
+    /// argument position — the decidable wrong-arg-order class
+    /// (e.g. `(array/reduce arr (fn …) init)`).
+    #[serde(rename = "lambdaArgPosition", default)]
+    pub lambda_arg_position: Option<u32>,
 }
 
 /// Metadata for an operator category.
@@ -670,7 +676,7 @@ pub fn factory_signatures_json_io() -> &'static str {
 // Values are gzip bytes (build.rs → $OUT_DIR/baked-gz/…), inflated lazily by
 // `get_std_behavior_content` — the baked corpus is ~31MB raw, ~2MB gzipped.
 pub static EMBEDDED_STD_BEHAVIORS: phf::Map<&'static str, &'static [u8]> = phf::phf_map! {
-    // === Atoms (384) ===
+    // === Atoms (411) ===
     "std/behaviors/dnd-combat" => include_bytes!(concat!(env!("OUT_DIR"), "/baked-gz/io/dnd/atoms/dnd-combat.orb.gz")),
     "std/behaviors/dnd-dice" => include_bytes!(concat!(env!("OUT_DIR"), "/baked-gz/io/dnd/atoms/dnd-dice.orb.gz")),
     "std/behaviors/dnd-dungeon-gen" => include_bytes!(concat!(env!("OUT_DIR"), "/baked-gz/io/dnd/atoms/dnd-dungeon-gen.orb.gz")),
@@ -697,18 +703,22 @@ pub static EMBEDDED_STD_BEHAVIORS: phf::Map<&'static str, &'static [u8]> = phf::
     "std/behaviors/std-algo-astargrid" => include_bytes!(concat!(env!("OUT_DIR"), "/baked-gz/std/ui/learning/atoms/std-algo-astargrid.orb.gz")),
     "std/behaviors/std-algo-bfs" => include_bytes!(concat!(env!("OUT_DIR"), "/baked-gz/std/ui/learning/atoms/std-algo-bfs.orb.gz")),
     "std/behaviors/std-algo-binarysearch" => include_bytes!(concat!(env!("OUT_DIR"), "/baked-gz/std/ui/learning/atoms/std-algo-binarysearch.orb.gz")),
+    "std/behaviors/std-algo-bst" => include_bytes!(concat!(env!("OUT_DIR"), "/baked-gz/std/ui/learning/atoms/std-algo-bst.orb.gz")),
     "std/behaviors/std-algo-bubblesort" => include_bytes!(concat!(env!("OUT_DIR"), "/baked-gz/std/ui/learning/atoms/std-algo-bubblesort.orb.gz")),
     "std/behaviors/std-algo-dfs" => include_bytes!(concat!(env!("OUT_DIR"), "/baked-gz/std/ui/learning/atoms/std-algo-dfs.orb.gz")),
     "std/behaviors/std-algo-dijkstra" => include_bytes!(concat!(env!("OUT_DIR"), "/baked-gz/std/ui/learning/atoms/std-algo-dijkstra.orb.gz")),
+    "std/behaviors/std-algo-dp" => include_bytes!(concat!(env!("OUT_DIR"), "/baked-gz/std/ui/learning/atoms/std-algo-dp.orb.gz")),
     "std/behaviors/std-algo-floodfill" => include_bytes!(concat!(env!("OUT_DIR"), "/baked-gz/std/ui/learning/atoms/std-algo-floodfill.orb.gz")),
     "std/behaviors/std-algo-gameoflife" => include_bytes!(concat!(env!("OUT_DIR"), "/baked-gz/std/ui/learning/atoms/std-algo-gameoflife.orb.gz")),
     "std/behaviors/std-algo-gridbfs" => include_bytes!(concat!(env!("OUT_DIR"), "/baked-gz/std/ui/learning/atoms/std-algo-gridbfs.orb.gz")),
+    "std/behaviors/std-algo-hashing" => include_bytes!(concat!(env!("OUT_DIR"), "/baked-gz/std/ui/learning/atoms/std-algo-hashing.orb.gz")),
     "std/behaviors/std-algo-heapsort" => include_bytes!(concat!(env!("OUT_DIR"), "/baked-gz/std/ui/learning/atoms/std-algo-heapsort.orb.gz")),
     "std/behaviors/std-algo-insertionsort" => include_bytes!(concat!(env!("OUT_DIR"), "/baked-gz/std/ui/learning/atoms/std-algo-insertionsort.orb.gz")),
     "std/behaviors/std-algo-mazegen" => include_bytes!(concat!(env!("OUT_DIR"), "/baked-gz/std/ui/learning/atoms/std-algo-mazegen.orb.gz")),
     "std/behaviors/std-algo-mergesort" => include_bytes!(concat!(env!("OUT_DIR"), "/baked-gz/std/ui/learning/atoms/std-algo-mergesort.orb.gz")),
     "std/behaviors/std-algo-mst" => include_bytes!(concat!(env!("OUT_DIR"), "/baked-gz/std/ui/learning/atoms/std-algo-mst.orb.gz")),
     "std/behaviors/std-algo-quicksort" => include_bytes!(concat!(env!("OUT_DIR"), "/baked-gz/std/ui/learning/atoms/std-algo-quicksort.orb.gz")),
+    "std/behaviors/std-algo-recursion" => include_bytes!(concat!(env!("OUT_DIR"), "/baked-gz/std/ui/learning/atoms/std-algo-recursion.orb.gz")),
     "std/behaviors/std-algo-selectionsort" => include_bytes!(concat!(env!("OUT_DIR"), "/baked-gz/std/ui/learning/atoms/std-algo-selectionsort.orb.gz")),
     "std/behaviors/std-algo-slidingwindow" => include_bytes!(concat!(env!("OUT_DIR"), "/baked-gz/std/ui/learning/atoms/std-algo-slidingwindow.orb.gz")),
     "std/behaviors/std-algo-toposort" => include_bytes!(concat!(env!("OUT_DIR"), "/baked-gz/std/ui/learning/atoms/std-algo-toposort.orb.gz")),
@@ -756,6 +766,8 @@ pub static EMBEDDED_STD_BEHAVIORS: phf::Map<&'static str, &'static [u8]> = phf::
     "std/behaviors/std-circuit-breaker" => include_bytes!(concat!(env!("OUT_DIR"), "/baked-gz/std/infra/atoms/std-circuit-breaker.orb.gz")),
     "std/behaviors/std-civics-billprocess" => include_bytes!(concat!(env!("OUT_DIR"), "/baked-gz/std/ui/learning/atoms/std-civics-billprocess.orb.gz")),
     "std/behaviors/std-civics-checks" => include_bytes!(concat!(env!("OUT_DIR"), "/baked-gz/std/ui/learning/atoms/std-civics-checks.orb.gz")),
+    "std/behaviors/std-civics-electoral" => include_bytes!(concat!(env!("OUT_DIR"), "/baked-gz/std/ui/learning/atoms/std-civics-electoral.orb.gz")),
+    "std/behaviors/std-civics-gerrymander" => include_bytes!(concat!(env!("OUT_DIR"), "/baked-gz/std/ui/learning/atoms/std-civics-gerrymander.orb.gz")),
     "std/behaviors/std-class-roster" => include_bytes!(concat!(env!("OUT_DIR"), "/baked-gz/io/app/atoms/std-class-roster.orb.gz")),
     "std/behaviors/std-class-session" => include_bytes!(concat!(env!("OUT_DIR"), "/baked-gz/io/app/atoms/std-class-session.orb.gz")),
     "std/behaviors/std-confirmation" => include_bytes!(concat!(env!("OUT_DIR"), "/baked-gz/std/ui/core/atoms/std-confirmation.orb.gz")),
@@ -795,8 +807,11 @@ pub static EMBEDDED_STD_BEHAVIORS: phf::Map<&'static str, &'static [u8]> = phf::
     "std/behaviors/std-gallery" => include_bytes!(concat!(env!("OUT_DIR"), "/baked-gz/std/ui/core/atoms/std-gallery.orb.gz")),
     "std/behaviors/std-game-clock" => include_bytes!(concat!(env!("OUT_DIR"), "/baked-gz/std/infra/atoms/std-game-clock.orb.gz")),
     "std/behaviors/std-gather" => include_bytes!(concat!(env!("OUT_DIR"), "/baked-gz/std/ui/game/atoms/std-gather.orb.gz")),
+    "std/behaviors/std-geo-dtm" => include_bytes!(concat!(env!("OUT_DIR"), "/baked-gz/std/ui/learning/atoms/std-geo-dtm.orb.gz")),
     "std/behaviors/std-geo-koppen" => include_bytes!(concat!(env!("OUT_DIR"), "/baked-gz/std/ui/learning/atoms/std-geo-koppen.orb.gz")),
     "std/behaviors/std-geo-population" => include_bytes!(concat!(env!("OUT_DIR"), "/baked-gz/std/ui/learning/atoms/std-geo-population.orb.gz")),
+    "std/behaviors/std-geo-urban" => include_bytes!(concat!(env!("OUT_DIR"), "/baked-gz/std/ui/learning/atoms/std-geo-urban.orb.gz")),
+    "std/behaviors/std-geo-vonthunen" => include_bytes!(concat!(env!("OUT_DIR"), "/baked-gz/std/ui/learning/atoms/std-geo-vonthunen.orb.gz")),
     "std/behaviors/std-geosearch" => include_bytes!(concat!(env!("OUT_DIR"), "/baked-gz/std/ui/core/atoms/std-geosearch.orb.gz")),
     "std/behaviors/std-gold" => include_bytes!(concat!(env!("OUT_DIR"), "/baked-gz/std/ui/game/atoms/std-gold.orb.gz")),
     "std/behaviors/std-graph-builder" => include_bytes!(concat!(env!("OUT_DIR"), "/baked-gz/std/ml/atoms/std-graph-builder.orb.gz")),
@@ -826,8 +841,12 @@ pub static EMBEDDED_STD_BEHAVIORS: phf::Map<&'static str, &'static [u8]> = phf::
     "std/behaviors/std-ling-soundchange" => include_bytes!(concat!(env!("OUT_DIR"), "/baked-gz/std/ui/learning/atoms/std-ling-soundchange.orb.gz")),
     "std/behaviors/std-ling-syntaxtree" => include_bytes!(concat!(env!("OUT_DIR"), "/baked-gz/std/ui/learning/atoms/std-ling-syntaxtree.orb.gz")),
     "std/behaviors/std-list" => include_bytes!(concat!(env!("OUT_DIR"), "/baked-gz/std/ui/core/atoms/std-list.orb.gz")),
+    "std/behaviors/std-logic-fallacy" => include_bytes!(concat!(env!("OUT_DIR"), "/baked-gz/std/ui/learning/atoms/std-logic-fallacy.orb.gz")),
+    "std/behaviors/std-logic-gates" => include_bytes!(concat!(env!("OUT_DIR"), "/baked-gz/std/ui/learning/atoms/std-logic-gates.orb.gz")),
     "std/behaviors/std-logic-inference" => include_bytes!(concat!(env!("OUT_DIR"), "/baked-gz/std/ui/learning/atoms/std-logic-inference.orb.gz")),
+    "std/behaviors/std-logic-quantifier" => include_bytes!(concat!(env!("OUT_DIR"), "/baked-gz/std/ui/learning/atoms/std-logic-quantifier.orb.gz")),
     "std/behaviors/std-logic-truthtable" => include_bytes!(concat!(env!("OUT_DIR"), "/baked-gz/std/ui/learning/atoms/std-logic-truthtable.orb.gz")),
+    "std/behaviors/std-logic-venn" => include_bytes!(concat!(env!("OUT_DIR"), "/baked-gz/std/ui/learning/atoms/std-logic-venn.orb.gz")),
     "std/behaviors/std-maintenance-request" => include_bytes!(concat!(env!("OUT_DIR"), "/baked-gz/io/app/atoms/std-maintenance-request.orb.gz")),
     "std/behaviors/std-margin-account" => include_bytes!(concat!(env!("OUT_DIR"), "/baked-gz/io/app/atoms/std-margin-account.orb.gz")),
     "std/behaviors/std-market-flow" => include_bytes!(concat!(env!("OUT_DIR"), "/baked-gz/std/ui/game/atoms/std-market-flow.orb.gz")),
@@ -843,8 +862,12 @@ pub static EMBEDDED_STD_BEHAVIORS: phf::Map<&'static str, &'static [u8]> = phf::
     "std/behaviors/std-marketing-stats" => include_bytes!(concat!(env!("OUT_DIR"), "/baked-gz/std/ui/marketing/atoms/std-marketing-stats.orb.gz")),
     "std/behaviors/std-marketing-steps" => include_bytes!(concat!(env!("OUT_DIR"), "/baked-gz/std/ui/marketing/atoms/std-marketing-steps.orb.gz")),
     "std/behaviors/std-marketing-team" => include_bytes!(concat!(env!("OUT_DIR"), "/baked-gz/std/ui/marketing/atoms/std-marketing-team.orb.gz")),
+    "std/behaviors/std-math-derivative" => include_bytes!(concat!(env!("OUT_DIR"), "/baked-gz/std/ui/learning/atoms/std-math-derivative.orb.gz")),
+    "std/behaviors/std-math-integral" => include_bytes!(concat!(env!("OUT_DIR"), "/baked-gz/std/ui/learning/atoms/std-math-integral.orb.gz")),
     "std/behaviors/std-math-linear" => include_bytes!(concat!(env!("OUT_DIR"), "/baked-gz/std/ui/learning/atoms/std-math-linear.orb.gz")),
+    "std/behaviors/std-math-matrix" => include_bytes!(concat!(env!("OUT_DIR"), "/baked-gz/std/ui/learning/atoms/std-math-matrix.orb.gz")),
     "std/behaviors/std-math-numberline" => include_bytes!(concat!(env!("OUT_DIR"), "/baked-gz/std/ui/learning/atoms/std-math-numberline.orb.gz")),
+    "std/behaviors/std-math-quadratic" => include_bytes!(concat!(env!("OUT_DIR"), "/baked-gz/std/ui/learning/atoms/std-math-quadratic.orb.gz")),
     "std/behaviors/std-math-sequence" => include_bytes!(concat!(env!("OUT_DIR"), "/baked-gz/std/ui/learning/atoms/std-math-sequence.orb.gz")),
     "std/behaviors/std-math-sinewave" => include_bytes!(concat!(env!("OUT_DIR"), "/baked-gz/std/ui/learning/atoms/std-math-sinewave.orb.gz")),
     "std/behaviors/std-math-unitcircle" => include_bytes!(concat!(env!("OUT_DIR"), "/baked-gz/std/ui/learning/atoms/std-math-unitcircle.orb.gz")),
@@ -894,12 +917,19 @@ pub static EMBEDDED_STD_BEHAVIORS: phf::Map<&'static str, &'static [u8]> = phf::
     "std/behaviors/std-portfolio" => include_bytes!(concat!(env!("OUT_DIR"), "/baked-gz/io/app/atoms/std-portfolio.orb.gz")),
     "std/behaviors/std-prescription" => include_bytes!(concat!(env!("OUT_DIR"), "/baked-gz/io/app/atoms/std-prescription.orb.gz")),
     "std/behaviors/std-prob-bayes" => include_bytes!(concat!(env!("OUT_DIR"), "/baked-gz/std/ui/learning/atoms/std-prob-bayes.orb.gz")),
+    "std/behaviors/std-prob-binomial" => include_bytes!(concat!(env!("OUT_DIR"), "/baked-gz/std/ui/learning/atoms/std-prob-binomial.orb.gz")),
+    "std/behaviors/std-prob-clt" => include_bytes!(concat!(env!("OUT_DIR"), "/baked-gz/std/ui/learning/atoms/std-prob-clt.orb.gz")),
+    "std/behaviors/std-prob-confidence" => include_bytes!(concat!(env!("OUT_DIR"), "/baked-gz/std/ui/learning/atoms/std-prob-confidence.orb.gz")),
     "std/behaviors/std-prob-galton" => include_bytes!(concat!(env!("OUT_DIR"), "/baked-gz/std/ui/learning/atoms/std-prob-galton.orb.gz")),
     "std/behaviors/std-prob-montecarlo" => include_bytes!(concat!(env!("OUT_DIR"), "/baked-gz/std/ui/learning/atoms/std-prob-montecarlo.orb.gz")),
+    "std/behaviors/std-prob-normal-distribution" => include_bytes!(concat!(env!("OUT_DIR"), "/baked-gz/std/ui/learning/atoms/std-prob-normal-distribution.orb.gz")),
+    "std/behaviors/std-prob-regression" => include_bytes!(concat!(env!("OUT_DIR"), "/baked-gz/std/ui/learning/atoms/std-prob-regression.orb.gz")),
     "std/behaviors/std-prob-trials" => include_bytes!(concat!(env!("OUT_DIR"), "/baked-gz/std/ui/learning/atoms/std-prob-trials.orb.gz")),
     "std/behaviors/std-prob-walk" => include_bytes!(concat!(env!("OUT_DIR"), "/baked-gz/std/ui/learning/atoms/std-prob-walk.orb.gz")),
     "std/behaviors/std-production" => include_bytes!(concat!(env!("OUT_DIR"), "/baked-gz/std/ui/game/atoms/std-production.orb.gz")),
     "std/behaviors/std-psych-conditioning" => include_bytes!(concat!(env!("OUT_DIR"), "/baked-gz/std/ui/learning/atoms/std-psych-conditioning.orb.gz")),
+    "std/behaviors/std-psych-signal" => include_bytes!(concat!(env!("OUT_DIR"), "/baked-gz/std/ui/learning/atoms/std-psych-signal.orb.gz")),
+    "std/behaviors/std-purchase-order" => include_bytes!(concat!(env!("OUT_DIR"), "/baked-gz/io/app/atoms/std-purchase-order.orb.gz")),
     "std/behaviors/std-question-bank" => include_bytes!(concat!(env!("OUT_DIR"), "/baked-gz/io/app/atoms/std-question-bank.orb.gz")),
     "std/behaviors/std-rate-limiter" => include_bytes!(concat!(env!("OUT_DIR"), "/baked-gz/std/infra/atoms/std-rate-limiter.orb.gz")),
     "std/behaviors/std-rating-review" => include_bytes!(concat!(env!("OUT_DIR"), "/baked-gz/std/ui/core/atoms/std-rating-review.orb.gz")),
@@ -940,7 +970,10 @@ pub static EMBEDDED_STD_BEHAVIORS: phf::Map<&'static str, &'static [u8]> = phf::
     "std/behaviors/std-service-youtube" => include_bytes!(concat!(env!("OUT_DIR"), "/baked-gz/io/service/atoms/std-service-youtube.orb.gz")),
     "std/behaviors/std-signature-capture" => include_bytes!(concat!(env!("OUT_DIR"), "/baked-gz/std/ui/core/atoms/std-signature-capture.orb.gz")),
     "std/behaviors/std-snake-loop" => include_bytes!(concat!(env!("OUT_DIR"), "/baked-gz/io/game/atoms/std-snake-loop.orb.gz")),
+    "std/behaviors/std-soc-conformity" => include_bytes!(concat!(env!("OUT_DIR"), "/baked-gz/std/ui/learning/atoms/std-soc-conformity.orb.gz")),
     "std/behaviors/std-soc-imagination" => include_bytes!(concat!(env!("OUT_DIR"), "/baked-gz/std/ui/learning/atoms/std-soc-imagination.orb.gz")),
+    "std/behaviors/std-soc-mobility" => include_bytes!(concat!(env!("OUT_DIR"), "/baked-gz/std/ui/learning/atoms/std-soc-mobility.orb.gz")),
+    "std/behaviors/std-soc-network" => include_bytes!(concat!(env!("OUT_DIR"), "/baked-gz/std/ui/learning/atoms/std-soc-network.orb.gz")),
     "std/behaviors/std-soc-stratification" => include_bytes!(concat!(env!("OUT_DIR"), "/baked-gz/std/ui/learning/atoms/std-soc-stratification.orb.gz")),
     "std/behaviors/std-stats" => include_bytes!(concat!(env!("OUT_DIR"), "/baked-gz/std/ui/core/atoms/std-stats.orb.gz")),
     "std/behaviors/std-status-lifecycle" => include_bytes!(concat!(env!("OUT_DIR"), "/baked-gz/std/infra/atoms/std-status-lifecycle.orb.gz")),

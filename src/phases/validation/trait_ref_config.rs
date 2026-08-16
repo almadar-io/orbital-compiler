@@ -59,6 +59,25 @@ pub fn validate_trait_ref_config_diagnostics(
             );
         }
 
+        for key in &diag.unknown_event_rename_keys {
+            let known = if diag.known_events.is_empty() {
+                "(none)".to_string()
+            } else {
+                diag.known_events.join(", ")
+            };
+            result.add_error(
+                ValidationError::error(
+                    ErrorCode::EventRenameUnknownKey,
+                    format!("{}.events({})", diag.path, key),
+                    format!(
+                        "events rename source key '{}' does not name any event declared or produced by referenced trait '{}'. The rename silently no-ops. Known events: {}.",
+                        key, diag.reference, known
+                    ),
+                )
+                .with_valid_values(diag.known_events.clone()),
+            );
+        }
+
         for key in &diag.missing_required_keys {
             result.add_error(
                 ValidationError::error(

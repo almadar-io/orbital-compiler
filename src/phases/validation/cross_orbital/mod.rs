@@ -18,7 +18,8 @@ mod scope;
 pub(crate) use cycles::validate_circular_dependencies;
 pub(crate) use entity::validate_entity_uniqueness;
 pub(crate) use event_wiring::{
-    extract_emit_event, transition_can_propagate, validate_event_wiring,
+    collect_effect_produced_events, extract_emit_event, transition_can_propagate,
+    validate_event_wiring,
 };
 pub(crate) use listen_trigger::validate_listen_triggers;
 pub(crate) use listens::validate_listens_integrity;

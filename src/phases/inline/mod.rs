@@ -284,10 +284,16 @@ pub fn inline_schema_with_config_diagnostics(
     // the config→knob provenance for substituted render-ui props.
     let mut pulled_by_orbital: Vec<(usize, Vec<String>)> = Vec::new();
     let mut all_provenance: HashMap<String, Vec<ConfigProvenanceRecord>> = HashMap::new();
+    // One orbital's inline failure must not leave its SIBLINGS un-inlined: a
+    // `?` here abandoned every later orbital, and validators (which index
+    // Inline traits only) then cascaded spurious ORB_T_UNDEFINED_TRAIT /
+    // ORB_X_LISTEN_SOURCE_UNRESOLVED findings across the rest of the file.
+    // Inline everything that resolves, then report the first real failure.
+    let mut first_error: Option<InlineError> = None;
     for (idx, orbital) in schema.orbitals.iter_mut().enumerate() {
         let mut pulled: Vec<String> = Vec::new();
         let mut provenance: Vec<ConfigProvenanceRecord> = Vec::new();
-        inline_orbital(
+        if let Err(e) = inline_orbital(
             orbital,
             &mut loader,
             &mut chain,
@@ -296,13 +302,21 @@ pub fn inline_schema_with_config_diagnostics(
             Some(&mut pulled),
             &mut provenance,
             diagnostics,
-        )?;
+        ) {
+            if first_error.is_none() {
+                first_error = Some(e);
+            }
+            continue;
+        }
         if !pulled.is_empty() {
             pulled_by_orbital.push((idx, pulled));
         }
         if !provenance.is_empty() {
             all_provenance.insert(orbital.name.clone(), provenance);
         }
+    }
+    if let Some(e) = first_error {
+        return Err(e);
     }
 
     uniquify_cross_orbital_pulled_siblings(schema, &pulled_by_orbital);

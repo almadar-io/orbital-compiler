@@ -319,6 +319,9 @@ pub enum ErrorCode {
     SExprInvalidOperator,
     /// Wrong number of arguments for operator
     SExprArityMismatch,
+    /// A `(fn …)` form in an argument position the operator does not take its
+    /// lambda in — decidable wrong argument order, e.g. `(array/reduce arr (fn …) init)`
+    SExprLambdaArgPosition,
     /// Effect operator used in guard context
     SExprEffectInGuard,
     /// Invalid binding reference
@@ -832,6 +835,7 @@ impl ErrorCode {
             // S-Expression
             ErrorCode::SExprInvalidOperator => "SEXPR_INVALID_OPERATOR",
             ErrorCode::SExprArityMismatch => "SEXPR_ARITY_MISMATCH",
+            ErrorCode::SExprLambdaArgPosition => "SEXPR_LAMBDA_ARG_POSITION",
             ErrorCode::SExprEffectInGuard => "SEXPR_EFFECT_IN_GUARD",
             ErrorCode::SExprInvalidBinding => "SEXPR_INVALID_BINDING",
             ErrorCode::SExprInvalidBindingPath => "SEXPR_INVALID_BINDING_PATH",
@@ -1074,6 +1078,7 @@ impl ErrorCode {
 
             ErrorCode::SExprInvalidOperator
             | ErrorCode::SExprArityMismatch
+            | ErrorCode::SExprLambdaArgPosition
             | ErrorCode::SExprEffectInGuard
             | ErrorCode::SExprInvalidBinding
             | ErrorCode::SExprInvalidBindingPath

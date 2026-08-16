@@ -587,6 +587,19 @@ pub struct TraitRefConfigDiagnostic {
     pub unknown_keys: Vec<String>,
     pub missing_required_keys: Vec<String>,
     pub declared_keys: Vec<String>,
+    /// `events { FROM: TO }` source keys that name no event the referenced
+    /// trait declares or produces (emits ∪ transition triggers ∪
+    /// `stateMachine.events[].key` ∪ effect emit-maps / render-ui event props).
+    /// Collected here instead of aborting inlining: a bad rename key must not
+    /// un-resolve the rest of the schema (the abort left later orbitals
+    /// un-inlined and cascaded spurious ORB_T_UNDEFINED_TRAIT /
+    /// ORB_X_LISTEN_SOURCE_UNRESOLVED findings). Converted to
+    /// `ORB_T_EVENT_RENAME_UNKNOWN_KEY` errors by
+    /// `phases::validation::trait_ref_config`.
+    pub unknown_event_rename_keys: Vec<String>,
+    /// The referenced trait's known event set at check time — carried so the
+    /// validation error can name the valid keys.
+    pub known_events: Vec<String>,
 }
 
 pub(crate) type InlinedTraits = (
@@ -825,7 +838,23 @@ pub(crate) fn inline_traits(
                                                 }
                                             }
                                         }
+                                        // The known set matches what the rename
+                                        // actually rewrites (`rewrite_identifiers`
+                                        // covers emit arrays, emit-option maps and
+                                        // render-ui event props; `rewrite_trait_event_fields`
+                                        // covers the structured fields) and the
+                                        // validator's `build_trait_event_sets` —
+                                        // three sites, one definition. A source key
+                                        // outside it is a genuine no-op rename.
                                         let mut known: HashSet<String> = HashSet::new();
+                                        if let Some(events) = &trait_def.state_machine.events {
+                                            for ev in events {
+                                                known.insert(ev.key.clone());
+                                            }
+                                        }
+                                        known.extend(
+                                            crate::phases::validation::cross_orbital::collect_effect_produced_events(&trait_def),
+                                        );
                                         if let Some(emits) = &trait_def.emits {
                                             for e in emits {
                                                 if orbital_core::schema::config_ref_event_knob(
@@ -860,20 +889,33 @@ pub(crate) fn inline_traits(
                                         for t in &trait_def.state_machine.transitions {
                                             known.insert(t.event.clone());
                                         }
-                                        for from in map.keys() {
-                                            // Skip self-maps / empties — they
-                                            // are pruned as no-ops by the
-                                            // override builder anyway.
-                                            if from.is_empty() {
-                                                continue;
-                                            }
-                                            if !known.contains(from.as_str()) {
-                                                return Err(InlineError::EventRenameUnknownKey {
-                                                    from: from.clone(),
-                                                    trait_name: original_name.clone(),
-                                                    path: trait_path.clone(),
-                                                });
-                                            }
+                                        // Collect — never abort. An unknown key
+                                        // no-ops in the substitution walk, so
+                                        // composition of this trait (and every
+                                        // later orbital) stays sound; the
+                                        // validator reports it as
+                                        // ORB_T_EVENT_RENAME_UNKNOWN_KEY.
+                                        let mut unknown_event_rename_keys: Vec<String> = map
+                                            .keys()
+                                            .filter(|from| {
+                                                !from.is_empty() && !known.contains(from.as_str())
+                                            })
+                                            .cloned()
+                                            .collect();
+                                        if !unknown_event_rename_keys.is_empty() {
+                                            unknown_event_rename_keys.sort();
+                                            let mut known_events: Vec<String> =
+                                                known.into_iter().collect();
+                                            known_events.sort();
+                                            config_diagnostics.push(TraitRefConfigDiagnostic {
+                                                path: trait_path.clone(),
+                                                reference: original_name.clone(),
+                                                unknown_keys: Vec::new(),
+                                                missing_required_keys: Vec::new(),
+                                                declared_keys: Vec::new(),
+                                                unknown_event_rename_keys,
+                                                known_events,
+                                            });
                                         }
                                     }
                                     // E1/E2: check the call-site `config`
@@ -944,6 +986,8 @@ pub(crate) fn inline_traits(
                                                 unknown_keys,
                                                 missing_required_keys,
                                                 declared_keys: declared_keys.into_iter().collect(),
+                                                unknown_event_rename_keys: Vec::new(),
+                                                known_events: Vec::new(),
                                             });
                                         }
                                     }

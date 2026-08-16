@@ -7,8 +7,12 @@
 //! trait/page references with the embedded definitions while preserving the
 //! caller's `linkedEntity` and `path` overrides.
 
-use orbital_compiler::phases::inline::{inline_schema, InlineConfig, InlineError};
+use orbital_compiler::phases::inline::{
+    inline_schema, inline_schema_with_config_diagnostics, InlineConfig, InlineError,
+};
 use orbital_compiler::phases::parse::parse_file;
+use orbital_compiler::phases::validation::error::ErrorCode;
+use orbital_compiler::phases::validation::trait_ref_config::validate_trait_ref_config_diagnostics;
 use orbital_compiler::{compile_file, CompilerError, CompilerOptions};
 use orbital_core::{EntityRef, PageRef, TraitReference};
 use std::path::PathBuf;
@@ -421,29 +425,94 @@ fn button_config_ref_events_rename_of_resolved_default_name_succeeds() {
 }
 
 #[test]
-fn button_config_ref_events_rename_of_truly_unknown_key_still_errors() {
+fn button_config_ref_events_rename_of_truly_unknown_key_diagnoses_without_abort() {
+    // New contract: an unknown rename source key must NOT abort inlining
+    // (the abort left every later orbital un-inlined and cascaded spurious
+    // ORB_T_UNDEFINED_TRAIT / ORB_X_LISTEN_SOURCE_UNRESOLVED findings).
+    // Composition proceeds — the rename no-ops — and the offense surfaces as
+    // an ORB_T_EVENT_RENAME_UNKNOWN_KEY validation error via the
+    // TraitRefConfigDiagnostic channel.
     let path = button_config_ref_events_unknown_key_fixture_path();
-    let result = compile_file(&path, &lowered_oir_options());
 
-    match result {
-        Err(CompilerError::Inline(InlineError::EventRenameUnknownKey { from, .. })) => {
-            assert_eq!(
-                from, "NOPE_NOT_A_REAL_EVENT",
-                "EventRenameUnknownKey must carry the offending source key"
-            );
-        }
-        Ok(_) => panic!(
-            "expected compile_file to fail with EventRenameUnknownKey when the \
-             rename's source key names nothing the trait declares (even after \
-             config-ref resolution), but compilation succeeded — the fix must \
-             not neuter the unknown-key check"
-        ),
-        Err(other) => panic!(
-            "expected Err(CompilerError::Inline(InlineError::EventRenameUnknownKey(...))), \
-             got {:?}",
-            other
-        ),
-    }
+    let mut schema = parse_file(&path).expect("fixture must parse");
+    let mut diagnostics = Vec::new();
+    inline_schema_with_config_diagnostics(
+        &mut schema,
+        &InlineConfig::default(),
+        Some(&path),
+        &mut diagnostics,
+    )
+    .expect("inlining must survive an unknown rename source key");
+
+    let diag = diagnostics
+        .iter()
+        .find(|d| !d.unknown_event_rename_keys.is_empty())
+        .expect("an unknown-event-rename diagnostic must be collected");
+    assert_eq!(
+        diag.unknown_event_rename_keys,
+        vec!["NOPE_NOT_A_REAL_EVENT".to_string()],
+        "the diagnostic must carry the offending source key"
+    );
+    assert!(
+        !diag.known_events.is_empty(),
+        "the diagnostic must carry the trait's known event set for the message"
+    );
+
+    let result = validate_trait_ref_config_diagnostics(&diagnostics);
+    assert!(
+        result
+            .errors
+            .iter()
+            .any(|e| e.code == ErrorCode::EventRenameUnknownKey
+                && e.message.contains("NOPE_NOT_A_REAL_EVENT")),
+        "validation must convert the diagnostic to ORB_T_EVENT_RENAME_UNKNOWN_KEY; got {:?}",
+        result.errors
+    );
+
+    // And the compile path proceeds end-to-end on the same fixture.
+    compile_file(&path, &lowered_oir_options())
+        .expect("compile_file must succeed — the bad rename no-ops instead of aborting");
+}
+
+#[test]
+fn bad_event_rename_does_not_uninline_sibling_orbitals() {
+    // The cascade this guards against: one orbital's bad rename aborted
+    // `inline_schema` mid-loop, every LATER orbital kept its
+    // TraitReference::Reference form, and validators (which index Inline
+    // traits only) reported those healthy siblings as ORB_T_UNDEFINED_TRAIT.
+    let path = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join("../../test-schemas/use-std-behavior/button-config-ref-events-unknown-key-sibling.orb");
+
+    let mut schema = parse_file(&path).expect("fixture must parse");
+    let mut diagnostics = Vec::new();
+    inline_schema_with_config_diagnostics(
+        &mut schema,
+        &InlineConfig::default(),
+        Some(&path),
+        &mut diagnostics,
+    )
+    .expect("inlining must survive the bad rename in the first orbital");
+
+    let gadget = schema
+        .orbitals
+        .iter()
+        .find(|o| o.name == "GadgetOrbital")
+        .expect("sibling orbital present");
+    assert!(
+        gadget
+            .traits
+            .iter()
+            .any(|t| matches!(t, TraitReference::Inline(td) if td.name == "GadgetButtonRender")),
+        "the healthy sibling orbital's trait must be fully inlined despite the \
+         bad rename in the preceding orbital; got {:?}",
+        gadget.traits
+    );
+    assert!(
+        diagnostics
+            .iter()
+            .any(|d| d.unknown_event_rename_keys.contains(&"NOPE_NOT_A_REAL_EVENT".to_string())),
+        "the bad rename must still be diagnosed"
+    );
 }
 
 #[test]

@@ -251,6 +251,12 @@ fn build_trait_event_sets(schema: &OrbitalSchema) -> HashMap<String, HashSet<Str
                         entry.insert(e.key.clone());
                     }
                 }
+                // Effect emit-maps + render-ui event props — the same union the
+                // inline phase's RULE 3 checks rename source keys against, so
+                // the two checks can never disagree on what counts as known.
+                entry.extend(super::cross_orbital::collect_effect_produced_events(
+                    trait_def,
+                ));
             }
         }
     }
