@@ -90,6 +90,8 @@ fn schema_with_emit(emit: SExpression, declared: EmitDefinition) -> OrbitalSchem
         id: None,
     };
     let trait_def = TraitDefinition {
+        type_params: None,
+        type_args: None,
         name: "TaskEmitter".to_string(),
         entity_rebindable: None,
         entity_contract: None,

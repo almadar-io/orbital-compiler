@@ -308,6 +308,16 @@ pub fn inline_schema_with_config_diagnostics(
             }
             continue;
         }
+        // Increment 3-I (`docs/Almadar_LOLO.md` ~line 315/1387): now that this
+        // orbital's traits are fully inlined — every `linkedEntity` rebind,
+        // sibling-pull, and auxiliary-entity import resolved — monomorphize
+        // any `$E`/`[$E]` type-param sentinel an event alias's payload
+        // carries against the trait's FINAL bound entity. Must run before
+        // `uniquify_cross_orbital_pulled_siblings` reads `orbital.traits`
+        // only for renaming, so ordering here doesn't matter relative to
+        // that call; it must simply happen once per orbital, post-inline.
+        rewrite::resolve_orbital_type_param_sentinels(orbital);
+
         if !pulled.is_empty() {
             pulled_by_orbital.push((idx, pulled));
         }
@@ -1342,6 +1352,8 @@ mod tests {
     fn make_trait(name: &str) -> TraitDefinition {
         use orbital_core::schema::StateMachine;
         TraitDefinition {
+            type_params: None,
+            type_args: None,
             name: name.to_string(),
             entity_rebindable: None,
             entity_contract: None,
@@ -1710,6 +1722,7 @@ mod tests {
     /// `Modal.traits.ModalRecordModal` with optional overrides.
     fn modal_ref(name_override: Option<&str>, linked_entity: Option<&str>) -> TraitReference {
         TraitReference::Reference {
+            type_args: None,
             id: None,
             reference: Some("Modal.traits.ModalRecordModal".to_string()),
             name: name_override.map(|s| s.to_string()),
@@ -2725,6 +2738,8 @@ mod tests {
             EventDefinition, StateDefinition, StateMachine, StringOrArray, TransitionDefinition,
         };
         let mut trait_def = TraitDefinition {
+            type_params: None,
+            type_args: None,
             name: "T".to_string(),
             entity_rebindable: None,
             entity_contract: None,
@@ -2828,6 +2843,8 @@ mod tests {
             EventDefinition, StateDefinition, StateMachine, StringOrArray, TransitionDefinition,
         };
         let mut trait_def = TraitDefinition {
+            type_params: None,
+            type_args: None,
             name: "ModalRecordModal".to_string(),
             entity_rebindable: None,
             entity_contract: None,
@@ -3089,6 +3106,8 @@ mod tests {
         use orbital_core::schema::{StateMachine, StringOrArray, TransitionDefinition};
 
         let mut trait_def = TraitDefinition {
+            type_params: None,
+            type_args: None,
             name: "SourceSearchTrait".to_string(),
             entity_rebindable: None,
             entity_contract: None,

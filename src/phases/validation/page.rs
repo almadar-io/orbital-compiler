@@ -324,6 +324,7 @@ mod tests {
             name: "TaskList".to_string(),
             path: "/tasks".to_string(),
             traits: Some(vec![TraitReference::Reference {
+                type_args: None,
                 id: None,
                 reference: Some("std/List".to_string()),
                 name: None,
@@ -352,6 +353,7 @@ mod tests {
     fn page_with_ref(reference: &str, ref_id: Option<&str>) -> PageDefinition {
         let mut p = create_valid_page();
         p.traits = Some(vec![TraitReference::Reference {
+            type_args: None,
             id: None,
             reference: Some(reference.to_string()),
             name: None,
@@ -487,6 +489,7 @@ mod tests {
     fn test_page_invalid_trait_ref() {
         let mut page = create_valid_page();
         page.traits = Some(vec![TraitReference::Reference {
+            type_args: None,
             id: None,
             reference: Some("NonExistentTrait".to_string()),
             name: None,

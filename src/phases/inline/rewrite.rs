@@ -1,9 +1,11 @@
 //! SExpression / payload identifier rewriting and config-binding substitution.
 
 use crate::embedded::get_pattern;
+use crate::phases::validation::field_type_str;
 use crate::phases::validation::sync::patterns::{PATTERN_EVENT_LIST_PROPS, PATTERN_EVENT_PROPS};
 use orbital_core::schema::{
-    ConfigProvenanceRecord, ListenSource, SExpression, TraitDefinition, TraitReference,
+    ConfigProvenanceRecord, EntityDefinition, EntityRef, ListenSource, Orbital, PayloadField,
+    SExpression, TraitDefinition, TraitReference,
 };
 use std::collections::{HashMap, HashSet};
 
@@ -790,6 +792,266 @@ pub(crate) fn rewrite_payload_entity_refs(
                         rewrite_entity_in_type_string(&field.field_type, entity_subs);
                 }
             }
+        }
+    }
+}
+
+/// Increment 3-I (`docs/Almadar_LOLO.md` ~line 315/1387): monomorphize the
+/// `(E : Entity)` type parameter on an event alias — `type X (E : Entity) =
+/// Event { row : E }` — to the using trait's bound entity.
+///
+/// `orbital-lolo` lowers an unbound param reference in a payload position to
+/// the sentinel string `"$E"` (`PayloadField.field_type`, `properties:
+/// None`) so the registry `.orb` stays generic (one atom, any entity). Once a
+/// trait's FINAL `linked_entity` is known (post rebind, post sibling-pull),
+/// every sentinel field in `emits[].payload_schema` and
+/// `state_machine.events[].payload_schema` — recursing into nested
+/// `properties` — is replaced with `field_type: "object"`, `properties:
+/// Some(<entity's fields as PayloadFields>)`.
+///
+/// `entity_def` is the trait's resolved `linked_entity` looked up in the
+/// composed schema; `None` when the trait has no linked entity to
+/// substitute — in that case the sentinel is left in place for the
+/// defensive sweep (`ORB_T_UNRESOLVED_TYPE_PARAM`) to catch, UNLESS Increment
+/// 3-II data resolves it instead (see below). Returns `true` if any sentinel
+/// field was rewritten (unused by callers today; kept for future
+/// diagnostics/tests to assert on).
+///
+/// Increment 3-II extension: when this trait's cloned body carries its own
+/// declared `type_params` (a `(V : Type, ...)` header on the SOURCE atom) —
+/// distinct from a 3-I alias's own single param, which never appears in
+/// `type_params` — each declared param resolves independently:
+///   - an explicit call-site arg (`trait_def.type_args["V"]`, stashed by
+///     `phases::inline::trait::inline_traits` when the reference was
+///     resolved) — a PRIMITIVE arg name substitutes a scalar `field_type`;
+///     an ENTITY arg name (found in `entities_by_name`) substitutes
+///     `field_type: "object"` + flattened `properties`, same shape an
+///     Entity-kind default produces;
+///   - no arg, `kind == "Entity"` — falls back to `entity_def` (the 3-I
+///     default, unchanged);
+///   - no arg, `kind == "Type"` (or any other kind) — no substitution; the
+///     sentinel survives for the sweep, and is NOT defaulted to `entity_def`
+///     even though `entity_def` may be `Some` (the 3-I unconditional default
+///     applies only to sentinels with NO declared param — see below).
+/// A sentinel whose name is NOT in `type_params` at all is the pre-existing
+/// 3-I alias case: unconditionally defaults to `entity_def` exactly as
+/// before, byte-for-byte.
+/// `trait_def.type_args` is consumed (taken) and cleared here — it is a
+/// transient carrier and never appears in a final emitted `.orb`.
+pub(crate) fn resolve_type_param_sentinels(
+    trait_def: &mut TraitDefinition,
+    entity_def: Option<&EntityDefinition>,
+    entities_by_name: &HashMap<String, EntityDefinition>,
+) -> bool {
+    let type_args = trait_def.type_args.take();
+    let declared: Vec<orbital_core::schema::TraitTypeParamDef> = trait_def
+        .type_params
+        .clone()
+        .unwrap_or_default();
+    let mut subs: HashMap<String, ParamSub> = HashMap::new();
+    let mut declared_names: HashSet<String> = HashSet::new();
+    for p in &declared {
+        declared_names.insert(p.name.clone());
+        let arg_value = type_args.as_ref().and_then(|m| m.get(&p.name));
+        let sub = match arg_value {
+            Some(v) => resolve_type_arg_value(v, entities_by_name),
+            None if p.kind == "Entity" => entity_def.map(|e| ParamSub::Entity(e.clone())),
+            None => None,
+        };
+        if let Some(sub) = sub {
+            subs.insert(p.name.clone(), sub);
+        }
+    }
+    let mut changed = false;
+    if let Some(emits) = trait_def.emits.as_mut() {
+        for emit in emits.iter_mut() {
+            if let Some(schema) = emit.payload_schema.as_mut() {
+                changed |= resolve_sentinel_fields(schema, entity_def, &subs, &declared_names);
+            }
+        }
+    }
+    if let Some(events) = trait_def.state_machine.events.as_mut() {
+        for ev in events.iter_mut() {
+            if let Some(schema) = ev.payload_schema.as_mut() {
+                changed |= resolve_sentinel_fields(schema, entity_def, &subs, &declared_names);
+            }
+        }
+    }
+    changed
+}
+
+/// A resolved Increment 3-II substitution for one declared type param.
+enum ParamSub {
+    /// A primitive-typed call-site arg (`:: V string`) — the sentinel field
+    /// becomes a scalar of this type, no `properties`.
+    Scalar(String),
+    /// An entity-typed call-site arg (`:: E Booking`) or the Entity-kind
+    /// no-arg default (the trait's own `linked_entity`) — the sentinel field
+    /// becomes `field_type: "object"` + the entity's flattened fields.
+    Entity(EntityDefinition),
+}
+
+/// The primitive type-name vocabulary a call-site type-parameter arg may
+/// name (mirrors `orbital-lolo`'s `primitive_field_type` name set — the two
+/// crates don't share code, `orbital-compiler` doesn't depend on
+/// `orbital-lolo`, so this is a deliberate parallel list, not a duplicate of
+/// a reachable one).
+const PRIMITIVE_TYPE_ARG_NAMES: &[&str] = &[
+    "string", "money", "any", "icon", "component", "email", "url", "phone", "uuid", "image",
+    "node", "json", "render-ui", "relation", "int", "float", "number", "duration", "bool",
+    "boolean", "date", "datetime", "timestamp", "object", "sexpr",
+];
+
+/// Resolve a call-site type-parameter argument's VALUE (the string the
+/// author wrote after the param name, e.g. `"string"` in `:: V string`, or
+/// `"Booking"` in `:: E Booking`) to a substitution. A primitive name is a
+/// scalar; an entity name found in `entities_by_name` is an entity
+/// substitution; anything else is unresolvable (the sentinel survives for
+/// the sweep — the value named neither a primitive nor a known entity).
+fn resolve_type_arg_value(
+    value: &str,
+    entities_by_name: &HashMap<String, EntityDefinition>,
+) -> Option<ParamSub> {
+    if PRIMITIVE_TYPE_ARG_NAMES.contains(&value) {
+        return Some(ParamSub::Scalar(value.to_string()));
+    }
+    entities_by_name.get(value).map(|e| ParamSub::Entity(e.clone()))
+}
+
+/// Recursive worker for `resolve_type_param_sentinels`. A field whose
+/// `field_type` is `"$<param>"` or `"[$<param>]"` is the sentinel; every
+/// other field's `properties` (if any) is walked for a nested sentinel.
+fn resolve_sentinel_fields(
+    fields: &mut [PayloadField],
+    entity_def: Option<&EntityDefinition>,
+    subs: &HashMap<String, ParamSub>,
+    declared_names: &HashSet<String>,
+) -> bool {
+    let mut changed = false;
+    for field in fields.iter_mut() {
+        // `@entity` — the bound-entity row SELF-reference. Semantically the
+        // Entity-kind default without a parameter: substitute the trait's
+        // linked entity, or leave for the sweep when there is none.
+        let is_self_ref = field.field_type == "@entity" || field.field_type == "[@entity]";
+        if is_self_ref {
+            if let Some(entity) = entity_def {
+                let is_array = field.field_type.starts_with('[');
+                field.field_type = if is_array {
+                    "[object]".to_string()
+                } else {
+                    "object".to_string()
+                };
+                field.properties = Some(entity_fields_to_payload_fields(entity));
+                changed = true;
+            }
+            continue;
+        }
+        let is_array_sentinel = field.field_type.starts_with("[$") && field.field_type.ends_with(']');
+        let is_bare_sentinel = !is_array_sentinel && field.field_type.starts_with('$');
+        if is_bare_sentinel || is_array_sentinel {
+            let param_name = if is_array_sentinel {
+                field.field_type.trim_start_matches("[$").trim_end_matches(']')
+            } else {
+                field.field_type.trim_start_matches('$')
+            };
+            if let Some(sub) = subs.get(param_name) {
+                match sub {
+                    ParamSub::Scalar(prim) => {
+                        field.field_type = if is_array_sentinel {
+                            format!("[{prim}]")
+                        } else {
+                            prim.clone()
+                        };
+                        field.properties = None;
+                    }
+                    ParamSub::Entity(entity) => {
+                        field.field_type = if is_array_sentinel {
+                            "[object]".to_string()
+                        } else {
+                            "object".to_string()
+                        };
+                        field.properties = Some(entity_fields_to_payload_fields(entity));
+                    }
+                }
+                changed = true;
+                continue;
+            }
+            if declared_names.contains(param_name) {
+                // A declared 3-II param with no resolvable substitution
+                // (Type-kind with no arg, or an Entity-kind default that
+                // itself had no entity_def) — leave the sentinel for the
+                // sweep. Does NOT fall through to the unconditional 3-I
+                // entity default below; that default is reserved for
+                // sentinels with no matching declared param at all.
+                continue;
+            }
+            // Pre-existing Increment 3-I alias sentinel (no declared trait
+            // param of this name) — unconditional default to entity_def,
+            // unchanged.
+            if let Some(entity) = entity_def {
+                field.field_type = if is_array_sentinel {
+                    "[object]".to_string()
+                } else {
+                    "object".to_string()
+                };
+                field.properties = Some(entity_fields_to_payload_fields(entity));
+                changed = true;
+            }
+            // No entity to substitute — leave the sentinel for the
+            // end-of-inline defensive sweep to report as
+            // ORB_T_UNRESOLVED_TYPE_PARAM.
+            continue;
+        }
+        if let Some(props) = field.properties.as_mut() {
+            changed |= resolve_sentinel_fields(props, entity_def, subs, declared_names);
+        }
+    }
+    changed
+}
+
+/// Flatten an entity's field list into the `PayloadField` shape a
+/// substituted sentinel carries. Mirrors the flat (non-relation) conversion
+/// `orbital-lolo`'s `resolve_payload_type` performs at lower time — one
+/// field per entity field, no recursion into relations.
+fn entity_fields_to_payload_fields(entity: &EntityDefinition) -> Vec<PayloadField> {
+    entity
+        .fields
+        .iter()
+        .map(|f| PayloadField {
+            name: f.name.clone().unwrap_or_default(),
+            field_type: field_type_str(f),
+            required: f.required,
+            description: None,
+            properties: None,
+        })
+        .collect()
+}
+
+/// Run [`resolve_type_param_sentinels`] for every inlined trait in one
+/// orbital, looking up each trait's FINAL `linked_entity` against the
+/// orbital's own (post-inline) entity set — the primary `entity` plus
+/// `auxiliary_entities` (imported atom entities surfaced by the inline
+/// phase). Called once per orbital, after `inline_orbital` fully resolves
+/// it — see `inline_schema_with_config_diagnostics`.
+pub(crate) fn resolve_orbital_type_param_sentinels(orbital: &mut Orbital) {
+    let mut entities: HashMap<String, EntityDefinition> = HashMap::new();
+    if let EntityRef::Inline(def) = &orbital.entity {
+        entities.insert(def.name.clone(), def.clone());
+    }
+    if let Some(aux) = &orbital.auxiliary_entities {
+        for e in aux {
+            if let EntityRef::Inline(def) = e {
+                entities.insert(def.name.clone(), def.clone());
+            }
+        }
+    }
+    for tr in orbital.traits.iter_mut() {
+        if let TraitReference::Inline(trait_def) = tr {
+            let entity_def = trait_def
+                .linked_entity
+                .as_deref()
+                .and_then(|name| entities.get(name));
+            resolve_type_param_sentinels(trait_def, entity_def, &entities);
         }
     }
 }

@@ -2,7 +2,7 @@
 //!
 //! Source: packages/almadar-core/src/patterns/patterns-registry.json
 //!
-//! Last synced: 2026-08-16
+//! Last synced: 2026-08-17
 //! To regenerate: npx tsx tools/almadar-pattern-sync/index.ts
 //!
 //! DO NOT EDIT MANUALLY - changes will be overwritten on next sync.
@@ -1001,15 +1001,21 @@ pub static PATTERN_PROPS_SCHEMA: LazyLock<HashMap<&'static str, HashSet<&'static
                 [
                     "animate",
                     "backgroundColor",
+                    "camera",
                     "className",
                     "edges",
                     "error",
                     "height",
                     "interactive",
                     "isLoading",
+                    "lighting",
+                    "mode",
                     "nodes",
                     "onShapeClick",
+                    "post",
+                    "shadows",
                     "shapes",
+                    "showGrid",
                     "title",
                     "width",
                 ]
@@ -1354,13 +1360,19 @@ pub static PATTERN_PROPS_SCHEMA: LazyLock<HashMap<&'static str, HashSet<&'static
                     "atoms",
                     "backgroundColor",
                     "bonds",
+                    "camera",
                     "className",
                     "error",
                     "height",
                     "interactive",
                     "isLoading",
+                    "lighting",
+                    "mode",
                     "onShapeClick",
+                    "post",
+                    "shadows",
                     "shapes",
+                    "showGrid",
                     "title",
                     "width",
                 ]
@@ -3005,6 +3017,7 @@ pub static PATTERN_PROPS_SCHEMA: LazyLock<HashMap<&'static str, HashSet<&'static
                     "animate",
                     "backgroundColor",
                     "bodies",
+                    "camera",
                     "className",
                     "constraints",
                     "error",
@@ -3012,9 +3025,14 @@ pub static PATTERN_PROPS_SCHEMA: LazyLock<HashMap<&'static str, HashSet<&'static
                     "height",
                     "interactive",
                     "isLoading",
+                    "lighting",
+                    "mode",
                     "onShapeClick",
+                    "post",
+                    "shadows",
                     "shapes",
                     "showForces",
+                    "showGrid",
                     "showVelocity",
                     "title",
                     "velocityScale",
@@ -4606,9 +4624,15 @@ pub static PATTERN_PROP_TYPES: LazyLock<HashMap<&'static str, HashMap<&'static s
                     ("height", &["number"] as &[&str]),
                     ("title", &["string"] as &[&str]),
                     ("backgroundColor", &["string"] as &[&str]),
+                    ("mode", &["string"] as &[&str]),
+                    ("camera", &["object"] as &[&str]),
+                    ("lighting", &["object"] as &[&str]),
+                    ("post", &["object"] as &[&str]),
                     ("nodes", &["array"] as &[&str]),
                     ("edges", &["array"] as &[&str]),
                     ("shapes", &["array"] as &[&str]),
+                    ("showGrid", &["boolean"] as &[&str]),
+                    ("shadows", &["boolean"] as &[&str]),
                     ("interactive", &["boolean"] as &[&str]),
                     ("animate", &["boolean"] as &[&str]),
                     ("onShapeClick", &["function"] as &[&str]),
@@ -5029,10 +5053,16 @@ pub static PATTERN_PROP_TYPES: LazyLock<HashMap<&'static str, HashMap<&'static s
                     ("height", &["number"] as &[&str]),
                     ("title", &["string"] as &[&str]),
                     ("backgroundColor", &["string"] as &[&str]),
+                    ("mode", &["string"] as &[&str]),
+                    ("camera", &["object"] as &[&str]),
+                    ("lighting", &["object"] as &[&str]),
+                    ("post", &["object"] as &[&str]),
                     ("atoms", &["array"] as &[&str]),
                     ("bonds", &["array"] as &[&str]),
                     ("arrows", &["array"] as &[&str]),
                     ("shapes", &["array"] as &[&str]),
+                    ("showGrid", &["boolean"] as &[&str]),
+                    ("shadows", &["boolean"] as &[&str]),
                     ("interactive", &["boolean"] as &[&str]),
                     ("animate", &["boolean"] as &[&str]),
                     ("onShapeClick", &["function"] as &[&str]),
@@ -5677,8 +5707,8 @@ pub static PATTERN_PROP_TYPES: LazyLock<HashMap<&'static str, HashMap<&'static s
                     ("offsetY", &["number"] as &[&str]),
                     ("color", &["string"] as &[&str]),
                     ("font", &["string"] as &[&str]),
-                    ("align", &["object"] as &[&str]),
-                    ("baseline", &["object"] as &[&str]),
+                    ("align", &["string"] as &[&str]),
+                    ("baseline", &["string"] as &[&str]),
                     ("opacity", &["number"] as &[&str]),
                 ]
                 .into_iter()
@@ -7107,6 +7137,10 @@ pub static PATTERN_PROP_TYPES: LazyLock<HashMap<&'static str, HashMap<&'static s
                     ("height", &["number"] as &[&str]),
                     ("title", &["string"] as &[&str]),
                     ("backgroundColor", &["string"] as &[&str]),
+                    ("mode", &["string"] as &[&str]),
+                    ("camera", &["object"] as &[&str]),
+                    ("lighting", &["object"] as &[&str]),
+                    ("post", &["object"] as &[&str]),
                     ("bodies", &["array"] as &[&str]),
                     ("constraints", &["array"] as &[&str]),
                     ("showVelocity", &["boolean"] as &[&str]),
@@ -7114,6 +7148,8 @@ pub static PATTERN_PROP_TYPES: LazyLock<HashMap<&'static str, HashMap<&'static s
                     ("velocityScale", &["number"] as &[&str]),
                     ("forceScale", &["number"] as &[&str]),
                     ("shapes", &["array"] as &[&str]),
+                    ("showGrid", &["boolean"] as &[&str]),
+                    ("shadows", &["boolean"] as &[&str]),
                     ("interactive", &["boolean"] as &[&str]),
                     ("animate", &["boolean"] as &[&str]),
                     ("onShapeClick", &["function"] as &[&str]),
@@ -8798,6 +8834,7 @@ pub static PATTERN_PROP_ENUM_VALUES: LazyLock<HashMap<&'static str, HashMap<&'st
                 .into_iter()
                 .collect(),
             ),
+            ("biology-canvas", [("mode", &["2d", "3d"] as &[&str])].into_iter().collect()),
             ("bloom-quiz-block", [("level", &["remember", "understand", "apply", "analyze", "evaluate", "create"] as &[&str])].into_iter().collect()),
             ("book-chapter-view", [("direction", &["rtl", "ltr"] as &[&str])].into_iter().collect()),
             ("book-cover-page", [("direction", &["rtl", "ltr"] as &[&str])].into_iter().collect()),
@@ -8883,6 +8920,7 @@ pub static PATTERN_PROP_ENUM_VALUES: LazyLock<HashMap<&'static str, HashMap<&'st
                 .into_iter()
                 .collect(),
             ),
+            ("chemistry-canvas", [("mode", &["2d", "3d"] as &[&str])].into_iter().collect()),
             ("code-block", [("mode", &["code", "diff"] as &[&str])].into_iter().collect()),
             (
                 "confirm-dialog",
@@ -8999,6 +9037,15 @@ pub static PATTERN_PROP_ENUM_VALUES: LazyLock<HashMap<&'static str, HashMap<&'st
                 [
                     ("shape", &["cell", "rect", "ellipse", "poly", "path"] as &[&str]),
                     ("blendMode", &["source-over", "lighter", "multiply", "screen", "overlay", "darken", "lighten", "color-dodge", "color-burn", "hard-light", "soft-light", "difference", "exclusion", "hue", "saturation", "color", "luminosity", "source-atop", "destination-over", "destination-out", "xor"] as &[&str]),
+                ]
+                .into_iter()
+                .collect(),
+            ),
+            (
+                "draw-text",
+                [
+                    ("align", &["center", "end", "left", "right", "start"] as &[&str]),
+                    ("baseline", &["alphabetic", "bottom", "hanging", "ideographic", "middle", "top"] as &[&str]),
                 ]
                 .into_iter()
                 .collect(),
@@ -9288,6 +9335,7 @@ pub static PATTERN_PROP_ENUM_VALUES: LazyLock<HashMap<&'static str, HashMap<&'st
                 .into_iter()
                 .collect(),
             ),
+            ("physics-canvas", [("mode", &["2d", "3d"] as &[&str])].into_iter().collect()),
             (
                 "popover",
                 [

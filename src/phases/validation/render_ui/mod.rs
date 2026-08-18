@@ -6,7 +6,7 @@
 mod binding;
 mod field_path;
 mod item_actions;
-mod pattern;
+pub(crate) mod pattern;
 
 // Re-exports so submodules can reference shared validation items via
 // `super::*` and so external paths (`render_ui::is_render_ui_effect`,
@@ -1018,6 +1018,8 @@ mod tests {
         };
 
         TraitDefinition {
+            type_params: None,
+            type_args: None,
             name: "TestTrait".to_string(),
             entity_rebindable: None,
             entity_contract: None,

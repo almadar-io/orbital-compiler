@@ -186,6 +186,65 @@ fn validate_config_field(
         return result;
     }
 
+    // Gate A (type-integrity campaign): a `node`-typed config knob's default
+    // is renderable content — a pattern object, a literal array of them, or a
+    // string leaf / `@config.*` binding. Static pattern checks (registry
+    // membership, prop validity) run with an empty entity context — binding-
+    // level checks need the call site and skip harmlessly. Closes the
+    // `check_primitive_shape` `_ => true` fallthrough that let e.g.
+    // `children : node = [{ type: canvas-2d }]` pass unexamined.
+    if field.field_type == "node" || field.field_type == "[node]" {
+        if let Some(default) = &field.default {
+            match default {
+                SExpression::Object(_) | SExpression::Array(_) => {
+                    let empty: std::collections::HashMap<
+                        String,
+                        orbital_core::schema::EntityDefinition,
+                    > = std::collections::HashMap::new();
+                    // A node knob legally holds one pattern object OR an array
+                    // of them — validate per element so the array root itself
+                    // is never misread as a pattern (string leaves and null
+                    // slots are legal node values and skipped).
+                    // An operator-call array (`(if …)`, `(array/concat …)` —
+                    // first element is a String head) is a COMPUTED node
+                    // value, not a literal: skip static pattern checks (the
+                    // call-site/binding layers own it).
+                    if let SExpression::Array(items) = default {
+                        if matches!(items.first(), Some(SExpression::String(_))) {
+                            return result;
+                        }
+                    }
+                    let elements: Vec<&SExpression> = match default {
+                        SExpression::Array(items) => items.iter().collect(),
+                        other => vec![other],
+                    };
+                    for element in elements {
+                        if matches!(element, SExpression::String(_) | SExpression::Null) {
+                            continue;
+                        }
+                        result.merge(crate::phases::validation::render_ui::pattern::validate_pattern(
+                            element, path, &empty, None, None,
+                        ));
+                    }
+                }
+                SExpression::String(_) | SExpression::Null => {}
+                _ => {
+                    result.add_error(
+                        ValidationError::error(
+                            ErrorCode::TraitConfigShapeMismatch,
+                            path,
+                            "Config field typed `node` must default to a pattern object, an array of pattern objects, a string leaf, or a `@config.*` binding.",
+                        )
+                        .with_suggestion(
+                            "Author the default as renderable content: `children : node = [{ type: \"canvas-2d\" }]`.",
+                        ),
+                    );
+                }
+            }
+        }
+        return result;
+    }
+
     let default_str = match &field.default {
         Some(SExpression::String(s)) => s.as_str(),
         _ => return result, // Non-string defaults can't be slot/pattern values
@@ -812,5 +871,55 @@ mod dangling_config_tests {
             0,
             "a key declared anywhere in the undirected embed component is reachable"
         );
+    }
+}
+
+#[cfg(test)]
+mod node_config_tests {
+    use super::*;
+    use orbital_core::schema::ConfigField;
+
+    fn field(field_type: &str, default: SExpression) -> ConfigField {
+        serde_json::from_value(serde_json::json!({ "type": field_type }))
+            .map(|mut f: ConfigField| {
+                f.default = Some(default);
+                f
+            })
+            .expect("config field fixture")
+    }
+
+    #[test]
+    fn node_array_of_patterns_passes_per_element() {
+        let default = serde_json::from_value(serde_json::json!([
+            { "type": "canvas-2d" },
+            { "type": "typography", "content": "hi" }
+        ]))
+        .unwrap();
+        let result = validate_config_field(&field("node", default), "t.config.children");
+        assert!(result.errors.is_empty(), "{:?}", result.errors);
+    }
+
+    #[test]
+    fn node_computed_operator_call_is_skipped() {
+        let default = serde_json::from_value(serde_json::json!(
+            ["if", ["==", "@entity.result", "none"], null, { "type": "game-menu" }]
+        ))
+        .unwrap();
+        let result = validate_config_field(&field("node", default), "t.config.overlay");
+        assert!(
+            result.errors.is_empty(),
+            "computed node config must not be pattern-checked: {:?}",
+            result.errors
+        );
+    }
+
+    #[test]
+    fn node_bad_pattern_in_array_errors() {
+        let default = serde_json::from_value(serde_json::json!([
+            { "type": "not-a-real-pattern", "x": 1 }
+        ]))
+        .unwrap();
+        let result = validate_config_field(&field("node", default), "t.config.children");
+        assert!(!result.errors.is_empty());
     }
 }

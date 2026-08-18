@@ -107,6 +107,28 @@ pub enum ErrorCode {
     /// `type FieldConfig = { name: string, label: string, ... }`) and
     /// use `[FieldConfig]` so the catalog + codegen carry real types.
     TraitConfigObjectArrayForbidden,
+    /// A declaration uses a generic type — bare `json`, `object` (without
+    /// declared `properties`), or `any` — in an entity field, config knob,
+    /// type-alias member, or event payload field. Generic types are being
+    /// eliminated from the language: renderable content belongs in `node`,
+    /// structured data in inline `{ k: T }` shapes / named aliases /
+    /// `Map K V`, and genuinely polymorphic atoms in declared type
+    /// parameters. Ships as a non-blocking phase-F warning while the corpus
+    /// migrates; flips to a hard error once both behavior packages report
+    /// zero occurrences.
+    GenericTypeDeprecated,
+    /// A `node`-typed entity field receives a value the validator cannot
+    /// statically check (a computed expression rather than a pattern-tree
+    /// literal). Non-blocking: computed renderable content is legitimate,
+    /// but its callback wiring is unchecked — prefer literal fragments
+    /// (optionally via `let` bindings, which ARE resolved and checked).
+    NodeFieldUncheckedContent,
+    /// A render-ui pattern literal is assigned to a field NOT typed `node`
+    /// — renderable content hiding in a generic/structured field escapes
+    /// every render-ui check. Type the field `node` (or `[node]`).
+    /// Ships non-blocking while the corpus migrates; flips to an error
+    /// with Gate C.
+    RenderableContentInGenericField,
     /// Config field's `@tier "..."` annotation uses a value outside the
     /// allowed set. Allowed values: `essential`, `customization`,
     /// `advanced`, `internal`. Defense-in-depth — the parser allowlists
@@ -121,6 +143,14 @@ pub enum ErrorCode {
     /// reads (its inferred `entityContract.requires`). The target would break
     /// the behavior.
     RebindMissingEntityFields,
+    /// A `.lolo` event alias's `(E : Entity)` type parameter — lowered to the
+    /// `"$E"` payload sentinel by `orbital-lolo` (increment 3-I,
+    /// `docs/Almadar_LOLO.md` ~line 315/1387) — survived the inline phase's
+    /// substitution pass because the trait carrying the sentinel has no
+    /// `linkedEntity` to monomorphize it against. Fix: bind the trait to an
+    /// entity (or, once explicit application ships, apply the alias with a
+    /// concrete argument).
+    UnresolvedTypeParam,
     /// A call-site `events: { OLD: NEW }` rename names an OLD source key that
     /// does not exist in the imported trait's event set (its `emits[].event` ∪
     /// `state_machine.transitions[].event`). The rename silently no-ops:
@@ -764,9 +794,13 @@ impl ErrorCode {
             ErrorCode::TraitInvalidPatternDefault => "ORB_T_INVALID_PATTERN_DEFAULT",
             ErrorCode::TraitConfigShapeMismatch => "ORB_T_CONFIG_SHAPE_MISMATCH",
             ErrorCode::TraitConfigObjectArrayForbidden => "ORB_T_CONFIG_OBJECT_ARRAY_FORBIDDEN",
+            ErrorCode::GenericTypeDeprecated => "ORB_T_GENERIC_TYPE_DEPRECATED",
+            ErrorCode::NodeFieldUncheckedContent => "ORB_RUI_NODE_FIELD_UNCHECKED_CONTENT",
+            ErrorCode::RenderableContentInGenericField => "ORB_RUI_RENDERABLE_IN_GENERIC_FIELD",
             ErrorCode::TraitConfigTierInvalid => "ORB_T_CONFIG_TIER_INVALID",
             ErrorCode::TraitEntityNotRebindable => "ORB_T_ENTITY_NOT_REBINDABLE",
             ErrorCode::RebindMissingEntityFields => "ORB_T_REBIND_MISSING_FIELDS",
+            ErrorCode::UnresolvedTypeParam => "ORB_T_UNRESOLVED_TYPE_PARAM",
             ErrorCode::EventRenameUnknownKey => "ORB_T_EVENT_RENAME_UNKNOWN_KEY",
             ErrorCode::TraitConfigUnknownCallSiteKey => "ORB_T_CONFIG_UNKNOWN_CALL_SITE_KEY",
             ErrorCode::TraitConfigMissingRequiredKey => "ORB_T_CONFIG_MISSING_REQUIRED_KEY",
@@ -1011,12 +1045,16 @@ impl ErrorCode {
             | ErrorCode::TraitInvalidPatternDefault
             | ErrorCode::TraitConfigShapeMismatch
             | ErrorCode::TraitConfigObjectArrayForbidden
+            | ErrorCode::GenericTypeDeprecated
+            | ErrorCode::NodeFieldUncheckedContent
+            | ErrorCode::RenderableContentInGenericField
             | ErrorCode::TraitConfigTierInvalid
             | ErrorCode::TraitEntityNotRebindable
             | ErrorCode::RebindMissingEntityFields
             | ErrorCode::EventRenameUnknownKey
             | ErrorCode::TraitConfigUnknownCallSiteKey
-            | ErrorCode::TraitConfigMissingRequiredKey => "trait",
+            | ErrorCode::TraitConfigMissingRequiredKey
+            | ErrorCode::UnresolvedTypeParam => "trait",
 
             ErrorCode::PageMissingName
             | ErrorCode::PageMissingPath

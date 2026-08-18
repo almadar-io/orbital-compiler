@@ -127,6 +127,8 @@ fn schema_with_config(config: HashMap<String, ConfigField>) -> OrbitalSchema {
         id: None,
     };
     let trait_def = TraitDefinition {
+        type_params: None,
+        type_args: None,
         name: "KpiStats".to_string(),
         entity_rebindable: None,
         entity_contract: None,

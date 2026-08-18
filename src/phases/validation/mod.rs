@@ -49,6 +49,7 @@ pub mod emit_payload;
 pub mod entity;
 pub mod entity_access;
 pub mod entity_mutation;
+pub mod generic_types;
 pub mod error;
 pub mod expectations;
 pub mod icon;
@@ -67,6 +68,7 @@ pub mod sync;
 pub mod theme;
 pub mod trait_ref_config;
 pub mod trait_validator;
+pub mod type_param_sweep;
 pub mod user_identity;
 
 // Re-export main types
@@ -354,6 +356,8 @@ pub const VALID_FIELD_TYPES: &[&str] = &[
     "trait",
     "slot",
     "pattern",
+    // Renderable UI content (type-integrity campaign).
+    "node",
 ];
 
 /// Valid trait categories
@@ -505,6 +509,17 @@ pub fn validate_comprehensive_full_with_phase_f(
     // -> TRIGGER }` whose TRIGGER has no matching transition in the same trait
     // is a silent dead wire. Error severity.
     ctx.merge(cross_orbital::validate_listen_triggers(schema));
+
+    // Phase 5e: Gate C of the type-integrity campaign — non-blocking
+    // deprecation warnings for generic types (json / shapeless object / any)
+    // in declaration positions. Flips to a hard error post-migration.
+    generic_types::validate_generic_types(schema, &mut ctx);
+
+    // Phase 5f: increment 3-I defensive sweep — a `$`-prefixed payload
+    // sentinel surviving the inline phase means the carrying trait had no
+    // `linkedEntity` to monomorphize its event alias's `(E : Entity)`
+    // parameter against. Blocking.
+    type_param_sweep::validate_type_param_sentinels(schema, &mut ctx);
 
     // Phase 6: Render-UI validation
     render_ui::validate_all_render_ui(schema, &mut ctx);

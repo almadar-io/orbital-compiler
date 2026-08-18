@@ -525,6 +525,8 @@ mod tests {
         effects: Vec<SExpression>,
     ) -> TraitDefinition {
         TraitDefinition {
+            type_params: None,
+            type_args: None,
             name: name.to_string(),
             entity_rebindable: None,
             entity_contract: None,

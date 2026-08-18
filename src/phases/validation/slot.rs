@@ -376,6 +376,8 @@ mod tests {
 
     fn create_trait_with_render_ui(name: &str, slot: &str) -> TraitDefinition {
         TraitDefinition {
+            type_params: None,
+            type_args: None,
             name: name.to_string(),
             entity_rebindable: None,
             entity_contract: None,
@@ -552,6 +554,8 @@ mod tests {
         });
 
         TraitDefinition {
+            type_params: None,
+            type_args: None,
             name: name.to_string(),
             entity_rebindable: None,
             entity_contract: None,
@@ -786,6 +790,8 @@ mod tests {
             ],
         };
         let trait_orphan = TraitDefinition {
+            type_params: None,
+            type_args: None,
             name: "TraitOrphan".to_string(),
             entity_rebindable: None,
             entity_contract: None,

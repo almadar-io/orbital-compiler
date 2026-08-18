@@ -119,7 +119,7 @@ fn check_child_drawable(child: &SExpression, path: &str, result: &mut Validation
 }
 
 /// Validate a pattern
-pub(super) fn validate_pattern(
+pub(crate) fn validate_pattern(
     pattern: &SExpression,
     path: &str,
     entity_definitions: &HashMap<String, EntityDefinition>,

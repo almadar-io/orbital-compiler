@@ -119,6 +119,8 @@ mod tests {
         listens: Option<Vec<ListenDefinition>>,
     ) -> TraitReference {
         TraitReference::Inline(TraitDefinition {
+            type_params: None,
+            type_args: None,
             name: name.to_string(),
             entity_rebindable: None,
             entity_contract: None,

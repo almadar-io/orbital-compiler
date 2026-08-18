@@ -291,6 +291,9 @@ fn field_type_to_binding(ft: &FieldType) -> BindingType {
         FieldType::Trait => BindingType::String,
         // `slot` and `pattern` resolve to strings at the binding level.
         FieldType::Slot | FieldType::Pattern => BindingType::String,
+        // Renderable content binds like an object (a pattern tree) — and the
+        // prop-compat rule already accepts anything where `node` is expected.
+        FieldType::Node => BindingType::Object,
     }
 }
 
@@ -470,6 +473,8 @@ mod tests {
 
     fn empty_trait(name: &str, linked: Option<&str>) -> TraitDefinition {
         TraitDefinition {
+            type_params: None,
+            type_args: None,
             name: name.to_string(),
             entity_rebindable: None,
             entity_contract: None,

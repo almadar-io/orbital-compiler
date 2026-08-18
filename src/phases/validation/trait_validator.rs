@@ -1045,6 +1045,8 @@ mod tests {
 
     fn create_valid_trait() -> TraitDefinition {
         TraitDefinition {
+            type_params: None,
+            type_args: None,
             name: "TestTrait".to_string(),
             entity_rebindable: None,
             entity_contract: None,
@@ -1286,6 +1288,7 @@ mod tests {
     #[test]
     fn test_trait_undefined_reference() {
         let trait_ref = TraitReference::Reference {
+            type_args: None,
             id: None,
             reference: Some("NonExistentTrait".to_string()),
             name: None,
@@ -1310,6 +1313,7 @@ mod tests {
     #[test]
     fn test_std_trait_reference() {
         let trait_ref = TraitReference::Reference {
+            type_args: None,
             id: None,
             reference: Some("std/Form".to_string()),
             name: None,
@@ -1338,6 +1342,7 @@ mod tests {
             events.insert(k.to_string(), v.to_string());
         }
         TraitReference::Reference {
+            type_args: None,
             id: None,
             reference: reference.map(str::to_string),
             name: name.map(str::to_string),

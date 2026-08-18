@@ -359,6 +359,7 @@ fn field_type_to_string(field_type: &FieldType) -> String {
         FieldType::Trait => "trait".to_string(),
         FieldType::Slot => "slot".to_string(),
         FieldType::Pattern => "pattern".to_string(),
+        FieldType::Node => "node".to_string(),
     }
 }
 

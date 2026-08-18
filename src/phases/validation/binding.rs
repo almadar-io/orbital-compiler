@@ -2526,6 +2526,8 @@ mod tests {
             })
             .collect();
         orbital_core::schema::TraitDefinition {
+            type_params: None,
+            type_args: None,
             name: name.to_string(),
             entity_rebindable: None,
             entity_contract: None,
@@ -2884,6 +2886,8 @@ mod tests {
                 StateDefinition, StateMachine, StringOrArray, TransitionDefinition,
             };
             orbital_core::schema::TraitDefinition {
+                type_params: None,
+                type_args: None,
                 name: "GuardOnlyReader".to_string(),
                 entity_rebindable: None,
                 entity_contract: None,

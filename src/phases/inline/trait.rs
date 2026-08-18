@@ -750,6 +750,7 @@ pub(crate) fn inline_traits(
                 fields: fields_override,
                 listens: listens_override,
                 emits_scope: emits_scope_override,
+                type_args: type_args_override,
                 ..
             } => {
                 if let Some(ref_str) = reference {
@@ -1002,6 +1003,22 @@ pub(crate) fn inline_traits(
                                         ctx.defer_config_subst,
                                         recorder,
                                     );
+                                    // Increment 3-II: stash the reference's
+                                    // call-site type-parameter arguments onto
+                                    // the cloned trait_def — it already
+                                    // carries its OWN declared `type_params`
+                                    // (kind info) from the source atom's
+                                    // `.orb`, cloned verbatim above. Both
+                                    // survive together to the per-orbital
+                                    // `resolve_orbital_type_param_sentinels`
+                                    // pass (run once `inline_orbital` fully
+                                    // resolves this orbital's entities), which
+                                    // needs the FULLY composed entity set to
+                                    // resolve an entity-valued argument — the
+                                    // same timing 3-I's `linkedEntity` default
+                                    // already relies on. That pass clears this
+                                    // field after consuming it.
+                                    trait_def.type_args = type_args_override.clone();
                                     owner_subs
                                         .entry(trait_def.name.clone())
                                         .or_default()
@@ -1474,6 +1491,8 @@ mod entity_id_reader_tests {
             }]
         });
         TraitDefinition {
+            type_params: None,
+            type_args: None,
             name: "Body".to_string(),
             entity_rebindable: Some(true),
             entity_contract: None,
@@ -1544,6 +1563,8 @@ mod entity_id_reader_tests {
     /// caller so the two scenarios (renamed vs not) can be expressed.
     fn trait_with_entity_token(token: &str) -> TraitDefinition {
         TraitDefinition {
+            type_params: None,
+            type_args: None,
             name: "Feed".to_string(),
             entity_rebindable: Some(true),
             entity_contract: None,

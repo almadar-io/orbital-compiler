@@ -206,6 +206,8 @@ mod tests {
     /// transition on it (emit effect) so the cycle check counts the edge.
     fn mod_trait(name: &str, emit_scope: Option<EventScope>, listen_scope: Option<EventScope>) -> TraitReference {
         TraitReference::Inline(TraitDefinition {
+            type_params: None,
+            type_args: None,
             name: name.to_string(),
             entity_rebindable: None,
             entity_contract: None,

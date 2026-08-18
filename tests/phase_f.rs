@@ -111,6 +111,8 @@ fn schema_for_f1(strict_target_event: &str) -> OrbitalSchema {
     ]);
 
     let trait_def = TraitDefinition {
+        type_params: None,
+        type_args: None,
         name: "TaskEmitter".to_string(),
         entity_rebindable: None,
         entity_contract: None,
@@ -232,6 +234,8 @@ fn schema_with_two_emitters(
                     listens: Option<Vec<ListenDefinition>>|
      -> TraitDefinition {
         TraitDefinition {
+            type_params: None,
+            type_args: None,
             name: name.to_string(),
             entity_rebindable: None,
             entity_contract: None,

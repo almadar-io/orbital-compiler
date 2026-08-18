@@ -590,6 +590,9 @@ impl<'a> Resolver<'a> {
             // `slot` and `pattern` are validated at compile time but resolve to
             // strings in OIR — the runtime doesn't need the type tag.
             FieldType::Slot | FieldType::Pattern => Ok(OirType::String),
+            // Renderable content keeps its tag so codegen emits the canonical
+            // pattern-tree type instead of a shapeless record.
+            FieldType::Node => Ok(OirType::Node),
         }
     }
 
@@ -749,6 +752,9 @@ impl<'a> Resolver<'a> {
             "datetime" | "timestamp" => OirType::DateTime,
             "array" | "list" => OirType::array(OirType::Json),
             "object" | "json" | "tensor" => OirType::Json,
+            // Renderable content — keeps its tag so codegen emits the
+            // canonical pattern-tree type (type-integrity campaign).
+            "node" => OirType::Node,
             // Layer 3 — render-ui SExpr tree carried as a config knob value.
             // Lowered to Json so codegen emits a JSON-shaped TS type
             // (the variant author supplies any tree; runtime substitutes).
@@ -2526,14 +2532,15 @@ fn parse_payload_field_type(field_type: &str) -> OirType {
         // `SExpr` brand — a compiled s-expression value (config-only; e.g. a
         // `conditionalFields` map value). Emits the recursive `SExpr` TS type.
         "sexpr" => return OirType::SExpr,
-        // UI scalar types (`node`/`slot`/`icon`/`asset`/`component`/`pattern`)
+        // Renderable content in a payload position keeps its tag (honest on
+        // the bus; zero corpus usage predates this, so no compat risk).
+        "node" => return OirType::Node,
+        // UI scalar types (`slot`/`icon`/`asset`/`component`/`pattern`)
         // carry no serializable OIR shape — in a data/payload/struct-field context
-        // they are represented as strings (an icon/component name, an asset URL, or
-        // a serialized node), matching the config-knob emitter (`node`-typed knobs
-        // emit `string`) and the Zod payload validator (`z.string()`). Without this
-        // they fell through to `Reference { entity: "node" }` and emitted the
-        // bare identifier `node` — TS2552 "Cannot find name 'node'".
-        "node" | "slot" | "icon" | "asset" | "component" | "pattern" => return OirType::String,
+        // they are represented as strings (an icon/component name, an asset URL).
+        // Without this they fell through to `Reference { entity: "slot" }` and
+        // emitted the bare identifier — TS2552 "Cannot find name".
+        "slot" | "icon" | "asset" | "component" | "pattern" => return OirType::String,
         _ => {}
     }
     // Any remaining non-empty identifier: treat as an entity reference.

@@ -90,6 +90,7 @@ pub(super) fn validate_all_render_ui_bindings(schema: &OrbitalSchema, ctx: &mut 
                             j
                         );
                         check_render_ui_bindings_in_effect(effect, &bctx, &path, &mut diagnostics);
+                        check_node_set_effects(effect, &bctx, &path, &mut diagnostics);
                     }
                 }
             }
@@ -430,10 +431,16 @@ fn check_event_binding_payload(
                                 event_name, arg.name,
                             ),
                         )
-                        .with_suggestion(format!(
-                            "Either rename '{}' to match a trait payload field, or add `{} : {}` to the trait's `emits {{ {} {{ ... }} }}` payload",
-                            arg.name, arg.name, arg.r#type, event_name,
-                        )),
+                        .with_suggestion(match derive_typed_payload_decl(arg) {
+                            Some(decl) => format!(
+                                "Declare the typed payload on the trait's `emits {{ {} {{ ... }} }}`: `{} : {}`",
+                                event_name, arg.name, decl,
+                            ),
+                            None => format!(
+                                "Either rename '{}' to match a trait payload field, or add `{} : {}` to the trait's `emits {{ {} {{ ... }} }}` payload",
+                                arg.name, arg.name, arg.r#type, event_name,
+                            ),
+                        }),
                     );
                 }
                 Some(declared_field) => {
@@ -448,6 +455,20 @@ fn check_event_binding_payload(
                                     declared_field.name, declared_field.field_type,
                                 ),
                             ),
+                        );
+                    } else if arg.r#type == "object" {
+                        // Gate B (type-integrity campaign): the registry has
+                        // always carried the arg's nested shape — compare it
+                        // structurally instead of accepting a shapeless
+                        // `payload : object` on name+`object` parity alone.
+                        check_callback_arg_schema(
+                            arg,
+                            declared_field,
+                            prop_name,
+                            pattern_type,
+                            event_name,
+                            path,
+                            diagnostics,
                         );
                     }
                 }
@@ -554,6 +575,9 @@ fn primitive_event_compat(declared: &str, actual: &str) -> bool {
     }
     match d {
         "any" => true,
+        // `json` and `object` are the same wire shape (Gate C separately
+        // deprecates declaring them; compat must not double-punish).
+        "json" | "object" => a == "object" || a == "json",
         "date" | "datetime" | "timestamp" => a == "string" || a == "number",
         "entity" | "relation" => a == "object" || a == "string",
         s if s.chars().next().map(|c| c.is_uppercase()).unwrap_or(false) => {
@@ -579,5 +603,331 @@ fn recurse_into_value(
             }
         }
         _ => {}
+    }
+}
+
+// ============================================================================
+// Gate A (type-integrity campaign): node-typed entity fields
+// ============================================================================
+
+/// Is this entity field renderable content — `node` or `[node]`?
+fn is_node_field(field: &orbital_core::schema::FieldDefinition) -> bool {
+    use orbital_core::schema::FieldType;
+    match field.field_type {
+        FieldType::Node => true,
+        FieldType::Array => field
+            .items
+            .as_ref()
+            .is_some_and(|i| matches!(i.field_type, FieldType::Node)),
+        _ => false,
+    }
+}
+
+/// Deterministic render-ui-literal detector: an object whose `type` is a
+/// registered pattern AND that carries at least one other key registered as
+/// that pattern's prop. The second condition disambiguates canvas-shape data
+/// (`{type: "grid", xStep: …}`) from real UI literals (`{type: "grid",
+/// columns: …}`) on the one name the two vocabularies share.
+fn is_pattern_literal_object(obj: &std::collections::HashMap<String, SExpression>) -> bool {
+    let Some(SExpression::String(t)) = obj.get("type") else {
+        return false;
+    };
+    let Some(valid_props) = super::sync::patterns::get_pattern_valid_props(t.as_str()) else {
+        return false;
+    };
+    obj.keys()
+        .any(|k| k != "type" && valid_props.contains(k.as_str()))
+}
+
+/// Does this literal value contain a render-ui pattern object anywhere?
+fn contains_pattern_literal(value: &SExpression) -> bool {
+    match value {
+        SExpression::Object(obj) => {
+            if is_pattern_literal_object(obj) {
+                return true;
+            }
+            obj.values().any(contains_pattern_literal)
+        }
+        SExpression::Array(items) => {
+            // An operator call (`["array/concat", …]`) is not a literal array;
+            // still scan its arguments for embedded pattern literals.
+            items.iter().any(contains_pattern_literal)
+        }
+        _ => false,
+    }
+}
+
+/// Is this value a checkable literal (pattern object, or a literal array whose
+/// first element is not an operator head)?
+fn is_checkable_literal(value: &SExpression) -> bool {
+    match value {
+        SExpression::Object(_) => true,
+        SExpression::Array(items) => !matches!(items.first(), Some(SExpression::String(_))),
+        _ => false,
+    }
+}
+
+/// Walk one transition effect for `(set @entity.<field> <value>)` calls at any
+/// depth (through `let` / `do` / `if`), carrying the innermost `let` bindings
+/// so classify-style `(let ((view [ … ])) … (set @entity.view @view))` resolves
+/// to its literal and gets the FULL render-ui check family — closing the §19
+/// blind spot (`C-RUI-CALLBACK-GATE-JSON-BLIND`).
+pub(super) fn check_node_set_effects(
+    effect: &SExpression,
+    bctx: &BindingContext,
+    path: &str,
+    diagnostics: &mut Vec<ValidationError>,
+) {
+    let mut env: Vec<(String, SExpression)> = Vec::new();
+    walk_for_node_sets(effect, bctx, path, &mut env, diagnostics);
+}
+
+fn walk_for_node_sets(
+    expr: &SExpression,
+    bctx: &BindingContext,
+    path: &str,
+    env: &mut Vec<(String, SExpression)>,
+    diagnostics: &mut Vec<ValidationError>,
+) {
+    let SExpression::Array(items) = expr else {
+        return;
+    };
+    let Some(SExpression::String(head)) = items.first() else {
+        return;
+    };
+    match head.as_str() {
+        "let" => {
+            let depth = env.len();
+            if let Some(SExpression::Array(bindings)) = items.get(1) {
+                for b in bindings {
+                    if let SExpression::Array(pair) = b {
+                        if let (Some(SExpression::String(name)), Some(value)) =
+                            (pair.first(), pair.get(1))
+                        {
+                            env.push((name.clone(), value.clone()));
+                        }
+                    }
+                }
+            }
+            for body in items.iter().skip(2) {
+                walk_for_node_sets(body, bctx, path, env, diagnostics);
+            }
+            env.truncate(depth);
+        }
+        "do" | "if" => {
+            for body in items.iter().skip(1) {
+                walk_for_node_sets(body, bctx, path, env, diagnostics);
+            }
+        }
+        "set" => {
+            let Some(field_name) = items.get(1).and_then(|t| match t {
+                SExpression::String(s) => s.strip_prefix("@entity."),
+                _ => None,
+            }) else {
+                return;
+            };
+            let Some(value) = items.get(2) else { return };
+            // Resolve one level of let-binding indirection.
+            let resolved = match value {
+                SExpression::String(s) if s.starts_with('@') && !s.starts_with("@entity.") => {
+                    let name = s.trim_start_matches('@');
+                    env.iter()
+                        .rev()
+                        .find(|(n, _)| n == name)
+                        .map(|(_, v)| v)
+                        .unwrap_or(value)
+                }
+                _ => value,
+            };
+            let node_typed = bctx
+                .trait_def
+                .linked_entity
+                .as_deref()
+                .and_then(|e| bctx.entity_definitions.get(e))
+                .and_then(|ed| {
+                    ed.fields
+                        .iter()
+                        .find(|f| f.name.as_deref() == Some(field_name))
+                })
+                .map(is_node_field)
+                .unwrap_or(false);
+
+            let set_path = format!("{path}.set(@entity.{field_name})");
+            if node_typed {
+                if is_checkable_literal(resolved) {
+                    // A node field legally holds one pattern object OR a
+                    // literal array of them — check per element so the
+                    // array root itself is never misread as a pattern.
+                    let elements: Vec<&SExpression> = match resolved {
+                        SExpression::Array(items) => items.iter().collect(),
+                        other => vec![other],
+                    };
+                    for element in elements {
+                        if matches!(element, SExpression::String(_) | SExpression::Null) {
+                            // String leaves / null slots are legal node values.
+                            continue;
+                        }
+                        let vr = super::pattern::validate_pattern(
+                            element,
+                            &set_path,
+                            bctx.entity_definitions,
+                            None,
+                            bctx.trait_def.linked_entity.as_deref(),
+                        );
+                        for e in vr.errors {
+                            diagnostics.push(e);
+                        }
+                        for w in vr.warnings {
+                            diagnostics.push(w);
+                        }
+                        walk_pattern_props(element, bctx, &set_path, diagnostics);
+                    }
+                } else {
+                    diagnostics.push(
+                        ValidationError::phase_f_warning(
+                            ErrorCode::NodeFieldUncheckedContent,
+                            &set_path,
+                            format!(
+                                "node field '{field_name}' receives a computed value — its pattern shape and callback wiring cannot be statically checked"
+                            ),
+                        )
+                        .with_suggestion(
+                            "Prefer literal pattern fragments (a `let`-bound literal is resolved and checked); keep computed content minimal.",
+                        ),
+                    );
+                }
+            } else if contains_pattern_literal(resolved) {
+                diagnostics.push(
+                    ValidationError::phase_f_warning(
+                        ErrorCode::RenderableContentInGenericField,
+                        &set_path,
+                        format!(
+                            "field '{field_name}' is not typed `node` but receives a render-ui pattern literal — renderable content in a generic/structured field escapes every render-ui check"
+                        ),
+                    )
+                    .with_suggestion(format!(
+                        "Type the field: `{field_name} : node` (or `[node]` for a fragment list)."
+                    )),
+                );
+            }
+        }
+        _ => {
+            // Scan remaining call arguments — sets can hide under other
+            // effect combinators.
+            for body in items.iter().skip(1) {
+                walk_for_node_sets(body, bctx, path, env, diagnostics);
+            }
+        }
+    }
+}
+
+// ============================================================================
+// Gate B (type-integrity campaign): structural callback-payload matching
+// ============================================================================
+
+/// Render a registry callback-arg schema as a `.lolo` payload type
+/// declaration, e.g. `{ id : string, type : string, index : number! }` —
+/// used in fix hints so the author never has to reach for `object`.
+fn derive_typed_payload_decl(arg: &crate::embedded::EmbeddedCallbackArg) -> Option<String> {
+    let schema = arg.schema.as_ref()?;
+    let props = schema.properties.as_ref()?;
+    if props.is_empty() {
+        return None;
+    }
+    let required: Vec<String> = schema.required.as_names().to_vec();
+    let mut parts: Vec<String> = props
+        .iter()
+        .map(|(name, p)| {
+            let ty = p.types.first().map(String::as_str).unwrap_or("string");
+            let bang = if required.iter().any(|r| r == name) { "!" } else { "" };
+            format!("{name} : {ty}{bang}")
+        })
+        .collect();
+    parts.sort();
+    Some(format!("{{ {} }}", parts.join(", ")))
+}
+
+/// Structurally compare a callback arg's registry schema against the trait's
+/// declared payload field. Fires the payload-mismatch code (blocking) when the
+/// declared side is a shapeless `object` or is missing/mistyping a nested
+/// field the component will actually send.
+fn check_callback_arg_schema(
+    arg: &crate::embedded::EmbeddedCallbackArg,
+    declared_field: &PayloadField,
+    prop_name: &str,
+    pattern_type: &str,
+    event_name: &str,
+    path: &str,
+    diagnostics: &mut Vec<ValidationError>,
+) {
+    let Some(schema) = arg.schema.as_ref() else {
+        return;
+    };
+    let Some(schema_props) = schema.properties.as_ref() else {
+        return;
+    };
+    if schema_props.is_empty() {
+        return;
+    }
+
+    let Some(declared_props) = declared_field.properties.as_ref() else {
+        let hint = derive_typed_payload_decl(arg)
+            .unwrap_or_else(|| "{ ... }".to_string());
+        diagnostics.push(
+            ValidationError::error(
+                ErrorCode::RenderUIEventBindingPayloadMismatch,
+                path,
+                format!(
+                    "Callback prop '{}' on '{}' dispatches '{}' with a structured '{}' arg, but the trait declares `{} : object` with no shape — a shapeless payload escapes every downstream check",
+                    prop_name, pattern_type, event_name, arg.name, declared_field.name,
+                ),
+            )
+            .with_suggestion(format!(
+                "Declare the shape the component actually sends: `{} : {}`",
+                declared_field.name, hint,
+            )),
+        );
+        return;
+    };
+
+    let required: Vec<String> = schema.required.as_names().to_vec();
+    for (name, prop) in schema_props {
+        let declared_nested = declared_props.iter().find(|p| &p.name == name);
+        match declared_nested {
+            None if required.iter().any(|r| r == name) => {
+                diagnostics.push(
+                    ValidationError::error(
+                        ErrorCode::RenderUIEventBindingPayloadMismatch,
+                        path,
+                        format!(
+                            "Callback prop '{}' on '{}' sends required nested field '{}.{}' for '{}', but the trait's declared payload shape has no '{}' field",
+                            prop_name, pattern_type, arg.name, name, event_name, name,
+                        ),
+                    )
+                    .with_suggestion(format!(
+                        "Add `{} : {}` to the declared `{}` shape",
+                        name,
+                        prop.types.first().map(String::as_str).unwrap_or("string"),
+                        declared_field.name,
+                    )),
+                );
+            }
+            None => {}
+            Some(nested) => {
+                let expected = prop.types.first().map(String::as_str).unwrap_or("string");
+                if !primitive_event_compat(&nested.field_type, expected) {
+                    diagnostics.push(
+                        ValidationError::error(
+                            ErrorCode::RenderUIEventBindingPayloadMismatch,
+                            path,
+                            format!(
+                                "Callback prop '{}' on '{}' sends '{}.{}' as '{}' but the trait declares it as '{}'",
+                                prop_name, pattern_type, arg.name, name, expected, nested.field_type,
+                            ),
+                        ),
+                    );
+                }
+            }
+        }
     }
 }

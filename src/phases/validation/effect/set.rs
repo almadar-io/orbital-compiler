@@ -490,6 +490,7 @@ fn field_type_str(ft: &FieldType) -> &'static str {
         FieldType::Trait => "trait",
         FieldType::Slot => "slot",
         FieldType::Pattern => "pattern",
+        FieldType::Node => "node",
     }
 }
 

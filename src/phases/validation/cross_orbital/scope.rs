@@ -226,6 +226,8 @@ mod tests {
     /// `Alias.traits.Atom` reference with an `events:` rename override.
     fn build_scope_boundary_fixture(atom_scope: EventScope) -> OrbitalSchema {
         let atom = TraitDefinition {
+            type_params: None,
+            type_args: None,
             name: "Atom".to_string(),
             entity_rebindable: None,
             entity_contract: None,
@@ -294,6 +296,7 @@ mod tests {
         let mut events_rename = HashMap::new();
         events_rename.insert("OPEN".to_string(), "ADD_ITEM".to_string());
         let composer_ref = TraitReference::Reference {
+            type_args: None,
             id: None,
             reference: Some("Lib.traits.Atom".to_string()),
             name: Some("Composed".to_string()),
