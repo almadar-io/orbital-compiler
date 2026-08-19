@@ -25,6 +25,10 @@ pub fn validate_all_themes(schema: &OrbitalSchema, ctx: &mut ValidationContext) 
         .filter_map(|t| t.as_inline())
         .map(|t| t.name.as_str())
         .collect();
+    if let Some(theme_ref) = &schema.theme {
+        let result = validate_theme_ref(theme_ref, "theme", &inline_names);
+        ctx.merge(result);
+    }
     for (i, orbital) in schema.orbitals.iter().enumerate() {
         if let Some(theme_ref) = &orbital.theme {
             let path = format!("orbitals[{}].theme", i);

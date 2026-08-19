@@ -346,6 +346,7 @@ mod tests {
         };
 
         OrbitalSchema {
+            theme: None,
             name: "CompositionApp".to_string(),
             version: Some("1.0.0".to_string()),
             description: None,

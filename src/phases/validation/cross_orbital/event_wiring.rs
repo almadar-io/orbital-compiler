@@ -461,6 +461,7 @@ mod tests {
 
     fn create_minimal_schema() -> OrbitalSchema {
         OrbitalSchema {
+            theme: None,
             name: "TestApp".to_string(),
             version: Some("1.0.0".to_string()),
             description: None,

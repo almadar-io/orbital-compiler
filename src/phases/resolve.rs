@@ -56,6 +56,7 @@ pub fn resolve_sexpr_standalone(sexpr: &SExpression) -> Result<OirExpr, ResolveE
         name: String::new(),
         version: None,
         description: None,
+        theme: None,
         orbitals: Vec::new(),
         metadata: None,
         ledger: None,
@@ -260,15 +261,14 @@ impl<'a> Resolver<'a> {
             entries
         };
         for oir_trait in &mut module.traits {
-            let theme_key = self
-                .schema
-                .orbitals
-                .iter()
-                .find(|o| o.name == oir_trait.orbital_name)
-                .and_then(|o| o.theme.as_ref())
-                .map(theme_data_key)
-                .filter(|k| !k.is_empty())
-                .unwrap_or_else(|| DEFAULT_THEME_KEY.to_string());
+            let theme_key = resolve_theme_key(
+                self.schema
+                    .orbitals
+                    .iter()
+                    .find(|o| o.name == oir_trait.orbital_name)
+                    .and_then(|o| o.theme.as_ref()),
+                self.schema.theme.as_ref(),
+            );
             for trans in &mut oir_trait.transitions {
                 for effect in &mut trans.effects {
                     let old = std::mem::replace(effect, OirExpr::Null);
@@ -281,9 +281,10 @@ impl<'a> Resolver<'a> {
     }
 }
 
-/// The baseline theme `@currentTheme` falls back to when an orbital declares
-/// no `theme`. Keeps standalone renders (no rabit) styled; rabit overrides
-/// globally via `Orbital.theme`. A full `<base>-<variant>` registry key.
+/// The baseline theme `@currentTheme` falls back to when neither the orbital
+/// nor the app header declares a `theme` (precedence: orbital → app →
+/// this default). Keeps standalone renders (no rabit) styled; rabit stamps
+/// per-orbital `Orbital.theme`. A full `<base>-<variant>` registry key.
 const DEFAULT_THEME_KEY: &str = "minimalist-light";
 
 /// Derive a human nav label from a page's `name` when no `@label`
@@ -308,6 +309,16 @@ fn theme_data_key(theme: &ThemeRef) -> String {
         ThemeRef::Reference(name) => name.clone(),
         ThemeRef::Inline(def) => def.name.clone(),
     }
+}
+
+/// The `@currentTheme` precedence chain: the orbital's own `theme` beats the
+/// app-header `theme "<key>"`, which beats the baseline default.
+fn resolve_theme_key(orbital_theme: Option<&ThemeRef>, app_theme: Option<&ThemeRef>) -> String {
+    orbital_theme
+        .map(theme_data_key)
+        .filter(|k| !k.is_empty())
+        .or_else(|| app_theme.map(theme_data_key).filter(|k| !k.is_empty()))
+        .unwrap_or_else(|| DEFAULT_THEME_KEY.to_string())
 }
 
 /// Recursively substitute render-resolved schema sigils with their concrete
@@ -2560,6 +2571,23 @@ mod tests {
     use super::*;
 
     #[test]
+    fn theme_key_precedence_orbital_over_app_over_default() {
+        let orb = ThemeRef::Reference("clay-light".to_string());
+        let app = ThemeRef::Reference("linear-clean-light".to_string());
+        assert_eq!(resolve_theme_key(Some(&orb), Some(&app)), "clay-light");
+        assert_eq!(
+            resolve_theme_key(None, Some(&app)),
+            "linear-clean-light"
+        );
+        assert_eq!(resolve_theme_key(None, None), DEFAULT_THEME_KEY);
+        let empty = ThemeRef::Reference(String::new());
+        assert_eq!(
+            resolve_theme_key(Some(&empty), Some(&app)),
+            "linear-clean-light"
+        );
+    }
+
+    #[test]
     fn parse_payload_field_type_primitives() {
         assert_eq!(parse_payload_field_type("string"), OirType::String);
         assert_eq!(parse_payload_field_type("int"), OirType::Integer);
@@ -2735,6 +2763,7 @@ mod tests {
     #[test]
     fn test_resolve_minimal_schema() {
         let schema = OrbitalSchema {
+            theme: None,
             name: "TestApp".to_string(),
             version: Some("1.0.0".to_string()),
             description: None,
@@ -2768,6 +2797,7 @@ mod tests {
     fn empty_resolver() -> Resolver<'static> {
         static SCHEMA: std::sync::OnceLock<OrbitalSchema> = std::sync::OnceLock::new();
         let schema = SCHEMA.get_or_init(|| OrbitalSchema {
+            theme: None,
             name: "Test".to_string(),
             version: None,
             description: None,

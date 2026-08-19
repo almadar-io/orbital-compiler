@@ -159,6 +159,7 @@ fn schema_for_f1(strict_target_event: &str) -> OrbitalSchema {
     };
 
     OrbitalSchema {
+        theme: None,
         name: "TestApp".to_string(),
         version: Some("0.1.0".to_string()),
         description: None,
@@ -318,6 +319,7 @@ fn schema_with_two_emitters(
         id: None,
     };
     OrbitalSchema {
+        theme: None,
         name: "TestApp".to_string(),
         version: Some("0.1.0".to_string()),
         description: None,
@@ -439,6 +441,7 @@ fn schema_with_default(field: FieldDefinition) -> OrbitalSchema {
         id: None,
     };
     OrbitalSchema {
+        theme: None,
         name: "TestApp".to_string(),
         version: Some("0.1.0".to_string()),
         description: None,

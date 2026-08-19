@@ -121,6 +121,7 @@ fn schema_with_effects(
     };
 
     OrbitalSchema {
+        theme: None,
         name: "TestApp".to_string(),
         version: Some("0.1.0".to_string()),
         description: None,

@@ -168,6 +168,7 @@ fn schema_with_config(config: HashMap<String, ConfigField>) -> OrbitalSchema {
         trait_embed_ids: None,
     };
     OrbitalSchema {
+        theme: None,
         name: "TestApp".to_string(),
         version: Some("0.1.0".to_string()),
         description: None,

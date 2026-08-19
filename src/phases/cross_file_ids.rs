@@ -573,6 +573,7 @@ mod tests {
     #[test]
     fn resolves_dotted_trait_ref_from_imported_ledger() {
         let mut schema = OrbitalSchema {
+            theme: None,
             name: "Test".to_string(),
             version: None,
             description: None,
@@ -611,6 +612,7 @@ mod tests {
     #[test]
     fn leaves_unresolvable_dotted_ref_none_without_panic() {
         let mut schema = OrbitalSchema {
+            theme: None,
             name: "Test".to_string(),
             version: None,
             description: None,
@@ -649,6 +651,7 @@ mod tests {
     #[test]
     fn leaves_unknown_alias_ref_none() {
         let mut schema = OrbitalSchema {
+            theme: None,
             name: "Test".to_string(),
             version: None,
             description: None,
@@ -756,6 +759,7 @@ mod tests {
         std::fs::write(dir.path().join("frame.orb"), FRAME_ORB).expect("write frame.orb");
 
         let mut schema = OrbitalSchema {
+            theme: None,
             name: "Test".to_string(),
             version: None,
             description: None,
@@ -819,6 +823,7 @@ mod tests {
         std::fs::write(dir.path().join("b.orb"), b_orb).expect("write b.orb");
 
         let mut schema = OrbitalSchema {
+            theme: None,
             name: "Test".to_string(),
             version: None,
             description: None,
