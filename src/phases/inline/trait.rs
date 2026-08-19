@@ -692,6 +692,16 @@ pub(crate) fn inline_traits(
     // owner is the top-level consumer trait that started the chain, and is the
     // unit a pulled sibling belongs to (see `pulled_as` below).
     let mut sibling_pull_work: Vec<(String, String, Option<String>, String, String)> = Vec::new();
+    // Explicitly declared Reference instances keyed by (alias, SOURCE trait
+    // name, linkedEntity rebind) → final (post-`name`-override) name. A
+    // sibling pull that matches one of these keys is satisfied by the
+    // explicit composition — regardless of the local name the consumer chose
+    // — so the pull is suppressed and the owner's `@trait.<Source>` tokens
+    // are rewritten to the explicit instance. This is what makes one atom
+    // rebindable N times in one orbital (N entities, N explicit transport
+    // rebinds, each owning its entity's companion slot).
+    let mut explicit_ref_instances: HashMap<(String, String, Option<String>), String> =
+        HashMap::new();
     // Per-owner source-name → final-name map for the traits materialised under
     // that owner: the owner itself (keyed by the atom's original trait name) plus
     // every sibling pulled for it. A pulled copy's source-scoped `listens` names
@@ -1070,6 +1080,15 @@ pub(crate) fn inline_traits(
                                             path: trait_path.clone(),
                                         });
                                     }
+                                    // Register this explicit composition so a
+                                    // sibling pull targeting the same (alias,
+                                    // source trait, entity) resolves to it
+                                    // instead of materialising a duplicate
+                                    // companion — the local name is free.
+                                    explicit_ref_instances.insert(
+                                        (alias.clone(), name.clone(), linked_entity.clone()),
+                                        trait_def.name.clone(),
+                                    );
                                     // Record this resolved ref so the sibling-pull
                                     // pass below can instantiate any same-alias
                                     // `@trait.X` siblings its body references,
@@ -1173,6 +1192,26 @@ pub(crate) fn inline_traits(
             }
         };
         while let Some((alias, sibling_name, linked_entity, parent_name, owner)) = worklist.pop() {
+            // An explicit Reference to this same source trait, rebound to the
+            // SAME entity, satisfies the pull no matter what local name the
+            // consumer gave it — rewrite the pulling parent's `@trait.<Source>`
+            // tokens to the explicit instance and materialise nothing. This is
+            // the multi-instance case: N rebinds of one atom in one orbital,
+            // each pair (transport + sim) sharing one entity under free names.
+            if let Some(explicit_final) = explicit_ref_instances.get(&(
+                alias.clone(),
+                sibling_name.clone(),
+                linked_entity.clone(),
+            )) {
+                if explicit_final != &sibling_name {
+                    rewrite_parent(&mut result, &parent_name, &sibling_name, explicit_final);
+                }
+                owner_subs
+                    .entry(owner.clone())
+                    .or_default()
+                    .insert(sibling_name.clone(), explicit_final.clone());
+                continue;
+            }
             // Resolve where this (alias, sibling, owner) should land.
             let mut final_name = sibling_name.clone();
             if let Some(existing) =

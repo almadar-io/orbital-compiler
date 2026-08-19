@@ -511,6 +511,12 @@ fn check_event_literal_stale(
     if !is_event_bearing {
         return;
     }
+    // An empty literal is a default-off outlet (the component-declared `= ''`
+    // knob default the lolo-ui generator honors, e.g. table-view's
+    // itemClickEvent), not a stale event name.
+    if event_name.is_empty() {
+        return;
+    }
 
     // Build the trait's full event set: every event the trait declares
     // as emit, listens for, or transitions on. A literal that matches
