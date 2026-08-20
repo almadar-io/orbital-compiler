@@ -684,7 +684,7 @@ pub fn factory_signatures_json_io() -> &'static str {
 // Values are gzip bytes (build.rs → $OUT_DIR/baked-gz/…), inflated lazily by
 // `get_std_behavior_content` — the baked corpus is ~31MB raw, ~2MB gzipped.
 pub static EMBEDDED_STD_BEHAVIORS: phf::Map<&'static str, &'static [u8]> = phf::phf_map! {
-    // === Atoms (555) ===
+    // === Atoms (551) ===
     "std/behaviors/dnd-combat" => include_bytes!(concat!(env!("OUT_DIR"), "/baked-gz/io/dnd/atoms/dnd-combat.orb.gz")),
     "std/behaviors/dnd-dice" => include_bytes!(concat!(env!("OUT_DIR"), "/baked-gz/io/dnd/atoms/dnd-dice.orb.gz")),
     "std/behaviors/dnd-dungeon-gen" => include_bytes!(concat!(env!("OUT_DIR"), "/baked-gz/io/dnd/atoms/dnd-dungeon-gen.orb.gz")),
@@ -702,11 +702,6 @@ pub static EMBEDDED_STD_BEHAVIORS: phf::Map<&'static str, &'static [u8]> = phf::
     "std/behaviors/mesh-part-torso-suit" => include_bytes!(concat!(env!("OUT_DIR"), "/baked-gz/io/mesh/atoms/mesh-part-torso-suit.orb.gz")),
     "std/behaviors/mesh-part-unit-base" => include_bytes!(concat!(env!("OUT_DIR"), "/baked-gz/io/mesh/atoms/mesh-part-unit-base.orb.gz")),
     "std/behaviors/mesh-primitives" => include_bytes!(concat!(env!("OUT_DIR"), "/baked-gz/io/mesh/atoms/mesh-primitives.orb.gz")),
-    "std/behaviors/riya-area" => include_bytes!(concat!(env!("OUT_DIR"), "/baked-gz/io/riya/atoms/riya-area.orb.gz")),
-    "std/behaviors/riya-curve" => include_bytes!(concat!(env!("OUT_DIR"), "/baked-gz/io/riya/atoms/riya-curve.orb.gz")),
-    "std/behaviors/riya-line" => include_bytes!(concat!(env!("OUT_DIR"), "/baked-gz/io/riya/atoms/riya-line.orb.gz")),
-    "std/behaviors/riya-progress" => include_bytes!(concat!(env!("OUT_DIR"), "/baked-gz/io/riya/atoms/riya-progress.orb.gz")),
-    "std/behaviors/riya-slope" => include_bytes!(concat!(env!("OUT_DIR"), "/baked-gz/io/riya/atoms/riya-slope.orb.gz")),
     "std/behaviors/rpg-dialogue" => include_bytes!(concat!(env!("OUT_DIR"), "/baked-gz/io/rpg/atoms/rpg-dialogue.orb.gz")),
     "std/behaviors/rpg-enemies" => include_bytes!(concat!(env!("OUT_DIR"), "/baked-gz/io/rpg/atoms/rpg-enemies.orb.gz")),
     "std/behaviors/rpg-flow" => include_bytes!(concat!(env!("OUT_DIR"), "/baked-gz/io/rpg/atoms/rpg-flow.orb.gz")),
@@ -961,6 +956,7 @@ pub static EMBEDDED_STD_BEHAVIORS: phf::Map<&'static str, &'static [u8]> = phf::
     "std/behaviors/std-modal" => include_bytes!(concat!(env!("OUT_DIR"), "/baked-gz/std/ui/core/atoms/std-modal.orb.gz")),
     "std/behaviors/std-moderation-rule" => include_bytes!(concat!(env!("OUT_DIR"), "/baked-gz/io/app/atoms/std-moderation-rule.orb.gz")),
     "std/behaviors/std-modifier-group" => include_bytes!(concat!(env!("OUT_DIR"), "/baked-gz/io/app/atoms/std-modifier-group.orb.gz")),
+    "std/behaviors/std-motion-body" => include_bytes!(concat!(env!("OUT_DIR"), "/baked-gz/std/ui/game/atoms/std-motion-body.orb.gz")),
     "std/behaviors/std-multi-party-flow" => include_bytes!(concat!(env!("OUT_DIR"), "/baked-gz/std/ui/core/atoms/std-multi-party-flow.orb.gz")),
     "std/behaviors/std-notification-panel" => include_bytes!(concat!(env!("OUT_DIR"), "/baked-gz/std/ui/core/atoms/std-notification-panel.orb.gz")),
     "std/behaviors/std-notify-on-event" => include_bytes!(concat!(env!("OUT_DIR"), "/baked-gz/std/infra/atoms/std-notify-on-event.orb.gz")),
