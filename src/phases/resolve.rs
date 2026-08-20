@@ -524,6 +524,11 @@ impl<'a> Resolver<'a> {
         // Add enum values
         oir_field.enum_values = field.values.clone();
 
+        // Carry the field's @description into the OIR — codegen turns it
+        // into the form input's help text (`hint`), the compiled twin of
+        // the runtime path's enrichFormFields injection.
+        oir_field.description = field.description.clone();
+
         // Attach the constraint the declared domain implies. `OirConstraint::{Email,
         // Url,Uuid}` and the zod `.email()`/`.url()`/`.uuid()` emitter were both
         // already built and never fed — nothing ever populated `constraints`, and a
@@ -581,6 +586,8 @@ impl<'a> Resolver<'a> {
             FieldType::Phone => Ok(OirType::Phone),
             FieldType::Uuid => Ok(OirType::Uuid),
             FieldType::Image => Ok(OirType::Image),
+            FieldType::Money => Ok(OirType::Money),
+            FieldType::File => Ok(OirType::File),
             FieldType::Array => Ok(OirType::array(OirType::Json)), // Nested type would need items
             FieldType::Object => Ok(OirType::Json),
             FieldType::Enum => Ok(OirType::enum_type("Enum")),
@@ -2537,7 +2544,24 @@ fn parse_payload_field_type(field_type: &str) -> OirType {
         "integer" | "int" => return OirType::Integer,
         "boolean" | "bool" => return OirType::Boolean,
         "date" => return OirType::Date,
-        "datetime" => return OirType::DateTime,
+        "datetime" | "timestamp" => return OirType::DateTime,
+        // Semantic scalar field types (`.lolo` entity vocabulary — see
+        // `field_type_to_string`). An `@entity`-shaped payload expands entity
+        // fields with these exact strings; missing arms fell through to
+        // `Reference { entity: "email" }` and emitted the bare identifier
+        // into the payload cast (TS2304) — the same missed-keyword-table trap
+        // as VALID_FIELD_TYPES.
+        "email" => return OirType::Email,
+        "url" => return OirType::Url,
+        "phone" => return OirType::Phone,
+        "uuid" => return OirType::Uuid,
+        "image" => return OirType::Image,
+        "money" => return OirType::Money,
+        "file" => return OirType::File,
+        // In a payload position a relation travels as the related row's id and
+        // an enum as its literal value; neither sidecar (target entity, values)
+        // rides the payload schema.
+        "relation" | "enum" => return OirType::String,
         "array" | "list" => return OirType::array(OirType::Json),
         "object" | "json" | "tensor" => return OirType::Json,
         // `SExpr` brand — a compiled s-expression value (config-only; e.g. a
@@ -2593,6 +2617,19 @@ mod tests {
         assert_eq!(parse_payload_field_type("int"), OirType::Integer);
         assert_eq!(parse_payload_field_type("boolean"), OirType::Boolean);
         assert_eq!(parse_payload_field_type("object"), OirType::Json);
+    }
+
+    #[test]
+    fn parse_payload_field_type_semantic_scalars() {
+        // @entity payload expansion feeds entity field-type strings verbatim —
+        // every FieldType keyword must resolve, never fall through to Reference
+        assert_eq!(parse_payload_field_type("email"), OirType::Email);
+        assert_eq!(parse_payload_field_type("phone"), OirType::Phone);
+        assert_eq!(parse_payload_field_type("money"), OirType::Money);
+        assert_eq!(parse_payload_field_type("file"), OirType::File);
+        assert_eq!(parse_payload_field_type("timestamp"), OirType::DateTime);
+        assert_eq!(parse_payload_field_type("relation"), OirType::String);
+        assert_eq!(parse_payload_field_type("enum"), OirType::String);
     }
 
     #[test]

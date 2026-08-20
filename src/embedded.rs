@@ -684,7 +684,7 @@ pub fn factory_signatures_json_io() -> &'static str {
 // Values are gzip bytes (build.rs → $OUT_DIR/baked-gz/…), inflated lazily by
 // `get_std_behavior_content` — the baked corpus is ~31MB raw, ~2MB gzipped.
 pub static EMBEDDED_STD_BEHAVIORS: phf::Map<&'static str, &'static [u8]> = phf::phf_map! {
-    // === Atoms (550) ===
+    // === Atoms (555) ===
     "std/behaviors/dnd-combat" => include_bytes!(concat!(env!("OUT_DIR"), "/baked-gz/io/dnd/atoms/dnd-combat.orb.gz")),
     "std/behaviors/dnd-dice" => include_bytes!(concat!(env!("OUT_DIR"), "/baked-gz/io/dnd/atoms/dnd-dice.orb.gz")),
     "std/behaviors/dnd-dungeon-gen" => include_bytes!(concat!(env!("OUT_DIR"), "/baked-gz/io/dnd/atoms/dnd-dungeon-gen.orb.gz")),
@@ -702,6 +702,11 @@ pub static EMBEDDED_STD_BEHAVIORS: phf::Map<&'static str, &'static [u8]> = phf::
     "std/behaviors/mesh-part-torso-suit" => include_bytes!(concat!(env!("OUT_DIR"), "/baked-gz/io/mesh/atoms/mesh-part-torso-suit.orb.gz")),
     "std/behaviors/mesh-part-unit-base" => include_bytes!(concat!(env!("OUT_DIR"), "/baked-gz/io/mesh/atoms/mesh-part-unit-base.orb.gz")),
     "std/behaviors/mesh-primitives" => include_bytes!(concat!(env!("OUT_DIR"), "/baked-gz/io/mesh/atoms/mesh-primitives.orb.gz")),
+    "std/behaviors/riya-area" => include_bytes!(concat!(env!("OUT_DIR"), "/baked-gz/io/riya/atoms/riya-area.orb.gz")),
+    "std/behaviors/riya-curve" => include_bytes!(concat!(env!("OUT_DIR"), "/baked-gz/io/riya/atoms/riya-curve.orb.gz")),
+    "std/behaviors/riya-line" => include_bytes!(concat!(env!("OUT_DIR"), "/baked-gz/io/riya/atoms/riya-line.orb.gz")),
+    "std/behaviors/riya-progress" => include_bytes!(concat!(env!("OUT_DIR"), "/baked-gz/io/riya/atoms/riya-progress.orb.gz")),
+    "std/behaviors/riya-slope" => include_bytes!(concat!(env!("OUT_DIR"), "/baked-gz/io/riya/atoms/riya-slope.orb.gz")),
     "std/behaviors/rpg-dialogue" => include_bytes!(concat!(env!("OUT_DIR"), "/baked-gz/io/rpg/atoms/rpg-dialogue.orb.gz")),
     "std/behaviors/rpg-enemies" => include_bytes!(concat!(env!("OUT_DIR"), "/baked-gz/io/rpg/atoms/rpg-enemies.orb.gz")),
     "std/behaviors/rpg-flow" => include_bytes!(concat!(env!("OUT_DIR"), "/baked-gz/io/rpg/atoms/rpg-flow.orb.gz")),
@@ -1342,7 +1347,7 @@ pub static EMBEDDED_STD_BEHAVIORS: phf::Map<&'static str, &'static [u8]> = phf::
     "std/behaviors/ui-wizard-container" => include_bytes!(concat!(env!("OUT_DIR"), "/baked-gz/std/ui/core/molecules/ui-wizard-container.orb.gz")),
     "std/behaviors/ui-wizard-navigation" => include_bytes!(concat!(env!("OUT_DIR"), "/baked-gz/std/ui/core/molecules/ui-wizard-navigation.orb.gz")),
     "std/behaviors/ui-wizard-progress" => include_bytes!(concat!(env!("OUT_DIR"), "/baked-gz/std/ui/core/molecules/ui-wizard-progress.orb.gz")),
-    // === Organisms (327) ===
+    // === Organisms (328) ===
     "std/behaviors/dnd-character-hud" => include_bytes!(concat!(env!("OUT_DIR"), "/baked-gz/io/dnd/organisms/dnd-character-hud.orb.gz")),
     "std/behaviors/dnd-dungeon-board" => include_bytes!(concat!(env!("OUT_DIR"), "/baked-gz/io/dnd/organisms/dnd-dungeon-board.orb.gz")),
     "std/behaviors/dnd-dungeon-delver" => include_bytes!(concat!(env!("OUT_DIR"), "/baked-gz/io/dnd/organisms/dnd-dungeon-delver.orb.gz")),
@@ -1377,6 +1382,7 @@ pub static EMBEDDED_STD_BEHAVIORS: phf::Map<&'static str, &'static [u8]> = phf::
     "std/behaviors/mesh-units-flame-wisp" => include_bytes!(concat!(env!("OUT_DIR"), "/baked-gz/io/mesh/organisms/mesh-units-flame-wisp.orb.gz")),
     "std/behaviors/mesh-units-sentinel-robot" => include_bytes!(concat!(env!("OUT_DIR"), "/baked-gz/io/mesh/organisms/mesh-units-sentinel-robot.orb.gz")),
     "std/behaviors/mesh-units-stealth-operative" => include_bytes!(concat!(env!("OUT_DIR"), "/baked-gz/io/mesh/organisms/mesh-units-stealth-operative.orb.gz")),
+    "std/behaviors/riya-game" => include_bytes!(concat!(env!("OUT_DIR"), "/baked-gz/io/riya/organisms/riya-game.orb.gz")),
     "std/behaviors/rpg-dungeon-board" => include_bytes!(concat!(env!("OUT_DIR"), "/baked-gz/io/rpg/organisms/rpg-dungeon-board.orb.gz")),
     "std/behaviors/shadowdepths" => include_bytes!(concat!(env!("OUT_DIR"), "/baked-gz/io/rpg/organisms/shadowdepths.orb.gz")),
     "std/behaviors/std-accounting" => include_bytes!(concat!(env!("OUT_DIR"), "/baked-gz/io/app/organisms/std-accounting.orb.gz")),

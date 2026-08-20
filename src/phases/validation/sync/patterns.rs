@@ -2,7 +2,7 @@
 //!
 //! Source: packages/almadar-core/src/patterns/patterns-registry.json
 //!
-//! Last synced: 2026-08-19
+//! Last synced: 2026-08-20
 //! To regenerate: npx tsx tools/almadar-pattern-sync/index.ts
 //!
 //! DO NOT EDIT MANUALLY - changes will be overwritten on next sync.
@@ -1749,6 +1749,7 @@ pub static PATTERN_PROPS_SCHEMA: LazyLock<HashMap<&'static str, HashSet<&'static
                     "actions",
                     "activeFilters",
                     "avatar",
+                    "backAction",
                     "className",
                     "displayFields",
                     "entity",
@@ -1762,6 +1763,7 @@ pub static PATTERN_PROPS_SCHEMA: LazyLock<HashMap<&'static str, HashSet<&'static
                     "page",
                     "pageSize",
                     "position",
+                    "relationsData",
                     "searchValue",
                     "sections",
                     "selectedIds",
@@ -2213,6 +2215,7 @@ pub static PATTERN_PROPS_SCHEMA: LazyLock<HashMap<&'static str, HashSet<&'static
                     "entity",
                     "error",
                     "evaluationContext",
+                    "fieldOverrides",
                     "fields",
                     "gap",
                     "hiddenCalculations",
@@ -2286,6 +2289,7 @@ pub static PATTERN_PROPS_SCHEMA: LazyLock<HashMap<&'static str, HashSet<&'static
                     "entity",
                     "error",
                     "evaluationContext",
+                    "fieldOverrides",
                     "fields",
                     "gap",
                     "hiddenCalculations",
@@ -2830,6 +2834,8 @@ pub static PATTERN_PROPS_SCHEMA: LazyLock<HashMap<&'static str, HashSet<&'static
                     "hops",
                     "interactive",
                     "isLoading",
+                    "keyMap",
+                    "keyUpMap",
                     "onShapeClick",
                     "points",
                     "readouts",
@@ -5614,6 +5620,7 @@ pub static PATTERN_PROP_TYPES: LazyLock<HashMap<&'static str, HashMap<&'static s
                     ("avatar", &["node"] as &[&str]),
                     ("sections", &["array"] as &[&str]),
                     ("actions", &["array"] as &[&str]),
+                    ("backAction", &["object"] as &[&str]),
                     ("footer", &["node"] as &[&str]),
                     ("slideOver", &["boolean"] as &[&str]),
                     ("fields", &["array"] as &[&str]),
@@ -5624,6 +5631,7 @@ pub static PATTERN_PROP_TYPES: LazyLock<HashMap<&'static str, HashMap<&'static s
                     ("width", &["string"] as &[&str]),
                     ("displayFields", &["array"] as &[&str]),
                     ("showActions", &["boolean"] as &[&str]),
+                    ("relationsData", &["object"] as &[&str]),
                 ]
                 .into_iter()
                 .collect(),
@@ -6209,6 +6217,7 @@ pub static PATTERN_PROP_TYPES: LazyLock<HashMap<&'static str, HashMap<&'static s
                     ("cancelEvent", &["string"] as &[&str]),
                     ("relationsData", &["object"] as &[&str]),
                     ("relationsLoading", &["object"] as &[&str]),
+                    ("fieldOverrides", &["array"] as &[&str]),
                     ("conditionalFields", &["object", "boolean"] as &[&str]),
                     ("hiddenCalculations", &["array", "boolean"] as &[&str]),
                     ("violationTriggers", &["array", "boolean"] as &[&str]),
@@ -6294,6 +6303,7 @@ pub static PATTERN_PROP_TYPES: LazyLock<HashMap<&'static str, HashMap<&'static s
                     ("cancelEvent", &["string"] as &[&str]),
                     ("relationsData", &["object"] as &[&str]),
                     ("relationsLoading", &["object"] as &[&str]),
+                    ("fieldOverrides", &["array"] as &[&str]),
                     ("conditionalFields", &["object", "boolean"] as &[&str]),
                     ("hiddenCalculations", &["array", "boolean"] as &[&str]),
                     ("violationTriggers", &["array", "boolean"] as &[&str]),
@@ -6977,6 +6987,8 @@ pub static PATTERN_PROP_TYPES: LazyLock<HashMap<&'static str, HashMap<&'static s
                     ("interactive", &["boolean"] as &[&str]),
                     ("animate", &["boolean"] as &[&str]),
                     ("onShapeClick", &["function"] as &[&str]),
+                    ("keyMap", &["object"] as &[&str]),
+                    ("keyUpMap", &["object"] as &[&str]),
                     ("isLoading", &["boolean"] as &[&str]),
                     ("error", &["object"] as &[&str]),
                 ]

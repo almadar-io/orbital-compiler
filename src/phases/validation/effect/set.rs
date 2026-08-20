@@ -483,6 +483,8 @@ fn field_type_str(ft: &FieldType) -> &'static str {
         FieldType::Phone => "phone",
         FieldType::Uuid => "uuid",
         FieldType::Image => "image",
+        FieldType::Money => "money",
+        FieldType::File => "file",
         FieldType::Array => "array",
         FieldType::Object => "object",
         FieldType::Enum => "enum",

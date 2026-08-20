@@ -129,6 +129,13 @@ pub struct RegistryPattern {
     pub description: String,
     #[serde(default)]
     pub props_schema: HashMap<String, PropSchema>,
+    /// Declared fields-consumption contract from the component's
+    /// `@fieldsContract` JSDoc tag: `"form"` = editable SchemaFields
+    /// (schema enrichment + relationsData), `"display"` = read-only
+    /// display fields ({key, header} + typed meta). THE capability the
+    /// codegen field-enrichment gates key on — never a pattern-name list.
+    #[serde(default)]
+    pub fields_contract: Option<String>,
 }
 
 /// Event payload schema.
@@ -220,6 +227,15 @@ pub fn get_pattern_definition(pattern_type: &str) -> Option<&'static RegistryPat
 }
 
 /// Check if a pattern type is registered.
+/// The pattern's declared `@fieldsContract` (`"form"` | `"display"`), or
+/// None for patterns without entity-bound field lists. See
+/// [`RegistryPattern::fields_contract`].
+pub fn get_fields_contract(pattern_type: &str) -> Option<&'static str> {
+    get_pattern_definition(pattern_type)?
+        .fields_contract
+        .as_deref()
+}
+
 pub fn is_registered_pattern(pattern_type: &str) -> bool {
     component_mappings().contains_key(pattern_type)
 }

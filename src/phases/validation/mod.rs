@@ -347,6 +347,10 @@ pub const VALID_FIELD_TYPES: &[&str] = &[
     "phone",
     "uuid",
     "image",
+    // Promoted value types (2026-08-20): money = numeric at rest; file = the
+    // canonical {name, url, mimeType, sizeBytes} struct value.
+    "money",
+    "file",
     "array",
     "object",
     "enum",

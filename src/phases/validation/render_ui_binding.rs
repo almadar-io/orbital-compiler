@@ -282,6 +282,10 @@ fn field_type_to_binding(ft: &FieldType) -> BindingType {
         | FieldType::Phone
         | FieldType::Uuid
         | FieldType::Image => BindingType::String,
+        // Money binds as a number; File binds as an object (the canonical
+        // {name, url, mimeType, sizeBytes} struct value).
+        FieldType::Money => BindingType::Number,
+        FieldType::File => BindingType::Object,
         FieldType::Array => BindingType::Array,
         FieldType::Object => BindingType::Object,
         FieldType::Enum => BindingType::String,
