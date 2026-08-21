@@ -684,7 +684,7 @@ pub fn factory_signatures_json_io() -> &'static str {
 // Values are gzip bytes (build.rs → $OUT_DIR/baked-gz/…), inflated lazily by
 // `get_std_behavior_content` — the baked corpus is ~31MB raw, ~2MB gzipped.
 pub static EMBEDDED_STD_BEHAVIORS: phf::Map<&'static str, &'static [u8]> = phf::phf_map! {
-    // === Atoms (551) ===
+    // === Atoms (554) ===
     "std/behaviors/dnd-combat" => include_bytes!(concat!(env!("OUT_DIR"), "/baked-gz/io/dnd/atoms/dnd-combat.orb.gz")),
     "std/behaviors/dnd-dice" => include_bytes!(concat!(env!("OUT_DIR"), "/baked-gz/io/dnd/atoms/dnd-dice.orb.gz")),
     "std/behaviors/dnd-dungeon-gen" => include_bytes!(concat!(env!("OUT_DIR"), "/baked-gz/io/dnd/atoms/dnd-dungeon-gen.orb.gz")),
@@ -878,6 +878,7 @@ pub static EMBEDDED_STD_BEHAVIORS: phf::Map<&'static str, &'static [u8]> = phf::
     "std/behaviors/std-learn-diagram" => include_bytes!(concat!(env!("OUT_DIR"), "/baked-gz/std/ui/learning/atoms/std-learn-diagram.orb.gz")),
     "std/behaviors/std-learn-doser" => include_bytes!(concat!(env!("OUT_DIR"), "/baked-gz/std/ui/learning/atoms/std-learn-doser.orb.gz")),
     "std/behaviors/std-learn-estimate" => include_bytes!(concat!(env!("OUT_DIR"), "/baked-gz/std/ui/learning/atoms/std-learn-estimate.orb.gz")),
+    "std/behaviors/std-learn-fx-cues" => include_bytes!(concat!(env!("OUT_DIR"), "/baked-gz/std/ui/learning/atoms/std-learn-fx-cues.orb.gz")),
     "std/behaviors/std-learn-goal-seek" => include_bytes!(concat!(env!("OUT_DIR"), "/baked-gz/std/ui/learning/atoms/std-learn-goal-seek.orb.gz")),
     "std/behaviors/std-learn-grid-sim" => include_bytes!(concat!(env!("OUT_DIR"), "/baked-gz/std/ui/learning/atoms/std-learn-grid-sim.orb.gz")),
     "std/behaviors/std-learn-hotspot" => include_bytes!(concat!(env!("OUT_DIR"), "/baked-gz/std/ui/learning/atoms/std-learn-hotspot.orb.gz")),
@@ -986,6 +987,7 @@ pub static EMBEDDED_STD_BEHAVIORS: phf::Map<&'static str, &'static [u8]> = phf::
     "std/behaviors/std-physics-spring" => include_bytes!(concat!(env!("OUT_DIR"), "/baked-gz/io/learning/atoms/std-physics-spring.orb.gz")),
     "std/behaviors/std-physics-wave" => include_bytes!(concat!(env!("OUT_DIR"), "/baked-gz/io/learning/atoms/std-physics-wave.orb.gz")),
     "std/behaviors/std-physics-wave-3d" => include_bytes!(concat!(env!("OUT_DIR"), "/baked-gz/io/learning/atoms/std-physics-wave-3d.orb.gz")),
+    "std/behaviors/std-platformer-body" => include_bytes!(concat!(env!("OUT_DIR"), "/baked-gz/std/ui/game/atoms/std-platformer-body.orb.gz")),
     "std/behaviors/std-pong-rally" => include_bytes!(concat!(env!("OUT_DIR"), "/baked-gz/io/game/atoms/std-pong-rally.orb.gz")),
     "std/behaviors/std-portfolio" => include_bytes!(concat!(env!("OUT_DIR"), "/baked-gz/io/app/atoms/std-portfolio.orb.gz")),
     "std/behaviors/std-prescription" => include_bytes!(concat!(env!("OUT_DIR"), "/baked-gz/io/app/atoms/std-prescription.orb.gz")),
@@ -1153,6 +1155,7 @@ pub static EMBEDDED_STD_BEHAVIORS: phf::Map<&'static str, &'static [u8]> = phf::
     "std/behaviors/ui-dialog" => include_bytes!(concat!(env!("OUT_DIR"), "/baked-gz/std/ui/core/atoms/ui-dialog.orb.gz")),
     "std/behaviors/ui-dialogue-bubble" => include_bytes!(concat!(env!("OUT_DIR"), "/baked-gz/std/ui/game/atoms/ui-dialogue-bubble.orb.gz")),
     "std/behaviors/ui-divider" => include_bytes!(concat!(env!("OUT_DIR"), "/baked-gz/std/ui/core/atoms/ui-divider.orb.gz")),
+    "std/behaviors/ui-draw-fx-layer" => include_bytes!(concat!(env!("OUT_DIR"), "/baked-gz/std/ui/game/atoms/ui-draw-fx-layer.orb.gz")),
     "std/behaviors/ui-draw-group" => include_bytes!(concat!(env!("OUT_DIR"), "/baked-gz/std/ui/game/atoms/ui-draw-group.orb.gz")),
     "std/behaviors/ui-draw-mesh" => include_bytes!(concat!(env!("OUT_DIR"), "/baked-gz/std/ui/game/atoms/ui-draw-mesh.orb.gz")),
     "std/behaviors/ui-draw-shape" => include_bytes!(concat!(env!("OUT_DIR"), "/baked-gz/std/ui/game/atoms/ui-draw-shape.orb.gz")),
@@ -1236,7 +1239,7 @@ pub static EMBEDDED_STD_BEHAVIORS: phf::Map<&'static str, &'static [u8]> = phf::
     "std/behaviors/ui-typewriter-text" => include_bytes!(concat!(env!("OUT_DIR"), "/baked-gz/std/ui/core/atoms/ui-typewriter-text.orb.gz")),
     "std/behaviors/ui-typography" => include_bytes!(concat!(env!("OUT_DIR"), "/baked-gz/std/ui/core/atoms/ui-typography.orb.gz")),
     "std/behaviors/ui-vstack" => include_bytes!(concat!(env!("OUT_DIR"), "/baked-gz/std/ui/core/atoms/ui-vstack.orb.gz")),
-    // === Molecules (106) ===
+    // === Molecules (107) ===
     "std/behaviors/std-stat-rows" => include_bytes!(concat!(env!("OUT_DIR"), "/baked-gz/std/ui/core/molecules/std-stat-rows.orb.gz")),
     "std/behaviors/ui-accordion" => include_bytes!(concat!(env!("OUT_DIR"), "/baked-gz/std/ui/core/molecules/ui-accordion.orb.gz")),
     "std/behaviors/ui-activation-block" => include_bytes!(concat!(env!("OUT_DIR"), "/baked-gz/std/ui/core/molecules/ui-activation-block.orb.gz")),
@@ -1279,6 +1282,7 @@ pub static EMBEDDED_STD_BEHAVIORS: phf::Map<&'static str, &'static [u8]> = phf::
     "std/behaviors/ui-form-field" => include_bytes!(concat!(env!("OUT_DIR"), "/baked-gz/std/ui/core/molecules/ui-form-field.orb.gz")),
     "std/behaviors/ui-form-layout" => include_bytes!(concat!(env!("OUT_DIR"), "/baked-gz/std/ui/core/molecules/ui-form-layout.orb.gz")),
     "std/behaviors/ui-form-section-header" => include_bytes!(concat!(env!("OUT_DIR"), "/baked-gz/std/ui/core/molecules/ui-form-section-header.orb.gz")),
+    "std/behaviors/ui-fx-overlay" => include_bytes!(concat!(env!("OUT_DIR"), "/baked-gz/std/ui/core/molecules/ui-fx-overlay.orb.gz")),
     "std/behaviors/ui-gradient-divider" => include_bytes!(concat!(env!("OUT_DIR"), "/baked-gz/std/ui/core/molecules/ui-gradient-divider.orb.gz")),
     "std/behaviors/ui-graph-canvas" => include_bytes!(concat!(env!("OUT_DIR"), "/baked-gz/std/ui/core/molecules/ui-graph-canvas.orb.gz")),
     "std/behaviors/ui-graph-view" => include_bytes!(concat!(env!("OUT_DIR"), "/baked-gz/std/ui/core/molecules/ui-graph-view.orb.gz")),
@@ -1343,7 +1347,7 @@ pub static EMBEDDED_STD_BEHAVIORS: phf::Map<&'static str, &'static [u8]> = phf::
     "std/behaviors/ui-wizard-container" => include_bytes!(concat!(env!("OUT_DIR"), "/baked-gz/std/ui/core/molecules/ui-wizard-container.orb.gz")),
     "std/behaviors/ui-wizard-navigation" => include_bytes!(concat!(env!("OUT_DIR"), "/baked-gz/std/ui/core/molecules/ui-wizard-navigation.orb.gz")),
     "std/behaviors/ui-wizard-progress" => include_bytes!(concat!(env!("OUT_DIR"), "/baked-gz/std/ui/core/molecules/ui-wizard-progress.orb.gz")),
-    // === Organisms (328) ===
+    // === Organisms (330) ===
     "std/behaviors/dnd-character-hud" => include_bytes!(concat!(env!("OUT_DIR"), "/baked-gz/io/dnd/organisms/dnd-character-hud.orb.gz")),
     "std/behaviors/dnd-dungeon-board" => include_bytes!(concat!(env!("OUT_DIR"), "/baked-gz/io/dnd/organisms/dnd-dungeon-board.orb.gz")),
     "std/behaviors/dnd-dungeon-delver" => include_bytes!(concat!(env!("OUT_DIR"), "/baked-gz/io/dnd/organisms/dnd-dungeon-delver.orb.gz")),
@@ -1379,6 +1383,7 @@ pub static EMBEDDED_STD_BEHAVIORS: phf::Map<&'static str, &'static [u8]> = phf::
     "std/behaviors/mesh-units-sentinel-robot" => include_bytes!(concat!(env!("OUT_DIR"), "/baked-gz/io/mesh/organisms/mesh-units-sentinel-robot.orb.gz")),
     "std/behaviors/mesh-units-stealth-operative" => include_bytes!(concat!(env!("OUT_DIR"), "/baked-gz/io/mesh/organisms/mesh-units-stealth-operative.orb.gz")),
     "std/behaviors/riya-game" => include_bytes!(concat!(env!("OUT_DIR"), "/baked-gz/io/riya/organisms/riya-game.orb.gz")),
+    "std/behaviors/riya-game-platformer" => include_bytes!(concat!(env!("OUT_DIR"), "/baked-gz/io/riya/organisms/riya-game-platformer.orb.gz")),
     "std/behaviors/rpg-dungeon-board" => include_bytes!(concat!(env!("OUT_DIR"), "/baked-gz/io/rpg/organisms/rpg-dungeon-board.orb.gz")),
     "std/behaviors/shadowdepths" => include_bytes!(concat!(env!("OUT_DIR"), "/baked-gz/io/rpg/organisms/shadowdepths.orb.gz")),
     "std/behaviors/std-accounting" => include_bytes!(concat!(env!("OUT_DIR"), "/baked-gz/io/app/organisms/std-accounting.orb.gz")),
@@ -1479,6 +1484,7 @@ pub static EMBEDDED_STD_BEHAVIORS: phf::Map<&'static str, &'static [u8]> = phf::
     "std/behaviors/std-objective-board-3d" => include_bytes!(concat!(env!("OUT_DIR"), "/baked-gz/std/ui/game/organisms/std-objective-board-3d.orb.gz")),
     "std/behaviors/std-patient-portal" => include_bytes!(concat!(env!("OUT_DIR"), "/baked-gz/io/marketing/organisms/std-patient-portal.orb.gz")),
     "std/behaviors/std-pipeline" => include_bytes!(concat!(env!("OUT_DIR"), "/baked-gz/io/app/organisms/std-pipeline.orb.gz")),
+    "std/behaviors/std-platformer-board-2d" => include_bytes!(concat!(env!("OUT_DIR"), "/baked-gz/std/ui/game/organisms/std-platformer-board-2d.orb.gz")),
     "std/behaviors/std-pong" => include_bytes!(concat!(env!("OUT_DIR"), "/baked-gz/io/game/organisms/std-pong.orb.gz")),
     "std/behaviors/std-project-manager" => include_bytes!(concat!(env!("OUT_DIR"), "/baked-gz/io/app/organisms/std-project-manager.orb.gz")),
     "std/behaviors/std-project-portal" => include_bytes!(concat!(env!("OUT_DIR"), "/baked-gz/io/marketing/organisms/std-project-portal.orb.gz")),

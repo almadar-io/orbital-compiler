@@ -123,6 +123,7 @@ pub static PATTERN_TYPES: LazyLock<HashSet<&'static str>> = LazyLock::new(|| {
         "confirm-dialog",
         "dialog",
         "drawer",
+        "fx-overlay",
         "modal",
         "overlay",
         // Debug Patterns
@@ -208,6 +209,7 @@ pub static PATTERN_TYPES: LazyLock<HashSet<&'static str>> = LazyLock::new(|| {
         "control-grid",
         "dashboard-grid",
         "dialogue-bubble",
+        "draw-fx-layer",
         "draw-group",
         "draw-mesh",
         "draw-shape",
@@ -440,6 +442,7 @@ pub static PATTERN_TO_CATEGORY: LazyLock<HashMap<&'static str, &'static str>> =
             ("confirm-dialog", "container"),
             ("dialog", "container"),
             ("drawer", "container"),
+            ("fx-overlay", "container"),
             ("modal", "container"),
             ("overlay", "container"),
             // Debug
@@ -525,6 +528,7 @@ pub static PATTERN_TO_CATEGORY: LazyLock<HashMap<&'static str, &'static str>> =
             ("control-grid", "game"),
             ("dashboard-grid", "game"),
             ("dialogue-bubble", "game"),
+            ("draw-fx-layer", "game"),
             ("draw-group", "game"),
             ("draw-mesh", "game"),
             ("draw-shape", "game"),
@@ -675,6 +679,7 @@ pub static PATTERN_REQUIRED_PROPS: LazyLock<HashMap<&'static str, Vec<&'static s
             ("doc-breadcrumb", vec!["items"]),
             ("doc-sidebar", vec!["items"]),
             ("doc-toc", vec!["items"]),
+            ("draw-fx-layer", vec!["type", "items"]),
             ("draw-group", vec!["type", "position", "items"]),
             ("draw-mesh", vec!["type", "shape", "position"]),
             ("draw-shape", vec!["type", "shape", "position"]),
@@ -700,6 +705,7 @@ pub static PATTERN_REQUIRED_PROPS: LazyLock<HashMap<&'static str, Vec<&'static s
             ("form-layout", vec!["children"]),
             ("form-section", vec!["fields"]),
             ("form-section-header", vec!["title"]),
+            ("fx-overlay", vec!["items"]),
             ("game-icon", vec!["icon"]),
             ("game-menu", vec!["title"]),
             ("generic-app-template", vec!["entity", "title", "children"]),
@@ -1810,6 +1816,7 @@ pub static PATTERN_PROPS_SCHEMA: LazyLock<HashMap<&'static str, HashSet<&'static
                 .into_iter()
                 .collect(),
             ),
+            ("draw-fx-layer", ["art", "id", "items", "presets", "sprites", "textColor", "tickMs", "type"].into_iter().collect()),
             (
                 "draw-group",
                 [
@@ -2331,6 +2338,7 @@ pub static PATTERN_PROPS_SCHEMA: LazyLock<HashMap<&'static str, HashSet<&'static
                 .into_iter()
                 .collect(),
             ),
+            ("fx-overlay", ["children", "className", "items", "tickMs"].into_iter().collect()),
             ("game-audio-toggle", ["className", "error", "isLoading", "offAsset", "onAsset", "size"].into_iter().collect()),
             ("game-hud", ["className", "elements", "items", "position", "size", "stats", "transparent"].into_iter().collect()),
             ("game-icon", ["alt", "assetUrl", "className", "icon", "size"].into_iter().collect()),
@@ -5717,6 +5725,20 @@ pub static PATTERN_PROP_TYPES: LazyLock<HashMap<&'static str, HashMap<&'static s
                 .collect(),
             ),
             (
+                "draw-fx-layer",
+                [
+                    ("id", &["string"] as &[&str]),
+                    ("items", &["array"] as &[&str]),
+                    ("presets", &["array"] as &[&str]),
+                    ("art", &["object"] as &[&str]),
+                    ("sprites", &["object"] as &[&str]),
+                    ("tickMs", &["number"] as &[&str]),
+                    ("textColor", &["string"] as &[&str]),
+                ]
+                .into_iter()
+                .collect(),
+            ),
+            (
                 "draw-group",
                 [
                     ("id", &["string"] as &[&str]),
@@ -6328,6 +6350,17 @@ pub static PATTERN_PROP_TYPES: LazyLock<HashMap<&'static str, HashMap<&'static s
                     ("icon", &["icon", "string"] as &[&str]),
                     ("hasErrors", &["boolean"] as &[&str]),
                     ("isComplete", &["boolean"] as &[&str]),
+                    ("className", &["string"] as &[&str]),
+                ]
+                .into_iter()
+                .collect(),
+            ),
+            (
+                "fx-overlay",
+                [
+                    ("items", &["array"] as &[&str]),
+                    ("tickMs", &["number"] as &[&str]),
+                    ("children", &["node"] as &[&str]),
                     ("className", &["string"] as &[&str]),
                 ]
                 .into_iter()
@@ -7212,7 +7245,7 @@ pub static PATTERN_PROP_TYPES: LazyLock<HashMap<&'static str, HashMap<&'static s
                     ("showBack", &["boolean"] as &[&str]),
                     ("backEvent", &["string"] as &[&str]),
                     ("breadcrumbs", &["array"] as &[&str]),
-                    ("status", &["object"] as &[&str]),
+                    ("status", &["object", "string"] as &[&str]),
                     ("actions", &["array"] as &[&str]),
                     ("isLoading", &["boolean"] as &[&str]),
                     ("error", &["object"] as &[&str]),

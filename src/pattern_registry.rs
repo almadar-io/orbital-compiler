@@ -73,6 +73,12 @@ pub struct PropTypeSchema {
     pub properties: Option<HashMap<String, PropTypeSchema>>,
     #[serde(default)]
     pub required: Option<Vec<String>>,
+    /// Marks a recursive element reference (e.g. menu `subMenu` items are the
+    /// parent item shape). A structural literal can't express the recursion —
+    /// synthesized shapes emit `never` here, which stays assignable to the
+    /// component's named recursive type.
+    #[serde(default)]
+    pub cyclic: bool,
 }
 
 /// Prop type definition.
