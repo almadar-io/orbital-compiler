@@ -684,7 +684,7 @@ pub fn factory_signatures_json_io() -> &'static str {
 // Values are gzip bytes (build.rs → $OUT_DIR/baked-gz/…), inflated lazily by
 // `get_std_behavior_content` — the baked corpus is ~31MB raw, ~2MB gzipped.
 pub static EMBEDDED_STD_BEHAVIORS: phf::Map<&'static str, &'static [u8]> = phf::phf_map! {
-    // === Atoms (580) ===
+    // === Atoms (586) ===
     "std/behaviors/dnd-combat" => include_bytes!(concat!(env!("OUT_DIR"), "/baked-gz/io/dnd/atoms/dnd-combat.orb.gz")),
     "std/behaviors/dnd-dice" => include_bytes!(concat!(env!("OUT_DIR"), "/baked-gz/io/dnd/atoms/dnd-dice.orb.gz")),
     "std/behaviors/dnd-dungeon-gen" => include_bytes!(concat!(env!("OUT_DIR"), "/baked-gz/io/dnd/atoms/dnd-dungeon-gen.orb.gz")),
@@ -704,22 +704,28 @@ pub static EMBEDDED_STD_BEHAVIORS: phf::Map<&'static str, &'static [u8]> = phf::
     "std/behaviors/mesh-primitives" => include_bytes!(concat!(env!("OUT_DIR"), "/baked-gz/io/mesh/atoms/mesh-primitives.orb.gz")),
     "std/behaviors/riya-level-accum" => include_bytes!(concat!(env!("OUT_DIR"), "/baked-gz/io/riya/atoms/riya-level-accum.orb.gz")),
     "std/behaviors/riya-level-area" => include_bytes!(concat!(env!("OUT_DIR"), "/baked-gz/io/riya/atoms/riya-level-area.orb.gz")),
+    "std/behaviors/riya-level-contour" => include_bytes!(concat!(env!("OUT_DIR"), "/baked-gz/io/riya/atoms/riya-level-contour.orb.gz")),
     "std/behaviors/riya-level-corner" => include_bytes!(concat!(env!("OUT_DIR"), "/baked-gz/io/riya/atoms/riya-level-corner.orb.gz")),
     "std/behaviors/riya-level-cubic" => include_bytes!(concat!(env!("OUT_DIR"), "/baked-gz/io/riya/atoms/riya-level-cubic.orb.gz")),
     "std/behaviors/riya-level-decay" => include_bytes!(concat!(env!("OUT_DIR"), "/baked-gz/io/riya/atoms/riya-level-decay.orb.gz")),
     "std/behaviors/riya-level-deriv" => include_bytes!(concat!(env!("OUT_DIR"), "/baked-gz/io/riya/atoms/riya-level-deriv.orb.gz")),
     "std/behaviors/riya-level-doubling" => include_bytes!(concat!(env!("OUT_DIR"), "/baked-gz/io/riya/atoms/riya-level-doubling.orb.gz")),
     "std/behaviors/riya-level-gallery" => include_bytes!(concat!(env!("OUT_DIR"), "/baked-gz/io/riya/atoms/riya-level-gallery.orb.gz")),
+    "std/behaviors/riya-level-gradient" => include_bytes!(concat!(env!("OUT_DIR"), "/baked-gz/io/riya/atoms/riya-level-gradient.orb.gz")),
     "std/behaviors/riya-level-log" => include_bytes!(concat!(env!("OUT_DIR"), "/baked-gz/io/riya/atoms/riya-level-log.orb.gz")),
     "std/behaviors/riya-level-mountain" => include_bytes!(concat!(env!("OUT_DIR"), "/baked-gz/io/riya/atoms/riya-level-mountain.orb.gz")),
+    "std/behaviors/riya-level-partial" => include_bytes!(concat!(env!("OUT_DIR"), "/baked-gz/io/riya/atoms/riya-level-partial.orb.gz")),
     "std/behaviors/riya-level-plain" => include_bytes!(concat!(env!("OUT_DIR"), "/baked-gz/io/riya/atoms/riya-level-plain.orb.gz")),
     "std/behaviors/riya-level-pole" => include_bytes!(concat!(env!("OUT_DIR"), "/baked-gz/io/riya/atoms/riya-level-pole.orb.gz")),
     "std/behaviors/riya-level-ramp" => include_bytes!(concat!(env!("OUT_DIR"), "/baked-gz/io/riya/atoms/riya-level-ramp.orb.gz")),
+    "std/behaviors/riya-level-saddle" => include_bytes!(concat!(env!("OUT_DIR"), "/baked-gz/io/riya/atoms/riya-level-saddle.orb.gz")),
     "std/behaviors/riya-level-series" => include_bytes!(concat!(env!("OUT_DIR"), "/baked-gz/io/riya/atoms/riya-level-series.orb.gz")),
     "std/behaviors/riya-level-shifts" => include_bytes!(concat!(env!("OUT_DIR"), "/baked-gz/io/riya/atoms/riya-level-shifts.orb.gz")),
     "std/behaviors/riya-level-tail" => include_bytes!(concat!(env!("OUT_DIR"), "/baked-gz/io/riya/atoms/riya-level-tail.orb.gz")),
     "std/behaviors/riya-level-taylor" => include_bytes!(concat!(env!("OUT_DIR"), "/baked-gz/io/riya/atoms/riya-level-taylor.orb.gz")),
     "std/behaviors/riya-level-valley" => include_bytes!(concat!(env!("OUT_DIR"), "/baked-gz/io/riya/atoms/riya-level-valley.orb.gz")),
+    "std/behaviors/riya-level-vector" => include_bytes!(concat!(env!("OUT_DIR"), "/baked-gz/io/riya/atoms/riya-level-vector.orb.gz")),
+    "std/behaviors/riya-level-volume" => include_bytes!(concat!(env!("OUT_DIR"), "/baked-gz/io/riya/atoms/riya-level-volume.orb.gz")),
     "std/behaviors/rpg-dialogue" => include_bytes!(concat!(env!("OUT_DIR"), "/baked-gz/io/rpg/atoms/rpg-dialogue.orb.gz")),
     "std/behaviors/rpg-enemies" => include_bytes!(concat!(env!("OUT_DIR"), "/baked-gz/io/rpg/atoms/rpg-enemies.orb.gz")),
     "std/behaviors/rpg-flow" => include_bytes!(concat!(env!("OUT_DIR"), "/baked-gz/io/rpg/atoms/rpg-flow.orb.gz")),
