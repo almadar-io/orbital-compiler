@@ -282,6 +282,7 @@ pub const EFFECT_OPERATORS: &[&str] = &[
     "persist",
     "delete",
     "navigate",
+    "navigate-back",
     "render-ui",
     "render_ui",
     "call-service",

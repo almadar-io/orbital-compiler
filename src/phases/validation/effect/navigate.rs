@@ -81,7 +81,13 @@ pub(crate) fn validate_navigate(
         // partial paths; the page_init_payloads side does prefix
         // matching for them already, so no match here genuinely means
         // no page begins with that prefix.
-        if matching_page.is_none() && !page_init_payloads.is_empty() {
+        // A target that is entirely a binding reference (`@payload.href`,
+        // `@entity.route`) is runtime-resolved data — reachability is
+        // undecidable statically (the nav-stack CRUMB_NAV idiom navigates
+        // to whichever level the payload carries). Only paths with a
+        // static component are checkable.
+        let fully_dynamic_target = nav_path.starts_with('@');
+        if matching_page.is_none() && !page_init_payloads.is_empty() && !fully_dynamic_target {
             // Skip when the schema is genuinely page-less (early-stage
             // scaffolding). The check fires only when the schema
             // declares pages but none match this navigate target.

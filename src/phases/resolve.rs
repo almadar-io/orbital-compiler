@@ -1367,6 +1367,7 @@ impl<'a> Resolver<'a> {
             "send-server" => self.resolve_send_server_effect(args),
             "set" => self.resolve_set_effect(args),
             "navigate" => self.resolve_navigate_effect(args),
+            "navigate-back" => self.resolve_navigate_back_effect(args),
             "render-ui" => self.resolve_render_ui_effect(args),
             "notify" => self.resolve_notify_effect(args),
             "log" => self.resolve_log_effect(args),
@@ -2028,7 +2029,37 @@ impl<'a> Resolver<'a> {
             ));
         }
         let path = self.resolve_sexpr(&args[0])?;
-        Ok(OirExpr::effect(OirEffect::navigate(path)))
+        // Positional grammar: (navigate path payload? options?). The payload
+        // (arg 2) is delivered via the route/INIT machinery, not the OIR
+        // effect. Arg 3 is the options object; `crumb` labels the nav-stack
+        // entry the client pushes for the target page.
+        let crumb = match args.get(2) {
+            Some(SExpression::Object(obj)) => obj
+                .get("crumb")
+                .map(|c| self.resolve_sexpr(c))
+                .transpose()?,
+            Some(_) => {
+                return Err(ResolveError::InvalidSExpr(
+                    "navigate options (argument 3) must be an object like { crumb: <expr> }"
+                        .to_string(),
+                ));
+            }
+            None => None,
+        };
+        Ok(OirExpr::effect(OirEffect::Navigate {
+            path,
+            params: None,
+            crumb,
+        }))
+    }
+
+    fn resolve_navigate_back_effect(&self, args: &[SExpression]) -> Result<OirExpr, ResolveError> {
+        if !args.is_empty() {
+            return Err(ResolveError::InvalidSExpr(
+                "navigate-back takes no arguments".to_string(),
+            ));
+        }
+        Ok(OirExpr::effect(OirEffect::NavigateBack))
     }
 
     fn resolve_render_ui_effect(&self, args: &[SExpression]) -> Result<OirExpr, ResolveError> {

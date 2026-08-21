@@ -2,7 +2,7 @@
 //!
 //! Source: packages/almadar-core/src/patterns/patterns-registry.json
 //!
-//! Last synced: 2026-08-20
+//! Last synced: 2026-08-21
 //! To regenerate: npx tsx tools/almadar-pattern-sync/index.ts
 //!
 //! DO NOT EDIT MANUALLY - changes will be overwritten on next sync.
@@ -656,7 +656,6 @@ pub static PATTERN_REQUIRED_PROPS: LazyLock<HashMap<&'static str, Vec<&'static s
             ("book-nav-bar", vec!["currentPage", "totalPages"]),
             ("book-table-of-contents", vec!["parts"]),
             ("branching-logic-builder", vec!["questions", "rules"]),
-            ("breadcrumb", vec!["items"]),
             ("carousel", vec!["items"]),
             ("case-study-card", vec!["title", "description", "category", "href"]),
             ("center", vec!["children"]),
@@ -1152,7 +1151,7 @@ pub static PATTERN_PROPS_SCHEMA: LazyLock<HashMap<&'static str, HashSet<&'static
                 .into_iter()
                 .collect(),
             ),
-            ("breadcrumb", ["className", "items", "maxItems", "separator"].into_iter().collect()),
+            ("breadcrumb", ["className", "fromNavStack", "itemEvent", "items", "maxItems", "separator"].into_iter().collect()),
             (
                 "button",
                 [
@@ -1765,6 +1764,7 @@ pub static PATTERN_PROPS_SCHEMA: LazyLock<HashMap<&'static str, HashSet<&'static
                     "footer",
                     "initialData",
                     "isLoading",
+                    "maxInlineActions",
                     "mode",
                     "page",
                     "pageSize",
@@ -4895,6 +4895,8 @@ pub static PATTERN_PROP_TYPES: LazyLock<HashMap<&'static str, HashMap<&'static s
                 "breadcrumb",
                 [
                     ("items", &["array"] as &[&str]),
+                    ("fromNavStack", &["boolean"] as &[&str]),
+                    ("itemEvent", &["string"] as &[&str]),
                     ("separator", &["icon", "string"] as &[&str]),
                     ("maxItems", &["number"] as &[&str]),
                     ("className", &["string"] as &[&str]),
@@ -5628,6 +5630,7 @@ pub static PATTERN_PROP_TYPES: LazyLock<HashMap<&'static str, HashMap<&'static s
                     ("avatar", &["node"] as &[&str]),
                     ("sections", &["array"] as &[&str]),
                     ("actions", &["array"] as &[&str]),
+                    ("maxInlineActions", &["number"] as &[&str]),
                     ("backAction", &["object"] as &[&str]),
                     ("footer", &["node"] as &[&str]),
                     ("slideOver", &["boolean"] as &[&str]),
@@ -9761,6 +9764,7 @@ pub static PATTERN_EVENT_PROPS: LazyLock<HashMap<&'static str, HashSet<&'static 
             ("alert", ["dismissEvent"].into_iter().collect()),
             ("avatar", ["action"].into_iter().collect()),
             ("box", ["action", "hoverEvent"].into_iter().collect()),
+            ("breadcrumb", ["itemEvent"].into_iter().collect()),
             ("button", ["action"].into_iter().collect()),
             ("card", ["action"].into_iter().collect()),
             ("choice-button", ["action"].into_iter().collect()),
@@ -9813,6 +9817,7 @@ pub static PATTERN_EVENT_PROPS: LazyLock<HashMap<&'static str, HashSet<&'static 
 pub static PATTERN_EVENT_LIST_PROPS: LazyLock<HashMap<&'static str, HashMap<&'static str, &'static str>>> =
     LazyLock::new(|| {
         [
+            ("breadcrumb", [("items", "event")].into_iter().collect()),
             ("dashboard-layout", [("topBarActions", "event")].into_iter().collect()),
             ("data-grid", [("itemActions", "event")].into_iter().collect()),
             ("data-list", [("itemActions", "event")].into_iter().collect()),
