@@ -42,12 +42,34 @@ pub(crate) fn validate_call_service(
                 .with_suggestion("Define the service in schema.services")
                 .with_valid_values(known_services.iter().cloned().collect()),
             );
+        } else if known_services.is_empty()
+            && !service_actions.is_empty()
+            && !service_actions.contains_key(service_name)
+        {
+            // No inline schema.services (every .lolo lowers to services: None),
+            // so gate against the services registry. Staged as a WARNING until
+            // lolo grows a service-declaration form.
+            result.add_error(
+                ValidationError::phase_f_warning(
+                    ErrorCode::EffectCallServiceUnknownService,
+                    path,
+                    format!(
+                        "Service '{}' is not a registered integrator or declared service",
+                        service_name
+                    ),
+                )
+                .with_suggestion(
+                    "Register the integrator (almadar-sync services) or add it to DECLARED_SERVICES, or check the name for a typo",
+                )
+                .with_valid_values(service_actions.keys().cloned().collect()),
+            );
         }
 
-        // Validate action against services registry (if loaded)
+        // Validate action against services registry (if loaded). A declared-only
+        // service carries an EMPTY action set: name known, actions unchecked.
         if let Some(SExpression::String(action)) = arr.get(2) {
             if let Some(valid_actions) = service_actions.get(service_name) {
-                if !valid_actions.contains(action) {
+                if !valid_actions.is_empty() && !valid_actions.contains(action) {
                     result.add_error(
                         ValidationError::error(
                             ErrorCode::EffectCallServiceMissingAction,
@@ -123,12 +145,32 @@ pub(crate) fn validate_call_service_object(
                     )
                     .with_valid_values(known_services.iter().cloned().collect()),
                 );
+            } else if known_services.is_empty()
+                && !service_actions.is_empty()
+                && !service_actions.contains_key(service)
+            {
+                // Same registry gate as the array form; staged as a WARNING.
+                result.add_error(
+                    ValidationError::warning(
+                        ErrorCode::EffectCallServiceUnknownService,
+                        path,
+                        format!(
+                            "Service '{}' is not a registered integrator or declared service",
+                            service
+                        ),
+                    )
+                    .with_suggestion(
+                        "Register the integrator (almadar-sync services) or add it to DECLARED_SERVICES, or check the name for a typo",
+                    )
+                    .with_valid_values(service_actions.keys().cloned().collect()),
+                );
             }
 
-            // Validate action against services registry (if loaded)
+            // Validate action against services registry (if loaded). A declared-only
+            // service carries an EMPTY action set: name known, actions unchecked.
             if let Some(SExpression::String(action)) = cs_obj.get("action") {
                 if let Some(valid_actions) = service_actions.get(service) {
-                    if !valid_actions.contains(action) {
+                    if !valid_actions.is_empty() && !valid_actions.contains(action) {
                         result.add_error(
                             ValidationError::error(
                                 ErrorCode::EffectCallServiceMissingAction,

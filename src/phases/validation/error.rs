@@ -293,6 +293,10 @@ pub enum ErrorCode {
     // =========================================================================
     /// call_service missing service name
     EffectCallServiceMissingService,
+    /// call_service names a service in neither schema.services nor the
+    /// services registry. Staged as a WARNING until lolo grows a
+    /// service-declaration form.
+    EffectCallServiceUnknownService,
     /// call_service missing action
     EffectCallServiceMissingAction,
     /// call_service missing onSuccess/onError handlers
@@ -848,6 +852,7 @@ impl ErrorCode {
 
             // Effect
             ErrorCode::EffectCallServiceMissingService => "ORB_EFF_CALL_SERVICE_MISSING_SERVICE",
+            ErrorCode::EffectCallServiceUnknownService => "ORB_EFF_CALL_SERVICE_UNKNOWN_SERVICE",
             ErrorCode::EffectCallServiceMissingAction => "ORB_EFF_CALL_SERVICE_MISSING_ACTION",
             ErrorCode::EffectCallServiceMissingHandlers => "ORB_EFF_CALL_SERVICE_MISSING_HANDLERS",
             ErrorCode::EffectSetInvalidBinding => "ORB_EFF_SET_INVALID_BINDING",
@@ -1093,6 +1098,7 @@ impl ErrorCode {
             | ErrorCode::RenderUIEventLiteralStale => "render_ui",
 
             ErrorCode::EffectCallServiceMissingService
+            | ErrorCode::EffectCallServiceUnknownService
             | ErrorCode::EffectCallServiceMissingAction
             | ErrorCode::EffectCallServiceMissingHandlers
             | ErrorCode::EffectSetInvalidBinding

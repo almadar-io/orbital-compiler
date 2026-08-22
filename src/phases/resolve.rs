@@ -1496,6 +1496,12 @@ impl<'a> Resolver<'a> {
                     emit: emit_cfg,
                 }))
             }
+            "browser/push-subscribe" => {
+                let emit_cfg = self.extract_watch_only_emit(args)?;
+                Ok(OirExpr::effect(OirEffect::BrowserPushSubscribe {
+                    emit: emit_cfg,
+                }))
+            }
 
             // Agent operators — lowered as Custom effects so backend can codegen TypeScript
             op_name if op_name.starts_with("agent/") => {

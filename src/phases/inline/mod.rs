@@ -713,17 +713,33 @@ fn inline_orbital(
         for trait_ref in &orbital.traits {
             if let TraitReference::Reference {
                 reference: Some(ref ref_str),
-                linked_entity: None,
+                linked_entity,
                 ref_id,
                 ..
             } = trait_ref
             {
                 if let Ok(ParsedReference::Trait { alias, name }) = parse_reference(ref_str) {
-                    if let Some(imported_entity) =
-                        ctx.get_entity_for_trait_orbital(&alias, &name, ref_id.as_deref())
+                    if linked_entity.is_none() {
+                        if let Some(imported_entity) =
+                            ctx.get_entity_for_trait_orbital(&alias, &name, ref_id.as_deref())
+                        {
+                            if seen_aux_names.insert(imported_entity.name.clone()) {
+                                aux_collected.push(imported_entity);
+                            }
+                        }
+                    }
+                    // The imported orbital's OWN auxiliary entities must travel
+                    // too (rebind or not): a multi-entity atom's trait body
+                    // fetches/persists its sibling entities by name (e.g.
+                    // std-calendar-sync's pull-upsert into CalendarEvent), and
+                    // without them the composed schema strands every such
+                    // effect — top-level ones fail validation, nested ones
+                    // fail at runtime (the I-8 nested-effect blind spot).
+                    for aux_entity in
+                        ctx.get_aux_entities_for_trait_orbital(&alias, &name, ref_id.as_deref())
                     {
-                        if seen_aux_names.insert(imported_entity.name.clone()) {
-                            aux_collected.push(imported_entity);
+                        if seen_aux_names.insert(aux_entity.name.clone()) {
+                            aux_collected.push(aux_entity);
                         }
                     }
                 }

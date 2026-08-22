@@ -223,6 +223,62 @@ impl InlineContext {
         None
     }
 
+    /// The imported orbital's OWN auxiliary entities (inline defs) for the
+    /// orbital that carries `trait_name`. Companion to
+    /// `get_entity_for_trait_orbital`: that returns the trait-bound primary,
+    /// this returns the sibling entities the trait's body references by name
+    /// (fetch/persist across a multi-entity atom). Same orbital-matching
+    /// rules — `ref_id` first, then name.
+    pub(crate) fn get_aux_entities_for_trait_orbital(
+        &self,
+        alias: &str,
+        trait_name: &str,
+        trait_ref_id: Option<&str>,
+    ) -> Vec<EntityDefinition> {
+        let Some(entry) = self.aliases.get(alias) else {
+            return Vec::new();
+        };
+        let collect = |orbital: &Orbital| -> Vec<EntityDefinition> {
+            orbital
+                .auxiliary_entities
+                .iter()
+                .flatten()
+                .filter_map(|e| match e {
+                    EntityRef::Inline(def) => Some(def.clone()),
+                    _ => None,
+                })
+                .collect()
+        };
+        if let Some(want_id) = trait_ref_id {
+            for orbital in &entry.orbitals {
+                let has_trait = orbital.traits.iter().any(|tr| match tr {
+                    TraitReference::Inline(def) => def.id.as_deref() == Some(want_id),
+                    TraitReference::Reference {
+                        ref_id: Some(rid), ..
+                    } => rid == want_id,
+                    _ => false,
+                });
+                if has_trait {
+                    return collect(orbital);
+                }
+            }
+        }
+        for orbital in &entry.orbitals {
+            let has_trait = orbital.traits.iter().any(|tr| match tr {
+                TraitReference::Inline(def) => def.name == trait_name,
+                TraitReference::Reference { name: Some(n), .. } => n == trait_name,
+                TraitReference::Reference {
+                    reference: Some(r), ..
+                } => r.ends_with(&format!(".{}", trait_name)),
+                _ => false,
+            });
+            if has_trait {
+                return collect(orbital);
+            }
+        }
+        Vec::new()
+    }
+
     /// V4: resolve a trait by its dual-carry `ref_id` (an imported
     /// `TraitDefinition.id`, or a same-alias `Reference`'s own `ref_id`)
     /// instead of by name. Returns `None` — not an error — when nothing

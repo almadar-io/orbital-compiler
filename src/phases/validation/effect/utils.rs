@@ -320,6 +320,100 @@ mod tests {
     }
 
     #[test]
+    fn test_call_service_unknown_service_registry_gate_warns() {
+        let effect = SExpression::Array(vec![
+            SExpression::String("call-service".to_string()),
+            SExpression::String("unknownService".to_string()),
+            SExpression::String("action".to_string()),
+        ]);
+
+        let service_actions: HashMap<String, HashSet<String>> = [(
+            "email".to_string(),
+            ["send".to_string()].into_iter().collect(),
+        )]
+        .into_iter()
+        .collect();
+        let result = validate_effect(
+            &effect,
+            "test",
+            &HashSet::new(),
+            &HashMap::new(),
+            &HashSet::new(),
+            &HashMap::new(),
+            &service_actions,
+            None,
+            &HashMap::new(),
+            &HashMap::new(),
+        );
+        assert!(result.is_valid(), "unexpected errors: {:?}", result.errors);
+        assert!(result
+            .warnings
+            .iter()
+            .any(|e| e.code == ErrorCode::EffectCallServiceUnknownService));
+    }
+
+    #[test]
+    fn test_call_service_known_service_bad_action_errors() {
+        let effect = SExpression::Array(vec![
+            SExpression::String("call-service".to_string()),
+            SExpression::String("email".to_string()),
+            SExpression::String("sendEmail".to_string()),
+        ]);
+
+        let service_actions: HashMap<String, HashSet<String>> = [(
+            "email".to_string(),
+            ["send".to_string()].into_iter().collect(),
+        )]
+        .into_iter()
+        .collect();
+        let result = validate_effect(
+            &effect,
+            "test",
+            &HashSet::new(),
+            &HashMap::new(),
+            &HashSet::new(),
+            &HashMap::new(),
+            &service_actions,
+            None,
+            &HashMap::new(),
+            &HashMap::new(),
+        );
+        assert!(!result.is_valid());
+        assert!(result
+            .errors
+            .iter()
+            .any(|e| e.code == ErrorCode::EffectCallServiceMissingAction));
+    }
+
+    #[test]
+    fn test_call_service_declared_only_service_empty_actions_clean() {
+        let effect = SExpression::Array(vec![
+            SExpression::String("call-service".to_string()),
+            SExpression::String("migration".to_string()),
+            SExpression::String("anyHostAction".to_string()),
+        ]);
+
+        let service_actions: HashMap<String, HashSet<String>> =
+            [("migration".to_string(), HashSet::new())]
+                .into_iter()
+                .collect();
+        let result = validate_effect(
+            &effect,
+            "test",
+            &HashSet::new(),
+            &HashMap::new(),
+            &HashSet::new(),
+            &HashMap::new(),
+            &service_actions,
+            None,
+            &HashMap::new(),
+            &HashMap::new(),
+        );
+        assert!(result.is_valid());
+        assert!(result.warnings.is_empty());
+    }
+
+    #[test]
     fn test_navigate_missing_required_payload() {
         // Set up a page that requires an "id" field on INIT
         let mut page_init_payloads: HashMap<String, PageInitPayload> = HashMap::new();

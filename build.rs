@@ -25,6 +25,7 @@ fn main() {
     println!("cargo:rerun-if-changed=src/baked/behaviors-registry-io.json");
     println!("cargo:rerun-if-changed=src/baked/factory-signatures-std.json");
     println!("cargo:rerun-if-changed=src/baked/factory-signatures-io.json");
+    println!("cargo:rerun-if-changed=src/baked/services-registry.json");
     // The full std+io behavior corpus is embedded from `src/baked/{std,io}/…`.
     println!("cargo:rerun-if-changed=src/baked/std");
     println!("cargo:rerun-if-changed=src/baked/io");

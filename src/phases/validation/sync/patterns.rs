@@ -2,7 +2,7 @@
 //!
 //! Source: packages/almadar-core/src/patterns/patterns-registry.json
 //!
-//! Last synced: 2026-08-21
+//! Last synced: 2026-08-22
 //! To regenerate: npx tsx tools/almadar-pattern-sync/index.ts
 //!
 //! DO NOT EDIT MANUALLY - changes will be overwritten on next sync.
@@ -1180,6 +1180,7 @@ pub static PATTERN_PROPS_SCHEMA: LazyLock<HashMap<&'static str, HashSet<&'static
                     "className",
                     "colorField",
                     "dayWindow",
+                    "endField",
                     "events",
                     "longPressEvent",
                     "longPressPayload",
@@ -1565,6 +1566,7 @@ pub static PATTERN_PROPS_SCHEMA: LazyLock<HashMap<&'static str, HashSet<&'static
                     "onAction",
                     "onDirection",
                     "size",
+                    "visibility",
                 ]
                 .into_iter()
                 .collect(),
@@ -2340,7 +2342,21 @@ pub static PATTERN_PROPS_SCHEMA: LazyLock<HashMap<&'static str, HashSet<&'static
             ),
             ("fx-overlay", ["children", "className", "items", "tickMs"].into_iter().collect()),
             ("game-audio-toggle", ["className", "error", "isLoading", "offAsset", "onAsset", "size"].into_iter().collect()),
-            ("game-hud", ["className", "elements", "items", "position", "size", "stats", "transparent"].into_iter().collect()),
+            (
+                "game-hud",
+                [
+                    "className",
+                    "elements",
+                    "items",
+                    "position",
+                    "size",
+                    "stats",
+                    "transparent",
+                    "variant",
+                ]
+                .into_iter()
+                .collect(),
+            ),
             ("game-icon", ["alt", "assetUrl", "className", "icon", "size"].into_iter().collect()),
             (
                 "game-menu",
@@ -4942,6 +4958,7 @@ pub static PATTERN_PROP_TYPES: LazyLock<HashMap<&'static str, HashMap<&'static s
                     ("dayWindow", &["number", "string"] as &[&str]),
                     ("titleField", &["string"] as &[&str]),
                     ("startField", &["string"] as &[&str]),
+                    ("endField", &["string"] as &[&str]),
                     ("colorField", &["string"] as &[&str]),
                     ("children", &["function"] as &[&str]),
                     ("renderItem", &["function"] as &[&str]),
@@ -5405,6 +5422,7 @@ pub static PATTERN_PROP_TYPES: LazyLock<HashMap<&'static str, HashMap<&'static s
                     ("directionAssets", &["object"] as &[&str]),
                     ("size", &["string"] as &[&str]),
                     ("disabled", &["boolean"] as &[&str]),
+                    ("visibility", &["string"] as &[&str]),
                     ("className", &["string"] as &[&str]),
                 ]
                 .into_iter()
@@ -6390,6 +6408,7 @@ pub static PATTERN_PROP_TYPES: LazyLock<HashMap<&'static str, HashMap<&'static s
                     ("items", &["array"] as &[&str]),
                     ("elements", &["array"] as &[&str]),
                     ("size", &["string"] as &[&str]),
+                    ("variant", &["string"] as &[&str]),
                     ("className", &["string"] as &[&str]),
                     ("transparent", &["boolean"] as &[&str]),
                 ]
@@ -9155,6 +9174,7 @@ pub static PATTERN_PROP_ENUM_VALUES: LazyLock<HashMap<&'static str, HashMap<&'st
                     ("kind", &["dpad", "actions"] as &[&str]),
                     ("layout", &["horizontal", "vertical", "diamond"] as &[&str]),
                     ("size", &["sm", "md", "lg"] as &[&str]),
+                    ("visibility", &["auto", "always"] as &[&str]),
                 ]
                 .into_iter()
                 .collect(),
@@ -9371,7 +9391,16 @@ pub static PATTERN_PROP_ENUM_VALUES: LazyLock<HashMap<&'static str, HashMap<&'st
             ),
             ("form-section-header", [("badgeVariant", &["default", "primary", "success", "warning", "danger"] as &[&str])].into_iter().collect()),
             ("game-audio-toggle", [("size", &["sm", "md", "lg"] as &[&str])].into_iter().collect()),
-            ("game-hud", [("position", &["top", "bottom", "corners"] as &[&str]), ("size", &["sm", "md", "lg"] as &[&str])].into_iter().collect()),
+            (
+                "game-hud",
+                [
+                    ("position", &["top", "bottom", "corners"] as &[&str]),
+                    ("size", &["sm", "md", "lg"] as &[&str]),
+                    ("variant", &["floating", "bar"] as &[&str]),
+                ]
+                .into_iter()
+                .collect(),
+            ),
             ("game-icon", [("size", &["sm", "md", "lg"] as &[&str])].into_iter().collect()),
             (
                 "geometric-pattern",

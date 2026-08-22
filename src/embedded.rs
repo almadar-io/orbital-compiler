@@ -319,6 +319,105 @@ pub fn builtin_theme_names() -> &'static [String] {
     })
 }
 
+// ============================================================================
+// 3.1c — Embedded services-registry.json (call-service integrator contracts)
+// ============================================================================
+
+const SERVICES_JSON_GZ: &[u8] = include_bytes!(concat!(
+    env!("OUT_DIR"),
+    "/baked-gz/services-registry.json.gz"
+));
+
+/// The raw services-registry.json text, inflated once on first use.
+fn services_json() -> &'static str {
+    static S: OnceLock<String> = OnceLock::new();
+    baked_str(&S, SERVICES_JSON_GZ)
+}
+
+/// Service name → declared action names, from the baked services registry.
+/// A declared-only service (host-injected handler, no static contract) is
+/// present with an EMPTY set — its name is known, its actions are unchecked.
+///
+/// Unlike the behavior registries above, the CLI prefers a live CWD registry
+/// over this baked copy (`orbital-cli/src/utils/patterns.rs`), so in-repo
+/// registry edits are picked up with no rebuild; this is the out-of-repo
+/// fallback (still overridable via `ORBITAL_SERVICES_JSON`/`ORBITAL_BAKED_DIR`).
+pub fn baked_service_actions() -> &'static HashMap<String, HashSet<String>> {
+    static MAP: OnceLock<HashMap<String, HashSet<String>>> = OnceLock::new();
+    MAP.get_or_init(|| {
+        #[derive(Deserialize)]
+        struct ActionEntry {
+            name: String,
+        }
+        #[derive(Deserialize)]
+        struct ServiceEntry {
+            #[serde(default)]
+            actions: Vec<ActionEntry>,
+        }
+        #[derive(Deserialize)]
+        struct ServicesRegistry {
+            #[serde(default)]
+            services: HashMap<String, ServiceEntry>,
+        }
+        let raw = resolve_baked_source(
+            "ORBITAL_SERVICES_JSON",
+            "services-registry.json",
+            services_json(),
+        );
+        let registry: ServicesRegistry = serde_json::from_str(&raw)
+            .expect("baked services-registry.json is corrupt — rebuild orbital-compiler");
+        registry
+            .services
+            .into_iter()
+            .map(|(name, entry)| {
+                (name, entry.actions.into_iter().map(|a| a.name).collect())
+            })
+            .collect()
+    })
+}
+
+/// One credential env var a service declares in the services registry.
+#[derive(Debug, Clone, Deserialize)]
+pub struct EmbeddedServiceCredential {
+    #[serde(rename = "envVar")]
+    pub env_var: String,
+    #[serde(default)]
+    pub required: bool,
+    #[serde(default)]
+    pub description: String,
+}
+
+/// Service name → declared credential env vars, from the baked services
+/// registry. Drives the generated `.env.example` / `SECRETS.md` manifest for
+/// the services a schema actually invokes.
+pub fn baked_service_credentials() -> &'static HashMap<String, Vec<EmbeddedServiceCredential>> {
+    static MAP: OnceLock<HashMap<String, Vec<EmbeddedServiceCredential>>> = OnceLock::new();
+    MAP.get_or_init(|| {
+        #[derive(Deserialize)]
+        struct ServiceEntry {
+            #[serde(default)]
+            credentials: Vec<EmbeddedServiceCredential>,
+        }
+        #[derive(Deserialize)]
+        struct ServicesRegistry {
+            #[serde(default)]
+            services: HashMap<String, ServiceEntry>,
+        }
+        let raw = resolve_baked_source(
+            "ORBITAL_SERVICES_JSON",
+            "services-registry.json",
+            services_json(),
+        );
+        let registry: ServicesRegistry = serde_json::from_str(&raw)
+            .expect("baked services-registry.json is corrupt — rebuild orbital-compiler");
+        registry
+            .services
+            .into_iter()
+            .map(|(name, entry)| (name, entry.credentials))
+            .collect()
+    })
+}
+
 /// A single field of an emit/listen payload schema, mirroring trait
 /// `payloadSchema` entries so L1/L2 consumers can compare the component's
 /// documented bus shape against the trait's declared `emits {}` payload.
@@ -684,7 +783,7 @@ pub fn factory_signatures_json_io() -> &'static str {
 // Values are gzip bytes (build.rs → $OUT_DIR/baked-gz/…), inflated lazily by
 // `get_std_behavior_content` — the baked corpus is ~31MB raw, ~2MB gzipped.
 pub static EMBEDDED_STD_BEHAVIORS: phf::Map<&'static str, &'static [u8]> = phf::phf_map! {
-    // === Atoms (586) ===
+    // === Atoms (590) ===
     "std/behaviors/dnd-combat" => include_bytes!(concat!(env!("OUT_DIR"), "/baked-gz/io/dnd/atoms/dnd-combat.orb.gz")),
     "std/behaviors/dnd-dice" => include_bytes!(concat!(env!("OUT_DIR"), "/baked-gz/io/dnd/atoms/dnd-dice.orb.gz")),
     "std/behaviors/dnd-dungeon-gen" => include_bytes!(concat!(env!("OUT_DIR"), "/baked-gz/io/dnd/atoms/dnd-dungeon-gen.orb.gz")),
@@ -803,6 +902,7 @@ pub static EMBEDDED_STD_BEHAVIORS: phf::Map<&'static str, &'static [u8]> = phf::
     "std/behaviors/std-browse" => include_bytes!(concat!(env!("OUT_DIR"), "/baked-gz/std/ui/core/atoms/std-browse.orb.gz")),
     "std/behaviors/std-cache-aside" => include_bytes!(concat!(env!("OUT_DIR"), "/baked-gz/std/infra/atoms/std-cache-aside.orb.gz")),
     "std/behaviors/std-calendar" => include_bytes!(concat!(env!("OUT_DIR"), "/baked-gz/std/ui/core/atoms/std-calendar.orb.gz")),
+    "std/behaviors/std-calendar-sync" => include_bytes!(concat!(env!("OUT_DIR"), "/baked-gz/std/infra/atoms/std-calendar-sync.orb.gz")),
     "std/behaviors/std-campaign-goal" => include_bytes!(concat!(env!("OUT_DIR"), "/baked-gz/io/app/atoms/std-campaign-goal.orb.gz")),
     "std/behaviors/std-cascade-on-delete" => include_bytes!(concat!(env!("OUT_DIR"), "/baked-gz/std/infra/atoms/std-cascade-on-delete.orb.gz")),
     "std/behaviors/std-change-order" => include_bytes!(concat!(env!("OUT_DIR"), "/baked-gz/io/app/atoms/std-change-order.orb.gz")),
@@ -895,6 +995,7 @@ pub static EMBEDDED_STD_BEHAVIORS: phf::Map<&'static str, &'static [u8]> = phf::
     "std/behaviors/std-import" => include_bytes!(concat!(env!("OUT_DIR"), "/baked-gz/std/ui/core/atoms/std-import.orb.gz")),
     "std/behaviors/std-incident" => include_bytes!(concat!(env!("OUT_DIR"), "/baked-gz/io/app/atoms/std-incident.orb.gz")),
     "std/behaviors/std-insurance-claim" => include_bytes!(concat!(env!("OUT_DIR"), "/baked-gz/io/app/atoms/std-insurance-claim.orb.gz")),
+    "std/behaviors/std-integration-settings" => include_bytes!(concat!(env!("OUT_DIR"), "/baked-gz/io/service/atoms/std-integration-settings.orb.gz")),
     "std/behaviors/std-interview-slot" => include_bytes!(concat!(env!("OUT_DIR"), "/baked-gz/io/app/atoms/std-interview-slot.orb.gz")),
     "std/behaviors/std-invoice" => include_bytes!(concat!(env!("OUT_DIR"), "/baked-gz/io/app/atoms/std-invoice.orb.gz")),
     "std/behaviors/std-kitchen-display" => include_bytes!(concat!(env!("OUT_DIR"), "/baked-gz/io/app/atoms/std-kitchen-display.orb.gz")),
@@ -989,6 +1090,7 @@ pub static EMBEDDED_STD_BEHAVIORS: phf::Map<&'static str, &'static [u8]> = phf::
     "std/behaviors/std-modifier-group" => include_bytes!(concat!(env!("OUT_DIR"), "/baked-gz/io/app/atoms/std-modifier-group.orb.gz")),
     "std/behaviors/std-motion-body" => include_bytes!(concat!(env!("OUT_DIR"), "/baked-gz/std/ui/game/atoms/std-motion-body.orb.gz")),
     "std/behaviors/std-multi-party-flow" => include_bytes!(concat!(env!("OUT_DIR"), "/baked-gz/std/ui/core/atoms/std-multi-party-flow.orb.gz")),
+    "std/behaviors/std-notification-center" => include_bytes!(concat!(env!("OUT_DIR"), "/baked-gz/std/infra/atoms/std-notification-center.orb.gz")),
     "std/behaviors/std-notification-panel" => include_bytes!(concat!(env!("OUT_DIR"), "/baked-gz/std/ui/core/atoms/std-notification-panel.orb.gz")),
     "std/behaviors/std-notify-on-event" => include_bytes!(concat!(env!("OUT_DIR"), "/baked-gz/std/infra/atoms/std-notify-on-event.orb.gz")),
     "std/behaviors/std-nps-survey" => include_bytes!(concat!(env!("OUT_DIR"), "/baked-gz/io/app/atoms/std-nps-survey.orb.gz")),
@@ -1065,6 +1167,7 @@ pub static EMBEDDED_STD_BEHAVIORS: phf::Map<&'static str, &'static [u8]> = phf::
     "std/behaviors/std-sensor-threshold" => include_bytes!(concat!(env!("OUT_DIR"), "/baked-gz/io/app/atoms/std-sensor-threshold.orb.gz")),
     "std/behaviors/std-service-calendar-ical" => include_bytes!(concat!(env!("OUT_DIR"), "/baked-gz/io/service/atoms/std-service-calendar-ical.orb.gz")),
     "std/behaviors/std-service-custom-bearer" => include_bytes!(concat!(env!("OUT_DIR"), "/baked-gz/io/service/atoms/std-service-custom-bearer.orb.gz")),
+    "std/behaviors/std-service-drive" => include_bytes!(concat!(env!("OUT_DIR"), "/baked-gz/io/service/atoms/std-service-drive.orb.gz")),
     "std/behaviors/std-service-email" => include_bytes!(concat!(env!("OUT_DIR"), "/baked-gz/io/service/atoms/std-service-email.orb.gz")),
     "std/behaviors/std-service-github" => include_bytes!(concat!(env!("OUT_DIR"), "/baked-gz/io/service/atoms/std-service-github.orb.gz")),
     "std/behaviors/std-service-llm" => include_bytes!(concat!(env!("OUT_DIR"), "/baked-gz/io/service/atoms/std-service-llm.orb.gz")),
@@ -1379,7 +1482,7 @@ pub static EMBEDDED_STD_BEHAVIORS: phf::Map<&'static str, &'static [u8]> = phf::
     "std/behaviors/ui-wizard-container" => include_bytes!(concat!(env!("OUT_DIR"), "/baked-gz/std/ui/core/molecules/ui-wizard-container.orb.gz")),
     "std/behaviors/ui-wizard-navigation" => include_bytes!(concat!(env!("OUT_DIR"), "/baked-gz/std/ui/core/molecules/ui-wizard-navigation.orb.gz")),
     "std/behaviors/ui-wizard-progress" => include_bytes!(concat!(env!("OUT_DIR"), "/baked-gz/std/ui/core/molecules/ui-wizard-progress.orb.gz")),
-    // === Organisms (317) ===
+    // === Organisms (318) ===
     "std/behaviors/dnd-character-hud" => include_bytes!(concat!(env!("OUT_DIR"), "/baked-gz/io/dnd/organisms/dnd-character-hud.orb.gz")),
     "std/behaviors/dnd-dungeon-board" => include_bytes!(concat!(env!("OUT_DIR"), "/baked-gz/io/dnd/organisms/dnd-dungeon-board.orb.gz")),
     "std/behaviors/dnd-dungeon-delver" => include_bytes!(concat!(env!("OUT_DIR"), "/baked-gz/io/dnd/organisms/dnd-dungeon-delver.orb.gz")),
@@ -1416,6 +1519,7 @@ pub static EMBEDDED_STD_BEHAVIORS: phf::Map<&'static str, &'static [u8]> = phf::
     "std/behaviors/mesh-units-stealth-operative" => include_bytes!(concat!(env!("OUT_DIR"), "/baked-gz/io/mesh/organisms/mesh-units-stealth-operative.orb.gz")),
     "std/behaviors/riya-game" => include_bytes!(concat!(env!("OUT_DIR"), "/baked-gz/io/riya/organisms/riya-game.orb.gz")),
     "std/behaviors/riya-game-platformer" => include_bytes!(concat!(env!("OUT_DIR"), "/baked-gz/io/riya/organisms/riya-game-platformer.orb.gz")),
+    "std/behaviors/riya-game-platformer-open-world" => include_bytes!(concat!(env!("OUT_DIR"), "/baked-gz/io/riya/organisms/riya-game-platformer-open-world.orb.gz")),
     "std/behaviors/rpg-dungeon-board" => include_bytes!(concat!(env!("OUT_DIR"), "/baked-gz/io/rpg/organisms/rpg-dungeon-board.orb.gz")),
     "std/behaviors/shadowdepths" => include_bytes!(concat!(env!("OUT_DIR"), "/baked-gz/io/rpg/organisms/shadowdepths.orb.gz")),
     "std/behaviors/std-accounting" => include_bytes!(concat!(env!("OUT_DIR"), "/baked-gz/io/app/organisms/std-accounting.orb.gz")),
