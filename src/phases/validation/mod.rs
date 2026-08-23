@@ -159,9 +159,10 @@ pub struct ValidationContext {
     pub page_init_payloads: std::collections::HashMap<String, PageInitPayload>,
     /// Extra patterns from project-local patterns.json
     pub extra_patterns: Option<ExtraPatterns>,
-    /// Service action registry: service name → set of valid action names
-    /// Loaded from services-registry.json for call-service validation
-    pub service_actions: std::collections::HashMap<String, HashSet<String>>,
+    /// Services registry projections (action names + per-action param
+    /// contracts), loaded from services-registry.json for call-service
+    /// validation — one struct so the two can never drift.
+    pub service_registry: crate::embedded::ServiceRegistryData,
     /// Phase F: when true, the F-series validators escalate the
     /// declared-vs-actual emit drift class (`EmitPayloadMissingRequired`)
     /// from warning to hard error. Defaults to true so the validator's
@@ -193,7 +194,7 @@ impl Default for ValidationContext {
             schema_language: SchemaLanguage::default(),
             page_init_payloads: std::collections::HashMap::new(),
             extra_patterns: None,
-            service_actions: std::collections::HashMap::new(),
+            service_registry: crate::embedded::ServiceRegistryData::default(),
             phase_f_strict: true,
         }
     }
@@ -416,7 +417,7 @@ pub fn validate_comprehensive_with_options(
         schema,
         extra_patterns,
         schema_language,
-        std::collections::HashMap::new(),
+        crate::embedded::ServiceRegistryData::default(),
     )
 }
 
@@ -425,13 +426,13 @@ pub fn validate_comprehensive_full(
     schema: &OrbitalSchema,
     extra_patterns: Option<ExtraPatterns>,
     schema_language: SchemaLanguage,
-    service_actions: std::collections::HashMap<String, HashSet<String>>,
+    service_registry: crate::embedded::ServiceRegistryData,
 ) -> ValidationResult {
     validate_comprehensive_full_with_phase_f(
         schema,
         extra_patterns,
         schema_language,
-        service_actions,
+        service_registry,
         true,
     )
 }
@@ -445,13 +446,13 @@ pub fn validate_comprehensive_full_with_phase_f(
     schema: &OrbitalSchema,
     extra_patterns: Option<ExtraPatterns>,
     schema_language: SchemaLanguage,
-    service_actions: std::collections::HashMap<String, HashSet<String>>,
+    service_registry: crate::embedded::ServiceRegistryData,
     phase_f_strict: bool,
 ) -> ValidationResult {
     let mut ctx = ValidationContext::new();
     ctx.extra_patterns = extra_patterns;
     ctx.schema_language = schema_language;
-    ctx.service_actions = service_actions;
+    ctx.service_registry = service_registry;
     ctx.phase_f_strict = phase_f_strict;
 
     // Detect domain from schema metadata or orbital context

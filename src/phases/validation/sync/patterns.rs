@@ -2,7 +2,7 @@
 //!
 //! Source: packages/almadar-core/src/patterns/patterns-registry.json
 //!
-//! Last synced: 2026-08-22
+//! Last synced: 2026-08-23
 //! To regenerate: npx tsx tools/almadar-pattern-sync/index.ts
 //!
 //! DO NOT EDIT MANUALLY - changes will be overwritten on next sync.
@@ -2848,10 +2848,13 @@ pub static PATTERN_PROPS_SCHEMA: LazyLock<HashMap<&'static str, HashSet<&'static
                 [
                     "angles",
                     "animate",
+                    "axisColor",
+                    "backgroundColor",
                     "bars",
                     "className",
                     "curves",
                     "error",
+                    "gridColor",
                     "gridStep",
                     "guides",
                     "height",
@@ -7026,6 +7029,9 @@ pub static PATTERN_PROP_TYPES: LazyLock<HashMap<&'static str, HashMap<&'static s
                     ("showAxes", &["boolean"] as &[&str]),
                     ("showGrid", &["boolean"] as &[&str]),
                     ("gridStep", &["number"] as &[&str]),
+                    ("backgroundColor", &["string"] as &[&str]),
+                    ("gridColor", &["string"] as &[&str]),
+                    ("axisColor", &["string"] as &[&str]),
                     ("showTickLabels", &["boolean"] as &[&str]),
                     ("showCurveLabels", &["boolean"] as &[&str]),
                     ("curves", &["array"] as &[&str]),

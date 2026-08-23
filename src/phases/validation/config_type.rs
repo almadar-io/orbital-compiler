@@ -245,6 +245,25 @@ fn validate_config_field(
         return result;
     }
 
+    // `secret` values are credential REFERENCES — env-var key names resolved
+    // by `resolveCredentialRef`, never secret material. A non-string default
+    // is decidably wrong (I-29).
+    if field.field_type == "secret" {
+        if let Some(default) = &field.default {
+            if !matches!(default, SExpression::String(_)) {
+                result.add_error(
+                    ValidationError::error(
+                        ErrorCode::TraitSecretDefaultNotString,
+                        path,
+                        "Config field typed `secret` must default to a string credential reference (an env-var key name)",
+                    )
+                    .with_suggestion("Use a string env-var name, e.g. `connectionRef : secret = \"CRM_DB_URL\"`"),
+                );
+            }
+        }
+        return result;
+    }
+
     let default_str = match &field.default {
         Some(SExpression::String(s)) => s.as_str(),
         _ => return result, // Non-string defaults can't be slot/pattern values

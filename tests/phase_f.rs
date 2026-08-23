@@ -90,7 +90,7 @@ fn run(
         schema,
         None,
         SchemaLanguage::English,
-        std::collections::HashMap::new(),
+        orbital_compiler::embedded::ServiceRegistryData::default(),
         strict,
     )
 }

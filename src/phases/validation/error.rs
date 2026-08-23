@@ -95,6 +95,9 @@ pub enum ErrorCode {
     TraitInvalidSlotDefault,
     /// Config field typed `pattern` has a default value not in `PATTERN_TYPES`
     TraitInvalidPatternDefault,
+    /// Config field typed `secret` has a non-string default — the value is a
+    /// credential REFERENCE (env-var key name), never secret material (I-29)
+    TraitSecretDefaultNotString,
     /// Config field's default value doesn't match its declared structural
     /// shape (array vs scalar, object vs string, missing required, etc.).
     /// Fires after the typed-config carriers (`items` / `properties` /
@@ -301,6 +304,13 @@ pub enum ErrorCode {
     EffectCallServiceMissingAction,
     /// call_service missing onSuccess/onError handlers
     EffectCallServiceMissingHandlers,
+    /// call_service params carry a key the action's registry contract does
+    /// not declare (I-13 — the `recipient` vs `to` class)
+    EffectCallServiceUnknownParam,
+    /// call_service params omit a key the action's registry contract requires
+    EffectCallServiceMissingParam,
+    /// call_service literal param value contradicts the contract's param type
+    EffectCallServiceParamType,
     /// set effect using invalid binding
     EffectSetInvalidBinding,
     /// set effect using @payload (should use @entity)
@@ -796,6 +806,7 @@ impl ErrorCode {
             ErrorCode::TraitUndefinedEvent => "ORB_T_UNDEFINED_EVENT",
             ErrorCode::TraitInvalidSlotDefault => "ORB_T_INVALID_SLOT_DEFAULT",
             ErrorCode::TraitInvalidPatternDefault => "ORB_T_INVALID_PATTERN_DEFAULT",
+            ErrorCode::TraitSecretDefaultNotString => "ORB_T_SECRET_DEFAULT_NOT_STRING",
             ErrorCode::TraitConfigShapeMismatch => "ORB_T_CONFIG_SHAPE_MISMATCH",
             ErrorCode::TraitConfigObjectArrayForbidden => "ORB_T_CONFIG_OBJECT_ARRAY_FORBIDDEN",
             ErrorCode::GenericTypeDeprecated => "ORB_T_GENERIC_TYPE_DEPRECATED",
@@ -855,6 +866,9 @@ impl ErrorCode {
             ErrorCode::EffectCallServiceUnknownService => "ORB_EFF_CALL_SERVICE_UNKNOWN_SERVICE",
             ErrorCode::EffectCallServiceMissingAction => "ORB_EFF_CALL_SERVICE_MISSING_ACTION",
             ErrorCode::EffectCallServiceMissingHandlers => "ORB_EFF_CALL_SERVICE_MISSING_HANDLERS",
+            ErrorCode::EffectCallServiceUnknownParam => "ORB_EFF_CALL_SERVICE_UNKNOWN_PARAM",
+            ErrorCode::EffectCallServiceMissingParam => "ORB_EFF_CALL_SERVICE_MISSING_PARAM",
+            ErrorCode::EffectCallServiceParamType => "ORB_EFF_CALL_SERVICE_PARAM_TYPE",
             ErrorCode::EffectSetInvalidBinding => "ORB_EFF_SET_INVALID_BINDING",
             ErrorCode::EffectSetPayloadNotAllowed => "ORB_EFF_SET_PAYLOAD_NOT_ALLOWED",
             ErrorCode::EffectFetchInvalidEntity => "ORB_EFF_FETCH_INVALID_ENTITY",
@@ -1048,6 +1062,7 @@ impl ErrorCode {
             | ErrorCode::TraitUndefinedEvent
             | ErrorCode::TraitInvalidSlotDefault
             | ErrorCode::TraitInvalidPatternDefault
+            | ErrorCode::TraitSecretDefaultNotString
             | ErrorCode::TraitConfigShapeMismatch
             | ErrorCode::TraitConfigObjectArrayForbidden
             | ErrorCode::GenericTypeDeprecated
@@ -1101,6 +1116,9 @@ impl ErrorCode {
             | ErrorCode::EffectCallServiceUnknownService
             | ErrorCode::EffectCallServiceMissingAction
             | ErrorCode::EffectCallServiceMissingHandlers
+            | ErrorCode::EffectCallServiceUnknownParam
+            | ErrorCode::EffectCallServiceMissingParam
+            | ErrorCode::EffectCallServiceParamType
             | ErrorCode::EffectSetInvalidBinding
             | ErrorCode::EffectSetPayloadNotAllowed
             | ErrorCode::EffectFetchInvalidEntity

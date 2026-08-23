@@ -4,6 +4,7 @@
 //! Ported from `builder/packages/shared/src/orbitals/validation/effect-validator.ts`.
 
 use super::{PageInitPayload, ValidationContext, ValidationResult};
+use crate::embedded::ServiceRegistryData;
 use orbital_core::schema::{EntityDefinition, OrbitalSchema, TraitDefinition};
 use std::collections::{HashMap, HashSet};
 
@@ -47,7 +48,7 @@ pub fn validate_all_effects(schema: &OrbitalSchema, ctx: &mut ValidationContext)
             &ctx.entity_definitions,
             &ctx.service_names,
             &ctx.page_init_payloads,
-            &ctx.service_actions,
+            &ctx.service_registry,
         );
         ctx.merge(result);
     }
@@ -61,7 +62,7 @@ pub fn validate_trait_effects(
     entity_definitions: &HashMap<String, EntityDefinition>,
     known_services: &HashSet<String>,
     page_init_payloads: &HashMap<String, PageInitPayload>,
-    service_actions: &HashMap<String, HashSet<String>>,
+    service_registry: &ServiceRegistryData,
 ) -> ValidationResult {
     let mut result = ValidationResult::new();
 
@@ -102,7 +103,7 @@ pub fn validate_trait_effects(
                     entity_definitions,
                     known_services,
                     page_init_payloads,
-                    service_actions,
+                    service_registry,
                     Some(&declared_emits),
                     &entity_field_types,
                     &scoped_payload,
@@ -129,7 +130,7 @@ pub fn validate_trait_effects(
                     entity_definitions,
                     known_services,
                     page_init_payloads,
-                    service_actions,
+                    service_registry,
                     Some(&declared_emits),
                     &entity_field_types,
                     &payload_field_types,

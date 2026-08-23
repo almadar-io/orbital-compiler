@@ -10,6 +10,8 @@ use super::{
     validate_set_object, validate_set_return_type, validate_set_value_type, DeclaredEmit,
     EntityFieldMeta,
 };
+use super::call_service::walk_nested_call_services;
+use crate::embedded::ServiceRegistryData;
 use orbital_core::schema::{EntityDefinition, SExpression, TraitDefinition};
 use std::collections::{HashMap, HashSet};
 
@@ -241,7 +243,7 @@ pub(crate) fn validate_effect(
     entity_definitions: &HashMap<String, EntityDefinition>,
     known_services: &HashSet<String>,
     page_init_payloads: &HashMap<String, PageInitPayload>,
-    service_actions: &HashMap<String, HashSet<String>>,
+    service_registry: &ServiceRegistryData,
     declared_emits: Option<&[DeclaredEmit]>,
     // SET-EMITS-PAYLOAD + ENUM-UNENFORCED backstop inputs: the linked entity's
     // per-field metadata (type + enum members) and the trait's declared payload
@@ -269,7 +271,7 @@ pub(crate) fn validate_effect(
                             arr,
                             path,
                             known_services,
-                            service_actions,
+                            service_registry,
                             declared_emits,
                         ));
                     }
@@ -374,7 +376,7 @@ pub(crate) fn validate_effect(
                     obj,
                     path,
                     known_services,
-                    service_actions,
+                    service_registry,
                 ));
             }
             if let Some(fetch_entity) = obj.get("fetch") {
@@ -384,6 +386,35 @@ pub(crate) fn validate_effect(
         _ => {
             // Other forms are not effect-like, skip
         }
+    }
+
+    // I-8: nested call-service forms inside this effect's arguments get the
+    // same name/action/param checks the top-level form gets. The walk starts
+    // BELOW the top form so the arms above stay the single validators for it.
+    match effect {
+        SExpression::Array(arr) => {
+            for arg in arr.iter().skip(1) {
+                result.merge(walk_nested_call_services(
+                    arg,
+                    path,
+                    known_services,
+                    service_registry,
+                ));
+            }
+        }
+        SExpression::Object(obj) => {
+            let mut keys: Vec<&String> = obj.keys().collect();
+            keys.sort();
+            for key in keys {
+                result.merge(walk_nested_call_services(
+                    &obj[key],
+                    path,
+                    known_services,
+                    service_registry,
+                ));
+            }
+        }
+        _ => {}
     }
 
     result

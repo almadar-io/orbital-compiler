@@ -202,7 +202,7 @@ mod tests {
             &HashMap::new(),
             &HashSet::new(),
             &HashMap::new(),
-            &HashMap::new(),
+            &Default::default(),
             None,
             &HashMap::new(),
             &HashMap::new(),
@@ -225,7 +225,7 @@ mod tests {
             &HashMap::new(),
             &HashSet::new(),
             &HashMap::new(),
-            &HashMap::new(),
+            &Default::default(),
             None,
             &HashMap::new(),
             &HashMap::new(),
@@ -252,7 +252,7 @@ mod tests {
             &HashMap::new(),
             &HashSet::new(),
             &HashMap::new(),
-            &HashMap::new(),
+            &Default::default(),
             None,
             &HashMap::new(),
             &HashMap::new(),
@@ -279,7 +279,7 @@ mod tests {
             &HashMap::new(),
             &HashSet::new(),
             &HashMap::new(),
-            &HashMap::new(),
+            &Default::default(),
             None,
             &HashMap::new(),
             &HashMap::new(),
@@ -307,7 +307,7 @@ mod tests {
             &HashMap::new(),
             &known_services,
             &HashMap::new(),
-            &HashMap::new(),
+            &Default::default(),
             None,
             &HashMap::new(),
             &HashMap::new(),
@@ -327,12 +327,15 @@ mod tests {
             SExpression::String("action".to_string()),
         ]);
 
-        let service_actions: HashMap<String, HashSet<String>> = [(
-            "email".to_string(),
-            ["send".to_string()].into_iter().collect(),
-        )]
-        .into_iter()
-        .collect();
+        let service_registry = crate::embedded::ServiceRegistryData {
+            actions: [(
+                "email".to_string(),
+                ["send".to_string()].into_iter().collect(),
+            )]
+            .into_iter()
+            .collect(),
+            params: HashMap::new(),
+        };
         let result = validate_effect(
             &effect,
             "test",
@@ -340,7 +343,7 @@ mod tests {
             &HashMap::new(),
             &HashSet::new(),
             &HashMap::new(),
-            &service_actions,
+            &service_registry,
             None,
             &HashMap::new(),
             &HashMap::new(),
@@ -360,12 +363,15 @@ mod tests {
             SExpression::String("sendEmail".to_string()),
         ]);
 
-        let service_actions: HashMap<String, HashSet<String>> = [(
-            "email".to_string(),
-            ["send".to_string()].into_iter().collect(),
-        )]
-        .into_iter()
-        .collect();
+        let service_registry = crate::embedded::ServiceRegistryData {
+            actions: [(
+                "email".to_string(),
+                ["send".to_string()].into_iter().collect(),
+            )]
+            .into_iter()
+            .collect(),
+            params: HashMap::new(),
+        };
         let result = validate_effect(
             &effect,
             "test",
@@ -373,7 +379,7 @@ mod tests {
             &HashMap::new(),
             &HashSet::new(),
             &HashMap::new(),
-            &service_actions,
+            &service_registry,
             None,
             &HashMap::new(),
             &HashMap::new(),
@@ -393,10 +399,12 @@ mod tests {
             SExpression::String("anyHostAction".to_string()),
         ]);
 
-        let service_actions: HashMap<String, HashSet<String>> =
-            [("migration".to_string(), HashSet::new())]
+        let service_registry = crate::embedded::ServiceRegistryData {
+            actions: [("migration".to_string(), HashSet::new())]
                 .into_iter()
-                .collect();
+                .collect(),
+            params: HashMap::new(),
+        };
         let result = validate_effect(
             &effect,
             "test",
@@ -404,13 +412,278 @@ mod tests {
             &HashMap::new(),
             &HashSet::new(),
             &HashMap::new(),
-            &service_actions,
+            &service_registry,
             None,
             &HashMap::new(),
             &HashMap::new(),
         );
         assert!(result.is_valid());
         assert!(result.warnings.is_empty());
+    }
+
+    /// email.send with the real contract shape: to/subject/body required,
+    /// from optional — the I-13 reproducer surface.
+    fn email_registry() -> crate::embedded::ServiceRegistryData {
+        use crate::embedded::{EmbeddedServiceParam, ServiceRegistryData};
+        let param = |name: &str, ty: &str, required: bool| EmbeddedServiceParam {
+            name: name.to_string(),
+            param_type: ty.to_string(),
+            required,
+        };
+        ServiceRegistryData {
+            actions: [(
+                "email".to_string(),
+                ["send".to_string()].into_iter().collect(),
+            )]
+            .into_iter()
+            .collect(),
+            params: [(
+                "email".to_string(),
+                [(
+                    "send".to_string(),
+                    vec![
+                        param("to", "string", true),
+                        param("subject", "string", true),
+                        param("body", "string", true),
+                        param("from", "string", false),
+                    ],
+                )]
+                .into_iter()
+                .collect(),
+            )]
+            .into_iter()
+            .collect(),
+        }
+    }
+
+    fn call_email(params: SExpression) -> SExpression {
+        SExpression::Array(vec![
+            SExpression::String("call-service".to_string()),
+            SExpression::String("email".to_string()),
+            SExpression::String("send".to_string()),
+            params,
+        ])
+    }
+
+    fn run_effect(
+        effect: &SExpression,
+        registry: &crate::embedded::ServiceRegistryData,
+    ) -> super::super::super::ValidationResult {
+        validate_effect(
+            effect,
+            "test",
+            &HashSet::new(),
+            &HashMap::new(),
+            &HashSet::new(),
+            &HashMap::new(),
+            registry,
+            None,
+            &HashMap::new(),
+            &HashMap::new(),
+        )
+    }
+
+    #[test]
+    fn test_call_service_union_gate_inline_does_not_mask_registry() {
+        // An inline schema.services declaration must not hard-error calls to
+        // registry services — resolved = inline ∪ registry.
+        let effect = SExpression::Array(vec![
+            SExpression::String("call-service".to_string()),
+            SExpression::String("email".to_string()),
+            SExpression::String("send".to_string()),
+        ]);
+        let known_services: HashSet<String> = ["api".to_string()].into_iter().collect();
+        let registry = crate::embedded::ServiceRegistryData {
+            actions: [("email".to_string(), ["send".to_string()].into_iter().collect())]
+                .into_iter()
+                .collect(),
+            params: HashMap::new(),
+        };
+        let result = validate_effect(
+            &effect,
+            "test",
+            &HashSet::new(),
+            &HashMap::new(),
+            &known_services,
+            &HashMap::new(),
+            &registry,
+            None,
+            &HashMap::new(),
+            &HashMap::new(),
+        );
+        assert!(result.is_valid(), "unexpected errors: {:?}", result.errors);
+    }
+
+    #[test]
+    fn test_call_service_unknown_param_errors() {
+        // The I-13 class: `recipient` where the contract says `to`.
+        let params = SExpression::Object(
+            [
+                ("recipient".to_string(), SExpression::String("a@b.c".to_string())),
+                ("subject".to_string(), SExpression::String("s".to_string())),
+                ("body".to_string(), SExpression::String("b".to_string())),
+            ]
+            .into_iter()
+            .collect(),
+        );
+        let result = run_effect(&call_email(params), &email_registry());
+        assert!(result
+            .errors
+            .iter()
+            .any(|e| e.code == ErrorCode::EffectCallServiceUnknownParam));
+        // ...and the omitted `to` is reported as missing.
+        assert!(result
+            .errors
+            .iter()
+            .any(|e| e.code == ErrorCode::EffectCallServiceMissingParam));
+    }
+
+    #[test]
+    fn test_call_service_valid_params_clean() {
+        let params = SExpression::Object(
+            [
+                ("to".to_string(), SExpression::String("@payload.email".to_string())),
+                ("subject".to_string(), SExpression::String("s".to_string())),
+                ("body".to_string(), SExpression::String("b".to_string())),
+            ]
+            .into_iter()
+            .collect(),
+        );
+        let result = run_effect(&call_email(params), &email_registry());
+        assert!(result.is_valid(), "unexpected errors: {:?}", result.errors);
+    }
+
+    #[test]
+    fn test_call_service_param_type_literal_mismatch() {
+        let params = SExpression::Object(
+            [
+                ("to".to_string(), SExpression::Number(5.0)),
+                ("subject".to_string(), SExpression::String("s".to_string())),
+                ("body".to_string(), SExpression::String("b".to_string())),
+            ]
+            .into_iter()
+            .collect(),
+        );
+        let result = run_effect(&call_email(params), &email_registry());
+        assert!(result
+            .errors
+            .iter()
+            .any(|e| e.code == ErrorCode::EffectCallServiceParamType));
+    }
+
+    #[test]
+    fn test_call_service_dynamic_params_skip_checks() {
+        // A non-object params expression has unknowable keys — no param errors.
+        let result = run_effect(
+            &call_email(SExpression::String("@payload".to_string())),
+            &email_registry(),
+        );
+        assert!(result.is_valid(), "unexpected errors: {:?}", result.errors);
+    }
+
+    #[test]
+    fn test_call_service_no_params_reports_missing_required() {
+        let effect = SExpression::Array(vec![
+            SExpression::String("call-service".to_string()),
+            SExpression::String("email".to_string()),
+            SExpression::String("send".to_string()),
+        ]);
+        let result = run_effect(&effect, &email_registry());
+        assert_eq!(
+            result
+                .errors
+                .iter()
+                .filter(|e| e.code == ErrorCode::EffectCallServiceMissingParam)
+                .count(),
+            3
+        );
+    }
+
+    #[test]
+    fn test_call_service_envelope_never_param_checked() {
+        // Trailing `{ emit: … }` past arity 4 is the envelope, not params.
+        let params = SExpression::Object(
+            [
+                ("to".to_string(), SExpression::String("a@b.c".to_string())),
+                ("subject".to_string(), SExpression::String("s".to_string())),
+                ("body".to_string(), SExpression::String("b".to_string())),
+            ]
+            .into_iter()
+            .collect(),
+        );
+        let envelope = SExpression::Object(
+            [(
+                "emit".to_string(),
+                SExpression::Object(
+                    [("success".to_string(), SExpression::String("SENT".to_string()))]
+                        .into_iter()
+                        .collect(),
+                ),
+            )]
+            .into_iter()
+            .collect(),
+        );
+        let effect = SExpression::Array(vec![
+            SExpression::String("call-service".to_string()),
+            SExpression::String("email".to_string()),
+            SExpression::String("send".to_string()),
+            params,
+            envelope,
+        ]);
+        let result = run_effect(&effect, &email_registry());
+        assert!(
+            !result
+                .errors
+                .iter()
+                .any(|e| e.code == ErrorCode::EffectCallServiceUnknownParam),
+            "envelope keys must never be param-flagged: {:?}",
+            result.errors
+        );
+    }
+
+    #[test]
+    fn test_nested_call_service_validated() {
+        // I-8: a call-service nested inside another effect's args gets the
+        // same action check as a top-level one (`llm embed` class).
+        let nested = SExpression::Array(vec![
+            SExpression::String("call-service".to_string()),
+            SExpression::String("email".to_string()),
+            SExpression::String("sendEmail".to_string()),
+        ]);
+        let effect = SExpression::Array(vec![
+            SExpression::String("set".to_string()),
+            SExpression::String("@entity.result".to_string()),
+            nested,
+        ]);
+        let result = run_effect(&effect, &email_registry());
+        assert!(result
+            .errors
+            .iter()
+            .any(|e| e.code == ErrorCode::EffectCallServiceMissingAction));
+    }
+
+    #[test]
+    fn test_nested_call_service_param_check() {
+        let nested = call_email(SExpression::Object(
+            [
+                ("recipient".to_string(), SExpression::String("a@b.c".to_string())),
+                ("subject".to_string(), SExpression::String("s".to_string())),
+                ("body".to_string(), SExpression::String("b".to_string())),
+                ("to".to_string(), SExpression::String("a@b.c".to_string())),
+            ]
+            .into_iter()
+            .collect(),
+        ));
+        let effect = SExpression::Array(vec![
+            SExpression::String("set".to_string()),
+            SExpression::String("@entity.result".to_string()),
+            nested,
+        ]);
+        let result = run_effect(&effect, &email_registry());
+        assert!(result
+            .errors
+            .iter()
+            .any(|e| e.code == ErrorCode::EffectCallServiceUnknownParam));
     }
 
     #[test]
@@ -438,7 +711,7 @@ mod tests {
             &HashMap::new(),
             &HashSet::new(),
             &page_init_payloads,
-            &HashMap::new(),
+            &Default::default(),
             None,
             &HashMap::new(),
             &HashMap::new(),
@@ -483,7 +756,7 @@ mod tests {
             &HashMap::new(),
             &HashSet::new(),
             &page_init_payloads,
-            &HashMap::new(),
+            &Default::default(),
             None,
             &HashMap::new(),
             &HashMap::new(),
@@ -712,7 +985,7 @@ mod tests {
             &entity_defs,
             &HashSet::new(),
             &HashMap::new(),
-            &HashMap::new(),
+            &Default::default(),
             Some(&declared_emits),
             &HashMap::new(),
             &HashMap::new(),
@@ -803,7 +1076,7 @@ mod tests {
             &entity_defs,
             &HashSet::new(),
             &HashMap::new(),
-            &HashMap::new(),
+            &Default::default(),
             None,
             &HashMap::new(),
             &HashMap::new(),
