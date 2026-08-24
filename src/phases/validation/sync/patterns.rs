@@ -2,7 +2,7 @@
 //!
 //! Source: packages/almadar-core/src/patterns/patterns-registry.json
 //!
-//! Last synced: 2026-08-23
+//! Last synced: 2026-08-24
 //! To regenerate: npx tsx tools/almadar-pattern-sync/index.ts
 //!
 //! DO NOT EDIT MANUALLY - changes will be overwritten on next sync.
@@ -694,7 +694,6 @@ pub static PATTERN_REQUIRED_PROPS: LazyLock<HashMap<&'static str, Vec<&'static s
             ("feature-card", vec!["title", "description"]),
             ("feature-detail-page-template", vec!["entity"]),
             ("feature-grid", vec!["items"]),
-            ("file-tree", vec!["tree"]),
             ("filter-group", vec!["entity", "filters"]),
             ("flex", vec!["children"]),
             ("flip-card", vec!["front", "back"]),
@@ -2138,7 +2137,20 @@ pub static PATTERN_PROPS_SCHEMA: LazyLock<HashMap<&'static str, HashSet<&'static
                 .into_iter()
                 .collect(),
             ),
-            ("file-tree", ["className", "indent", "onFileSelect", "selectedPath", "tree"].into_iter().collect()),
+            (
+                "file-tree",
+                [
+                    "className",
+                    "indent",
+                    "items",
+                    "onFileSelect",
+                    "onNodeSelect",
+                    "selectedPath",
+                    "tree",
+                ]
+                .into_iter()
+                .collect(),
+            ),
             (
                 "filter-group",
                 [
@@ -6136,8 +6148,10 @@ pub static PATTERN_PROP_TYPES: LazyLock<HashMap<&'static str, HashMap<&'static s
                 "file-tree",
                 [
                     ("tree", &["array"] as &[&str]),
+                    ("items", &["array"] as &[&str]),
                     ("selectedPath", &["string"] as &[&str]),
                     ("onFileSelect", &["function"] as &[&str]),
+                    ("onNodeSelect", &["function"] as &[&str]),
                     ("className", &["string"] as &[&str]),
                     ("indent", &["number"] as &[&str]),
                 ]

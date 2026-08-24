@@ -442,6 +442,17 @@ pub(crate) fn mark_literal_list_in_place(value: &mut SExpression, field_type: &s
     }
 }
 
+/// Twin of `mark_literal_list_in_place`: literal readers (fetch `include`
+/// validation + OIR resolution) must accept the `["list", …]` constructor the
+/// wrap produces. The evaluators strip the head at eval time (ListOp); readers
+/// that treat the array as inert data strip it here instead.
+pub(crate) fn strip_literal_list_marker(arr: &[SExpression]) -> &[SExpression] {
+    match arr.first() {
+        Some(SExpression::String(s)) if s == "list" => &arr[1..],
+        _ => arr,
+    }
+}
+
 /// Deep check: does any leaf in the tree resolve as a binding (`@…`)? A
 /// binding makes the value a live expression the evaluator must resolve, not
 /// inert data. Leaf test routes to the canonical `SExpression::is_binding`
@@ -1133,6 +1144,20 @@ mod literal_list_tests {
 
     fn arr(items: Vec<SExpression>) -> SExpression {
         SExpression::Array(items)
+    }
+
+    /// The strip twin must undo exactly what the wrap adds — a literal reader
+    /// fed `["list","tag"]` sees `["tag"]`; unwrapped arrays pass through.
+    #[test]
+    fn strip_marker_is_the_wrap_inverse() {
+        let wrapped = vec![
+            SExpression::String("list".to_string()),
+            SExpression::String("tag".to_string()),
+        ];
+        let stripped = strip_literal_list_marker(&wrapped);
+        assert_eq!(stripped, &wrapped[1..]);
+        let bare = vec![SExpression::String("tag".to_string())];
+        assert_eq!(strip_literal_list_marker(&bare), &bare[..]);
     }
 
     #[test]

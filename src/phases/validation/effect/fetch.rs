@@ -147,7 +147,7 @@ pub(crate) fn validate_fetch_include(
 
     // Parse include array
     let include_fields: Vec<String> = match include_expr {
-        SExpression::Array(arr) => arr
+        SExpression::Array(arr) => crate::phases::inline::rewrite::strip_literal_list_marker(arr)
             .iter()
             .filter_map(|item| {
                 if let SExpression::String(s) = item {

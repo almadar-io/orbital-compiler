@@ -1759,9 +1759,11 @@ impl<'a> Resolver<'a> {
                     None
                 };
 
-                // Extract include array
+                // Extract include array (accepting the `["list", …]` literal
+                // constructor a config-substituted value carries)
                 let include = if let Some(SExpression::Array(arr)) = obj.get("include") {
-                    let fields: Vec<String> = arr
+                    let fields: Vec<String> =
+                        crate::phases::inline::rewrite::strip_literal_list_marker(arr)
                         .iter()
                         .filter_map(|v| {
                             if let SExpression::String(s) = v {
@@ -2036,9 +2038,15 @@ impl<'a> Resolver<'a> {
         }
         let path = self.resolve_sexpr(&args[0])?;
         // Positional grammar: (navigate path payload? options?). The payload
-        // (arg 2) is delivered via the route/INIT machinery, not the OIR
-        // effect. Arg 3 is the options object; `crumb` labels the nav-stack
-        // entry the client pushes for the target page.
+        // (arg 2) is resolved into `params` and delivered client-side via
+        // router history state, merged into INIT alongside route params
+        // (`generate_auto_init_effect`). Arg 3 is the options object;
+        // `crumb` labels the nav-stack entry the client pushes for the
+        // target page.
+        let params = match args.get(1) {
+            Some(SExpression::Null) | None => None,
+            Some(p) => Some(self.resolve_sexpr(p)?),
+        };
         let crumb = match args.get(2) {
             Some(SExpression::Object(obj)) => obj
                 .get("crumb")
@@ -2054,7 +2062,7 @@ impl<'a> Resolver<'a> {
         };
         Ok(OirExpr::effect(OirEffect::Navigate {
             path,
-            params: None,
+            params,
             crumb,
         }))
     }
@@ -2224,9 +2232,11 @@ impl<'a> Resolver<'a> {
                     None
                 };
 
-                // Extract include array
+                // Extract include array (accepting the `["list", …]` literal
+                // constructor a config-substituted value carries)
                 let include = if let Some(SExpression::Array(arr)) = obj.get("include") {
-                    let fields: Vec<String> = arr
+                    let fields: Vec<String> =
+                        crate::phases::inline::rewrite::strip_literal_list_marker(arr)
                         .iter()
                         .filter_map(|v| {
                             if let SExpression::String(s) = v {
@@ -2721,6 +2731,87 @@ mod tests {
             OirType::Reference { entity } => assert_eq!(entity, "User"),
             other => panic!("expected Reference, got {:?}", other),
         }
+    }
+
+    /// `(navigate path payload)` must resolve the payload arg into
+    /// `OirEffect::Navigate.params` — §48 closure: the JS runtime path
+    /// already merges route params + navigate payload into INIT, and the
+    /// compiled path was silently dropping this arg.
+    #[test]
+    fn navigate_with_payload_resolves_params() {
+        let schema: OrbitalSchema = serde_json::from_str(
+            r#"{
+              "name": "t", "version": "1.0.0",
+              "orbitals": [{
+                "name": "O",
+                "entity": { "name": "W", "fields": [] },
+                "traits": [{
+                  "name": "Panel",
+                  "stateMachine": {
+                    "states": [{ "name": "idle", "isInitial": true }],
+                    "transitions": [{
+                      "from": "idle", "to": "idle", "event": "GO",
+                      "effects": [["navigate", "/detail", { "foo": "bar" }]]
+                    }]
+                  }
+                }]
+              }]
+            }"#,
+        )
+        .expect("fixture parses");
+
+        let module = resolve_to_oir(&schema).expect("resolves");
+        let effect = module.traits[0].transitions[0].effects[0]
+            .as_effect()
+            .expect("navigate resolves to an effect expr");
+        match effect {
+            OirEffect::Navigate { params, .. } => {
+                assert!(params.is_some(), "payload arg must resolve into params");
+            }
+            other => panic!("expected Navigate, got {:?}", other),
+        }
+    }
+
+    /// `(navigate path)` with no payload arg must serialize byte-identically
+    /// to before — `params` stays `None` and, via `skip_serializing_if`,
+    /// contributes no `"params"` key to the OIR JSON at all.
+    #[test]
+    fn navigate_without_payload_omits_params_key_from_oir_json() {
+        let schema: OrbitalSchema = serde_json::from_str(
+            r#"{
+              "name": "t", "version": "1.0.0",
+              "orbitals": [{
+                "name": "O",
+                "entity": { "name": "W", "fields": [] },
+                "traits": [{
+                  "name": "Panel",
+                  "stateMachine": {
+                    "states": [{ "name": "idle", "isInitial": true }],
+                    "transitions": [{
+                      "from": "idle", "to": "idle", "event": "GO",
+                      "effects": [["navigate", "/detail"]]
+                    }]
+                  }
+                }]
+              }]
+            }"#,
+        )
+        .expect("fixture parses");
+
+        let module = resolve_to_oir(&schema).expect("resolves");
+        let effect = module.traits[0].transitions[0].effects[0]
+            .as_effect()
+            .expect("navigate resolves to an effect expr");
+        match effect {
+            OirEffect::Navigate { params, .. } => assert!(params.is_none()),
+            other => panic!("expected Navigate, got {:?}", other),
+        }
+
+        let json = serde_json::to_string(&module).expect("module serializes");
+        assert!(
+            !json.contains("\"params\""),
+            "a payload-less navigate must not serialize a params key:\n{json}"
+        );
     }
 
     #[test]

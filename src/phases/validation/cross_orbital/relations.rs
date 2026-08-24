@@ -27,22 +27,40 @@ pub(crate) fn validate_relation_targets(schema: &OrbitalSchema) -> ValidationRes
         if let Some(entity) = orbital.entity.as_inline() {
             entity_names.insert(entity.name.as_str());
         }
+        // §52: auxiliary entities are legal targets too.
+        for aux in orbital.auxiliary_entities.iter().flatten() {
+            if let Some(entity) = aux.as_inline() {
+                entity_names.insert(entity.name.as_str());
+            }
+        }
         // `expects entity X` licenses relation targets naming X standalone; a
         // genuinely absent provider is the compose link-check's job
         // (`ORB_S_EXPECTATION_UNSATISFIED`), not this warning's.
         entity_names.extend(super::super::expectations::expected_entity_names(orbital));
     }
 
-    // Walk every inline entity's fields and recurse into array `items` and
-    // object `properties` so nested relations are caught too.
+    // Walk every inline entity's fields (primary AND auxiliary) and recurse
+    // into array `items` and object `properties` so nested relations are
+    // caught too.
     for (oi, orbital) in schema.orbitals.iter().enumerate() {
-        let Some(entity) = orbital.entity.as_inline() else {
-            continue;
-        };
-        let base = format!("orbitals[{}].entity", oi);
-        for (fi, field) in entity.fields.iter().enumerate() {
-            let field_path = format!("{}.fields[{}]", base, fi);
-            check_field_relation(&entity.name, field, &field_path, &entity_names, &mut result);
+        let primary = orbital
+            .entity
+            .as_inline()
+            .map(|e| (format!("orbitals[{}].entity", oi), e));
+        let auxes = orbital
+            .auxiliary_entities
+            .iter()
+            .flatten()
+            .enumerate()
+            .filter_map(|(ai, aux)| {
+                aux.as_inline()
+                    .map(|e| (format!("orbitals[{}].auxiliaryEntities[{}]", oi, ai), e))
+            });
+        for (base, entity) in primary.into_iter().chain(auxes) {
+            for (fi, field) in entity.fields.iter().enumerate() {
+                let field_path = format!("{}.fields[{}]", base, fi);
+                check_field_relation(&entity.name, field, &field_path, &entity_names, &mut result);
+            }
         }
     }
 

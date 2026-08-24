@@ -790,8 +790,16 @@ pub(crate) fn inline_traits(
                             // the trait's linkedEntity without walking
                             // the import graph at runtime.
                             let source_label = ctx.get_entry(&alias)?.source_label.clone();
-                            let source_entity_def =
-                                ctx.get_entity_for_trait_orbital(&alias, &name, ref_id.as_deref());
+                            // §52: the trait's TRUE source entity is the one
+                            // its own `->` binding names — for a source trait
+                            // bound to a source aux entity, the owning
+                            // orbital's slot-0 primary is the wrong answer
+                            // (spurious/suppressed rebind verdicts downstream).
+                            let source_entity_def = ctx.get_bound_entity_for_trait_orbital(
+                                &alias,
+                                &name,
+                                ref_id.as_deref(),
+                            );
                             let provenance = SourceBehaviorMetadata {
                                 behavior: source_label,
                                 alias: alias.clone(),

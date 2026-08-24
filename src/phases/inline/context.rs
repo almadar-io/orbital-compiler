@@ -279,6 +279,83 @@ impl InlineContext {
         Vec::new()
     }
 
+    /// §52 (C-RESOLVE-ATOM-MERGE-FIRST-ENTITY): the entity the trait's OWN
+    /// `->` binding names, resolved across the owning orbital's primary AND
+    /// auxiliary entities. Falls back to the orbital's primary — the
+    /// historical `get_entity_for_trait_orbital` result — when the trait
+    /// declares no binding or the name matches nothing, so every
+    /// single-entity source resolves exactly as before. Same
+    /// orbital-matching rules: `ref_id` first, then name.
+    pub(crate) fn get_bound_entity_for_trait_orbital(
+        &self,
+        alias: &str,
+        trait_name: &str,
+        trait_ref_id: Option<&str>,
+    ) -> Option<EntityDefinition> {
+        let entry = self.aliases.get(alias)?;
+        let (orbital, matched) = Self::find_orbital_for_trait(entry, trait_name, trait_ref_id)?;
+        let bound = match matched {
+            TraitReference::Inline(def) => def.linked_entity.as_deref(),
+            TraitReference::Reference { linked_entity, .. } => linked_entity.as_deref(),
+        };
+        if let Some(name) = bound {
+            if let EntityRef::Inline(e) = &orbital.entity {
+                if e.name == name {
+                    return Some(e.clone());
+                }
+            }
+            for aux in orbital.auxiliary_entities.iter().flatten() {
+                if let EntityRef::Inline(e) = aux {
+                    if e.name == name {
+                        return Some(e.clone());
+                    }
+                }
+            }
+        }
+        match &orbital.entity {
+            EntityRef::Inline(e) => Some(e.clone()),
+            _ => None,
+        }
+    }
+
+    /// Locate the orbital under `entry` that carries `trait_name` and the
+    /// matched trait itself — `trait_ref_id` first, then the name scan, the
+    /// same precedence `get_entity_for_trait_orbital` applies.
+    fn find_orbital_for_trait<'a>(
+        entry: &'a AliasEntry,
+        trait_name: &str,
+        trait_ref_id: Option<&str>,
+    ) -> Option<(&'a Orbital, &'a TraitReference)> {
+        if let Some(want_id) = trait_ref_id {
+            for orbital in &entry.orbitals {
+                let matched = orbital.traits.iter().find(|tr| match tr {
+                    TraitReference::Inline(def) => def.id.as_deref() == Some(want_id),
+                    TraitReference::Reference {
+                        ref_id: Some(rid), ..
+                    } => rid == want_id,
+                    _ => false,
+                });
+                if let Some(tr) = matched {
+                    return Some((orbital, tr));
+                }
+            }
+        }
+        for orbital in &entry.orbitals {
+            let matched = orbital.traits.iter().find(|tr| match tr {
+                TraitReference::Inline(def) => def.name == trait_name,
+                TraitReference::Reference { name: Some(n), .. } => n == trait_name,
+                TraitReference::Reference {
+                    reference: Some(r), ..
+                } => r.ends_with(&format!(".{}", trait_name)),
+                _ => false,
+            });
+            if let Some(tr) = matched {
+                return Some((orbital, tr));
+            }
+        }
+        None
+    }
+
     /// V4: resolve a trait by its dual-carry `ref_id` (an imported
     /// `TraitDefinition.id`, or a same-alias `Reference`'s own `ref_id`)
     /// instead of by name. Returns `None` — not an error — when nothing

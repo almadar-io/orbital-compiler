@@ -18,7 +18,7 @@ mod context;
 mod entity;
 mod identity_normalize;
 mod page;
-mod rewrite;
+pub(crate) mod rewrite;
 mod service;
 mod splice;
 #[path = "trait.rs"]
@@ -619,7 +619,11 @@ fn inline_orbital(
     // Merge rule: for each field in the imported behavior's canonical entity,
     // if the caller's entity doesn't already have a field with that name, add
     // it. Caller's fields win on name collision.
-    if let EntityRef::Inline(ref mut caller_entity) = orbital.entity {
+    let caller_entity_name = match &orbital.entity {
+        EntityRef::Inline(e) => Some(e.name.clone()),
+        _ => None,
+    };
+    if let Some(caller_entity_name) = caller_entity_name {
         // Collect (alias, trait_name) pairs from trait refs of the form
         // "Alias.traits.TraitName". Use a set to avoid merging the same
         // import's entity twice when multiple traits reference it.
@@ -633,8 +637,23 @@ fn inline_orbital(
         // self-contained widget atom WITHOUT rebinding still reads the trait's
         // INTRINSIC `@entity.X` fields against its own same-named entity, so
         // those machinery fields must travel onto it.
-        let caller_entity_name = caller_entity.name.clone();
+        //
+        // §52: the rebind target is honored, not assumed — each merge lands on
+        // the entity the ref's `linkedEntity` names (primary or auxiliary),
+        // falling back to the primary when the name matches neither (today's
+        // behavior; the existing ORB_T rebind validators then report). Two
+        // passes for borrow safety: collect over `&orbital.traits`, then apply
+        // mutably. Known limitation: a rebind target that is an IMPORTED aux
+        // entity (surfaced by the Gap-#22 pass below) is not yet present here
+        // and falls back to the primary — author-declared extras always are.
+        struct PendingMerge {
+            target: Option<String>,
+            imported: EntityDefinition,
+            intrinsic_only: bool,
+            required_data: HashSet<String>,
+        }
         let mut merged_aliases: HashSet<(String, String)> = HashSet::new();
+        let mut pending: Vec<PendingMerge> = Vec::new();
 
         for trait_ref in &orbital.traits {
             if let TraitReference::Reference {
@@ -646,7 +665,7 @@ fn inline_orbital(
             {
                 if let Ok(ParsedReference::Trait { alias, name }) = parse_reference(ref_str) {
                     if let Some(imported_entity) =
-                        ctx.get_entity_for_trait_orbital(&alias, &name, ref_id.as_deref())
+                        ctx.get_bound_entity_for_trait_orbital(&alias, &name, ref_id.as_deref())
                     {
                         let (carries_fields, intrinsic_only) = match linked_entity {
                             // (a) explicit rebind: merge the full field set
@@ -677,13 +696,49 @@ fn inline_orbital(
                                 })
                                 .map(|c| c.requires.into_iter().collect::<HashSet<String>>())
                                 .unwrap_or_default();
-                            merge_imported_entity_fields(
-                                caller_entity,
-                                &imported_entity,
+                            pending.push(PendingMerge {
+                                target: linked_entity.clone(),
+                                imported: imported_entity,
                                 intrinsic_only,
-                                &required_data,
-                            );
+                                required_data,
+                            });
                         }
+                    }
+                }
+            }
+        }
+
+        for pm in pending {
+            // Exactly one destination per merge — never both.
+            let aux_target = pm
+                .target
+                .as_deref()
+                .filter(|t| *t != caller_entity_name)
+                .and_then(|t| {
+                    orbital
+                        .auxiliary_entities
+                        .iter_mut()
+                        .flatten()
+                        .find_map(|r| match r {
+                            EntityRef::Inline(e) if e.name == t => Some(e),
+                            _ => None,
+                        })
+                });
+            match aux_target {
+                Some(aux_entity) => merge_imported_entity_fields(
+                    aux_entity,
+                    &pm.imported,
+                    pm.intrinsic_only,
+                    &pm.required_data,
+                ),
+                None => {
+                    if let EntityRef::Inline(ref mut caller_entity) = orbital.entity {
+                        merge_imported_entity_fields(
+                            caller_entity,
+                            &pm.imported,
+                            pm.intrinsic_only,
+                            &pm.required_data,
+                        );
                     }
                 }
             }
@@ -709,6 +764,13 @@ fn inline_orbital(
         if let EntityRef::Inline(ref primary_entity) = orbital.entity {
             seen_aux_names.insert(primary_entity.name.clone());
         }
+        // Author-declared auxiliary entities (lowered by L1) are already
+        // present — never register an imported same-named entity beside one.
+        for aux in orbital.auxiliary_entities.iter().flatten() {
+            if let EntityRef::Inline(e) = aux {
+                seen_aux_names.insert(e.name.clone());
+            }
+        }
         let mut aux_collected: Vec<EntityDefinition> = Vec::new();
         for trait_ref in &orbital.traits {
             if let TraitReference::Reference {
@@ -721,7 +783,7 @@ fn inline_orbital(
                 if let Ok(ParsedReference::Trait { alias, name }) = parse_reference(ref_str) {
                     if linked_entity.is_none() {
                         if let Some(imported_entity) =
-                            ctx.get_entity_for_trait_orbital(&alias, &name, ref_id.as_deref())
+                            ctx.get_bound_entity_for_trait_orbital(&alias, &name, ref_id.as_deref())
                         {
                             if seen_aux_names.insert(imported_entity.name.clone()) {
                                 aux_collected.push(imported_entity);

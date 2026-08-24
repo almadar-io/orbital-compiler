@@ -63,6 +63,13 @@ fn enrich_orbital(orbital: &mut Orbital, config: &EnrichmentConfig) {
         enrich_entity(entity, config);
     }
 
+    // §52: auxiliary entities persist too — same default-collection rule.
+    for aux in orbital.auxiliary_entities.iter_mut().flatten() {
+        if let EntityRef::Inline(ref mut entity) = aux {
+            enrich_entity(entity, config);
+        }
+    }
+
     // Enrich inline traits
     for trait_ref in &mut orbital.traits {
         if let TraitReference::Inline(trait_def) = trait_ref {
