@@ -495,6 +495,56 @@ fn apply_post_subst_overrides_to_trait(
 }
 
 /// Walk an SExpression and collect every string literal of the exact form
+/// Values for a pulled sibling's `@config.<knob>` forward defaults, taken from
+/// the trait that embeds it.
+///
+/// `MasterListView = DataList.traits.DataListRender { config { fields:
+/// @config.fields } }` inside `std-browse` means "take `fields` from whoever
+/// embeds me" — the wrapper-forward contract. The embedder is known at exactly
+/// one place, this pull site: a sibling is materialised PER EMBEDDER, and its
+/// own declared default IS the forward string, so `apply_inline_config_defaults`'
+/// self-reference guard leaves it standing and every consumer downstream reads
+/// `@config.fields` where a value belongs — a populated list rendering blank.
+///
+/// Only whole-string forwards resolve here. A `@config.<knob>.<path>` form and
+/// a knob the embedder does not declare are left alone for the binding
+/// validator to judge.
+fn forwarded_sibling_config(
+    sibling: &TraitDefinition,
+    result: &[TraitReference],
+    parent_name: &str,
+) -> Option<HashMap<String, ConfigField>> {
+    let declared = sibling.config.as_ref()?;
+    let parent = result.iter().find_map(|tr| match tr {
+        TraitReference::Inline(td) if td.name == parent_name => td.config.as_ref(),
+        _ => None,
+    })?;
+    let mut out: HashMap<String, ConfigField> = HashMap::new();
+    for (key, field) in declared.iter() {
+        let Some(SExpression::String(forward)) = field.default.as_ref() else {
+            continue;
+        };
+        let Some(knob) = forward.strip_prefix("@config.") else {
+            continue;
+        };
+        if knob.contains('.') {
+            continue;
+        }
+        let Some(value) = parent.get(knob).and_then(|f| f.default.as_ref()) else {
+            continue;
+        };
+        // The embedder forwards the same token upward — nothing to resolve yet;
+        // its own embedder supplies the value one pull further out.
+        if matches!(value, SExpression::String(v) if v == forward) {
+            continue;
+        }
+        let mut forwarded = field.clone();
+        forwarded.default = Some(value.clone());
+        out.insert(key.clone(), forwarded);
+    }
+    (!out.is_empty()).then_some(out)
+}
+
 /// `@trait.<SiblingName>` into `out`. App atoms embed a curated variation as
 /// a sibling trait and reference it inside the main trait's render-ui as the
 /// literal `"@trait.SiblingView"`. The form is the full string equal to
@@ -1262,11 +1312,21 @@ pub(crate) fn inline_traits(
             // every `@X.path` / `["ref", X]` / fetch/persist literal to the
             // consumer's entity. KEEP the original name (no `name` override) so
             // `@trait.<Sibling>` resolves against it.
+            // Resolve the sibling's forward defaults against the embedder
+            // before substitution runs, so its body reads the embedder's value
+            // instead of an unresolvable `@config.X`. A deferred import load
+            // leaves the forward live — the downstream consumer's own override
+            // has not been applied yet and must still win.
+            let forwarded_config = if ctx.defer_config_subst {
+                None
+            } else {
+                forwarded_sibling_config(&sibling_def, &result, &parent_name)
+            };
             apply_overrides_to_trait(
                 &mut sibling_def,
                 linked_entity.as_ref(),
                 entity_ids,
-                None,
+                forwarded_config.as_ref(),
                 None,
                 None,
                 None,

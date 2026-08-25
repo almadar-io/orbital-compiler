@@ -2,7 +2,7 @@
 //!
 //! Source: packages/almadar-core/src/patterns/patterns-registry.json
 //!
-//! Last synced: 2026-08-24
+//! Last synced: 2026-08-25
 //! To regenerate: npx tsx tools/almadar-pattern-sync/index.ts
 //!
 //! DO NOT EDIT MANUALLY - changes will be overwritten on next sync.
@@ -1767,6 +1767,7 @@ pub static PATTERN_PROPS_SCHEMA: LazyLock<HashMap<&'static str, HashSet<&'static
                     "isLoading",
                     "maxInlineActions",
                     "mode",
+                    "onTitleCommit",
                     "page",
                     "pageSize",
                     "position",
@@ -5658,6 +5659,7 @@ pub static PATTERN_PROP_TYPES: LazyLock<HashMap<&'static str, HashMap<&'static s
                     ("selectedIds", &["array"] as &[&str]),
                     ("entity", &["object"] as &[&str]),
                     ("title", &["string"] as &[&str]),
+                    ("onTitleCommit", &["function"] as &[&str]),
                     ("subtitle", &["string"] as &[&str]),
                     ("status", &["object"] as &[&str]),
                     ("avatar", &["node"] as &[&str]),
