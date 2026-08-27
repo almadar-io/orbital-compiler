@@ -870,7 +870,7 @@ pub fn factory_signatures_json_io() -> &'static str {
 // Values are gzip bytes (build.rs → $OUT_DIR/baked-gz/…), inflated lazily by
 // `get_std_behavior_content` — the baked corpus is ~31MB raw, ~2MB gzipped.
 pub static EMBEDDED_STD_BEHAVIORS: phf::Map<&'static str, &'static [u8]> = phf::phf_map! {
-    // === Atoms (599) ===
+    // === Atoms (604) ===
     "std/behaviors/dnd-combat" => include_bytes!(concat!(env!("OUT_DIR"), "/baked-gz/io/dnd/atoms/dnd-combat.orb.gz")),
     "std/behaviors/dnd-dice" => include_bytes!(concat!(env!("OUT_DIR"), "/baked-gz/io/dnd/atoms/dnd-dice.orb.gz")),
     "std/behaviors/dnd-dungeon-gen" => include_bytes!(concat!(env!("OUT_DIR"), "/baked-gz/io/dnd/atoms/dnd-dungeon-gen.orb.gz")),
@@ -968,6 +968,7 @@ pub static EMBEDDED_STD_BEHAVIORS: phf::Map<&'static str, &'static [u8]> = phf::
     "std/behaviors/std-approval-request" => include_bytes!(concat!(env!("OUT_DIR"), "/baked-gz/io/app/atoms/std-approval-request.orb.gz")),
     "std/behaviors/std-arcade-flow" => include_bytes!(concat!(env!("OUT_DIR"), "/baked-gz/std/ui/game/atoms/std-arcade-flow.orb.gz")),
     "std/behaviors/std-arcade-play" => include_bytes!(concat!(env!("OUT_DIR"), "/baked-gz/std/ui/game/atoms/std-arcade-play.orb.gz")),
+    "std/behaviors/std-area-fill" => include_bytes!(concat!(env!("OUT_DIR"), "/baked-gz/std/ui/game/atoms/std-area-fill.orb.gz")),
     "std/behaviors/std-astro-orbit" => include_bytes!(concat!(env!("OUT_DIR"), "/baked-gz/io/learning/atoms/std-astro-orbit.orb.gz")),
     "std/behaviors/std-astro-orbit-3d" => include_bytes!(concat!(env!("OUT_DIR"), "/baked-gz/io/learning/atoms/std-astro-orbit-3d.orb.gz")),
     "std/behaviors/std-astro-stellar" => include_bytes!(concat!(env!("OUT_DIR"), "/baked-gz/io/learning/atoms/std-astro-stellar.orb.gz")),
@@ -1138,6 +1139,7 @@ pub static EMBEDDED_STD_BEHAVIORS: phf::Map<&'static str, &'static [u8]> = phf::
     "std/behaviors/std-logic-quantifier" => include_bytes!(concat!(env!("OUT_DIR"), "/baked-gz/io/learning/atoms/std-logic-quantifier.orb.gz")),
     "std/behaviors/std-logic-truthtable" => include_bytes!(concat!(env!("OUT_DIR"), "/baked-gz/io/learning/atoms/std-logic-truthtable.orb.gz")),
     "std/behaviors/std-logic-venn" => include_bytes!(concat!(env!("OUT_DIR"), "/baked-gz/io/learning/atoms/std-logic-venn.orb.gz")),
+    "std/behaviors/std-loop-lock" => include_bytes!(concat!(env!("OUT_DIR"), "/baked-gz/std/ui/game/atoms/std-loop-lock.orb.gz")),
     "std/behaviors/std-maintenance-request" => include_bytes!(concat!(env!("OUT_DIR"), "/baked-gz/io/app/atoms/std-maintenance-request.orb.gz")),
     "std/behaviors/std-margin-account" => include_bytes!(concat!(env!("OUT_DIR"), "/baked-gz/io/app/atoms/std-margin-account.orb.gz")),
     "std/behaviors/std-market-flow" => include_bytes!(concat!(env!("OUT_DIR"), "/baked-gz/std/ui/game/atoms/std-market-flow.orb.gz")),
@@ -1189,6 +1191,7 @@ pub static EMBEDDED_STD_BEHAVIORS: phf::Map<&'static str, &'static [u8]> = phf::
     "std/behaviors/std-objective-flow" => include_bytes!(concat!(env!("OUT_DIR"), "/baked-gz/std/ui/game/atoms/std-objective-flow.orb.gz")),
     "std/behaviors/std-objective-reach" => include_bytes!(concat!(env!("OUT_DIR"), "/baked-gz/std/ui/game/atoms/std-objective-reach.orb.gz")),
     "std/behaviors/std-offer-letter" => include_bytes!(concat!(env!("OUT_DIR"), "/baked-gz/io/app/atoms/std-offer-letter.orb.gz")),
+    "std/behaviors/std-pad-lock" => include_bytes!(concat!(env!("OUT_DIR"), "/baked-gz/std/ui/game/atoms/std-pad-lock.orb.gz")),
     "std/behaviors/std-pagination" => include_bytes!(concat!(env!("OUT_DIR"), "/baked-gz/std/ui/core/atoms/std-pagination.orb.gz")),
     "std/behaviors/std-patience" => include_bytes!(concat!(env!("OUT_DIR"), "/baked-gz/std/ui/game/atoms/std-patience.orb.gz")),
     "std/behaviors/std-patient" => include_bytes!(concat!(env!("OUT_DIR"), "/baked-gz/io/app/atoms/std-patient.orb.gz")),
@@ -1237,6 +1240,7 @@ pub static EMBEDDED_STD_BEHAVIORS: phf::Map<&'static str, &'static [u8]> = phf::
     "std/behaviors/std-rate-limiter" => include_bytes!(concat!(env!("OUT_DIR"), "/baked-gz/std/infra/atoms/std-rate-limiter.orb.gz")),
     "std/behaviors/std-rating-review" => include_bytes!(concat!(env!("OUT_DIR"), "/baked-gz/std/ui/core/atoms/std-rating-review.orb.gz")),
     "std/behaviors/std-receipt" => include_bytes!(concat!(env!("OUT_DIR"), "/baked-gz/io/app/atoms/std-receipt.orb.gz")),
+    "std/behaviors/std-record-detail" => include_bytes!(concat!(env!("OUT_DIR"), "/baked-gz/std/ui/core/atoms/std-record-detail.orb.gz")),
     "std/behaviors/std-recurrence" => include_bytes!(concat!(env!("OUT_DIR"), "/baked-gz/std/ui/core/atoms/std-recurrence.orb.gz")),
     "std/behaviors/std-recurring-charge" => include_bytes!(concat!(env!("OUT_DIR"), "/baked-gz/io/app/atoms/std-recurring-charge.orb.gz")),
     "std/behaviors/std-related" => include_bytes!(concat!(env!("OUT_DIR"), "/baked-gz/std/ui/core/atoms/std-related.orb.gz")),
@@ -1307,6 +1311,7 @@ pub static EMBEDDED_STD_BEHAVIORS: phf::Map<&'static str, &'static [u8]> = phf::
     "std/behaviors/std-tutorial-autodemo" => include_bytes!(concat!(env!("OUT_DIR"), "/baked-gz/std/ui/game/atoms/std-tutorial-autodemo.orb.gz")),
     "std/behaviors/std-tutorial-overlay" => include_bytes!(concat!(env!("OUT_DIR"), "/baked-gz/std/ui/game/atoms/std-tutorial-overlay.orb.gz")),
     "std/behaviors/std-vehicle" => include_bytes!(concat!(env!("OUT_DIR"), "/baked-gz/io/app/atoms/std-vehicle.orb.gz")),
+    "std/behaviors/std-velocity-gate" => include_bytes!(concat!(env!("OUT_DIR"), "/baked-gz/std/ui/game/atoms/std-velocity-gate.orb.gz")),
     "std/behaviors/std-vendor-onboarding" => include_bytes!(concat!(env!("OUT_DIR"), "/baked-gz/io/app/atoms/std-vendor-onboarding.orb.gz")),
     "std/behaviors/std-version-history" => include_bytes!(concat!(env!("OUT_DIR"), "/baked-gz/std/ui/core/atoms/std-version-history.orb.gz")),
     "std/behaviors/std-vote" => include_bytes!(concat!(env!("OUT_DIR"), "/baked-gz/std/ui/core/atoms/std-vote.orb.gz")),
