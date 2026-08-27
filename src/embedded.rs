@@ -1578,7 +1578,7 @@ pub static EMBEDDED_STD_BEHAVIORS: phf::Map<&'static str, &'static [u8]> = phf::
     "std/behaviors/ui-wizard-container" => include_bytes!(concat!(env!("OUT_DIR"), "/baked-gz/std/ui/core/molecules/ui-wizard-container.orb.gz")),
     "std/behaviors/ui-wizard-navigation" => include_bytes!(concat!(env!("OUT_DIR"), "/baked-gz/std/ui/core/molecules/ui-wizard-navigation.orb.gz")),
     "std/behaviors/ui-wizard-progress" => include_bytes!(concat!(env!("OUT_DIR"), "/baked-gz/std/ui/core/molecules/ui-wizard-progress.orb.gz")),
-    // === Organisms (319) ===
+    // === Organisms (318) ===
     "std/behaviors/dnd-character-hud" => include_bytes!(concat!(env!("OUT_DIR"), "/baked-gz/io/dnd/organisms/dnd-character-hud.orb.gz")),
     "std/behaviors/dnd-dungeon-board" => include_bytes!(concat!(env!("OUT_DIR"), "/baked-gz/io/dnd/organisms/dnd-dungeon-board.orb.gz")),
     "std/behaviors/dnd-dungeon-delver" => include_bytes!(concat!(env!("OUT_DIR"), "/baked-gz/io/dnd/organisms/dnd-dungeon-delver.orb.gz")),
@@ -1893,7 +1893,6 @@ pub static EMBEDDED_STD_BEHAVIORS: phf::Map<&'static str, &'static [u8]> = phf::
     "std/behaviors/ui-tower-defense-board" => include_bytes!(concat!(env!("OUT_DIR"), "/baked-gz/io/game/organisms/ui-tower-defense-board.orb.gz")),
     "std/behaviors/ui-tower-defense-board-3d" => include_bytes!(concat!(env!("OUT_DIR"), "/baked-gz/io/game/organisms/ui-tower-defense-board-3d.orb.gz")),
     "std/behaviors/ui-toy-track-board-3d" => include_bytes!(concat!(env!("OUT_DIR"), "/baked-gz/io/game/organisms/ui-toy-track-board-3d.orb.gz")),
-    "std/behaviors/ui-ui-slot-renderer" => include_bytes!(concat!(env!("OUT_DIR"), "/baked-gz/std/ui/core/organisms/ui-ui-slot-renderer.orb.gz")),
     "std/behaviors/ui-uncontrolled-battle-board" => include_bytes!(concat!(env!("OUT_DIR"), "/baked-gz/io/game/organisms/ui-uncontrolled-battle-board.orb.gz")),
     "std/behaviors/ui-visual-novel-board" => include_bytes!(concat!(env!("OUT_DIR"), "/baked-gz/io/game/organisms/ui-visual-novel-board.orb.gz")),
     "std/behaviors/ui-winter-ski-board" => include_bytes!(concat!(env!("OUT_DIR"), "/baked-gz/io/game/organisms/ui-winter-ski-board.orb.gz")),
