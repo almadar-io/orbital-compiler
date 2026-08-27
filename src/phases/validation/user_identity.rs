@@ -46,22 +46,72 @@ const USER_SIGIL: &str = "@user.";
 /// `==` both occur in committed `.orb` files. Shared with `entity_access.rs`.
 pub(super) const EQUALITY_OPS: &[&str] = &["=", "==", "!=", "!==", "eq", "neq"];
 
-/// Every `[identity]` entity declared anywhere in the schema. Shared with
-/// `entity_access.rs`, which needs the same "what does `@user` resolve to"
-/// answer for the four access directives.
-pub(super) fn identity_entities(schema: &OrbitalSchema) -> Vec<&EntityDefinition> {
+/// Every `[identity]`-tagged entity in the schema, primaries first, each
+/// paired with whether it is an orbital's PRIMARY entity (`true`) or an
+/// auxiliary copy pulled in by an import (`false`).
+fn identity_entities_tagged(schema: &OrbitalSchema) -> Vec<(&EntityDefinition, bool)> {
     let mut out = Vec::new();
     for orbital in &schema.orbitals {
-        for er in std::iter::once(&orbital.entity).chain(orbital.auxiliary_entities.iter().flatten())
-        {
+        if let EntityRef::Inline(def) = &orbital.entity {
+            if def.identity {
+                out.push((def, true));
+            }
+        }
+    }
+    for orbital in &schema.orbitals {
+        for er in orbital.auxiliary_entities.iter().flatten() {
             if let EntityRef::Inline(def) = er {
                 if def.identity {
-                    out.push(def);
+                    out.push((def, false));
                 }
             }
         }
     }
     out
+}
+
+/// The `[identity]` entities that decide what `@user` resolves to.
+///
+/// A behavior declares its own roster so it runs standalone — that entity is
+/// its DEFAULT viewer. Composing the behavior never imports the orbital that
+/// owns it, but a trait bound to one of its siblings drags the roster along as
+/// an auxiliary copy (Gap #22), tag and all, which would read as a second
+/// roster. So a PRIMARY roster shadows every imported copy: the composing app
+/// declares who the viewer is, and the copies yield.
+///
+/// With no primary roster the copies still count — a thin app that wraps one
+/// behavior and declares no roster of its own inherits that behavior's, and
+/// two imported rosters with no host roster still collide, because nothing in
+/// the program says which one `@user` is.
+///
+/// Shared with `entity_access.rs`, which needs the same answer for the four
+/// access directives.
+pub(super) fn identity_entities(schema: &OrbitalSchema) -> Vec<&EntityDefinition> {
+    let tagged = identity_entities_tagged(schema);
+    let has_primary = tagged.iter().any(|(_, primary)| *primary);
+    tagged
+        .into_iter()
+        .filter(|(_, primary)| *primary || !has_primary)
+        .map(|(def, _)| def)
+        .collect()
+}
+
+/// Every name tagged `[identity]` anywhere, shadowed copies included.
+///
+/// Owner-column typing (`ORB_S_OWNER_FIELD_NOT_IDENTITY_TYPED`) asks whether a
+/// column compared to `@user.id` relates to *a* roster, not to *the* one. A
+/// shadowed copy is still a roster — `Timesheet.employeeId : Employee` is an
+/// owner column whether or not `Employee` won the `@user` binding — so this
+/// keeps the copies, where `identity_entities` drops them.
+pub(super) fn identity_entity_names(schema: &OrbitalSchema) -> Vec<&str> {
+    let mut names: Vec<&str> = Vec::new();
+    for (def, _) in identity_entities_tagged(schema) {
+        let name = def.name.as_str();
+        if !names.contains(&name) {
+            names.push(name);
+        }
+    }
+    names
 }
 
 /// The declared vocabulary for an identity field, following `items` for the

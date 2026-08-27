@@ -419,10 +419,15 @@ fn a_single_orbital_schema_never_reports_unsatisfied() {
     assert_eq!(codes, Vec::<String>::new(), "a slice trusts its expectations, got {codes:?}");
 }
 
-/// The link step: no orbital provides the expected entity — the error names
-/// WHO ASKED.
+/// An expectation whose provider is ABSENT is deferred to the importer, not an
+/// error — in a multi-orbital program exactly as in a single-orbital slice.
+/// This is what lets a LIBRARY organism drop its own `[identity]`, declare what
+/// it expects, and still validate standalone; the composed program is where the
+/// provider is checked. It also keeps this module consistent with
+/// `entity_access`, which already trusts any `expects identity` to satisfy
+/// `ORB_S_ACCESS_POLICY_REQUIRES_IDENTITY`.
 #[test]
-fn an_unsatisfied_expectation_names_the_consumer() {
+fn an_absent_provider_is_deferred_not_unsatisfied() {
     let schema = composed(
         consumer_expecting(json!({ "kind": "entity", "name": "OrderRecord" })),
         json!({
@@ -443,11 +448,46 @@ fn an_unsatisfied_expectation_names_the_consumer() {
         .iter()
         .filter(|e| e.code.as_str() == "ORB_S_EXPECTATION_UNSATISFIED")
         .collect();
-    assert_eq!(hits.len(), 1, "expected exactly one unsatisfied error: {:?}", result.errors);
     assert!(
-        hits[0].message.contains("ConsumerOrbital") && hits[0].message.contains("OrderRecord"),
-        "the message must name both parties, got: {}",
-        hits[0].message
+        hits.is_empty(),
+        "an absent provider must defer, not error: {:?}",
+        hits
+    );
+}
+
+/// The deferral must NOT extend to a provider that is present but wrong — that
+/// is still a hard error, which is the whole point of keeping the link check.
+#[test]
+fn a_present_but_incompatible_provider_still_errors() {
+    let schema = composed(
+        consumer_expecting(json!({
+            "kind": "entity",
+            "name": "Product",
+            "shape": [{ "name": "totalAmount", "type": "number" }]
+        })),
+        json!({
+            "name": "ProductOrbital",
+            "entity": {
+                "name": "Product",
+                "persistence": "persistent",
+                "collection": "products",
+                "fields": [{ "name": "id", "type": "string" }]
+            },
+            "traits": [],
+            "pages": []
+        }),
+    );
+    let result = validate_comprehensive(&parse(schema));
+    let hits: Vec<_> = result
+        .errors
+        .iter()
+        .filter(|e| e.code.as_str() == "ORB_S_EXPECTED_FIELD_NOT_PROVIDED")
+        .collect();
+    assert_eq!(
+        hits.len(),
+        1,
+        "a provider missing an expected field must still error: {:?}",
+        result.errors
     );
 }
 

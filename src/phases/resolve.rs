@@ -132,6 +132,27 @@ impl<'a> Resolver<'a> {
         let mut module = OirModule::new(&self.schema.name, version);
         module.description = self.schema.description.clone();
 
+        // Carry `expects` names into the IR so OIR-level existence checks can
+        // tell a promised entity from an undefined one (see the field doc on
+        // `OirModule::expected_entities`). Names only — never an `OirEntity`.
+        for orbital in &self.schema.orbitals {
+            let Some(expects) = &orbital.expects else {
+                continue;
+            };
+            for expectation in expects {
+                let name = match expectation {
+                    orbital_core::schema::ExpectDeclaration::Entity { name, .. } => Some(name),
+                    orbital_core::schema::ExpectDeclaration::Identity { name, .. } => name.as_ref(),
+                    _ => None,
+                };
+                if let Some(name) = name {
+                    if !module.expected_entities.iter().any(|n| n == name) {
+                        module.expected_entities.push(name.clone());
+                    }
+                }
+            }
+        }
+
         // Resolve entities from all orbitals (only inline entities)
         for orbital in &self.schema.orbitals {
             if let Some(entity) = self.get_entity_from_ref(&orbital.entity) {

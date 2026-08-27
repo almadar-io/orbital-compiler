@@ -3,8 +3,8 @@
 //! Validates the parsed schema for structural correctness and consistency.
 
 use orbital_core::schema::{
-    EntityDefinition, Orbital, OrbitalSchema, PageDefinition, StringOrArray, TraitDefinition,
-    TraitReference,
+    EntityDefinition, ExpectDeclaration, Orbital, OrbitalSchema, PageDefinition, StringOrArray,
+    TraitDefinition, TraitReference,
 };
 use std::collections::HashSet;
 use thiserror::Error;
@@ -158,6 +158,27 @@ fn collect_names(schema: &OrbitalSchema, ctx: &mut ValidationContext) {
             for aux_ref in aux_list {
                 if let Some(aux_entity) = aux_ref.as_inline() {
                     ctx.entity_names.insert(aux_entity.name.clone());
+                }
+            }
+        }
+
+        // `expects entity X` / `expects identity X` declare a name this
+        // program does NOT provide — the consumer promises it, and the
+        // provider is checked at the link step once one supplies it (see
+        // `validation/expectations.rs`). Relation targets, `linkedEntity`
+        // bindings and fetch/persist entity args naming it are therefore
+        // legitimate here. NAMES ONLY: no `EntityDefinition` is synthesized,
+        // so nothing downstream can mistake an expectation for a declaration.
+        if let Some(expects) = &orbital.expects {
+            for expectation in expects {
+                match expectation {
+                    ExpectDeclaration::Entity { name, .. } => {
+                        ctx.entity_names.insert(name.clone());
+                    }
+                    ExpectDeclaration::Identity { name: Some(name), .. } => {
+                        ctx.entity_names.insert(name.clone());
+                    }
+                    _ => {}
                 }
             }
         }

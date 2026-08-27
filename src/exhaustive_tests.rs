@@ -1064,6 +1064,7 @@ mod tests {
             pages: vec![],
             themes: vec![],
             services: vec![],
+            expected_entities: vec![],
             metadata: OirMetadata::default(),
         }
     }

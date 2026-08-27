@@ -273,3 +273,78 @@ fn an_entity_reading_its_own_key_is_not_a_mistyped_owner_column() {
     });
     assert!(run(schema).is_empty(), "reading @entity.id must not warn");
 }
+
+// ---------------------------------------------------------------------------
+// Owner columns that relate to a SHADOWED roster
+//
+// Composing a behavior drags its `[identity]` roster in as an auxiliary copy,
+// which the host's own roster shadows for `@user` resolution. Owner-typing is
+// a different question — "does this column relate to *a* roster" — so the
+// shadowed name must keep counting, or every owner column the imported
+// behavior declares reads as dead.
+// ---------------------------------------------------------------------------
+
+fn schema_with_shadowed_roster_owner_column() -> Value {
+    json!({
+        "name": "App",
+        "orbitals": [
+            {
+                "name": "HostOrbital",
+                "entity": {
+                    "name": "Staff",
+                    "identity": true,
+                    "persistence": "persistent",
+                    "collection": "staff",
+                    "fields": [{ "name": "id", "type": "string" }]
+                },
+                "traits": [],
+                "pages": []
+            },
+            {
+                "name": "TimesheetOrbital",
+                "entity": {
+                    "name": "Timesheet",
+                    "persistence": "persistent",
+                    "collection": "timesheets",
+                    "fields": [
+                        { "name": "id", "type": "string" },
+                        { "name": "employeeId", "type": "relation",
+                          "relation": { "entity": "Employee", "cardinality": "one" } }
+                    ],
+                    "read_policy": ["=", "@entity.employeeId", "@user.id"]
+                },
+                "traits": [],
+                "pages": [],
+                "auxiliaryEntities": [{
+                    "name": "Employee",
+                    "identity": true,
+                    "persistence": "persistent",
+                    "collection": "employees",
+                    "fields": [{ "name": "id", "type": "string" }]
+                }]
+            }
+        ]
+    })
+}
+
+#[test]
+fn an_owner_column_relating_to_a_shadowed_roster_is_identity_typed() {
+    let codes = run(schema_with_shadowed_roster_owner_column());
+    assert!(
+        !codes.contains(&"ORB_S_OWNER_FIELD_NOT_IDENTITY_TYPED".to_string()),
+        "a shadowed roster is still a roster for owner-typing, got {codes:?}"
+    );
+}
+
+#[test]
+fn an_owner_column_relating_to_no_roster_at_all_still_errors() {
+    let mut schema = schema_with_shadowed_roster_owner_column();
+    // Same program, but `Employee` was never a roster — the column is then a
+    // plain relation compared to a viewer id, which matches no row.
+    schema["orbitals"][1]["auxiliaryEntities"][0]["identity"] = json!(false);
+    let codes = run(schema);
+    assert!(
+        codes.contains(&"ORB_S_OWNER_FIELD_NOT_IDENTITY_TYPED".to_string()),
+        "expected the dead predicate to be reported, got {codes:?}"
+    );
+}

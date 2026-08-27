@@ -12,8 +12,8 @@
 //! literal-membership rule) rather than re-deriving it.
 
 use super::user_identity::{
-    check_comparison, default_identity_shape, identity_entities, identity_field, user_field_of,
-    IdentitySource,
+    check_comparison, default_identity_shape, identity_entities, identity_entity_names,
+    identity_field, user_field_of, IdentitySource,
 };
 use super::{field_type_str, ErrorCode, ValidationContext, ValidationError, ValidationResult};
 use orbital_core::schema::{EntityDefinition, EntityRef, FieldDefinition, OrbitalSchema};
@@ -137,9 +137,17 @@ pub fn validate_entity_access(schema: &OrbitalSchema, ctx: &mut ValidationContex
         // Any `expects identity` — bare included — satisfies the roster
         // requirement for this orbital's own policy directives.
         let identity_declared = declared_identity.is_some() || expectation.is_some();
-        // A named `expects identity X` counts X as identity-typed for the
-        // owner-field check (owner-typing resolves against the declaration).
+        // Owner-typing asks whether a column compared to `@user.id` relates to
+        // *a* roster, so every `[identity]`-tagged name counts — including a
+        // copy an import dragged in and the host roster shadowed. A named
+        // `expects identity X` counts X too (owner-typing resolves against the
+        // declaration).
         let mut identity_names: Vec<&str> = vec![identity.name.as_str()];
+        for name in identity_entity_names(schema) {
+            if !identity_names.contains(&name) {
+                identity_names.push(name);
+            }
+        }
         if let Some(name) = expectation.as_ref().and_then(|e| e.name) {
             if !identity_names.contains(&name) {
                 identity_names.push(name);

@@ -10,11 +10,21 @@
 //!   the consumer's own declared `expects entity X { shape }` fails with
 //!   `ORB_S_EXPECTATION_FIELD_UNDECLARED` — the declaration is the consumer's
 //!   source of truth. Existence-only expectations (no shape) opt out.
-//! - **Compose link-checks (multi-orbital schemas):** every expectation must
-//!   be satisfied by exactly one provider orbital, with shape compatibility
-//!   per the proposal's variance rules (width: provider may know more; field
-//!   types via orbital-core's `type_compat` only; closed literal unions:
-//!   expectation members ⊆ provider members).
+//! - **Compose link-checks (every schema):** an expectation whose provider IS
+//!   present in this program must be compatible with it — shape per the
+//!   proposal's variance rules (width: provider may know more; field types via
+//!   orbital-core's `type_compat` only; closed literal unions: expectation
+//!   members ⊆ provider members), and an `expects identity` provider must
+//!   carry the `[identity]` tag.
+//!
+//! An expectation whose provider is **absent** is DEFERRED, never an error:
+//! that is the declaration doing its job — a promise about the neighborhood,
+//! checked at the link step once a consumer supplies it. `entity_access`
+//! already trusts any `expects identity` to satisfy the roster requirement
+//! (`ORB_S_ACCESS_POLICY_REQUIRES_IDENTITY`), so erroring here contradicted
+//! it; the two now agree. This is what lets a multi-orbital LIBRARY organism
+//! drop its own `[identity]`, declare what it expects, and stay valid
+//! standalone — the composed program is where the provider is checked.
 
 use super::user_identity::vocabulary;
 use super::{field_type_str, ErrorCode, ValidationContext, ValidationError, ValidationResult};
@@ -94,11 +104,11 @@ pub(super) fn shape_as_identity_entity(name: &str, shape: &[FieldDefinition]) ->
 pub fn validate_expectations(schema: &OrbitalSchema, ctx: &mut ValidationContext) {
     let mut result = ValidationResult::new();
     validate_persist_payload_self_consistency(schema, &mut result);
-    // A single-orbital schema is a slice: expectations are trusted and never
-    // reported unsatisfied. The link check needs siblings to link against.
-    if schema.orbitals.len() > 1 {
-        validate_expectation_links(schema, &mut result);
-    }
+    // Runs for EVERY schema. Orbital count used to gate this as a proxy for
+    // "is this a complete program", which mis-classified a multi-orbital
+    // library as complete; the real distinction is now made per expectation —
+    // absent provider = deferred, present-but-incompatible = error.
+    validate_expectation_links(schema, &mut result);
     ctx.merge(result);
 }
 
@@ -242,21 +252,9 @@ fn validate_expectation_links(schema: &OrbitalSchema, result: &mut ValidationRes
                 ExpectDeclaration::Entity { name, shape } => {
                     let provider = providers.iter().find(|(def, _)| def.name == *name);
                     match provider {
-                        None => result.add_error(
-                            ValidationError::error(
-                                ErrorCode::SchemaExpectationUnsatisfied,
-                                &path,
-                                format!(
-                                    "`{}` expects entity `{}`, but no orbital in this program \
-                                     provides it.",
-                                    orbital.name, name
-                                ),
-                            )
-                            .with_suggestion(format!(
-                                "Add an orbital whose entity is `{}`, or drop the expectation.",
-                                name
-                            )),
-                        ),
+                        // No provider here at all — DEFERRED to whoever imports
+                        // this program (see the module doc). Not an error.
+                        None => {}
                         Some((def, _)) => {
                             if let Some(shape) = shape {
                                 check_shape(&orbital.name, def, shape, &path, result);
@@ -283,22 +281,8 @@ fn check_identity_link(
         Some(name) => {
             let named = providers.iter().find(|(def, _)| def.name == *name);
             match named {
-                None => result.add_error(
-                    ValidationError::error(
-                        ErrorCode::SchemaExpectationUnsatisfied,
-                        path,
-                        format!(
-                            "`{}` expects an [identity] entity `{}`, but no orbital in this \
-                             program provides it.",
-                            consumer, name
-                        ),
-                    )
-                    .with_suggestion(format!(
-                        "Add an orbital whose entity is `{}` tagged [identity], or drop the \
-                         expectation.",
-                        name
-                    )),
-                ),
+                // No provider here at all — DEFERRED to the importer.
+                None => {}
                 Some((def, provider_orbital)) if !def.identity => result.add_error(
                     ValidationError::error(
                         ErrorCode::SchemaExpectationProviderMismatch,
@@ -325,21 +309,8 @@ fn check_identity_link(
         None => {
             let identity = providers.iter().find(|(def, _)| def.identity);
             match identity {
-                None => result.add_error(
-                    ValidationError::error(
-                        ErrorCode::SchemaExpectationUnsatisfied,
-                        path,
-                        format!(
-                            "`{}` expects an [identity] entity, but no orbital in this program \
-                             provides one.",
-                            consumer
-                        ),
-                    )
-                    .with_suggestion(
-                        "Tag the entity that models your app's viewer [identity], or drop the \
-                         expectation.",
-                    ),
-                ),
+                // No identity here at all — DEFERRED to the importer.
+                None => {}
                 Some((def, _)) => {
                     if let Some(shape) = shape {
                         check_shape(consumer, def, shape, path, result);
