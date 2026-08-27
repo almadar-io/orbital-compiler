@@ -665,6 +665,32 @@ pub(crate) fn validate_pattern(
             // null is valid - it clears/closes the slot
             // e.g., ["render-ui", "modal", null] closes the modal
         }
+        // `["if", cond, then, else?]` — a conditional render node, kept
+        // verbatim as IR and evaluated by the runtime kernel's `"if"` arm.
+        // Validate the branches (each is itself a render node) and leave the
+        // condition to the binding pass, mirroring how the `array/map`
+        // mapped-children tuple is handled in the `children:` walk above.
+        _ if pattern.as_conditional_node().is_some() => {
+            let cond = pattern
+                .as_conditional_node()
+                .expect("guard above proved this is a conditional node");
+            result.merge(validate_pattern(
+                cond.then_node,
+                &format!("{}.then", path),
+                entity_definitions,
+                extra_patterns,
+                linked_entity,
+            ));
+            if let Some(else_node) = cond.else_node {
+                result.merge(validate_pattern(
+                    else_node,
+                    &format!("{}.else", path),
+                    entity_definitions,
+                    extra_patterns,
+                    linked_entity,
+                ));
+            }
+        }
         _ => {
             result.add_error(ValidationError::error(
                 ErrorCode::RenderUIInvalidPattern,

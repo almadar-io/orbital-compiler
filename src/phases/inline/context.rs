@@ -2,6 +2,7 @@
 
 use super::InlineError;
 use orbital_core::schema::{
+    ExpectDeclaration,
     EntityDefinition, EntityRef, Orbital, PageRef, ServiceRef, ThemeRef, TraitReference,
 };
 use std::collections::HashMap;
@@ -277,6 +278,32 @@ impl InlineContext {
             }
         }
         Vec::new()
+    }
+
+    /// The `expects` declarations of the orbital that owns an imported trait.
+    ///
+    /// Expectations must travel with an import for exactly the reason auxiliary
+    /// entities do: `uses` inlines individual TRAITS, never orbitals, so an
+    /// organism's `expects identity { … }` is otherwise invisible to the app
+    /// composing it. The contract would then be checked only when the organism
+    /// is validated STANDALONE — where its own roster satisfies it trivially —
+    /// and a composing app whose roster lacks a field the organism reads off
+    /// `@user` would validate clean. Merging the declarations onto the consuming
+    /// orbital is what makes the host's roster actually get verified.
+    pub(crate) fn get_expects_for_trait_orbital(
+        &self,
+        alias: &str,
+        trait_name: &str,
+        trait_ref_id: Option<&str>,
+    ) -> Vec<ExpectDeclaration> {
+        let Some(entry) = self.aliases.get(alias) else {
+            return Vec::new();
+        };
+        let Some((orbital, _)) = Self::find_orbital_for_trait(entry, trait_name, trait_ref_id)
+        else {
+            return Vec::new();
+        };
+        orbital.expects.clone().unwrap_or_default()
     }
 
     /// §52 (C-RESOLVE-ATOM-MERGE-FIRST-ENTITY): the entity the trait's OWN

@@ -337,7 +337,7 @@ mod tests {
                 event_ids: None,
                 linked_entity_id: None,
                 ref_id: None,
-            }]),
+                }]),
             primary_entity: None,
             view_type: None,
             is_initial: None,

@@ -924,3 +924,68 @@ fn an_authored_traits_user_reads_are_checked_against_the_declaration() {
         "authored reads stay self-consistent, got {codes:?}"
     );
 }
+
+// ---------------------------------------------------------------------------
+// Imported expectations travel with the trait
+//
+// `uses` inlines individual TRAITS, never orbitals, so an organism's
+// `expects identity { … }` is invisible to the app composing it unless the
+// inline phase merges it onto the consuming orbital. Without that merge the
+// contract is only ever checked when the organism is validated STANDALONE —
+// where its own roster satisfies it trivially — and a composing app whose
+// roster lacks a field the organism reads off `@user` validates clean.
+//
+// These fixtures assert the POST-inline shape (what the merge produces), which
+// is what `validate_expectation_links` actually sees.
+// ---------------------------------------------------------------------------
+
+/// A composing app: its own roster, plus an expectation propagated from an
+/// imported organism's orbital. `roster_has_id` toggles the only field the
+/// imported organism needs.
+fn composed_with_propagated_expectation(roster_has_id: bool) -> Value {
+    let mut fields = vec![json!({ "name": "name", "type": "string", "required": true })];
+    if roster_has_id {
+        fields.insert(0, json!({ "name": "id", "type": "string", "required": true }));
+    }
+    json!({
+        "name": "App",
+        "orbitals": [{
+            "name": "HostOrbital",
+            "entity": {
+                "name": "Staff",
+                "identity": true,
+                "persistence": "persistent",
+                "collection": "staff",
+                "fields": fields
+            },
+            // Unnamed + shaped: resolves to whatever the program tagged
+            // [identity], i.e. the HOST's roster — which is what lets one app
+            // satisfy imports from organisms whose own rosters are named
+            // differently.
+            "expects": [{
+                "kind": "identity",
+                "shape": [{ "name": "id", "type": "string", "required": true }]
+            }],
+            "traits": [],
+            "pages": []
+        }]
+    })
+}
+
+#[test]
+fn a_propagated_expectation_checks_the_composing_apps_roster() {
+    let codes = run_scoped(composed_with_propagated_expectation(false));
+    assert!(
+        codes.contains(&"ORB_S_EXPECTED_FIELD_NOT_PROVIDED".to_string()),
+        "a host roster missing a field the imported organism reads must fail, got {codes:?}"
+    );
+}
+
+#[test]
+fn a_satisfied_propagated_expectation_is_clean() {
+    let codes = run_scoped(composed_with_propagated_expectation(true));
+    assert!(
+        !codes.contains(&"ORB_S_EXPECTED_FIELD_NOT_PROVIDED".to_string()),
+        "a roster carrying the expected field must pass, got {codes:?}"
+    );
+}

@@ -546,6 +546,108 @@ mod tests {
         ])
     }
 
+    /// `["if", cond, then, else?]` is a legal children entry — the runtime
+    /// kernel evaluates it and `std-browse` ships it as `children[0]` of its
+    /// dense/feed/gallery/triage bodies. It reached `validate_pattern`'s
+    /// catch-all arm and was rejected as ORB_RUI_INVALID_PATTERN; the bodies
+    /// above only escaped because they are referenced from inside an `(if)`
+    /// arm and never walked, while a body referenced directly by a guarded
+    /// transition (master-detail VIEW/CLOSE) is walked, and tripped.
+    #[test]
+    fn conditional_children_entry_not_rejected() {
+        let toolbar = obj(&[("type", s("stack"))]);
+        let empty = obj(&[("type", s("stack"))]);
+        let cond = SExpression::Array(vec![s("if"), s("@config.bodySearch"), toolbar, empty]);
+        let effect = SExpression::Array(vec![
+            s("render-ui"),
+            s("main"),
+            obj(&[("type", s("stack")), ("children", SExpression::Array(vec![cond]))]),
+        ]);
+        let entity_defs = HashMap::new();
+        let result = validate_render_ui_effect(&effect, "test", &entity_defs, None, None);
+        assert!(
+            !result
+                .errors
+                .iter()
+                .any(|e| e.code == ErrorCode::RenderUIInvalidPattern),
+            "conditional children entry must not be an invalid pattern. Errors: {:?}",
+            result.errors
+        );
+    }
+
+    /// The 3-element form (no else arm) matches the kernel's own arity.
+    #[test]
+    fn conditional_children_entry_without_else_arm_accepted() {
+        let cond = SExpression::Array(vec![
+            s("if"),
+            s("@config.bodySearch"),
+            obj(&[("type", s("stack"))]),
+        ]);
+        let effect = SExpression::Array(vec![
+            s("render-ui"),
+            s("main"),
+            obj(&[("type", s("stack")), ("children", SExpression::Array(vec![cond]))]),
+        ]);
+        let entity_defs = HashMap::new();
+        let result = validate_render_ui_effect(&effect, "test", &entity_defs, None, None);
+        assert!(
+            !result
+                .errors
+                .iter()
+                .any(|e| e.code == ErrorCode::RenderUIInvalidPattern),
+            "3-element conditional must be accepted. Errors: {:?}",
+            result.errors
+        );
+    }
+
+    /// Negative control: the arms are still validated, so a bogus pattern
+    /// inside a branch is still caught. Recognizing the tuple must not become
+    /// a hole that lets anything through.
+    #[test]
+    fn conditional_children_entry_still_validates_its_branches() {
+        let cond = SExpression::Array(vec![
+            s("if"),
+            s("@config.bodySearch"),
+            obj(&[("type", s("stack"))]),
+            obj(&[("type", s("definitely-not-a-real-pattern"))]),
+        ]);
+        let effect = SExpression::Array(vec![
+            s("render-ui"),
+            s("main"),
+            obj(&[("type", s("stack")), ("children", SExpression::Array(vec![cond]))]),
+        ]);
+        let entity_defs = HashMap::new();
+        let result = validate_render_ui_effect(&effect, "test", &entity_defs, None, None);
+        assert!(
+            result
+                .errors
+                .iter()
+                .any(|e| e.code == ErrorCode::RenderUIInvalidPattern),
+            "an unknown pattern inside an else arm must still be reported"
+        );
+    }
+
+    /// Negative control: a non-`if` array is still rejected — the new arm is
+    /// keyed on the `if` head, not on "array".
+    #[test]
+    fn non_conditional_array_children_entry_still_rejected() {
+        let bogus = SExpression::Array(vec![s("totally-bogus"), s("x")]);
+        let effect = SExpression::Array(vec![
+            s("render-ui"),
+            s("main"),
+            obj(&[("type", s("stack")), ("children", SExpression::Array(vec![bogus]))]),
+        ]);
+        let entity_defs = HashMap::new();
+        let result = validate_render_ui_effect(&effect, "test", &entity_defs, None, None);
+        assert!(
+            result
+                .errors
+                .iter()
+                .any(|e| e.code == ErrorCode::RenderUIInvalidPattern),
+            "a non-if array must still be an invalid pattern"
+        );
+    }
+
     #[test]
     fn fc5_array_map_children_entry_not_rejected() {
         // A `children` array entry that is the dynamic-collection tuple must NOT

@@ -803,6 +803,7 @@ pub(crate) fn inline_traits(
             TraitReference::Reference {
                 reference,
                 ref_id,
+                id: decl_id,
                 name: name_override,
                 linked_entity,
                 config,
@@ -857,6 +858,27 @@ pub(crate) fn inline_traits(
                             };
                             match inlined {
                                 TraitReference::Inline(mut trait_def) => {
+                                    // Carry the CONSUMER's declaration id onto
+                                    // the resolved trait. `Reference.id` is the
+                                    // "V4 LOCAL DECLARATION id — the identity of
+                                    // this trait AS DECLARED in its orbital";
+                                    // after inlining, this clone IS that
+                                    // declaration in the consumer's schema, so it
+                                    // is the node that must carry the id.
+                                    //
+                                    // Keeping the SOURCE atom's id instead left
+                                    // the consumer's ledger row carried by
+                                    // nothing — one `ORB_ID_LEDGER_ORPHAN` per
+                                    // newly-composed trait reference (reproduced
+                                    // by adding a single ref to an otherwise
+                                    // clean std-retail-pos). Source identity is
+                                    // not lost: `source_behavior` records the
+                                    // behavior/alias/original name, and the
+                                    // reference's `ref_id` addressed the source
+                                    // node during resolution.
+                                    if let Some(decl) = decl_id.as_ref() {
+                                        trait_def.id = Some(decl.clone());
+                                    }
                                     // Apply name / linkedEntity / events /
                                     // config overrides to the cloned trait
                                     // so the single Inline pushed below

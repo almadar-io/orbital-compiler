@@ -64,8 +64,8 @@ use crate::loader::{
     discover_registry_roots, ExternalOrbitalLoader, ImportChain, LoaderConfig, LoaderError,
 };
 use orbital_core::schema::{
-    ConfigProvenanceRecord, EntityDefinition, EntityRef, Orbital, OrbitalSchema, SchemaMetadata,
-    ThemeRef, TraitReference,
+    ConfigProvenanceRecord, EntityDefinition, EntityRef, ExpectDeclaration, Orbital, OrbitalSchema,
+    SchemaMetadata, ThemeRef, TraitReference,
 };
 use std::collections::{HashMap, HashSet};
 use std::path::Path;
@@ -337,6 +337,9 @@ pub fn inline_schema_with_config_diagnostics(
     // uses the loader's caches as the source-ledger source of truth.
     merge_source_ledgers(schema, &loader.source_ledger_union());
 
+    // An imported auxiliary entity never displaces a consumer's own entity.
+    drop_unreferenced_colliding_auxiliaries(schema);
+
     // Emit the config→knob provenance into `_metadata.configProvenance` so a
     // consumer (Studio contextual edit) can trace a substituted render-ui
     // literal back to the config knob it came from.
@@ -356,6 +359,82 @@ pub fn inline_schema_with_config_diagnostics(
     }
 
     Ok(())
+}
+
+
+/// Drop an imported auxiliary entity when its name collides with a PRIMARY
+/// entity the consumer declares AND nothing in the importing orbital references
+/// it.
+///
+/// `uses` imports individual TRAITS, but auxiliary entities travel per ORBITAL:
+/// the inliner carries the source orbital's whole closure, because a trait body
+/// can fetch or persist a sibling entity by name and stranding that effect fails
+/// at runtime. The granularity mismatch means asking for one browse trait can
+/// hand you an unrelated subsystem — importing `std-hr-portal`'s
+/// `TimeOffBrowseList` carries seven auxiliaries, among them `CalendarEvent` and
+/// `CalendarSyncRun` from the `std-calendar-sync` that orbital also composes.
+///
+/// When the consumer already declares its own `CalendarEvent`, that is a hard
+/// `DuplicateDefinition` — and unlike a trait's bound entity there is no call
+/// site to rebind, because no imported trait named it. This is the same shape as
+/// the `[identity]` roster rule (a primary roster shadows an imported copy),
+/// minus the tag.
+///
+/// The guard is what makes it safe: the name must appear NOWHERE in the
+/// importing orbital's resolved traits. Then dropping it strands nothing — there
+/// is no fetch, persist, `linkedEntity` or binding left to resolve. If an
+/// imported trait DOES use the name, the collision stays a hard error, which is
+/// correct: two different shapes under one name, both live, is a real conflict
+/// only the consumer can resolve.
+fn drop_unreferenced_colliding_auxiliaries(schema: &mut OrbitalSchema) {
+    let primary_names: HashSet<String> = schema
+        .orbitals
+        .iter()
+        .filter_map(|o| match &o.entity {
+            EntityRef::Inline(def) => Some(def.name.clone()),
+            _ => None,
+        })
+        .collect();
+    if primary_names.is_empty() {
+        return;
+    }
+
+    for orbital in schema.orbitals.iter_mut() {
+        let own_primary = match &orbital.entity {
+            EntityRef::Inline(def) => Some(def.name.clone()),
+            _ => None,
+        };
+        let Some(aux) = orbital.auxiliary_entities.as_mut() else {
+            continue;
+        };
+        // Conservative reference test over the RESOLVED traits: if the name
+        // appears anywhere in them we keep the entity, so this can only ever
+        // narrow where the analysis is provably complete.
+        let traits_blob = serde_json::to_string(&orbital.traits).unwrap_or_default();
+        aux.retain(|e| {
+            let EntityRef::Inline(def) = e else { return true };
+            // Only a collision with ANOTHER orbital's primary is at issue; an
+            // aux matching this orbital's own primary is already filtered when
+            // the list is built.
+            if own_primary.as_deref() == Some(def.name.as_str()) {
+                return true;
+            }
+            if !primary_names.contains(&def.name) {
+                return true;
+            }
+            // `retain` KEEPS on true: hold the entity only while something
+            // still names it. Unreferenced + colliding is the drop case.
+            trait_blob_mentions(&traits_blob, &def.name)
+        });
+    }
+}
+
+/// Whether a resolved-trait blob names this entity. Matched on the quoted JSON
+/// token so `Task` does not match `TaskDraft`.
+fn trait_blob_mentions(blob: &str, entity: &str) -> bool {
+    blob.contains(&format!("\"{}\"", entity))
+        || blob.contains(&format!("\"{}.", entity))
+        || blob.contains(&format!("@{}.", entity))
 }
 
 /// Make auto-pulled sibling traits app-unique across orbitals.
@@ -816,6 +895,132 @@ fn inline_orbital(
             orbital.auxiliary_entities = Some(combined);
         }
     }
+
+    // ----------------------------------------------------------------
+    // Imported expectations travel with the trait, exactly like the
+    // auxiliary entities above.
+    //
+    // `uses` inlines individual TRAITS, never orbitals — so an organism's
+    // `expects identity { … }` is invisible to the app composing it. Left
+    // un-propagated the contract is only ever checked when the organism is
+    // validated STANDALONE, where its own roster satisfies it trivially, and a
+    // composing app whose roster lacks a field the organism reads off `@user`
+    // validates clean. Merging the declarations onto the CONSUMING orbital is
+    // what makes `validate_expectation_links` check the host's roster.
+    //
+    // Merge, never append: the parser rejects duplicate expectations (two
+    // `expects identity`, or two `expects entity X`), so shapes are unioned
+    // per target. A field required by ANY contributor stays required — the
+    // strictest wins, since every contributor's need must be met.
+    {
+        let mut imported: Vec<ExpectDeclaration> = Vec::new();
+        for trait_ref in &orbital.traits {
+            if let TraitReference::Reference {
+                reference: Some(ref ref_str),
+                ref_id,
+                ..
+            } = trait_ref
+            {
+                if let Ok(ParsedReference::Trait { alias, name }) = parse_reference(ref_str) {
+                    imported.extend(ctx.get_expects_for_trait_orbital(
+                        &alias,
+                        &name,
+                        ref_id.as_deref(),
+                    ));
+                }
+            }
+        }
+        if !imported.is_empty() {
+            let mut merged = orbital.expects.take().unwrap_or_default();
+            for decl in imported {
+                merge_expectation(&mut merged, decl);
+            }
+            orbital.expects = Some(merged);
+        }
+    }
+
+/// Union one imported expectation into a consuming orbital's `expects` list.
+///
+/// The `.lolo` parser rejects duplicates (`expects_duplicate`): two
+/// `expects identity` — bare included — or two `expects entity X` are a parse
+/// error. So propagated declarations must MERGE with any same-target entry
+/// rather than append, or the composed `.orb` would carry a shape the language
+/// itself forbids.
+///
+/// Field union rules: a field contributed by any party is required if ANY
+/// contributor marks it required (the strictest need must be satisfiable), and
+/// an existing field's declaration wins on type so a consumer's own hand-written
+/// expectation is never silently retyped by an import.
+fn merge_expectation(into: &mut Vec<ExpectDeclaration>, incoming: ExpectDeclaration) {
+    fn union_shape(
+        existing: &mut Option<Vec<orbital_core::schema::FieldDefinition>>,
+        incoming: Option<Vec<orbital_core::schema::FieldDefinition>>,
+    ) {
+        let Some(add) = incoming else { return };
+        let target = existing.get_or_insert_with(Vec::new);
+        for field in add {
+            let Some(name) = field.name.as_deref() else { continue };
+            match target.iter_mut().find(|f| f.name.as_deref() == Some(name)) {
+                Some(existing_field) => {
+                    // Strictest wins: any contributor needing it required makes
+                    // it required for the provider.
+                    if field.required == Some(true) {
+                        existing_field.required = Some(true);
+                    }
+                }
+                None => target.push(field),
+            }
+        }
+    }
+
+    match incoming {
+        ExpectDeclaration::Identity { name, shape } => {
+            // At most ONE identity expectation per orbital — `@user` is a single
+            // viewer, and the parser enforces it. Merge into whichever exists.
+            if let Some(ExpectDeclaration::Identity {
+                name: existing_name,
+                shape: existing_shape,
+            }) = into
+                .iter_mut()
+                .find(|d| matches!(d, ExpectDeclaration::Identity { .. }))
+            {
+                if existing_name.is_none() {
+                    // A named expectation is more specific than a bare one, but
+                    // an unnamed one resolves to whatever the host tagged
+                    // [identity] — keep the bare form, which is what lets a
+                    // composed app satisfy imports from several organisms whose
+                    // rosters have different names.
+                    let _ = &name;
+                } 
+                union_shape(existing_shape, shape);
+            } else {
+                into.push(ExpectDeclaration::Identity { name, shape });
+            }
+        }
+        ExpectDeclaration::Entity { name, shape } => {
+            if let Some(ExpectDeclaration::Entity {
+                shape: existing_shape,
+                ..
+            }) = into.iter_mut().find(
+                |d| matches!(d, ExpectDeclaration::Entity { name: n, .. } if *n == name),
+            ) {
+                union_shape(existing_shape, shape);
+            } else {
+                into.push(ExpectDeclaration::Entity { name, shape });
+            }
+        }
+        // Phase 2 construct with no validation effect yet; dedup by (trait, event).
+        ExpectDeclaration::Event { trait_name, event } => {
+            let dup = into.iter().any(|d| {
+                matches!(d, ExpectDeclaration::Event { trait_name: t, event: e }
+                         if *t == trait_name && *e == event)
+            });
+            if !dup {
+                into.push(ExpectDeclaration::Event { trait_name, event });
+            }
+        }
+    }
+}
 
     // Inline entity
     orbital.entity = inline_entity(&orbital.entity, &ctx)?;

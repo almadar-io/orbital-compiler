@@ -271,6 +271,27 @@ fn walk(
         }
         Value::Object(map) => {
             for (k, v) in map {
+                // `sourceEntityDefinition` is PROVENANCE — the atom's original
+                // entity, kept for tooling. It is not an entity of the composed
+                // program, so its access policies govern nothing here and their
+                // `@user.role` literals belong to the ATOM's role vocabulary,
+                // not the host's.
+                //
+                // Walking it reports the organism's own roles as dead branches
+                // against the consumer's roster: composing one `std-time-tracking`
+                // trait into an app whose roster is `Person` produced 17
+                // `ORB_S_ROLE_LITERAL_NOT_MEMBER` errors for `"approver"` /
+                // `"employee"` — literals of a `Timesheet`/`Employee` entity that
+                // is nowhere in the app. The consumer had already overridden the
+                // binding (`-> PfTimesheet`), which is the language's own answer.
+                //
+                // Nothing is lost: when a trait is NOT rebound, the atom's entity
+                // IS materialised — as the orbital's primary or an auxiliary —
+                // and those same policies are validated there, on a definition
+                // that really is in the program.
+                if k == "sourceEntityDefinition" {
+                    continue;
+                }
                 walk(v, &format!("{}.{}", path, k), identity, source, result);
             }
         }

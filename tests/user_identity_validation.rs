@@ -378,3 +378,84 @@ fn two_host_rosters_are_still_ambiguous() {
         "shadowing never applies between two PRIMARY rosters, got {codes:?}"
     );
 }
+
+// ---------------------------------------------------------------------------
+// Provenance is not policy
+//
+// `sourceEntityDefinition` records the atom's ORIGINAL entity so tooling can
+// trace an imported trait back to its source. Once a consumer rebinds the trait
+// (`-> PfTimesheet`), that entity is not in the composed program at all and its
+// access policies govern nothing — but its `@user.role` literals are the ATOM's
+// vocabulary. Judging them against the CONSUMER's roster reports the organism's
+// own roles as dead branches: composing one std-time-tracking trait into an app
+// rostered on `Person` produced 17 such errors for `"approver"`/`"employee"`,
+// literals of an entity nowhere in the app.
+//
+// Nothing is lost by skipping it: an un-rebound trait's entity IS materialised
+// (primary or auxiliary) and its policies are validated there — see
+// `a_dead_role_branch_on_a_real_entity_is_still_caught`.
+// ---------------------------------------------------------------------------
+
+#[test]
+fn a_role_literal_inside_source_entity_provenance_is_not_judged() {
+    let schema = json!({
+        "name": "App",
+        "orbitals": [{
+            "name": "HostOrbital",
+            "entity": {
+                "name": "Person",
+                "identity": true,
+                "persistence": "persistent",
+                "collection": "people",
+                "fields": [{ "name": "id", "type": "string" }, role_field(&["owner", "member"])]
+            },
+            "traits": [{
+                "name": "Imported",
+                "linkedEntity": "PfThing",
+                "category": "interaction",
+                "sourceBehavior": { "behavior": "std-time-tracking", "alias": "TimeTracking",
+                                    "originalName": "TimesheetBrowseList" },
+                // The atom's own entity — NOT part of this program — carrying the
+                // atom's own role vocabulary.
+                "sourceEntityDefinition": {
+                    "name": "Timesheet",
+                    "persistence": "persistent",
+                    "collection": "timesheets",
+                    "fields": [{ "name": "id", "type": "string" }],
+                    "read_policy": ["=", "@user.role", "approver"]
+                },
+                "stateMachine": { "events": [], "states": [], "transitions": [] }
+            }],
+            "pages": []
+        }]
+    });
+    let codes = run(schema);
+    assert!(
+        !codes.contains(&"ORB_S_ROLE_LITERAL_NOT_MEMBER".to_string()),
+        "the atom's own role vocabulary must not be judged against the consumer's roster, got {codes:?}"
+    );
+}
+
+#[test]
+fn a_dead_role_branch_on_a_real_entity_is_still_caught() {
+    let schema = json!({
+        "name": "App",
+        "orbitals": [{
+            "name": "HostOrbital",
+            "entity": {
+                "name": "Person",
+                "identity": true,
+                "persistence": "persistent",
+                "collection": "people",
+                "fields": [{ "name": "id", "type": "string" }, role_field(&["owner", "member"])]
+            },
+            "traits": [trait_with_role_branch("admin")],
+            "pages": []
+        }]
+    });
+    let codes = run(schema);
+    assert!(
+        codes.contains(&"ORB_S_ROLE_LITERAL_NOT_MEMBER".to_string()),
+        "a dead branch on an entity that IS in the program must still fail, got {codes:?}"
+    );
+}
