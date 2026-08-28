@@ -870,7 +870,7 @@ pub fn factory_signatures_json_io() -> &'static str {
 // Values are gzip bytes (build.rs → $OUT_DIR/baked-gz/…), inflated lazily by
 // `get_std_behavior_content` — the baked corpus is ~31MB raw, ~2MB gzipped.
 pub static EMBEDDED_STD_BEHAVIORS: phf::Map<&'static str, &'static [u8]> = phf::phf_map! {
-    // === Atoms (604) ===
+    // === Atoms (607) ===
     "std/behaviors/dnd-combat" => include_bytes!(concat!(env!("OUT_DIR"), "/baked-gz/io/dnd/atoms/dnd-combat.orb.gz")),
     "std/behaviors/dnd-dice" => include_bytes!(concat!(env!("OUT_DIR"), "/baked-gz/io/dnd/atoms/dnd-dice.orb.gz")),
     "std/behaviors/dnd-dungeon-gen" => include_bytes!(concat!(env!("OUT_DIR"), "/baked-gz/io/dnd/atoms/dnd-dungeon-gen.orb.gz")),
@@ -1007,6 +1007,7 @@ pub static EMBEDDED_STD_BEHAVIORS: phf::Map<&'static str, &'static [u8]> = phf::
     "std/behaviors/std-chem-reaction" => include_bytes!(concat!(env!("OUT_DIR"), "/baked-gz/io/learning/atoms/std-chem-reaction.orb.gz")),
     "std/behaviors/std-chem-reaction-3d" => include_bytes!(concat!(env!("OUT_DIR"), "/baked-gz/io/learning/atoms/std-chem-reaction-3d.orb.gz")),
     "std/behaviors/std-chem-titration" => include_bytes!(concat!(env!("OUT_DIR"), "/baked-gz/io/learning/atoms/std-chem-titration.orb.gz")),
+    "std/behaviors/std-choice-gate" => include_bytes!(concat!(env!("OUT_DIR"), "/baked-gz/std/ui/game/atoms/std-choice-gate.orb.gz")),
     "std/behaviors/std-circuit-breaker" => include_bytes!(concat!(env!("OUT_DIR"), "/baked-gz/std/infra/atoms/std-circuit-breaker.orb.gz")),
     "std/behaviors/std-civics-billprocess" => include_bytes!(concat!(env!("OUT_DIR"), "/baked-gz/io/learning/atoms/std-civics-billprocess.orb.gz")),
     "std/behaviors/std-civics-checks" => include_bytes!(concat!(env!("OUT_DIR"), "/baked-gz/io/learning/atoms/std-civics-checks.orb.gz")),
@@ -1014,11 +1015,13 @@ pub static EMBEDDED_STD_BEHAVIORS: phf::Map<&'static str, &'static [u8]> = phf::
     "std/behaviors/std-civics-gerrymander" => include_bytes!(concat!(env!("OUT_DIR"), "/baked-gz/io/learning/atoms/std-civics-gerrymander.orb.gz")),
     "std/behaviors/std-class-roster" => include_bytes!(concat!(env!("OUT_DIR"), "/baked-gz/io/app/atoms/std-class-roster.orb.gz")),
     "std/behaviors/std-class-session" => include_bytes!(concat!(env!("OUT_DIR"), "/baked-gz/io/app/atoms/std-class-session.orb.gz")),
+    "std/behaviors/std-coef-pad" => include_bytes!(concat!(env!("OUT_DIR"), "/baked-gz/std/ui/game/atoms/std-coef-pad.orb.gz")),
     "std/behaviors/std-confirmation" => include_bytes!(concat!(env!("OUT_DIR"), "/baked-gz/std/ui/core/atoms/std-confirmation.orb.gz")),
     "std/behaviors/std-conversation-policy" => include_bytes!(concat!(env!("OUT_DIR"), "/baked-gz/io/app/atoms/std-conversation-policy.orb.gz")),
     "std/behaviors/std-cooldown" => include_bytes!(concat!(env!("OUT_DIR"), "/baked-gz/std/infra/atoms/std-cooldown.orb.gz")),
     "std/behaviors/std-court-deadline" => include_bytes!(concat!(env!("OUT_DIR"), "/baked-gz/io/app/atoms/std-court-deadline.orb.gz")),
     "std/behaviors/std-cross-reference" => include_bytes!(concat!(env!("OUT_DIR"), "/baked-gz/std/infra/atoms/std-cross-reference.orb.gz")),
+    "std/behaviors/std-curve-fog" => include_bytes!(concat!(env!("OUT_DIR"), "/baked-gz/std/ui/game/atoms/std-curve-fog.orb.gz")),
     "std/behaviors/std-customer-account" => include_bytes!(concat!(env!("OUT_DIR"), "/baked-gz/io/app/atoms/std-customer-account.orb.gz")),
     "std/behaviors/std-dashboard-grid-embedded" => include_bytes!(concat!(env!("OUT_DIR"), "/baked-gz/std/ui/core/atoms/std-dashboard-grid-embedded.orb.gz")),
     "std/behaviors/std-data-collector" => include_bytes!(concat!(env!("OUT_DIR"), "/baked-gz/std/ml/atoms/std-data-collector.orb.gz")),
@@ -1250,7 +1253,6 @@ pub static EMBEDDED_STD_BEHAVIORS: phf::Map<&'static str, &'static [u8]> = phf::
     "std/behaviors/std-reorder-rule" => include_bytes!(concat!(env!("OUT_DIR"), "/baked-gz/io/app/atoms/std-reorder-rule.orb.gz")),
     "std/behaviors/std-response-collector" => include_bytes!(concat!(env!("OUT_DIR"), "/baked-gz/io/app/atoms/std-response-collector.orb.gz")),
     "std/behaviors/std-rfi" => include_bytes!(concat!(env!("OUT_DIR"), "/baked-gz/io/app/atoms/std-rfi.orb.gz")),
-    "std/behaviors/std-rich-editor" => include_bytes!(concat!(env!("OUT_DIR"), "/baked-gz/std/ui/core/atoms/std-rich-editor.orb.gz")),
     "std/behaviors/std-round-flow" => include_bytes!(concat!(env!("OUT_DIR"), "/baked-gz/std/ui/game/atoms/std-round-flow.orb.gz")),
     "std/behaviors/std-route-optimize" => include_bytes!(concat!(env!("OUT_DIR"), "/baked-gz/io/app/atoms/std-route-optimize.orb.gz")),
     "std/behaviors/std-row-access-control" => include_bytes!(concat!(env!("OUT_DIR"), "/baked-gz/std/infra/atoms/std-row-access-control.orb.gz")),
@@ -1321,6 +1323,7 @@ pub static EMBEDDED_STD_BEHAVIORS: phf::Map<&'static str, &'static [u8]> = phf::
     "std/behaviors/std-wizard" => include_bytes!(concat!(env!("OUT_DIR"), "/baked-gz/std/ui/core/atoms/std-wizard.orb.gz")),
     "std/behaviors/std-work-order" => include_bytes!(concat!(env!("OUT_DIR"), "/baked-gz/io/app/atoms/std-work-order.orb.gz")),
     "std/behaviors/std-xp" => include_bytes!(concat!(env!("OUT_DIR"), "/baked-gz/std/ui/game/atoms/std-xp.orb.gz")),
+    "std/behaviors/std-zone-card" => include_bytes!(concat!(env!("OUT_DIR"), "/baked-gz/std/ui/game/atoms/std-zone-card.orb.gz")),
     "std/behaviors/svg-asset-catalog" => include_bytes!(concat!(env!("OUT_DIR"), "/baked-gz/io/svg/atoms/svg-asset-catalog.orb.gz")),
     "std/behaviors/svg-material-crystal" => include_bytes!(concat!(env!("OUT_DIR"), "/baked-gz/io/svg/atoms/svg-material-crystal.orb.gz")),
     "std/behaviors/svg-material-magic" => include_bytes!(concat!(env!("OUT_DIR"), "/baked-gz/io/svg/atoms/svg-material-magic.orb.gz")),
@@ -1475,7 +1478,7 @@ pub static EMBEDDED_STD_BEHAVIORS: phf::Map<&'static str, &'static [u8]> = phf::
     "std/behaviors/ui-typewriter-text" => include_bytes!(concat!(env!("OUT_DIR"), "/baked-gz/std/ui/core/atoms/ui-typewriter-text.orb.gz")),
     "std/behaviors/ui-typography" => include_bytes!(concat!(env!("OUT_DIR"), "/baked-gz/std/ui/core/atoms/ui-typography.orb.gz")),
     "std/behaviors/ui-vstack" => include_bytes!(concat!(env!("OUT_DIR"), "/baked-gz/std/ui/core/atoms/ui-vstack.orb.gz")),
-    // === Molecules (107) ===
+    // === Molecules (109) ===
     "std/behaviors/std-stat-rows" => include_bytes!(concat!(env!("OUT_DIR"), "/baked-gz/std/ui/core/molecules/std-stat-rows.orb.gz")),
     "std/behaviors/ui-accordion" => include_bytes!(concat!(env!("OUT_DIR"), "/baked-gz/std/ui/core/molecules/ui-accordion.orb.gz")),
     "std/behaviors/ui-activation-block" => include_bytes!(concat!(env!("OUT_DIR"), "/baked-gz/std/ui/core/molecules/ui-activation-block.orb.gz")),
@@ -1501,6 +1504,8 @@ pub static EMBEDDED_STD_BEHAVIORS: phf::Map<&'static str, &'static [u8]> = phf::
     "std/behaviors/ui-doc-search" => include_bytes!(concat!(env!("OUT_DIR"), "/baked-gz/std/ui/core/molecules/ui-doc-search.orb.gz")),
     "std/behaviors/ui-doc-sidebar" => include_bytes!(concat!(env!("OUT_DIR"), "/baked-gz/std/ui/core/molecules/ui-doc-sidebar.orb.gz")),
     "std/behaviors/ui-doc-toc" => include_bytes!(concat!(env!("OUT_DIR"), "/baked-gz/std/ui/core/molecules/ui-doc-toc.orb.gz")),
+    "std/behaviors/ui-document-details" => include_bytes!(concat!(env!("OUT_DIR"), "/baked-gz/std/ui/core/molecules/ui-document-details.orb.gz")),
+    "std/behaviors/ui-document-panel" => include_bytes!(concat!(env!("OUT_DIR"), "/baked-gz/std/ui/core/molecules/ui-document-panel.orb.gz")),
     "std/behaviors/ui-document-viewer" => include_bytes!(concat!(env!("OUT_DIR"), "/baked-gz/std/ui/core/molecules/ui-document-viewer.orb.gz")),
     "std/behaviors/ui-drawer" => include_bytes!(concat!(env!("OUT_DIR"), "/baked-gz/std/ui/core/molecules/ui-drawer.orb.gz")),
     "std/behaviors/ui-edge-decoration" => include_bytes!(concat!(env!("OUT_DIR"), "/baked-gz/std/ui/core/molecules/ui-edge-decoration.orb.gz")),
@@ -1557,7 +1562,7 @@ pub static EMBEDDED_STD_BEHAVIORS: phf::Map<&'static str, &'static [u8]> = phf::
     "std/behaviors/ui-relation-select" => include_bytes!(concat!(env!("OUT_DIR"), "/baked-gz/std/ui/core/molecules/ui-relation-select.orb.gz")),
     "std/behaviors/ui-repeatable-form-section" => include_bytes!(concat!(env!("OUT_DIR"), "/baked-gz/std/ui/core/molecules/ui-repeatable-form-section.orb.gz")),
     "std/behaviors/ui-reply-tree" => include_bytes!(concat!(env!("OUT_DIR"), "/baked-gz/std/ui/core/molecules/ui-reply-tree.orb.gz")),
-    "std/behaviors/ui-rich-block-editor" => include_bytes!(concat!(env!("OUT_DIR"), "/baked-gz/std/ui/core/molecules/ui-rich-block-editor.orb.gz")),
+    "std/behaviors/ui-rich-text-editor" => include_bytes!(concat!(env!("OUT_DIR"), "/baked-gz/std/ui/core/molecules/ui-rich-text-editor.orb.gz")),
     "std/behaviors/ui-scaled-diagram" => include_bytes!(concat!(env!("OUT_DIR"), "/baked-gz/std/ui/core/molecules/ui-scaled-diagram.orb.gz")),
     "std/behaviors/ui-search-input" => include_bytes!(concat!(env!("OUT_DIR"), "/baked-gz/std/ui/core/molecules/ui-search-input.orb.gz")),
     "std/behaviors/ui-section" => include_bytes!(concat!(env!("OUT_DIR"), "/baked-gz/std/ui/core/molecules/ui-section.orb.gz")),

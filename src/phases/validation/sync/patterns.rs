@@ -2,7 +2,7 @@
 //!
 //! Source: packages/almadar-core/src/patterns/patterns-registry.json
 //!
-//! Last synced: 2026-08-25
+//! Last synced: 2026-08-28
 //! To regenerate: npx tsx tools/almadar-pattern-sync/index.ts
 //!
 //! DO NOT EDIT MANUALLY - changes will be overwritten on next sync.
@@ -42,6 +42,7 @@ pub static PATTERN_TYPES: LazyLock<HashSet<&'static str>> = LazyLock::new(|| {
         "date-range-picker",
         "day-cell",
         "doc-toc",
+        "document-panel",
         "edge-decoration",
         "emoji-picker",
         "file-tree",
@@ -82,6 +83,7 @@ pub static PATTERN_TYPES: LazyLock<HashSet<&'static str>> = LazyLock::new(|| {
         "radio",
         "range-slider",
         "reflection-block",
+        "rich-text-editor",
         "scaled-diagram",
         "select",
         "service-catalog",
@@ -144,6 +146,7 @@ pub static PATTERN_TYPES: LazyLock<HashSet<&'static str>> = LazyLock::new(|| {
         "data-grid",
         "data-list",
         "detail-panel",
+        "document-details",
         "document-viewer",
         "entity-cards",
         "entity-list",
@@ -162,7 +165,6 @@ pub static PATTERN_TYPES: LazyLock<HashSet<&'static str>> = LazyLock::new(|| {
         "pricing-grid",
         "pricing-organism",
         "reply-tree",
-        "rich-block-editor",
         "section",
         "segment-renderer",
         "showcase-card",
@@ -361,6 +363,7 @@ pub static PATTERN_TO_CATEGORY: LazyLock<HashMap<&'static str, &'static str>> =
             ("date-range-picker", "component"),
             ("day-cell", "component"),
             ("doc-toc", "component"),
+            ("document-panel", "component"),
             ("edge-decoration", "component"),
             ("emoji-picker", "component"),
             ("file-tree", "component"),
@@ -401,6 +404,7 @@ pub static PATTERN_TO_CATEGORY: LazyLock<HashMap<&'static str, &'static str>> =
             ("radio", "component"),
             ("range-slider", "component"),
             ("reflection-block", "component"),
+            ("rich-text-editor", "component"),
             ("scaled-diagram", "component"),
             ("select", "component"),
             ("service-catalog", "component"),
@@ -463,6 +467,7 @@ pub static PATTERN_TO_CATEGORY: LazyLock<HashMap<&'static str, &'static str>> =
             ("data-grid", "display"),
             ("data-list", "display"),
             ("detail-panel", "display"),
+            ("document-details", "display"),
             ("document-viewer", "display"),
             ("entity-cards", "display"),
             ("entity-list", "display"),
@@ -481,7 +486,6 @@ pub static PATTERN_TO_CATEGORY: LazyLock<HashMap<&'static str, &'static str>> =
             ("pricing-grid", "display"),
             ("pricing-organism", "display"),
             ("reply-tree", "display"),
-            ("rich-block-editor", "display"),
             ("section", "display"),
             ("segment-renderer", "display"),
             ("showcase-card", "display"),
@@ -1796,6 +1800,30 @@ pub static PATTERN_PROPS_SCHEMA: LazyLock<HashMap<&'static str, HashSet<&'static
             ("doc-search", ["className", "onSearch", "placeholder"].into_iter().collect()),
             ("doc-sidebar", ["className", "items"].into_iter().collect()),
             ("doc-toc", ["activeId", "className", "items"].into_iter().collect()),
+            ("document-details", ["className", "entity", "fields", "metaCommitEvent", "title"].into_iter().collect()),
+            (
+                "document-panel",
+                [
+                    "actions",
+                    "autosaveHint",
+                    "className",
+                    "contentChangeEvent",
+                    "doneEvent",
+                    "doneLabel",
+                    "editEvent",
+                    "editLabel",
+                    "editing",
+                    "entity",
+                    "maxInlineActions",
+                    "placeholder",
+                    "subtitle",
+                    "title",
+                    "titleCommitEvent",
+                    "value",
+                ]
+                .into_iter()
+                .collect(),
+            ),
             (
                 "document-viewer",
                 [
@@ -3367,16 +3395,15 @@ pub static PATTERN_PROPS_SCHEMA: LazyLock<HashMap<&'static str, HashSet<&'static
                 .collect(),
             ),
             (
-                "rich-block-editor",
+                "rich-text-editor",
                 [
                     "changeEvent",
                     "className",
-                    "enableBlocks",
-                    "initialBlocks",
                     "onChange",
                     "placeholder",
                     "readOnly",
                     "showToolbar",
+                    "value",
                 ]
                 .into_iter()
                 .collect(),
@@ -5741,6 +5768,41 @@ pub static PATTERN_PROP_TYPES: LazyLock<HashMap<&'static str, HashMap<&'static s
                 .collect(),
             ),
             (
+                "document-details",
+                [
+                    ("entity", &["object"] as &[&str]),
+                    ("fields", &["array"] as &[&str]),
+                    ("metaCommitEvent", &["string"] as &[&str]),
+                    ("title", &["string"] as &[&str]),
+                    ("className", &["string"] as &[&str]),
+                ]
+                .into_iter()
+                .collect(),
+            ),
+            (
+                "document-panel",
+                [
+                    ("entity", &["object"] as &[&str]),
+                    ("title", &["string"] as &[&str]),
+                    ("subtitle", &["string"] as &[&str]),
+                    ("value", &["string"] as &[&str]),
+                    ("actions", &["array"] as &[&str]),
+                    ("maxInlineActions", &["number"] as &[&str]),
+                    ("editing", &["boolean"] as &[&str]),
+                    ("titleCommitEvent", &["string"] as &[&str]),
+                    ("contentChangeEvent", &["string"] as &[&str]),
+                    ("editEvent", &["string"] as &[&str]),
+                    ("doneEvent", &["string"] as &[&str]),
+                    ("editLabel", &["string"] as &[&str]),
+                    ("doneLabel", &["string"] as &[&str]),
+                    ("autosaveHint", &["string"] as &[&str]),
+                    ("placeholder", &["string"] as &[&str]),
+                    ("className", &["string"] as &[&str]),
+                ]
+                .into_iter()
+                .collect(),
+            ),
+            (
                 "document-viewer",
                 [
                     ("title", &["string"] as &[&str]),
@@ -7648,14 +7710,13 @@ pub static PATTERN_PROP_TYPES: LazyLock<HashMap<&'static str, HashMap<&'static s
                 .collect(),
             ),
             (
-                "rich-block-editor",
+                "rich-text-editor",
                 [
-                    ("initialBlocks", &["object", "array"] as &[&str]),
+                    ("value", &["string"] as &[&str]),
                     ("onChange", &["function"] as &[&str]),
                     ("changeEvent", &["string"] as &[&str]),
                     ("readOnly", &["boolean"] as &[&str]),
                     ("placeholder", &["string"] as &[&str]),
-                    ("enableBlocks", &["boolean"] as &[&str]),
                     ("showToolbar", &["boolean"] as &[&str]),
                     ("className", &["string"] as &[&str]),
                 ]
@@ -9872,6 +9933,7 @@ pub static PATTERN_EVENT_LIST_PROPS: LazyLock<HashMap<&'static str, HashMap<&'st
             ("dashboard-layout", [("topBarActions", "event")].into_iter().collect()),
             ("data-grid", [("itemActions", "event")].into_iter().collect()),
             ("data-list", [("itemActions", "event")].into_iter().collect()),
+            ("document-panel", [("actions", "event")].into_iter().collect()),
             ("entity-cards", [("itemActions", "event")].into_iter().collect()),
             ("swipeable-row", [("leftActions", "event"), ("rightActions", "event")].into_iter().collect()),
             ("table-view", [("itemActions", "event")].into_iter().collect()),
