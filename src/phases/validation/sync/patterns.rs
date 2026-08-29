@@ -2,7 +2,7 @@
 //!
 //! Source: packages/almadar-core/src/patterns/patterns-registry.json
 //!
-//! Last synced: 2026-08-28
+//! Last synced: 2026-08-29
 //! To regenerate: npx tsx tools/almadar-pattern-sync/index.ts
 //!
 //! DO NOT EDIT MANUALLY - changes will be overwritten on next sync.
@@ -1800,7 +1800,7 @@ pub static PATTERN_PROPS_SCHEMA: LazyLock<HashMap<&'static str, HashSet<&'static
             ("doc-search", ["className", "onSearch", "placeholder"].into_iter().collect()),
             ("doc-sidebar", ["className", "items"].into_iter().collect()),
             ("doc-toc", ["activeId", "className", "items"].into_iter().collect()),
-            ("document-details", ["className", "entity", "fields", "metaCommitEvent", "title"].into_iter().collect()),
+            ("document-details", ["className", "entity", "fields", "metaCommitEvent", "relationEvent", "title"].into_iter().collect()),
             (
                 "document-panel",
                 [
@@ -1808,11 +1808,13 @@ pub static PATTERN_PROPS_SCHEMA: LazyLock<HashMap<&'static str, HashSet<&'static
                     "autosaveHint",
                     "className",
                     "contentChangeEvent",
+                    "coverImage",
                     "doneEvent",
                     "doneLabel",
                     "editEvent",
                     "editLabel",
                     "editing",
+                    "icon",
                     "id",
                     "maxInlineActions",
                     "placeholder",
@@ -5773,6 +5775,7 @@ pub static PATTERN_PROP_TYPES: LazyLock<HashMap<&'static str, HashMap<&'static s
                     ("entity", &["object"] as &[&str]),
                     ("fields", &["array"] as &[&str]),
                     ("metaCommitEvent", &["string"] as &[&str]),
+                    ("relationEvent", &["string"] as &[&str]),
                     ("title", &["string"] as &[&str]),
                     ("className", &["string"] as &[&str]),
                 ]
@@ -5785,6 +5788,8 @@ pub static PATTERN_PROP_TYPES: LazyLock<HashMap<&'static str, HashMap<&'static s
                     ("id", &["string"] as &[&str]),
                     ("title", &["string"] as &[&str]),
                     ("subtitle", &["string"] as &[&str]),
+                    ("coverImage", &["string"] as &[&str]),
+                    ("icon", &["icon", "string"] as &[&str]),
                     ("value", &["string"] as &[&str]),
                     ("actions", &["array"] as &[&str]),
                     ("maxInlineActions", &["number"] as &[&str]),

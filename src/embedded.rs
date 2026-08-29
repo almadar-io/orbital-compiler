@@ -870,7 +870,7 @@ pub fn factory_signatures_json_io() -> &'static str {
 // Values are gzip bytes (build.rs → $OUT_DIR/baked-gz/…), inflated lazily by
 // `get_std_behavior_content` — the baked corpus is ~31MB raw, ~2MB gzipped.
 pub static EMBEDDED_STD_BEHAVIORS: phf::Map<&'static str, &'static [u8]> = phf::phf_map! {
-    // === Atoms (607) ===
+    // === Atoms (610) ===
     "std/behaviors/dnd-combat" => include_bytes!(concat!(env!("OUT_DIR"), "/baked-gz/io/dnd/atoms/dnd-combat.orb.gz")),
     "std/behaviors/dnd-dice" => include_bytes!(concat!(env!("OUT_DIR"), "/baked-gz/io/dnd/atoms/dnd-dice.orb.gz")),
     "std/behaviors/dnd-dungeon-gen" => include_bytes!(concat!(env!("OUT_DIR"), "/baked-gz/io/dnd/atoms/dnd-dungeon-gen.orb.gz")),
@@ -1015,6 +1015,7 @@ pub static EMBEDDED_STD_BEHAVIORS: phf::Map<&'static str, &'static [u8]> = phf::
     "std/behaviors/std-civics-gerrymander" => include_bytes!(concat!(env!("OUT_DIR"), "/baked-gz/io/learning/atoms/std-civics-gerrymander.orb.gz")),
     "std/behaviors/std-class-roster" => include_bytes!(concat!(env!("OUT_DIR"), "/baked-gz/io/app/atoms/std-class-roster.orb.gz")),
     "std/behaviors/std-class-session" => include_bytes!(concat!(env!("OUT_DIR"), "/baked-gz/io/app/atoms/std-class-session.orb.gz")),
+    "std/behaviors/std-cms-article" => include_bytes!(concat!(env!("OUT_DIR"), "/baked-gz/io/app/atoms/std-cms-article.orb.gz")),
     "std/behaviors/std-coef-pad" => include_bytes!(concat!(env!("OUT_DIR"), "/baked-gz/std/ui/game/atoms/std-coef-pad.orb.gz")),
     "std/behaviors/std-confirmation" => include_bytes!(concat!(env!("OUT_DIR"), "/baked-gz/std/ui/core/atoms/std-confirmation.orb.gz")),
     "std/behaviors/std-conversation-policy" => include_bytes!(concat!(env!("OUT_DIR"), "/baked-gz/io/app/atoms/std-conversation-policy.orb.gz")),
@@ -1187,6 +1188,7 @@ pub static EMBEDDED_STD_BEHAVIORS: phf::Map<&'static str, &'static [u8]> = phf::
     "std/behaviors/std-modifier-group" => include_bytes!(concat!(env!("OUT_DIR"), "/baked-gz/io/app/atoms/std-modifier-group.orb.gz")),
     "std/behaviors/std-motion-body" => include_bytes!(concat!(env!("OUT_DIR"), "/baked-gz/std/ui/game/atoms/std-motion-body.orb.gz")),
     "std/behaviors/std-multi-party-flow" => include_bytes!(concat!(env!("OUT_DIR"), "/baked-gz/std/ui/core/atoms/std-multi-party-flow.orb.gz")),
+    "std/behaviors/std-note" => include_bytes!(concat!(env!("OUT_DIR"), "/baked-gz/io/app/atoms/std-note.orb.gz")),
     "std/behaviors/std-notification-center" => include_bytes!(concat!(env!("OUT_DIR"), "/baked-gz/std/infra/atoms/std-notification-center.orb.gz")),
     "std/behaviors/std-notification-panel" => include_bytes!(concat!(env!("OUT_DIR"), "/baked-gz/std/ui/core/atoms/std-notification-panel.orb.gz")),
     "std/behaviors/std-notify-on-event" => include_bytes!(concat!(env!("OUT_DIR"), "/baked-gz/std/infra/atoms/std-notify-on-event.orb.gz")),
@@ -1320,6 +1322,7 @@ pub static EMBEDDED_STD_BEHAVIORS: phf::Map<&'static str, &'static [u8]> = phf::
     "std/behaviors/std-waitlist" => include_bytes!(concat!(env!("OUT_DIR"), "/baked-gz/io/app/atoms/std-waitlist.orb.gz")),
     "std/behaviors/std-warehouse" => include_bytes!(concat!(env!("OUT_DIR"), "/baked-gz/io/app/atoms/std-warehouse.orb.gz")),
     "std/behaviors/std-weight-validator" => include_bytes!(concat!(env!("OUT_DIR"), "/baked-gz/std/ml/atoms/std-weight-validator.orb.gz")),
+    "std/behaviors/std-wiki-page" => include_bytes!(concat!(env!("OUT_DIR"), "/baked-gz/io/app/atoms/std-wiki-page.orb.gz")),
     "std/behaviors/std-wizard" => include_bytes!(concat!(env!("OUT_DIR"), "/baked-gz/std/ui/core/atoms/std-wizard.orb.gz")),
     "std/behaviors/std-work-order" => include_bytes!(concat!(env!("OUT_DIR"), "/baked-gz/io/app/atoms/std-work-order.orb.gz")),
     "std/behaviors/std-xp" => include_bytes!(concat!(env!("OUT_DIR"), "/baked-gz/std/ui/game/atoms/std-xp.orb.gz")),
