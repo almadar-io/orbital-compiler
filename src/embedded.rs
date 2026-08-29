@@ -870,7 +870,7 @@ pub fn factory_signatures_json_io() -> &'static str {
 // Values are gzip bytes (build.rs → $OUT_DIR/baked-gz/…), inflated lazily by
 // `get_std_behavior_content` — the baked corpus is ~31MB raw, ~2MB gzipped.
 pub static EMBEDDED_STD_BEHAVIORS: phf::Map<&'static str, &'static [u8]> = phf::phf_map! {
-    // === Atoms (610) ===
+    // === Atoms (611) ===
     "std/behaviors/dnd-combat" => include_bytes!(concat!(env!("OUT_DIR"), "/baked-gz/io/dnd/atoms/dnd-combat.orb.gz")),
     "std/behaviors/dnd-dice" => include_bytes!(concat!(env!("OUT_DIR"), "/baked-gz/io/dnd/atoms/dnd-dice.orb.gz")),
     "std/behaviors/dnd-dungeon-gen" => include_bytes!(concat!(env!("OUT_DIR"), "/baked-gz/io/dnd/atoms/dnd-dungeon-gen.orb.gz")),
@@ -1298,6 +1298,7 @@ pub static EMBEDDED_STD_BEHAVIORS: phf::Map<&'static str, &'static [u8]> = phf::
     "std/behaviors/std-svg-asset-art" => include_bytes!(concat!(env!("OUT_DIR"), "/baked-gz/std/ui/game/atoms/std-svg-asset-art.orb.gz")),
     "std/behaviors/std-table-map" => include_bytes!(concat!(env!("OUT_DIR"), "/baked-gz/io/app/atoms/std-table-map.orb.gz")),
     "std/behaviors/std-tabs" => include_bytes!(concat!(env!("OUT_DIR"), "/baked-gz/std/ui/core/atoms/std-tabs.orb.gz")),
+    "std/behaviors/std-tag-strip" => include_bytes!(concat!(env!("OUT_DIR"), "/baked-gz/std/ui/core/atoms/std-tag-strip.orb.gz")),
     "std/behaviors/std-tag-taxonomy" => include_bytes!(concat!(env!("OUT_DIR"), "/baked-gz/std/ui/core/atoms/std-tag-taxonomy.orb.gz")),
     "std/behaviors/std-technician-dispatch" => include_bytes!(concat!(env!("OUT_DIR"), "/baked-gz/io/app/atoms/std-technician-dispatch.orb.gz")),
     "std/behaviors/std-telematics-event" => include_bytes!(concat!(env!("OUT_DIR"), "/baked-gz/io/app/atoms/std-telematics-event.orb.gz")),
