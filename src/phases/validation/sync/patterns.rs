@@ -1813,7 +1813,7 @@ pub static PATTERN_PROPS_SCHEMA: LazyLock<HashMap<&'static str, HashSet<&'static
                     "editEvent",
                     "editLabel",
                     "editing",
-                    "entity",
+                    "id",
                     "maxInlineActions",
                     "placeholder",
                     "subtitle",
@@ -5782,7 +5782,7 @@ pub static PATTERN_PROP_TYPES: LazyLock<HashMap<&'static str, HashMap<&'static s
             (
                 "document-panel",
                 [
-                    ("entity", &["object"] as &[&str]),
+                    ("id", &["string"] as &[&str]),
                     ("title", &["string"] as &[&str]),
                     ("subtitle", &["string"] as &[&str]),
                     ("value", &["string"] as &[&str]),
