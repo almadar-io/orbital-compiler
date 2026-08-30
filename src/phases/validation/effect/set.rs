@@ -493,6 +493,7 @@ fn field_type_str(ft: &FieldType) -> &'static str {
         FieldType::Slot => "slot",
         FieldType::Pattern => "pattern",
         FieldType::Node => "node",
+        FieldType::Event => "event",
     }
 }
 

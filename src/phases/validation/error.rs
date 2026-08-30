@@ -98,6 +98,11 @@ pub enum ErrorCode {
     /// Config field typed `secret` has a non-string default — the value is a
     /// credential REFERENCE (env-var key name), never secret material (I-29)
     TraitSecretDefaultNotString,
+    /// Config field typed `event` holds a value that is not a member of the
+    /// trait's post-rename event set (SCAN-EVENT-KNOB-1). Definer-position
+    /// knobs (A-UNIFY) skip this membership check — their value CREATES the
+    /// event name — but still land here if the default isn't a plain string.
+    TraitInvalidEventDefault,
     /// Config field's default value doesn't match its declared structural
     /// shape (array vs scalar, object vs string, missing required, etc.).
     /// Fires after the typed-config carriers (`items` / `properties` /
@@ -755,6 +760,13 @@ pub enum ErrorCode {
     /// A ledger row whose id no node in the schema carries — a stale row left
     /// behind after its node was removed. Warning severity.
     OrbIdLedgerOrphan,
+    /// One event id is declared by two or more DIFFERENT traits in the same
+    /// orbital (`stateMachine.events[].id` / `emits[].eventId`). Ids are the
+    /// durable node keys of the identity graph; a shared id makes every
+    /// id→name resolution (identity normalize, id-primary dispatch) ambiguous.
+    /// Inline's event-id hygiene derives per-instance ids at expansion, so this
+    /// fires only on an artifact produced outside that path.
+    OrbIdDuplicateEventId,
 
     // =========================================================================
     // Generic Errors (ORB_GEN_*)
@@ -807,6 +819,7 @@ impl ErrorCode {
             ErrorCode::TraitInvalidSlotDefault => "ORB_T_INVALID_SLOT_DEFAULT",
             ErrorCode::TraitInvalidPatternDefault => "ORB_T_INVALID_PATTERN_DEFAULT",
             ErrorCode::TraitSecretDefaultNotString => "ORB_T_SECRET_DEFAULT_NOT_STRING",
+            ErrorCode::TraitInvalidEventDefault => "ORB_T_INVALID_EVENT_DEFAULT",
             ErrorCode::TraitConfigShapeMismatch => "ORB_T_CONFIG_SHAPE_MISMATCH",
             ErrorCode::TraitConfigObjectArrayForbidden => "ORB_T_CONFIG_OBJECT_ARRAY_FORBIDDEN",
             ErrorCode::GenericTypeDeprecated => "ORB_T_GENERIC_TYPE_DEPRECATED",
@@ -1020,6 +1033,7 @@ impl ErrorCode {
             ErrorCode::OrbIdNameMismatch => "ORB_ID_NAME_MISMATCH",
             ErrorCode::OrbIdKindMismatch => "ORB_ID_KIND_MISMATCH",
             ErrorCode::OrbIdLedgerOrphan => "ORB_ID_LEDGER_ORPHAN",
+            ErrorCode::OrbIdDuplicateEventId => "ORB_ID_DUPLICATE_EVENT_ID",
 
             // Generic
             ErrorCode::InvalidValue => "ORB_GEN_INVALID_VALUE",
@@ -1063,6 +1077,7 @@ impl ErrorCode {
             | ErrorCode::TraitInvalidSlotDefault
             | ErrorCode::TraitInvalidPatternDefault
             | ErrorCode::TraitSecretDefaultNotString
+            | ErrorCode::TraitInvalidEventDefault
             | ErrorCode::TraitConfigShapeMismatch
             | ErrorCode::TraitConfigObjectArrayForbidden
             | ErrorCode::GenericTypeDeprecated
@@ -1252,7 +1267,8 @@ impl ErrorCode {
             ErrorCode::OrbIdUnknownRef
             | ErrorCode::OrbIdNameMismatch
             | ErrorCode::OrbIdKindMismatch
-            | ErrorCode::OrbIdLedgerOrphan => "identity",
+            | ErrorCode::OrbIdLedgerOrphan
+            | ErrorCode::OrbIdDuplicateEventId => "identity",
 
             ErrorCode::InvalidValue
             | ErrorCode::InvalidReference

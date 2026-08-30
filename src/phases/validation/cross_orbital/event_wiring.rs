@@ -345,14 +345,22 @@ pub(crate) fn collect_effect_produced_events(trait_def: &TraitDefinition) -> Has
                                     })
                             });
                         if is_event_prop {
-                            credit(v, out);
+                            for leaf in v.conditional_leaf_values() {
+                                credit(leaf, out);
+                            }
                         }
                         if let Some(field) = list_props.and_then(|m| m.get(k.as_str())) {
-                            if let SExpression::Array(descriptors) = v {
-                                for descriptor in descriptors {
-                                    if let SExpression::Object(dm) = descriptor {
-                                        if let Some(ev) = dm.get(*field) {
-                                            credit(ev, out);
+                            // A conditional (`if`-wrapped) event-list config
+                            // contributes the union of both branches — the
+                            // runtime picks one at render time, but either is
+                            // a legal listen source.
+                            for leaf in v.conditional_leaf_values() {
+                                if let SExpression::Array(descriptors) = leaf {
+                                    for descriptor in descriptors {
+                                        if let SExpression::Object(dm) = descriptor {
+                                            if let Some(ev) = dm.get(*field) {
+                                                credit(ev, out);
+                                            }
                                         }
                                     }
                                 }
@@ -796,6 +804,129 @@ mod tests {
                 .iter()
                 .any(|e| e.code == ErrorCode::CrossOrbitalOrphanListener),
             "fetch emit-map event must satisfy the scoped listener; got {:?}",
+            result.errors
+        );
+    }
+
+    /// Build `["if", cond, then_descriptors, else_descriptors]` where each
+    /// branch is an itemActions-style array of `{event: <name>}` descriptors.
+    fn conditional_item_actions(then_event: &str, else_event: &str) -> SExpression {
+        use std::collections::HashMap as Map;
+        let descriptor = |event: &str| {
+            let mut dm: Map<String, SExpression> = Map::new();
+            dm.insert("name".to_string(), SExpression::String("Edit".to_string()));
+            dm.insert("event".to_string(), SExpression::String(event.to_string()));
+            SExpression::Object(dm)
+        };
+        SExpression::Array(vec![
+            SExpression::String("if".to_string()),
+            SExpression::String("@user.role".to_string()),
+            SExpression::Array(vec![descriptor(then_event)]),
+            SExpression::Array(vec![descriptor(else_event)]),
+        ])
+    }
+
+    fn render_ui_with_item_actions(pattern_type: &str, item_actions: SExpression) -> SExpression {
+        use std::collections::HashMap as Map;
+        let mut node: Map<String, SExpression> = Map::new();
+        node.insert(
+            "type".to_string(),
+            SExpression::String(pattern_type.to_string()),
+        );
+        node.insert("itemActions".to_string(), item_actions);
+        SExpression::Array(vec![
+            SExpression::String("render-ui".to_string()),
+            SExpression::String("main".to_string()),
+            SExpression::Object(node),
+        ])
+    }
+
+    /// A conditional (`if`-wrapped) `itemActions` config must credit BOTH
+    /// branches' events into the derived producible-event set — a listener
+    /// on a branch-only event is legal even though the runtime only fires it
+    /// under one condition.
+    #[test]
+    fn conditional_item_actions_credits_both_branches_as_producible_events() {
+        let td = trait_with_effect(
+            "TaskList",
+            render_ui_with_item_actions(
+                "data-list",
+                conditional_item_actions("EDIT_ITEM", "VIEW_ITEM"),
+            ),
+        );
+        let produced = collect_effect_produced_events(&td);
+        assert!(
+            produced.contains("EDIT_ITEM"),
+            "then-branch event missing from {:?}",
+            produced
+        );
+        assert!(
+            produced.contains("VIEW_ITEM"),
+            "else-branch event missing from {:?}",
+            produced
+        );
+    }
+
+    /// Nested conditional (`if` inside a branch) must still be walked all the
+    /// way down: every leaf branch's events are credited.
+    #[test]
+    fn nested_conditional_item_actions_credits_every_leaf_branch() {
+        use std::collections::HashMap as Map;
+        let descriptor = |event: &str| {
+            let mut dm: Map<String, SExpression> = Map::new();
+            dm.insert("name".to_string(), SExpression::String("Edit".to_string()));
+            dm.insert("event".to_string(), SExpression::String(event.to_string()));
+            SExpression::Object(dm)
+        };
+        let inner_if = SExpression::Array(vec![
+            SExpression::String("if".to_string()),
+            SExpression::String("@user.tier".to_string()),
+            SExpression::Array(vec![descriptor("PROMOTE_ITEM")]),
+            SExpression::Array(vec![descriptor("DEMOTE_ITEM")]),
+        ]);
+        let outer_if = SExpression::Array(vec![
+            SExpression::String("if".to_string()),
+            SExpression::String("@user.role".to_string()),
+            inner_if,
+            SExpression::Array(vec![descriptor("VIEW_ITEM")]),
+        ]);
+        let td = trait_with_effect(
+            "TaskList",
+            render_ui_with_item_actions("data-list", outer_if),
+        );
+        let produced = collect_effect_produced_events(&td);
+        for expected in ["PROMOTE_ITEM", "DEMOTE_ITEM", "VIEW_ITEM"] {
+            assert!(
+                produced.contains(expected),
+                "{expected} missing from {:?}",
+                produced
+            );
+        }
+    }
+
+    /// End-to-end: a scoped listener on a branch-only emit (event fired only
+    /// in the `if`'s else branch) resolves without `ORB_X_ORPHAN_LISTENER` —
+    /// the full-schema counterpart of the derived-set test above.
+    #[test]
+    fn scoped_listener_on_conditional_branch_only_event_is_not_orphan() {
+        let mut schema = create_minimal_schema();
+        schema.orbitals[0].traits = vec![
+            TraitReference::Inline(trait_with_effect(
+                "TaskList",
+                render_ui_with_item_actions(
+                    "data-list",
+                    conditional_item_actions("EDIT_ITEM", "VIEW_ITEM"),
+                ),
+            )),
+            TraitReference::Inline(scoped_listener("TaskDetail", "TaskList", "VIEW_ITEM")),
+        ];
+        let result = validate_event_wiring(&schema);
+        assert!(
+            !result
+                .errors
+                .iter()
+                .any(|e| e.code == ErrorCode::CrossOrbitalOrphanListener),
+            "listener on the conditional's else-branch-only event must resolve; got {:?}",
             result.errors
         );
     }

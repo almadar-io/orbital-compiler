@@ -627,8 +627,12 @@ impl<'a> Resolver<'a> {
             // embedded trait UI at render time.
             FieldType::Trait => Ok(OirType::Trait),
             // `slot` and `pattern` are validated at compile time but resolve to
-            // strings in OIR — the runtime doesn't need the type tag.
-            FieldType::Slot | FieldType::Pattern => Ok(OirType::String),
+            // strings in OIR — the runtime doesn't need the type tag. `event`
+            // (Phase B struct-field carrier) is likewise a plain string at the
+            // OIR/runtime boundary — the type tag exists for `.lolo`/validator
+            // discipline only, same posture as the scalar config-knob `event`
+            // type (`resolve_config_ref_event_name`).
+            FieldType::Slot | FieldType::Pattern | FieldType::Event => Ok(OirType::String),
             // Renderable content keeps its tag so codegen emits the canonical
             // pattern-tree type instead of a shapeless record.
             FieldType::Node => Ok(OirType::Node),
@@ -2643,7 +2647,9 @@ fn parse_payload_field_type(field_type: &str) -> OirType {
         // they are represented as strings (an icon/component name, an asset URL).
         // Without this they fell through to `Reference { entity: "slot" }` and
         // emitted the bare identifier — TS2552 "Cannot find name".
-        "slot" | "icon" | "asset" | "component" | "pattern" => return OirType::String,
+        // `event` is a name-reference brand (an event key string) — same
+        // string wire shape; membership is validated at Phase 3b.
+        "slot" | "icon" | "asset" | "component" | "pattern" | "event" => return OirType::String,
         _ => {}
     }
     // Any remaining non-empty identifier: treat as an entity reference.

@@ -10,8 +10,11 @@
 //! Also validates config overrides in trait references (TODO: requires
 //! inline resolution for the upstream declaration lookup).
 
+use std::collections::HashSet;
+
 use orbital_core::schema::{
-    ConfigField, FieldDefinition, FieldType, OrbitalSchema, SExpression, TraitReference,
+    config_ref_event_knob, definer_knobs_for_trait, ConfigField, FieldDefinition, FieldType,
+    OrbitalSchema, SExpression, TraitDefinition, TraitReference,
 };
 
 use super::error::{ErrorCode, ValidationError};
@@ -38,6 +41,74 @@ fn is_deferred_computed(value: &SExpression) -> bool {
     false
 }
 
+/// The trait's declared-event universe for `event`-typed knob membership,
+/// plus the knobs wired in DEFINER positions. The event union mirrors the
+/// stale-literal check's set (`render_ui/binding.rs` `check_event_literal_stale`
+/// — keep the two in sync): emits ∪ listens.event ∪ listens.triggers ∪
+/// stateMachine.events keys ∪ transition events. Two twists specific to
+/// this consumer (SCAN-EVENT-KNOB-1 corpus simulation, 2026-08-30):
+/// - a raw entry that is itself a `@config.<knob>` SENTINEL ("transition on
+///   whatever the config says") resolves through that knob's settled default
+///   (post-inline the merged trait's `ConfigField.default` carries call-site
+///   overrides); unresolvable sentinels drop out of the set;
+/// - any knob named in a sentinel/emit position is a DEFINER: its value
+///   CREATES the event name (A-UNIFY), so it is exempt from the membership
+///   check — any name is valid by construction — while a non-string
+///   default is still rejected the same as a reference knob's.
+struct TraitEventCtx {
+    events: HashSet<String>,
+    definer_knobs: HashSet<String>,
+}
+
+fn trait_event_ctx(trait_def: &TraitDefinition) -> TraitEventCtx {
+    let mut raw: Vec<&str> = Vec::new();
+    if let Some(emits) = &trait_def.emits {
+        for emit in emits {
+            raw.push(emit.event.as_str());
+        }
+    }
+    if let Some(listens) = &trait_def.listens {
+        for listen in listens {
+            raw.push(listen.event.as_str());
+            if let Some(trigger) = &listen.triggers {
+                raw.push(trigger.as_str());
+            }
+        }
+    }
+    if let Some(events) = &trait_def.state_machine.events {
+        for event in events {
+            raw.push(event.key.as_str());
+        }
+    }
+    for transition in &trait_def.state_machine.transitions {
+        raw.push(transition.event.as_str());
+    }
+    let mut events: HashSet<String> = HashSet::new();
+    for entry in raw {
+        if let Some(knob) = config_ref_event_knob(entry) {
+            let resolved = trait_def
+                .config
+                .as_ref()
+                .and_then(|c| c.get(knob))
+                .and_then(|cf| match &cf.default {
+                    Some(SExpression::String(s)) => Some(s.clone()),
+                    _ => None,
+                });
+            if let Some(value) = resolved {
+                if !value.is_empty() && !value.starts_with('@') {
+                    events.insert(value);
+                }
+            }
+        } else if !entry.is_empty() {
+            events.insert(entry.to_string());
+        }
+    }
+    TraitEventCtx {
+        events,
+        definer_knobs: definer_knobs_for_trait(trait_def),
+    }
+}
+
 /// Validate all `slot` and `pattern` config fields in the schema.
 pub fn validate_all_config_types(schema: &OrbitalSchema, ctx: &mut ValidationContext) {
     let mut result = ValidationResult::new();
@@ -45,14 +116,45 @@ pub fn validate_all_config_types(schema: &OrbitalSchema, ctx: &mut ValidationCon
     result.merge(validate_dangling_config_refs(schema));
 
     for (oi, orbital) in schema.orbitals.iter().enumerate() {
+        // Phase B (SCAN-EVENT-KNOB-2): orbital-wide event vocabulary for
+        // struct-field `event` acceptance (e.g. `ItemAction.event`) — every
+        // inline trait's own transitions ∪ every inline trait's own emits,
+        // mirroring closed_circuit.rs's orphan-event acceptance predicate
+        // (`orbital_handled` ∪ `declared_emits`) at a per-ORBITAL grain
+        // rather than closed_circuit's per-trait grain (deliberately a
+        // touch broader — CIRCUIT_ORPHAN_EVENT remains the precise, only
+        // authoritative orphan detector; an honest double-report on the
+        // same defect from both codes is fine, no dedup machinery here).
+        let orbital_events: HashSet<String> = orbital
+            .traits
+            .iter()
+            .filter_map(|tr| match tr {
+                TraitReference::Inline(td) => Some(td),
+                _ => None,
+            })
+            .flat_map(|td| {
+                td.state_machine
+                    .transitions
+                    .iter()
+                    .map(|t| t.event.clone())
+                    .chain(td.emits.iter().flatten().map(|e| e.event.clone()))
+            })
+            .collect();
+
         for (ti, trait_ref) in orbital.traits.iter().enumerate() {
             let path_prefix = super::trait_path(oi, &orbital.name, ti, trait_ref);
             match trait_ref {
                 TraitReference::Inline(trait_def) => {
                     if let Some(config) = &trait_def.config {
+                        let event_ctx = trait_event_ctx(trait_def);
                         for (field_name, field) in config.iter() {
                             let field_path = format!("{}.config({})", path_prefix, field_name);
-                            result.merge(validate_config_field(field, &field_path));
+                            result.merge(validate_config_field(
+                                field,
+                                &field_path,
+                                Some((&event_ctx, field_name.as_str())),
+                                &orbital_events,
+                            ));
                         }
                     }
                 }
@@ -68,8 +170,16 @@ pub fn validate_all_config_types(schema: &OrbitalSchema, ctx: &mut ValidationCon
                         // Plain wiring entries (`field_type == "unknown"`) are
                         // skipped: the base atom's declaration validates the type;
                         // we only have a value here with no declared shape.
+                        // Event membership is skipped here too (`None` ctx): a
+                        // pre-inline Reference has no base-trait vocabulary; the
+                        // merged Inline arm above owns that check post-inline.
                         if cf.field_type != "unknown" {
-                            result.merge(validate_config_field(cf, &field_path));
+                            result.merge(validate_config_field(
+                                cf,
+                                &field_path,
+                                None,
+                                &orbital_events,
+                            ));
                         }
                         // Suppress unused-variable warnings; the TODO below remains.
                         // TODO: After inline resolution, cross-check the override
@@ -86,9 +196,15 @@ pub fn validate_all_config_types(schema: &OrbitalSchema, ctx: &mut ValidationCon
 }
 
 /// Validate a single config field's default value against its declared type.
+/// `event_ctx` carries the owning trait's event universe + definer-knob set
+/// and this field's knob name; `None` = Reference arm / shape-only callers
+/// (event membership is skipped, everything else unchanged). `orbital_events`
+/// is the Phase B struct-field acceptance set (see `validate_all_config_types`).
 fn validate_config_field(
     field: &orbital_core::schema::ConfigField,
     path: &str,
+    event_ctx: Option<(&TraitEventCtx, &str)>,
+    orbital_events: &HashSet<String>,
 ) -> ValidationResult {
     let mut result = ValidationResult::new();
 
@@ -126,7 +242,7 @@ fn validate_config_field(
     // Skips fields with no `default` and skips opaque types we don't
     // know how to validate (`object` / `unknown` / etc.).
     if let Some(default) = &field.default {
-        result.merge(check_config_default_shape(field, default, path));
+        result.merge(check_config_default_shape(field, default, path, orbital_events));
     }
 
     // `@tier` annotation — defense-in-depth. The parser already
@@ -245,6 +361,65 @@ fn validate_config_field(
         return result;
     }
 
+    // `event` values are event-name REFERENCES into the owning trait's own
+    // event set (SCAN-EVENT-KNOB-1). Post-inline the merged trait's config
+    // carries the settled (override-folded, rename-folded) value, so
+    // membership here is the declaration-site twin of the render-ui
+    // stale-literal check — same set, three phases earlier. Empty string is
+    // the default-off outlet; `@`-prefixed values are forwards resolved
+    // elsewhere; an empty universe is vacuous (mirrors the stale check).
+    if field.field_type == "event" {
+        if let Some((ctx, knob_name)) = event_ctx {
+            // A-UNIFY: a DEFINER knob (`emits { @config.<k> }` or a
+            // stateMachine sentinel key) is where the event name is
+            // CREATED, not referenced — any name is valid by construction,
+            // so it skips membership in the trait's own event set. Its
+            // default still must be a plain string (or absent/deferred):
+            // the `Some(other)` arm below rejects non-string values for
+            // both roles alike.
+            let is_definer = ctx.definer_knobs.contains(knob_name);
+            match &field.default {
+                None => {}
+                Some(SExpression::String(s)) => {
+                    if !is_definer
+                        && !s.is_empty()
+                        && !s.starts_with('@')
+                        && !ctx.events.is_empty()
+                        && !ctx.events.contains(s)
+                    {
+                        let mut valid: Vec<String> = ctx.events.iter().cloned().collect();
+                        valid.sort();
+                        result.add_error(
+                            ValidationError::error(
+                                ErrorCode::TraitInvalidEventDefault,
+                                path,
+                                format!(
+                                    "Config field typed `event` holds '{}' but the trait's event set has no such key — must be one of: {}",
+                                    s,
+                                    valid.join(", ")
+                                ),
+                            )
+                            .with_valid_values(valid),
+                        );
+                    }
+                }
+                Some(other) => {
+                    if !is_deferred_computed(other) {
+                        result.add_error(
+                            ValidationError::error(
+                                ErrorCode::TraitInvalidEventDefault,
+                                path,
+                                "Config field typed `event` must hold a string event name",
+                            )
+                            .with_suggestion("Use a string event key, e.g. `event : event = SEARCH`, or \"\" for a default-off outlet"),
+                        );
+                    }
+                }
+            }
+        }
+        return result;
+    }
+
     // `secret` values are credential REFERENCES — env-var key names resolved
     // by `resolveCredentialRef`, never secret material. A non-string default
     // is decidably wrong (I-29).
@@ -314,6 +489,7 @@ fn check_config_default_shape(
     field: &ConfigField,
     default: &SExpression,
     path: &str,
+    orbital_events: &HashSet<String>,
 ) -> ValidationResult {
     let mut result = ValidationResult::new();
     // Binding-ref defaults (`@config.*` forwards, `@entity.*`) resolve at
@@ -359,7 +535,12 @@ fn check_config_default_shape(
         if let Some(item_schema) = &field.items {
             for (i, elem) in items.iter().enumerate() {
                 let elem_path = format!("{}[{}]", path, i);
-                result.merge(check_field_def_shape(item_schema, elem, &elem_path));
+                result.merge(check_field_def_shape(
+                    item_schema,
+                    elem,
+                    &elem_path,
+                    orbital_events,
+                ));
             }
         }
         return result;
@@ -399,6 +580,7 @@ fn check_field_def_shape(
     schema: &FieldDefinition,
     value: &SExpression,
     path: &str,
+    orbital_events: &HashSet<String>,
 ) -> ValidationResult {
     let mut result = ValidationResult::new();
     // Same computed-value deferral as the top-level default: a per-element
@@ -426,7 +608,12 @@ fn check_field_def_shape(
             if let Some(inner) = &schema.items {
                 for (i, elem) in items.iter().enumerate() {
                     let elem_path = format!("{}[{}]", path, i);
-                    result.merge(check_field_def_shape(inner, elem, &elem_path));
+                    result.merge(check_field_def_shape(
+                        inner,
+                        elem,
+                        &elem_path,
+                        orbital_events,
+                    ));
                 }
             }
         }
@@ -466,6 +653,7 @@ fn check_field_def_shape(
                                 prop_schema,
                                 prop_value,
                                 &prop_path,
+                                orbital_events,
                             ));
                         }
                         None if prop_schema.required.unwrap_or(false) => {
@@ -501,6 +689,56 @@ fn check_field_def_shape(
                         return result;
                     }
                 }
+            }
+            // Phase B (SCAN-EVENT-KNOB-2): an `event`-typed struct member
+            // (e.g. `ItemAction.event`) is an event-name REFERENCE —
+            // membership in the orbital's event vocabulary. Mirrors the
+            // scalar `event` config-knob check (the `event_ctx` arm above
+            // in `validate_config_field`) but ORBITAL-WIDE instead of
+            // own-trait-only (owner decision D2: item actions legitimately
+            // target sibling traits' transitions — the whole point of the
+            // fix). Same skips as the scalar arm: `""` is the default-off
+            // outlet, `@`-bindings resolve elsewhere, a vacuous orbital
+            // vocabulary is skipped (mirrors the stale-literal check's
+            // posture); `is_deferred_computed` already returned early at
+            // the top of this function, so a non-string value here is
+            // always a genuine type violation.
+            if schema.field_type == FieldType::Event {
+                match value {
+                    SExpression::String(s) => {
+                        if !s.is_empty()
+                            && !s.starts_with('@')
+                            && !orbital_events.is_empty()
+                            && !orbital_events.contains(s)
+                        {
+                            let mut valid: Vec<String> = orbital_events.iter().cloned().collect();
+                            valid.sort();
+                            result.add_error(
+                                ValidationError::error(
+                                    ErrorCode::TraitInvalidEventDefault,
+                                    path,
+                                    format!(
+                                        "Struct field typed `event` holds '{}' but the orbital's event set has no such key — must be one of: {}",
+                                        s,
+                                        valid.join(", ")
+                                    ),
+                                )
+                                .with_valid_values(valid),
+                            );
+                        }
+                    }
+                    _ => {
+                        result.add_error(
+                            ValidationError::error(
+                                ErrorCode::TraitInvalidEventDefault,
+                                path,
+                                "Struct field typed `event` must hold a string event name",
+                            )
+                            .with_suggestion("Use a string event key, e.g. `event: SEARCH`, or \"\" for a default-off outlet"),
+                        );
+                    }
+                }
+                return result;
             }
             let type_tag = match schema.field_type {
                 FieldType::String => "string",
@@ -914,7 +1152,7 @@ mod node_config_tests {
             { "type": "typography", "content": "hi" }
         ]))
         .unwrap();
-        let result = validate_config_field(&field("node", default), "t.config.children");
+        let result = validate_config_field(&field("node", default), "t.config.children", None, &HashSet::new());
         assert!(result.errors.is_empty(), "{:?}", result.errors);
     }
 
@@ -924,7 +1162,7 @@ mod node_config_tests {
             ["if", ["==", "@entity.result", "none"], null, { "type": "game-menu" }]
         ))
         .unwrap();
-        let result = validate_config_field(&field("node", default), "t.config.overlay");
+        let result = validate_config_field(&field("node", default), "t.config.overlay", None, &HashSet::new());
         assert!(
             result.errors.is_empty(),
             "computed node config must not be pattern-checked: {:?}",
@@ -938,7 +1176,391 @@ mod node_config_tests {
             { "type": "not-a-real-pattern", "x": 1 }
         ]))
         .unwrap();
-        let result = validate_config_field(&field("node", default), "t.config.children");
+        let result = validate_config_field(&field("node", default), "t.config.children", None, &HashSet::new());
         assert!(!result.errors.is_empty());
+    }
+}
+
+#[cfg(test)]
+mod event_config_tests {
+    use super::*;
+
+    fn schema_from_json(json: &str) -> OrbitalSchema {
+        serde_json::from_str(json).expect("fixture parses")
+    }
+
+    fn run(schema_json: &str) -> ValidationResult {
+        let schema = schema_from_json(schema_json);
+        let mut ctx = ValidationContext::new();
+        validate_all_config_types(&schema, &mut ctx);
+        ctx.result
+    }
+
+    fn event_trait_schema(knob_default: &str, knob_type: &str) -> String {
+        format!(
+            r#"{{
+      "name": "t", "version": "1.0.0",
+      "orbitals": [{{
+        "name": "O",
+        "entity": {{ "name": "W", "fields": [] }},
+        "traits": [{{
+          "name": "Picker",
+          "config": {{ "clickEvent": {{ "type": "{knob_type}", "default": "{knob_default}" }} }},
+          "emits": [{{ "event": "PICK", "scope": "internal" }}],
+          "stateMachine": {{
+            "states": [{{ "name": "idle", "isInitial": true }}],
+            "transitions": [
+              {{ "from": "idle", "to": "idle", "event": "INIT", "effects": [] }},
+              {{ "from": "idle", "to": "idle", "event": "PICK", "effects": [] }}
+            ]
+          }}
+        }}]
+      }}]
+    }}"#
+        )
+    }
+
+    fn event_errors(result: &ValidationResult) -> Vec<&ValidationError> {
+        result
+            .errors
+            .iter()
+            .filter(|e| e.code == ErrorCode::TraitInvalidEventDefault)
+            .collect()
+    }
+
+    #[test]
+    fn member_value_passes() {
+        let result = run(&event_trait_schema("PICK", "event"));
+        assert!(event_errors(&result).is_empty(), "{:?}", result.errors);
+    }
+
+    #[test]
+    fn non_member_value_fails_with_valid_values() {
+        let result = run(&event_trait_schema("note.search", "event"));
+        let errs = event_errors(&result);
+        assert_eq!(errs.len(), 1, "{:?}", result.errors);
+        assert_eq!(errs[0].code, ErrorCode::TraitInvalidEventDefault);
+        let valid = errs[0].valid_values.as_ref().expect("valid_values");
+        assert!(valid.contains(&"PICK".to_string()));
+    }
+
+    #[test]
+    fn empty_string_is_default_off_outlet() {
+        let result = run(&event_trait_schema("", "event"));
+        assert!(event_errors(&result).is_empty(), "{:?}", result.errors);
+    }
+
+    #[test]
+    fn config_forward_value_skips() {
+        let result = run(&event_trait_schema("@config.other", "event"));
+        assert!(event_errors(&result).is_empty(), "{:?}", result.errors);
+    }
+
+    #[test]
+    fn string_typed_knob_is_untouched() {
+        let result = run(&event_trait_schema("note.search", "string"));
+        assert!(event_errors(&result).is_empty(), "{:?}", result.errors);
+    }
+
+    #[test]
+    fn vacuous_event_set_skips() {
+        let result = run(
+            r#"{
+      "name": "t", "version": "1.0.0",
+      "orbitals": [{
+        "name": "O",
+        "entity": { "name": "W", "fields": [] },
+        "traits": [{
+          "name": "RenderOnly",
+          "config": { "clickEvent": { "type": "event", "default": "ANYTHING" } },
+          "stateMachine": { "states": [{ "name": "idle", "isInitial": true }], "transitions": [] }
+        }]
+      }]
+    }"#,
+        );
+        assert!(event_errors(&result).is_empty(), "{:?}", result.errors);
+    }
+
+    #[test]
+    fn sentinel_resolves_through_knob_default_for_membership() {
+        // The trait transitions on `@config.onPageChange` (dynamic sentinel);
+        // a SIBLING event-typed knob naming the sentinel's resolved value is
+        // a member (the pageChangeEvent edge from the corpus simulation).
+        let result = run(
+            r#"{
+      "name": "t", "version": "1.0.0",
+      "orbitals": [{
+        "name": "O",
+        "entity": { "name": "W", "fields": [] },
+        "traits": [{
+          "name": "Pager",
+          "config": {
+            "onPageChange": { "type": "string", "default": "PAGE_CHANGE" },
+            "pageChangeEvent": { "type": "event", "default": "PAGE_CHANGE" }
+          },
+          "stateMachine": {
+            "states": [{ "name": "idle", "isInitial": true }],
+            "transitions": [
+              { "from": "idle", "to": "idle", "event": "@config.onPageChange", "effects": [] }
+            ]
+          }
+        }]
+      }]
+    }"#,
+        );
+        assert!(event_errors(&result).is_empty(), "{:?}", result.errors);
+    }
+
+    #[test]
+    fn definer_typed_event_skips_membership() {
+        // A-UNIFY: sentinel position — the knob's value CREATES the event
+        // key, so any name is valid by construction; it must not be checked
+        // against the trait's own event set (which wouldn't even contain a
+        // literal "CLICKED" here, since the trait's only member is the
+        // sentinel form `@config.onEventClick` itself).
+        let result = run(
+            r#"{
+      "name": "t", "version": "1.0.0",
+      "orbitals": [{
+        "name": "O",
+        "entity": { "name": "W", "fields": [] },
+        "traits": [{
+          "name": "Cal",
+          "config": { "onEventClick": { "type": "event", "default": "CLICKED" } },
+          "stateMachine": {
+            "states": [{ "name": "idle", "isInitial": true }],
+            "transitions": [
+              { "from": "idle", "to": "idle", "event": "@config.onEventClick", "effects": [] }
+            ]
+          }
+        }]
+      }]
+    }"#,
+        );
+        assert!(event_errors(&result).is_empty(), "{:?}", result.errors);
+    }
+
+    #[test]
+    fn definer_typed_event_still_rejects_non_string_default() {
+        // The definer skip only lifts the MEMBERSHIP check — a non-string
+        // default is still decidably wrong regardless of role.
+        let result = run(
+            r#"{
+      "name": "t", "version": "1.0.0",
+      "orbitals": [{
+        "name": "O",
+        "entity": { "name": "W", "fields": [] },
+        "traits": [{
+          "name": "Cal",
+          "config": { "onEventClick": { "type": "event", "default": 42 } },
+          "stateMachine": {
+            "states": [{ "name": "idle", "isInitial": true }],
+            "transitions": [
+              { "from": "idle", "to": "idle", "event": "@config.onEventClick", "effects": [] }
+            ]
+          }
+        }]
+      }]
+    }"#,
+        );
+        let errs = event_errors(&result);
+        assert_eq!(errs.len(), 1, "{:?}", result.errors);
+        assert_eq!(errs[0].code, ErrorCode::TraitInvalidEventDefault);
+    }
+
+    #[test]
+    fn reference_arm_skips_membership() {
+        // A pre-inline Reference override has no base-trait vocabulary — the
+        // event membership check must not fire there.
+        let result = run(
+            r#"{
+      "name": "t", "version": "1.0.0",
+      "orbitals": [{
+        "name": "O",
+        "entity": { "name": "W", "fields": [] },
+        "traits": [{
+          "ref": "Atom.traits.Picker",
+          "name": "MyPicker",
+          "config": { "clickEvent": { "type": "event", "default": "WHATEVER" } }
+        }]
+      }]
+    }"#,
+        );
+        assert!(event_errors(&result).is_empty(), "{:?}", result.errors);
+    }
+}
+
+#[cfg(test)]
+mod struct_event_field_tests {
+    use super::*;
+
+    fn schema_from_json(json: &str) -> OrbitalSchema {
+        serde_json::from_str(json).expect("fixture parses")
+    }
+
+    fn run(schema_json: &str) -> ValidationResult {
+        let schema = schema_from_json(schema_json);
+        let mut ctx = ValidationContext::new();
+        validate_all_config_types(&schema, &mut ctx);
+        ctx.result
+    }
+
+    fn event_errors(result: &ValidationResult) -> Vec<&ValidationError> {
+        result
+            .errors
+            .iter()
+            .filter(|e| e.code == ErrorCode::TraitInvalidEventDefault)
+            .collect()
+    }
+
+    /// A `Header` trait with an `itemActions : [ItemAction]` knob (struct
+    /// alias, `event` member) whose default carries one item, plus a
+    /// SIBLING `Editor` trait with its own transition — proves the D2
+    /// orbital-wide acceptance (own transitions ∪ orbital-wide transitions
+    /// ∪ own emits), the whole point of Phase B / SCAN-EVENT-KNOB-2.
+    fn item_actions_schema(event_value: &str) -> String {
+        format!(
+            r#"{{
+      "name": "t", "version": "1.0.0",
+      "orbitals": [{{
+        "name": "O",
+        "entity": {{ "name": "W", "fields": [] }},
+        "traits": [
+          {{
+            "name": "Header",
+            "config": {{
+              "itemActions": {{
+                "type": "[ItemAction]",
+                "default": [{{ "event": "{event_value}", "label": "Go" }}],
+                "items": {{
+                  "type": "object",
+                  "properties": {{
+                    "event": {{ "type": "event" }},
+                    "label": {{ "type": "string" }}
+                  }}
+                }}
+              }}
+            }},
+            "stateMachine": {{
+              "states": [{{ "name": "idle", "isInitial": true }}],
+              "transitions": [
+                {{ "from": "idle", "to": "idle", "event": "INIT", "effects": [] }},
+                {{ "from": "idle", "to": "idle", "event": "EDIT", "effects": [] }}
+              ]
+            }}
+          }},
+          {{
+            "name": "Editor",
+            "stateMachine": {{
+              "states": [{{ "name": "idle", "isInitial": true }}],
+              "transitions": [
+                {{ "from": "idle", "to": "idle", "event": "INIT", "effects": [] }},
+                {{ "from": "idle", "to": "idle", "event": "DELETE_ITEM", "effects": [] }}
+              ]
+            }}
+          }}
+        ]
+      }}]
+    }}"#
+        )
+    }
+
+    #[test]
+    fn own_transition_member_passes() {
+        let result = run(&item_actions_schema("EDIT"));
+        assert!(event_errors(&result).is_empty(), "{:?}", result.errors);
+    }
+
+    #[test]
+    fn sibling_orbital_wide_transition_member_passes() {
+        // The whole point of D2: an item action targeting a SIBLING trait's
+        // transition is legal — item actions are orbital-wide by design.
+        let result = run(&item_actions_schema("DELETE_ITEM"));
+        assert!(event_errors(&result).is_empty(), "{:?}", result.errors);
+    }
+
+    #[test]
+    fn invented_member_fails_typed() {
+        let result = run(&item_actions_schema("GHOST"));
+        let errs = event_errors(&result);
+        assert_eq!(errs.len(), 1, "{:?}", result.errors);
+        let valid = errs[0].valid_values.as_ref().expect("valid_values");
+        assert!(valid.contains(&"EDIT".to_string()));
+        assert!(valid.contains(&"DELETE_ITEM".to_string()));
+    }
+
+    #[test]
+    fn empty_string_member_is_default_off_outlet() {
+        let result = run(&item_actions_schema(""));
+        assert!(event_errors(&result).is_empty(), "{:?}", result.errors);
+    }
+
+    #[test]
+    fn config_forward_member_skips() {
+        let schema = r#"{
+      "name": "t", "version": "1.0.0",
+      "orbitals": [{
+        "name": "O",
+        "entity": { "name": "W", "fields": [] },
+        "traits": [{
+          "name": "Header",
+          "config": {
+            "itemActions": {
+              "type": "[ItemAction]",
+              "default": [{ "event": "@config.other", "label": "Go" }],
+              "items": {
+                "type": "object",
+                "properties": {
+                  "event": { "type": "event" },
+                  "label": { "type": "string" }
+                }
+              }
+            }
+          },
+          "stateMachine": {
+            "states": [{ "name": "idle", "isInitial": true }],
+            "transitions": [
+              { "from": "idle", "to": "idle", "event": "INIT", "effects": [] }
+            ]
+          }
+        }]
+      }]
+    }"#;
+        let result = run(schema);
+        assert!(event_errors(&result).is_empty(), "{:?}", result.errors);
+    }
+
+    #[test]
+    fn non_string_member_fails_typed() {
+        let schema = r#"{
+      "name": "t", "version": "1.0.0",
+      "orbitals": [{
+        "name": "O",
+        "entity": { "name": "W", "fields": [] },
+        "traits": [{
+          "name": "Header",
+          "config": {
+            "itemActions": {
+              "type": "[ItemAction]",
+              "default": [{ "event": 42, "label": "Go" }],
+              "items": {
+                "type": "object",
+                "properties": {
+                  "event": { "type": "event" },
+                  "label": { "type": "string" }
+                }
+              }
+            }
+          },
+          "stateMachine": {
+            "states": [{ "name": "idle", "isInitial": true }],
+            "transitions": []
+          }
+        }]
+      }]
+    }"#;
+        let result = run(schema);
+        let errs = event_errors(&result);
+        assert_eq!(errs.len(), 1, "{:?}", errs);
     }
 }

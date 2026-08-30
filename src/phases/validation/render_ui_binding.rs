@@ -293,8 +293,11 @@ fn field_type_to_binding(ft: &FieldType) -> BindingType {
         // `trait`-typed config values are `@trait.X` strings at the binding
         // level — the codegen / runtime substitute them with embedded UI later.
         FieldType::Trait => BindingType::String,
-        // `slot` and `pattern` resolve to strings at the binding level.
-        FieldType::Slot | FieldType::Pattern => BindingType::String,
+        // `slot` and `pattern` resolve to strings at the binding level; so
+        // does `event` (Phase B struct-field carrier) — an event name is a
+        // string at the render-binding lattice, same as the scalar
+        // config-knob `event` type.
+        FieldType::Slot | FieldType::Pattern | FieldType::Event => BindingType::String,
         // Renderable content binds like an object (a pattern tree) — and the
         // prop-compat rule already accepts anything where `node` is expected.
         FieldType::Node => BindingType::Object,

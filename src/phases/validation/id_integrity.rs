@@ -508,11 +508,58 @@ impl Checker<'_> {
     }
 }
 
+/// Rule 5 — `ORB_ID_DUPLICATE_EVENT_ID` (error): one event id declared by two
+/// or more DIFFERENT traits of the same orbital (`stateMachine.events[].id` /
+/// `emits[].eventId`). Ids are the durable node keys; a shared one makes every
+/// id→name resolution over the document ambiguous (the multi-instance knob
+/// clobber). Inline's event-id hygiene re-derives per instance at expansion,
+/// so a hit here means the artifact was produced outside that path — the
+/// producer is the bug.
+fn check_duplicate_event_ids(schema: &OrbitalSchema, result: &mut ValidationResult) {
+    for (oi, orbital) in schema.orbitals.iter().enumerate() {
+        let mut owners: HashMap<&str, Vec<&str>> = HashMap::new();
+        for tr in &orbital.traits {
+            let TraitReference::Inline(td) = tr else {
+                continue;
+            };
+            let mut seen_here: HashSet<&str> = HashSet::new();
+            for ev in td.state_machine.events.iter().flatten() {
+                if let Some(id) = &ev.id {
+                    seen_here.insert(id);
+                }
+            }
+            for e in td.emits.iter().flatten() {
+                if let Some(id) = &e.event_id {
+                    seen_here.insert(id);
+                }
+            }
+            for id in seen_here {
+                owners.entry(id).or_default().push(&td.name);
+            }
+        }
+        for (id, traits) in owners {
+            if traits.len() > 1 {
+                result.add_error(ValidationError::error(
+                    ErrorCode::OrbIdDuplicateEventId,
+                    format!("orbitals[{} ({})]", oi, orbital.name),
+                    format!(
+                        "event id `{id}` is declared by {} different traits ({}) — ids must be document-unique; every id→name resolution over this schema is ambiguous.",
+                        traits.len(),
+                        traits.join(", ")
+                    ),
+                ));
+            }
+        }
+    }
+}
+
 /// Rule family entry point. No-op on legacy id-free schemas.
 pub fn validate_id_integrity(schema: &OrbitalSchema, ctx: &mut ValidationContext) {
     let index = IdIndex::build(schema);
     let mut result = ValidationResult::new();
     let mut seen: HashSet<String> = index.declared.keys().cloned().collect();
+
+    check_duplicate_event_ids(schema, &mut result);
 
     {
         let mut checker = Checker {
@@ -868,6 +915,54 @@ mod tests {
         assert_eq!(
             codes,
             vec![ErrorCode::OrbIdLedgerOrphan],
+            "codes: {codes:?}"
+        );
+    }
+
+    #[test]
+    fn duplicate_event_id_across_traits_is_an_error() {
+        let mut v = healthy_json();
+        // A second trait declaring the SAME event id (the multi-instance
+        // expansion shape an old producer bakes) must be rejected.
+        v["orbitals"][0]["traits"]
+            .as_array_mut()
+            .unwrap()
+            .push(serde_json::json!({
+                "name": "TaskListCopy",
+                "id": "trt_COPY000000000000000000000",
+                "linkedEntity": "Task",
+                "linkedEntityId": "ent_TASK000000000000000000000",
+                "emits": [{ "event": "REFRESH", "eventId": "evt_REFRESH0000000000000000" }],
+                "stateMachine": {
+                    "states": [{ "name": "idle", "isInitial": true }],
+                    "transitions": []
+                }
+            }));
+        v["ledger"]["entries"]["trt_COPY000000000000000000000"] = serde_json::json!({
+            "id": "trt_COPY000000000000000000000", "kind": "trait",
+            "bakedName": "TaskListCopy", "curName": "TaskListCopy",
+            "renames": [], "owner": "workspace"
+        });
+        let codes = id_codes(&run(&parse(v)));
+        assert!(
+            codes.contains(&ErrorCode::OrbIdDuplicateEventId),
+            "codes: {codes:?}"
+        );
+    }
+
+    #[test]
+    fn same_event_id_within_one_trait_is_not_a_duplicate() {
+        // One trait carrying the id in both its event list and its emit list is
+        // ONE owner — the healthy fixture already has this shape and must stay
+        // silent (covered by healthy_schema_is_silent), but pin it explicitly
+        // with the id in both positions.
+        let mut v = healthy_json();
+        v["orbitals"][0]["traits"][0]["stateMachine"]["events"] = serde_json::json!([
+            { "key": "REFRESH", "id": "evt_REFRESH0000000000000000" }
+        ]);
+        let codes = id_codes(&run(&parse(v)));
+        assert!(
+            !codes.contains(&ErrorCode::OrbIdDuplicateEventId),
             "codes: {codes:?}"
         );
     }

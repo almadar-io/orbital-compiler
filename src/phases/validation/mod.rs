@@ -363,6 +363,8 @@ pub const VALID_FIELD_TYPES: &[&str] = &[
     "pattern",
     // Renderable UI content (type-integrity campaign).
     "node",
+    // Event-name reference (Phase B / SCAN-EVENT-KNOB-2 struct-field carrier).
+    "event",
 ];
 
 /// Valid trait categories

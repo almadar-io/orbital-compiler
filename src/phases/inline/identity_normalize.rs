@@ -24,7 +24,7 @@ use orbital_core::schema::{
     ConfigField, EntityRef, Orbital, OrbitalSchema, PageRef, SExpression, TraitDefinition,
     TraitReference,
 };
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 /// Rewrite every id-carrying reference token to its current declaration name
 /// across the whole schema. Runs after `ensure_stamped`, before inline/validate.
@@ -66,20 +66,46 @@ pub fn normalize_identity_tokens(schema: &mut OrbitalSchema) {
     }
 }
 
+/// Insert `id → name`, refusing ambiguity: an id carried by two nodes that
+/// disagree on the name resolves to NOTHING (removed + poisoned) — resolution
+/// must be a function, and an arbitrary winner would silently rewrite the
+/// other owners' tokens (the multi-instance shared-id clobber).
+fn insert_unambiguous(
+    map: &mut HashMap<String, String>,
+    poisoned: &mut HashSet<String>,
+    id: &str,
+    name: &str,
+) {
+    if poisoned.contains(id) {
+        return;
+    }
+    match map.get(id) {
+        Some(existing) if existing != name => {
+            map.remove(id);
+            poisoned.insert(id.to_string());
+        }
+        Some(_) => {}
+        None => {
+            map.insert(id.to_string(), name.to_string());
+        }
+    }
+}
+
 /// `entity_id → current declaration name` for the orbital's primary + auxiliary
 /// inline entities. Reference/extends entities carry no local id to rename by.
 fn collect_entity_id_names(orbital: &Orbital) -> HashMap<String, String> {
     let mut out = HashMap::new();
+    let mut poisoned = HashSet::new();
     if let EntityRef::Inline(e) = &orbital.entity {
         if let Some(id) = &e.id {
-            out.insert(id.clone(), e.name.clone());
+            insert_unambiguous(&mut out, &mut poisoned, id, &e.name);
         }
     }
     if let Some(aux) = orbital.auxiliary_entities.as_ref() {
         for a in aux {
             if let EntityRef::Inline(e) = a {
                 if let Some(id) = &e.id {
-                    out.insert(id.clone(), e.name.clone());
+                    insert_unambiguous(&mut out, &mut poisoned, id, &e.name);
                 }
             }
         }
@@ -94,11 +120,12 @@ fn collect_entity_id_names(orbital: &Orbital) -> HashMap<String, String> {
 /// TARGET's `ref_id` still resolves against the source registry during inline.
 fn collect_trait_id_names(orbital: &Orbital) -> HashMap<String, String> {
     let mut out = HashMap::new();
+    let mut poisoned = HashSet::new();
     for tr in &orbital.traits {
         match tr {
             TraitReference::Inline(td) => {
                 if let Some(id) = &td.id {
-                    out.insert(id.clone(), td.name.clone());
+                    insert_unambiguous(&mut out, &mut poisoned, id, &td.name);
                 }
             }
             TraitReference::Reference {
@@ -113,7 +140,7 @@ fn collect_trait_id_names(orbital: &Orbital) -> HashMap<String, String> {
                         .map(|r| r.rsplit('.').next().unwrap_or(r).to_string())
                 });
                 if let Some(current) = current {
-                    out.insert(id.clone(), current);
+                    insert_unambiguous(&mut out, &mut poisoned, id, &current);
                 }
             }
             TraitReference::Reference { .. } => {}
@@ -128,11 +155,12 @@ fn collect_trait_id_names(orbital: &Orbital) -> HashMap<String, String> {
 /// `events: { OLD: NEW }` rename threads into the knob value like entity/trait.
 fn collect_event_id_names(orbital: &Orbital) -> HashMap<String, String> {
     let mut out = HashMap::new();
+    let mut poisoned = HashSet::new();
     for tr in &orbital.traits {
         if let TraitReference::Inline(td) = tr {
             for ev in td.state_machine.events.iter().flatten() {
                 if let Some(id) = &ev.id {
-                    out.insert(id.clone(), ev.key.clone());
+                    insert_unambiguous(&mut out, &mut poisoned, id, &ev.key);
                 }
             }
         }
@@ -557,6 +585,45 @@ mod tests {
             config["targetEvent"].default,
             Some(SExpression::String("SAVE".into()))
         );
+    }
+
+    /// An id carried by two declarations that DISAGREE on the name resolves to
+    /// nothing: neither knob default is rewritten (no arbitrary winner). This
+    /// is the stale-artifact heal for the multi-instance shared-id clobber —
+    /// a fresh artifact never reaches here with a shared id (inline's event-id
+    /// hygiene re-derives per instance).
+    #[test]
+    fn ambiguous_shared_event_id_resolves_to_nothing() {
+        let trait_json = |name: &str, key: &str| {
+            json!({
+                "name": name, "linkedEntity": "Note",
+                "config": {
+                    "searchEvent": { "type": "event", "default": key, "refId": "evt_shared" }
+                },
+                "stateMachine": {
+                    "states": [{ "name": "idle", "isInitial": true }],
+                    "transitions": [{ "from": "idle", "to": "idle", "event": key }],
+                    "events": [{ "key": key, "id": "evt_shared" }]
+                }
+            })
+        };
+        let mut s = schema(json!({
+            "version": "2.0", "name": "T",
+            "orbitals": [{
+                "name": "O",
+                "entity": { "name": "Note", "fields": [], "id": "ent_a" },
+                "traits": [trait_json("A", "NOTE_SEARCH"), trait_json("B", "SEARCH")]
+            }]
+        }));
+        normalize_identity_tokens(&mut s);
+        let default_of = |i: usize| match &s.orbitals[0].traits[i] {
+            TraitReference::Inline(td) => td.config.as_ref().unwrap()["searchEvent"]
+                .default
+                .clone(),
+            _ => panic!("inline"),
+        };
+        assert_eq!(default_of(0), Some(SExpression::String("NOTE_SEARCH".into())));
+        assert_eq!(default_of(1), Some(SExpression::String("SEARCH".into())));
     }
 
     /// No side-map ids present → the schema passes through byte-identical.

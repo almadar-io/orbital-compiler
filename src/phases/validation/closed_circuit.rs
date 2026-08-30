@@ -23,7 +23,8 @@ use super::sync::{
 use super::{ErrorCode, ValidationContext, ValidationError, ValidationResult};
 use crate::phases::sexpr_json::sexpr_obj_to_json_map;
 use orbital_core::schema::{
-    OrbitalSchema, SExpression, StateMachine, TraitDefinition, TraitReference, TransitionDefinition,
+    json_conditional_leaf_values, OrbitalSchema, SExpression, StateMachine, TraitDefinition,
+    TraitReference, TransitionDefinition,
 };
 use std::collections::{HashMap, HashSet};
 
@@ -279,38 +280,54 @@ fn extract_item_actions(render_ui_effects: &[RenderUIInfo]) -> Vec<ItemActionInf
             let Some(actions_value) = props.get(action_prop) else {
                 continue;
             };
-            let serde_json::Value::Array(actions) = actions_value else {
-                continue;
-            };
-
-            for action_value in actions {
-                let serde_json::Value::Object(action_obj) = action_value else {
+            // A conditional (`if`-wrapped) actions config contributes the
+            // union of both branches — the runtime evaluates the condition
+            // at render time, so descriptors in either branch are live.
+            // Multi-leaf paths carry a `.branch[i]` suffix: only one branch
+            // renders at a time, so cross-branch repeats are not duplicates.
+            let leaves = json_conditional_leaf_values(actions_value);
+            let multi_leaf = leaves.len() > 1;
+            for (leaf_idx, leaf) in leaves.into_iter().enumerate() {
+                let serde_json::Value::Array(actions) = leaf else {
                     continue;
                 };
 
-                // Get action name: prefer "action" field, fallback to "event", then "label"
-                let action = action_obj
-                    .get("action")
-                    .or_else(|| action_obj.get("event"))
-                    .or_else(|| action_obj.get("label"))
-                    .and_then(|v| v.as_str())
-                    .map(|s| s.to_string());
+                for action_value in actions {
+                    let serde_json::Value::Object(action_obj) = action_value else {
+                        continue;
+                    };
 
-                let event = action_obj
-                    .get("event")
-                    .and_then(|v| v.as_str())
-                    .map(|s| s.to_string());
+                    // Get action name: prefer "action" field, fallback to "event", then "label"
+                    let action = action_obj
+                        .get("action")
+                        .or_else(|| action_obj.get("event"))
+                        .or_else(|| action_obj.get("label"))
+                        .and_then(|v| v.as_str())
+                        .map(|s| s.to_string());
 
-                if let (Some(action), Some(event)) = (action, event) {
-                    results.push(ItemActionInfo {
-                        action,
-                        event,
-                        pattern_type: pattern_type.clone(),
-                        in_state: render_ui.to_state.clone(),
-                        slot: render_ui.slot.clone(),
-                        from_item_actions: action_prop == "itemActions",
-                        path: format!("{}.props.{}", render_ui.path, action_prop),
-                    });
+                    let event = action_obj
+                        .get("event")
+                        .and_then(|v| v.as_str())
+                        .map(|s| s.to_string());
+
+                    if let (Some(action), Some(event)) = (action, event) {
+                        results.push(ItemActionInfo {
+                            action,
+                            event,
+                            pattern_type: pattern_type.clone(),
+                            in_state: render_ui.to_state.clone(),
+                            slot: render_ui.slot.clone(),
+                            from_item_actions: action_prop == "itemActions",
+                            path: if multi_leaf {
+                                format!(
+                                    "{}.props.{}.branch[{}]",
+                                    render_ui.path, action_prop, leaf_idx
+                                )
+                            } else {
+                                format!("{}.props.{}", render_ui.path, action_prop)
+                            },
+                        });
+                    }
                 }
             }
         }
@@ -502,8 +519,18 @@ fn validate_duplicate_events(item_actions: &[ItemActionInfo], _path: &str) -> Va
             .map(|(base, _)| base)
             .unwrap_or(&action.path);
 
-        // Key includes the effect path to only flag duplicates within the same render-ui effect
-        let key = format!("{}:{}:{}", effect_base_path, action.slot, action.event);
+        // Key includes the effect path to only flag duplicates within the same render-ui effect,
+        // plus the conditional-branch discriminator (empty for literal lists): only one branch
+        // of an `if`-wrapped list renders, so a repeat across branches is not a duplicate.
+        let branch = action
+            .path
+            .rsplit_once(".branch[")
+            .map(|(_, b)| b)
+            .unwrap_or("");
+        let key = format!(
+            "{}:{}:{}:{}",
+            effect_base_path, branch, action.slot, action.event
+        );
 
         if let Some(existing) = seen.get(&key) {
             result.add_error(
@@ -1171,15 +1198,26 @@ mod tests {
         // actions shape); so does a declared emit.
         let mut sibling_handled = HashSet::new();
         sibling_handled.insert("VIEW".to_string());
-        let result3 =
-            validate_orphan_events(&item_actions, &handled_events, &sibling_handled, &empty, "test");
-        assert!(result3.is_valid(), "sibling-handled event must close the circuit");
+        let result3 = validate_orphan_events(
+            &item_actions,
+            &handled_events,
+            &sibling_handled,
+            &empty,
+            "test",
+        );
+        assert!(
+            result3.is_valid(),
+            "sibling-handled event must close the circuit"
+        );
 
         let mut declared = HashSet::new();
         declared.insert("VIEW".to_string());
         let result4 =
             validate_orphan_events(&item_actions, &handled_events, &empty, &declared, "test");
-        assert!(result4.is_valid(), "emits-declared event must close the circuit");
+        assert!(
+            result4.is_valid(),
+            "emits-declared event must close the circuit"
+        );
     }
 
     #[test]
@@ -1268,5 +1306,92 @@ mod tests {
 
         let result = validate_unreachable_states(&sm, "test");
         assert!(!result.is_valid()); // orphan state is unreachable
+    }
+
+    fn json_descriptor(event: &str) -> serde_json::Value {
+        serde_json::json!({"name": "Edit", "action": event, "event": event})
+    }
+
+    fn render_ui_info_with_item_actions(
+        pattern_type: &str,
+        item_actions: serde_json::Value,
+    ) -> RenderUIInfo {
+        let mut props = serde_json::Map::new();
+        props.insert("itemActions".to_string(), item_actions);
+        RenderUIInfo {
+            slot: "main".to_string(),
+            pattern_type: Some(pattern_type.to_string()),
+            props: Some(props),
+            to_state: "idle".to_string(),
+            path: "test.path".to_string(),
+        }
+    }
+
+    /// `extract_item_actions` on a conditional (`if`-wrapped) `itemActions`
+    /// value must union descriptors from BOTH branches — a descriptor that
+    /// only fires in one branch is still a legal action.
+    #[test]
+    fn extract_item_actions_unions_conditional_branches() {
+        let item_actions = serde_json::json!([
+            "if",
+            ["=", "@user.role", "reader"],
+            [json_descriptor("EDIT_ITEM")],
+            [json_descriptor("VIEW_ITEM")]
+        ]);
+        let render_ui_effects = vec![render_ui_info_with_item_actions("data-list", item_actions)];
+        let actions = extract_item_actions(&render_ui_effects);
+        let events: HashSet<String> = actions.into_iter().map(|a| a.event).collect();
+        assert!(
+            events.contains("EDIT_ITEM"),
+            "then-branch missing: {:?}",
+            events
+        );
+        assert!(
+            events.contains("VIEW_ITEM"),
+            "else-branch missing: {:?}",
+            events
+        );
+    }
+
+    /// Literal (non-conditional) `itemActions` extraction is unaffected —
+    /// byte-identical to the pre-fix direct-array path.
+    #[test]
+    fn extract_item_actions_still_reads_literal_list() {
+        let item_actions = serde_json::json!([json_descriptor("EDIT_ITEM")]);
+        let render_ui_effects = vec![render_ui_info_with_item_actions("data-list", item_actions)];
+        let actions = extract_item_actions(&render_ui_effects);
+        assert_eq!(actions.len(), 1);
+        assert_eq!(actions[0].event, "EDIT_ITEM");
+        assert_eq!(actions[0].path, "test.path.props.itemActions");
+    }
+
+    /// The same event in BOTH branches of a conditional list is not a
+    /// duplicate — only one branch renders at a time. The same event twice
+    /// WITHIN one branch still is.
+    #[test]
+    fn duplicate_events_are_branch_scoped() {
+        let cross_branch = serde_json::json!([
+            "if",
+            ["=", "@user.role", "reader"],
+            [json_descriptor("VIEW_ITEM")],
+            [json_descriptor("VIEW_ITEM"), json_descriptor("EDIT_ITEM")]
+        ]);
+        let effects = vec![render_ui_info_with_item_actions("data-list", cross_branch)];
+        let result = validate_duplicate_events(&extract_item_actions(&effects), "test");
+        assert!(
+            result.is_valid(),
+            "cross-branch repeat flagged as duplicate: {:?}",
+            result.errors
+        );
+
+        let within_branch = serde_json::json!([
+            "if",
+            ["=", "@user.role", "reader"],
+            [json_descriptor("VIEW_ITEM"), json_descriptor("VIEW_ITEM")],
+            [json_descriptor("EDIT_ITEM")]
+        ]);
+        let effects = vec![render_ui_info_with_item_actions("data-list", within_branch)];
+        let result = validate_duplicate_events(&extract_item_actions(&effects), "test");
+        assert!(!result.is_valid(), "within-branch duplicate not flagged");
     }
 }

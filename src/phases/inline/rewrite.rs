@@ -287,13 +287,24 @@ fn rewrite_identifiers_inner(
                 //    holding a declared event key. Rewrite per-item.
                 if let Some(map_field) = event_list_for_pattern {
                     if let Some(field) = map_field.get(k.as_str()) {
-                        if let SExpression::Array(items) = v {
-                            for item in items.iter_mut() {
-                                if let SExpression::Object(entry) = item {
-                                    if let Some(SExpression::String(s)) = entry.get_mut(*field) {
-                                        if !s.starts_with('@') {
-                                            if let Some(to) = event_subs.get(s) {
-                                                *s = to.clone();
+                        // A conditional (`if`-wrapped) event-list value must
+                        // have BOTH branches' descriptors renamed — the
+                        // runtime picks a branch at render time, so a rename
+                        // reaching only one branch would leave the other's
+                        // descriptor pointing at the stale event name.
+                        if matches!(v, SExpression::Array(_)) {
+                            for leaf in v.conditional_leaf_values_mut() {
+                                if let SExpression::Array(items) = leaf {
+                                    for item in items.iter_mut() {
+                                        if let SExpression::Object(entry) = item {
+                                            if let Some(SExpression::String(s)) =
+                                                entry.get_mut(*field)
+                                            {
+                                                if !s.starts_with('@') {
+                                                    if let Some(to) = event_subs.get(s) {
+                                                        *s = to.clone();
+                                                    }
+                                                }
                                             }
                                         }
                                     }
@@ -1220,5 +1231,93 @@ mod literal_list_tests {
             SExpression::Array(items) => assert_eq!(items.len(), 1),
             _ => panic!("expected array"),
         }
+    }
+}
+
+#[cfg(test)]
+mod conditional_event_list_tests {
+    use super::*;
+
+    fn descriptor(event: &str) -> SExpression {
+        let mut dm = HashMap::new();
+        dm.insert("name".to_string(), SExpression::String("Edit".to_string()));
+        dm.insert("event".to_string(), SExpression::String(event.to_string()));
+        SExpression::Object(dm)
+    }
+
+    fn data_list_with_item_actions(item_actions: SExpression) -> SExpression {
+        let mut node = HashMap::new();
+        node.insert("type".to_string(), SExpression::String("data-list".to_string()));
+        node.insert("itemActions".to_string(), item_actions);
+        SExpression::Object(node)
+    }
+
+    /// A call-site `events { EDIT_ITEM: EditRow }` rename must reach the
+    /// descriptor's `event` field inside BOTH branches of a conditional
+    /// (`if`-wrapped) `itemActions` config — not just a literal list.
+    #[test]
+    fn rename_reaches_descriptors_in_both_conditional_branches() {
+        let item_actions = SExpression::Array(vec![
+            SExpression::String("if".to_string()),
+            SExpression::String("@user.role".to_string()),
+            SExpression::Array(vec![descriptor("EDIT_ITEM")]),
+            SExpression::Array(vec![descriptor("VIEW_ITEM")]),
+        ]);
+        let mut expr = data_list_with_item_actions(item_actions);
+
+        let entity_subs = HashMap::new();
+        let mut event_subs = HashMap::new();
+        event_subs.insert("EDIT_ITEM".to_string(), "EditRow".to_string());
+        event_subs.insert("VIEW_ITEM".to_string(), "ViewRow".to_string());
+        rewrite_identifiers(&mut expr, &entity_subs, &event_subs);
+
+        let SExpression::Object(node) = &expr else {
+            panic!("expected object");
+        };
+        let SExpression::Array(cond) = &node["itemActions"] else {
+            panic!("expected the conditional array to survive the rewrite intact");
+        };
+        assert_eq!(cond[0], SExpression::String("if".to_string()));
+        let then_event = match &cond[2] {
+            SExpression::Array(items) => match &items[0] {
+                SExpression::Object(dm) => dm.get("event").cloned(),
+                _ => None,
+            },
+            _ => None,
+        };
+        let else_event = match &cond[3] {
+            SExpression::Array(items) => match &items[0] {
+                SExpression::Object(dm) => dm.get("event").cloned(),
+                _ => None,
+            },
+            _ => None,
+        };
+        assert_eq!(then_event, Some(SExpression::String("EditRow".to_string())));
+        assert_eq!(else_event, Some(SExpression::String("ViewRow".to_string())));
+    }
+
+    /// Literal (non-conditional) `itemActions` rename is unaffected — the
+    /// conditional-aware walk must be byte-identical to the old direct-array
+    /// path for the common case.
+    #[test]
+    fn rename_still_reaches_literal_item_actions_list() {
+        let item_actions = SExpression::Array(vec![descriptor("EDIT_ITEM")]);
+        let mut expr = data_list_with_item_actions(item_actions);
+
+        let entity_subs = HashMap::new();
+        let mut event_subs = HashMap::new();
+        event_subs.insert("EDIT_ITEM".to_string(), "EditRow".to_string());
+        rewrite_identifiers(&mut expr, &entity_subs, &event_subs);
+
+        let SExpression::Object(node) = &expr else {
+            panic!("expected object");
+        };
+        let SExpression::Array(items) = &node["itemActions"] else {
+            panic!("expected array");
+        };
+        let SExpression::Object(dm) = &items[0] else {
+            panic!("expected descriptor object");
+        };
+        assert_eq!(dm["event"], SExpression::String("EditRow".to_string()));
     }
 }

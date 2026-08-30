@@ -346,6 +346,54 @@ pub(crate) fn apply_overrides_to_trait(
             }
         }
     }
+    // The `event`-TYPED twin of the step-3c emit-driven fold (gap #30/C1
+    // root fix): a knob declared `: event` holds an event-name REFERENCE,
+    // so an `events:` rename must rewrite its settled value the same way it
+    // rewrites the trait's own event keys — the emit-driven fold can't see
+    // these (nothing in `emits` points at the knob; the value is read from
+    // a render prop). Runs AFTER the GAP-AG-VALUE-DRIFT merge above so a
+    // call-site override spelling the canonical (pre-rename) name is folded
+    // too, not clobbered back; before the fold, only the NEW-name spelling
+    // validated (probe 2026-08-30 A/B/C). Dual-write like step 3c:
+    // `effective_config` for the body substitution below, the DECLARED
+    // default as the carrier that survives serialization.
+    if !event_subs.is_empty() {
+        // A-UNIFY: a DEFINER knob's value CREATES the event name — it is
+        // never a reference into the event set, so a call-site `events:`
+        // rename must not fold onto it (that would rewrite the DEFINITION,
+        // not a reference to it).
+        let definer_knobs = orbital_core::schema::definer_knobs_for_trait(trait_def);
+        let event_knob_renames: Vec<(String, String)> = trait_def
+            .config
+            .as_ref()
+            .map(|cfg| {
+                cfg.iter()
+                    .filter(|(knob, field)| {
+                        field.field_type == "event" && !definer_knobs.contains(knob.as_str())
+                    })
+                    .filter_map(|(knob, field)| {
+                        let current = match field.default.as_ref() {
+                            Some(SExpression::String(s)) if !s.is_empty() => s,
+                            _ => match effective_config.get(knob) {
+                                Some(SExpression::String(s)) if !s.is_empty() => s,
+                                _ => return None,
+                            },
+                        };
+                        let renamed = event_subs.get(current)?;
+                        Some((knob.clone(), renamed.clone()))
+                    })
+                    .collect()
+            })
+            .unwrap_or_default();
+        for (knob, renamed) in event_knob_renames {
+            effective_config.insert(knob.clone(), SExpression::String(renamed.clone()));
+            if let Some(cfg) = trait_def.config.as_mut() {
+                if let Some(field) = cfg.get_mut(&knob) {
+                    field.default = Some(SExpression::String(renamed));
+                }
+            }
+        }
+    }
     if !defer_config_subst && !effective_config.is_empty() {
         record_config_provenance(trait_def, &effective_config, recorder);
         // Call-site payload captures stay UNSUBSTITUTED in the child body:

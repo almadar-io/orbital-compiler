@@ -362,6 +362,7 @@ fn field_type_to_string(field_type: &FieldType) -> String {
         FieldType::Slot => "slot".to_string(),
         FieldType::Pattern => "pattern".to_string(),
         FieldType::Node => "node".to_string(),
+        FieldType::Event => "event".to_string(),
     }
 }
 

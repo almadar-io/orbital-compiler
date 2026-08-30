@@ -16,6 +16,7 @@
 
 mod context;
 mod entity;
+mod event_id_hygiene;
 mod identity_normalize;
 mod page;
 pub(crate) mod rewrite;
@@ -336,6 +337,14 @@ pub fn inline_schema_with_config_diagnostics(
     // Runs after all orbitals inline (so every reference position is final) and
     // uses the loader's caches as the source-ledger source of truth.
     merge_source_ledgers(schema, &loader.source_ledger_union());
+
+    // Expansion copies an atom's baked event ids into every `use` instance, so
+    // a multi-bound atom leaves one id declared by N traits — ambiguous for
+    // every id→name reader (the identity-normalize clobber, id-primary
+    // dispatch). Re-derive per instance (deterministic, `derive_id`) and
+    // reconcile the ledger; runs after the source-ledger merge so retired rows'
+    // metadata is copyable onto the derived rows. No shared ids → no-op.
+    event_id_hygiene::uniquify_instance_event_ids(schema);
 
     // An imported auxiliary entity never displaces a consumer's own entity.
     drop_unreferenced_colliding_auxiliaries(schema);

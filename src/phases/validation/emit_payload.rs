@@ -390,20 +390,24 @@ fn collect_fired_events_recursive(
             let event_keys = ui_event_prop_names();
             for (key, value) in obj.iter() {
                 if event_keys.contains(key) {
-                    if let SExpression::String(s) = value {
-                        // Skip bindings (`@entity.X`, `@payload.Y`) —
-                        // those resolve at runtime to event-name
-                        // strings, but at static analysis we can't know
-                        // the value. Treating `@`-prefixed strings as
-                        // fired would suppress legitimate orphan
-                        // detection.
-                        // …and skip bus-excluded names. A `Button
-                        // action={INIT}` is a DEAD control (the bus never
-                        // delivers INIT/LOAD/$MOUNT), so counting it as an
-                        // emitter let the dead button suppress the very
-                        // warning that would have found it.
-                        if !s.starts_with('@') && !is_bus_excluded_event(s) {
-                            fired.insert(s.clone());
+                    // A conditional value contributes every branch's leaf —
+                    // only one renders at a time, but each is a live emitter.
+                    for leaf in value.conditional_leaf_values() {
+                        if let SExpression::String(s) = leaf {
+                            // Skip bindings (`@entity.X`, `@payload.Y`) —
+                            // those resolve at runtime to event-name
+                            // strings, but at static analysis we can't know
+                            // the value. Treating `@`-prefixed strings as
+                            // fired would suppress legitimate orphan
+                            // detection.
+                            // …and skip bus-excluded names. A `Button
+                            // action={INIT}` is a DEAD control (the bus never
+                            // delivers INIT/LOAD/$MOUNT), so counting it as an
+                            // emitter let the dead button suppress the very
+                            // warning that would have found it.
+                            if !s.starts_with('@') && !is_bus_excluded_event(s) {
+                                fired.insert(s.clone());
+                            }
                         }
                     }
                 }
@@ -907,6 +911,53 @@ mod tests {
         assert!(
             !has_unfired(&ctx, "RETRY"),
             "a deliverable affordance must still satisfy the check"
+        );
+    }
+
+    /// `collect_fired_events_recursive` recurses generically through every
+    /// array/object node with no `type:`-based gating, so a conditional
+    /// (`if`-wrapped) `itemActions` config default is walked into both
+    /// branches automatically — proven here rather than assumed: both
+    /// branch events must be credited as fired.
+    #[test]
+    fn conditional_item_actions_config_default_credits_both_branches() {
+        let json = r#"{
+            "name": "gallery-app",
+            "orbitals": [{
+                "name": "GalleryOrbital",
+                "entity": "GalleryItem",
+                "traits": [{
+                    "name": "GalleryItemGallery",
+                    "emits": [
+                        { "event": "EDIT_ITEM", "payloadSchema": [] },
+                        { "event": "VIEW_ITEM", "payloadSchema": [] }
+                    ],
+                    "stateMachine": {
+                        "states": [{ "name": "browsing", "isInitial": true }],
+                        "transitions": []
+                    },
+                    "config": {
+                        "itemActions": {
+                            "type": "unknown",
+                            "default": ["if", ["=", "@user.role", "reader"],
+                                [{ "event": "EDIT_ITEM", "label": "Edit" }],
+                                [{ "event": "VIEW_ITEM", "label": "View" }]
+                            ]
+                        }
+                    }
+                }]
+            }]
+        }"#;
+        let schema: OrbitalSchema = serde_json::from_str(json).expect("schema parses");
+        let mut ctx = ValidationContext::new();
+        validate_all_emit_payloads(&schema, &mut ctx);
+        assert!(
+            !has_unfired(&ctx, "EDIT_ITEM"),
+            "then-branch event must not warn as declared-but-unfired"
+        );
+        assert!(
+            !has_unfired(&ctx, "VIEW_ITEM"),
+            "else-branch event must not warn as declared-but-unfired"
         );
     }
 }
