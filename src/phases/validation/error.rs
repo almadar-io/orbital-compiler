@@ -524,10 +524,45 @@ pub enum ErrorCode {
     /// provide them and no remap/field-map supplies them. The component would
     /// render blank rows. Remap-aware (runs post-inline). Error severity.
     EntityPropContract,
+    /// **RETIRED (2026-08-30) — superseded by `EmitPayloadNotProduced`, which
+    /// checks the full shape rather than only the empty-payload case.** No
+    /// longer raised anywhere; the variant is kept so external tooling matching
+    /// on the wire string `ORB_EMIT_SUCCESS_PAYLOAD_RETURN_MISMATCH` does not
+    /// break on an unknown code.
+    ///
     /// `emit: { success: "X" }` config on a data operator declares success
     /// event X but X's declared payload does not match the operator's
     /// `effect.produces` at this call site. Warn-only.
     EmitSuccessPayloadReturnMismatch,
+    /// **The payload invariant.** An event's declared payload type IS its
+    /// access path: declaring `Survey` means the payload is the row (read
+    /// `?name`); declaring `{ row : Survey }` means read `?row.name`. This
+    /// fires when an event declares a field that the effect firing it does not
+    /// actually emit — so every read of that field is `undefined` at runtime,
+    /// even though `orb validate` and `orb verify` otherwise pass. Checked as
+    /// width subtyping (`declared ⊆ produced`): declaring FEWER fields than are
+    /// emitted is legal, declaring one that is never emitted is not. Replaces
+    /// the narrower `EmitSuccessPayloadWrapped` (persist-only) and
+    /// `EmitSuccessPayloadReturnMismatch` (empty-payload-only) checks.
+    /// Non-blocking (`phase_f_warning`) pending a corpus-impact measurement.
+    EmitPayloadNotProduced,
+    /// **RETIRED (2026-08-30) — superseded by `EmitPayloadNotProduced`.** This
+    /// check only recognised a wrapper on `persist create`/`update` whose type
+    /// named that exact entity; the general rule catches the same defect at any
+    /// operator and in shapes this one was blind to (a wrapper naming a
+    /// different entity, a field the operator never emits at all). Kept so
+    /// external tooling matching `ORB_EMIT_SUCCESS_PAYLOAD_WRAPPED` still
+    /// resolves.
+    ///
+    /// A `persist create`/`persist update` call's `emit: { success: "X" }`
+    /// names an event X whose declared payload wraps the persisted entity
+    /// under a single field (`type X = Event { row: EntityName }`), but
+    /// `persist create`/`update` emits the persisted row directly (flat,
+    /// unwrapped) on success in both @almadar/runtime and orbital-core —
+    /// verified live 2026-08-30 (std-thread's `ThreadPostCreated`): a
+    /// wrapped declaration validates and compiles clean but every
+    /// `?row.<field>` read silently returns undefined at runtime. Warn-only.
+    EmitSuccessPayloadWrapped,
     /// Phase F.2: two or more traits declare the same external event name in
     /// their `emits` arrays but disagree on the declared payload field list.
     /// Consumers that listen on the event will see one shape from one
@@ -957,6 +992,8 @@ impl ErrorCode {
             ErrorCode::EmitSuccessPayloadReturnMismatch => {
                 "ORB_EMIT_SUCCESS_PAYLOAD_RETURN_MISMATCH"
             }
+            ErrorCode::EmitSuccessPayloadWrapped => "ORB_EMIT_SUCCESS_PAYLOAD_WRAPPED",
+            ErrorCode::EmitPayloadNotProduced => "ORB_EMIT_PAYLOAD_NOT_PRODUCED",
             ErrorCode::CrossEmitterDeclaredPayloadMismatch => {
                 "ORB_X_CROSS_EMITTER_DECLARED_PAYLOAD_MISMATCH"
             }
@@ -1203,6 +1240,8 @@ impl ErrorCode {
             | ErrorCode::EmitPayloadFieldTypeMismatch
             | ErrorCode::PayloadFieldNameInvalid
             | ErrorCode::EmitSuccessPayloadReturnMismatch
+            | ErrorCode::EmitSuccessPayloadWrapped
+            | ErrorCode::EmitPayloadNotProduced
             | ErrorCode::BindingEntityFieldNotFound
             | ErrorCode::BindingEntityFieldNeverSet
             | ErrorCode::BindingPersistRowIdNeverSet

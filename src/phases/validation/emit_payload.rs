@@ -18,17 +18,17 @@ use std::collections::HashMap;
 
 use orbital_core::events::is_bus_excluded_event;
 use orbital_core::schema::{
-    EventScope, OrbitalSchema, PayloadField, SExpression, TraitDefinition, TraitReference,
+    EntityDefinition, EventScope, OrbitalSchema, PayloadField, SExpression, TraitDefinition,
+    TraitReference,
 };
 
-use crate::embedded::{
-    get_operator, patterns, EmbeddedOperator, OperatorTypeRef, OperatorTypeRefKind,
-};
+use crate::embedded::patterns;
 
 use super::effect::{
     collect_payload_field_types, entity_field_type_map, expr_return_incompatible, EntityFieldMeta,
 };
 use super::error::{ErrorCode, ValidationError};
+use super::produced_shape;
 use super::{ValidationContext, ValidationResult};
 
 /// Run emit-payload validation across every trait in every orbital.
@@ -137,7 +137,12 @@ pub fn validate_all_emit_payloads(schema: &OrbitalSchema, ctx: &mut ValidationCo
                         }
                         // V2 Phase 0 P0.8: tie operator `effect.produces` to
                         // `emit: { success: "X" }` on the same call.
-                        let p08 = validate_emit_success_return(effect, &path, &emit_schemas);
+                        let p08 = validate_emit_success_return(
+                            effect,
+                            &path,
+                            &emit_schemas,
+                            &ctx.entity_definitions,
+                        );
                         ctx.merge(p08);
                     }
                 }
@@ -158,7 +163,12 @@ pub fn validate_all_emit_payloads(schema: &OrbitalSchema, ctx: &mut ValidationCo
                             );
                             ctx.merge(result);
                         }
-                        let p08 = validate_emit_success_return(effect, &path, &emit_schemas);
+                        let p08 = validate_emit_success_return(
+                            effect,
+                            &path,
+                            &emit_schemas,
+                            &ctx.entity_definitions,
+                        );
                         ctx.merge(p08);
                     }
                 }
@@ -572,22 +582,41 @@ fn validate_emit_literal(
 // above (which infers their result type) instead of mis-typing them as `"array"`
 // (CG-EMIT-PAYLOAD-SEXPR).
 
-/// V2 Phase 0 P0.8: for effect calls of the five data operators that carry
-/// an `emit: { success: "X" }` config, check that event X is declared on the
-/// trait and its declared payload is compatible with the operator's
-/// `effect.produces` at this call site.
+/// Enforce the payload invariant at every operator `emit` config.
 ///
-/// Scope for this pass is deliberately narrow: we narrow fetch/ref/persist's
-/// union `produces` at the call site (options.id presence for fetch/ref;
-/// action literal for persist) and warn when the narrowed branch expects
-/// an entity-shaped payload but the declared event carries no payload. Full
-/// field-by-field type equality between the narrowed OperatorTypeRef and the
-/// declared PayloadField[] is deferred to a follow-up session so the
-/// narrowing logic stays reviewable.
+/// **The invariant:** an event's declared payload type IS its access path.
+/// Declare `Survey` → the payload is the row, read as `?name`. Declare
+/// `{ row : Survey }` → read as `?row.name`. Any wrapping not in the type is a
+/// lie; any field in the type that is not in the payload reads `undefined`.
+///
+/// **The rule:** every field an event DECLARES must exist in what the effect
+/// PRODUCES. Declaring *fewer* fields than are emitted is legal and common —
+/// declaring `{ data }` when the bus carries `{ data, totalCount }` just means
+/// you only read `data` — so this is width subtyping (`declared ⊆ produced`),
+/// not equality. Equality would reject the ~1,400 fetch sites that legitimately
+/// omit `totalCount`.
+///
+/// This single rule replaces two hand-rolled predecessors, and covers the cases
+/// each of them missed:
+///   - `EmitSuccessPayloadWrapped` — persist-create/update-only, and only for a
+///     wrapper naming that exact entity.
+///   - `EmitSuccessPayloadReturnMismatch` — fired only when the declared payload
+///     was entirely EMPTY, and keyed on `expects_entity_shape`, which matched
+///     precisely the two `produces` declarations that were factually wrong
+///     (`fetch`/`ref` claimed a bare entity while every executor emits
+///     `{data, totalCount}`).
+/// Because the rule is stated over any operator's real produced shape, it also
+/// catches the mirror-image defect the old checks were blind to: an event
+/// declaring a field that the operator never emits at all.
+///
+/// Uses `phase_f_warning` (the only genuinely non-blocking severity —
+/// `ValidationError::warning` is an alias for `error`) so the corpus can be
+/// measured before this escalates to blocking.
 fn validate_emit_success_return(
     effect: &SExpression,
     path: &str,
     emit_schemas: &HashMap<&str, &[PayloadField]>,
+    entity_definitions: &HashMap<String, EntityDefinition>,
 ) -> ValidationResult {
     let mut result = ValidationResult::new();
 
@@ -597,156 +626,160 @@ fn validate_emit_success_return(
     let Some(SExpression::String(op_name)) = arr.first() else {
         return result;
     };
-    let Some(op_meta) = get_operator(op_name) else {
-        return result;
-    };
-    let Some(effect_meta) = op_meta.effect.as_ref() else {
-        return result;
-    };
-    let Some(produces) = effect_meta.produces.as_ref() else {
-        return result;
-    };
 
-    // Extract the emit.success event name from whichever arg slot carries the
-    // options object for this operator.
-    let Some(success_event) = success_event_from_effect(op_name.as_str(), arr.as_slice()) else {
+    // The bus key this operator actually fires on — `ref` uses `on_change`, so
+    // reading `success` for it would inspect a key the runtime never fires.
+    let emit_key = produced_shape::success_emit_key(op_name.as_str());
+    let Some(success_event) = emit_event_for_key(arr.as_slice(), emit_key) else {
         return result;
     };
-
-    // Every declared event on the trait already passed the "is known" check
-    // in effect.rs; only proceed if this one is known. Unknown events are
-    // reported elsewhere.
+    // Unknown events are reported by `effect::validate_emit_against_declaration`.
     let Some(declared_payload) = emit_schemas.get(success_event.as_str()) else {
         return result;
     };
+    // `None` means the produced shape is undecidable at this call site (no
+    // effect metadata, an opaque `any`, an unresolvable union). Never guess.
+    let Some(produced) =
+        produced_shape::produced_payload(op_name.as_str(), arr.as_slice(), entity_definitions)
+    else {
+        return result;
+    };
 
-    // Narrow the produces union based on the specific call site.
-    let narrowed = narrow_produces(op_meta, arr.as_slice(), produces);
-
-    // Minimal check: when the narrowed type is an entity (scalar) or an array
-    // of entity, we expect the declared payload to carry at least one field
-    // (it will have been flattened by the lowerer from the `:: TypeName`
-    // annotation). Empty payloads on events named in `emit.success` for these
-    // operators are almost certainly authoring bugs.
-    if expects_entity_shape(narrowed) && declared_payload.is_empty() {
-        result.add_error(
-            ValidationError::warning(
-                ErrorCode::EmitSuccessPayloadReturnMismatch,
-                path,
-                format!(
-                    "Operator '{}' produces an entity-shaped value for 'emit.success = {}' but the declared event has an empty payload",
-                    op_name, success_event
-                ),
-            )
-            .with_suggestion(format!(
-                "Declare a payload on event '{}' using `:: <EntityType>` (Form A) or a field list so consumers can read typed @payload values",
-                success_event
-            )),
-        );
+    for declared in declared_payload.iter() {
+        match produced.iter().find(|p| p.name == declared.name) {
+            None => {
+                result.add_error(
+                    ValidationError::error(
+                        ErrorCode::EmitPayloadNotProduced,
+                        path,
+                        format!(
+                            "Event '{}' declares payload field '{}', but '{}' emits {} on '{}' — '{}' is not one of them, so '?{}' reads undefined at runtime",
+                            success_event,
+                            declared.name,
+                            op_name,
+                            describe_fields(&produced),
+                            emit_key,
+                            declared.name,
+                            declared.name
+                        ),
+                    )
+                    .with_suggestion(format!(
+                        "Declare '{}' with the shape '{}' actually emits ({}), or drop the field",
+                        success_event,
+                        op_name,
+                        describe_fields(&produced)
+                    )),
+                );
+            }
+            Some(produced_field) => {
+                // Only a CONCRETE disagreement is reported — see
+                // `produced_type_accepts` for why most pairs cannot be one.
+                if !produced_type_accepts(&produced_field.field_type, &declared.field_type) {
+                    result.add_error(
+                        ValidationError::error(
+                            ErrorCode::EmitPayloadNotProduced,
+                            path,
+                            format!(
+                                "Event '{}' declares payload field '{}' as '{}', but '{}' emits it as '{}'",
+                                success_event,
+                                declared.name,
+                                declared.field_type,
+                                op_name,
+                                produced_field.field_type
+                            ),
+                        )
+                        .with_suggestion(format!(
+                            "Align '{}.{}' with the emitted type '{}'",
+                            success_event, declared.name, produced_field.field_type
+                        )),
+                    );
+                }
+            }
+        }
     }
 
     result
 }
 
-/// Extract the `emit.success` event name from an effect call's arguments,
-/// checking the options-object slot that this specific operator places its
-/// options at. Returns `None` when the call doesn't have an emit config.
-fn success_event_from_effect(op_name: &str, args: &[SExpression]) -> Option<String> {
-    // args[0] is the operator name itself; the options-object slot differs
-    // per operator shape in modules/core.ts.
-    let options_slot = match op_name {
-        // (fetch Entity options?) -> args[2]
-        "fetch" | "ref" => 2,
-        // (persist action Entity? data?) — options may come as a trailing
-        // object on args[3] when the `emit` key is present (per
-        // EffectExecutor.ts:493 heuristic).
-        "persist" => {
-            // Walk from the back for the first object with `emit` key.
-            return args.iter().rev().find_map(extract_emit_success);
+/// Can a field the operator emits as `produced` legitimately be declared as
+/// `declared`?
+///
+/// The two sides speak different dialects and the produced side is strictly
+/// COARSER, because it is derived from `EntityDefinition` field tags
+/// (`field_type_str` → the lowercase serde tag: `relation`, `array`, `money`,
+/// `object`). A payload declaration is richer and names the thing precisely:
+/// the relation's target entity (`Member`), the array's element type
+/// (`[string]`), the semantic scalar (`number` for a money column). Comparing
+/// those two vocabularies with the literal-value table produced ~93 findings
+/// across the corpus that were purely dialect noise — `skills: [string]` vs
+/// `array`, `parentId: StripTag` vs `relation`, `subtotal: number` vs `money`.
+/// Reporting those would have been worse than useless: it pressures authors to
+/// downgrade a precise declaration to the validator's internal tag, discarding
+/// the element type and the relation target.
+///
+/// So a coarse produced tag ACCEPTS any refinement of itself, and a mismatch is
+/// only reported when both sides are concrete and genuinely disagree (declared
+/// `string` where a `number` is emitted). The access-path half of the rule —
+/// the field existing at all — is unaffected and remains exact; that is the
+/// half that catches the actual defect class.
+fn produced_type_accepts(produced: &str, declared: &str) -> bool {
+    if produced == declared {
+        return true;
+    }
+    match produced {
+        // Unresolvable produced side, or a genuinely open shape.
+        "any" | "json" | "object" | "entity" => true,
+        // A relation column stores an id; a payload may name the target entity
+        // or type it as the id string.
+        "relation" => true,
+        // The element type lives only on the declared side.
+        "array" => declared.starts_with('[') || declared == "array",
+        "money" => matches!(declared, "number" | "money"),
+        "date" | "datetime" | "timestamp" => matches!(
+            declared,
+            "string" | "number" | "date" | "datetime" | "timestamp"
+        ),
+        // Semantic string domains.
+        "email" | "url" | "phone" | "uuid" | "image" | "file" => {
+            matches!(declared, "string" | "object") || declared == produced
         }
-        // (call-service "svc" "action" params options?) -> args[4]
-        "call-service" | "call_service" => 4,
-        // (set binding value options?) -> args[3]
-        "set" => 3,
-        _ => return None,
-    };
-    args.get(options_slot).and_then(extract_emit_success)
-}
-
-fn extract_emit_success(value: &SExpression) -> Option<String> {
-    let SExpression::Object(obj) = value else {
-        return None;
-    };
-    let emit = obj.get("emit")?;
-    let SExpression::Object(emit_obj) = emit else {
-        return None;
-    };
-    match emit_obj.get("success")? {
-        SExpression::String(s) => Some(s.clone()),
-        _ => None,
+        // Both concrete: defer to the shared literal-compat table, which is
+        // itself lenient about `any` and the date family.
+        _ => primitive_types_compatible(declared, produced),
     }
 }
 
-/// Narrow a union `produces` to the branch matching the call site. Non-union
-/// produces return unchanged. Unknown operators or unrecognised argument
-/// shapes fall through to the full union (lenient on mismatch).
-fn narrow_produces<'a>(
-    op_meta: &'a EmbeddedOperator,
-    args: &'a [SExpression],
-    produces: &'a OperatorTypeRef,
-) -> &'a OperatorTypeRef {
-    let OperatorTypeRef::Tagged(OperatorTypeRefKind::Union { of }) = produces else {
-        return produces;
-    };
-    let kind = op_meta
-        .effect
-        .as_ref()
-        .map(|e| e.kind.as_str())
-        .unwrap_or("");
-    let picked: Option<usize> = match kind {
-        "fetch" | "ref" => {
-            // options at args[2]; has `id` -> scalar (branch 0), else array (branch 1).
-            let has_id = args
-                .get(2)
-                .and_then(|opt| {
-                    let SExpression::Object(o) = opt else {
-                        return None;
-                    };
-                    Some(o.contains_key("id"))
-                })
-                .unwrap_or(false);
-            Some(if has_id { 0 } else { 1 })
-        }
-        "persist" => {
-            // action at args[1]; union order: [create/update scalar, delete object, batch summary].
-            let action = args
-                .get(1)
-                .and_then(|a| match a {
-                    SExpression::String(s) => Some(s.as_str()),
-                    _ => None,
-                })
-                .unwrap_or("");
-            Some(match action {
-                "create" | "update" => 0,
-                "delete" | "clear" => 1,
-                "batch" => 2,
-                _ => return produces, // unknown action, keep union
-            })
-        }
-        _ => None,
-    };
-    match picked {
-        Some(idx) if idx < of.len() => &of[idx],
-        _ => produces,
+/// Render a produced shape as a readable field list for diagnostics.
+fn describe_fields(fields: &[PayloadField]) -> String {
+    if fields.is_empty() {
+        return "no payload".to_string();
     }
+    let names: Vec<&str> = fields.iter().map(|f| f.name.as_str()).collect();
+    format!("{{ {} }}", names.join(", "))
 }
 
-fn expects_entity_shape(type_ref: &OperatorTypeRef) -> bool {
-    matches!(
-        type_ref,
-        OperatorTypeRef::Tagged(OperatorTypeRefKind::Entity { .. })
-            | OperatorTypeRef::Tagged(OperatorTypeRefKind::Array { .. })
-    )
+/// Read `emit.<key>`'s event name off whichever trailing argument carries the
+/// options object.
+///
+/// Scans from the back for the first object with an `emit` block rather than
+/// indexing a per-operator slot. The previous slot table was wrong in three
+/// ways at once: it read `set` at `args[3]` (`set` has `maxArity: 2`, so the
+/// slot never exists), matched `"call_service"` (not an operator name — the
+/// real one is `call-service`), and looked up `success` for `ref` (which fires
+/// `on_change`). Scanning is also robust to persist's 3- vs 4-element forms.
+fn emit_event_for_key(args: &[SExpression], key: &str) -> Option<String> {
+    args.iter().rev().find_map(|value| {
+        let SExpression::Object(obj) = value else {
+            return None;
+        };
+        let SExpression::Object(emit_obj) = obj.get("emit")? else {
+            return None;
+        };
+        match emit_obj.get(key)? {
+            SExpression::String(s) => Some(s.clone()),
+            _ => None,
+        }
+    })
 }
 
 /// Lenient primitive compatibility check. `any` matches anything; `date` /
@@ -768,6 +801,241 @@ fn primitive_types_compatible(declared: &str, actual: &str) -> bool {
 mod tests {
     use super::*;
 
+    /// True when the payload-invariant check flagged `event`.
+    ///
+    /// Scans BOTH buckets: the check is raised via `phase_f_warning` (genuinely
+    /// non-blocking) while the corpus impact is being measured, so it lands in
+    /// `warnings` today — but `ValidationError::warning` is an alias for
+    /// `error`, so a future escalation moves it to `errors` without touching
+    /// these tests.
+    fn has_wrapped(ctx: &ValidationContext, event: &str) -> bool {
+        ctx.result
+            .errors
+            .iter()
+            .chain(ctx.result.warnings.iter())
+            .any(|e| e.code == ErrorCode::EmitPayloadNotProduced && e.message.contains(event))
+    }
+
+    /// The fixture every payload-invariant test uses. The entity is INLINE (not
+    /// a string reference) because the check resolves the produced shape from
+    /// `ctx.entity_definitions` — without a real entity it has no shape to
+    /// compare against and, by design, declines to check rather than guess.
+    fn persist_trait_json(emits: &str, effect: &str) -> String {
+        format!(
+            r#"{{
+                "name": "wrap-app",
+                "orbitals": [{{
+                    "name": "ThreadOrbital",
+                    "entity": {{
+                        "name": "ThreadPost",
+                        "fields": [
+                            {{ "name": "id", "type": "string" }},
+                            {{ "name": "content", "type": "string" }}
+                        ]
+                    }},
+                    "traits": [{{
+                        "name": "ThreadPostCreate",
+                        "emits": [{emits}],
+                        "stateMachine": {{
+                            "states": [{{ "name": "browsing", "isInitial": true }}],
+                            "transitions": [{{
+                                "from": "browsing", "to": "browsing", "event": "SUBMIT",
+                                "effects": [{effect}]
+                            }}]
+                        }}
+                    }}]
+                }}]
+            }}"#
+        )
+    }
+
+    /// Unit tests call `validate_all_emit_payloads` directly, bypassing
+    /// `validate_comprehensive_full` and therefore Phase 1 (`collect_names`),
+    /// which is what normally populates `entity_definitions`. Seed it the same
+    /// way so the produced shape is resolvable.
+    fn ctx_with_seeded_entities(schema: &OrbitalSchema) -> ValidationContext {
+        let mut ctx = ValidationContext::new();
+        for orbital in &schema.orbitals {
+            if let Some(entity) = orbital.entity.as_inline() {
+                ctx.entity_definitions
+                    .insert(entity.name.clone(), entity.clone());
+            }
+        }
+        ctx
+    }
+
+    fn check(emits: &str, effect: &str) -> ValidationContext {
+        let json = persist_trait_json(emits, effect);
+        let schema: OrbitalSchema = serde_json::from_str(&json).expect("schema parses");
+        let mut ctx = ctx_with_seeded_entities(&schema);
+        validate_all_emit_payloads(&schema, &mut ctx);
+        ctx
+    }
+
+    const CREATE: &str = r#"["persist", "create", "ThreadPost", { "content": "@entity.content" }, { "emit": { "success": "ThreadPostCreated" } }]"#;
+
+    /// POSITIVE CONTROL — the exact std-thread `ThreadPostCreated` defect
+    /// (round 5, found live): `persist create` emits the row FLAT, so an event
+    /// declaring `{ row : ThreadPost }` has a field `row` that is never emitted.
+    /// Every `?row.<field>` read is undefined at runtime.
+    ///
+    /// This is the alias-only lowering: one field, `properties: None`,
+    /// `field_type` == the entity's own name.
+    #[test]
+    fn persist_create_wrapped_row_warns() {
+        let ctx = check(
+            r#"{ "event": "ThreadPostCreated", "payloadSchema": [{ "name": "row", "type": "ThreadPost" }] }"#,
+            CREATE,
+        );
+        assert!(
+            has_wrapped(&ctx, "ThreadPostCreated"),
+            "a persist create whose event declares a `row` wrapper must warn — persist emits the row flat"
+        );
+    }
+
+    /// Same defect via `persist update`.
+    #[test]
+    fn persist_update_wrapped_row_warns() {
+        let ctx = check(
+            r#"{ "event": "ThreadPostUpdated", "payloadSchema": [{ "name": "row", "type": "ThreadPost" }] }"#,
+            r#"["persist", "update", "ThreadPost", { "content": "@entity.content" }, { "emit": { "success": "ThreadPostUpdated" } }]"#,
+        );
+        assert!(
+            has_wrapped(&ctx, "ThreadPostUpdated"),
+            "a persist update whose event declares a `row` wrapper must warn"
+        );
+    }
+
+    /// POSITIVE CONTROL — the same wrap arriving through the OTHER lowering
+    /// path. When the event also carries an inline `emits {}` restatement (the
+    /// corpus-mandated form whenever a matching alias exists), `lower_emit`
+    /// EXPANDS the entity to `field_type: "object"` + `properties`, rather than
+    /// leaving a bare entity name. The first cut of this check only recognised
+    /// the alias-only shape and was therefore silently inert on essentially
+    /// every real corpus file. The general rule sees both, because it compares
+    /// field NAMES against what is produced rather than pattern-matching a shape.
+    #[test]
+    fn persist_create_inline_restatement_wrapped_row_warns() {
+        let ctx = check(
+            r#"{ "event": "ThreadPostCreated", "payloadSchema": [{ "name": "row", "type": "object", "properties": [{ "name": "id", "type": "string" }, { "name": "content", "type": "string" }] }] }"#,
+            CREATE,
+        );
+        assert!(
+            has_wrapped(&ctx, "ThreadPostCreated"),
+            "an inline-restated row wrapper must warn just like the alias-only form"
+        );
+    }
+
+    /// NEGATIVE CONTROL — the FIXED shape. A bare `type X = Event ThreadPost`
+    /// lowers to the entity's own fields flat at the payload root, which is
+    /// exactly what persist emits. Nothing to report.
+    #[test]
+    fn persist_create_bare_entity_does_not_warn() {
+        let ctx = check(
+            r#"{ "event": "ThreadPostCreated", "payloadSchema": [{ "name": "id", "type": "string" }, { "name": "content", "type": "string" }] }"#,
+            CREATE,
+        );
+        assert!(
+            !has_wrapped(&ctx, "ThreadPostCreated"),
+            "a bare flattened-entity payload matches what persist emits"
+        );
+    }
+
+    /// NEGATIVE CONTROL — **omission is legal**. The rule is width subtyping
+    /// (`declared ⊆ produced`): declaring only the fields you actually read is
+    /// fine. Equality would reject this, and with it the ~1,400 corpus fetch
+    /// sites that legitimately omit `totalCount`.
+    #[test]
+    fn declaring_a_subset_of_the_produced_fields_is_legal() {
+        let ctx = check(
+            r#"{ "event": "ThreadPostCreated", "payloadSchema": [{ "name": "id", "type": "string" }] }"#,
+            CREATE,
+        );
+        assert!(
+            !has_wrapped(&ctx, "ThreadPostCreated"),
+            "declaring fewer fields than are emitted must be allowed"
+        );
+    }
+
+    /// POSITIVE CONTROL for the case the OLD narrow check was blind to — an
+    /// event declaring a field the operator simply never emits. No wrapper
+    /// involved, no entity-name coincidence; `summary` is just not part of a
+    /// persisted ThreadPost, so `?summary` reads undefined. The predecessor
+    /// check could not see this at all: it only pattern-matched a wrapper whose
+    /// type named the persisted entity.
+    #[test]
+    fn declaring_a_field_the_operator_never_emits_warns() {
+        let ctx = check(
+            r#"{ "event": "ThreadPostCreated", "payloadSchema": [{ "name": "summary", "type": "object", "properties": [{ "name": "id", "type": "string" }, { "name": "unrelatedField", "type": "string" }] }] }"#,
+            CREATE,
+        );
+        assert!(
+            has_wrapped(&ctx, "ThreadPostCreated"),
+            "a declared field that is never emitted must warn regardless of its shape"
+        );
+    }
+
+    /// POSITIVE CONTROL — a wrapper naming a DIFFERENT entity is still a
+    /// wrapper: `row` is not a field of a persisted ThreadPost either way.
+    /// Under the old check this passed silently, because it required the
+    /// wrapper's type to equal the persisted entity's name.
+    #[test]
+    fn wrapper_naming_a_different_entity_still_warns() {
+        let ctx = check(
+            r#"{ "event": "ThreadPostCreated", "payloadSchema": [{ "name": "row", "type": "SomeOtherEntity" }] }"#,
+            CREATE,
+        );
+        assert!(
+            has_wrapped(&ctx, "ThreadPostCreated"),
+            "the field name is what matters — `row` is not emitted whatever it is typed as"
+        );
+    }
+
+    /// NEGATIVE CONTROL — `persist delete` emits `{ id, deleted }`, a genuinely
+    /// different (and correctly declared) shape. An event declaring `id` is
+    /// consistent with it, so the check must stay silent: the rule is driven by
+    /// each operation's real contract, not by a blanket "persist means flat row".
+    #[test]
+    fn persist_delete_declaring_id_does_not_warn() {
+        let ctx = check(
+            r#"{ "event": "ThreadPostDeleted", "payloadSchema": [{ "name": "id", "type": "string" }] }"#,
+            r#"["persist", "delete", "ThreadPost", {}, { "emit": { "success": "ThreadPostDeleted" } }]"#,
+        );
+        assert!(
+            !has_wrapped(&ctx, "ThreadPostDeleted"),
+            "persist delete really does emit an `id`, so declaring it is correct"
+        );
+    }
+
+    /// POSITIVE CONTROL — the delete contract is enforced too: `row` is not
+    /// part of `{ id, deleted }`.
+    #[test]
+    fn persist_delete_wrapped_row_warns() {
+        let ctx = check(
+            r#"{ "event": "ThreadPostDeleted", "payloadSchema": [{ "name": "row", "type": "ThreadPost" }] }"#,
+            r#"["persist", "delete", "ThreadPost", {}, { "emit": { "success": "ThreadPostDeleted" } }]"#,
+        );
+        assert!(
+            has_wrapped(&ctx, "ThreadPostDeleted"),
+            "persist delete emits {{id, deleted}} — a `row` field is not among them"
+        );
+    }
+
+    /// NEGATIVE CONTROL — the legacy 3-element persist form
+    /// (`["persist", "Entity", data]`) carries no action keyword. The check must
+    /// decline rather than assume "create": guessing here would mis-narrow the
+    /// produces union and report against the wrong contract.
+    #[test]
+    fn legacy_three_arg_persist_is_not_guessed_at() {
+        let ctx = check(
+            r#"{ "event": "ThreadPostCreated", "payloadSchema": [{ "name": "row", "type": "ThreadPost" }] }"#,
+            r#"["persist", "ThreadPost", { "content": "@entity.content" }, { "emit": { "success": "ThreadPostCreated" } }]"#,
+        );
+        assert!(
+            !has_wrapped(&ctx, "ThreadPostCreated"),
+            "an undecidable call site must produce no finding, not a guessed one"
+        );
+    }
     fn has_unfired(ctx: &ValidationContext, event: &str) -> bool {
         // EmitDeclaredButUnfired is a warning, so it lands in `warnings`;
         // scan `errors` too in case Phase F escalation ever moves it.

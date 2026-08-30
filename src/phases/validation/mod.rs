@@ -58,6 +58,7 @@ pub mod id_integrity;
 pub mod literal_default;
 pub mod page;
 pub mod payload_field_name;
+pub mod produced_shape;
 pub mod render_ui;
 pub mod render_ui_binding;
 pub mod service;

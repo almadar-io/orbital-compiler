@@ -187,8 +187,31 @@ pub struct EmbeddedOperator {
     #[serde(default)]
     pub effect: Option<EmbeddedOperatorEffect>,
     /// When true, the validator errors if the effect call site is missing
-    /// a trailing options object with `emit.success` populated. Set on
-    /// fetch / persist / call-service / ref in canonical-operators.json.
+    /// a trailing options object with `emit.success` populated.
+    ///
+    /// ⚠️ **Currently set on NO operator**, so
+    /// `effect::emit_declaration::validate_required_emit_success` returns
+    /// immediately for every call and the pass is inert. This comment used to
+    /// claim it was "set on fetch / persist / call-service / ref in
+    /// canonical-operators.json" — it never was (verified 2026-08-30: zero
+    /// occurrences of `requiresEmitSuccess` in that file).
+    ///
+    /// **Measured and REJECTED 2026-08-30 — do not enable without new
+    /// evidence.** Switched on for fetch/persist/ref/call-service and scanned
+    /// the whole corpus: **1,413 findings across 67 of 1,200 files.** Sampling
+    /// them showed the flag's premise is simply false for this language. A
+    /// bare `(fetch AppSearchTarget {})` — no emit at all, as in
+    /// `std-app-search` — is the CORRECT idiom: the fetch loads the store and
+    /// the reactive `@entity`-bound render picks it up, so there is no event to
+    /// route and nothing is broken. Making that a hard error would force ~1,400
+    /// ceremonial events into the corpus to satisfy a rule the language does
+    /// not have.
+    ///
+    /// Kept (rather than deleted) because the field, the pass, and the registry
+    /// slot are all still wired and someone may want the constraint for a
+    /// narrower operator set later — but it is dormant on purpose, not by
+    /// oversight. Tracked in `docs/Almadar_Std_Gaps.md` (B7).
+    ///
     /// Generic flag — future "this op requires X" constraints can extend
     /// this struct with sibling booleans without writing new validator
     /// passes.
@@ -2202,10 +2225,17 @@ mod tests {
     }
 
     #[test]
-    fn fetch_operator_has_effect_produces_union() {
-        // V2 Phase 0: fetch, ref, persist, call-service, set carry effect.produces
-        // in canonical-operators.json. The untagged OperatorTypeRef enum should
-        // deserialize the nested union shape without loss.
+    fn fetch_operator_produces_the_data_wrapper_it_actually_emits() {
+        // `effect.produces` is defined as "the payload the runtime puts on the
+        // bus when emit.success fires". For fetch that payload is the WRAPPER
+        // `{ data, totalCount }` — verified in both executors that emit onto
+        // the bus: EffectExecutor.ts:851-855 and
+        // orbital-shell-typescript codegen/effect/server.rs:177-185.
+        //
+        // It previously declared a bare `entity | [entity]`, i.e. the wrapper
+        // was real but undeclared — the mirror image of the persist bug where a
+        // wrapper was declared but unreal. `data` keeps the entity/array union
+        // inside the wrapper so a by-id vs collection call site still narrows.
         let fetch = get_operator("fetch").expect("fetch must exist (V2 Phase 0)");
         let effect = fetch
             .effect
@@ -2213,27 +2243,39 @@ mod tests {
             .expect("fetch must carry effect metadata");
         assert_eq!(effect.kind, "fetch");
         let produces = effect.produces.as_ref().expect("fetch produces present");
-        match produces {
+        let OperatorTypeRef::Tagged(OperatorTypeRefKind::Object { fields, .. }) = produces else {
+            panic!("fetch produces should be the {{data,totalCount}} Object, got {produces:?}");
+        };
+        assert!(fields.contains_key("data"), "fetch emits a `data` key");
+        assert!(
+            fields.contains_key("totalCount"),
+            "fetch emits `totalCount` alongside `data`"
+        );
+        match fields.get("data").expect("data field") {
             OperatorTypeRef::Tagged(OperatorTypeRefKind::Union { of }) => {
-                assert_eq!(of.len(), 2, "fetch union has entity | Array<entity>");
-                // First branch: { kind: 'entity' }
-                match &of[0] {
-                    OperatorTypeRef::Tagged(OperatorTypeRefKind::Entity { .. }) => {}
-                    other => panic!("fetch produces[0] should be Entity, got {other:?}"),
-                }
-                // Second branch: { kind: 'array', of: { kind: 'entity' } }
-                match &of[1] {
-                    OperatorTypeRef::Tagged(OperatorTypeRefKind::Array { of: inner }) => {
-                        match inner.as_ref() {
-                            OperatorTypeRef::Tagged(OperatorTypeRefKind::Entity { .. }) => {}
-                            other => panic!("fetch produces[1].of should be Entity, got {other:?}"),
-                        }
-                    }
-                    other => panic!("fetch produces[1] should be Array, got {other:?}"),
-                }
+                assert_eq!(of.len(), 2, "data is entity | Array<entity>");
             }
-            other => panic!("fetch produces should be Union, got {other:?}"),
+            other => panic!("fetch produces.data should stay a Union, got {other:?}"),
         }
+    }
+
+    #[test]
+    fn ref_operator_produces_the_same_wrapper_as_fetch() {
+        // `ref` emits the identical wrapper — and fires it on `on_change`, not
+        // `success` (EffectExecutor.ts:919-923, codegen server.rs:248-253).
+        let r = get_operator("ref").expect("ref must exist");
+        let produces = r
+            .effect
+            .as_ref()
+            .expect("ref effect")
+            .produces
+            .as_ref()
+            .expect("ref produces");
+        let OperatorTypeRef::Tagged(OperatorTypeRefKind::Object { fields, .. }) = produces else {
+            panic!("ref produces should be an Object wrapper, got {produces:?}");
+        };
+        assert!(fields.contains_key("data"));
+        assert!(fields.contains_key("totalCount"));
     }
 
     #[test]
