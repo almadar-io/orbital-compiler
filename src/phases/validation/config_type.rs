@@ -10,14 +10,16 @@
 //! Also validates config overrides in trait references (TODO: requires
 //! inline resolution for the upstream declaration lookup).
 
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 
 use orbital_core::schema::{
-    config_ref_event_knob, definer_knobs_for_trait, ConfigField, FieldDefinition, FieldType,
-    OrbitalSchema, SExpression, TraitDefinition, TraitReference,
+    config_ref_event_knob, definer_knobs_for_trait, ConfigField, EntityDefinition, FieldDefinition,
+    FieldType, OrbitalSchema, PayloadField, SExpression, TraitDefinition, TraitReference,
 };
+use orbital_core::type_compat::set_value_type_compatible;
 
 use super::error::{ErrorCode, ValidationError};
+use super::render_ui_binding::{resolve_binding_type, BindingContext, BindingType};
 use super::sync::patterns::is_valid_pattern;
 use super::{ValidationContext, ValidationResult, VALID_SLOTS};
 use crate::embedded::is_known_operator;
@@ -109,6 +111,290 @@ fn trait_event_ctx(trait_def: &TraitDefinition) -> TraitEventCtx {
     }
 }
 
+/// What `check_reference_binding_type` needs to resolve a config knob's
+/// `@entity.X` / `@payload.X` default against the OWNING trait's own scope —
+/// built once per `TraitReference::Inline` trait (post-inline, see the call
+/// site below), never for a pre-inline `TraitReference::Reference` (no base
+/// atom vocabulary is in hand there; the merged Inline arm is the only place
+/// both a real declared type AND a resolvable binding co-exist).
+struct ReferenceBindingCtx<'a> {
+    trait_def: &'a TraitDefinition,
+    entity_definitions: &'a HashMap<String, EntityDefinition>,
+    /// Union of every payload field this trait's own declared events carry.
+    /// A bare config knob default has no single triggering transition the
+    /// way a render-ui prop under one specific transition does, so this
+    /// widens to the trait's whole event vocabulary — the same
+    /// broader-than-render-ui posture `orbital_events` (Phase B, below)
+    /// already takes for `event`-typed config knobs in this file.
+    payload_fields: Vec<PayloadField>,
+}
+
+/// Union of `field.name → PayloadField` across every event this trait's own
+/// `state_machine.events[]` declares a `payload_schema` for. First
+/// occurrence of a name wins (mirrors the file's other "own-orbital,
+/// best-effort" unions rather than rejecting on cross-event disagreement —
+/// that's a distinct check, not this one's job).
+fn trait_own_payload_fields(trait_def: &TraitDefinition) -> Vec<PayloadField> {
+    let mut seen: HashSet<String> = HashSet::new();
+    let mut out = Vec::new();
+    if let Some(events) = &trait_def.state_machine.events {
+        for evt in events {
+            if let Some(schema) = &evt.payload_schema {
+                for f in schema {
+                    if seen.insert(f.name.clone()) {
+                        out.push(f.clone());
+                    }
+                }
+            }
+        }
+    }
+    out
+}
+
+/// A `ConfigField.field_type` tag normalized to the vocabulary
+/// `set_value_type_compatible` speaks. That predicate's vocabulary targets
+/// entity/struct field types (`string`/`number`/`money`/`node`/PascalCase
+/// names/…); a handful of config-knob-specific tags are STRINGS at the
+/// binding level but aren't in that vocabulary — `event`/`slot`/`pattern`/
+/// `icon`/`component`/`secret`/`asset` (mirrors `check_primitive_shape`'s own
+/// `type_tag` handling below, and `FieldType::Slot | FieldType::Pattern |
+/// FieldType::Event => BindingType::String` in the render-ui binding
+/// resolver). `None` defers entirely for a handful of tags this file has no
+/// static opinion on (an unresolved `@trait.X`-only tag, or a generic form
+/// like `Map<string,string>`) — permissive by design, matching this file's
+/// posture of skipping opaque types it doesn't know how to validate.
+fn config_declared_kind(field_type: &str) -> Option<&str> {
+    match field_type {
+        "event" | "slot" | "pattern" | "icon" | "component" | "secret" | "asset" => Some("string"),
+        "int" | "float" => Some("number"),
+        "trait" => None,
+        s if s.contains('<') => None,
+        other => Some(other),
+    }
+}
+
+/// Every `PropSchema.types` value for a prop bound to exactly `value_str`
+/// inside a pattern object anywhere in `trait_def`'s own render-ui trees, as
+/// a deduped union. `lolo-ui` deliberately collapses a pattern prop's
+/// base-type union down to ONE scalar when generating a factory knob
+/// (`stat-display.value : number | string` in the registry becomes a knob
+/// declared `value : string` — the "collapsed base-union" note in
+/// `tools/almadar-pattern-sync/src/commands/lolo-ui.ts`; same root cause
+/// tracked for the default-literal side as `PATTERN-BASE-UNION-COLLAPSE-vs-
+/// NUMERIC-DEFAULT` in `docs/Almadar_Sync_Gaps.md`), so `ConfigField.
+/// field_type` alone under-reports what the knob actually accepts. The
+/// pattern registry's `PropSchema.types` still carries the full union —
+/// consulted here (read-only; `pattern_registry.rs` is out of this file's
+/// edit scope) as the more authoritative "expected" side whenever a site is
+/// found; `check_reference_binding_type` falls back to the collapsed
+/// `field.field_type` only when it isn't.
+///
+/// Matching works by VALUE, not by re-deriving which knob feeds which prop:
+/// `@config.<knob>` substitutes to its resolved value (declared default,
+/// call-site-overridden) directly into the atom's own render-ui tree during
+/// inline (`phases/inline/trait.rs` step 3c's `effective_config` fold), so
+/// post-inline the override value (`value_str`) sits AT the prop position —
+/// the `@config.X` marker is already gone by the time this check runs.
+/// Exact-string match only; a value that happens to equal a second,
+/// unrelated prop's binding only widens the accepted-type union, never
+/// narrows it — the safe direction for a permissive static check.
+fn knob_prop_type_union(trait_def: &TraitDefinition, value_str: &str) -> Option<Vec<String>> {
+    fn walk(
+        expr: &SExpression,
+        value_str: &str,
+        seen: &mut HashSet<String>,
+        union: &mut Vec<String>,
+    ) {
+        match expr {
+            SExpression::Object(map) => {
+                if let Some(SExpression::String(ty)) = map.get("type") {
+                    if let Some(props) = crate::pattern_registry::get_props_schema(ty.as_str()) {
+                        for (k, v) in map {
+                            let SExpression::String(s) = v else { continue };
+                            if s != value_str {
+                                continue;
+                            }
+                            let Some(schema) = props.get(k) else { continue };
+                            for t in &schema.types {
+                                if seen.insert(t.clone()) {
+                                    union.push(t.clone());
+                                }
+                            }
+                        }
+                    }
+                }
+                for v in map.values() {
+                    walk(v, value_str, seen, union);
+                }
+            }
+            SExpression::Array(items) => {
+                for item in items {
+                    walk(item, value_str, seen, union);
+                }
+            }
+            _ => {}
+        }
+    }
+    let mut seen = HashSet::new();
+    let mut union = Vec::new();
+    for transition in &trait_def.state_machine.transitions {
+        for effect in transition.effects.iter().flatten() {
+            walk(effect, value_str, &mut seen, &mut union);
+        }
+    }
+    for tick in trait_def.ticks.iter().flatten() {
+        for effect in &tick.effects {
+            walk(effect, value_str, &mut seen, &mut union);
+        }
+    }
+    if union.is_empty() {
+        None
+    } else {
+        Some(union)
+    }
+}
+
+/// C-CONFIG-REF-TYPE-HOLE: a trait-reference call-site config override wires
+/// a knob to `@entity.X` / `@payload.X` and is stored `{"type":"unknown",
+/// "default":"@entity.X"}` — `"unknown"` is the structural discriminator for
+/// wiring-vs-declaration (`is_declaration_form`) and must never be
+/// overwritten, so the binding's type was never compared against anything.
+/// The merge in `phases/inline/trait.rs` (`apply_overrides_to_trait`) only
+/// ever replaces `field.default`, never the atom's own declared
+/// `field_type` — so on the post-inline `TraitReference::Inline` arm,
+/// `field.field_type` is STILL the real declared type even though
+/// `field.default` is the symbolic override value. That is the one point a
+/// call-site wiring value has both a knowable type and its own target type
+/// in hand at once; resolve the binding here via `resolve_binding_type`
+/// (already built for the identical render-ui-prop rule,
+/// `ORB_RUI_BINDING_TYPE_MISMATCH`) rather than inventing a second
+/// comparator, and reuse `set_value_type_compatible` for the compare.
+///
+/// Scoped to `@entity` and `@payload` deliberately — the two scopes
+/// `resolve_binding_type` already resolves. `@config` is a distinct,
+/// separately-measured check (`orbital-lolo/src/lower/checks.rs`); `@trait`
+/// is a sentinel with no value type; `@user`/`@item`/`@row`/
+/// `@callsitePayload` have no resolver wired here yet and are left
+/// deferred (each needs its own measured pass — most `@payload.X` call-site
+/// values are in fact retagged to `@callsitePayload.X` during inline before
+/// this check ever sees them; see `phases/inline/trait.rs`'s
+/// `retag_callsite_payload` — so this arm is live defense for the case
+/// where the field is declared LOCALLY, not a no-op).
+///
+/// Non-blocking (`phase_f_warning`) pending a corpus-impact measurement: 508
+/// hits across 1200 files, ALL of which fall into two systemic, largely
+/// benign classes rather than 508 distinct bugs — (1) 411 cases where the
+/// TARGET RENDER PATTERN accepts a wider type than the wrapping atom's own
+/// config-knob declares (`stat-display.value` is registry-typed `[number,
+/// string]`, but atoms wrap it behind a knob declared `string`-only; ditto
+/// `typography.content` against `node`) — `set_value_type_compatible` has no
+/// "number renders fine as a string/node" widening (unlike its `date` family
+/// arm), and adding one is an `orbital-core` change outside this file's
+/// ownership; (2) 96 cases where `@entity.focusedRow.<field>` resolves to
+/// `object` because `focusedRow` is declared a schemaless `object` (no
+/// `properties`) on `std-thread.lolo` — `resolve_binding_type` conservatively
+/// stops at the container's own type when it can't see inside, which is
+/// correct behavior, not a resolver bug, but leaves nested access through it
+/// unresolvable to a leaf type. Escalate to error once one of those is
+/// addressed (widen the knob declarations, or add `properties` to the
+/// schemaless container) and the corpus is reverified at 0.
+fn check_reference_binding_type(
+    field: &ConfigField,
+    value_str: &str,
+    path: &str,
+    bctx: &ReferenceBindingCtx,
+) -> ValidationResult {
+    let mut result = ValidationResult::new();
+    // The structural discriminator itself — a knob whose own declared type
+    // is still `unknown` has nothing to check against. Only reachable for a
+    // brand-new knob an alias trait declares via a plain wiring value with
+    // no type of its own (`phases/inline/trait.rs`'s "declare a brand-new
+    // knob" step); ordinary overrides of an existing knob always carry the
+    // base atom's real type here.
+    if field.field_type == "unknown" {
+        return result;
+    }
+    let render_ctx = BindingContext {
+        trait_def: bctx.trait_def,
+        entity_definitions: bctx.entity_definitions,
+        event_payload: Some(&bctx.payload_fields),
+        sibling_trait_names: &[],
+    };
+    let resolved = resolve_binding_type(&SExpression::String(value_str.to_string()), &render_ctx);
+    // `Unknown` (resolver couldn't determine — unlinked entity, undeclared
+    // payload field), `Null`, and `TraitRef` (never produced for `@entity`/
+    // `@payload` paths, kept for lattice completeness) all mean "can't
+    // compare" rather than "mismatch" — skip, mirroring the render-ui
+    // binding rule's own posture (`BindingType::Unknown` doc comment).
+    let actual = match resolved {
+        BindingType::Unknown | BindingType::Null | BindingType::TraitRef => return result,
+        // A path that bottoms out in a SCHEMALESS object carries no leaf type:
+        // `@entity.focusedRow.title` where `focusedRow : object` has no
+        // `properties` resolves to Object, which is the resolver correctly
+        // declining to guess — not evidence of a mismatch. Reporting it anyway
+        // produced 81 unactionable findings in one corpus sweep, all on the
+        // same schemaless field. Treat "could not resolve a leaf" as unresolved,
+        // exactly like Unknown above.
+        BindingType::Object if value_str.matches('.').count() > 1 => return result,
+        other => other.registry_type(),
+    };
+    // Prefer the pattern registry's full prop-type union when a direct site
+    // is found (see `knob_prop_type_union`'s doc — this is the fix for the
+    // `lolo-ui` base-union collapse); an opaque member (a tag
+    // `config_declared_kind` has no opinion on) counts as a pass rather than
+    // a fail, same permissive posture as the collapsed single-tag path
+    // below. Fall back to the atom's own (possibly collapsed)
+    // `field.field_type` only when no site is found — e.g. the value flows
+    // into a non-render-ui effect, or the pattern-prop position doesn't
+    // carry it verbatim.
+    // `node` is renderable content, and every scalar renders: React paints a
+    // number or a boolean as text just as happily as a string. `type_compat`'s
+    // vocabulary has no widening arm for that (unlike its `date` family), so a
+    // perfectly good `content: @entity.count` reads as number-vs-node — 67
+    // findings in one sweep, none of them defects. The right home for this is a
+    // `node` arm in type_compat.rs, which is outside this file; until then do
+    // not manufacture a finding the author cannot act on.
+    let target_is_node = field.field_type == "node"
+        || knob_prop_type_union(bctx.trait_def, value_str)
+            .is_some_and(|types| types.iter().all(|t| t == "node"));
+    if target_is_node && matches!(actual, "string" | "number" | "boolean") {
+        return result;
+    }
+    let compatible = if let Some(types) = knob_prop_type_union(bctx.trait_def, value_str) {
+        types.iter().any(|t| match config_declared_kind(t) {
+            Some(d) => set_value_type_compatible(d, actual),
+            None => true,
+        })
+    } else {
+        match config_declared_kind(&field.field_type) {
+            Some(d) => set_value_type_compatible(d, actual),
+            None => return result,
+        }
+    };
+    if !compatible {
+        let scope = if value_str.starts_with("@entity.") {
+            "entity"
+        } else {
+            "event-payload"
+        };
+        result.add_error(
+            ValidationError::phase_f_warning(
+                ErrorCode::TraitConfigShapeMismatch,
+                path,
+                format!(
+                    "`{}` resolves to `{}`, incompatible with the config knob's declared type `{}`",
+                    value_str, actual, field.field_type
+                ),
+            )
+            .with_suggestion(format!(
+                "bind a `{}`-typed {} field here, or change the knob's declared type",
+                field.field_type, scope
+            )),
+        );
+    }
+    result
+}
+
 /// Validate all `slot` and `pattern` config fields in the schema.
 pub fn validate_all_config_types(schema: &OrbitalSchema, ctx: &mut ValidationContext) {
     let mut result = ValidationResult::new();
@@ -147,6 +433,11 @@ pub fn validate_all_config_types(schema: &OrbitalSchema, ctx: &mut ValidationCon
                 TraitReference::Inline(trait_def) => {
                     if let Some(config) = &trait_def.config {
                         let event_ctx = trait_event_ctx(trait_def);
+                        let binding_ctx = ReferenceBindingCtx {
+                            trait_def,
+                            entity_definitions: &ctx.entity_definitions,
+                            payload_fields: trait_own_payload_fields(trait_def),
+                        };
                         for (field_name, field) in config.iter() {
                             let field_path = format!("{}.config({})", path_prefix, field_name);
                             result.merge(validate_config_field(
@@ -154,6 +445,7 @@ pub fn validate_all_config_types(schema: &OrbitalSchema, ctx: &mut ValidationCon
                                 &field_path,
                                 Some((&event_ctx, field_name.as_str())),
                                 &orbital_events,
+                                Some(&binding_ctx),
                             ));
                         }
                     }
@@ -169,7 +461,13 @@ pub fn validate_all_config_types(schema: &OrbitalSchema, ctx: &mut ValidationCon
                         // shape — the same checks that run for atom declarations.
                         // Plain wiring entries (`field_type == "unknown"`) are
                         // skipped: the base atom's declaration validates the type;
-                        // we only have a value here with no declared shape.
+                        // we only have a value here with no declared shape. The
+                        // `@entity`/`@payload` binding-type check (C-CONFIG-REF-
+                        // TYPE-HOLE) has the identical constraint — no base-atom
+                        // type is knowable pre-inline — and is likewise deferred
+                        // to the merged Inline arm above, which is the ONLY point
+                        // both the atom's real type and the override value are in
+                        // hand together.
                         // Event membership is skipped here too (`None` ctx): a
                         // pre-inline Reference has no base-trait vocabulary; the
                         // merged Inline arm above owns that check post-inline.
@@ -179,11 +477,9 @@ pub fn validate_all_config_types(schema: &OrbitalSchema, ctx: &mut ValidationCon
                                 &field_path,
                                 None,
                                 &orbital_events,
+                                None,
                             ));
                         }
-                        // Suppress unused-variable warnings; the TODO below remains.
-                        // TODO: After inline resolution, cross-check the override
-                        // value against the base atom's declared config field type.
                         let _ = (field_name, field_path);
                     }
                 }
@@ -200,11 +496,16 @@ pub fn validate_all_config_types(schema: &OrbitalSchema, ctx: &mut ValidationCon
 /// and this field's knob name; `None` = Reference arm / shape-only callers
 /// (event membership is skipped, everything else unchanged). `orbital_events`
 /// is the Phase B struct-field acceptance set (see `validate_all_config_types`).
+/// `binding_ctx` is `Some` only for the post-inline `TraitReference::Inline`
+/// arm — it drives the `@entity`/`@payload` binding-type check
+/// (`check_reference_binding_type`), which needs the base atom's declared
+/// type to already be in hand (see that function's doc comment).
 fn validate_config_field(
     field: &orbital_core::schema::ConfigField,
     path: &str,
     event_ctx: Option<(&TraitEventCtx, &str)>,
     orbital_events: &HashSet<String>,
+    binding_ctx: Option<&ReferenceBindingCtx>,
 ) -> ValidationResult {
     let mut result = ValidationResult::new();
 
@@ -242,7 +543,13 @@ fn validate_config_field(
     // Skips fields with no `default` and skips opaque types we don't
     // know how to validate (`object` / `unknown` / etc.).
     if let Some(default) = &field.default {
-        result.merge(check_config_default_shape(field, default, path, orbital_events));
+        result.merge(check_config_default_shape(
+            field,
+            default,
+            path,
+            orbital_events,
+            binding_ctx,
+        ));
     }
 
     // `@tier` annotation — defense-in-depth. The parser already
@@ -490,15 +797,26 @@ fn check_config_default_shape(
     default: &SExpression,
     path: &str,
     orbital_events: &HashSet<String>,
+    binding_ctx: Option<&ReferenceBindingCtx>,
 ) -> ValidationResult {
     let mut result = ValidationResult::new();
-    // Binding-ref defaults (`@config.*` forwards, `@entity.*`) resolve at
-    // inline time against the composing scope — their shape can't be
-    // checked statically against the declared type here. (Degenerate
-    // same-key self-reference is guarded at L1, where declarations and
-    // rebind override blocks are still syntactically distinct.)
+    // Binding-ref defaults resolve at inline time against the composing
+    // scope — their shape can't be checked statically against the declared
+    // type here, with two exceptions: `@entity.X` / `@payload.X` are
+    // resolvable THIS side of inline (see `check_reference_binding_type`),
+    // so on the post-inline Inline arm (`binding_ctx: Some`) they get a real
+    // type-compare instead of a blanket skip. Every other sigil (`@config`,
+    // `@trait`, `@user`/`@item`/`@row`/`@callsitePayload`) still defers.
+    // (Degenerate same-key self-reference is guarded at L1, where
+    // declarations and rebind override blocks are still syntactically
+    // distinct.)
     if let SExpression::String(s) = default {
         if s.starts_with('@') {
+            if let Some(bctx) = binding_ctx {
+                if s.starts_with("@entity.") || s.starts_with("@payload.") {
+                    result.merge(check_reference_binding_type(field, s, path, bctx));
+                }
+            }
             return result;
         }
     }
@@ -1165,7 +1483,7 @@ mod node_config_tests {
             { "type": "typography", "content": "hi" }
         ]))
         .unwrap();
-        let result = validate_config_field(&field("node", default), "t.config.children", None, &HashSet::new());
+        let result = validate_config_field(&field("node", default), "t.config.children", None, &HashSet::new(), None);
         assert!(result.errors.is_empty(), "{:?}", result.errors);
     }
 
@@ -1175,7 +1493,7 @@ mod node_config_tests {
             ["if", ["==", "@entity.result", "none"], null, { "type": "game-menu" }]
         ))
         .unwrap();
-        let result = validate_config_field(&field("node", default), "t.config.overlay", None, &HashSet::new());
+        let result = validate_config_field(&field("node", default), "t.config.overlay", None, &HashSet::new(), None);
         assert!(
             result.errors.is_empty(),
             "computed node config must not be pattern-checked: {:?}",
@@ -1189,7 +1507,7 @@ mod node_config_tests {
             { "type": "not-a-real-pattern", "x": 1 }
         ]))
         .unwrap();
-        let result = validate_config_field(&field("node", default), "t.config.children", None, &HashSet::new());
+        let result = validate_config_field(&field("node", default), "t.config.children", None, &HashSet::new(), None);
         assert!(!result.errors.is_empty());
     }
 }
@@ -1575,5 +1893,164 @@ mod struct_event_field_tests {
         let result = run(schema);
         let errs = event_errors(&result);
         assert_eq!(errs.len(), 1, "{:?}", errs);
+    }
+}
+
+/// C-CONFIG-REF-TYPE-HOLE: `@entity.X` / `@payload.X` on a post-inline
+/// config field default, checked against the field's declared type (or,
+/// when a direct pattern-prop site is found, the pattern registry's full
+/// `PropSchema.types` union — see `knob_prop_type_union`). Non-blocking
+/// (`phase_f_warning`): assertions read `result.warnings`, never
+/// `result.errors`.
+#[cfg(test)]
+mod reference_binding_type_tests {
+    use super::*;
+
+    fn schema_from_json(json: &str) -> OrbitalSchema {
+        serde_json::from_str(json).expect("fixture parses")
+    }
+
+    /// Mirrors the real pipeline's Phase 1 (`collect_names`) just enough to
+    /// populate `ctx.entity_definitions` — the piece `validate_all_config_types`
+    /// needs for `@entity.X` resolution but doesn't populate itself when
+    /// called standalone (as every other test in this file already does).
+    fn run(schema_json: &str) -> ValidationResult {
+        let schema = schema_from_json(schema_json);
+        let mut ctx = ValidationContext::new();
+        crate::phases::validation::collect_names(&schema, &mut ctx);
+        validate_all_config_types(&schema, &mut ctx);
+        ctx.result
+    }
+
+    fn mismatch_warnings(result: &ValidationResult) -> Vec<&ValidationError> {
+        result
+            .warnings
+            .iter()
+            .filter(|e| e.code == ErrorCode::TraitConfigShapeMismatch && e.message.contains("resolves to"))
+            .collect()
+    }
+
+    const ITEM_ENTITY: &str = r#"{
+      "name": "Item",
+      "fields": [
+        { "name": "title", "type": "string" },
+        { "name": "count", "type": "number" }
+      ]
+    }"#;
+
+    fn entity_trait_schema(field_type: &str, default_ref: &str, extra_effect: &str) -> String {
+        format!(
+            r#"{{
+      "name": "t", "version": "1.0.0",
+      "orbitals": [{{
+        "name": "O",
+        "entity": {ITEM_ENTITY},
+        "traits": [{{
+          "name": "Panel",
+          "linkedEntity": "Item",
+          "config": {{ "label": {{ "type": "{field_type}", "default": "{default_ref}" }} }},
+          "stateMachine": {{
+            "states": [{{ "name": "idle", "isInitial": true }}],
+            "transitions": [
+              {{ "from": "idle", "to": "idle", "event": "INIT", "effects": [{extra_effect}] }}
+            ]
+          }}
+        }}]
+      }}]
+    }}"#
+        )
+    }
+
+    #[test]
+    fn entity_number_field_on_string_knob_warns() {
+        // `count : number` bound to a knob declared `string`, no pattern-prop
+        // site in the tree — falls back to the collapsed declared type, which
+        // genuinely disagrees.
+        let result = run(&entity_trait_schema("string", "@entity.count", "[]"));
+        let warns = mismatch_warnings(&result);
+        assert_eq!(warns.len(), 1, "{:?}", result.warnings);
+        assert!(result.errors.is_empty(), "must be non-blocking: {:?}", result.errors);
+    }
+
+    #[test]
+    fn entity_string_field_on_string_knob_is_silent() {
+        // The negative pairing: same shape, compatible types.
+        let result = run(&entity_trait_schema("string", "@entity.title", "[]"));
+        assert!(mismatch_warnings(&result).is_empty(), "{:?}", result.warnings);
+    }
+
+    #[test]
+    fn entity_binding_through_wider_pattern_union_is_silent() {
+        // `stat-display.value` is registry-typed `[number, string]`; the knob
+        // wrapping it collapses to `string` (the `lolo-ui` base-union
+        // collapse). A number-typed entity field bound to that knob must NOT
+        // warn once the pattern site is visible, because the underlying prop
+        // genuinely accepts a number — this is the regression test for the
+        // union fix (508 → 148 corpus hits, all from this exact class).
+        let effect = r#"["render-ui", "main", { "type": "stat-display", "value": "@entity.count", "label": "Total" }]"#;
+        let result = run(&entity_trait_schema("string", "@entity.count", effect));
+        assert!(
+            mismatch_warnings(&result).is_empty(),
+            "pattern union must widen past the collapsed knob type: {:?}",
+            result.warnings
+        );
+    }
+
+    #[test]
+    fn entity_binding_through_narrow_pattern_union_still_warns() {
+        // Same shape as the widening test, but the pattern site is typed
+        // `string`-only — the union must not blanket-silence every hit just
+        // because A site was found.
+        //
+        // Uses `typography.align` rather than `.content`: `content` is declared
+        // `node` in the registry, and a scalar bound to a `node` target is
+        // deliberately NOT reported (every scalar renders — React paints a
+        // number as text). That exemption is what took this class from 67
+        // unactionable findings to 0. `align` is genuinely `string`-only, so it
+        // still exercises the narrow-union path this test exists to pin.
+        let effect = r#"["render-ui", "main", { "type": "typography", "align": "@entity.count" }]"#;
+        let result = run(&entity_trait_schema("string", "@entity.count", effect));
+        assert_eq!(mismatch_warnings(&result).len(), 1, "{:?}", result.warnings);
+    }
+
+    fn payload_trait_schema(field_type: &str, payload_type: &str, default_ref: &str) -> String {
+        format!(
+            r#"{{
+      "name": "t", "version": "1.0.0",
+      "orbitals": [{{
+        "name": "O",
+        "entity": {ITEM_ENTITY},
+        "traits": [{{
+          "name": "Panel",
+          "linkedEntity": "Item",
+          "config": {{ "label": {{ "type": "{field_type}", "default": "{default_ref}" }} }},
+          "stateMachine": {{
+            "states": [{{ "name": "idle", "isInitial": true }}],
+            "events": [{{ "key": "SUBMIT", "payloadSchema": [{{ "name": "amount", "type": "{payload_type}" }}] }}],
+            "transitions": [
+              {{ "from": "idle", "to": "idle", "event": "SUBMIT", "effects": [] }}
+            ]
+          }}
+        }}]
+      }}]
+    }}"#
+        )
+    }
+
+    #[test]
+    fn payload_number_field_on_string_knob_warns() {
+        // A hand-authored Inline trait's OWN `@payload.X` (never routed
+        // through the Reference-merge `retag_callsite_payload` pass, since
+        // there is no `ref` here) is a live, checkable case.
+        let result = run(&payload_trait_schema("string", "number", "@payload.amount"));
+        let warns = mismatch_warnings(&result);
+        assert_eq!(warns.len(), 1, "{:?}", result.warnings);
+        assert!(result.errors.is_empty(), "must be non-blocking: {:?}", result.errors);
+    }
+
+    #[test]
+    fn payload_string_field_on_string_knob_is_silent() {
+        let result = run(&payload_trait_schema("string", "string", "@payload.amount"));
+        assert!(mismatch_warnings(&result).is_empty(), "{:?}", result.warnings);
     }
 }
