@@ -780,6 +780,19 @@ fn check_primitive_shape(type_tag: &str, value: &SExpression, path: &str) -> Val
         "string" => actual == "string",
         "number" => actual == "number",
         "boolean" => actual == "boolean",
+        // `int`/`float` are numeric knob tags that used to fall through the
+        // catch-all below and accept anything, so `float` took a string or a
+        // bool silently.
+        "int" | "float" => actual == "number",
+        // Name-carrying scalar tags: a Lucide icon name, a slot key, a pattern
+        // name, a component name. Each is a STRING in every emitted program, so
+        // a number or boolean here is decidably wrong. They also fell through
+        // the catch-all, which is the gap that made L1's dev gate unsafe: L1
+        // rejected these, L2 did not, so skipping L1 in dev lost the check
+        // entirely. `icon`/`slot`/`pattern` are ~7k knobs between them, so this
+        // is the bulk of that hole. Null stays permitted — an explicitly unset
+        // optional knob is legal, and only L1 ever rejected it.
+        "icon" | "slot" | "pattern" | "component" => actual == "string" || actual == "null",
         "date" | "datetime" | "timestamp" => actual == "string" || actual == "number",
         _ => true, // Unknown type tags pass — covered by other validators.
     };

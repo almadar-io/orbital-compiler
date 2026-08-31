@@ -649,3 +649,106 @@ fn array_typed_slot_with_scalar_default_fails() {
     assert_eq!(errs.len(), 1, "expected one error, got: {:?}", errs);
     assert!(errs[0].contains("isn't an array"), "message: {}", errs[0]);
 }
+
+/// `icon`/`slot`/`pattern`/`component` are name-carrying scalar tags — a Lucide
+/// icon name, a slot key, a pattern name — and are strings in every emitted
+/// program. They used to fall through `check_primitive_shape`'s catch-all
+/// (`_ => true`) and accept a number or a boolean silently, which is what made
+/// skipping L1's check 3.4 in dev unsafe: L1 rejected these, L2 did not.
+/// ~7k knobs across the corpus carry these tags.
+#[test]
+fn number_on_a_name_carrying_scalar_tag_fails() {
+    for tag in ["icon", "slot", "pattern", "component"] {
+        let mut config = HashMap::new();
+        config.insert(
+            "knob".to_string(),
+            ConfigField {
+                field_type: tag.to_string(),
+                default: Some(SExpression::Number(7.0)),
+                label: None,
+                description: None,
+                synonyms: None,
+                tier: None,
+                values: None,
+                items: None,
+                properties: None,
+                required: None,
+                ref_id: None,
+            },
+        );
+        let schema = schema_with_config(config);
+        let errs = shape_errors(&schema);
+        assert_eq!(errs.len(), 1, "`{tag}` must reject a number, got: {errs:?}");
+        assert!(
+            errs[0].contains(&format!("expected {tag}, got number")),
+            "unexpected message for `{tag}`: {}",
+            errs[0]
+        );
+    }
+}
+
+/// A string name is the legal form, and an explicitly-unset optional knob
+/// (`null`) stays permitted — only L1 ever rejected null here.
+#[test]
+fn string_and_null_on_a_name_carrying_scalar_tag_pass() {
+    for value in [
+        SExpression::String("circle".to_string()),
+        SExpression::Null,
+    ] {
+        let mut config = HashMap::new();
+        config.insert(
+            "knob".to_string(),
+            ConfigField {
+                field_type: "icon".to_string(),
+                default: Some(value.clone()),
+                label: None,
+                description: None,
+                synonyms: None,
+                tier: None,
+                values: None,
+                items: None,
+                properties: None,
+                required: None,
+                ref_id: None,
+            },
+        );
+        let schema = schema_with_config(config);
+        assert!(
+            shape_errors(&schema).is_empty(),
+            "`icon` must accept {value:?}"
+        );
+    }
+}
+
+/// `int`/`float` are numeric tags that also fell through the catch-all, so a
+/// `float` knob silently accepted a string.
+#[test]
+fn non_number_on_int_or_float_fails() {
+    for tag in ["int", "float"] {
+        let mut config = HashMap::new();
+        config.insert(
+            "knob".to_string(),
+            ConfigField {
+                field_type: tag.to_string(),
+                default: Some(SExpression::String("1.5".to_string())),
+                label: None,
+                description: None,
+                synonyms: None,
+                tier: None,
+                values: None,
+                items: None,
+                properties: None,
+                required: None,
+                ref_id: None,
+            },
+        );
+        let schema = schema_with_config(config);
+        let errs = shape_errors(&schema);
+        assert_eq!(errs.len(), 1, "`{tag}` must reject a string, got: {errs:?}");
+        assert!(
+            errs[0].contains(&format!("expected {tag}, got string")),
+            "unexpected message for `{tag}`: {}",
+            errs[0]
+        );
+    }
+}
