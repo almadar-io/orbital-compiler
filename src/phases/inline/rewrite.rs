@@ -9,6 +9,70 @@ use orbital_core::schema::{
 };
 use std::collections::{HashMap, HashSet};
 
+/// Fold an `events:` rename into the `event`-TYPED MEMBERS of a config knob
+/// value (SCAN-DETAIL-PANEL-ACTIONS-UNTAGGED-1).
+///
+/// The scalar twin of this rule already lives in `inline/trait.rs`: *a knob
+/// declared `: event` holds an event-name REFERENCE, so an `events:` rename
+/// must rewrite its settled value.* A member of a struct-array knob
+/// (`actions : [RecordAction]` where `RecordAction.event` is `event`-typed) is
+/// the same reference, and was never folded — the effect walk cannot reach it
+/// because the render-ui node only forwards `actions: "@config.actions"` as a
+/// STRING, and the literal array lives on the knob.
+///
+/// Type-directed, never name-directed: the member may be called anything, and
+/// a member named `event` that is not declared `event`-typed is left alone.
+/// Descends the same `items.properties` schema `validation/config_type.rs`
+/// walks for `ORB_T_INVALID_EVENT_DEFAULT`, so both agree on what an
+/// event-typed member is.
+pub(crate) fn fold_event_typed_members(
+    value: &mut SExpression,
+    items: Option<&orbital_core::schema::FieldDefinition>,
+    event_subs: &HashMap<String, String>,
+) -> bool {
+    let Some(schema) = items else {
+        return false;
+    };
+    match value {
+        SExpression::Array(entries) => {
+            let mut touched = false;
+            for entry in entries.iter_mut() {
+                touched |= fold_event_typed_members(entry, Some(schema), event_subs);
+            }
+            touched
+        }
+        SExpression::Object(map) => {
+            let Some(properties) = schema.properties.as_ref() else {
+                return false;
+            };
+            let mut touched = false;
+            for (member, decl) in properties.iter() {
+                if decl.field_type == orbital_core::schema::FieldType::Event {
+                    if let Some(SExpression::String(current)) = map.get_mut(member.as_str()) {
+                        // `@`-bindings resolve elsewhere; "" is the
+                        // default-off outlet.
+                        if !current.is_empty() && !current.starts_with('@') {
+                            if let Some(to) = event_subs.get(current.as_str()) {
+                                *current = to.clone();
+                                touched = true;
+                            }
+                        }
+                    }
+                    continue;
+                }
+                // A descriptor can hold descriptors.
+                if decl.items.is_some() {
+                    if let Some(nested) = map.get_mut(member.as_str()) {
+                        touched |= fold_event_typed_members(nested, decl.items.as_deref(), event_subs);
+                    }
+                }
+            }
+            touched
+        }
+        _ => false,
+    }
+}
+
 /// Phase F.3: Generic identifier-substitution walker for SExpressions.
 ///
 /// Treats every imported orbital fragment as a function whose hardcoded

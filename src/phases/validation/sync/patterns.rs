@@ -9948,14 +9948,28 @@ pub static PATTERN_EVENT_LIST_PROPS: LazyLock<HashMap<&'static str, HashMap<&'st
     LazyLock::new(|| {
         [
             ("breadcrumb", [("items", "event")].into_iter().collect()),
+            ("chart", [("actions", "event")].into_iter().collect()),
+            ("code-block", [("actions", "event")].into_iter().collect()),
             ("dashboard-layout", [("topBarActions", "event")].into_iter().collect()),
             ("data-grid", [("itemActions", "event")].into_iter().collect()),
             ("data-list", [("itemActions", "event")].into_iter().collect()),
             ("detail-panel", [("actions", "event")].into_iter().collect()),
             ("document-panel", [("actions", "event")].into_iter().collect()),
+            ("document-viewer", [("actions", "event")].into_iter().collect()),
             ("entity-cards", [("itemActions", "event")].into_iter().collect()),
+            ("entity-list", [("itemActions", "event")].into_iter().collect()),
+            ("entity-table", [("itemActions", "event"), ("rowActions", "event"), ("bulkActions", "event")].into_iter().collect()),
+            ("floating-action-button", [("actions", "event")].into_iter().collect()),
+            ("form-actions", [("secondary", "event")].into_iter().collect()),
+            ("game-menu", [("options", "event"), ("menuItems", "event")].into_iter().collect()),
+            ("graph-canvas", [("actions", "event")].into_iter().collect()),
+            ("media-gallery", [("actions", "event")].into_iter().collect()),
+            ("menu", [("items", "event")].into_iter().collect()),
+            ("meter", [("actions", "event")].into_iter().collect()),
+            ("page-header", [("actions", "event")].into_iter().collect()),
             ("swipeable-row", [("leftActions", "event"), ("rightActions", "event")].into_iter().collect()),
             ("table-view", [("itemActions", "event")].into_iter().collect()),
+            ("tabs", [("items", "event"), ("tabs", "event")].into_iter().collect()),
             ("timeline", [("itemActions", "event")].into_iter().collect()),
         ]
         .into_iter()

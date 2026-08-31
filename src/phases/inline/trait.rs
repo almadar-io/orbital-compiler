@@ -393,6 +393,51 @@ pub(crate) fn apply_overrides_to_trait(
                 }
             }
         }
+
+        // The STRUCT-MEMBER twin of the scalar fold above: a knob declared
+        // `[RecordAction]` whose element schema types a member `event` holds
+        // event-name REFERENCES in exactly the same sense. The effect walk in
+        // step 4 cannot reach them — a render-ui node forwards the prop as the
+        // STRING `"@config.actions"` and the literal array lives here — so
+        // without this an authored `events { EDIT: … }` renamed the trait's
+        // transitions and emits while its own action buttons kept firing the
+        // pre-rename keys, and nothing handled them
+        // (SCAN-DETAIL-PANEL-ACTIONS-UNTAGGED-1).
+        //
+        // Same dual-write as above: `effective_config` drives the step-6 body
+        // substitution, the DECLARED default is the carrier that survives a
+        // deferred import load. Definer knobs are irrelevant here — a struct
+        // member can never sit in a definer position, so it is always a
+        // reference.
+        let member_folds: Vec<(String, SExpression)> = trait_def
+            .config
+            .as_ref()
+            .map(|cfg| {
+                cfg.iter()
+                    .filter_map(|(knob, field)| {
+                        let items = field.items.as_deref()?;
+                        let mut value = effective_config
+                            .get(knob)
+                            .cloned()
+                            .or_else(|| field.default.clone())?;
+                        crate::phases::inline::rewrite::fold_event_typed_members(
+                            &mut value,
+                            Some(items),
+                            &event_subs,
+                        )
+                        .then_some((knob.clone(), value))
+                    })
+                    .collect()
+            })
+            .unwrap_or_default();
+        for (knob, folded) in member_folds {
+            effective_config.insert(knob.clone(), folded.clone());
+            if let Some(cfg) = trait_def.config.as_mut() {
+                if let Some(field) = cfg.get_mut(&knob) {
+                    field.default = Some(folded);
+                }
+            }
+        }
     }
     if !defer_config_subst && !effective_config.is_empty() {
         record_config_provenance(trait_def, &effective_config, recorder);
