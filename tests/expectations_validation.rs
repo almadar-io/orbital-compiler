@@ -989,3 +989,104 @@ fn a_satisfied_propagated_expectation_is_clean() {
         "a roster carrying the expected field must pass, got {codes:?}"
     );
 }
+
+// =============================================================================
+// derived ⊆ authored — an expectation is a LOWER BOUND
+//
+// `expects identity { shape }` says "the roster must give me AT LEAST this", so
+// omitting fields the provider happens to have is legal and intended. Declaring
+// FEWER than the orbital actually reads is not: a roster satisfying the
+// declaration exactly would not carry the field, and the slice reads undefined.
+//
+// The gap these pin: when a real `[identity]` entity exists it WINS the type
+// environment, so `@user` reads resolve against the roster — which knows more
+// than the declaration — and the declaration is never compared to anything. It
+// only becomes the type environment once the orbital is sliced. That is how 219
+// blocks declaring `{ role : string }` while reading `@user.email` shipped.
+// =============================================================================
+
+fn orbital_reading(user_field: &str, declared: Value) -> Value {
+    json!({
+        "name": "app",
+        "orbitals": [
+            {
+                "name": "RosterOrbital",
+                "entity": { "name": "Person", "identity": true, "persistence": "persistent",
+                            "collection": "people",
+                            "fields": [{ "name": "id", "type": "string", "required": true },
+                                       { "name": "name", "type": "string" },
+                                       { "name": "email", "type": "string" },
+                                       { "name": "role", "type": "string" }] },
+                "traits": [], "pages": []
+            },
+            {
+                "name": "ConsumerOrbital",
+                "expects": [declared],
+                "entity": { "name": "Doc", "persistence": "persistent", "collection": "docs",
+                            "fields": [{ "name": "id", "type": "string", "required": true }] },
+                "traits": [{
+                    "name": "DocView", "linkedEntity": "Doc",
+                    "category": "interaction",
+                    "stateMachine": { "events": [], "states": [], "transitions": [{
+                        "from": "idle", "event": "OPEN", "to": "idle",
+                        "guard": ["=", user_field, "admin"]
+                    }]}
+                }],
+                "pages": []
+            }
+        ]
+    })
+}
+
+#[test]
+fn under_declared_identity_expectation_fails_even_when_a_real_roster_exists() {
+    let codes = run_scoped(orbital_reading(
+        "@user.email",
+        json!({ "kind": "identity", "name": "Person",
+                "shape": [{ "name": "role", "type": "string" }] }),
+    ));
+    assert!(
+        codes.contains(&"ORB_S_EXPECTATION_FIELD_UNDECLARED".to_string()),
+        "reading @user.email while declaring only `role` must fail, got: {codes:?}"
+    );
+}
+
+#[test]
+fn identity_expectation_covering_the_read_passes() {
+    let codes = run_scoped(orbital_reading(
+        "@user.email",
+        json!({ "kind": "identity", "name": "Person",
+                "shape": [{ "name": "email", "type": "string" }] }),
+    ));
+    assert!(
+        !codes.contains(&"ORB_S_EXPECTATION_FIELD_UNDECLARED".to_string()),
+        "a declaration covering the read must pass, got: {codes:?}"
+    );
+}
+
+#[test]
+fn over_declaring_is_legal_because_the_shape_is_a_minimum() {
+    let codes = run_scoped(orbital_reading(
+        "@user.email",
+        json!({ "kind": "identity", "name": "Person",
+                "shape": [{ "name": "email", "type": "string" },
+                          { "name": "role",  "type": "string" },
+                          { "name": "name",  "type": "string" }] }),
+    ));
+    assert!(
+        !codes.contains(&"ORB_S_EXPECTATION_FIELD_UNDECLARED".to_string()),
+        "over-declaring asks MORE of the provider, not less — must pass, got: {codes:?}"
+    );
+}
+
+#[test]
+fn shapeless_identity_expectation_declares_no_minimum_and_opts_out() {
+    let codes = run_scoped(orbital_reading(
+        "@user.email",
+        json!({ "kind": "identity" }),
+    ));
+    assert!(
+        !codes.contains(&"ORB_S_EXPECTATION_FIELD_UNDECLARED".to_string()),
+        "an existence-only declaration has no lower bound to under-declare, got: {codes:?}"
+    );
+}

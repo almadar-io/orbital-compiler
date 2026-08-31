@@ -234,6 +234,49 @@ pub fn validate_user_identity(schema: &OrbitalSchema, ctx: &mut ValidationContex
             };
             walk(&value, &path, identity, source, &mut result);
         }
+
+        // Self-consistency: when a REAL roster won the type environment above,
+        // the authored `expects identity { shape }` was never compared to
+        // anything — reads resolve against the roster, which knows more than the
+        // declaration, so an under-declaration passes. It only becomes the type
+        // environment once the orbital is SLICED, which is where it then fails.
+        //
+        // `expects` is a LOWER BOUND: omitting fields the provider happens to
+        // have is legal and is the point. Declaring FEWER than the orbital
+        // actually reads is not — a provider satisfying the declaration exactly
+        // would not carry the field. So check `derived ⊆ authored` here too,
+        // against the DECLARATION, with the same authored-surface rule as above.
+        //
+        // This is what let 219 blocks declaring `{ role : string }` while reading
+        // `@user.email`/`@user.name` ship and stay valid until materialization.
+        if matches!(source, IdentitySource::Declared) {
+            if let Some(exp) = super::expectations::identity_expectation(orbital) {
+                if let Some(shape) = exp.shape {
+                    let declared =
+                        super::expectations::shape_as_identity_entity(
+                            exp.name.unwrap_or("@user"),
+                            shape,
+                        );
+                    let declared_source = IdentitySource::Expectation {
+                        orbital: orbital.name.as_str(),
+                        entity: exp.name,
+                    };
+                    for (j, trait_ref) in orbital.traits.iter().enumerate() {
+                        let TraitReference::Inline(trait_def) = trait_ref else {
+                            continue;
+                        };
+                        if trait_def.source_behavior.is_some() {
+                            continue;
+                        }
+                        let path = super::trait_path(i, &orbital.name, j, trait_ref);
+                        let Ok(value) = serde_json::to_value(trait_def) else {
+                            continue;
+                        };
+                        walk(&value, &path, &declared, declared_source, &mut result);
+                    }
+                }
+            }
+        }
     }
 
     ctx.merge(result);
