@@ -6,20 +6,41 @@ use std::collections::{HashMap, HashSet};
 pub(crate) fn validate_event_wiring(schema: &OrbitalSchema) -> ValidationResult {
     let mut result = ValidationResult::new();
 
-    // Track events declared as `scope: external` anywhere in the schema.
-    // These are explicitly meant to flow OUT to sibling orbitals — when
-    // validating a single-orbital file, the consumer isn't visible, so the
-    // unused-emission check would false-positive. The composed-schema
-    // validation (where every consumer orbital is loaded) catches the
-    // genuinely-unused case via `validate_listens_integrity` instead.
-    let mut external_emit_events: HashSet<String> = HashSet::new();
+    // `scope: external` TRANSFERS the obligation to consume an event to
+    // whoever composes the trait — it does not discharge it. Which side owns
+    // the obligation here depends on whether this schema DECLARES the trait or
+    // IMPORTS it, and only the first case is undecidable:
+    //
+    //   declared here (`source_behavior == None`) — the consumer is a sibling
+    //     orbital that may live outside this file. Not decidable, so exempt.
+    //   imported via `uses` (`source_behavior == Some(_)`) — THIS file is the
+    //     consumer the atom was declaring external FOR. Every party is present
+    //     and the question is decidable; a missing listener is a dead
+    //     affordance, not a deferred one.
+    //
+    // Keyed per (trait, event). The previous set was global by event NAME, so a
+    // single `ACTION -> external` anywhere exempted every trait emitting
+    // `ACTION` everywhere — and `ACTION` is `ui-input`'s default `action` knob,
+    // which silently exempted every composed input in the corpus (a payment
+    // amount field whose CHANGE nothing consumed still validated clean).
+    //
+    // The old comment deferred the composed case to `validate_listens_integrity`;
+    // that function raises only `ORB_X_LISTEN_SOURCE_UNRESOLVED` and never
+    // inspects emitters, so nothing caught it. See ORB-X-EXTERNAL-EMIT-EXEMPTION
+    // in `docs/Almadar_Compiler_Gaps.md`.
+    let mut exempt_external: HashSet<(String, String)> = HashSet::new();
+    let mut imported_traits: HashSet<String> = HashSet::new();
     for orbital in &schema.orbitals {
         for trait_ref in &orbital.traits {
             if let TraitReference::Inline(td) = trait_ref {
+                if td.source_behavior.is_some() {
+                    imported_traits.insert(td.name.clone());
+                    continue;
+                }
                 if let Some(emits) = &td.emits {
                     for emit in emits {
                         if emit.scope == Some(EventScope::External) {
-                            external_emit_events.insert(emit.event.clone());
+                            exempt_external.insert((td.name.clone(), emit.event.clone()));
                         }
                     }
                 }
@@ -118,27 +139,62 @@ pub(crate) fn validate_event_wiring(schema: &OrbitalSchema) -> ValidationResult 
         if event == "INIT" {
             continue;
         }
-        // Events declared `scope: external` may have their consumer in a
-        // sibling orbital not present in this schema. Don't flag them as
-        // unused — composed-schema validation handles the genuine case.
-        if external_emit_events.contains(event) {
-            continue;
-        }
         if !listened_events_all.contains_key(event) && !trigger_events.contains_key(event) {
             for emitter in emitters {
-                result.add_error(
+                // Exemption is per-emitter, not per event name — see the
+                // `exempt_external` construction above.
+                if exempt_external.contains(&(emitter.clone(), event.clone())) {
+                    continue;
+                }
+                let imported = imported_traits.contains(emitter);
+                let suggestion = if imported {
+                    format!(
+                        "This trait is composed from an imported behavior, so THIS file is the consumer its `-> external` emit was declared for. Wire it at the call site: rename the event onto one you handle (`events {{ {event}: <YOUR_EVENT> }}`) and add a matching transition arm, or add `listens {{ {emitter}.{event} -> <TRIGGER> }}`. Re-declaring it `-> external` no longer suppresses this — that only defers an emit whose trait is DECLARED here."
+                    )
+                } else {
+                    format!(
+                        "Consume it where it fires: add a transition arm `{event} -> <state>` in the emitting trait (the usual pattern for persist/fetch success|failure events), declare the event `-> external` if a SIBLING orbital consumes it, or remove it from the emit config"
+                    )
+                };
+                let message = format!(
+                    "Trait '{}' emits event '{}' but no trait listens for it",
+                    emitter, event
+                );
+                // Severity is split deliberately, and the split is additive —
+                // nothing that reported before reports less now.
+                //
+                // Authored emitters keep the pre-existing blocking severity
+                // (`warning()` is a shim over `error()`; `phase_f_warning` is
+                // the only non-blocking constructor).
+                //
+                // The imported class is NEW and reports non-blocking, because
+                // an atom's emits are an OFFER, not a demand: a DataGrid
+                // exposing `SORT`/`LOAD_MORE` that an app declines to wire is
+                // an unsorted grid, not a defect. Measured 2026-08-31 over the
+                // 1200-file corpus — blocking here would red 500 files with
+                // 10231 findings, dominated by exactly those optional
+                // affordances (LOAD_MORE 32, DISMISS 24, SORT 23, SELECT 23,
+                // SWIPE_* 32, LONG_PRESS 16 in a two-file sample).
+                //
+                // Escalating to blocking needs a predicate separating an
+                // optional affordance from a VALUE-CARRYING emit whose loss
+                // discards data (an input's CHANGE/ACTION, where the typed
+                // value is the only source for an entity field). Until that
+                // exists, over-blocking would train people to ignore the code.
+                let finding = if imported {
+                    ValidationError::phase_f_warning(
+                        ErrorCode::CrossOrbitalUnusedEmission,
+                        format!("traits.{}", emitter),
+                        message,
+                    )
+                } else {
                     ValidationError::warning(
                         ErrorCode::CrossOrbitalUnusedEmission,
                         format!("traits.{}", emitter),
-                        format!(
-                            "Trait '{}' emits event '{}' but no trait listens for it",
-                            emitter, event
-                        ),
+                        message,
                     )
-                    .with_suggestion(format!(
-                        "Consume it where it fires: add a transition arm `{event} -> <state>` in the emitting trait (the usual pattern for persist/fetch success|failure events), declare the event `-> external` if a SIBLING orbital consumes it, or remove it from the emit config"
-                    )),
-                );
+                };
+                result.add_error(finding.with_suggestion(suggestion));
             }
         }
     }
@@ -928,6 +984,121 @@ mod tests {
                 .any(|e| e.code == ErrorCode::CrossOrbitalOrphanListener),
             "listener on the conditional's else-branch-only event must resolve; got {:?}",
             result.errors
+        );
+    }
+
+    /// A trait emitting `event` with `scope: external` and nothing listening.
+    /// `imported` mirrors what the inline phase stamps for a `uses[]` clone.
+    fn externally_emitting_trait(name: &str, event: &str, imported: bool) -> TraitReference {
+        TraitReference::Inline(TraitDefinition {
+            type_params: None,
+            type_args: None,
+            name: name.to_string(),
+            entity_rebindable: None,
+            entity_contract: None,
+            category: None,
+            capabilities: vec![],
+            description: None,
+            linked_entity: Some("Task".to_string()),
+            emits: Some(vec![orbital_core::schema::EmitDefinition {
+                event: event.to_string(),
+                event_id: None,
+                description: None,
+                synonyms: None,
+                tier: None,
+                scope: Some(EventScope::External),
+                payload_schema: None,
+            }]),
+            listens: None,
+            state_machine: StateMachine {
+                states: vec![],
+                events: None,
+                transitions: vec![],
+            },
+            ticks: None,
+            config: None,
+            data_entities: None,
+            scope: None,
+            source_behavior: if imported {
+                Some(orbital_core::schema::SourceBehaviorMetadata {
+                    behavior: "ui-input".to_string(),
+                    alias: "Input".to_string(),
+                    original_name: "InputRender".to_string(),
+                })
+            } else {
+                None
+            },
+            source_entity_definition: None,
+            id: None,
+            linked_entity_id: None,
+            entity_ref_ids: None,
+            trait_embed_ids: None,
+        })
+    }
+
+    /// `(blocking, non_blocking)` — `add_error` routes by severity, and the
+    /// imported class reports non-blocking on purpose (see the call site).
+    fn unused_emission_counts(schema: &OrbitalSchema) -> (usize, usize) {
+        let r = validate_event_wiring(schema);
+        let count = |v: &Vec<ValidationError>| {
+            v.iter()
+                .filter(|e| e.code == ErrorCode::CrossOrbitalUnusedEmission)
+                .count()
+        };
+        (count(&r.errors), count(&r.warnings))
+    }
+
+    /// An `external` emit on a trait AUTHORED in this schema stays exempt: its
+    /// consumer may be a sibling orbital that isn't loaded here, so "nobody
+    /// listens" is not decidable. This is the producer-side case and must keep
+    /// working — validating `ui-input.lolo` alone may not warn.
+    #[test]
+    fn external_emit_on_authored_trait_is_exempt() {
+        let mut schema = create_minimal_schema();
+        schema.orbitals[0].traits = vec![externally_emitting_trait("InputRender", "ACTION", false)];
+        assert_eq!(
+            unused_emission_counts(&schema),
+            (0, 0),
+            "an external emit declared by a trait authored in this file defers to a sibling orbital"
+        );
+    }
+
+    /// The SAME emit reached through a `uses` import is reported: this file is
+    /// the consumer the atom declared `external` for, every party is present,
+    /// and a missing listener is a dead affordance rather than a deferred one.
+    ///
+    /// Regression for the composed-input class — `std-service-marketplace`'s
+    /// payment amount field emitted `CHANGE`/`ACTION` that nothing consumed, so
+    /// `@entity.amount` stayed at its initialised `0` and Stripe was called
+    /// with a zero amount, while `orb validate` reported 0 errors.
+    #[test]
+    fn external_emit_on_imported_trait_is_reported() {
+        let mut schema = create_minimal_schema();
+        schema.orbitals[0].traits =
+            vec![externally_emitting_trait("OrderPaymentNumberInput", "ACTION", true)];
+        assert_eq!(
+            unused_emission_counts(&schema),
+            (0, 1),
+            "an external emit on an imported trait is decidable here and must report non-blocking"
+        );
+    }
+
+    /// The exemption is per (trait, event), not per event NAME. One authored
+    /// trait declaring `ACTION -> external` must not exempt a DIFFERENT,
+    /// imported trait that also emits `ACTION` — the global-by-name set was
+    /// the original defect, and `ACTION` is `ui-input`'s default knob value, so
+    /// a single atom silently exempted every composed input in the corpus.
+    #[test]
+    fn authored_external_emit_does_not_exempt_imported_namesake() {
+        let mut schema = create_minimal_schema();
+        schema.orbitals[0].traits = vec![
+            externally_emitting_trait("AuthoredRender", "ACTION", false),
+            externally_emitting_trait("ImportedInput", "ACTION", true),
+        ];
+        assert_eq!(
+            unused_emission_counts(&schema),
+            (0, 1),
+            "only the imported emitter is reported; the authored namesake stays exempt"
         );
     }
 }

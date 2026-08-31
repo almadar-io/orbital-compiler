@@ -5904,7 +5904,7 @@ pub static PATTERN_PROP_TYPES: LazyLock<HashMap<&'static str, HashMap<&'static s
                     ("id", &["string"] as &[&str]),
                     ("shape", &["string"] as &[&str]),
                     ("position", &["object"] as &[&str]),
-                    ("anchor", &["object"] as &[&str]),
+                    ("anchor", &["string"] as &[&str]),
                     ("width", &["number"] as &[&str]),
                     ("height", &["number"] as &[&str]),
                     ("radiusX", &["number"] as &[&str]),
@@ -5939,7 +5939,7 @@ pub static PATTERN_PROP_TYPES: LazyLock<HashMap<&'static str, HashMap<&'static s
                     ("id", &["string"] as &[&str]),
                     ("position", &["object"] as &[&str]),
                     ("asset", &["object"] as &[&str]),
-                    ("anchor", &["object"] as &[&str]),
+                    ("anchor", &["string"] as &[&str]),
                     ("width", &["number"] as &[&str]),
                     ("height", &["number"] as &[&str]),
                     ("frame", &["object"] as &[&str]),
@@ -5960,7 +5960,7 @@ pub static PATTERN_PROP_TYPES: LazyLock<HashMap<&'static str, HashMap<&'static s
                     ("id", &["string"] as &[&str]),
                     ("text", &["string"] as &[&str]),
                     ("position", &["object"] as &[&str]),
-                    ("anchor", &["object"] as &[&str]),
+                    ("anchor", &["string"] as &[&str]),
                     ("offsetX", &["number"] as &[&str]),
                     ("offsetY", &["number"] as &[&str]),
                     ("color", &["string"] as &[&str]),
@@ -9344,14 +9344,17 @@ pub static PATTERN_PROP_ENUM_VALUES: LazyLock<HashMap<&'static str, HashMap<&'st
                 "draw-shape",
                 [
                     ("shape", &["cell", "rect", "ellipse", "poly", "path"] as &[&str]),
+                    ("anchor", &["top-left", "ground", "center"] as &[&str]),
                     ("blendMode", &["source-over", "lighter", "multiply", "screen", "overlay", "darken", "lighten", "color-dodge", "color-burn", "hard-light", "soft-light", "difference", "exclusion", "hue", "saturation", "color", "luminosity", "source-atop", "destination-over", "destination-out", "xor"] as &[&str]),
                 ]
                 .into_iter()
                 .collect(),
             ),
+            ("draw-sprite", [("anchor", &["top-left", "ground", "center"] as &[&str])].into_iter().collect()),
             (
                 "draw-text",
                 [
+                    ("anchor", &["top-left", "ground", "center"] as &[&str]),
                     ("align", &["center", "end", "left", "right", "start"] as &[&str]),
                     ("baseline", &["alphabetic", "bottom", "hanging", "ideographic", "middle", "top"] as &[&str]),
                 ]
