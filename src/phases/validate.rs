@@ -136,7 +136,9 @@ fn validate_schema_fields(schema: &OrbitalSchema, ctx: &mut ValidationContext) {
 }
 
 fn collect_names(schema: &OrbitalSchema, ctx: &mut ValidationContext) {
-    // Note: Traits are now only defined inline within orbitals, not at schema level.
+    // Real DECLARATIONS first (entities, then traits + pages), expectation
+    // names LAST — see the comment on the final pass for why the ordering is
+    // load-bearing rather than incidental.
     for orbital in &schema.orbitals {
         // Collect entity names (only for inline entities, not references)
         if let Some(entity) = orbital.entity.as_inline() {
@@ -161,28 +163,9 @@ fn collect_names(schema: &OrbitalSchema, ctx: &mut ValidationContext) {
                 }
             }
         }
+    }
 
-        // `expects entity X` / `expects identity X` declare a name this
-        // program does NOT provide — the consumer promises it, and the
-        // provider is checked at the link step once one supplies it (see
-        // `validation/expectations.rs`). Relation targets, `linkedEntity`
-        // bindings and fetch/persist entity args naming it are therefore
-        // legitimate here. NAMES ONLY: no `EntityDefinition` is synthesized,
-        // so nothing downstream can mistake an expectation for a declaration.
-        if let Some(expects) = &orbital.expects {
-            for expectation in expects {
-                match expectation {
-                    ExpectDeclaration::Entity { name, .. } => {
-                        ctx.entity_names.insert(name.clone());
-                    }
-                    ExpectDeclaration::Identity { name: Some(name), .. } => {
-                        ctx.entity_names.insert(name.clone());
-                    }
-                    _ => {}
-                }
-            }
-        }
-
+    for orbital in &schema.orbitals {
         // Collect inline trait names from trait references
         for trait_ref in &orbital.traits {
             if let TraitReference::Inline(trait_def) = trait_ref {
@@ -206,6 +189,38 @@ fn collect_names(schema: &OrbitalSchema, ctx: &mut ValidationContext) {
                         ));
                     }
                 }
+            }
+        }
+    }
+
+    // FINAL pass — expectation names. `expects entity X` / `expects identity X`
+    // / `expects page "/p/:id"` declare something this program does NOT
+    // provide: the consumer promises it, and the provider is checked at the
+    // link step once one supplies it (see `validation/expectations.rs`).
+    // Relation targets, `linkedEntity` bindings, fetch/persist entity args and
+    // navigate targets naming them are therefore legitimate here.
+    //
+    // This runs LAST, after EVERY real declaration of every kind, and that
+    // ordering is the whole point: `entity_names` and `page_paths` are both a
+    // resolution set AND the thing a uniqueness check tests against, so an
+    // expectation seeded before a real declaration turns the declaration into
+    // a "duplicate" — a bug that depended only on orbital array order
+    // (SCAN-DUP-ENTITY-COMPOSE-1 for entities; reintroduced and caught for
+    // pages the moment `expects page` seeded before the page loop). NAMES
+    // ONLY: nothing is synthesized, and nothing here can ever error.
+    for orbital in &schema.orbitals {
+        for expectation in orbital.expects.iter().flatten() {
+            match expectation {
+                ExpectDeclaration::Entity { name, .. } => {
+                    ctx.entity_names.insert(name.clone());
+                }
+                ExpectDeclaration::Identity { name: Some(name), .. } => {
+                    ctx.entity_names.insert(name.clone());
+                }
+                ExpectDeclaration::Page { path } => {
+                    ctx.page_paths.insert(path.clone());
+                }
+                _ => {}
             }
         }
     }
@@ -552,7 +567,8 @@ fn validate_page(page: &PageDefinition, path: &str, ctx: &mut ValidationContext)
 mod tests {
     use super::*;
     use orbital_core::schema::{
-        SExpression, StateDefinition, StateMachine, TraitDefinition, TransitionDefinition,
+        EntityRef, SExpression, StateDefinition, StateMachine, TraitDefinition,
+        TransitionDefinition,
     };
 
     fn create_minimal_schema() -> OrbitalSchema {
@@ -566,6 +582,121 @@ mod tests {
             ledger: None,
             schema_version: None,
         }
+    }
+
+    /// SCAN-DUP-ENTITY-COMPOSE-1 — a consumer's `expects <name>` must never
+    /// make the orbital that actually DECLARES that name look like a
+    /// duplicate. Before the two-pass split in `collect_names`, expectation
+    /// names went into the same set the primary-uniqueness check reads while
+    /// walking orbitals in array order, so this exact schema passed or failed
+    /// depending only on which orbital came first.
+    fn expects_vs_provider_schema(consumer_first: bool) -> OrbitalSchema {
+        let entity = |name: &str| {
+            EntityRef::Inline(EntityDefinition {
+                shared: false,
+                identity: false,
+                read_policy: None,
+                create_policy: None,
+                update_policy: None,
+                delete_policy: None,
+                access_waivers: None,
+                name: name.to_string(),
+                collection: None,
+                persistence: None,
+                fields: vec![],
+                instances: None,
+                id: None,
+            })
+        };
+        let orbital = |name: &str, ent: EntityRef, expects: Option<Vec<ExpectDeclaration>>| Orbital {
+            name: name.to_string(),
+            uses: None,
+            expects,
+            theme: None,
+            services: None,
+            entity: ent,
+            auxiliary_entities: None,
+            traits: vec![],
+            pages: None,
+            emits: None,
+            listens: None,
+            exposes: None,
+            domain_context: None,
+            design: None,
+            id: None,
+        };
+        let consumer = orbital(
+            "ConsumerOrbital",
+            entity("Consumer"),
+            Some(vec![ExpectDeclaration::Entity {
+                name: "Provided".to_string(),
+                shape: None,
+            }]),
+        );
+        let provider = orbital("ProviderOrbital", entity("Provided"), None);
+        let orbitals = if consumer_first {
+            vec![consumer, provider]
+        } else {
+            vec![provider, consumer]
+        };
+        OrbitalSchema {
+            theme: None,
+            name: "TestApp".to_string(),
+            version: Some("1.0.0".to_string()),
+            description: None,
+            orbitals,
+            metadata: None,
+            ledger: None,
+            schema_version: None,
+        }
+    }
+
+    fn duplicate_errors(schema: &OrbitalSchema) -> Vec<String> {
+        let mut ctx = ValidationContext::new();
+        collect_names(schema, &mut ctx);
+        ctx.errors
+            .iter()
+            .filter_map(|e| match e {
+                ValidationError::DuplicateDefinition { path, name } => {
+                    Some(format!("{}:{}", path, name))
+                }
+                _ => None,
+            })
+            .collect()
+    }
+
+    #[test]
+    fn expectation_name_never_shadows_a_real_declaration() {
+        // Both orderings must agree, and both must be clean: the expectation
+        // is a promise about a name, not a declaration of it.
+        assert_eq!(duplicate_errors(&expects_vs_provider_schema(true)), Vec::<String>::new());
+        assert_eq!(duplicate_errors(&expects_vs_provider_schema(false)), Vec::<String>::new());
+    }
+
+    #[test]
+    fn expectation_name_still_resolves_for_reference_checks() {
+        // The name must remain in the resolution set — deferring the second
+        // pass must not stop `expects` from licensing targets naming it.
+        let schema = expects_vs_provider_schema(true);
+        let mut ctx = ValidationContext::new();
+        collect_names(&schema, &mut ctx);
+        assert!(ctx.entity_names.contains("Provided"));
+        assert!(ctx.entity_names.contains("Consumer"));
+    }
+
+    #[test]
+    fn two_real_declarations_of_one_name_are_still_a_duplicate() {
+        // The uniqueness check must keep its teeth: two orbitals both
+        // DECLARING `Provided` is a genuine collision.
+        let mut schema = expects_vs_provider_schema(true);
+        schema.orbitals[0].expects = None;
+        if let EntityRef::Inline(ent) = &mut schema.orbitals[0].entity {
+            ent.name = "Provided".to_string();
+        }
+        assert_eq!(
+            duplicate_errors(&schema),
+            vec!["orbitals.ProviderOrbital:Provided".to_string()]
+        );
     }
 
     #[test]

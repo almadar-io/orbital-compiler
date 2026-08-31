@@ -162,6 +162,11 @@ fn resolve_binding_path(path: &str, ctx: &BindingContext) -> BindingType {
             Some(field) => resolve_config_field(field, ctx),
             None => BindingType::Object,
         },
+        "user" => match rest {
+            Some(field) => resolve_user_field(field, ctx),
+            // Bare `@user` is the whole identity row (object).
+            None => BindingType::Object,
+        },
         "trait" => match rest {
             Some(name) => {
                 if ctx.sibling_trait_names.iter().any(|n| n == name) {
@@ -255,6 +260,51 @@ fn descend_field_path(f: &FieldDefinition, rest: &[&str], ctx: &BindingContext) 
         }
         _ => field_definition_to_binding(f, ctx.entity_definitions),
     }
+}
+
+/// Look up `field` on the program's identity entity — the `[identity]`-tagged
+/// entity if one is declared, else the implicit default shape (`id`, `uid`,
+/// `email`, `name`, `role`; see `user_identity::default_identity_shape`).
+/// Mirrors `user_identity.rs`'s field-EXISTENCE walk but resolves a TYPE for
+/// prop-compare purposes instead of emitting an unknown-field diagnostic —
+/// that check stays owned by `user_identity.rs`; this one only reuses its
+/// shape source. Nested paths (`@user.profile.avatarUrl`) descend through
+/// `descend_field_path`, same as `@entity`.
+///
+/// `ctx.entity_definitions` is the schema-wide registry (every orbital's
+/// PRIMARY + auxiliary entities), so the declared `[identity]` entity is
+/// found there when one exists — no schema/orbital plumbing needed here.
+/// This does not see a narrower per-orbital `expects identity { shape }`
+/// (that requires the orbital, which `BindingContext` doesn't carry); a
+/// field outside the wider fallback shape just resolves `Unknown` (skip),
+/// never a false mismatch.
+fn resolve_user_field(field: &str, ctx: &BindingContext) -> BindingType {
+    // Traits inlined from `uses[]` (`source_behavior.is_some()`) read
+    // `@user` against the IMPORTED behavior's own contract, not the
+    // consumer's — checking them against the consumer's identity shape
+    // manufactures false mismatches (G-EXPECT-DERIVE-IMPORTS, see the same
+    // exemption in `user_identity.rs`). Skip.
+    if ctx.trait_def.source_behavior.is_some() {
+        return BindingType::Unknown;
+    }
+    let declared = ctx.entity_definitions.values().find(|e| e.identity);
+    let default_identity;
+    let identity: &EntityDefinition = match declared {
+        Some(e) => e,
+        None => {
+            default_identity = super::user_identity::default_identity_shape();
+            &default_identity
+        }
+    };
+    let mut parts = field.split('.');
+    let top = parts.next().unwrap_or(field);
+    let rest: Vec<&str> = parts.collect();
+    for f in identity.fields.iter() {
+        if f.name.as_deref() == Some(top) {
+            return descend_field_path(f, &rest, ctx);
+        }
+    }
+    BindingType::Unknown
 }
 
 /// Look up `field` on the trait's `config` block.
@@ -609,6 +659,117 @@ mod tests {
         assert_eq!(
             resolve_binding_type(&SExpression::String("@entity.title".to_string()), &ctx),
             BindingType::String
+        );
+    }
+
+    #[test]
+    fn resolves_user_field_against_implicit_default_shape() {
+        // No `[identity]` entity declared anywhere in `entity_definitions` —
+        // falls back to `user_identity::default_identity_shape()`
+        // (id/uid/email/name all string, role string).
+        let t = empty_trait("T", None);
+        let entities: HashMap<String, EntityDefinition> = HashMap::new();
+        let ctx = BindingContext {
+            trait_def: &t,
+            entity_definitions: &entities,
+            event_payload: None,
+            sibling_trait_names: &[],
+        };
+        assert_eq!(
+            resolve_binding_type(&SExpression::String("@user.name".to_string()), &ctx),
+            BindingType::String
+        );
+        // Field outside the default shape → Unknown, not a false mismatch.
+        assert_eq!(
+            resolve_binding_type(&SExpression::String("@user.notReal".to_string()), &ctx),
+            BindingType::Unknown
+        );
+    }
+
+    #[test]
+    fn resolves_user_field_against_declared_identity_entity() {
+        // A real `[identity]` entity in `entity_definitions` wins over the
+        // implicit default shape, including fields the default doesn't have.
+        let t = empty_trait("T", None);
+        let mut entities: HashMap<String, EntityDefinition> = HashMap::new();
+        entities.insert(
+            "Member".to_string(),
+            EntityDefinition {
+                shared: false,
+                identity: true,
+                read_policy: None,
+                create_policy: None,
+                update_policy: None,
+                delete_policy: None,
+                access_waivers: None,
+                name: "Member".to_string(),
+                collection: None,
+                persistence: None,
+                instances: None,
+                fields: vec![FieldDefinition {
+                    name: Some("loyaltyPoints".to_string()),
+                    field_type: FieldType::Number,
+                    required: Some(true),
+                    primary_key: None,
+                    unique: None,
+                    default: None,
+                    values: None,
+                    relation: None,
+                    items: None,
+                    properties: None,
+                    intrinsic: None,
+                    description: None,
+                    synonyms: None,
+                }],
+                id: None,
+            },
+        );
+        let ctx = BindingContext {
+            trait_def: &t,
+            entity_definitions: &entities,
+            event_payload: None,
+            sibling_trait_names: &[],
+        };
+        assert_eq!(
+            resolve_binding_type(
+                &SExpression::String("@user.loyaltyPoints".to_string()),
+                &ctx
+            ),
+            BindingType::Number
+        );
+        // `role` is on the default shape but NOT on this declared entity —
+        // once a real identity entity is declared it is the sole source of
+        // truth, so an off-shape field resolves Unknown (skip), not a
+        // false-typed diagnostic.
+        assert_eq!(
+            resolve_binding_type(&SExpression::String("@user.role".to_string()), &ctx),
+            BindingType::Unknown
+        );
+    }
+
+    #[test]
+    fn skips_user_field_for_trait_inlined_from_uses() {
+        // A trait carrying `source_behavior` was inlined from a `uses[]`
+        // import; its internal `@user` reads are the IMPORTED behavior's
+        // own contract, not the consumer's (G-EXPECT-DERIVE-IMPORTS) — the
+        // resolver must skip rather than type-check against the consumer's
+        // identity shape, even though `name` exists on the default shape.
+        let mut t = empty_trait("T", None);
+        t.source_behavior = Some(orbital_core::schema::SourceBehaviorMetadata {
+            behavior: "std-browse".to_string(),
+            alias: "Browse".to_string(),
+            original_name: "BrowseList".to_string(),
+        });
+        let entities: HashMap<String, EntityDefinition> = HashMap::new();
+        let ctx = BindingContext {
+            trait_def: &t,
+            entity_definitions: &entities,
+            event_payload: None,
+            sibling_trait_names: &[],
+        };
+        assert_eq!(
+            resolve_binding_type(&SExpression::String("@user.name".to_string()), &ctx),
+            BindingType::Unknown
         );
     }
 

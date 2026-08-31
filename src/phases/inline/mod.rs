@@ -1028,6 +1028,16 @@ fn merge_expectation(into: &mut Vec<ExpectDeclaration>, incoming: ExpectDeclarat
                 into.push(ExpectDeclaration::Event { trait_name, event });
             }
         }
+        // A route has no shape to union — the path IS the declaration, so
+        // dedup by path and keep the first.
+        ExpectDeclaration::Page { path } => {
+            let dup = into
+                .iter()
+                .any(|d| matches!(d, ExpectDeclaration::Page { path: p } if *p == path));
+            if !dup {
+                into.push(ExpectDeclaration::Page { path });
+            }
+        }
     }
 }
 

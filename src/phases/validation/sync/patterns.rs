@@ -2,7 +2,7 @@
 //!
 //! Source: packages/almadar-core/src/patterns/patterns-registry.json
 //!
-//! Last synced: 2026-08-29
+//! Last synced: 2026-08-31
 //! To regenerate: npx tsx tools/almadar-pattern-sync/index.ts
 //!
 //! DO NOT EDIT MANUALLY - changes will be overwritten on next sync.
@@ -9951,6 +9951,7 @@ pub static PATTERN_EVENT_LIST_PROPS: LazyLock<HashMap<&'static str, HashMap<&'st
             ("dashboard-layout", [("topBarActions", "event")].into_iter().collect()),
             ("data-grid", [("itemActions", "event")].into_iter().collect()),
             ("data-list", [("itemActions", "event")].into_iter().collect()),
+            ("detail-panel", [("actions", "event")].into_iter().collect()),
             ("document-panel", [("actions", "event")].into_iter().collect()),
             ("entity-cards", [("itemActions", "event")].into_iter().collect()),
             ("swipeable-row", [("leftActions", "event"), ("rightActions", "event")].into_iter().collect()),

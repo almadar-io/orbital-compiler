@@ -696,6 +696,20 @@ fn collect_names(schema: &OrbitalSchema, ctx: &mut ValidationContext) {
             }
         }
 
+        // `expects page "/articles/:slug"` — a route a SIBLING declares, which
+        // this program may not contain (a single-orbital slice never does).
+        // Registering the pattern is what makes reachability decidable without
+        // the whole organism present; the INIT payload stays empty because the
+        // provider owns it, so the payload-requirement branch no-ops exactly as
+        // it does for a declared page that has no INIT. `entry` keeps a real
+        // declaration's payload authoritative when both are present.
+        for expectation in orbital.expects.iter().flatten() {
+            if let orbital_core::schema::ExpectDeclaration::Page { path } = expectation {
+                ctx.page_paths.insert(path.clone());
+                ctx.page_init_payloads.entry(path.clone()).or_default();
+            }
+        }
+
         // Service names (only for inline services, not references)
         if let Some(services) = &orbital.services {
             for service_ref in services {

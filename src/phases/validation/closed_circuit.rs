@@ -73,15 +73,28 @@ pub fn validate_all_circuits(schema: &OrbitalSchema, ctx: &mut ValidationContext
         // shape — the header renders the button, the catalog trait owns
         // CREATE) closes the circuit just as an own-transition would
         // (C-ORPHAN-EVENT-PAGEHEADER-ACTIONS).
-        let orbital_handled: HashSet<String> = orbital
-            .traits
-            .iter()
-            .filter_map(|tr| match tr {
+        let inline_traits = || {
+            orbital.traits.iter().filter_map(|tr| match tr {
                 TraitReference::Inline(td) => Some(td),
                 _ => None,
             })
+        };
+        let mut orbital_handled: HashSet<String> = inline_traits()
             .flat_map(|td| extract_handled_events(&td.state_machine))
             .collect();
+        // A `listens` route consumes the event under its OWN local name:
+        // `listens { ModerationDecisionBrowse.DELETE -> REVERT }` means this
+        // orbital handles DELETE — by firing REVERT. Counting only transition
+        // triggers misses every route whose target is renamed, so a wired
+        // affordance reads as orphaned (std-forum's ModQueueOrbital has no
+        // DELETE transition anywhere, only this route). The consumed event is
+        // `listens[].event`; `triggers` is already covered above, since it
+        // fires a real transition.
+        orbital_handled.extend(
+            inline_traits()
+                .flat_map(|td| td.listens.iter().flatten())
+                .map(|l| l.event.clone()),
+        );
         for (j, trait_ref) in orbital.traits.iter().enumerate() {
             if let TraitReference::Inline(trait_def) = trait_ref {
                 let path = super::trait_path(i, &orbital.name, j, trait_ref);
@@ -104,9 +117,10 @@ use orbital_core::slots::OVERLAY_SLOTS;
 const OVERLAY_EXIT_EVENTS: &[&str] = &["CLOSE", "CANCEL", "DISMISS", "SAVE", "SUBMIT", "CONFIRM"];
 
 /// Validate closed circuit for a single trait. `orbital_handled` is the
-/// union of EVERY sibling trait's transition triggers in the same orbital —
-/// the orphan-event check accepts a sibling-handled (or emits-declared)
-/// action event as a closed circuit, since the bus broadcasts orbital-wide.
+/// union of EVERY sibling trait's transition triggers AND every event any
+/// sibling `listens` for in the same orbital — the orphan-event check accepts
+/// a sibling-handled (or emits-declared) action event as a closed circuit,
+/// since the bus broadcasts orbital-wide.
 pub fn validate_closed_circuit(
     trait_def: &TraitDefinition,
     path: &str,

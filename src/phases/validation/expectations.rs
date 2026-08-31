@@ -264,6 +264,13 @@ fn validate_expectation_links(schema: &OrbitalSchema, result: &mut ValidationRes
                 }
                 // Phase 2 (escape analysis / listens-audit) — no validation effect yet.
                 ExpectDeclaration::Event { .. } => {}
+                // A route expectation carries no shape, so there is nothing to
+                // link-check against a present provider, and an absent one is
+                // DEFERRED like every other expectation. Reachability is not
+                // weakened: the declaration is only ever derived for a target
+                // that already matched a page of the whole organism, so a
+                // genuine typo derives nothing and still fails `validate_navigate`.
+                ExpectDeclaration::Page { .. } => {}
             }
         }
     }
