@@ -752,3 +752,253 @@ fn non_number_on_int_or_float_fails() {
         );
     }
 }
+
+fn shape_warnings(schema: &OrbitalSchema) -> Vec<String> {
+    validate_comprehensive(schema)
+        .warnings
+        .into_iter()
+        .filter(|e| e.code == ErrorCode::TraitConfigShapeMismatch)
+        .map(|e| format!("@ {}: {}", e.path, e.message))
+        .collect()
+}
+
+fn string_value_field() -> FieldDefinition {
+    FieldDefinition {
+        name: None,
+        field_type: FieldType::String,
+        required: None,
+        primary_key: None,
+        unique: None,
+        default: None,
+        values: None,
+        relation: None,
+        items: None,
+        properties: None,
+        intrinsic: None,
+        description: None,
+        synonyms: None,
+    }
+}
+
+fn map_knob(default: SExpression) -> OrbitalSchema {
+    let mut config = HashMap::new();
+    config.insert(
+        "labels".to_string(),
+        ConfigField {
+            field_type: "Map<string,string>".to_string(),
+            default: Some(default),
+            label: None,
+            description: None,
+            synonyms: None,
+            tier: None,
+            values: None,
+            items: Some(Box::new(string_value_field())),
+            properties: None,
+            required: None,
+            ref_id: None,
+        },
+    );
+    schema_with_config(config)
+}
+
+/// `Map K V` is the honest type for a genuine dynamic-key dictionary — the
+/// replacement for `json` on those knobs. A conforming default must pass.
+#[test]
+fn map_with_conforming_values_passes() {
+    let mut entries: HashMap<String, SExpression> = HashMap::new();
+    entries.insert("draft".to_string(), SExpression::String("Draft".to_string()));
+    entries.insert("sent".to_string(), SExpression::String("Sent".to_string()));
+    let schema = map_knob(SExpression::Object(entries));
+    assert!(shape_errors(&schema).is_empty());
+    assert!(
+        shape_warnings(&schema).is_empty(),
+        "conforming map must not warn: {:?}",
+        shape_warnings(&schema)
+    );
+}
+
+/// The hole this closes: `config_declared_kind` returned `None` for any tag
+/// containing `<`, so a `Map<string,string>` knob fell through to
+/// `check_primitive_shape`'s `_ => true` and accepted `{ a: 3 }`. Retyping
+/// `json` into an UNCHECKED type would have been laundering, not typing.
+#[test]
+fn map_with_a_wrong_typed_value_is_reported() {
+    let mut entries: HashMap<String, SExpression> = HashMap::new();
+    entries.insert("draft".to_string(), SExpression::Number(3.0));
+    let schema = map_knob(SExpression::Object(entries));
+    let warns = shape_warnings(&schema);
+    assert_eq!(warns.len(), 1, "expected one map-value finding, got: {warns:?}");
+    assert!(
+        warns[0].contains("expected string, got number") && warns[0].contains("config(labels).draft"),
+        "finding must name the offending KEY and both types: {}",
+        warns[0]
+    );
+}
+
+/// A map whose default isn't an object at all.
+#[test]
+fn map_with_a_non_object_default_is_reported() {
+    let schema = map_knob(SExpression::String("not-a-map".to_string()));
+    let warns = shape_warnings(&schema);
+    assert_eq!(warns.len(), 1, "expected one finding, got: {warns:?}");
+    assert!(warns[0].contains("isn't an object"), "unexpected: {}", warns[0]);
+}
+
+/// `[MapViewMarkersItem]` starts with the letters "Map" but is an ARRAY. The
+/// guard is on the `Map<` prefix precisely so this stays on the array path.
+#[test]
+fn an_array_type_merely_starting_with_map_is_not_treated_as_a_map() {
+    let mut config = HashMap::new();
+    config.insert(
+        "markers".to_string(),
+        ConfigField {
+            field_type: "[MapViewMarkersItem]".to_string(),
+            default: Some(SExpression::Array(vec![])),
+            label: None,
+            description: None,
+            synonyms: None,
+            tier: None,
+            values: None,
+            items: Some(Box::new(string_value_field())),
+            properties: None,
+            required: None,
+            ref_id: None,
+        },
+    );
+    let schema = schema_with_config(config);
+    assert!(shape_errors(&schema).is_empty());
+    assert!(shape_warnings(&schema).is_empty());
+}
+
+fn scalar_knob(default: SExpression) -> OrbitalSchema {
+    let mut config = HashMap::new();
+    config.insert(
+        "cell".to_string(),
+        ConfigField {
+            field_type: "scalar".to_string(),
+            default: Some(default),
+            label: None,
+            description: None,
+            synonyms: None,
+            tier: None,
+            values: None,
+            items: None,
+            properties: None,
+            required: None,
+            ref_id: None,
+        },
+    );
+    schema_with_config(config)
+}
+
+/// `scalar` admits exactly string | number | boolean | null.
+#[test]
+fn scalar_accepts_every_primitive_member() {
+    for v in [
+        SExpression::String("x".to_string()),
+        SExpression::Number(3.0),
+        SExpression::Bool(true),
+        SExpression::Null,
+    ] {
+        let schema = scalar_knob(v.clone());
+        let errs = shape_errors(&schema);
+        assert!(errs.is_empty(), "scalar must accept {v:?}, got: {errs:?}");
+    }
+}
+
+/// The whole reason `scalar` replaces `json`: a value that NESTS is rejected.
+/// `json` accepted both of these silently.
+#[test]
+fn scalar_rejects_objects_and_arrays() {
+    for v in [
+        SExpression::Object(HashMap::new()),
+        SExpression::Array(vec![]),
+    ] {
+        let schema = scalar_knob(v.clone());
+        let errs = shape_errors(&schema);
+        assert_eq!(errs.len(), 1, "scalar must reject {v:?}, got: {errs:?}");
+        assert!(
+            errs[0].contains("expected scalar"),
+            "message must name the declared type: {}",
+            errs[0]
+        );
+    }
+}
+
+/// `Map string scalar` is the shape `loadedRow`-style dynamic-key value bags
+/// actually have — dynamic keys, primitive values. The map arm and the scalar
+/// arm have to compose, or neither is usable for the json burndown.
+#[test]
+fn map_of_scalar_accepts_mixed_primitive_values_but_not_nesting() {
+    let mut ok: HashMap<String, SExpression> = HashMap::new();
+    ok.insert("title".to_string(), SExpression::String("Hi".to_string()));
+    ok.insert("count".to_string(), SExpression::Number(2.0));
+    ok.insert("done".to_string(), SExpression::Bool(false));
+
+    let mut config = HashMap::new();
+    let value_schema = FieldDefinition {
+        name: None,
+        field_type: FieldType::Scalar,
+        required: None,
+        primary_key: None,
+        unique: None,
+        default: None,
+        values: None,
+        relation: None,
+        items: None,
+        properties: None,
+        intrinsic: None,
+        description: None,
+        synonyms: None,
+    };
+    config.insert(
+        "loadedRow".to_string(),
+        ConfigField {
+            field_type: "Map<string,scalar>".to_string(),
+            default: Some(SExpression::Object(ok)),
+            label: None,
+            description: None,
+            synonyms: None,
+            tier: None,
+            values: None,
+            items: Some(Box::new(value_schema.clone())),
+            properties: None,
+            required: None,
+            ref_id: None,
+        },
+    );
+    let schema = schema_with_config(config);
+    assert!(shape_errors(&schema).is_empty());
+    assert!(
+        shape_warnings(&schema).is_empty(),
+        "mixed primitives are legal in Map string scalar: {:?}",
+        shape_warnings(&schema)
+    );
+
+    let mut bad: HashMap<String, SExpression> = HashMap::new();
+    bad.insert("nested".to_string(), SExpression::Object(HashMap::new()));
+    let mut config2 = HashMap::new();
+    config2.insert(
+        "loadedRow".to_string(),
+        ConfigField {
+            field_type: "Map<string,scalar>".to_string(),
+            default: Some(SExpression::Object(bad)),
+            label: None,
+            description: None,
+            synonyms: None,
+            tier: None,
+            values: None,
+            items: Some(Box::new(value_schema)),
+            properties: None,
+            required: None,
+            ref_id: None,
+        },
+    );
+    let schema2 = schema_with_config(config2);
+    assert_eq!(
+        shape_warnings(&schema2).len(),
+        1,
+        "a nested value is not a scalar: {:?}",
+        shape_warnings(&schema2)
+    );
+}

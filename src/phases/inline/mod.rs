@@ -21,6 +21,7 @@ mod identity_normalize;
 mod page;
 pub(crate) mod rewrite;
 mod service;
+mod sigil_types;
 mod splice;
 #[path = "trait.rs"]
 mod r#trait;
@@ -348,6 +349,16 @@ pub fn inline_schema_with_config_diagnostics(
 
     // An imported auxiliary entity never displaces a consumer's own entity.
     drop_unreferenced_colliding_auxiliaries(schema);
+
+    // Sigil type constructors (`@payload <knob>`, `@entity <knob>`, `@user`)
+    // resolve here: after every orbital has inlined, so a knob's value is the
+    // call site's folded override and an event declared on a SIBLING orbital is
+    // visible. Unresolved sentinels are surfaced by the caller as blocking
+    // errors — never left to ship as a literal string.
+    // Anything it cannot resolve is left as a sentinel and reported by the
+    // Phase-5f sweep — resolution mutates, reporting validates, same split the
+    // type-parameter sentinels already use.
+    sigil_types::resolve_sigil_types(schema);
 
     // Emit the config→knob provenance into `_metadata.configProvenance` so a
     // consumer (Studio contextual edit) can trace a substituted render-ui

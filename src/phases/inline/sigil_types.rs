@@ -1,0 +1,350 @@
+//! Resolve the sigil type constructors — `@payload <knob>`, `@entity <knob>`
+//! and `@user` — against the fully-inlined schema.
+//!
+//! These are the language's first DEPENDENT types: the argument is a value
+//! reference (a config knob whose value names an event or an entity), so the
+//! type is not knowable until the call site's overrides are folded. Hence a
+//! whole-schema pass after every orbital has inlined, rather than an extension
+//! of `resolve_type_param_sentinels` — that one takes a single `&mut Orbital`
+//! and cannot see an event declared on a sibling orbital.
+//!
+//! Resolution is TOTAL by contract: a sentinel becomes a concrete named type
+//! plus `properties`, or it is reported. It never degrades to `object` — partly
+//! because a `ConfigField` whose `field_type` is literally `"object"` is an
+//! unconditional `ORB_T_CONFIG_OBJECT_ARRAY_FORBIDDEN` regardless of
+//! properties, and partly because a silent degrade is the failure mode this
+//! family exists to avoid.
+//!
+//! "The target declares nothing" is a legal resolution producing an EMPTY
+//! shape. That is what lets a generated atom validate standalone, where the
+//! knob still holds its own default and nothing has declared that event.
+
+use orbital_core::schema::{
+    ConfigField, EntityRef, ExpectDeclaration, FieldDefinition, FieldType, OrbitalSchema,
+    PayloadField, SExpression, TraitReference,
+};
+use std::collections::HashMap;
+
+enum Sigil<'a> {
+    EventPayload(&'a str),
+    NamedEntity(&'a str),
+    BoundEntity,
+    Identity,
+}
+
+fn parse_sigil(field_type: &str) -> Option<Sigil<'_>> {
+    if field_type == "@user" {
+        return Some(Sigil::Identity);
+    }
+    // Bare `@entity` in CONFIG position — the arity-0 constructor, resolving
+    // against the carrying trait's own `linkedEntity`. The payload-position
+    // spelling is owned by `resolve_type_param_sentinels` (per-orbital, which
+    // suffices there); config knobs are resolved here because the sibling
+    // arity-1 arms need the whole schema. The two never see the same field.
+    if field_type == "@entity" {
+        return Some(Sigil::BoundEntity);
+    }
+    let arg = |p: &str| {
+        field_type
+            .strip_prefix(p)
+            .and_then(|r| r.strip_suffix(')'))
+            .filter(|k| !k.is_empty())
+    };
+    arg("@payload(")
+        .map(Sigil::EventPayload)
+        .or_else(|| arg("@entity(").map(Sigil::NamedEntity))
+}
+
+/// Schema-wide `event -> declared payload`, on the same traversal
+/// `cross_emitter` uses and with the same anchor rule: FIRST declaration in
+/// (orbital, trait, emits-array) order wins. A schema clean under
+/// `ORB_X_CROSS_EMITTER_DECLARED_PAYLOAD_MISMATCH` therefore resolves to the
+/// one true shape, and a schema that is not is exactly where the choice would
+/// have been ambiguous.
+fn build_payload_index(schema: &OrbitalSchema) -> HashMap<String, Vec<PayloadField>> {
+    let mut idx: HashMap<String, Vec<PayloadField>> = HashMap::new();
+    for orbital in &schema.orbitals {
+        for trait_ref in &orbital.traits {
+            let TraitReference::Inline(td) = trait_ref else {
+                continue;
+            };
+            for emit in td.emits.as_deref().unwrap_or(&[]) {
+                if let Some(fields) = &emit.payload_schema {
+                    if !fields.is_empty() {
+                        idx.entry(emit.event.clone()).or_insert_with(|| fields.clone());
+                    }
+                }
+            }
+        }
+    }
+    idx
+}
+
+/// `FieldType` is `Deserialize` with lowercase renaming, so serde owns the
+/// string→type mapping. Reusing it avoids a second copy of a table
+/// `orbital-lolo` already has (which this crate cannot import — they are
+/// siblings).
+fn field_type_of(name: &str) -> FieldType {
+    serde_json::from_value(serde_json::Value::String(name.to_lowercase()))
+        .unwrap_or(FieldType::String)
+}
+
+fn field_of(p: &PayloadField) -> FieldDefinition {
+    FieldDefinition {
+        name: Some(p.name.clone()),
+        field_type: field_type_of(&p.field_type),
+        required: p.required,
+        primary_key: None,
+        unique: None,
+        default: None,
+        values: None,
+        relation: None,
+        items: None,
+        properties: None,
+        intrinsic: None,
+        description: p.description.clone(),
+        synonyms: None,
+    }
+}
+
+fn keyed(fields: Vec<FieldDefinition>) -> HashMap<String, FieldDefinition> {
+    fields
+        .into_iter()
+        .filter_map(|f| f.name.clone().map(|n| (n, f)))
+        .collect()
+}
+
+/// Post-inline, `ConfigField.default` already carries the call site's override
+/// folded over the declared default — so this IS the resolved value, and no
+/// separate effective-config map is needed.
+fn knob_value(config: Option<&HashMap<String, ConfigField>>, knob: &str) -> Option<String> {
+    match config?.get(knob)?.default.as_ref()? {
+        SExpression::String(s) => Some(s.clone()),
+        _ => None,
+    }
+}
+
+pub(crate) fn resolve_sigil_types(schema: &mut OrbitalSchema) {
+    let payloads = build_payload_index(schema);
+
+    let mut entities: HashMap<String, Vec<FieldDefinition>> = HashMap::new();
+    let mut identity: Option<Vec<FieldDefinition>> = None;
+    for orbital in &schema.orbitals {
+        if let EntityRef::Inline(def) = &orbital.entity {
+            entities.insert(def.name.clone(), def.fields.clone());
+            if def.identity && identity.is_none() {
+                identity = Some(def.fields.clone());
+            }
+        }
+        for aux in orbital.auxiliary_entities.iter().flatten() {
+            if let EntityRef::Inline(def) = aux {
+                entities.entry(def.name.clone()).or_insert_with(|| def.fields.clone());
+            }
+        }
+        // `expects` promises are the local type environment a standalone
+        // orbital is validated against, so they are a legitimate source.
+        for ex in orbital.expects.iter().flatten() {
+            match ex {
+                ExpectDeclaration::Entity {
+                    name,
+                    shape: Some(shape),
+                } => {
+                    entities.entry(name.clone()).or_insert_with(|| shape.clone());
+                }
+                ExpectDeclaration::Identity {
+                    shape: Some(shape), ..
+                } if identity.is_none() => identity = Some(shape.clone()),
+                _ => {}
+            }
+        }
+    }
+
+    // FALLBACK for payload-position `@entity`. The per-orbital resolver
+    // (`resolve_orbital_type_param_sentinels`) looks the trait's bound entity
+    // up in ITS OWN orbital's entity set, so a trait bound to an entity
+    // declared in a SIBLING ORBITAL of the same app is left unresolved —
+    // measured on `std-realtime-chat`, where `ChannelRail -> ChannelMember`
+    // lives in `ChatMessageOrbital` while `ChannelMember` is declared in
+    // `ChannelMembershipOrbital`. This pass runs whole-schema, so it can see
+    // both. Only leftovers are touched: anything already resolved no longer
+    // carries the sentinel.
+    for orbital in &mut schema.orbitals {
+        for trait_ref in &mut orbital.traits {
+            let TraitReference::Inline(td) = trait_ref else {
+                continue;
+            };
+            let Some(bound) = td.linked_entity.clone() else {
+                continue;
+            };
+            let Some(fields) = entities.get(&bound) else {
+                continue;
+            };
+            let row: Vec<PayloadField> = fields.iter().map(payload_field_of).collect();
+            for emit in td.emits.iter_mut().flatten() {
+                if let Some(schema_fields) = emit.payload_schema.as_mut() {
+                    substitute_entity_sentinel(schema_fields, &row);
+                }
+            }
+            if let Some(events) = td.state_machine.events.as_mut() {
+                for ev in events.iter_mut() {
+                    if let Some(schema_fields) = ev.payload_schema.as_mut() {
+                        substitute_entity_sentinel(schema_fields, &row);
+                    }
+                }
+            }
+        }
+    }
+
+    for orbital in &mut schema.orbitals {
+        for trait_ref in &mut orbital.traits {
+            let TraitReference::Inline(td) = trait_ref else {
+                continue;
+            };
+            let declared = td.config.clone();
+            let linked = td.linked_entity.clone();
+            let Some(config) = td.config.as_mut() else {
+                continue;
+            };
+            for field in config.values_mut() {
+                let Some(sigil) = parse_sigil(&field.field_type) else {
+                    continue;
+                };
+                // An arm that cannot resolve leaves the sentinel in place; the
+                // config-position walk in `type_param_sweep` is the single
+                // owner of the diagnostic, so reporting here too would
+                // double-count and split the message's cause taxonomy.
+                let resolved = match sigil {
+                    Sigil::EventPayload(knob) => knob_value(declared.as_ref(), knob).map(|event| {
+                        // Nothing declares this event's payload -> EMPTY. That
+                        // is an answer, not a failure: the knob guarantees no
+                        // fields.
+                        (
+                            format!("{}Payload", pascal(&event)),
+                            payloads
+                                .get(&event)
+                                .map(|f| f.iter().map(field_of).collect())
+                                .unwrap_or_default(),
+                        )
+                    }),
+                    Sigil::NamedEntity(knob) => knob_value(declared.as_ref(), knob)
+                        .and_then(|name| {
+                            entities
+                                .get(&name)
+                                .map(|f| (format!("{}Row", pascal(&name)), f.clone()))
+                        }),
+                    Sigil::BoundEntity => linked.as_ref().and_then(|name| {
+                        entities
+                            .get(name)
+                            .map(|f| (format!("{}Row", pascal(name)), f.clone()))
+                    }),
+                    Sigil::Identity => identity
+                        .as_ref()
+                        .map(|f| ("IdentityRow".to_string(), f.clone())),
+                };
+                if let Some((type_name, fields)) = resolved {
+                    // NEVER `object` — that is an unconditional hard error for
+                    // a config field regardless of `properties`.
+                    field.field_type = type_name;
+                    field.properties = Some(keyed(fields));
+                }
+            }
+        }
+    }
+}
+
+/// A `FieldDefinition` rendered as the `PayloadField` a resolved row carries.
+///
+/// Carries the field's own SHAPE through — nested struct `properties`, an
+/// array's element shape, a union's variants. Dropping them (this used to set
+/// `properties: None` unconditionally) meant every struct-typed entity field
+/// arrived on the bus as a shapeless `object`: an entity honestly declaring
+/// `heroSpawn : Position` still published `heroSpawn : object` on `VIEW.row`,
+/// and `ORB_T_GENERIC_TYPE_DEPRECATED` reported the row snapshot as untyped
+/// while the entity it snapshots was fully typed. The whole `row-snapshot`
+/// class of that warning was this function.
+pub(crate) fn payload_field_of(f: &FieldDefinition) -> PayloadField {
+    // `Object` + `items` is a MAP (dynamic keys, uniform value): it has no
+    // properties by construction and carries its value shape in the tag.
+    let tag = if f.field_type == FieldType::Object && f.items.is_some() {
+        let v = f.items.as_deref().map(crate::phases::validation::field_type_str);
+        format!("Map<string,{}>", v.unwrap_or_else(|| "string".to_string()))
+    } else {
+        serde_json::to_value(&f.field_type)
+            .ok()
+            .and_then(|v| v.as_str().map(String::from))
+            .unwrap_or_else(|| "string".to_string())
+    };
+
+    // Struct members / union variants, in the `Vec<PayloadField>` shape the
+    // payload IR uses. A map field carries its VALUE schema in `items` and has
+    // no properties by construction, so it is left alone.
+    let props: Option<Vec<PayloadField>> = match f.field_type {
+        // A map's value shape rides in the tag above, not in properties.
+        FieldType::Object if f.items.is_some() => None,
+        FieldType::Object | FieldType::Union => f.properties.as_ref().and_then(|m| {
+            // `values` fixes the variant order for a union; a struct has none,
+            // so fall back to the map's own (BTree-stable) iteration order.
+            let ordered: Vec<&String> = match (&f.field_type, &f.values) {
+                (FieldType::Union, Some(names)) => names.iter().collect(),
+                _ => m.keys().collect(),
+            };
+            let v: Vec<PayloadField> = ordered
+                .into_iter()
+                .filter_map(|k| m.get(k).map(payload_field_of))
+                .collect();
+            (!v.is_empty()).then_some(v)
+        }),
+        // An array of structs: the payload convention is the `[object]` tag with
+        // the ELEMENT's fields in `properties`.
+        FieldType::Array => f
+            .items
+            .as_deref()
+            .and_then(|it| payload_field_of(it).properties),
+        _ => None,
+    };
+
+    let tag = match (&f.field_type, &props) {
+        (FieldType::Array, Some(_)) => "[object]".to_string(),
+        _ => tag,
+    };
+
+    PayloadField {
+        name: f.name.clone().unwrap_or_default(),
+        field_type: tag,
+        required: f.required,
+        description: None,
+        properties: props,
+    }
+}
+
+/// Replace a WRAPPER field still typed `@entity` with the bound row's shape.
+/// Mirrors what the per-orbital resolver produces for the same field: the
+/// `object` tag plus the row's fields in `properties`.
+fn substitute_entity_sentinel(fields: &mut [PayloadField], row: &[PayloadField]) {
+    for f in fields.iter_mut() {
+        match f.field_type.as_str() {
+            "@entity" => {
+                f.field_type = "object".to_string();
+                f.properties = Some(row.to_vec());
+            }
+            "[@entity]" => {
+                f.field_type = "array".to_string();
+                f.properties = Some(row.to_vec());
+            }
+            _ => {}
+        }
+    }
+}
+
+fn pascal(s: &str) -> String {
+    s.split(|c: char| !c.is_alphanumeric())
+        .filter(|p| !p.is_empty())
+        .map(|p| {
+            let mut c = p.chars();
+            match c.next() {
+                Some(f) => f.to_uppercase().collect::<String>() + &c.as_str().to_lowercase(),
+                None => String::new(),
+            }
+        })
+        .collect()
+}

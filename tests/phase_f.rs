@@ -36,6 +36,7 @@ fn payload_field(name: &str, ty: &str, required: bool) -> PayloadField {
 
 fn emit_def(event: &str, fields: Vec<PayloadField>) -> EmitDefinition {
     EmitDefinition {
+        definer_knob: None,
         event: event.to_string(),
         description: None,
         synonyms: None,

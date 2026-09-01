@@ -6,7 +6,7 @@
 //! substitutes the `"$<param>"` / `"[$<param>]"` payload sentinel
 //! `orbital-lolo` lowers — for a `type X (E : Entity) = Event { row : E }`
 //! alias reference (3-I) OR a trait's own `(V : Type)` header used directly
-//! in its `emits`/`listens`/`config` (3-II) — once a substitution is known:
+//! in its `emits`/`listens` (3-II) — once a substitution is known:
 //! the using trait's bound entity (3-I, and 3-II's Entity-kind default), or
 //! an explicit call-site `:: <param> <arg>` argument (3-II). A sentinel that
 //! survives inline means neither was available — blocking: the emitted
@@ -22,6 +22,32 @@ use super::{
 
 const ENTITY_GUIDANCE: &str = "Bind the trait to a `linkedEntity` (directly, via `-> Entity`, or via a call-site rebind) so the parameter has an entity to monomorphize against.";
 const TYPE_GUIDANCE: &str = "Supply an explicit call-site argument for this parameter — `:: <param> <arg>` on the trait reference (a primitive type name, or an entity name) — this Type-kind parameter has no default.";
+/// A sigil type constructor that survived resolution. Each cause is named so
+/// the message is actionable — an unresolved type that only says "unresolved"
+/// is the silent degrade wearing a different hat.
+fn unresolved_sigil_reason(field_type: &str) -> Option<&'static str> {
+    if field_type == "@user" {
+        return Some("this orbital declares no identity SHAPE (a bare `expects identity` declares existence only)");
+    }
+    if field_type.starts_with("@payload(") {
+        return Some("the named knob does not hold a literal event name on this trait");
+    }
+    if field_type.starts_with("@entity(") {
+        return Some("the named knob does not hold a literal entity name, or that entity is declared nowhere in this schema");
+    }
+    // Bare `@entity` on a CONFIG knob. `is_sentinel` already covers this
+    // spelling for the payload walk, but the config walk keys off this
+    // function alone — so without an arm here the arity-0 constructor would
+    // resolve silently-or-not-at-all, which is the exact invisibility this
+    // sweep gained config coverage to close.
+    if field_type == "@entity" || field_type == "[@entity]" {
+        return Some("the carrying trait declares no `linkedEntity`, so there is no bound row to resolve against");
+    }
+    None
+}
+
+const SIGIL_GUIDANCE: &str = "A sigil type resolves against something the schema must actually declare: `@payload <knob>` needs the knob typed `event` with a literal default; `@entity <knob>` needs an `entity`-typed knob naming a declared entity; `@user` needs `expects identity <Name> { … }` with a shape.";
+
 const GENERIC_GUIDANCE: &str = "Bind the trait to a `linkedEntity` so an Entity-kind parameter can default to it, or supply an explicit call-site `:: <param> <arg>` argument.";
 
 fn is_sentinel(field_type: &str) -> bool {
@@ -103,9 +129,16 @@ fn check_payload_field(
     }
 }
 
-/// Walk every inlined trait's `emits[].payloadSchema` and
-/// `stateMachine.events[].payloadSchema` for a surviving `$`-prefixed
+/// Walk every inlined trait's `emits[].payloadSchema`,
+/// `stateMachine.events[].payloadSchema` AND `config[]` for a surviving
 /// sentinel. Blocking — see module docs.
+///
+/// Config coverage matters because it was previously absent while this
+/// module's own doc comment claimed it: a sentinel left in a config field was
+/// invisible to resolution AND to this sweep, and shipped into the `.orb` as a
+/// meaningless literal string. The sigil type constructors (`@payload <knob>`,
+/// `@entity <knob>`, `@user`) resolve in config position, so an unresolved one
+/// must be reported here rather than silently emitted.
 pub fn validate_type_param_sentinels(schema: &orbital_core::schema::OrbitalSchema, ctx: &mut ValidationContext) {
     let mut result = super::ValidationResult::new();
 
@@ -127,6 +160,23 @@ pub fn validate_type_param_sentinels(schema: &orbital_core::schema::OrbitalSchem
                     for field in payload {
                         check_payload_field(field, &path, trait_def, &mut result);
                     }
+                }
+            }
+        }
+        if let Some(config) = &trait_def.config {
+            for (knob, field) in config {
+                if let Some(reason) = unresolved_sigil_reason(&field.field_type) {
+                    result.add_error(
+                        ValidationError::error(
+                            ErrorCode::UnresolvedTypeParam,
+                            format!("{trait_path}.config.{knob}"),
+                            format!(
+                                "config knob '{knob}' still carries the unresolved type `{}` — {reason}",
+                                field.field_type
+                            ),
+                        )
+                        .with_suggestion(SIGIL_GUIDANCE.to_string()),
+                    );
                 }
             }
         }

@@ -98,6 +98,9 @@ pub fn apply_event_wiring(
             let emits = source_trait.emits.as_mut().expect("just initialized");
             if !has_emit(emits, &entry.event) {
                 emits.push(EmitDefinition {
+                    // Synthesized from an explicit wiring entry, not from a
+                    // config knob — so this is an obligation, not an offer.
+                    definer_knob: None,
                     event: entry.event.clone(),
                     description: None,
                     synonyms: None,

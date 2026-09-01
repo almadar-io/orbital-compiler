@@ -792,6 +792,7 @@ fn is_interaction_trait(trait_def: &TraitDefinition) -> bool {
 
 /// Check if state machine has render_ui effects. Looks through `if`
 /// wrappers — a conditional whose branches render still renders.
+
 fn has_render_ui_effects(sm: &StateMachine) -> bool {
     fn renders(expr: &SExpression) -> bool {
         if is_render_ui_effect(expr) {

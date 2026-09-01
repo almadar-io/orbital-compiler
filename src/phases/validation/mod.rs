@@ -52,6 +52,7 @@ pub mod entity_mutation;
 pub mod generic_types;
 pub mod error;
 pub mod expectations;
+pub mod fired_events;
 pub mod icon;
 pub mod time_unit;
 pub mod id_integrity;
@@ -366,6 +367,15 @@ pub const VALID_FIELD_TYPES: &[&str] = &[
     "node",
     // Event-name reference (Phase B / SCAN-EVENT-KNOB-2 struct-field carrier).
     "event",
+    // The closed scalar union (`string | number | boolean | null`) — a real
+    // FieldType since the type-integrity campaign, and absent here, which made
+    // it unusable on an ENTITY field even though payloads and config accepted it.
+    "scalar",
+    "opaque",
+    // A union of type variants (`scalar | FileItem`). Its `values` carry the
+    // VARIANT NAMES, not enum members — see the enum-member check, which skips
+    // this type for exactly that reason.
+    "union",
 ];
 
 /// Valid trait categories

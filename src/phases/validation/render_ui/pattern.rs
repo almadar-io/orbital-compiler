@@ -118,6 +118,59 @@ fn check_child_drawable(child: &SExpression, path: &str, result: &mut Validation
     }
 }
 
+/// Is this S-expression an operator CALL — an array whose head names a
+/// registered operator? Source-tagged against the embedded operator registry,
+/// never a name shape.
+fn is_operator_call(expr: &SExpression) -> bool {
+    let SExpression::Array(items) = expr else {
+        return false;
+    };
+    matches!(items.first(), Some(SExpression::String(head))
+        if crate::embedded::get_operator(head).is_some())
+}
+
+/// Rewrite a `children:` value so operator calls become the literal fragments
+/// they combine. `(array/concat @a [{…}] )` → `[{…}]`; nesting is peeled
+/// recursively, and a collection-callback tuple is left intact for
+/// `as_mapped_children` to claim. Bindings and other non-literal operands drop
+/// out — they carry no shape to check, exactly as they do when bound to a
+/// variable first.
+fn expand_children_operators(children: &SExpression) -> SExpression {
+    if children.as_mapped_children().is_some() {
+        return children.clone();
+    }
+    if is_operator_call(children) {
+        let SExpression::Array(items) = children else {
+            return children.clone();
+        };
+        let mut out: Vec<SExpression> = Vec::new();
+        for operand in items.iter().skip(1) {
+            match expand_children_operators(operand) {
+                SExpression::Array(inner) => out.extend(inner),
+                SExpression::Object(o) => out.push(SExpression::Object(o)),
+                _ => {}
+            }
+        }
+        return SExpression::Array(out);
+    }
+    if let SExpression::Array(items) = children {
+        if items.iter().any(is_operator_call) {
+            let mut out: Vec<SExpression> = Vec::new();
+            for item in items {
+                if is_operator_call(item) && item.as_mapped_children().is_none() {
+                    if let SExpression::Array(inner) = expand_children_operators(item) {
+                        out.extend(inner);
+                        continue;
+                    }
+                }
+                out.push(item.clone());
+            }
+            return SExpression::Array(out);
+        }
+    }
+    children.clone()
+}
+
 /// Validate a pattern
 pub(crate) fn validate_pattern(
     pattern: &SExpression,
@@ -571,6 +624,18 @@ pub(crate) fn validate_pattern(
                     // child's `drawable` capability (baked from the core `ScenePos` type
                     // identity). DOM chrome under a canvas → ORB_RUI_CHILD_NOT_DRAWABLE.
                     let host_paints = is_draw_host(pattern_type);
+                    // A children value whose HEAD is a registered operator is an
+                    // EXPRESSION producing the list — `(array/concat @buttons
+                    // [{…}])` — not a literal list whose first element happens to
+                    // be a string. Flatten the operands so the literal fragments
+                    // inside still get checked, instead of validating the
+                    // operator NAME as a pattern type (which reported
+                    // `'array/concat' is an operator, not a UI pattern type`,
+                    // an answer to a question nobody asked: the collection
+                    // shorthand diagnostic that message serves is about
+                    // `array/map` WITHOUT a lambda, and is handled by
+                    // `as_mapped_children` above).
+                    let children = &expand_children_operators(children);
                     match children {
                         SExpression::Array(items) => {
                             for (i, child) in items.iter().enumerate() {
@@ -1338,4 +1403,70 @@ fn suggest_pattern_type(unknown: &str) -> Option<String> {
         ));
     }
     None
+}
+
+#[cfg(test)]
+mod children_operator_tests {
+    use super::*;
+    use std::collections::HashMap as Map;
+
+    fn s(v: &str) -> SExpression {
+        SExpression::String(v.to_string())
+    }
+    fn obj(pairs: &[(&str, SExpression)]) -> SExpression {
+        let mut m: Map<String, SExpression> = Map::new();
+        for (k, v) in pairs {
+            m.insert((*k).to_string(), v.clone());
+        }
+        SExpression::Object(m)
+    }
+    fn stack_with(children: SExpression) -> SExpression {
+        obj(&[("type", s("stack")), ("children", children)])
+    }
+    fn codes(r: &crate::phases::validation::ValidationResult) -> Vec<String> {
+        r.errors
+            .iter()
+            .chain(r.warnings.iter())
+            .map(|e| e.code.to_string())
+            .collect()
+    }
+    fn check(p: &SExpression) -> crate::phases::validation::ValidationResult {
+        validate_pattern(p, "t", &HashMap::new(), None, None)
+    }
+
+    /// `children: (array/concat @buttons [{…}])` is a computed list, not a
+    /// literal one whose head happens to be a string. It must not be read as a
+    /// pattern named `array/concat`.
+    #[test]
+    fn non_callback_operator_in_children_is_an_expression() {
+        let typo = obj(&[("type", s("typography")), ("content", s("hi"))]);
+        let p = stack_with(SExpression::Array(vec![
+            s("array/concat"),
+            s("@buttons"),
+            SExpression::Array(vec![typo]),
+        ]));
+        let got = codes(&check(&p));
+        assert!(
+            !got.iter().any(|c| c == "ORB_RUI_INVALID_PATTERN"
+                || c == "ORB_RUI_MISSING_PATTERN_TYPE"),
+            "an operator call in children must not be validated as a pattern: {got:?}"
+        );
+    }
+
+    /// …and the literal fragments it combines are still checked, so the
+    /// expansion buys coverage rather than silence.
+    #[test]
+    fn literals_inside_a_children_operator_are_still_checked() {
+        let bogus = obj(&[("type", s("definitely-not-a-pattern"))]);
+        let p = stack_with(SExpression::Array(vec![
+            s("array/concat"),
+            s("@buttons"),
+            SExpression::Array(vec![bogus]),
+        ]));
+        let got = codes(&check(&p));
+        assert!(
+            got.iter().any(|c| c == "ORB_RUI_INVALID_PATTERN"),
+            "a bogus pattern inside the operands must still be reported: {got:?}"
+        );
+    }
 }

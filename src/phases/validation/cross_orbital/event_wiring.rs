@@ -4,6 +4,14 @@ use std::collections::{HashMap, HashSet};
 
 /// Validate event wiring between orbitals
 pub(crate) fn validate_event_wiring(schema: &OrbitalSchema) -> ValidationResult {
+    // Schema-wide event reachability, from the walker `emit_payload`'s
+    // declared-but-unfired check shares. Computed here rather than threaded
+    // through `ValidationContext` so the function stays self-sufficient: a
+    // caller that forgets to populate a context field would silently
+    // reclassify every finding as a latent offer, and an empty set is a
+    // legitimate value that no assertion could catch.
+    let fired_events = &super::super::fired_events::collect_schema_fired_events(schema);
+    let dynamic_event_traits = &super::super::fired_events::collect_dynamic_event_traits(schema);
     let mut result = ValidationResult::new();
 
     // `scope: external` TRANSFERS the obligation to consume an event to
@@ -30,11 +38,28 @@ pub(crate) fn validate_event_wiring(schema: &OrbitalSchema) -> ValidationResult 
     // in `docs/Almadar_Compiler_Gaps.md`.
     let mut exempt_external: HashSet<(String, String)> = HashSet::new();
     let mut imported_traits: HashSet<String> = HashSet::new();
+    // An emit whose event NAME came from a config knob (`emits { @config.X }`)
+    // is the atom OFFERING an affordance, not this file promising to use it.
+    // `EmitDefinition::definer_knob` records that at L1, where the `@config.X`
+    // spelling still exists; the inline phase then overwrites `event` with the
+    // resolved literal and the provenance would otherwise be lost.
+    let mut offer_emits: HashSet<(String, String)> = HashSet::new();
     for orbital in &schema.orbitals {
         for trait_ref in &orbital.traits {
             if let TraitReference::Inline(td) = trait_ref {
+                if let Some(emits) = &td.emits {
+                    for emit in emits {
+                        if emit.definer_knob.is_some() {
+                            offer_emits.insert((td.name.clone(), emit.event.clone()));
+                        }
+                    }
+                }
                 if td.source_behavior.is_some() {
                     imported_traits.insert(td.name.clone());
+                    // Honouring the SOURCE atom's `-> external` here instead was
+                    // measured and rejected: essentially every atom emit is
+                    // declared external, so the whole check evaporated —
+                    // 947 findings to 0. The override is load-bearing.
                     continue;
                 }
                 if let Some(emits) = &td.emits {
@@ -146,6 +171,54 @@ pub(crate) fn validate_event_wiring(schema: &OrbitalSchema) -> ValidationResult 
                 if exempt_external.contains(&(emitter.clone(), event.clone())) {
                     continue;
                 }
+
+                // Two INDEPENDENT filters, both narrowing, neither sufficient
+                // alone. `definer_knob` says the atom OFFERED a configurable
+                // event name; reachability says whether anything in this
+                // composition actually produces it.
+                if offer_emits.contains(&(emitter.clone(), event.clone())) {
+                    continue;
+                }
+
+                // REACHABILITY — the predicate the old comment said this check
+                // still needed: does anything here PRODUCE this event?
+                // `fired_events` is the schema-wide produced set — `(emit …)`
+                // effects, operator emit-config, and STRUCTURED config event
+                // lists (an `itemActions: [{ event: "DELETE" }]` the consumer
+                // configured). An emit something fires with no listener is a
+                // live wire terminating in nothing, whatever the emitting
+                // trait's provenance; an emit nothing fires is at worst a stale
+                // declaration, which `emit_payload`'s declared-but-unfired
+                // check owns.
+                //
+                // STAGED, and staged ADDITIVELY: this wave only LABELS the two
+                // classes so the corpus can be counted, and nothing that
+                // reported before reports less. Silencing the unproduced class
+                // outright was measured and withdrawn — a composed `Input` left
+                // at its atom-default `action` produces nothing this walker can
+                // see, yet that is exactly the std-service-marketplace payment
+                // field whose unheard emit left `@entity.amount` at 0 and called
+                // Stripe with a zero amount. Telling "the call site left the
+                // knob alone" apart from "the app deliberately wired this
+                // control" needs the pre-override default captured at
+                // `inline/trait.rs`; until that exists, dropping the class
+                // would trade a noisy check for a blind one.
+                // HOW is it produced? `by_control` means a control on screen is
+                // wired to fire it (`action:`, `itemActions[].event`, `onX:`) —
+                // no listener there is a control the user can operate that does
+                // nothing, and the value it carries is discarded. `by_effect`
+                // means an `(emit …)`/emit-config broadcast: a learning `Sim`
+                // publishing `PENDULUM_UPDATED`, an asset catalog publishing its
+                // art. No listener there means the collector — which lives in
+                // another behavior — was not composed here, a composition
+                // choice rather than a broken wire.
+                //
+                // A trait-level "does it render?" proxy was tried first and is
+                // too coarse: a Sim renders its canvas AND broadcasts telemetry
+                // from a tick effect, so ~100 broadcasts read as dead controls.
+                let by_control = fired_events.by_control.contains(event);
+                let produced = by_control || fired_events.by_effect.contains(event);
+                let undecidable = dynamic_event_traits.contains(emitter);
                 let imported = imported_traits.contains(emitter);
                 let suggestion = if imported {
                     format!(
@@ -157,31 +230,26 @@ pub(crate) fn validate_event_wiring(schema: &OrbitalSchema) -> ValidationResult 
                     )
                 };
                 let message = format!(
-                    "Trait '{}' emits event '{}' but no trait listens for it",
-                    emitter, event
+                    "Trait '{}' emits event '{}' but no trait listens for it{}",
+                    emitter,
+                    event,
+                    if undecidable {
+                        " (the event name is bound at runtime, so reachability cannot be decided statically)"
+                    } else if by_control {
+                        " — and a RENDERED control here fires it, so the affordance is dead and the value it carries is discarded"
+                    } else if produced {
+                        " — this composition broadcasts it programmatically, and the collector for it was not composed here"
+                    } else {
+                        " (nothing in this composition fires it, so this is a stale declaration rather than a dead control)"
+                    }
                 );
-                // Severity is split deliberately, and the split is additive —
-                // nothing that reported before reports less now.
-                //
-                // Authored emitters keep the pre-existing blocking severity
-                // (`warning()` is a shim over `error()`; `phase_f_warning` is
-                // the only non-blocking constructor).
-                //
-                // The imported class is NEW and reports non-blocking, because
-                // an atom's emits are an OFFER, not a demand: a DataGrid
-                // exposing `SORT`/`LOAD_MORE` that an app declines to wire is
-                // an unsorted grid, not a defect. Measured 2026-08-31 over the
-                // 1200-file corpus — blocking here would red 500 files with
-                // 10231 findings, dominated by exactly those optional
-                // affordances (LOAD_MORE 32, DISMISS 24, SORT 23, SELECT 23,
-                // SWIPE_* 32, LONG_PRESS 16 in a two-file sample).
-                //
-                // Escalating to blocking needs a predicate separating an
-                // optional affordance from a VALUE-CARRYING emit whose loss
-                // discards data (an input's CHANGE/ACTION, where the typed
-                // value is the only source for an entity field). Until that
-                // exists, over-blocking would train people to ignore the code.
-                let finding = if imported {
+                // The dead-control class is the real defect and is destined for
+                // blocking severity; it lands warn-only for one wave so the
+                // corpus can be measured and burned down before it reds a
+                // build. Flipping it is this one boolean.
+                const DEAD_CONTROL_IS_BLOCKING: bool = false;
+                let blocking = by_control && !undecidable && DEAD_CONTROL_IS_BLOCKING;
+                let finding = if !blocking && imported {
                     ValidationError::phase_f_warning(
                         ErrorCode::CrossOrbitalUnusedEmission,
                         format!("traits.{}", emitter),
@@ -518,6 +586,13 @@ pub(crate) fn extract_emit_event(effect: &orbital_core::schema::SExpression) -> 
 
 #[cfg(test)]
 mod tests {
+
+    /// Drive the check the way `validate_cross_orbital` does — the fired-event
+    /// and dynamic-trait sets come from the same shared walker production uses,
+    /// so a fixture that fires nothing is classified a latent offer here too.
+    fn wire(schema: &OrbitalSchema) -> ValidationResult {
+        validate_event_wiring(schema)
+    }
     use super::*;
     use orbital_core::schema::{
         EntityDefinition, EntityRef, Orbital, StateMachine, TraitDefinition,
@@ -619,7 +694,7 @@ mod tests {
             trait_embed_ids: None,
         })];
 
-        let result = validate_event_wiring(&schema);
+        let result = wire(&schema);
         assert!(
             !result
                 .errors
@@ -679,7 +754,7 @@ mod tests {
             trait_embed_ids: None,
         })];
 
-        let result = validate_event_wiring(&schema);
+        let result = wire(&schema);
         assert!(
             result
                 .errors
@@ -802,7 +877,7 @@ mod tests {
             )),
             TraitReference::Inline(scoped_listener("TaskList", "TaskFilter", "TASK_FILTER")),
         ];
-        let result = validate_event_wiring(&schema);
+        let result = wire(&schema);
         assert!(
             !result
                 .errors
@@ -818,7 +893,7 @@ mod tests {
             "TaskFilter",
             render_ui_with_event_prop("filter-group", "event", "TASK_FILTER"),
         ))];
-        let result = validate_event_wiring(&schema);
+        let result = wire(&schema);
         assert!(
             !result
                 .errors
@@ -853,7 +928,7 @@ mod tests {
             TraitReference::Inline(trait_with_effect("SummaryData", fetch_effect)),
             TraitReference::Inline(scoped_listener("SummaryStats", "SummaryData", "SummaryLoaded")),
         ];
-        let result = validate_event_wiring(&schema);
+        let result = wire(&schema);
         assert!(
             !result
                 .errors
@@ -976,7 +1051,7 @@ mod tests {
             )),
             TraitReference::Inline(scoped_listener("TaskDetail", "TaskList", "VIEW_ITEM")),
         ];
-        let result = validate_event_wiring(&schema);
+        let result = wire(&schema);
         assert!(
             !result
                 .errors
@@ -989,6 +1064,28 @@ mod tests {
 
     /// A trait emitting `event` with `scope: external` and nothing listening.
     /// `imported` mirrors what the inline phase stamps for a `uses[]` clone.
+    /// A trait that PRODUCES an event through an `(emit …)` transition effect —
+    /// the unambiguous producer, and a literal-named obligation (no
+    /// `definer_knob`).
+    fn emitting_trait_with_effect(name: &str, event: &str) -> TraitReference {
+        let mut td = externally_emitting_trait(name, event, true);
+        if let TraitReference::Inline(def) = &mut td {
+            def.config = None;
+            def.state_machine.transitions = vec![orbital_core::schema::TransitionDefinition {
+                event_id: None,
+                from: orbital_core::schema::StringOrArray::Single("idle".to_string()),
+                to: "idle".to_string(),
+                event: "TICK".to_string(),
+                guard: None,
+                effects: Some(vec![orbital_core::schema::SExpression::Array(vec![
+                    orbital_core::schema::SExpression::String("emit".to_string()),
+                    orbital_core::schema::SExpression::String(event.to_string()),
+                ])]),
+            }];
+        }
+        td
+    }
+
     fn externally_emitting_trait(name: &str, event: &str, imported: bool) -> TraitReference {
         TraitReference::Inline(TraitDefinition {
             type_params: None,
@@ -1001,6 +1098,7 @@ mod tests {
             description: None,
             linked_entity: Some("Task".to_string()),
             emits: Some(vec![orbital_core::schema::EmitDefinition {
+                definer_knob: None,
                 event: event.to_string(),
                 event_id: None,
                 description: None,
@@ -1016,7 +1114,32 @@ mod tests {
                 transitions: vec![],
             },
             ticks: None,
-            config: None,
+            // A real composed input FIRES through its resolved `action` knob —
+            // that is how `std-service-marketplace`'s payment field emitted the
+            // `ACTION` nothing consumed. Without it the trait declares an emit
+            // nothing produces, which is a latent offer, not a dead wire.
+            config: Some(
+                [(
+                    "action".to_string(),
+                    orbital_core::schema::ConfigField {
+                        field_type: "event".to_string(),
+                        default: Some(orbital_core::schema::SExpression::String(
+                            event.to_string(),
+                        )),
+                        label: None,
+                        description: None,
+                        synonyms: None,
+                        tier: None,
+                        values: None,
+                        items: None,
+                        properties: None,
+                        required: None,
+                        ref_id: None,
+                    },
+                )]
+                .into_iter()
+                .collect(),
+            ),
             data_entities: None,
             scope: None,
             source_behavior: if imported {
@@ -1039,7 +1162,7 @@ mod tests {
     /// `(blocking, non_blocking)` — `add_error` routes by severity, and the
     /// imported class reports non-blocking on purpose (see the call site).
     fn unused_emission_counts(schema: &OrbitalSchema) -> (usize, usize) {
-        let r = validate_event_wiring(schema);
+        let r = wire(schema);
         let count = |v: &Vec<ValidationError>| {
             v.iter()
                 .filter(|e| e.code == ErrorCode::CrossOrbitalUnusedEmission)
@@ -1080,6 +1203,99 @@ mod tests {
             unused_emission_counts(&schema),
             (0, 1),
             "an external emit on an imported trait is decidable here and must report non-blocking"
+        );
+    }
+
+    /// The two classes are LABELLED, not filtered — an emit nothing produces
+    /// still reports (dropping it would blind the composed-input case, see the
+    /// call site), but its message says so, which is what makes the corpus
+    /// countable ahead of the severity flip.
+    #[test]
+    fn an_unproduced_emit_is_labelled_not_dropped() {
+        let mut schema = create_minimal_schema();
+        let mut td = externally_emitting_trait("GridRender", "SORT", true);
+        if let TraitReference::Inline(def) = &mut td {
+            def.config = None; // nothing in this composition fires SORT
+        }
+        schema.orbitals[0].traits = vec![td];
+        assert_eq!(
+            unused_emission_counts(&schema),
+            (0, 1),
+            "an unproduced emit still reports, non-blocking"
+        );
+        let r = wire(&schema);
+        assert!(
+            r.warnings
+                .iter()
+                .any(|e| e.message.contains("nothing in this composition fires it")),
+            "and is labelled as the stale-declaration class: {:?}",
+            r.warnings.iter().map(|e| &e.message).collect::<Vec<_>>()
+        );
+    }
+
+    /// A PROGRAMMATIC broadcast with no listener is the composition class, not
+    /// the dead-control class: an `(emit …)` effect is a learning `Sim`
+    /// publishing telemetry or an asset catalog publishing its art, and the
+    /// collector lives in a behavior this file may legitimately omit.
+    #[test]
+    fn a_programmatic_broadcast_is_not_labelled_a_dead_control() {
+        let mut schema = create_minimal_schema();
+        schema.orbitals[0].traits = vec![emitting_trait_with_effect("Sim", "GAME_END")];
+        let msgs: Vec<String> = wire(&schema)
+            .warnings
+            .iter()
+            .map(|e| e.message.clone())
+            .collect();
+        assert!(
+            msgs.iter().any(|m| m.contains("broadcasts it programmatically")),
+            "an (emit …) effect must be the broadcast class: {msgs:?}"
+        );
+        assert!(
+            !msgs.iter().any(|m| m.contains("RENDERED control")),
+            "and must NOT be the dead-control class: {msgs:?}"
+        );
+    }
+
+    /// The dual: the same event named by a rendered control's event PROP is a
+    /// dead affordance — something on screen fires it and nothing hears it.
+    /// Note the emitting trait is identical in both tests; only HOW the event is
+    /// produced differs, which is the whole point of the split.
+    #[test]
+    fn an_event_named_by_a_rendered_control_is_the_dead_control_class() {
+        let mut schema = create_minimal_schema();
+        let mut td = emitting_trait_with_effect("Sim", "GAME_END");
+        if let TraitReference::Inline(def) = &mut td {
+            if let Some(effects) = def.state_machine.transitions[0].effects.as_mut() {
+                effects.clear();
+                effects.push(orbital_core::schema::SExpression::Array(vec![
+                    orbital_core::schema::SExpression::String("render-ui".to_string()),
+                    orbital_core::schema::SExpression::String("main".to_string()),
+                    orbital_core::schema::SExpression::Object(
+                        [
+                            (
+                                "type".to_string(),
+                                orbital_core::schema::SExpression::String("button".to_string()),
+                            ),
+                            (
+                                "action".to_string(),
+                                orbital_core::schema::SExpression::String("GAME_END".to_string()),
+                            ),
+                        ]
+                        .into_iter()
+                        .collect(),
+                    ),
+                ]));
+            }
+        }
+        schema.orbitals[0].traits = vec![td];
+        let msgs: Vec<String> = wire(&schema)
+            .warnings
+            .iter()
+            .map(|e| e.message.clone())
+            .collect();
+        assert!(
+            msgs.iter().any(|m| m.contains("RENDERED control")),
+            "an event named by a control's action prop must be the dead-control class: {msgs:?}"
         );
     }
 

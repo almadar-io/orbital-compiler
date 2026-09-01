@@ -576,8 +576,30 @@ fn primitive_event_compat(declared: &str, actual: &str) -> bool {
     if d == a {
         return true;
     }
+    // A UNION declares a set of alternatives, so it is compatible with any
+    // shape one of its variants accepts. The variants themselves are checked
+    // where the union is built (`union_payload_variants` in orbital-lolo, which
+    // shares the one union predicate); here the field only has to be allowed to
+    // carry each of them. Without this a trait honestly declaring
+    // `value : string | number | boolean | [string] | FileValue` was reported as
+    // mismatching the very prop it was generated from.
+    if d == "union" || a == "union" {
+        return true;
+    }
     if (d == "array" || d.starts_with('[')) && (a == "array" || a.starts_with('[')) {
         return true;
+    }
+    // A pattern declaring `@entity` means "the bound entity's ROW". By the time
+    // the trait's own payload is compared it has already been MONOMORPHIZED —
+    // the sentinel was replaced with that entity's shape, which serializes as
+    // `object` (+ `properties`). Comparing the pattern's pre-resolution
+    // sentinel against the trait's post-resolution shape is comparing two
+    // stages of the same value, so accept the resolved forms. A row is also
+    // legally carried as its id string at some call sites, matching the
+    // `entity`/`relation` arm below.
+    if d == "@entity" || a == "@entity" {
+        let other = if d == "@entity" { a } else { d };
+        return other == "@entity" || other == "object" || other == "json" || other == "string";
     }
     match d {
         "any" => true,
@@ -616,17 +638,60 @@ fn recurse_into_value(
 // Gate A (type-integrity campaign): node-typed entity fields
 // ============================================================================
 
-/// Is this entity field renderable content — `node` or `[node]`?
+/// Is this entity field renderable content — `node`, `[node]`, or a container
+/// whose ELEMENT type is renderable (`Map string node`, `Map string [node]`,
+/// `Map string Map string [node]`)?
+///
+/// An art catalog keyed by unit kind and animation state (`kind -> state ->
+/// draw items`) is renderable content that happens to be addressed by key. It
+/// lowers to `Object`/`Array` carrying `items`, so recursing the `items` chain
+/// recognizes it while leaving a shapeless `object` (no `items`) and a struct
+/// (`properties`, no `items`) correctly outside — those stay the loophole this
+/// gate exists to close.
 fn is_node_field(field: &orbital_core::schema::FieldDefinition) -> bool {
     use orbital_core::schema::FieldType;
     match field.field_type {
         FieldType::Node => true,
-        FieldType::Array => field
-            .items
-            .as_ref()
-            .is_some_and(|i| matches!(i.field_type, FieldType::Node)),
+        FieldType::Array | FieldType::Object => {
+            field.items.as_deref().is_some_and(is_node_field)
+        }
         _ => false,
     }
+}
+
+/// Peel the container levels the FIELD declares off `value`, returning the
+/// renderable leaves to check. `node` yields the value itself; `[node]` yields
+/// the array's elements; `Map string [node]` yields every element of every map
+/// value; and so on down the `items` chain.
+///
+/// Driven by the declared type rather than by the value's shape, because the
+/// two disagree exactly where it matters: a map's key object and a pattern
+/// object are both `SExpression::Object`, and guessing picks the wrong one.
+fn node_leaf_values<'a>(
+    field: &orbital_core::schema::FieldDefinition,
+    value: &'a SExpression,
+) -> Vec<&'a SExpression> {
+    use orbital_core::schema::FieldType;
+    let Some(item) = field.items.as_deref() else {
+        return vec![value];
+    };
+    let inner: Vec<&SExpression> = match (&field.field_type, value) {
+        (FieldType::Array, SExpression::Array(items)) => items.iter().collect(),
+        (FieldType::Object, SExpression::Object(map)) => {
+            // Deterministic order — diagnostics must not depend on hash order.
+            let mut keys: Vec<&String> = map.keys().collect();
+            keys.sort();
+            keys.into_iter().filter_map(|k| map.get(k)).collect()
+        }
+        // The value does not match the declared container (a binding, a
+        // computed expression). Hand it back whole; the caller's
+        // `is_checkable_literal` gate already decided it was worth checking.
+        _ => return vec![value],
+    };
+    inner
+        .into_iter()
+        .flat_map(|v| node_leaf_values(item, v))
+        .collect()
 }
 
 /// Deterministic render-ui-literal detector: an object whose `type` is a
@@ -745,7 +810,7 @@ fn walk_for_node_sets(
                 }
                 _ => value,
             };
-            let node_typed = bctx
+            let field_def = bctx
                 .trait_def
                 .linked_entity
                 .as_deref()
@@ -754,20 +819,21 @@ fn walk_for_node_sets(
                     ed.fields
                         .iter()
                         .find(|f| f.name.as_deref() == Some(field_name))
-                })
-                .map(is_node_field)
-                .unwrap_or(false);
+                });
+            let node_typed = field_def.map(is_node_field).unwrap_or(false);
 
             let set_path = format!("{path}.set(@entity.{field_name})");
             if node_typed {
                 if is_checkable_literal(resolved) {
-                    // A node field legally holds one pattern object OR a
-                    // literal array of them — check per element so the
-                    // array root itself is never misread as a pattern.
-                    let elements: Vec<&SExpression> = match resolved {
-                        SExpression::Array(items) => items.iter().collect(),
-                        other => vec![other],
-                    };
+                    // A node field legally holds one pattern object, a literal
+                    // array of them, or — for `Map string node` and friends — a
+                    // keyed container of either. Peel the declared container
+                    // levels off the VALUE before checking, so neither an array
+                    // root nor a map's key object is misread as a pattern.
+                    let mut elements: Vec<&SExpression> = vec![resolved];
+                    if let Some(def) = field_def {
+                        elements = node_leaf_values(def, resolved);
+                    }
                     for element in elements {
                         if matches!(element, SExpression::String(_) | SExpression::Null) {
                             // String leaves / null slots are legal node values.
@@ -920,8 +986,19 @@ fn check_callback_arg_schema(
             }
             None => {}
             Some(nested) => {
+                // A prop with several `types` is a UNION, and the declared field
+                // only has to match ONE of them — taking `.first()` alone made
+                // the check depend on member ORDER, so the same union passed or
+                // failed by however the extractor happened to sort it.
                 let expected = prop.types.first().map(String::as_str).unwrap_or("string");
-                if !primitive_event_compat(&nested.field_type, expected) {
+                let compatible = if prop.types.len() > 1 {
+                    prop.types
+                        .iter()
+                        .any(|t| primitive_event_compat(&nested.field_type, t))
+                } else {
+                    primitive_event_compat(&nested.field_type, expected)
+                };
+                if !compatible {
                     diagnostics.push(
                         ValidationError::error(
                             ErrorCode::RenderUIEventBindingPayloadMismatch,

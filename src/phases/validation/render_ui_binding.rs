@@ -351,6 +351,15 @@ fn field_type_to_binding(ft: &FieldType) -> BindingType {
         // Renderable content binds like an object (a pattern tree) — and the
         // prop-compat rule already accepts anything where `node` is expected.
         FieldType::Node => BindingType::Object,
+        // `scalar` is one of three primitives and this lattice has no union
+        // member, so resolve it as Unknown rather than manufacture a wrong
+        // compare — the same posture this file already takes for a leaf it
+        // cannot resolve. A narrower answer would invent findings.
+        FieldType::Scalar => BindingType::Unknown,
+        // Open by construction — nothing to constrain a render slot with.
+        FieldType::Opaque => BindingType::Unknown,
+        // Every variant is an object, so a union binds like one.
+        FieldType::Union => BindingType::Object,
     }
 }
 

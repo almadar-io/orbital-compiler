@@ -176,6 +176,7 @@ mod tests {
 
     fn emit(event: &str, scope: Option<EventScope>) -> EmitDefinition {
         EmitDefinition {
+            definer_knob: None,
             event: event.to_string(),
             scope,
             description: None,

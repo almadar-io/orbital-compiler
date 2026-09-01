@@ -485,6 +485,7 @@ mod tests {
 
     fn emit(event: &str, field: &str) -> EmitDefinition {
         EmitDefinition {
+            definer_knob: None,
             event: event.to_string(),
             description: None,
             synonyms: None,

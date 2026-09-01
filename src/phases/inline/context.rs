@@ -467,6 +467,29 @@ impl InlineContext {
     /// step-flow's `ProgressVerticalView`): that entity lives in the source
     /// behavior's auxiliary list after the source was recursively inlined, and
     /// must be carried into the consumer that pulls the sibling.
+    /// Find an entity definition by NAME across EVERY alias in scope, not just
+    /// one. A pulled sibling REBOUND by its embedder can be retargeted to an
+    /// entity that came from a DIFFERENT `uses` alias than the one the sibling
+    /// was pulled from — e.g. `AuditBrowseList = Browse.traits.BrowseItemBrowse
+    /// -> AuditEntry`, where `AuditEntry` belongs to `std-audit-capture`, not
+    /// to `std-browse`. Searching only the pull's own alias misses it, and the
+    /// consumer orbital then holds a trait bound to an entity it does not have.
+    pub(crate) fn get_entity_by_name_any_alias(
+        &self,
+        entity_name: &str,
+    ) -> Option<EntityDefinition> {
+        let mut aliases: Vec<&String> = self.aliases.keys().collect();
+        // Deterministic: two aliases can expose the same entity name, and the
+        // pick must not depend on HashMap iteration order.
+        aliases.sort();
+        for alias in aliases {
+            if let Some(found) = self.get_entity_by_name_for_alias(alias, entity_name) {
+                return Some(found);
+            }
+        }
+        None
+    }
+
     pub(crate) fn get_entity_by_name_for_alias(
         &self,
         alias: &str,

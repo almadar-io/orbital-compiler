@@ -1475,11 +1475,27 @@ pub(crate) fn inline_traits(
             // the source behavior; carry it into the consumer so the sibling's
             // `(fetch X)` / `linkedEntity` resolve. With a rebind, the sibling
             // was retargeted to the consumer's entity and needs nothing here.
-            if linked_entity.is_none() {
-                if let Some(bound) = &sibling_def.linked_entity {
-                    if let Some(aux) = ctx.get_entity_by_name_for_alias(&alias, bound) {
-                        pulled_aux_entities.push(aux);
-                    }
+            // The pulled sibling's bound entity must EXIST in the consumer
+            // orbital, or any later phase needing its SHAPE has nothing to
+            // resolve against (measured: `@entity` on a `data-list` row payload
+            // failed to monomorphize in 3 apps — `ORB_T_UNRESOLVED_TYPE_PARAM`
+            // — because the orbital held `MasterListView -> AuditEntry` while
+            // `AuditEntry` was absent from its entity set).
+            //
+            // Two ways the sibling ends up bound, and BOTH need the carry:
+            //   - no rebind: it keeps the source behavior's own entity, which
+            //     is auxiliary in that behavior;
+            //   - rebind: it was retargeted to an entity the CONSUMER names,
+            //     which may come from a different `uses` alias than the one the
+            //     sibling was pulled from — hence the any-alias fallback.
+            // Duplicates are harmless: the merge in `inline_orbital` dedupes
+            // against the primary entity and existing auxiliaries.
+            if let Some(bound) = &sibling_def.linked_entity {
+                if let Some(aux) = ctx
+                    .get_entity_by_name_for_alias(&alias, bound)
+                    .or_else(|| ctx.get_entity_by_name_any_alias(bound))
+                {
+                    pulled_aux_entities.push(aux);
                 }
             }
             // Recurse into the rebound sibling's own `@trait.Y` references,

@@ -225,6 +225,15 @@ pub(crate) fn validate_set_enum_value(
     if meta.enum_values.is_empty() {
         return result; // not an enum field
     }
+    // A UNION's `values` carry its VARIANT NAMES (`scalar`, `FileItem`), not a
+    // set of legal literals. Reading them as enum members rejected every value
+    // the union exists to admit — `(set @entity.v "x")` against `scalar |
+    // FileItem` was reported as "not a declared member of the field's enum".
+    // Union assignment is checked structurally against the variants, not by
+    // literal membership.
+    if meta.field_type == "union" {
+        return result;
+    }
     // Only a plain string literal carries a checkable value.
     let SExpression::String(value) = &arr[2] else {
         return result;
@@ -494,6 +503,9 @@ fn field_type_str(ft: &FieldType) -> &'static str {
         FieldType::Pattern => "pattern",
         FieldType::Node => "node",
         FieldType::Event => "event",
+        FieldType::Scalar => "scalar",
+        FieldType::Opaque => "opaque",
+        FieldType::Union => "union",
     }
 }
 

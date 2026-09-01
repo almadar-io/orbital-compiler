@@ -236,6 +236,7 @@ mod tests {
             description: None,
             linked_entity: Some("Task".to_string()),
             emits: Some(vec![EmitDefinition {
+                definer_knob: None,
                 event: "OPEN".to_string(),
                 scope: Some(atom_scope),
                 description: None,

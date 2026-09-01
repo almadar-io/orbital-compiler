@@ -2,7 +2,7 @@
 //!
 //! Source: packages/almadar-core/src/patterns/patterns-registry.json
 //!
-//! Last synced: 2026-08-31
+//! Last synced: 2026-09-01
 //! To regenerate: npx tsx tools/almadar-pattern-sync/index.ts
 //!
 //! DO NOT EDIT MANUALLY - changes will be overwritten on next sync.
@@ -1942,6 +1942,7 @@ pub static PATTERN_PROPS_SCHEMA: LazyLock<HashMap<&'static str, HashSet<&'static
                     "anchor",
                     "animation",
                     "asset",
+                    "clockMs",
                     "flipX",
                     "frame",
                     "height",
@@ -2770,12 +2771,14 @@ pub static PATTERN_PROPS_SCHEMA: LazyLock<HashMap<&'static str, HashSet<&'static
                     "animate",
                     "backgroundColor",
                     "className",
+                    "drawables",
                     "error",
                     "height",
                     "interactive",
                     "isLoading",
                     "onShapeClick",
                     "onShapeHover",
+                    "projector",
                     "readouts",
                     "shapes",
                     "traces",
@@ -2902,6 +2905,7 @@ pub static PATTERN_PROPS_SCHEMA: LazyLock<HashMap<&'static str, HashSet<&'static
                     "bars",
                     "className",
                     "curves",
+                    "drawables",
                     "error",
                     "gridColor",
                     "gridStep",
@@ -5840,6 +5844,7 @@ pub static PATTERN_PROP_TYPES: LazyLock<HashMap<&'static str, HashMap<&'static s
                 "draw-fx-layer",
                 [
                     ("id", &["string"] as &[&str]),
+                    ("type", &["string"] as &[&str]),
                     ("items", &["array"] as &[&str]),
                     ("presets", &["array"] as &[&str]),
                     ("art", &["object"] as &[&str]),
@@ -5854,6 +5859,7 @@ pub static PATTERN_PROP_TYPES: LazyLock<HashMap<&'static str, HashMap<&'static s
                 "draw-group",
                 [
                     ("id", &["string"] as &[&str]),
+                    ("type", &["string"] as &[&str]),
                     ("position", &["object"] as &[&str]),
                     ("scale", &["number"] as &[&str]),
                     ("rotate", &["number"] as &[&str]),
@@ -5872,6 +5878,7 @@ pub static PATTERN_PROP_TYPES: LazyLock<HashMap<&'static str, HashMap<&'static s
                 "draw-mesh",
                 [
                     ("id", &["string"] as &[&str]),
+                    ("type", &["string"] as &[&str]),
                     ("shape", &["string"] as &[&str]),
                     ("position", &["object"] as &[&str]),
                     ("width", &["number"] as &[&str]),
@@ -5902,6 +5909,7 @@ pub static PATTERN_PROP_TYPES: LazyLock<HashMap<&'static str, HashMap<&'static s
                 "draw-shape",
                 [
                     ("id", &["string"] as &[&str]),
+                    ("type", &["string"] as &[&str]),
                     ("shape", &["string"] as &[&str]),
                     ("position", &["object"] as &[&str]),
                     ("anchor", &["string"] as &[&str]),
@@ -5932,11 +5940,12 @@ pub static PATTERN_PROP_TYPES: LazyLock<HashMap<&'static str, HashMap<&'static s
                 .into_iter()
                 .collect(),
             ),
-            ("draw-shape-layer", [("id", &["string"] as &[&str]), ("items", &["array"] as &[&str])].into_iter().collect()),
+            ("draw-shape-layer", [("id", &["string"] as &[&str]), ("type", &["string"] as &[&str]), ("items", &["array"] as &[&str])].into_iter().collect()),
             (
                 "draw-sprite",
                 [
                     ("id", &["string"] as &[&str]),
+                    ("type", &["string"] as &[&str]),
                     ("position", &["object"] as &[&str]),
                     ("asset", &["object"] as &[&str]),
                     ("anchor", &["string"] as &[&str]),
@@ -5945,6 +5954,7 @@ pub static PATTERN_PROP_TYPES: LazyLock<HashMap<&'static str, HashMap<&'static s
                     ("frame", &["object"] as &[&str]),
                     ("animation", &["string"] as &[&str]),
                     ("loop", &["boolean"] as &[&str]),
+                    ("clockMs", &["number"] as &[&str]),
                     ("flipX", &["boolean"] as &[&str]),
                     ("rotation", &["number"] as &[&str]),
                     ("opacity", &["number"] as &[&str]),
@@ -5953,11 +5963,12 @@ pub static PATTERN_PROP_TYPES: LazyLock<HashMap<&'static str, HashMap<&'static s
                 .into_iter()
                 .collect(),
             ),
-            ("draw-sprite-layer", [("id", &["string"] as &[&str]), ("items", &["array"] as &[&str])].into_iter().collect()),
+            ("draw-sprite-layer", [("id", &["string"] as &[&str]), ("type", &["string"] as &[&str]), ("items", &["array"] as &[&str])].into_iter().collect()),
             (
                 "draw-text",
                 [
                     ("id", &["string"] as &[&str]),
+                    ("type", &["string"] as &[&str]),
                     ("text", &["string"] as &[&str]),
                     ("position", &["object"] as &[&str]),
                     ("anchor", &["string"] as &[&str]),
@@ -5972,7 +5983,7 @@ pub static PATTERN_PROP_TYPES: LazyLock<HashMap<&'static str, HashMap<&'static s
                 .into_iter()
                 .collect(),
             ),
-            ("draw-text-layer", [("id", &["string"] as &[&str]), ("items", &["array"] as &[&str])].into_iter().collect()),
+            ("draw-text-layer", [("id", &["string"] as &[&str]), ("type", &["string"] as &[&str]), ("items", &["array"] as &[&str])].into_iter().collect()),
             (
                 "drawer",
                 [
@@ -6951,6 +6962,8 @@ pub static PATTERN_PROP_TYPES: LazyLock<HashMap<&'static str, HashMap<&'static s
                     ("height", &["number"] as &[&str]),
                     ("backgroundColor", &["string"] as &[&str]),
                     ("shapes", &["array"] as &[&str]),
+                    ("drawables", &["array"] as &[&str]),
+                    ("projector", &["object"] as &[&str]),
                     ("readouts", &["array"] as &[&str]),
                     ("traces", &["array"] as &[&str]),
                     ("interactive", &["boolean"] as &[&str]),
@@ -7138,6 +7151,7 @@ pub static PATTERN_PROP_TYPES: LazyLock<HashMap<&'static str, HashMap<&'static s
                     ("angles", &["array"] as &[&str]),
                     ("hops", &["array"] as &[&str]),
                     ("shapes", &["array"] as &[&str]),
+                    ("drawables", &["array"] as &[&str]),
                     ("readouts", &["array"] as &[&str]),
                     ("traces", &["array"] as &[&str]),
                     ("interactive", &["boolean"] as &[&str]),
@@ -9331,9 +9345,12 @@ pub static PATTERN_PROP_ENUM_VALUES: LazyLock<HashMap<&'static str, HashMap<&'st
                 .collect(),
             ),
             ("document-viewer", [("documentType", &["pdf", "text", "html", "markdown"] as &[&str])].into_iter().collect()),
+            ("draw-fx-layer", [("type", &["draw-fx-layer"] as &[&str])].into_iter().collect()),
+            ("draw-group", [("type", &["draw-group"] as &[&str])].into_iter().collect()),
             (
                 "draw-mesh",
                 [
+                    ("type", &["draw-mesh"] as &[&str]),
                     ("shape", &["box", "sphere", "capsule", "cylinder", "cone", "torus", "plane", "circle", "polyhedron"] as &[&str]),
                     ("pivot", &["bottom", "center"] as &[&str]),
                 ]
@@ -9343,6 +9360,7 @@ pub static PATTERN_PROP_ENUM_VALUES: LazyLock<HashMap<&'static str, HashMap<&'st
             (
                 "draw-shape",
                 [
+                    ("type", &["draw-shape"] as &[&str]),
                     ("shape", &["cell", "rect", "ellipse", "poly", "path"] as &[&str]),
                     ("anchor", &["top-left", "ground", "center"] as &[&str]),
                     ("blendMode", &["source-over", "lighter", "multiply", "screen", "overlay", "darken", "lighten", "color-dodge", "color-burn", "hard-light", "soft-light", "difference", "exclusion", "hue", "saturation", "color", "luminosity", "source-atop", "destination-over", "destination-out", "xor"] as &[&str]),
@@ -9350,10 +9368,13 @@ pub static PATTERN_PROP_ENUM_VALUES: LazyLock<HashMap<&'static str, HashMap<&'st
                 .into_iter()
                 .collect(),
             ),
-            ("draw-sprite", [("anchor", &["top-left", "ground", "center"] as &[&str])].into_iter().collect()),
+            ("draw-shape-layer", [("type", &["draw-shape-layer"] as &[&str])].into_iter().collect()),
+            ("draw-sprite", [("type", &["draw-sprite"] as &[&str]), ("anchor", &["top-left", "ground", "center"] as &[&str])].into_iter().collect()),
+            ("draw-sprite-layer", [("type", &["draw-sprite-layer"] as &[&str])].into_iter().collect()),
             (
                 "draw-text",
                 [
+                    ("type", &["draw-text"] as &[&str]),
                     ("anchor", &["top-left", "ground", "center"] as &[&str]),
                     ("align", &["center", "end", "left", "right", "start"] as &[&str]),
                     ("baseline", &["alphabetic", "bottom", "hanging", "ideographic", "middle", "top"] as &[&str]),
@@ -9361,6 +9382,7 @@ pub static PATTERN_PROP_ENUM_VALUES: LazyLock<HashMap<&'static str, HashMap<&'st
                 .into_iter()
                 .collect(),
             ),
+            ("draw-text-layer", [("type", &["draw-text-layer"] as &[&str])].into_iter().collect()),
             (
                 "drawer",
                 [
@@ -9896,43 +9918,28 @@ pub static PATTERN_EVENT_PROPS: LazyLock<HashMap<&'static str, HashSet<&'static 
         [
             ("alert", ["dismissEvent"].into_iter().collect()),
             ("avatar", ["action"].into_iter().collect()),
-            ("box", ["action", "hoverEvent"].into_iter().collect()),
-            ("breadcrumb", ["itemEvent"].into_iter().collect()),
+            ("box", ["action"].into_iter().collect()),
             ("button", ["action"].into_iter().collect()),
             ("card", ["action"].into_iter().collect()),
             ("choice-button", ["action"].into_iter().collect()),
             ("control-button", ["pressEvent", "releaseEvent"].into_iter().collect()),
             ("counter-template", ["incrementEvent", "decrementEvent", "resetEvent"].into_iter().collect()),
-            ("data-grid", ["selectionEvent", "loadMoreEvent"].into_iter().collect()),
-            ("data-list", ["reorderEvent", "itemClickEvent", "swipeLeftEvent", "swipeRightEvent", "longPressEvent", "loadMoreEvent"].into_iter().collect()),
+            ("data-grid", ["loadMoreEvent"].into_iter().collect()),
+            ("data-list", ["reorderEvent", "swipeLeftEvent", "swipeRightEvent", "longPressEvent", "loadMoreEvent"].into_iter().collect()),
             ("drawer", ["closeEvent"].into_iter().collect()),
-            ("emoji-picker", ["pickEvent"].into_iter().collect()),
-            ("filter-group", ["event", "clearEvent"].into_iter().collect()),
             ("floating-action-button", ["action"].into_iter().collect()),
-            ("form", ["submitEvent", "cancelEvent"].into_iter().collect()),
-            ("form-section", ["submitEvent", "cancelEvent"].into_iter().collect()),
+            ("form", ["cancelEvent"].into_iter().collect()),
+            ("form-section", ["cancelEvent"].into_iter().collect()),
             ("hstack", ["action"].into_iter().collect()),
             ("infinite-scroll-sentinel", ["loadMoreEvent"].into_iter().collect()),
-            ("input", ["action"].into_iter().collect()),
-            ("input-group", ["action"].into_iter().collect()),
-            ("number-stepper", ["action"].into_iter().collect()),
             ("overlay", ["action"].into_iter().collect()),
             ("pull-to-refresh", ["refreshEvent"].into_iter().collect()),
-            ("radio", ["action"].into_iter().collect()),
-            ("range-slider", ["action"].into_iter().collect()),
-            ("search-input", ["event"].into_iter().collect()),
             ("select", ["action"].into_iter().collect()),
-            ("sortable-list", ["reorderEvent"].into_iter().collect()),
             ("stack", ["action"].into_iter().collect()),
-            ("star-rating", ["action"].into_iter().collect()),
-            ("state-graph", ["nodeClickEvent"].into_iter().collect()),
-            ("table-view", ["itemClickEvent", "selectEvent", "sortEvent"].into_iter().collect()),
-            ("tag-input", ["addEvent", "removeEvent"].into_iter().collect()),
-            ("text-highlight", ["action", "hoverEvent"].into_iter().collect()),
+            ("table-view", ["itemClickEvent"].into_iter().collect()),
             ("textarea", ["action"].into_iter().collect()),
-            ("upload-drop-zone", ["action"].into_iter().collect()),
             ("vstack", ["action"].into_iter().collect()),
-            ("wizard-container", ["nextEvent", "backEvent", "completeEvent"].into_iter().collect()),
+            ("wizard-container", ["completeEvent"].into_iter().collect()),
         ]
         .into_iter()
         .collect()

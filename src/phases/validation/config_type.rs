@@ -168,6 +168,14 @@ fn config_declared_kind(field_type: &str) -> Option<&str> {
         "event" | "slot" | "pattern" | "icon" | "component" | "secret" | "asset" => Some("string"),
         "int" | "float" => Some("number"),
         "trait" => None,
+        // `Map K V` is a real dictionary type, not an opaque generic: it lowers
+        // to a `Map<K,V>` tag with the VALUE shape in `items`, and codegen
+        // emits `Record<K,V>`. Reporting it as `object` lets a bound
+        // `@entity.X` be type-compared (an object/json binding fits, a string
+        // does not) instead of opting out of the check entirely. Guarded on
+        // the `Map<` PREFIX, never `contains("Map")` — `[MapViewMarkersItem]`
+        // is an array of a struct that merely starts with those letters.
+        s if s.starts_with("Map<") => Some("object"),
         s if s.contains('<') => None,
         other => Some(other),
     }
@@ -829,6 +837,52 @@ fn check_config_default_shape(
     if is_deferred_computed(default) {
         return result;
     }
+    // Map slot — `field_type` is `Map<K,V>` and `items` carries the VALUE
+    // shape (the lowerer reuses the array carrier; `resolve_config_field_shape`
+    // disambiguates map-from-array by this tag). Verify the value is an object
+    // literal, then recurse every entry through the `FieldDefinition`
+    // validator. Keys are dynamic by construction, so only values are checked.
+    //
+    // Without this arm a `Map` knob fell straight through to
+    // `check_primitive_shape`'s `_ => true`, so `Map<string,string>` accepted
+    // `{ a: 3 }` — the same hole that made a named struct type decoration, and
+    // the reason `Map` could not be offered as the honest replacement for
+    // `json` (retyping into an unchecked type is laundering, not typing).
+    //
+    // ⚠️ WARN-ONLY for the measurement pass, same discipline as the named-struct
+    // arm below: 56 Map knobs exist corpus-wide and none has ever been checked,
+    // so the class counts come first and the flip to `error` comes after.
+    if field.field_type.starts_with("Map<") {
+        let SExpression::Object(entries) = default else {
+            result.warnings.push(ValidationError::phase_f_warning(
+                ErrorCode::TraitConfigShapeMismatch,
+                path,
+                format!(
+                    "config default has type '{}' but the value isn't an object",
+                    field.field_type
+                ),
+            ));
+            return result;
+        };
+        if let Some(value_schema) = &field.items {
+            let mut probe = ValidationResult::new();
+            for (key, entry) in entries {
+                probe.merge(check_field_def_shape(
+                    value_schema,
+                    entry,
+                    &format!("{}.{}", path, key),
+                    orbital_events,
+                ));
+            }
+            for e in probe.errors {
+                result
+                    .warnings
+                    .push(ValidationError::phase_f_warning(e.code, e.path, e.message));
+            }
+            result.warnings.extend(probe.warnings);
+        }
+        return result;
+    }
     // Array slot — `field_type` is `[T]` (string tag) and `items` carries
     // the per-element shape. Verify the value is an array, then recurse
     // each element through the `FieldDefinition` validator.
@@ -885,6 +939,40 @@ fn check_config_default_shape(
             return result;
         }
     }
+    // Named struct type (`lighting : Lighting3D`, `position : ScenePos`) — the
+    // shape lives in `properties`, and until now nothing walked it. The checks
+    // above cover `[T]` and closed enums; everything else fell to
+    // `check_primitive_shape`, whose last arm is `_ => true // Unknown type
+    // tags pass`. So a declared struct was a DECLARATION, not a check: a knob
+    // typed `EmptyPayload` accepted `{ id: "x", extra: 3 }` silently.
+    //
+    // Only declared keys that are PRESENT are checked. Absent-key (required
+    // member missing) is deliberately not added in the same change — one new
+    // rule at a time, so a corpus movement has one attributable cause.
+    //
+    // ⚠️ WARN-ONLY for the measurement pass. 453 knobs corpus-wide carry
+    // `properties`; escalating before counting the classes is how a narrowing
+    // ships blind. Flip these to `error` once measured.
+    if let Some(props) = &field.properties {
+        if let SExpression::Object(map) = default {
+            let mut probe = ValidationResult::new();
+            for (key, prop_schema) in props {
+                if let Some(prop_value) = map.get(key) {
+                    probe.merge(check_field_def_shape(
+                        prop_schema,
+                        prop_value,
+                        &format!("{}.{}", path, key),
+                        orbital_events,
+                    ));
+                }
+            }
+            for e in probe.errors {
+                result
+                    .warnings
+                    .push(ValidationError::phase_f_warning(e.code, e.path, e.message));
+            }
+        }
+    }
     // Primitive leaf type check.
     result.merge(check_primitive_shape(&field.field_type, default, path));
     result
@@ -908,6 +996,69 @@ fn check_field_def_shape(
         return result;
     }
     match schema.field_type {
+        // Tagged union: pick the variant by the value's own discriminator, then
+        // check the value against THAT variant only. Checking against all of
+        // them would report every non-matching variant's fields as errors; not
+        // checking at all is what `json` did.
+        FieldType::Union => {
+            let (Some(names), Some(variants)) = (&schema.values, &schema.properties) else {
+                return result; // by-name recursive back-reference: nothing carried to check
+            };
+            let SExpression::Object(map) = value else {
+                result.add_error(ValidationError::error(
+                    ErrorCode::TraitConfigShapeMismatch,
+                    path,
+                    format!(
+                        "expected one of the union variants ({}) but the value isn't an object",
+                        names.join(" | ")
+                    ),
+                ));
+                return result;
+            };
+            match select_union_variant(map, names, variants) {
+                VariantChoice::Matched(chosen) => {
+                    result.merge(check_field_def_shape(chosen, value, path, orbital_events));
+                    // A union variant is a CLOSED shape — that is the whole
+                    // point of discriminating. Elsewhere an undeclared key is
+                    // ignored (only declared-and-present keys are checked),
+                    // and that leniency is exactly what let a `shape: "path"`
+                    // carry `radiusX`: the tag selected the path variant and
+                    // the ellipse-only key was then silently dropped. Closing
+                    // it here, and ONLY here, keeps struct checking unchanged.
+                    if let Some(props) = &chosen.properties {
+                        let mut unknown: Vec<&str> = map
+                            .keys()
+                            .filter(|k| !props.contains_key(*k))
+                            .map(|k| k.as_str())
+                            .collect();
+                        unknown.sort_unstable();
+                        for key in unknown {
+                            result.add_error(ValidationError::error(
+                                ErrorCode::TraitConfigShapeMismatch,
+                                &format!("{path}.{key}"),
+                                format!(
+                                    "'{}' is not a field of union variant '{}' — the variant's own tag selected it, so this key belongs to a different variant or to none",
+                                    key,
+                                    chosen.name.as_deref().unwrap_or("?")
+                                ),
+                            ));
+                        }
+                    }
+                }
+                VariantChoice::Deferred => {}
+                VariantChoice::NoMatch => {
+                    result.add_error(ValidationError::error(
+                        ErrorCode::TraitConfigShapeMismatch,
+                        path,
+                        format!(
+                            "value matches none of the union variants ({}) — no variant's discriminator agrees with this value's tag",
+                            names.join(" | ")
+                        ),
+                    ));
+                }
+            }
+            return result;
+        }
         FieldType::Array => {
             let SExpression::Array(items) = value else {
                 result.add_error(
@@ -1065,6 +1216,12 @@ fn check_field_def_shape(
                 FieldType::Date => "date",
                 FieldType::Datetime => "datetime",
                 FieldType::Timestamp => "timestamp",
+                // `scalar` is a LEAF, and a checkable one — it is the value
+                // type of `Map string scalar`, so without this arm the map's
+                // per-value walk would fall into the opaque catch-all and the
+                // replacement for `json` would be as unchecked as `json`.
+                FieldType::Scalar => "scalar",
+                FieldType::Opaque => "opaque",
                 _ => return result, // Other field types are opaque to the leaf check.
             };
             result.merge(check_primitive_shape(type_tag, value, path));
@@ -1076,6 +1233,71 @@ fn check_field_def_shape(
 /// Type-tag → value-kind primitive check. SExpression bindings
 /// (`@entity.X`, `@config.X`, `@payload.X`) and function calls / nested
 /// expressions are late-bound; they pass the static check.
+/// Pick the union variant a value belongs to, by DISCRIMINATOR.
+///
+/// A variant's discriminator is any field it declares with a single-valued
+/// closed vocabulary (`type : "draw-shape"` lowers to `values: ["draw-shape"]`).
+/// The value belongs to the variant whose discriminators it all matches. This
+/// is data-driven rather than positional: reordering the union in source cannot
+/// change which variant a value selects.
+///
+/// Returns `None` when nothing matches, which is a real finding — a value whose
+/// tag names no declared variant.
+enum VariantChoice<'a> {
+    Matched(&'a FieldDefinition),
+    /// A discriminator's value is a late-bound reference (`@config.shape`), so
+    /// which variant applies is not decidable here. Deferring is mandatory:
+    /// reporting "matches no variant" for a binding would flag 35 correct
+    /// call sites in the svg corpus alone.
+    Deferred,
+    NoMatch,
+}
+
+fn select_union_variant<'a>(
+    value: &std::collections::HashMap<String, SExpression>,
+    names: &[String],
+    variants: &'a HashMap<String, FieldDefinition>,
+) -> VariantChoice<'a> {
+    let mut fallback: Option<&FieldDefinition> = None;
+    let mut deferred = false;
+    for name in names {
+        let Some(variant) = variants.get(name) else { continue };
+        let Some(props) = &variant.properties else { continue };
+        let mut discriminators = 0usize;
+        let mut agreed = 0usize;
+        for (field_name, def) in props {
+            let Some(vals) = &def.values else { continue };
+            if vals.len() != 1 {
+                continue;
+            }
+            discriminators += 1;
+            match value.get(field_name) {
+                Some(SExpression::String(actual)) if actual.starts_with('@') => {
+                    deferred = true;
+                }
+                Some(SExpression::String(actual)) if actual == &vals[0] => agreed += 1,
+                _ => {}
+            }
+        }
+        if discriminators > 0 && agreed == discriminators {
+            return VariantChoice::Matched(variant);
+        }
+        // A variant with NO discriminator can't be selected by tag; remember the
+        // first as a last resort so an untagged union still checks against
+        // something rather than reporting a spurious "matches no variant".
+        if discriminators == 0 && fallback.is_none() {
+            fallback = Some(variant);
+        }
+    }
+    if deferred {
+        return VariantChoice::Deferred;
+    }
+    match fallback {
+        Some(v) => VariantChoice::Matched(v),
+        None => VariantChoice::NoMatch,
+    }
+}
+
 fn check_primitive_shape(type_tag: &str, value: &SExpression, path: &str) -> ValidationResult {
     let mut result = ValidationResult::new();
     if let SExpression::String(s) = value {
@@ -1102,6 +1324,14 @@ fn check_primitive_shape(type_tag: &str, value: &SExpression, path: &str) -> Val
         // catch-all below and accept anything, so `float` took a string or a
         // bool silently.
         "int" | "float" => actual == "number",
+        // The CLOSED union. This arm is the entire reason `scalar` beats
+        // `json`: an object or an array here is decidably wrong, where `json`
+        // accepted both. Null is a member — a scalar bag legitimately holds
+        // cleared values.
+        "scalar" => matches!(actual, "string" | "number" | "boolean" | "null"),
+        // Open by construction: it admits whatever arrives, exactly like `json`.
+        // Narrowing here would defeat the declaration's whole purpose.
+        "opaque" => true,
         // Name-carrying scalar tags: a Lucide icon name, a slot key, a pattern
         // name, a component name. Each is a STRING in every emitted program, so
         // a number or boolean here is decidably wrong. They also fell through

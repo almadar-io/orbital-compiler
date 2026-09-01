@@ -4,9 +4,18 @@
 //! (type-alias members surface through whichever of those positions they
 //! lower into).
 //!
-//! Ships as a non-blocking phase-F warning (`ORB_T_GENERIC_TYPE_DEPRECATED`)
-//! so the ~1,900-site corpus can migrate in waves; flips to a hard error once
-//! both behavior packages report zero occurrences.
+//! **HARD ERROR since 2026-09-01.** It shipped as a non-blocking phase-F warning
+//! while the corpus migrated in waves (4,921 → 0). Both behavior packages now
+//! report zero occurrences, which is the condition this gate was always waiting
+//! on, so a generic type in a declaration position is now rejected outright.
+//!
+//! `opaque` is deliberately NOT reported. It is the declared-openness type — an
+//! audit snapshot of an arbitrary row, a third-party response body, an upstream
+//! event's payload arriving at a generic wiring atom. It shares `json`'s wire
+//! shape and differs in intent: `json` means "not typed yet" (the debt this gate
+//! chases), `opaque` means "not closeable, and a struct here would be a lie".
+//! Without it this gate could never become a hard error without forcing authors
+//! to invent fake shapes for data that genuinely has none.
 //!
 //! Coverage note: the L1 lowerer erases a *scalar* entity field authored as
 //! `json`/`any` to `string` before this validator runs, so those residual
@@ -22,7 +31,7 @@ use super::{
     inline_traits, ValidationContext,
 };
 
-const GUIDANCE: &str = "Replace the generic type: renderable content → `node`; structured data → an inline `{ k: T }` shape, a named `type` alias, or `Map K V`; genuinely polymorphic atoms → a declared type parameter.";
+const GUIDANCE: &str = "Replace the generic type: renderable content → `node`; structured data → an inline `{ k: T }` shape, a named `type` alias, or `Map K V`; a single primitive of unknown kind → `scalar`; the row of an entity a config knob names → `@entity @config.<knob>`; genuinely polymorphic atoms → a declared type parameter. If the shape is genuinely NOT yours to close — an audit snapshot of an arbitrary row, a third-party response body, an upstream event's payload at a generic wiring atom — declare `opaque`, which states that openness instead of leaving it ambiguous. Do not reach for `opaque` to silence a shape you simply have not written down yet: that is what this warning is for.";
 
 /// Strip one level of array brackets: `[json]` → `json`.
 fn base_type(ft: &str) -> &str {
@@ -32,11 +41,11 @@ fn base_type(ft: &str) -> &str {
 }
 
 fn warn(path: &str, position: &str, declared: &str) -> ValidationError {
-    ValidationError::phase_f_warning(
+    ValidationError::error(
         ErrorCode::GenericTypeDeprecated,
         path,
         format!(
-            "{position} declares the generic type '{declared}' — generic types (`json`, shapeless `object`, `any`) are deprecated and will become a hard error once the corpus migrates."
+            "{position} declares the generic type '{declared}' — generic types (`json`, shapeless `object`, `any`) are not allowed in a declaration position."
         ),
     )
     .with_suggestion(GUIDANCE.to_string())
@@ -67,6 +76,17 @@ fn check_payload_field(field: &PayloadField, path: &str, result: &mut Validation
 
 fn check_entity_field(field: &FieldDefinition, path: &str, result: &mut ValidationResult) {
     match field.field_type {
+        // `Map K V` on an ENTITY field lowers to the `Object` tag with the
+        // VALUE shape in `items` and no `properties` (see `lower/entity.rs`'s
+        // Map arm) — a map's keys are dynamic, so it HAS no properties by
+        // construction. Without this arm a fully-typed `Map string scalar`
+        // would be reported as "no declared properties", i.e. the gate would
+        // reject the very fix it is asking for.
+        FieldType::Object if field.items.is_some() => {
+            if let Some(value_schema) = &field.items {
+                check_entity_field(value_schema, &format!("{path}{{}}"), result);
+            }
+        }
         FieldType::Object => {
             if field.properties.as_ref().map_or(true, |p| p.is_empty()) {
                 result.add_error(warn(
@@ -174,18 +194,43 @@ mod tests {
         }
     }
 
+    /// `opaque` is the DECLARED-openness type and must never be reported —
+    /// otherwise the gate cannot become a hard error without forcing authors to
+    /// invent fake shapes for data that genuinely has none.
     #[test]
-    fn payload_generic_types_warn_without_blocking() {
+    fn opaque_is_never_reported_in_any_position() {
+        let mut result = ValidationResult::new();
+        check_payload_field(&payload("opaque", None), "t.emits.E", &mut result);
+        check_payload_field(&payload("[opaque]", None), "t.emits.E", &mut result);
+        check_entity_field(&entity_field(FieldType::Opaque), "e.fields.f", &mut result);
+        check_config_type("opaque", "t.config.k", &mut result);
+        // NOTE: phase-F findings land in `warnings`, not `errors` — asserting on
+        // `errors` here would pass vacuously and prove nothing.
+        assert!(
+            result.errors.is_empty(),
+            "opaque must not be reported, got {:?}",
+            result.errors
+        );
+    }
+
+    /// The safety half: `opaque` must not become a blanket amnesty. The generic
+    /// types it sits beside are still reported exactly as before.
+    #[test]
+    fn opaque_does_not_suppress_its_neighbours() {
+        let mut result = ValidationResult::new();
+        check_payload_field(&payload("json", None), "t.emits.E", &mut result);
+        check_entity_field(&entity_field(FieldType::Object), "e.fields.f", &mut result);
+        assert_eq!(result.errors.len(), 2);
+    }
+
+    #[test]
+    fn payload_generic_types_are_rejected() {
         for ft in ["object", "json", "any", "[json]", "[any]"] {
             let mut result = ValidationResult::new();
             check_payload_field(&payload(ft, None), "t.emits.E", &mut result);
-            assert!(
-                result.errors.is_empty(),
-                "{ft} must be non-blocking during migration"
-            );
-            assert_eq!(result.warnings.len(), 1, "{ft} must warn");
+            assert_eq!(result.errors.len(), 1, "{ft} must be rejected");
             assert_eq!(
-                result.warnings[0].code.as_str(),
+                result.errors[0].code.as_str(),
                 "ORB_T_GENERIC_TYPE_DEPRECATED"
             );
         }
@@ -197,7 +242,6 @@ mod tests {
         let typed = payload("object", Some(vec![payload("string", None)]));
         check_payload_field(&typed, "t.emits.E", &mut result);
         assert!(result.errors.is_empty());
-        assert!(result.warnings.is_empty());
     }
 
     #[test]
@@ -205,22 +249,21 @@ mod tests {
         let mut result = ValidationResult::new();
         let nested = payload("object", Some(vec![payload("any", None)]));
         check_payload_field(&nested, "t.emits.E", &mut result);
-        assert_eq!(result.warnings.len(), 1);
+        assert_eq!(result.errors.len(), 1);
     }
 
     #[test]
-    fn shapeless_object_entity_field_warns_typed_passes() {
+    fn shapeless_object_entity_field_rejected_typed_passes() {
         let shapeless = entity_field(FieldType::Object);
         let mut result = ValidationResult::new();
         check_entity_field(&shapeless, "entities.E.fields.data", &mut result);
-        assert!(result.errors.is_empty());
-        assert_eq!(result.warnings.len(), 1);
+        assert_eq!(result.errors.len(), 1);
 
         let mut array_of_shapeless = entity_field(FieldType::Array);
         array_of_shapeless.items = Some(Box::new(shapeless));
         let mut result = ValidationResult::new();
         check_entity_field(&array_of_shapeless, "entities.E.fields.rows", &mut result);
-        assert_eq!(result.warnings.len(), 1);
+        assert_eq!(result.errors.len(), 1);
 
         let mut typed = entity_field(FieldType::Object);
         typed.properties = Some(
@@ -230,17 +273,18 @@ mod tests {
         );
         let mut result = ValidationResult::new();
         check_entity_field(&typed, "entities.E.fields.point", &mut result);
-        assert!(result.warnings.is_empty());
+        assert!(result.errors.is_empty());
     }
 
     #[test]
-    fn config_json_and_any_warn_object_left_to_existing_ban() {
+    fn config_json_and_any_rejected_object_left_to_existing_ban() {
         let mut result = ValidationResult::new();
         check_config_type("json", "t.config.style", &mut result);
         check_config_type("[any]", "t.config.buffer", &mut result);
         check_config_type("object", "t.config.covered", &mut result);
         check_config_type("Map string string", "t.config.map", &mut result);
-        assert!(result.errors.is_empty());
-        assert_eq!(result.warnings.len(), 2);
+        // `json` + `[any]` only: bare/array `object` stays with the existing
+        // TraitConfigObjectArrayForbidden ban, and a typed Map is not generic.
+        assert_eq!(result.errors.len(), 2);
     }
 }

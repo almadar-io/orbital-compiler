@@ -150,6 +150,7 @@ fn schema_with_effects(
 
 fn declared_emit(event: &str, external: bool) -> EmitDefinition {
     EmitDefinition {
+        definer_knob: None,
         event: event.to_string(),
         description: None,
         synonyms: None,

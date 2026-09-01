@@ -16,18 +16,17 @@
 
 use std::collections::HashMap;
 
-use orbital_core::events::is_bus_excluded_event;
 use orbital_core::schema::{
-    EntityDefinition, EventScope, OrbitalSchema, PayloadField, SExpression, TraitDefinition,
+    EntityDefinition, EventScope, OrbitalSchema, PayloadField, SExpression,
     TraitReference,
 };
 
-use crate::embedded::patterns;
 
 use super::effect::{
     collect_payload_field_types, entity_field_type_map, expr_return_incompatible, EntityFieldMeta,
 };
 use super::error::{ErrorCode, ValidationError};
+use super::fired_events::trait_has_dynamic_event_prop_binding;
 use super::produced_shape;
 use super::{ValidationContext, ValidationResult};
 
@@ -39,52 +38,11 @@ use super::{ValidationContext, ValidationResult};
 pub fn validate_all_emit_payloads(schema: &OrbitalSchema, ctx: &mut ValidationContext) {
     let strict = ctx.phase_f_strict;
 
-    // L2.7 prep: collect every event name fired across the whole schema
-    // (any trait, transition, or tick). Events declared in `emits[]` but
-    // never fired anywhere across the schema are warned. The schema-wide
-    // scope avoids false positives on the legitimate "namespace owner"
-    // pattern where one trait declares events that sibling traits in the
-    // same orbital actually fire.
-    let mut all_fired_events: std::collections::HashSet<String> = std::collections::HashSet::new();
-    for orbital in &schema.orbitals {
-        for trait_ref in &orbital.traits {
-            let TraitReference::Inline(td) = trait_ref else {
-                continue;
-            };
-            for transition in &td.state_machine.transitions {
-                if let Some(effects) = &transition.effects {
-                    for effect in effects {
-                        collect_fired_events_recursive(effect, &mut all_fired_events);
-                    }
-                }
-            }
-            if let Some(ticks) = &td.ticks {
-                for tick in ticks {
-                    for effect in &tick.effects {
-                        collect_fired_events_recursive(effect, &mut all_fired_events);
-                    }
-                }
-            }
-            // Resolved-config event references. An atom's config field DEFAULT
-            // may carry structured event references (e.g. an `itemActions`
-            // default `[{ event: "OPEN_POLICY", … }]`). The render-ui effect
-            // binds `@config.itemActions`, which the effect walk skips as a
-            // runtime binding — so the fired event lives only in the config
-            // value. The inline phase folds every call-site override into this
-            // same `default` (override where the consumer supplied one, atom
-            // default otherwise), so walking it here reflects the RESOLVED
-            // config for both the standalone atom and any consumer that
-            // inlines it. Same registry-driven `collect_fired_events_recursive`
-            // the effect walk uses — one walker, not a parallel scan.
-            if let Some(config) = &td.config {
-                for field in config.values() {
-                    if let Some(default) = &field.default {
-                        collect_fired_events_recursive(default, &mut all_fired_events);
-                    }
-                }
-            }
-        }
-    }
+    // L2.7 prep: every event name fired anywhere in the schema. The walker is
+    // shared with `cross_orbital::event_wiring`, whose fired-but-unheard check
+    // is this one's dual — one definition of "produced", so the two can never
+    // disagree about the same event.
+    let all_fired_events = super::fired_events::collect_schema_fired_events(schema);
 
     for (oi, orbital) in schema.orbitals.iter().enumerate() {
         for (ti, trait_ref) in orbital.traits.iter().enumerate() {
@@ -234,197 +192,6 @@ pub fn validate_all_emit_payloads(schema: &OrbitalSchema, ctx: &mut ValidationCo
                 }
             }
         }
-    }
-}
-
-/// Set of object-key names that, per the patterns registry, identify a
-/// string value as a bus event-name reference. Mirrors the lolo
-/// `event_prop_names()` derivation:
-///
-/// 1. Top-level pattern prop names with `kind` in `{event, event-ref,
-///    event-listen, callback}` (e.g. `action`, `submitEvent`,
-///    `tabChangeEvent`, `pageChangeEvent`, `onTabChange`, ...).
-/// 2. Inner descriptor field names from `kind: "event-list"` entries'
-///    `eventField` metadata (e.g. data-list.itemActions's `event`
-///    inner key).
-///
-/// All entries are source-tagged: pattern-sync wrote each `kind` mark
-/// because a component author typed the prop as `EventEmit<P>` /
-/// `EventKey` / a function (callback) / an array of descriptors with an
-/// event field. No hardcoded names, no heuristics.
-/// True when any render-ui pattern in the trait's effects binds a
-/// kind:{event, event-ref, event-listen, callback} prop to a `@`-prefixed
-/// binding (config / payload / entity / state). The runtime event name
-/// is dynamic; we cannot statically prove the trait's declared emits
-/// are unfired. Examples: `pageChangeEvent: "@config.event"`,
-/// `tabChangeEvent: "@config.event"`. Used by L2.7 to suppress
-/// false-positive `EmitDeclaredButUnfired` warnings on atoms that
-/// expose their event names through configuration.
-fn trait_has_dynamic_event_prop_binding(td: &TraitDefinition) -> bool {
-    let event_keys = ui_event_prop_names();
-    for transition in &td.state_machine.transitions {
-        if let Some(effects) = &transition.effects {
-            for effect in effects {
-                if sexpr_has_dynamic_event_binding(effect, event_keys) {
-                    return true;
-                }
-            }
-        }
-    }
-    if let Some(ticks) = &td.ticks {
-        for tick in ticks {
-            for effect in &tick.effects {
-                if sexpr_has_dynamic_event_binding(effect, event_keys) {
-                    return true;
-                }
-            }
-        }
-    }
-    false
-}
-
-fn sexpr_has_dynamic_event_binding(
-    expr: &SExpression,
-    event_keys: &std::collections::HashSet<String>,
-) -> bool {
-    match expr {
-        SExpression::Object(obj) => {
-            for (key, value) in obj.iter() {
-                if event_keys.contains(key) {
-                    if let SExpression::String(s) = value {
-                        if s.starts_with('@') {
-                            return true;
-                        }
-                    }
-                }
-                if sexpr_has_dynamic_event_binding(value, event_keys) {
-                    return true;
-                }
-            }
-            false
-        }
-        SExpression::Array(arr) => arr
-            .iter()
-            .any(|item| sexpr_has_dynamic_event_binding(item, event_keys)),
-        _ => false,
-    }
-}
-
-fn ui_event_prop_names() -> &'static std::collections::HashSet<String> {
-    use std::collections::HashSet;
-    use std::sync::OnceLock;
-    static EVENT_PROP_NAMES: OnceLock<HashSet<String>> = OnceLock::new();
-    EVENT_PROP_NAMES.get_or_init(|| {
-        let mut names: HashSet<String> = HashSet::new();
-        for pattern in patterns().values() {
-            for (prop_name, prop) in &pattern.props_schema {
-                let Some(kind) = prop.kind.as_deref() else {
-                    continue;
-                };
-                match kind {
-                    "event" | "event-ref" | "event-listen" | "callback" => {
-                        names.insert(prop_name.clone());
-                    }
-                    "event-list" => {
-                        if let Some(field) = prop.event_field.as_deref() {
-                            names.insert(field.to_string());
-                        }
-                    }
-                    _ => {}
-                }
-            }
-        }
-        names
-    })
-}
-
-/// Recursively walk an SExpression collecting every event-name string
-/// fired by:
-///
-/// 1. `["emit", "EVENT_NAME", ...]` standalone effect.
-/// 2. `[op, ..., {emit: {success: "X", failure: "Y"}}]` operator emit-
-///    config (fetch / persist / call-service / ref / deref / agent-
-///    invoke — generic scan, every operator with an `emit` config-key
-///    is covered).
-/// 3. UI render-ui pattern props that carry event names — the registry's
-///    `kind: "event"|"event-ref"|"event-listen"|"callback"` props (e.g.
-///    `action: "SAVE"`, `tabChangeEvent: "TAB_CHANGED"`,
-///    `submitEvent: "FORM_SAVED"`, `onTabChange: "TAB_CHANGED"`) — and
-///    `kind: "event-list"` inner-descriptor fields (e.g.
-///    `itemActions: [{ event: "VIEW", ... }]`).
-///
-/// Source-tagged: every UI prop name comes from a registry `kind` mark
-/// pattern-sync wrote because a component author typed the prop
-/// accordingly. The set extends automatically as new event-bearing
-/// props ship in @almadar/ui.
-fn collect_fired_events_recursive(
-    expr: &SExpression,
-    fired: &mut std::collections::HashSet<String>,
-) {
-    match expr {
-        SExpression::Array(arr) => {
-            // `["emit", "EVENT_NAME", ...]`
-            if let (Some(SExpression::String(op)), Some(SExpression::String(event))) =
-                (arr.first(), arr.get(1))
-            {
-                if op == "emit" {
-                    fired.insert(event.clone());
-                }
-            }
-            // `[op, ..., {emit: {success: "X", failure: "Y", on_message:
-            // "Z", ...}}]` — scan every string value under any `emit`
-            // sub-key. Done generically so every operator + every
-            // fire-key (success / failure / on_message / on_change /
-            // future additions) is covered without per-key maintenance.
-            for item in arr {
-                if let SExpression::Object(obj) = item {
-                    if let Some(SExpression::Object(emit_cfg)) = obj.get("emit") {
-                        for (_k, v) in emit_cfg.iter() {
-                            if let SExpression::String(s) = v {
-                                fired.insert(s.clone());
-                            }
-                        }
-                    }
-                }
-            }
-            for item in arr {
-                collect_fired_events_recursive(item, fired);
-            }
-        }
-        SExpression::Object(obj) => {
-            // UI pattern props that carry event-name strings. The
-            // registry-driven event-prop set covers all four kinds of
-            // declarative event reference (event / event-ref /
-            // event-listen / callback) plus event-list inner-field
-            // names — pattern-sync writes the `kind` mark; we read it.
-            let event_keys = ui_event_prop_names();
-            for (key, value) in obj.iter() {
-                if event_keys.contains(key) {
-                    // A conditional value contributes every branch's leaf —
-                    // only one renders at a time, but each is a live emitter.
-                    for leaf in value.conditional_leaf_values() {
-                        if let SExpression::String(s) = leaf {
-                            // Skip bindings (`@entity.X`, `@payload.Y`) —
-                            // those resolve at runtime to event-name
-                            // strings, but at static analysis we can't know
-                            // the value. Treating `@`-prefixed strings as
-                            // fired would suppress legitimate orphan
-                            // detection.
-                            // …and skip bus-excluded names. A `Button
-                            // action={INIT}` is a DEAD control (the bus never
-                            // delivers INIT/LOAD/$MOUNT), so counting it as an
-                            // emitter let the dead button suppress the very
-                            // warning that would have found it.
-                            if !s.starts_with('@') && !is_bus_excluded_event(s) {
-                                fired.insert(s.clone());
-                            }
-                        }
-                    }
-                }
-                collect_fired_events_recursive(value, fired);
-            }
-        }
-        _ => {}
     }
 }
 
@@ -787,6 +554,13 @@ fn emit_event_for_key(args: &[SExpression], key: &str) -> Option<String> {
 fn primitive_types_compatible(declared: &str, actual: &str) -> bool {
     if declared == actual {
         return true;
+    }
+    // A `Map K V` payload field IS an object literal at emit time — the tag
+    // spells the key/value types, but the value's literal kind is still
+    // `object`. Without this a fully-typed map is reported as a mismatch
+    // against the very value it was declared to describe.
+    if declared.starts_with("Map<") {
+        return actual == "object";
     }
     match declared {
         "any" => true,

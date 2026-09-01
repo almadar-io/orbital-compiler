@@ -636,6 +636,14 @@ impl<'a> Resolver<'a> {
             // Renderable content keeps its tag so codegen emits the canonical
             // pattern-tree type instead of a shapeless record.
             FieldType::Node => Ok(OirType::Node),
+            // Closed primitive union — keeps its own tag so codegen emits
+            // `string | number | boolean | null` rather than a shapeless record.
+            FieldType::Scalar => Ok(OirType::Scalar),
+            FieldType::Opaque => Ok(OirType::Opaque),
+            // Variant shapes live in `properties`; without them this is a
+            // by-name recursive back-reference, which resolves to Json rather
+            // than expanding forever.
+            FieldType::Union => Ok(OirType::Json),
         }
     }
 
@@ -646,6 +654,30 @@ impl<'a> Resolver<'a> {
     /// have a `FieldType` enum.
     fn resolve_field_shape(&self, field: &FieldDefinition) -> Result<OirType, ResolveError> {
         match &field.field_type {
+            // Tagged union: `values` holds the variant names in DECLARATION
+            // order, `properties` their shapes. Iterating `values` (not the
+            // HashMap) is what keeps variant order stable across runs, which
+            // codegen output depends on. No `properties` means this is a
+            // by-name recursive back-reference — resolve to Json instead of
+            // expanding it forever.
+            FieldType::Union => {
+                let (Some(names), Some(props)) = (&field.values, &field.properties) else {
+                    return Ok(OirType::Json);
+                };
+                let mut variants: Vec<OirField> = Vec::new();
+                for name in names {
+                    let Some(def) = props.get(name) else { continue };
+                    let mut v = self.resolve_field(def)?;
+                    if v.name.is_empty() {
+                        v.name = name.clone();
+                    }
+                    variants.push(v);
+                }
+                if variants.is_empty() {
+                    return Ok(OirType::Json);
+                }
+                Ok(OirType::Union { variants })
+            }
             FieldType::Array => {
                 let inner = if let Some(items) = &field.items {
                     self.resolve_field_shape(items)?
@@ -2576,6 +2608,15 @@ fn payload_field_to_oir_type(field: &orbital_core::schema::PayloadField) -> OirT
                 relation: None,
             })
             .collect();
+        // `field_type` "union" signals a TYPE UNION: `properties` holds the
+        // VARIANTS, not members-of-one-object. Emitting a struct here made a
+        // union payload render as `{ string?: string; number?: number; … }` —
+        // an object of optional variant keys, which the value a control actually
+        // sends (`"hello"`) does not satisfy. `OirType::Union` is what the TS
+        // renderer turns into a real `A | B | C`.
+        if field.field_type == "union" {
+            return OirType::Union { variants: fields };
+        }
         let struct_ty = OirType::Struct { fields };
         // `field_type` "[object]" signals an array-of-struct: `properties` holds
         // the ELEMENT shape, so wrap in an array. Plain "object" is a direct
@@ -2667,6 +2708,64 @@ fn parse_payload_field_type(field_type: &str) -> OirType {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// A payload field tagged `union` carries VARIANTS in `properties`, not the
+    /// members of one object. Resolving it as a struct emitted
+    /// `{ string?: string; number?: number; … }` — an object of optional variant
+    /// keys that the value a control actually sends (`"hello"`) does not satisfy.
+    #[test]
+    fn union_payload_field_resolves_to_a_union_not_a_struct() {
+        let variant = |name: &str, ty: &str| orbital_core::schema::PayloadField {
+            name: name.to_string(),
+            field_type: ty.to_string(),
+            required: None,
+            description: None,
+            properties: None,
+        };
+        let field = orbital_core::schema::PayloadField {
+            name: "value".to_string(),
+            field_type: "union".to_string(),
+            required: Some(true),
+            description: None,
+            properties: Some(vec![
+                variant("string", "string"),
+                variant("number", "number"),
+                variant("array", "[string]"),
+            ]),
+        };
+        match payload_field_to_oir_type(&field) {
+            OirType::Union { variants } => {
+                assert_eq!(variants.len(), 3);
+                assert!(matches!(variants[0].field_type, OirType::String));
+                assert!(matches!(variants[1].field_type, OirType::Number));
+                assert!(matches!(variants[2].field_type, OirType::Array { .. }));
+            }
+            other => panic!("expected a union, got {other:?}"),
+        }
+    }
+
+    /// The safety half: a plain `object` payload field with `properties` is a
+    /// STRUCT and must stay one — the union arm keys strictly off `"union"`.
+    #[test]
+    fn object_payload_field_with_properties_still_resolves_to_a_struct() {
+        let field = orbital_core::schema::PayloadField {
+            name: "change".to_string(),
+            field_type: "object".to_string(),
+            required: Some(true),
+            description: None,
+            properties: Some(vec![orbital_core::schema::PayloadField {
+                name: "fieldId".to_string(),
+                field_type: "string".to_string(),
+                required: Some(true),
+                description: None,
+                properties: None,
+            }]),
+        };
+        assert!(matches!(
+            payload_field_to_oir_type(&field),
+            OirType::Struct { .. }
+        ));
+    }
 
     #[test]
     fn theme_key_precedence_orbital_over_app_over_default() {

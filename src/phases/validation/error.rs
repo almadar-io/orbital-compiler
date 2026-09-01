@@ -1117,7 +1117,6 @@ impl ErrorCode {
             | ErrorCode::TraitInvalidEventDefault
             | ErrorCode::TraitConfigShapeMismatch
             | ErrorCode::TraitConfigObjectArrayForbidden
-            | ErrorCode::GenericTypeDeprecated
             | ErrorCode::NodeFieldUncheckedContent
             | ErrorCode::RenderableContentInGenericField
             | ErrorCode::TraitConfigTierInvalid
@@ -1126,7 +1125,10 @@ impl ErrorCode {
             | ErrorCode::EventRenameUnknownKey
             | ErrorCode::TraitConfigUnknownCallSiteKey
             | ErrorCode::TraitConfigMissingRequiredKey
-            | ErrorCode::UnresolvedTypeParam => "trait",
+            | ErrorCode::UnresolvedTypeParam
+            // A generic type in a declaration position — a TYPE-system rejection
+            // since the burndown reached zero (2026-09-01).
+            | ErrorCode::GenericTypeDeprecated => "trait",
 
             ErrorCode::PageMissingName
             | ErrorCode::PageMissingPath

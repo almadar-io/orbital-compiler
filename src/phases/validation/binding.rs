@@ -87,10 +87,19 @@ pub fn validate_all_bindings(schema: &OrbitalSchema, ctx: &mut ValidationContext
 
         // Render-embed index (`@trait.<Child>` in transition render effects).
         // Drives BOTH binding fixes: a child trait rendered inside a parent's
-        // transition reads/captures in that transition's scope, so credit its
-        // `@entity.X` reads against the (transitively) embedding parents' same-
-        // transition `(set)`s and resolve its `@callsitePayload` captures up the
-        // embed chain to a real host event.
+        // transition resolves its `@callsitePayload` captures up the embed
+        // chain to a real host event, and credits its `@entity.X` reads against
+        // the (transitively) embedding parents' `(set)`s.
+        //
+        // The two are scoped DIFFERENTLY on purpose. A payload capture is
+        // per-transition — the payload belongs to the firing event and nothing
+        // else. A `(set @entity.X …)` is per-TRAIT: the entity binding outlives
+        // any one transition, so a parent that sets defaults on INIT and renders
+        // the child on VIEW has bound the field by the time the child reads it.
+        // Scoping the set-credit per-transition too made that ordinary shape a
+        // false positive, and — the part that matters — held the child to a
+        // stricter standard than the parent, whose own reads this rule already
+        // satisfies from any transition in the trait.
         let (embed_sites, embed_parents_of) = build_embed_index(orbital);
         let embed_set_credit = collect_embed_set_credit(orbital, &embed_sites, &embed_parents_of);
 
@@ -454,17 +463,57 @@ fn validate_callsite_payload_captures(
     result
 }
 
+/// Every `@entity.<field>` a trait writes with `(set …)`, unioned across ALL of
+/// its transitions and ticks — the same trait-wide accounting
+/// `validate_entity_fields_have_setters` applies to the trait's own reads.
+fn collect_trait_set_fields(orbital: &Orbital) -> HashMap<String, HashSet<String>> {
+    let mut out: HashMap<String, HashSet<String>> = HashMap::new();
+    for tr in &orbital.traits {
+        let TraitReference::Inline(def) = tr else {
+            continue;
+        };
+        let mut referenced: HashMap<String, String> = HashMap::new();
+        let mut set_fields: HashSet<String> = HashSet::new();
+        for transition in &def.state_machine.transitions {
+            let event = transition.event.as_str();
+            if let Some(guard) = &transition.guard {
+                guard.collect_entity_field_refs(&mut referenced, &mut set_fields, event);
+            }
+            if let Some(effects) = &transition.effects {
+                for effect in effects {
+                    effect.collect_entity_field_refs(&mut referenced, &mut set_fields, event);
+                }
+            }
+        }
+        if let Some(ticks) = &def.ticks {
+            for tick in ticks {
+                for effect in &tick.effects {
+                    effect.collect_entity_field_refs(&mut referenced, &mut set_fields, "TICK");
+                }
+            }
+        }
+        if !set_fields.is_empty() {
+            out.insert(def.name.clone(), set_fields);
+        }
+    }
+    out
+}
+
 /// Per-trait credited `(set @entity.<field>)` fields sourced from the trait's
 /// (transitively) embedding parents — the entity fields a hoisted / embedded
-/// child may READ without a local setter because a parent that renders it set
-/// them in the same render context. Keyed on the render-embed relationship, so
-/// a hand-authored `@trait.X` embed earns the same credit as a lowerer-hoisted
+/// child may READ without a local setter because a parent that renders it bound
+/// them on the same entity. Keyed on the render-embed relationship, so a
+/// hand-authored `@trait.X` embed earns the same credit as a lowerer-hoisted
 /// inline child. A parent's sets only credit a child bound to the SAME entity.
+///
+/// The credit is the parent's TRAIT-WIDE set, not the embedding transition's:
+/// see the scoping note at the `build_embed_index` call site.
 fn collect_embed_set_credit(
     orbital: &Orbital,
     embed_sites: &[EmbedSite],
     embed_parents_of: &HashMap<String, Vec<usize>>,
 ) -> HashMap<String, HashSet<String>> {
+    let trait_sets = collect_trait_set_fields(orbital);
     let mut credit: HashMap<String, HashSet<String>> = HashMap::new();
     for tr in &orbital.traits {
         let TraitReference::Inline(def) = tr else {
@@ -477,8 +526,12 @@ fn collect_embed_set_credit(
         let mut fields: HashSet<String> = HashSet::new();
         for &i in &ancestors {
             let site = &embed_sites[i];
-            if site.parent_linked_entity == def.linked_entity {
-                fields.extend(site.set_fields.iter().cloned());
+            if site.parent_linked_entity != def.linked_entity {
+                continue;
+            }
+            fields.extend(site.set_fields.iter().cloned());
+            if let Some(parent_sets) = trait_sets.get(&site.parent_name) {
+                fields.extend(parent_sets.iter().cloned());
             }
         }
         if !fields.is_empty() {
@@ -608,11 +661,18 @@ pub fn validate_trait_bindings(
     // when the trait has no linkedEntity. `@intrinsic` fields on the resolved
     // linked entity are exempt (runtime-managed widget state) — keyed on the
     // resolved entity so the exemption survives a `linkedEntity` rebind.
-    let intrinsic_fields: HashSet<String> = linked_entity_def
+    // A field carrying a DECLARED DEFAULT (`done : boolean = false`,
+    // `ageTier : string = "sequencer"`) is exempt on the same footing: the row
+    // is constructed with that value, so the read this rule guards — "it stays
+    // undefined" — is impossible by construction. Demanding a redundant
+    // `(set @entity.done false)` in INIT would not make the program more
+    // correct, only more verbose, and the resulting noise is what turns a
+    // real finding into a per-organism warning floor.
+    let exempt_fields: HashSet<String> = linked_entity_def
         .map(|e| {
             e.fields
                 .iter()
-                .filter(|f| f.intrinsic == Some(true))
+                .filter(|f| f.intrinsic == Some(true) || f.default.is_some())
                 .filter_map(|f| f.name.clone())
                 .collect()
         })
@@ -620,7 +680,7 @@ pub fn validate_trait_bindings(
     result.merge(validate_entity_fields_have_setters(
         trait_def,
         path,
-        &intrinsic_fields,
+        &exempt_fields,
         shared_group_set_fields,
         embed_set_credit,
     ));
@@ -1342,12 +1402,17 @@ fn validate_entity_field_references(
 /// component renders empty. This validator surfaces that defect at parse
 /// time so authors see a clear error instead of debugging an empty UI.
 ///
-/// `@intrinsic` fields are exempt: they are runtime-managed widget state the
-/// atom computes itself (e.g. a calendar's `selectedRange`), never authored
-/// data, so a read with no `(set)` is correct, not a defect. The exemption is
-/// keyed on the resolved linked entity's `intrinsic` flag, so it holds through a
-/// `linkedEntity` rebind (the intrinsic field rides along via `extends`) — not
-/// only for a directly-declared inline entity.
+/// `exempt_fields` carries two exemptions, both keyed on the RESOLVED linked
+/// entity so they hold through a `linkedEntity` rebind (the field rides along
+/// via `extends`) rather than only for a directly-declared inline entity:
+///
+/// - `@intrinsic` fields — runtime-managed widget state the atom computes
+///   itself (e.g. a calendar's `selectedRange`), never authored data, so a read
+///   with no `(set)` is correct, not a defect.
+/// - fields with a DECLARED DEFAULT — the row is constructed carrying that
+///   value, so "undefined at read time", the thing this rule exists to catch,
+///   cannot happen. A demanded `(set @entity.done false)` in INIT restates the
+///   declaration without changing behavior.
 ///
 /// Skipped when the trait has no `linkedEntity` (no entity to bind to).
 ///
@@ -1362,7 +1427,7 @@ fn validate_entity_field_references(
 fn validate_entity_fields_have_setters(
     trait_def: &TraitDefinition,
     path: &str,
-    intrinsic_fields: &HashSet<String>,
+    exempt_fields: &HashSet<String>,
     shared_group_set_fields: &HashMap<String, HashSet<String>>,
     embed_set_credit: Option<&HashSet<String>>,
 ) -> ValidationResult {
@@ -1437,7 +1502,7 @@ fn validate_entity_fields_have_setters(
     }
 
     for (field, first_event) in referenced_fields.iter() {
-        if intrinsic_fields.contains(field) {
+        if exempt_fields.contains(field) {
             continue;
         }
         let satisfied_by_group = group_set_fields
@@ -3200,6 +3265,127 @@ mod tests {
                 .any(|e| e.code == ErrorCode::BindingEntityFieldNeverSet),
             "with no parent setter the never-set warning must remain: {:?}",
             result2.warnings
+        );
+    }
+
+    // A parent that binds the field on ONE transition and renders the child on
+    // ANOTHER still credits the child — `(set @entity.X …)` scopes to the trait,
+    // not to the transition that happened to embed. The corpus shape is a detail
+    // view seeding defaults on INIT and rendering its Typography children on
+    // VIEW; scoping per-transition made that a false positive and held the child
+    // to a stricter standard than the parent's own reads.
+    #[test]
+    fn embedded_child_credited_by_parent_setter_on_a_different_transition() {
+        let set_title = arr(vec![s("set"), s("@entity.title"), s("t")]);
+        let parent = build_trait_fixture(
+            "Parent",
+            Some("Course"),
+            vec![
+                ("INIT", vec![set_title]),
+                ("VIEW", vec![render_children(vec!["@trait.Child"])]),
+            ],
+        );
+        let child_read = arr(vec![
+            s("render-ui"),
+            s("main"),
+            SExpression::Object({
+                let mut m = HashMap::new();
+                m.insert("text".to_string(), s("@entity.title"));
+                m
+            }),
+        ]);
+        let child = build_trait_fixture("Child", Some("Course"), vec![("INIT", vec![child_read])]);
+
+        let orbital = orbital_with_traits(vec![parent, child.clone()]);
+        let (sites, parents_of) = build_embed_index(&orbital);
+        let credit = collect_embed_set_credit(&orbital, &sites, &parents_of);
+        let result = validate_entity_fields_have_setters(
+            &child,
+            "test",
+            &HashSet::new(),
+            &HashMap::new(),
+            credit.get("Child"),
+        );
+        assert!(
+            result.warnings.is_empty() && result.errors.is_empty(),
+            "a parent setter on a different transition must still credit the child: {:?}",
+            result.warnings
+        );
+
+        // Negative: a parent bound to a DIFFERENT entity sets its own `title`,
+        // so the child's read is uncredited and the warning must survive.
+        let other_parent = build_trait_fixture(
+            "Parent",
+            Some("Lesson"),
+            vec![
+                ("INIT", vec![arr(vec![s("set"), s("@entity.title"), s("t")])]),
+                ("VIEW", vec![render_children(vec!["@trait.Child"])]),
+            ],
+        );
+        let orbital2 = orbital_with_traits(vec![other_parent, child.clone()]);
+        let (sites2, parents2) = build_embed_index(&orbital2);
+        let credit2 = collect_embed_set_credit(&orbital2, &sites2, &parents2);
+        let result2 = validate_entity_fields_have_setters(
+            &child,
+            "test",
+            &HashSet::new(),
+            &HashMap::new(),
+            credit2.get("Child"),
+        );
+        assert!(
+            result2
+                .warnings
+                .iter()
+                .any(|e| e.code == ErrorCode::BindingEntityFieldNeverSet),
+            "a cross-entity parent must not credit the child: {:?}",
+            result2.warnings
+        );
+    }
+
+    // A field carrying a DECLARED DEFAULT cannot be undefined at read time, so
+    // it is exempt on the same footing as `@intrinsic`. The caller passes the
+    // exempt set; here that contract is pinned from both sides.
+    #[test]
+    fn entity_field_with_declared_default_is_exempt() {
+        let read = arr(vec![
+            s("render-ui"),
+            s("main"),
+            SExpression::Object({
+                let mut m = HashMap::new();
+                m.insert("done".to_string(), s("@entity.done"));
+                m
+            }),
+        ]);
+        let reader = build_trait_fixture("Reader", Some("Scene"), vec![("INIT", vec![read])]);
+
+        let exempt: HashSet<String> = ["done".to_string()].into_iter().collect();
+        let ok = validate_entity_fields_have_setters(
+            &reader,
+            "test",
+            &exempt,
+            &HashMap::new(),
+            None,
+        );
+        assert!(
+            ok.warnings.is_empty() && ok.errors.is_empty(),
+            "a defaulted field must not report never-set: {:?}",
+            ok.warnings
+        );
+
+        // Negative: the SAME read with no default declared still reports.
+        let bad = validate_entity_fields_have_setters(
+            &reader,
+            "test",
+            &HashSet::new(),
+            &HashMap::new(),
+            None,
+        );
+        assert!(
+            bad.warnings
+                .iter()
+                .any(|e| e.code == ErrorCode::BindingEntityFieldNeverSet),
+            "an undefaulted, unset field must still report: {:?}",
+            bad.warnings
         );
     }
 

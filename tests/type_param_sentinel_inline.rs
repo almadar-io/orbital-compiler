@@ -198,3 +198,207 @@ fn at_entity_without_linked_entity_is_swept() {
         ctx.result.errors
     );
 }
+
+// ---------------------------------------------------------------------------
+// Sigil type constructors (2026-09-01). Each arm gets a resolution test AND an
+// unresolvable test: a check that can only pass proves nothing, and these three
+// constructors ship with little or no corpus usage, so their correctness rests
+// entirely here.
+// ---------------------------------------------------------------------------
+
+fn schema_with_sigils(action_default: Option<&str>, identity_shape: bool) -> OrbitalSchema {
+    let mut config = json!({
+        "actionPayload": { "type": "@payload(action)" },
+        "targetEntity":  { "type": "entity", "default": "Thing" },
+        "targetRow":     { "type": "@entity(targetEntity)" },
+        "boundRow":      { "type": "@entity" },
+        "actor":         { "type": "@user" }
+    });
+    if let Some(d) = action_default {
+        config["action"] = json!({ "type": "event", "default": d });
+    }
+    let trait_json = json!({
+        "name": "ThingSave",
+        "linkedEntity": "Thing",
+        "config": config,
+        "emits": [{
+            "event": "PAY_BILL",
+            "payloadSchema": [{ "name": "id", "type": "string", "required": true }]
+        }],
+        "stateMachine": {
+            "states": [{ "name": "idle", "isInitial": true }],
+            "transitions": [{ "from": "idle", "to": "idle", "event": "INIT" }]
+        }
+    });
+    let mut orbital = json!({
+        "name": "ThingOrbital",
+        "entity": {
+            "name": "Thing",
+            "persistence": "runtime",
+            "fields": [
+                { "name": "id", "type": "string" },
+                { "name": "a", "type": "string" }
+            ]
+        },
+        "traits": [trait_json],
+        "pages": []
+    });
+    if identity_shape {
+        orbital["expects"] = json!([{
+            "kind": "identity",
+            "name": "Customer",
+            "shape": [
+                { "name": "email", "type": "string" },
+                { "name": "role", "type": "string" }
+            ]
+        }]);
+    }
+    serde_json::from_value(json!({ "name": "App", "orbitals": [orbital] }))
+        .expect("schema fixture must deserialize")
+}
+
+fn knob_type(schema: &OrbitalSchema, knob: &str) -> String {
+    thing_trait(schema).config.as_ref().unwrap()[knob].field_type.clone()
+}
+
+#[test]
+fn sigil_types_resolve_against_the_knob_values() {
+    let mut schema = schema_with_sigils(Some("PAY_BILL"), true);
+    inline_schema(&mut schema, &InlineConfig::default(), None).expect("inline must succeed");
+
+    // Never `object`: a ConfigField typed literally "object" is an
+    // unconditional ORB_T_CONFIG_OBJECT_ARRAY_FORBIDDEN regardless of props.
+    for knob in ["actionPayload", "targetRow", "boundRow", "actor"] {
+        let t = knob_type(&schema, knob);
+        assert_ne!(t, "object", "{knob} must not resolve to bare object");
+        assert!(!t.starts_with('@'), "{knob} left a sentinel: {t}");
+    }
+    assert_eq!(knob_type(&schema, "actionPayload"), "PayBillPayload");
+    assert_eq!(knob_type(&schema, "targetRow"), "ThingRow");
+    // Bare `@entity` in CONFIG position — the arity-0 arm, resolved against
+    // the trait's own linkedEntity. This is what types the row-shaped knobs
+    // (`loadedRow`, `row`, `currentRow`, `focusedRow`) that `json` was
+    // standing in for.
+    assert_eq!(knob_type(&schema, "boundRow"), "ThingRow");
+    assert_eq!(knob_type(&schema, "actor"), "IdentityRow");
+
+    let cfg = thing_trait(&schema).config.as_ref().unwrap();
+    assert!(cfg["actionPayload"].properties.as_ref().unwrap().contains_key("id"));
+    assert!(cfg["targetRow"].properties.as_ref().unwrap().contains_key("a"));
+    assert!(cfg["actor"].properties.as_ref().unwrap().contains_key("email"));
+
+    let mut ctx = ValidationContext::new();
+    type_param_sweep::validate_type_param_sentinels(&schema, &mut ctx);
+    assert!(ctx.result.errors.is_empty(), "{:?}", ctx.result.errors);
+}
+
+#[test]
+fn an_event_nothing_declares_resolves_to_an_empty_shape() {
+    // "The target declares nothing" is an ANSWER, not a failure — it is what
+    // lets a generated atom validate standalone, where the knob holds its own
+    // default and no listener has declared that event.
+    let mut schema = schema_with_sigils(Some("NOBODY_DECLARES_ME"), true);
+    inline_schema(&mut schema, &InlineConfig::default(), None).expect("inline must succeed");
+    assert_eq!(knob_type(&schema, "actionPayload"), "NobodyDeclaresMePayload");
+    let props = thing_trait(&schema).config.as_ref().unwrap()["actionPayload"]
+        .properties
+        .as_ref()
+        .expect("empty shape is still a shape");
+    assert!(props.is_empty());
+
+    let mut ctx = ValidationContext::new();
+    type_param_sweep::validate_type_param_sentinels(&schema, &mut ctx);
+    assert!(ctx.result.errors.is_empty(), "empty is not unresolved: {:?}", ctx.result.errors);
+}
+
+#[test]
+fn a_payload_knob_with_no_event_knob_is_swept() {
+    // The 15.2% corpus case: a payload knob on a trait with no `action` knob at
+    // all — inert by construction, and a real defect rather than a type gap.
+    let mut schema = schema_with_sigils(None, true);
+    inline_schema(&mut schema, &InlineConfig::default(), None).expect("inline must succeed");
+    let mut ctx = ValidationContext::new();
+    type_param_sweep::validate_type_param_sentinels(&schema, &mut ctx);
+    assert!(
+        ctx.result.errors.iter().any(|e| e.path.contains("actionPayload")
+            && e.code.as_str() == "ORB_T_UNRESOLVED_TYPE_PARAM"),
+        "unresolvable @payload must be swept, not silently shipped: {:?}",
+        ctx.result.errors
+    );
+}
+
+#[test]
+fn bare_at_entity_in_config_without_a_linked_entity_is_swept() {
+    // The arity-0 arm's unresolvable half: no `linkedEntity`, so there is no
+    // bound row to read. Must keep the sentinel and be swept, never degrade to
+    // `object` — a `ConfigField` typed literally "object" is an unconditional
+    // ORB_T_CONFIG_OBJECT_ARRAY_FORBIDDEN, so a degrade would trade a silent
+    // wrong type for a confusing hard error at an unrelated gate.
+    let mut schema = schema_with_sigils(Some("PAY_BILL"), true);
+    {
+        let TraitReference::Inline(td) = &mut schema.orbitals[0].traits[0] else {
+            panic!("fixture trait must be inline");
+        };
+        td.linked_entity = None;
+    }
+    inline_schema(&mut schema, &InlineConfig::default(), None).expect("inline must succeed");
+
+    assert_eq!(knob_type(&schema, "boundRow"), "@entity");
+    let mut ctx = ValidationContext::new();
+    type_param_sweep::validate_type_param_sentinels(&schema, &mut ctx);
+    assert!(
+        ctx.result.errors.iter().any(|e| e.path.contains("boundRow")
+            && e.code.as_str() == "ORB_T_UNRESOLVED_TYPE_PARAM"),
+        "unresolvable bare @entity must be swept: {:?}",
+        ctx.result.errors
+    );
+}
+
+#[test]
+fn at_entity_naming_an_undeclared_entity_is_swept() {
+    // The `@entity <knob>` arm's unresolvable half. `targetEntity` names an
+    // entity no orbital declares and no `expects` promises, so there is no
+    // shape to read. Every arm ships BOTH halves: a resolution test alone
+    // cannot distinguish "resolved" from "degraded silently", and this arm has
+    // no corpus site to catch a defect for us.
+    let mut schema = schema_with_sigils(Some("PAY_BILL"), true);
+    {
+        let TraitReference::Inline(td) = &mut schema.orbitals[0].traits[0] else {
+            panic!("fixture trait must be inline");
+        };
+        let cfg = td.config.as_mut().expect("fixture declares config");
+        cfg.get_mut("targetEntity").expect("fixture declares targetEntity").default =
+            Some(orbital_core::schema::SExpression::String("Ghost".to_string()));
+    }
+    inline_schema(&mut schema, &InlineConfig::default(), None).expect("inline must succeed");
+
+    assert_eq!(
+        knob_type(&schema, "targetRow"),
+        "@entity(targetEntity)",
+        "an unresolvable @entity must KEEP its sentinel, never degrade to object"
+    );
+    let mut ctx = ValidationContext::new();
+    type_param_sweep::validate_type_param_sentinels(&schema, &mut ctx);
+    assert!(
+        ctx.result.errors.iter().any(|e| e.path.contains("targetRow")
+            && e.code.as_str() == "ORB_T_UNRESOLVED_TYPE_PARAM"),
+        "unresolvable @entity must be swept: {:?}",
+        ctx.result.errors
+    );
+}
+
+#[test]
+fn at_user_without_a_declared_identity_shape_is_swept() {
+    // A bare `expects identity` is a sanctioned escape hatch — existence only,
+    // no shape — so `@user` has nothing to read. That is a loud error naming
+    // the fix, not a degrade to object.
+    let mut schema = schema_with_sigils(Some("PAY_BILL"), false);
+    inline_schema(&mut schema, &InlineConfig::default(), None).expect("inline must succeed");
+    let mut ctx = ValidationContext::new();
+    type_param_sweep::validate_type_param_sentinels(&schema, &mut ctx);
+    assert!(
+        ctx.result.errors.iter().any(|e| e.path.contains("actor")),
+        "unresolvable @user must be swept: {:?}",
+        ctx.result.errors
+    );
+}

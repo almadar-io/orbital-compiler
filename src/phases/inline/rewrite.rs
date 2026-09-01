@@ -4,8 +4,8 @@ use crate::embedded::get_pattern;
 use crate::phases::validation::field_type_str;
 use crate::phases::validation::sync::patterns::{PATTERN_EVENT_LIST_PROPS, PATTERN_EVENT_PROPS};
 use orbital_core::schema::{
-    ConfigProvenanceRecord, EntityDefinition, EntityRef, ListenSource, Orbital, PayloadField,
-    SExpression, TraitDefinition, TraitReference,
+    ConfigProvenanceRecord, EntityDefinition, EntityRef, FieldDefinition, FieldType, ListenSource,
+    Orbital, PayloadField, SExpression, TraitDefinition, TraitReference,
 };
 use std::collections::{HashMap, HashSet};
 
@@ -1196,17 +1196,26 @@ fn resolve_sentinel_fields(
 /// substituted sentinel carries. Mirrors the flat (non-relation) conversion
 /// `orbital-lolo`'s `resolve_payload_type` performs at lower time — one
 /// field per entity field, no recursion into relations.
+/// `Map K V` on an entity field lowers to the `Object` tag with the VALUE shape
+/// in `items` and no `properties` — a map has no properties by construction.
+/// `PayloadField` carries no `items`, so serializing the enum alone DROPS the
+/// value type and a fully-typed map arrives in payload position as a bare
+/// `object` — which `generic_types` then reports as shapeless. Spell the map
+/// into the type string instead, exactly as config fields already carry it
+/// (`Map<string,string>`), so the one representation survives the crossing.
+/// The bound-entity row as payload fields.
+///
+/// Delegates to the ONE converter (`sigil_types::payload_field_of`). This used
+/// to be a second, independently-written copy that dropped every field's
+/// `properties`, so an entity honestly declaring `heroSpawn : Position`
+/// published `heroSpawn : object` on `VIEW.row` and the generic-type gate
+/// reported the snapshot as untyped while the entity it snapshots was fully
+/// typed. Two spellings of one rule is how they drift.
 fn entity_fields_to_payload_fields(entity: &EntityDefinition) -> Vec<PayloadField> {
     entity
         .fields
         .iter()
-        .map(|f| PayloadField {
-            name: f.name.clone().unwrap_or_default(),
-            field_type: field_type_str(f),
-            required: f.required,
-            description: None,
-            properties: None,
-        })
+        .map(super::sigil_types::payload_field_of)
         .collect()
 }
 
