@@ -16,8 +16,8 @@
 use super::render_ui::is_render_ui_effect;
 use super::{ErrorCode, ValidationContext, ValidationError, ValidationResult};
 use orbital_core::schema::{
-    EntityDefinition, OrbitalSchema, Persistence, SExpression, StringOrNumber, TraitDefinition,
-    TraitReference,
+    EntityDefinition, Orbital, OrbitalSchema, PageRef, Persistence, SExpression, StringOrNumber,
+    TraitDefinition, TraitReference,
 };
 use std::collections::{HashMap, HashSet};
 
@@ -201,6 +201,125 @@ fn render_ui_effect_reads_entity(effect: &SExpression) -> bool {
     !referenced.is_empty()
 }
 
+/// Transitive page membership: trait name → set of page names it is active
+/// on. Seeded from each page's `traits[]` list, then closed over `@trait.X`
+/// render-ui references (`collect_sibling_trait_refs` — the same graph
+/// `collect_render_ui_readers` walks) so a child wrapped into a page-root
+/// trait's render tree inherits that root's page(s) too, even though the
+/// page's own `traits[]` never names the child directly.
+fn collect_trait_pages(
+    orbital: &Orbital,
+    traits: &[&TraitDefinition],
+) -> HashMap<String, HashSet<String>> {
+    let mut refs_by_trait: HashMap<&str, HashSet<String>> = HashMap::new();
+    for trait_def in traits {
+        let mut refs: HashSet<String> = HashSet::new();
+        for transition in &trait_def.state_machine.transitions {
+            if let Some(effects) = &transition.effects {
+                for effect in effects {
+                    crate::phases::inline::collect_sibling_trait_refs(effect, &mut refs);
+                }
+            }
+        }
+        if let Some(ticks) = &trait_def.ticks {
+            for tick in ticks {
+                for effect in &tick.effects {
+                    crate::phases::inline::collect_sibling_trait_refs(effect, &mut refs);
+                }
+            }
+        }
+        refs.remove(&trait_def.name);
+        refs_by_trait.insert(trait_def.name.as_str(), refs);
+    }
+
+    let mut trait_pages: HashMap<String, HashSet<String>> = HashMap::new();
+    let Some(pages) = &orbital.pages else {
+        return trait_pages;
+    };
+    for page_ref in pages {
+        let PageRef::Inline(page) = page_ref else {
+            continue;
+        };
+        let Some(page_traits) = &page.traits else {
+            continue;
+        };
+        let mut closure: HashSet<String> = HashSet::new();
+        let mut stack: Vec<String> = Vec::new();
+        for trait_ref in page_traits {
+            if let Some(name) = trait_ref.trait_name() {
+                if closure.insert(name.to_string()) {
+                    stack.push(name.to_string());
+                }
+            }
+        }
+        while let Some(name) = stack.pop() {
+            if let Some(refs) = refs_by_trait.get(name.as_str()) {
+                for r in refs {
+                    if closure.insert(r.clone()) {
+                        stack.push(r.clone());
+                    }
+                }
+            }
+        }
+        for name in closure {
+            trait_pages
+                .entry(name)
+                .or_default()
+                .insert(page.name.clone());
+        }
+    }
+    trait_pages
+}
+
+/// True when every mutator in `names` is a composed instance of the SAME
+/// source trait (identical `(behavior, original_name)` on `source_behavior`)
+/// — N independent instances of one `@rebindable` widget atom (e.g. several
+/// `ui-input`s), each with its own isolated copy by design. A trait authored
+/// directly on the orbital (`source_behavior == None`) never qualifies.
+/// docs/Almadar_Compiler_Gaps.md:1213 (OPEN 2).
+fn same_source_trait(names: &[String], trait_by_name: &HashMap<&str, &TraitDefinition>) -> bool {
+    let mut source_key: Option<(&str, &str)> = None;
+    for name in names {
+        let Some(td) = trait_by_name.get(name.as_str()) else {
+            return false;
+        };
+        let Some(sb) = &td.source_behavior else {
+            return false;
+        };
+        let key = (sb.behavior.as_str(), sb.original_name.as_str());
+        match source_key {
+            None => source_key = Some(key),
+            Some(existing) if existing == key => {}
+            _ => return false,
+        }
+    }
+    true
+}
+
+/// True when no two mutators in `names` can ever co-mount — every pair's page
+/// membership is disjoint, and every mutator appears on at least one page.
+/// Runtime entity stores are per-page, so mutators that never share a page
+/// can never split-write the same instance. A mutator absent from every page
+/// is NOT exempted (conservatively kept reported) — its runtime membership
+/// isn't provable from static page wiring alone.
+fn mutators_page_disjoint(names: &[String], trait_pages: &HashMap<String, HashSet<String>>) -> bool {
+    let mut sets: Vec<&HashSet<String>> = Vec::with_capacity(names.len());
+    for name in names {
+        match trait_pages.get(name) {
+            Some(pages) if !pages.is_empty() => sets.push(pages),
+            _ => return false,
+        }
+    }
+    for i in 0..sets.len() {
+        for j in (i + 1)..sets.len() {
+            if !sets[i].is_disjoint(sets[j]) {
+                return false;
+            }
+        }
+    }
+    true
+}
+
 // ============================================================================
 // B. Multi-trait mutation trio
 // ============================================================================
@@ -217,11 +336,13 @@ pub fn validate_all_entity_mutations(schema: &OrbitalSchema, ctx: &mut Validatio
                 TraitReference::Reference { .. } => None,
             })
             .collect();
+        let trait_pages = collect_trait_pages(orbital, &inline_traits);
 
         let result = validate_orbital_entity_mutations(
             &inline_traits,
             &orbital_path,
             &ctx.entity_definitions,
+            &trait_pages,
         );
         ctx.merge(result);
     }
@@ -231,9 +352,12 @@ fn validate_orbital_entity_mutations(
     traits: &[&TraitDefinition],
     orbital_path: &str,
     entity_definitions: &HashMap<String, EntityDefinition>,
+    trait_pages: &HashMap<String, HashSet<String>>,
 ) -> ValidationResult {
     let mut result = ValidationResult::new();
 
+    let trait_by_name: HashMap<&str, &TraitDefinition> =
+        traits.iter().map(|t| (t.name.as_str(), *t)).collect();
     let mutators_by_field = collect_entity_mutators(traits.iter().copied());
     let renderers = collect_render_ui_readers(traits);
 
@@ -309,21 +433,31 @@ fn validate_orbital_entity_mutations(
             }
             all_mutators.sort();
 
+            // N independent instances of the SAME source trait: isolation is
+            // the design (e.g. several composed `ui-input`s), not an
+            // accident. docs/Almadar_Compiler_Gaps.md:1213 (OPEN 2).
+            if same_source_trait(&all_mutators, &trait_by_name) {
+                continue;
+            }
+            // Mutators that can never co-mount can't split-write — runtime
+            // entity stores are per-page.
+            if mutators_page_disjoint(&all_mutators, trait_pages) {
+                continue;
+            }
+
             let has_reader = renderers
                 .get(entity_name)
                 .map(|r| !r.is_empty())
                 .unwrap_or(false);
-            let message = if has_reader {
-                format!(
-                    "Entity '{}' (runtime, not [shared]) is mutated by {} distinct traits {:?} and read by a render-ui — each mutator gets an ISOLATED per-trait copy, so the render never sees the other traits' writes; this is provably wrong unless the entity is meant to be one shared instance",
-                    entity_name, all_mutators.len(), all_mutators
-                )
-            } else {
-                format!(
-                    "Entity '{}' (runtime, not [shared]) is mutated by {} distinct traits {:?} but none of them render-ui reads it — likely legitimate isolated per-trait scratch state, flagged informationally",
-                    entity_name, all_mutators.len(), all_mutators
-                )
-            };
+            // No render-ui reader observed the split: likely legitimate
+            // isolated per-trait scratch state — no consequence to report.
+            if !has_reader {
+                continue;
+            }
+            let message = format!(
+                "Entity '{}' (runtime, not [shared]) is mutated by {} distinct traits {:?} and read by a render-ui — each mutator gets an ISOLATED per-trait copy, so the render never sees the other traits' writes; this is provably wrong unless the entity is meant to be one shared instance",
+                entity_name, all_mutators.len(), all_mutators
+            );
             result.add_error(
                 ValidationError::phase_f_warning(ErrorCode::EntitySplitMutation, path.as_str(), message)
                     .with_suggestion(format!(
@@ -456,8 +590,8 @@ fn find_async_operator_call(expr: &SExpression) -> Option<&str> {
 mod tests {
     use super::*;
     use orbital_core::schema::{
-        FieldDefinition, FieldType, StateDefinition, StateMachine, StringOrArray, TickDefinition,
-        TransitionDefinition,
+        EntityRef, FieldDefinition, FieldType, PageDefinition, StateDefinition, StateMachine,
+        StringOrArray, TickDefinition, TransitionDefinition,
     };
 
     fn s(v: &str) -> SExpression {
@@ -602,7 +736,7 @@ mod tests {
             "Blob".to_string(),
             entity("Blob", false, Some(Persistence::Runtime)),
         );
-        let result = validate_orbital_entity_mutations(&traits, "orbitals[0]", &defs);
+        let result = validate_orbital_entity_mutations(&traits, "orbitals[0]", &defs, &HashMap::new());
         assert!(
             result
                 .warnings
@@ -616,7 +750,10 @@ mod tests {
     }
 
     #[test]
-    fn split_mutation_warning_without_render_ui_reader() {
+    fn split_mutation_silent_without_render_ui_reader() {
+        // The informational arm ("likely legitimate isolated per-trait
+        // scratch") is no longer constructed at all — no reader observed the
+        // split, so there is no consequence to report.
         let t1 = trait_with_init_effects("Mover", "Blob", vec![set_effect("x")]);
         let t2 = trait_with_init_effects("Scorer", "Blob", vec![set_effect("y")]);
         let traits = vec![&t1, &t2];
@@ -625,16 +762,204 @@ mod tests {
             "Blob".to_string(),
             entity("Blob", false, Some(Persistence::Runtime)),
         );
-        let result = validate_orbital_entity_mutations(&traits, "orbitals[0]", &defs);
+        let result = validate_orbital_entity_mutations(&traits, "orbitals[0]", &defs, &HashMap::new());
+        assert!(
+            !result
+                .all_issues()
+                .any(|e| e.code == ErrorCode::EntitySplitMutation),
+            "Expected no EntitySplitMutation finding without a reader: {:?}",
+            result.warnings
+        );
+    }
+
+    fn with_source_behavior(mut td: TraitDefinition, behavior: &str, original_name: &str) -> TraitDefinition {
+        td.source_behavior = Some(orbital_core::schema::SourceBehaviorMetadata {
+            behavior: behavior.to_string(),
+            alias: td.name.clone(),
+            original_name: original_name.to_string(),
+        });
+        td
+    }
+
+    /// N independent instances of the SAME source trait (e.g. two composed
+    /// `ui-input`s) mutating disjoint fields, with a reader — isolation is
+    /// the design, not an accident: no EntitySplitMutation.
+    #[test]
+    fn same_source_instances_do_not_split_mutation() {
+        let t1 = with_source_behavior(
+            trait_with_init_effects("FirstNameInput", "Form", vec![set_effect("firstName")]),
+            "ui-input",
+            "InputRender",
+        );
+        let t2 = with_source_behavior(
+            trait_with_init_effects(
+                "LastNameInput",
+                "Form",
+                vec![set_effect("lastName"), render_ui_reading("firstName")],
+            ),
+            "ui-input",
+            "InputRender",
+        );
+        let traits = vec![&t1, &t2];
+        let mut defs = HashMap::new();
+        defs.insert(
+            "Form".to_string(),
+            entity("Form", false, Some(Persistence::Runtime)),
+        );
+        let result = validate_orbital_entity_mutations(&traits, "orbitals[0]", &defs, &HashMap::new());
+        assert!(
+            !result
+                .all_issues()
+                .any(|e| e.code == ErrorCode::EntitySplitMutation),
+            "N instances of the same source trait must not split-mutation: {:?}",
+            result.warnings
+        );
+    }
+
+    /// The negative: mutators composed from DIFFERENT source traits (or one
+    /// authored directly) are genuinely heterogeneous — same-source must not
+    /// over-suppress, and the finding stays reported when there's a reader.
+    #[test]
+    fn heterogeneous_source_traits_with_reader_still_report() {
+        let t1 = with_source_behavior(
+            trait_with_init_effects("Mover", "Blob", vec![set_effect("x")]),
+            "std-motion",
+            "MoveRender",
+        );
+        let t2 = trait_with_init_effects(
+            "Renderer",
+            "Blob",
+            vec![set_effect("y"), render_ui_reading("x")],
+        );
+        let traits = vec![&t1, &t2];
+        let mut defs = HashMap::new();
+        defs.insert(
+            "Blob".to_string(),
+            entity("Blob", false, Some(Persistence::Runtime)),
+        );
+        let result = validate_orbital_entity_mutations(&traits, "orbitals[0]", &defs, &HashMap::new());
         assert!(
             result
                 .warnings
                 .iter()
                 .any(|e| e.code == ErrorCode::EntitySplitMutation),
-            "Expected EntitySplitMutation warning even without a reader: {:?}",
+            "Mutators from different sources (one imported, one authored) must still report: {:?}",
             result.warnings
         );
-        assert!(result.errors.is_empty());
+    }
+
+    /// Mutators that can never co-mount (disjoint page membership) can't
+    /// split-write the same runtime instance — no EntitySplitMutation even
+    /// with a reader present.
+    #[test]
+    fn page_disjoint_mutators_do_not_split_mutation() {
+        let t1 = trait_with_init_effects("Mover", "Blob", vec![set_effect("x")]);
+        let t2 = trait_with_init_effects(
+            "Renderer",
+            "Blob",
+            vec![set_effect("y"), render_ui_reading("x")],
+        );
+        let traits = vec![&t1, &t2];
+        let mut defs = HashMap::new();
+        defs.insert(
+            "Blob".to_string(),
+            entity("Blob", false, Some(Persistence::Runtime)),
+        );
+        let mut trait_pages: HashMap<String, HashSet<String>> = HashMap::new();
+        trait_pages.insert("Mover".to_string(), ["PageA".to_string()].into_iter().collect());
+        trait_pages.insert("Renderer".to_string(), ["PageB".to_string()].into_iter().collect());
+        let result = validate_orbital_entity_mutations(&traits, "orbitals[0]", &defs, &trait_pages);
+        assert!(
+            !result
+                .all_issues()
+                .any(|e| e.code == ErrorCode::EntitySplitMutation),
+            "Mutators that never co-mount must not split-mutation: {:?}",
+            result.warnings
+        );
+    }
+
+    /// The negative: mutators that DO share a page (or whose page membership
+    /// is unknown) keep reporting — page-disjointness must not over-suppress.
+    #[test]
+    fn page_overlapping_mutators_still_report() {
+        let t1 = trait_with_init_effects("Mover", "Blob", vec![set_effect("x")]);
+        let t2 = trait_with_init_effects(
+            "Renderer",
+            "Blob",
+            vec![set_effect("y"), render_ui_reading("x")],
+        );
+        let traits = vec![&t1, &t2];
+        let mut defs = HashMap::new();
+        defs.insert(
+            "Blob".to_string(),
+            entity("Blob", false, Some(Persistence::Runtime)),
+        );
+        let mut trait_pages: HashMap<String, HashSet<String>> = HashMap::new();
+        trait_pages.insert("Mover".to_string(), ["PageA".to_string()].into_iter().collect());
+        trait_pages.insert("Renderer".to_string(), ["PageA".to_string()].into_iter().collect());
+        let result = validate_orbital_entity_mutations(&traits, "orbitals[0]", &defs, &trait_pages);
+        assert!(
+            result
+                .warnings
+                .iter()
+                .any(|e| e.code == ErrorCode::EntitySplitMutation),
+            "Mutators sharing a page must still report: {:?}",
+            result.warnings
+        );
+    }
+
+    /// `collect_trait_pages` closes the seed (`page.traits[]`) over
+    /// `@trait.X` render-ui references: `Host` is directly on "Main" and
+    /// `@trait`-references `Child` from its render tree, so `Child` inherits
+    /// "Main" too even though the page's own `traits[]` never names it.
+    #[test]
+    fn collect_trait_pages_closes_over_trait_refs() {
+        let host = trait_with_init_effects(
+            "Host",
+            "Blob",
+            vec![render_ui_reading_with_refs("x", &["Child"])],
+        );
+        let child = trait_with_init_effects("Child", "Blob", vec![set_effect("y")]);
+        let orbital = Orbital {
+            name: "TestOrbital".to_string(),
+            id: None,
+            uses: None,
+            expects: None,
+            theme: None,
+            services: None,
+            entity: EntityRef::Inline(entity("Blob", false, Some(Persistence::Runtime))),
+            auxiliary_entities: None,
+            traits: vec![
+                TraitReference::Inline(host.clone()),
+                TraitReference::Inline(child.clone()),
+            ],
+            pages: Some(vec![PageRef::Inline(PageDefinition {
+                name: "Main".to_string(),
+                id: None,
+                path: "/".to_string(),
+                view_type: None,
+                primary_entity: None,
+                is_initial: Some(true),
+                traits: Some(vec![TraitReference::Inline(host.clone())]),
+                sections: None,
+                icon: None,
+                label: None,
+            })]),
+            emits: None,
+            listens: None,
+            exposes: None,
+            domain_context: None,
+            design: None,
+        };
+        let trait_pages = collect_trait_pages(&orbital, &[&host, &child]);
+        assert!(
+            trait_pages.get("Host").is_some_and(|p| p.contains("Main")),
+            "the directly-seeded trait must carry the page: {trait_pages:?}"
+        );
+        assert!(
+            trait_pages.get("Child").is_some_and(|p| p.contains("Main")),
+            "the @trait-referenced child must inherit the host's page: {trait_pages:?}"
+        );
     }
 
     #[test]
@@ -650,7 +975,7 @@ mod tests {
             "Blob".to_string(),
             entity("Blob", false, Some(Persistence::Runtime)),
         );
-        let result = validate_orbital_entity_mutations(&traits, "orbitals[0]", &defs);
+        let result = validate_orbital_entity_mutations(&traits, "orbitals[0]", &defs, &HashMap::new());
         assert!(
             !result
                 .all_issues()
@@ -676,7 +1001,7 @@ mod tests {
             "Blob".to_string(),
             entity("Blob", false, Some(Persistence::Persistent)),
         );
-        let result = validate_orbital_entity_mutations(&traits, "orbitals[0]", &defs);
+        let result = validate_orbital_entity_mutations(&traits, "orbitals[0]", &defs, &HashMap::new());
         assert!(
             !result
                 .all_issues()
@@ -695,7 +1020,7 @@ mod tests {
         let traits = vec![&t1, &t2];
         let mut defs = HashMap::new();
         defs.insert("Pool".to_string(), entity("Pool", true, None));
-        let result = validate_orbital_entity_mutations(&traits, "orbitals[0]", &defs);
+        let result = validate_orbital_entity_mutations(&traits, "orbitals[0]", &defs, &HashMap::new());
         assert!(
             result
                 .errors
@@ -713,7 +1038,7 @@ mod tests {
         let traits = vec![&t1, &t2];
         let mut defs = HashMap::new();
         defs.insert("Pool".to_string(), entity("Pool", true, None));
-        let result = validate_orbital_entity_mutations(&traits, "orbitals[0]", &defs);
+        let result = validate_orbital_entity_mutations(&traits, "orbitals[0]", &defs, &HashMap::new());
         assert!(
             !result
                 .all_issues()
@@ -730,7 +1055,7 @@ mod tests {
         let traits = vec![&t1, &t2];
         let mut defs = HashMap::new();
         defs.insert("Pool".to_string(), entity("Pool", true, None));
-        let result = validate_orbital_entity_mutations(&traits, "orbitals[0]", &defs);
+        let result = validate_orbital_entity_mutations(&traits, "orbitals[0]", &defs, &HashMap::new());
         assert!(
             result
                 .errors
@@ -776,7 +1101,7 @@ mod tests {
         let traits = vec![&host, &w1, &w2];
         let mut defs = HashMap::new();
         defs.insert("Pool".to_string(), entity("Pool", true, None));
-        let result = validate_orbital_entity_mutations(&traits, "orbitals[0]", &defs);
+        let result = validate_orbital_entity_mutations(&traits, "orbitals[0]", &defs, &HashMap::new());
         assert!(
             !result
                 .all_issues()
@@ -805,7 +1130,7 @@ mod tests {
         let traits = vec![&host, &child, &grand];
         let mut defs = HashMap::new();
         defs.insert("Pool".to_string(), entity("Pool", true, None));
-        let result = validate_orbital_entity_mutations(&traits, "orbitals[0]", &defs);
+        let result = validate_orbital_entity_mutations(&traits, "orbitals[0]", &defs, &HashMap::new());
         assert!(
             !result
                 .all_issues()
@@ -831,7 +1156,7 @@ mod tests {
         let traits = vec![&host, &w1, &rogue];
         let mut defs = HashMap::new();
         defs.insert("Pool".to_string(), entity("Pool", true, None));
-        let result = validate_orbital_entity_mutations(&traits, "orbitals[0]", &defs);
+        let result = validate_orbital_entity_mutations(&traits, "orbitals[0]", &defs, &HashMap::new());
         assert!(
             result
                 .errors
@@ -861,7 +1186,7 @@ mod tests {
         let traits = vec![&a, &b];
         let mut defs = HashMap::new();
         defs.insert("Pool".to_string(), entity("Pool", true, None));
-        let result = validate_orbital_entity_mutations(&traits, "orbitals[0]", &defs);
+        let result = validate_orbital_entity_mutations(&traits, "orbitals[0]", &defs, &HashMap::new());
         assert!(
             result
                 .errors

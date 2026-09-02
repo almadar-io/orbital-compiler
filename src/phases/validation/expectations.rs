@@ -63,7 +63,12 @@ pub(super) fn entity_expectation<'a>(
     })
 }
 
-/// Every entity name the orbital declares an `expects entity` for.
+/// Every entity name the orbital's expects declarations license. A NAMED
+/// `expects identity` counts: it asserts the entity exists, and the dual form
+/// (`expects entity X` alongside `expects identity X`) is
+/// ELOLO_DUPLICATE_EXPECTATION — `deriveExpectations` folds the entity
+/// declaration into the identity one, so identity is the only spelling a
+/// derived slice can carry for its identity-entity relation targets.
 pub(super) fn expected_entity_names(orbital: &Orbital) -> Vec<&str> {
     orbital
         .expects
@@ -73,6 +78,7 @@ pub(super) fn expected_entity_names(orbital: &Orbital) -> Vec<&str> {
                 .iter()
                 .filter_map(|e| match e {
                     ExpectDeclaration::Entity { name, .. } => Some(name.as_str()),
+                    ExpectDeclaration::Identity { name: Some(name), .. } => Some(name.as_str()),
                     _ => None,
                 })
                 .collect()

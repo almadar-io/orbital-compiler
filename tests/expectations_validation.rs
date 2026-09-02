@@ -275,6 +275,107 @@ fn expects_entity_licenses_relation_persist_and_linked_entity_targets() {
     }
 }
 
+/// L-10: an `@entity` payload sentinel on a trait `linkedEntity`-bound to an
+/// expects-licensed sibling DEFERS to compose (the slice cannot carry the
+/// provider's shape by design) — while the same trait without the expects
+/// declaration still blocks, so the sweep's backstop is intact.
+#[test]
+fn an_expects_licensed_linked_entity_defers_the_entity_sentinel() {
+    let orbital = |expects: serde_json::Value| {
+        json!({
+            "name": "App",
+            "orbitals": [{
+                "name": "AccountOrbital",
+                "expects": expects,
+                "entity": {
+                    "name": "CsAccount",
+                    "persistence": "persistent",
+                    "collection": "accounts",
+                    "fields": [{ "name": "id", "type": "string" }]
+                },
+                "traits": [{
+                    "name": "HealthList",
+                    "linkedEntity": "HealthScoreSearch",
+                    "category": "interaction",
+                    "emits": [{
+                        "event": "VIEW",
+                        "payloadSchema": [{ "name": "row", "type": "@entity" }]
+                    }],
+                    "stateMachine": {
+                        "states": [{ "name": "idle", "isInitial": true }],
+                        "events": [{ "key": "VIEW", "name": "View" }],
+                        "transitions": [{ "from": "idle", "event": "VIEW", "to": "idle" }]
+                    }
+                }],
+                "pages": []
+            }]
+        })
+    };
+    let licensed = run_full(orbital(json!([{ "kind": "entity", "name": "HealthScoreSearch" }])));
+    assert!(
+        !licensed.contains(&"ORB_T_UNRESOLVED_TYPE_PARAM".to_string()),
+        "expects-licensed linkedEntity must defer the @entity sentinel to compose, got {licensed:?}"
+    );
+    let unlicensed = run_full(orbital(json!([])));
+    assert!(
+        unlicensed.contains(&"ORB_T_UNRESOLVED_TYPE_PARAM".to_string())
+            || unlicensed.iter().any(|c| c.contains("LINKED_ENTITY") || c.contains("INVALID")),
+        "without the expects declaration the slice must still be rejected, got {unlicensed:?}"
+    );
+}
+
+/// A NAMED `expects identity` licenses the same targets: the dual form
+/// (`expects entity X` beside `expects identity X`) is
+/// ELOLO_DUPLICATE_EXPECTATION, so a derived slice whose entity holds a
+/// relation to the organism's identity entity carries ONLY the identity
+/// declaration — it must resolve standalone (measured: std-cms edit-demote,
+/// `author : Contributor` under `expects identity Contributor`).
+#[test]
+fn a_named_expects_identity_licenses_relation_targets() {
+    let schema = json!({
+        "name": "App",
+        "orbitals": [{
+            "name": "ArticleOrbital",
+            "expects": [{
+                "kind": "identity",
+                "name": "Contributor",
+                "shape": [
+                    { "name": "id", "type": "string", "required": true },
+                    { "name": "role", "type": "string", "values": ["author", "editor"] }
+                ]
+            }],
+            "entity": {
+                "name": "Article",
+                "persistence": "persistent",
+                "collection": "articles",
+                "fields": [
+                    { "name": "id", "type": "string" },
+                    { "name": "author", "type": "relation",
+                      "relation": { "entity": "Contributor", "cardinality": "one" } }
+                ]
+            },
+            "traits": [{
+                "name": "ArticleList",
+                "category": "interaction",
+                "stateMachine": {
+                    "states": [{ "name": "idle", "isInitial": true }],
+                    "events": [{ "key": "SAVE", "name": "Save" }],
+                    "transitions": [{ "from": "idle", "event": "SAVE", "to": "idle" }]
+                }
+            }],
+            "pages": []
+        }]
+    });
+    let codes = run_full(schema);
+    for unexpected in ["ORB_E_INVALID_RELATION", "ORB_X_UNRESOLVED_RELATION_TARGET"] {
+        assert!(
+            !codes.contains(&unexpected.to_string()),
+            "a named expects identity must license relation targets naming it, \
+             found {unexpected} in {codes:?}"
+        );
+    }
+}
+
 /// With a declared shape, a persist payload field outside it fails — the
 /// declaration is the opting-in (payload fields are checked nowhere else).
 #[test]

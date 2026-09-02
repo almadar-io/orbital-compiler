@@ -13,11 +13,11 @@
 //! `.orb`/codegen would otherwise carry a literal `"$<param>"` type, which is
 //! not a real type in any downstream shell.
 
-use orbital_core::schema::{PayloadField, TraitDefinition};
+use orbital_core::schema::{Orbital, PayloadField, TraitDefinition, TraitReference};
 
 use super::{
     error::{ErrorCode, ValidationError},
-    inline_traits, ValidationContext,
+    expectations, trait_path, ValidationContext,
 };
 
 const ENTITY_GUIDANCE: &str = "Bind the trait to a `linkedEntity` (directly, via `-> Entity`, or via a call-site rebind) so the parameter has an entity to monomorphize against.";
@@ -68,6 +68,24 @@ fn sentinel_param_name(field_type: &str) -> &str {
     }
 }
 
+/// An `expects entity <X>` (or, post-L-9, a named `expects identity <X>`)
+/// TRANSFERS the shape-dependent obligation to compose: the provider is a
+/// sibling the slice cannot see, Gap #22 inline surfaces it there and the
+/// same sentinel resolves. Erroring here rejects a slice whose composed
+/// program is valid (measured: std-customer-success CustomerAccountOrbital,
+/// `InlineDataListRender` bound to a sibling's `HealthScoreSearch` — the
+/// composed schema validates 0 errors while the slice failed 8×). Relation
+/// targets and persist/fetch already defer this way ("a genuinely absent
+/// provider is the compose link-check's job"); an absent provider stays
+/// `ORB_S_EXPECTATION_UNSATISFIED` at compose. Only Entity-kind resolution
+/// defers — Type-kind `:: <param> <arg>` is call-site and still errors.
+fn linked_entity_is_expects_licensed(orbital: &Orbital, trait_def: &TraitDefinition) -> bool {
+    match trait_def.linked_entity.as_deref() {
+        Some(name) => expectations::expected_entity_names(orbital).contains(&name),
+        None => false,
+    }
+}
+
 /// Item 6: distinguish "no linked entity" (Entity-kind param) from "no
 /// `:: <param> <arg>` supplied" (Type-kind param) when the carrying trait's
 /// own declared `type_params` (Increment 3-II) name this sentinel's param —
@@ -77,6 +95,7 @@ fn check_payload_field(
     field: &PayloadField,
     path: &str,
     trait_def: &TraitDefinition,
+    defer_entity_kind: bool,
     result: &mut super::ValidationResult,
 ) {
     let field_path = format!("{path}.{}", field.name);
@@ -87,6 +106,15 @@ fn check_payload_field(
             .as_ref()
             .and_then(|params| params.iter().find(|p| p.name == param_name))
             .map(|p| p.kind.as_str());
+        let entity_kind = field.field_type == "@entity"
+            || field.field_type == "[@entity]"
+            || declared_kind == Some("Entity");
+        if defer_entity_kind && entity_kind {
+            // The trait IS bound — to an expects-licensed sibling entity the
+            // slice cannot describe. Resolution happens at compose; see
+            // `linked_entity_is_expects_licensed`.
+            return;
+        }
         let (reason, guidance) = match declared_kind {
             Some("Entity") => (
                 format!(
@@ -124,7 +152,7 @@ fn check_payload_field(
     }
     if let Some(props) = &field.properties {
         for nested in props {
-            check_payload_field(nested, &field_path, trait_def, result);
+            check_payload_field(nested, &field_path, trait_def, defer_entity_kind, result);
         }
     }
 }
@@ -142,13 +170,20 @@ fn check_payload_field(
 pub fn validate_type_param_sentinels(schema: &orbital_core::schema::OrbitalSchema, ctx: &mut ValidationContext) {
     let mut result = super::ValidationResult::new();
 
-    for (trait_def, trait_path) in inline_traits(schema) {
+    for (i, orbital) in schema.orbitals.iter().enumerate() {
+      for (j, trait_ref) in orbital.traits.iter().enumerate() {
+        let trait_def = match trait_ref {
+            TraitReference::Inline(trait_def) => trait_def,
+            TraitReference::Reference { .. } => continue,
+        };
+        let trait_path = trait_path(i, &orbital.name, j, trait_ref);
+        let deferred = linked_entity_is_expects_licensed(orbital, trait_def);
         if let Some(emits) = &trait_def.emits {
             for emit in emits {
                 if let Some(payload) = &emit.payload_schema {
                     let path = format!("{trait_path}.emits.{}", emit.event);
                     for field in payload {
-                        check_payload_field(field, &path, trait_def, &mut result);
+                        check_payload_field(field, &path, trait_def, deferred, &mut result);
                     }
                 }
             }
@@ -158,13 +193,18 @@ pub fn validate_type_param_sentinels(schema: &orbital_core::schema::OrbitalSchem
                 if let Some(payload) = &event.payload_schema {
                     let path = format!("{trait_path}.events.{}", event.key);
                     for field in payload {
-                        check_payload_field(field, &path, trait_def, &mut result);
+                        check_payload_field(field, &path, trait_def, deferred, &mut result);
                     }
                 }
             }
         }
         if let Some(config) = &trait_def.config {
             for (knob, field) in config {
+                if deferred
+                    && (field.field_type == "@entity" || field.field_type == "[@entity]")
+                {
+                    continue;
+                }
                 if let Some(reason) = unresolved_sigil_reason(&field.field_type) {
                     result.add_error(
                         ValidationError::error(
@@ -180,6 +220,7 @@ pub fn validate_type_param_sentinels(schema: &orbital_core::schema::OrbitalSchem
                 }
             }
         }
+      }
     }
 
     ctx.merge(result);

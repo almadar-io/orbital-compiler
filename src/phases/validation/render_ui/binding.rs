@@ -824,12 +824,16 @@ fn walk_for_node_sets(
 
             let set_path = format!("{path}.set(@entity.{field_name})");
             if node_typed {
+                // A computed value (not `is_checkable_literal`) has no
+                // statically-checkable consequence: nothing here can prove it
+                // wrong, so nothing is constructed for it. Keep checking the
+                // literal case — a node field legally holds one pattern
+                // object, a literal array of them, or — for `Map string node`
+                // and friends — a keyed container of either.
                 if is_checkable_literal(resolved) {
-                    // A node field legally holds one pattern object, a literal
-                    // array of them, or — for `Map string node` and friends — a
-                    // keyed container of either. Peel the declared container
-                    // levels off the VALUE before checking, so neither an array
-                    // root nor a map's key object is misread as a pattern.
+                    // Peel the declared container levels off the VALUE before
+                    // checking, so neither an array root nor a map's key
+                    // object is misread as a pattern.
                     let mut elements: Vec<&SExpression> = vec![resolved];
                     if let Some(def) = field_def {
                         elements = node_leaf_values(def, resolved);
@@ -854,19 +858,6 @@ fn walk_for_node_sets(
                         }
                         walk_pattern_props(element, bctx, &set_path, diagnostics);
                     }
-                } else {
-                    diagnostics.push(
-                        ValidationError::phase_f_warning(
-                            ErrorCode::NodeFieldUncheckedContent,
-                            &set_path,
-                            format!(
-                                "node field '{field_name}' receives a computed value — its pattern shape and callback wiring cannot be statically checked"
-                            ),
-                        )
-                        .with_suggestion(
-                            "Prefer literal pattern fragments (a `let`-bound literal is resolved and checked); keep computed content minimal.",
-                        ),
-                    );
                 }
             } else if contains_pattern_literal(resolved) {
                 diagnostics.push(

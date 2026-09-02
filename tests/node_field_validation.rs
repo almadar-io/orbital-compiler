@@ -9,8 +9,9 @@
 //! - the §19 case: a canvas callback prop inside a node-field literal whose
 //!   listen contract is flat (missing the wrapped `payload` field) → blocking
 //! - the classify idiom: a `let`-bound literal reaches the same checks
-//! - a computed value into a node field → non-blocking
-//!   `ORB_RUI_NODE_FIELD_UNCHECKED_CONTENT`
+//! - a computed value into a node field → nothing constructed (no
+//!   statically-checkable consequence; `ORB_RUI_NODE_FIELD_UNCHECKED_CONTENT`
+//!   was removed — a no-consequence finding, never blocking)
 //! - a pattern literal into a NON-node field → non-blocking
 //!   `ORB_RUI_RENDERABLE_IN_GENERIC_FIELD` (anti-loophole; flips with Gate C)
 
@@ -179,7 +180,9 @@ fn let_bound_literal_is_resolved_and_checked() {
 }
 
 #[test]
-fn computed_value_into_node_field_warns_nonblocking() {
+fn computed_value_into_node_field_is_silent() {
+    // A computed value has no statically-checkable consequence (its shape
+    // isn't known here) — nothing is constructed for it at all.
     let (errors, warnings) = run(schema_with_effects(
         node_array_field(),
         json!([["set", "@entity.view", ["array/concat", ["@a"], ["@b"]]]]),
@@ -189,10 +192,8 @@ fn computed_value_into_node_field_warns_nonblocking() {
         "computed node content must NOT block, got {errors:?}"
     );
     assert!(
-        warnings
-            .iter()
-            .any(|w| w == "ORB_RUI_NODE_FIELD_UNCHECKED_CONTENT"),
-        "expected the unchecked-content warning, got {warnings:?}"
+        !warnings.iter().any(|w| w.contains("NODE_FIELD")),
+        "expected no finding for computed node content, got {warnings:?}"
     );
 }
 

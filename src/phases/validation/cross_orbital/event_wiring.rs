@@ -14,28 +14,24 @@ pub(crate) fn validate_event_wiring(schema: &OrbitalSchema) -> ValidationResult 
     let dynamic_event_traits = &super::super::fired_events::collect_dynamic_event_traits(schema);
     let mut result = ValidationResult::new();
 
-    // `scope: external` TRANSFERS the obligation to consume an event to
-    // whoever composes the trait — it does not discharge it. Which side owns
-    // the obligation here depends on whether this schema DECLARES the trait or
-    // IMPORTS it, and only the first case is undecidable:
+    // `scope: external` is an offer for A consumer to wire, wherever that
+    // trait was declared — so `exempt_external` is built uniformly for
+    // authored AND imported traits. For an authored trait the deferred
+    // consumer may be a sibling orbital outside this file, so the exemption
+    // always holds. For an imported trait THIS file is the consumer the atom
+    // declared external for, so honouring the exemption unconditionally would
+    // re-evaporate the whole check (measured: 947 findings to 0, the composed
+    // `ui-input` `ACTION` knob alone exempting every composed input in the
+    // corpus) — the consumption site below therefore skips this pre-filter
+    // for an imported trait's DEAD-CONTROL case (`by_control`), where a
+    // rendered affordance firing the event makes the question decidable
+    // regardless of scope; every other imported case is additionally covered
+    // by the reachability classification (a/b/d) further down.
     //
-    //   declared here (`source_behavior == None`) — the consumer is a sibling
-    //     orbital that may live outside this file. Not decidable, so exempt.
-    //   imported via `uses` (`source_behavior == Some(_)`) — THIS file is the
-    //     consumer the atom was declaring external FOR. Every party is present
-    //     and the question is decidable; a missing listener is a dead
-    //     affordance, not a deferred one.
-    //
-    // Keyed per (trait, event). The previous set was global by event NAME, so a
-    // single `ACTION -> external` anywhere exempted every trait emitting
-    // `ACTION` everywhere — and `ACTION` is `ui-input`'s default `action` knob,
-    // which silently exempted every composed input in the corpus (a payment
-    // amount field whose CHANGE nothing consumed still validated clean).
-    //
-    // The old comment deferred the composed case to `validate_listens_integrity`;
-    // that function raises only `ORB_X_LISTEN_SOURCE_UNRESOLVED` and never
-    // inspects emitters, so nothing caught it. See ORB-X-EXTERNAL-EMIT-EXEMPTION
-    // in `docs/Almadar_Compiler_Gaps.md`.
+    // Keyed per (trait, event), not by event NAME — a single `ACTION ->
+    // external` anywhere must not exempt every trait emitting `ACTION`
+    // everywhere. See ORB-X-EXTERNAL-EMIT-EXEMPTION in
+    // `docs/Almadar_Compiler_Gaps.md`.
     let mut exempt_external: HashSet<(String, String)> = HashSet::new();
     let mut imported_traits: HashSet<String> = HashSet::new();
     // An emit whose event NAME came from a config knob (`emits { @config.X }`)
@@ -52,22 +48,13 @@ pub(crate) fn validate_event_wiring(schema: &OrbitalSchema) -> ValidationResult 
                         if emit.definer_knob.is_some() {
                             offer_emits.insert((td.name.clone(), emit.event.clone()));
                         }
-                    }
-                }
-                if td.source_behavior.is_some() {
-                    imported_traits.insert(td.name.clone());
-                    // Honouring the SOURCE atom's `-> external` here instead was
-                    // measured and rejected: essentially every atom emit is
-                    // declared external, so the whole check evaporated —
-                    // 947 findings to 0. The override is load-bearing.
-                    continue;
-                }
-                if let Some(emits) = &td.emits {
-                    for emit in emits {
                         if emit.scope == Some(EventScope::External) {
                             exempt_external.insert((td.name.clone(), emit.event.clone()));
                         }
                     }
+                }
+                if td.source_behavior.is_some() {
+                    imported_traits.insert(td.name.clone());
                 }
             }
         }
@@ -166,43 +153,6 @@ pub(crate) fn validate_event_wiring(schema: &OrbitalSchema) -> ValidationResult 
         }
         if !listened_events_all.contains_key(event) && !trigger_events.contains_key(event) {
             for emitter in emitters {
-                // Exemption is per-emitter, not per event name — see the
-                // `exempt_external` construction above.
-                if exempt_external.contains(&(emitter.clone(), event.clone())) {
-                    continue;
-                }
-
-                // Two INDEPENDENT filters, both narrowing, neither sufficient
-                // alone. `definer_knob` says the atom OFFERED a configurable
-                // event name; reachability says whether anything in this
-                // composition actually produces it.
-                if offer_emits.contains(&(emitter.clone(), event.clone())) {
-                    continue;
-                }
-
-                // REACHABILITY — the predicate the old comment said this check
-                // still needed: does anything here PRODUCE this event?
-                // `fired_events` is the schema-wide produced set — `(emit …)`
-                // effects, operator emit-config, and STRUCTURED config event
-                // lists (an `itemActions: [{ event: "DELETE" }]` the consumer
-                // configured). An emit something fires with no listener is a
-                // live wire terminating in nothing, whatever the emitting
-                // trait's provenance; an emit nothing fires is at worst a stale
-                // declaration, which `emit_payload`'s declared-but-unfired
-                // check owns.
-                //
-                // STAGED, and staged ADDITIVELY: this wave only LABELS the two
-                // classes so the corpus can be counted, and nothing that
-                // reported before reports less. Silencing the unproduced class
-                // outright was measured and withdrawn — a composed `Input` left
-                // at its atom-default `action` produces nothing this walker can
-                // see, yet that is exactly the std-service-marketplace payment
-                // field whose unheard emit left `@entity.amount` at 0 and called
-                // Stripe with a zero amount. Telling "the call site left the
-                // knob alone" apart from "the app deliberately wired this
-                // control" needs the pre-override default captured at
-                // `inline/trait.rs`; until that exists, dropping the class
-                // would trade a noisy check for a blind one.
                 // HOW is it produced? `by_control` means a control on screen is
                 // wired to fire it (`action:`, `itemActions[].event`, `onX:`) —
                 // no listener there is a control the user can operate that does
@@ -216,10 +166,77 @@ pub(crate) fn validate_event_wiring(schema: &OrbitalSchema) -> ValidationResult 
                 // A trait-level "does it render?" proxy was tried first and is
                 // too coarse: a Sim renders its canvas AND broadcasts telemetry
                 // from a tick effect, so ~100 broadcasts read as dead controls.
-                let by_control = fired_events.by_control.contains(event);
-                let produced = by_control || fired_events.by_effect.contains(event);
-                let undecidable = dynamic_event_traits.contains(emitter);
+                let by_control = fired_events.by_control.contains(&(emitter.clone(), event.clone()));
                 let imported = imported_traits.contains(emitter);
+
+                // Exemption is per-emitter, not per event name — see the
+                // `exempt_external` construction above. Skipped for an
+                // imported trait's dead-control case: honouring the SOURCE
+                // atom's `-> external` there was measured and rejected
+                // (947→0, the check evaporates — see
+                // ORB-X-EXTERNAL-EMIT-EXEMPTION in Almadar_Compiler_Gaps.md).
+                if !(imported && by_control)
+                    && exempt_external.contains(&(emitter.clone(), event.clone()))
+                {
+                    continue;
+                }
+
+                // The `definer_knob` offer exemption is UNCONDITIONAL — a
+                // control whose event NAME is a config knob is the atom
+                // offering an affordance whatever fires it. Guarding it behind
+                // `!(imported && by_control)` was tried and re-admitted the
+                // whole optional-affordance population (`SELECTION`,
+                // `LOAD_MORE`, `DISMISS`, …) as dead controls: 7 → 1,260
+                // measured. The composed-input worry it answered is owned by
+                // ORB_ENTITY_SPLIT_MUTATION (§61) — a knob-named control's
+                // unheard emit shows up there as the reader-less service
+                // entity, not here.
+                if offer_emits.contains(&(emitter.clone(), event.clone())) {
+                    continue;
+                }
+
+                // REACHABILITY — does anything here PRODUCE this event?
+                // `fired_events` is the schema-wide produced set — `(emit …)`
+                // effects, operator emit-config, and STRUCTURED config event
+                // lists (an `itemActions: [{ event: "DELETE" }]` the consumer
+                // configured). An emit something fires with no listener is a
+                // live wire terminating in nothing, whatever the emitting
+                // trait's provenance; an emit nothing fires is at worst a stale
+                // declaration, which `emit_payload`'s declared-but-unfired
+                // check owns.
+                let produced = fired_events.contains_for_trait(emitter, event);
+                let undecidable = dynamic_event_traits.contains(emitter);
+
+                // For an IMPORTED trait every non-dead-control case is a
+                // consequence-free finding and is not constructed at all:
+                // (a) BROADCAST — produced programmatically (by_effect) with
+                //     no rendered control; the collector living in another
+                //     behavior and not being composed here is a composition
+                //     choice, not a defect.
+                // (b) UNDECIDABLE — the fired name is runtime-bound; neither
+                //     confirming nor denying reachability is sound.
+                // (d) UNEXERCISED OFFER — nothing in this composition
+                //     produces it at all (the "stale" class): normally a
+                //     latent affordance the call site never configured, UNLESS
+                //     the file's own persist/effect logic still references
+                //     the event name, which is a real (if indirect) use and
+                //     keeps the finding.
+                // The dead-control case (`by_control`) is deliberately NOT
+                // touched here — that is the composed-input class (a rendered
+                // control firing an event nothing consumes, e.g. the
+                // Stripe-amount-0 family) and must keep reporting.
+                if imported {
+                    if produced && !by_control {
+                        continue; // (a) broadcast
+                    }
+                    if undecidable {
+                        continue; // (b) undecidable
+                    }
+                    if !produced && !event_referenced_in_persist_or_effect_flow(schema, event) {
+                        continue; // (d) unexercised offer
+                    }
+                }
+
                 let suggestion = if imported {
                     format!(
                         "This trait is composed from an imported behavior, so THIS file is the consumer its `-> external` emit was declared for. Wire it at the call site: rename the event onto one you handle (`events {{ {event}: <YOUR_EVENT> }}`) and add a matching transition arm, or add `listens {{ {emitter}.{event} -> <TRIGGER> }}`. Re-declaring it `-> external` no longer suppresses this — that only defers an emit whose trait is DECLARED here."
@@ -582,6 +599,59 @@ pub(crate) fn extract_emit_event(effect: &orbital_core::schema::SExpression) -> 
         _ => {}
     }
     None
+}
+
+/// True when `event` appears as a literal string anywhere inside a `persist`
+/// effect (guard or transition/tick effect) in the schema — broader than
+/// `produced` (which only credits emit-shaped positions: `(emit …)`, operator
+/// emit-config, render-ui event props). An imported trait's declared-but-
+/// unproduced emit is normally an unexercised OFFER (see the (d) arm above),
+/// but if the composition's own persistence logic still keys off the event
+/// name (e.g. an audit/filter payload literally naming it), that is a real
+/// use and the finding should stay reported rather than being silently
+/// dropped as stale.
+fn event_referenced_in_persist_or_effect_flow(schema: &OrbitalSchema, event: &str) -> bool {
+    use orbital_core::schema::SExpression;
+
+    fn is_persist_effect(expr: &SExpression) -> bool {
+        matches!(expr, SExpression::Array(arr) if matches!(arr.first(), Some(SExpression::String(op)) if op == "persist"))
+    }
+
+    fn contains_literal(expr: &SExpression, event: &str) -> bool {
+        match expr {
+            SExpression::String(s) => s == event,
+            SExpression::Array(items) => items.iter().any(|i| contains_literal(i, event)),
+            SExpression::Object(map) => map.values().any(|v| contains_literal(v, event)),
+            _ => false,
+        }
+    }
+
+    for orbital in &schema.orbitals {
+        for trait_ref in &orbital.traits {
+            let TraitReference::Inline(td) = trait_ref else {
+                continue;
+            };
+            for transition in &td.state_machine.transitions {
+                if let Some(effects) = &transition.effects {
+                    for effect in effects {
+                        if is_persist_effect(effect) && contains_literal(effect, event) {
+                            return true;
+                        }
+                    }
+                }
+            }
+            if let Some(ticks) = &td.ticks {
+                for tick in ticks {
+                    for effect in &tick.effects {
+                        if is_persist_effect(effect) && contains_literal(effect, event) {
+                            return true;
+                        }
+                    }
+                }
+            }
+        }
+    }
+    false
 }
 
 #[cfg(test)]
@@ -1114,10 +1184,12 @@ mod tests {
                 transitions: vec![],
             },
             ticks: None,
-            // A real composed input FIRES through its resolved `action` knob —
-            // that is how `std-service-marketplace`'s payment field emitted the
-            // `ACTION` nothing consumed. Without it the trait declares an emit
-            // nothing produces, which is a latent offer, not a dead wire.
+            // The config default alone (a SCALAR knob) is deliberately NOT
+            // counted as production (see fired_events.rs) — a trait built
+            // from just this is the "latent offer" class. The composed-input
+            // regression below additionally renders a control bound to this
+            // same resolved default, which post-inline is exactly what a
+            // real composed input looks like.
             config: Some(
                 [(
                     "action".to_string(),
@@ -1159,6 +1231,49 @@ mod tests {
         })
     }
 
+    /// Give a trait built by `externally_emitting_trait` an actual rendered
+    /// control firing `event` — post-inline, this is what a real composed
+    /// input's resolved `action` knob looks like (the config default alone
+    /// is a scalar, deliberately not counted as production; the RENDERED
+    /// prop is).
+    fn render_control_firing(td: &mut TraitReference, event: &str) {
+        let TraitReference::Inline(def) = td else {
+            return;
+        };
+        def.state_machine.states = vec![orbital_core::schema::StateDefinition {
+            name: "idle".to_string(),
+            is_initial: Some(true),
+            is_terminal: None,
+            description: None,
+            time_bound_ms: None,
+        }];
+        def.state_machine.transitions = vec![orbital_core::schema::TransitionDefinition {
+            event_id: None,
+            from: orbital_core::schema::StringOrArray::Single("idle".to_string()),
+            to: "idle".to_string(),
+            event: "INIT".to_string(),
+            guard: None,
+            effects: Some(vec![orbital_core::schema::SExpression::Array(vec![
+                orbital_core::schema::SExpression::String("render-ui".to_string()),
+                orbital_core::schema::SExpression::String("main".to_string()),
+                orbital_core::schema::SExpression::Object(
+                    [
+                        (
+                            "type".to_string(),
+                            orbital_core::schema::SExpression::String("button".to_string()),
+                        ),
+                        (
+                            "action".to_string(),
+                            orbital_core::schema::SExpression::String(event.to_string()),
+                        ),
+                    ]
+                    .into_iter()
+                    .collect(),
+                ),
+            ])]),
+        }];
+    }
+
     /// `(blocking, non_blocking)` — `add_error` routes by severity, and the
     /// imported class reports non-blocking on purpose (see the call site).
     fn unused_emission_counts(schema: &OrbitalSchema) -> (usize, usize) {
@@ -1197,8 +1312,9 @@ mod tests {
     #[test]
     fn external_emit_on_imported_trait_is_reported() {
         let mut schema = create_minimal_schema();
-        schema.orbitals[0].traits =
-            vec![externally_emitting_trait("OrderPaymentNumberInput", "ACTION", true)];
+        let mut td = externally_emitting_trait("OrderPaymentNumberInput", "ACTION", true);
+        render_control_firing(&mut td, "ACTION");
+        schema.orbitals[0].traits = vec![td];
         assert_eq!(
             unused_emission_counts(&schema),
             (0, 1),
@@ -1206,12 +1322,12 @@ mod tests {
         );
     }
 
-    /// The two classes are LABELLED, not filtered — an emit nothing produces
-    /// still reports (dropping it would blind the composed-input case, see the
-    /// call site), but its message says so, which is what makes the corpus
-    /// countable ahead of the severity flip.
+    /// An imported trait's declared-but-unproduced emit ("stale" class) is an
+    /// unexercised OFFER — nothing constructed at all, per the "stop
+    /// constructing" doctrine — because nothing in this composition fires it
+    /// and the file's persist/effect logic doesn't reference it either.
     #[test]
-    fn an_unproduced_emit_is_labelled_not_dropped() {
+    fn an_unproduced_emit_on_an_imported_trait_is_silent() {
         let mut schema = create_minimal_schema();
         let mut td = externally_emitting_trait("GridRender", "SORT", true);
         if let TraitReference::Inline(def) = &mut td {
@@ -1220,39 +1336,156 @@ mod tests {
         schema.orbitals[0].traits = vec![td];
         assert_eq!(
             unused_emission_counts(&schema),
-            (0, 1),
-            "an unproduced emit still reports, non-blocking"
-        );
-        let r = wire(&schema);
-        assert!(
-            r.warnings
-                .iter()
-                .any(|e| e.message.contains("nothing in this composition fires it")),
-            "and is labelled as the stale-declaration class: {:?}",
-            r.warnings.iter().map(|e| &e.message).collect::<Vec<_>>()
+            (0, 0),
+            "an unexercised offer on an imported trait must not be constructed at all"
         );
     }
 
-    /// A PROGRAMMATIC broadcast with no listener is the composition class, not
-    /// the dead-control class: an `(emit …)` effect is a learning `Sim`
-    /// publishing telemetry or an asset catalog publishing its art, and the
-    /// collector lives in a behavior this file may legitimately omit.
+    /// A trait with a dynamic event-prop binding elsewhere (`action:
+    /// "@config.event"`) is UNDECIDABLE for the whole trait. Imported: not
+    /// constructed at all — neither confirming nor denying reachability is
+    /// sound. Local (authored): unaffected, still reported — the undecidable
+    /// suppression is imported-only, mirroring every other class in 1a/1b/1d.
+    fn trait_with_dynamic_binding_and_declared_emit(
+        name: &str,
+        event: &str,
+        imported: bool,
+    ) -> TraitReference {
+        use orbital_core::schema::SExpression;
+        // Unscoped (not `external`), so `exempt_external` never applies —
+        // isolates the undecidable predicate from the separate scope-based
+        // exemption tested elsewhere.
+        let mut td = externally_emitting_trait(name, event, imported);
+        if let TraitReference::Inline(def) = &mut td {
+            def.emits = Some(vec![orbital_core::schema::EmitDefinition {
+                definer_knob: None,
+                event: event.to_string(),
+                event_id: None,
+                description: None,
+                synonyms: None,
+                tier: None,
+                scope: None,
+                payload_schema: None,
+            }]);
+            def.config = None;
+            def.state_machine.states = vec![orbital_core::schema::StateDefinition {
+                name: "idle".to_string(),
+                is_initial: Some(true),
+                is_terminal: None,
+                description: None,
+                time_bound_ms: None,
+            }];
+            def.state_machine.transitions = vec![orbital_core::schema::TransitionDefinition {
+                event_id: None,
+                from: orbital_core::schema::StringOrArray::Single("idle".to_string()),
+                to: "idle".to_string(),
+                event: "INIT".to_string(),
+                guard: None,
+                effects: Some(vec![SExpression::Array(vec![
+                    SExpression::String("render-ui".to_string()),
+                    SExpression::String("main".to_string()),
+                    SExpression::Object(
+                        [
+                            (
+                                "type".to_string(),
+                                SExpression::String("button".to_string()),
+                            ),
+                            (
+                                "action".to_string(),
+                                SExpression::String("@config.event".to_string()),
+                            ),
+                        ]
+                        .into_iter()
+                        .collect(),
+                    ),
+                ])]),
+            }];
+        }
+        td
+    }
+
     #[test]
-    fn a_programmatic_broadcast_is_not_labelled_a_dead_control() {
+    fn undecidable_imported_trait_is_silent() {
+        let mut schema = create_minimal_schema();
+        schema.orbitals[0].traits = vec![trait_with_dynamic_binding_and_declared_emit(
+            "PagerInput",
+            "PAGE_CHANGED",
+            true,
+        )];
+        assert_eq!(
+            unused_emission_counts(&schema),
+            (0, 0),
+            "an undecidable imported trait's declared emit must not be constructed at all"
+        );
+    }
+
+    #[test]
+    fn undecidable_local_trait_is_unaffected_and_still_reports() {
+        let mut schema = create_minimal_schema();
+        schema.orbitals[0].traits = vec![trait_with_dynamic_binding_and_declared_emit(
+            "PagerRender",
+            "PAGE_CHANGED",
+            false,
+        )];
+        assert_eq!(
+            unused_emission_counts(&schema),
+            (1, 0),
+            "the undecidable suppression is imported-only; local-trait behavior is unchanged"
+        );
+    }
+
+    /// The residual case: even though nothing PRODUCES the event (no control,
+    /// no `(emit …)`), the file's own persist logic literally references the
+    /// event name — a real use, so the finding stays reported rather than
+    /// being silently dropped as stale.
+    #[test]
+    fn an_unproduced_emit_referenced_by_persist_logic_still_reports() {
+        use orbital_core::schema::SExpression;
+        let mut schema = create_minimal_schema();
+        let mut td = externally_emitting_trait("GridRender", "SORT", true);
+        if let TraitReference::Inline(def) = &mut td {
+            def.config = None; // nothing in this composition fires SORT
+            def.state_machine.transitions = vec![orbital_core::schema::TransitionDefinition {
+                event_id: None,
+                from: orbital_core::schema::StringOrArray::Single("idle".to_string()),
+                to: "idle".to_string(),
+                event: "INIT".to_string(),
+                guard: None,
+                effects: Some(vec![SExpression::Array(vec![
+                    SExpression::String("persist".to_string()),
+                    SExpression::String("create".to_string()),
+                    SExpression::String("AuditLog".to_string()),
+                    SExpression::Object(
+                        [(
+                            "action".to_string(),
+                            SExpression::String("SORT".to_string()),
+                        )]
+                        .into_iter()
+                        .collect(),
+                    ),
+                ])]),
+            }];
+        }
+        schema.orbitals[0].traits = vec![td];
+        assert_eq!(
+            unused_emission_counts(&schema),
+            (0, 1),
+            "a persist effect literally referencing the event keeps the finding"
+        );
+    }
+
+    /// A PROGRAMMATIC broadcast with no listener on an imported trait is the
+    /// design working — the atom fires it and the collector for it (which
+    /// lives in another behavior) simply wasn't composed here — so nothing is
+    /// constructed at all.
+    #[test]
+    fn a_programmatic_broadcast_on_an_imported_trait_is_silent() {
         let mut schema = create_minimal_schema();
         schema.orbitals[0].traits = vec![emitting_trait_with_effect("Sim", "GAME_END")];
-        let msgs: Vec<String> = wire(&schema)
-            .warnings
-            .iter()
-            .map(|e| e.message.clone())
-            .collect();
-        assert!(
-            msgs.iter().any(|m| m.contains("broadcasts it programmatically")),
-            "an (emit …) effect must be the broadcast class: {msgs:?}"
-        );
-        assert!(
-            !msgs.iter().any(|m| m.contains("RENDERED control")),
-            "and must NOT be the dead-control class: {msgs:?}"
+        assert_eq!(
+            unused_emission_counts(&schema),
+            (0, 0),
+            "a broadcast on an imported trait must not be constructed at all"
         );
     }
 
@@ -1307,10 +1540,11 @@ mod tests {
     #[test]
     fn authored_external_emit_does_not_exempt_imported_namesake() {
         let mut schema = create_minimal_schema();
-        schema.orbitals[0].traits = vec![
-            externally_emitting_trait("AuthoredRender", "ACTION", false),
-            externally_emitting_trait("ImportedInput", "ACTION", true),
-        ];
+        let mut authored = externally_emitting_trait("AuthoredRender", "ACTION", false);
+        render_control_firing(&mut authored, "ACTION");
+        let mut imported = externally_emitting_trait("ImportedInput", "ACTION", true);
+        render_control_firing(&mut imported, "ACTION");
+        schema.orbitals[0].traits = vec![authored, imported];
         assert_eq!(
             unused_emission_counts(&schema),
             (0, 1),

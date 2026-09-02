@@ -171,7 +171,9 @@ pub fn validate_all_emit_payloads(schema: &OrbitalSchema, ctx: &mut ValidationCo
             if !emit_schemas.is_empty() && !has_dynamic_event_binding {
                 let mut unfired: Vec<&str> = emit_schemas
                     .keys()
-                    .filter(|k| !all_fired_events.contains(**k) && !external_emits.contains(*k))
+                    .filter(|k| {
+                        !all_fired_events.contains_any_trait(k) && !external_emits.contains(*k)
+                    })
                     .copied()
                     .collect();
                 unfired.sort();

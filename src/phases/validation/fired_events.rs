@@ -65,16 +65,32 @@ use crate::embedded::patterns;
 /// learning `Sim` renders its canvas AND broadcasts telemetry from a tick
 /// effect, so ~100 broadcasts read as dead controls. The question is how the
 /// EVENT is produced, not what the trait does elsewhere.
+// Keyed by (trait_name, event): a schema-wide-by-NAME set let a sibling
+// trait's unrelated emitter (e.g. another trait's `EDIT` button) mark THIS
+// trait's same-named event as control-fired, a measured false positive
+// (`ArticleBrowse.EDIT` in std-cms-article credited by a sibling's button).
 #[derive(Default)]
 pub(crate) struct FiredEvents {
-    pub(crate) by_control: std::collections::HashSet<String>,
-    pub(crate) by_effect: std::collections::HashSet<String>,
+    pub(crate) by_control: std::collections::HashSet<(String, String)>,
+    pub(crate) by_effect: std::collections::HashSet<(String, String)>,
 }
 
 impl FiredEvents {
-    /// Produced at all, either way — what the declared-but-unfired check asks.
-    pub(crate) fn contains(&self, event: &str) -> bool {
-        self.by_control.contains(event) || self.by_effect.contains(event)
+    /// Produced by THIS trait, either way — what the unused-emission check
+    /// (per-emitter reachability) asks.
+    pub(crate) fn contains_for_trait(&self, trait_name: &str, event: &str) -> bool {
+        let key = (trait_name.to_string(), event.to_string());
+        self.by_control.contains(&key) || self.by_effect.contains(&key)
+    }
+
+    /// Produced by ANY trait in the schema, regardless of which one — the
+    /// file-scope query `emit_payload`'s declared-but-unfired check
+    /// deliberately wants (its "namespace owner" pattern: declared on trait
+    /// A, fired by sibling B is legitimate). Kept as an explicit separate
+    /// query rather than silently changing that check's semantics.
+    pub(crate) fn contains_any_trait(&self, event: &str) -> bool {
+        self.by_control.iter().any(|(_, e)| e == event)
+            || self.by_effect.iter().any(|(_, e)| e == event)
     }
 }
 
@@ -88,21 +104,21 @@ pub(crate) fn collect_schema_fired_events(schema: &OrbitalSchema) -> FiredEvents
             for transition in &td.state_machine.transitions {
                 if let Some(effects) = &transition.effects {
                     for effect in effects {
-                        collect_fired_events_recursive(effect, &mut fired);
+                        collect_fired_events_recursive(&td.name, effect, &mut fired);
                     }
                 }
             }
             if let Some(ticks) = &td.ticks {
                 for tick in ticks {
                     for effect in &tick.effects {
-                        collect_fired_events_recursive(effect, &mut fired);
+                        collect_fired_events_recursive(&td.name, effect, &mut fired);
                     }
                 }
             }
             if let Some(config) = &td.config {
                 for field in config.values() {
                     if let Some(default) = &field.default {
-                        collect_fired_events_recursive(default, &mut fired);
+                        collect_fired_events_recursive(&td.name, default, &mut fired);
                     }
                 }
             }
@@ -254,7 +270,11 @@ fn ui_event_prop_names() -> &'static std::collections::HashSet<String> {
 /// pattern-sync wrote because a component author typed the prop
 /// accordingly. The set extends automatically as new event-bearing
 /// props ship in @almadar/ui.
-pub(crate) fn collect_fired_events_recursive(expr: &SExpression, fired: &mut FiredEvents) {
+pub(crate) fn collect_fired_events_recursive(
+    trait_name: &str,
+    expr: &SExpression,
+    fired: &mut FiredEvents,
+) {
     match expr {
         SExpression::Array(arr) => {
             // `["emit", "EVENT_NAME", ...]`
@@ -262,7 +282,9 @@ pub(crate) fn collect_fired_events_recursive(expr: &SExpression, fired: &mut Fir
                 (arr.first(), arr.get(1))
             {
                 if op == "emit" {
-                    fired.by_effect.insert(event.clone());
+                    fired
+                        .by_effect
+                        .insert((trait_name.to_string(), event.clone()));
                 }
             }
             // `[op, ..., {emit: {success: "X", failure: "Y", on_message:
@@ -275,14 +297,16 @@ pub(crate) fn collect_fired_events_recursive(expr: &SExpression, fired: &mut Fir
                     if let Some(SExpression::Object(emit_cfg)) = obj.get("emit") {
                         for (_k, v) in emit_cfg.iter() {
                             if let SExpression::String(s) = v {
-                                fired.by_effect.insert(s.clone());
+                                fired
+                                    .by_effect
+                                    .insert((trait_name.to_string(), s.clone()));
                             }
                         }
                     }
                 }
             }
             for item in arr {
-                collect_fired_events_recursive(item, fired);
+                collect_fired_events_recursive(trait_name, item, fired);
             }
         }
         SExpression::Object(obj) => {
@@ -310,15 +334,199 @@ pub(crate) fn collect_fired_events_recursive(expr: &SExpression, fired: &mut Fir
                             // emitter let the dead button suppress the very
                             // warning that would have found it.
                             if !s.starts_with('@') && !is_bus_excluded_event(s) {
-                                fired.by_control.insert(s.clone());
+                                fired
+                                    .by_control
+                                    .insert((trait_name.to_string(), s.clone()));
                             }
                         }
                     }
                 }
-                collect_fired_events_recursive(value, fired);
+                collect_fired_events_recursive(trait_name, value, fired);
             }
         }
         _ => {}
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use orbital_core::schema::{
+        EntityDefinition, EntityRef, Orbital, StateDefinition, StateMachine, StringOrArray,
+        TransitionDefinition,
+    };
+
+    fn minimal_schema(traits: Vec<TraitReference>) -> OrbitalSchema {
+        OrbitalSchema {
+            theme: None,
+            name: "TestApp".to_string(),
+            version: Some("1.0.0".to_string()),
+            description: None,
+            orbitals: vec![Orbital {
+                name: "ArticleOrbital".to_string(),
+                uses: None,
+                expects: None,
+                theme: None,
+                services: None,
+                entity: EntityRef::Inline(EntityDefinition {
+                    shared: false,
+                    identity: false,
+                    read_policy: None,
+                    create_policy: None,
+                    update_policy: None,
+                    delete_policy: None,
+                    access_waivers: None,
+                    name: "Article".to_string(),
+                    collection: None,
+                    persistence: None,
+                    fields: vec![],
+                    instances: None,
+                    id: None,
+                }),
+                auxiliary_entities: None,
+                traits,
+                pages: None,
+                emits: None,
+                listens: None,
+                exposes: None,
+                domain_context: None,
+                design: None,
+                id: None,
+            }],
+            metadata: None,
+            ledger: None,
+            schema_version: None,
+        }
+    }
+
+    fn bare_trait(name: &str) -> TraitDefinition {
+        TraitDefinition {
+            type_params: None,
+            type_args: None,
+            name: name.to_string(),
+            entity_rebindable: None,
+            entity_contract: None,
+            category: None,
+            capabilities: vec![],
+            description: None,
+            linked_entity: Some("Article".to_string()),
+            emits: None,
+            listens: None,
+            state_machine: StateMachine {
+                states: vec![StateDefinition {
+                    name: "idle".to_string(),
+                    is_initial: Some(true),
+                    is_terminal: None,
+                    description: None,
+                    time_bound_ms: None,
+                }],
+                events: None,
+                transitions: vec![],
+            },
+            ticks: None,
+            config: None,
+            data_entities: None,
+            scope: None,
+            source_behavior: None,
+            source_entity_definition: None,
+            id: None,
+            linked_entity_id: None,
+            entity_ref_ids: None,
+            trait_embed_ids: None,
+        }
+    }
+
+    /// A trait rendering a `button` whose `action` prop literally fires
+    /// `event`.
+    fn trait_rendering_control(name: &str, event: &str) -> TraitDefinition {
+        let mut td = bare_trait(name);
+        td.state_machine.transitions = vec![TransitionDefinition {
+            event_id: None,
+            from: StringOrArray::Single("idle".to_string()),
+            to: "idle".to_string(),
+            event: "INIT".to_string(),
+            guard: None,
+            effects: Some(vec![SExpression::Array(vec![
+                SExpression::String("render-ui".to_string()),
+                SExpression::String("main".to_string()),
+                SExpression::Object(
+                    [
+                        ("type".to_string(), SExpression::String("button".to_string())),
+                        ("action".to_string(), SExpression::String(event.to_string())),
+                    ]
+                    .into_iter()
+                    .collect(),
+                ),
+            ])]),
+        }];
+        td
+    }
+
+    /// The ArticleBrowse.EDIT false positive: `ArticleBrowse` declares `EDIT`
+    /// (documentation-only, namespace-owner pattern) but renders no control
+    /// for it; a SIBLING trait `ArticleEdit` renders the actual button. A
+    /// schema-wide-by-NAME set would credit `ArticleBrowse` with control
+    /// production it doesn't have — keying by (trait, event) must not.
+    #[test]
+    fn by_control_is_keyed_per_trait_not_per_event_name() {
+        let mut browse = bare_trait("ArticleBrowse");
+        browse.emits = Some(vec![orbital_core::schema::EmitDefinition {
+            definer_knob: None,
+            event: "EDIT".to_string(),
+            event_id: None,
+            description: None,
+            synonyms: None,
+            tier: None,
+            scope: None,
+            payload_schema: None,
+        }]);
+        let edit = trait_rendering_control("ArticleEdit", "EDIT");
+
+        let schema = minimal_schema(vec![
+            TraitReference::Inline(browse),
+            TraitReference::Inline(edit),
+        ]);
+        let fired = collect_schema_fired_events(&schema);
+
+        assert!(
+            fired.by_control.contains(&("ArticleEdit".to_string(), "EDIT".to_string())),
+            "the actual renderer must be credited"
+        );
+        assert!(
+            !fired.contains_for_trait("ArticleBrowse", "EDIT"),
+            "a sibling's rendered control must NOT credit ArticleBrowse's declared-only EDIT"
+        );
+    }
+
+    /// The dual: `emit_payload`'s declared-but-unfired check deliberately
+    /// wants FILE-scope firing (the "namespace owner" pattern — declared on
+    /// one trait, fired by a sibling is legitimate), so `contains_any_trait`
+    /// must still see the sibling's production.
+    #[test]
+    fn contains_any_trait_preserves_file_scope_semantics() {
+        let mut browse = bare_trait("ArticleBrowse");
+        browse.emits = Some(vec![orbital_core::schema::EmitDefinition {
+            definer_knob: None,
+            event: "EDIT".to_string(),
+            event_id: None,
+            description: None,
+            synonyms: None,
+            tier: None,
+            scope: None,
+            payload_schema: None,
+        }]);
+        let edit = trait_rendering_control("ArticleEdit", "EDIT");
+
+        let schema = minimal_schema(vec![
+            TraitReference::Inline(browse),
+            TraitReference::Inline(edit),
+        ]);
+        let fired = collect_schema_fired_events(&schema);
+
+        assert!(
+            fired.contains_any_trait("EDIT"),
+            "file-scope query must see EDIT fired by the sibling renderer"
+        );
     }
 }
 
