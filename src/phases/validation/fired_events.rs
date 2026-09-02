@@ -171,7 +171,7 @@ pub(crate) fn collect_dynamic_event_traits(
 /// is dynamic; we cannot statically prove the trait's declared emits
 /// are unfired. Examples: `pageChangeEvent: "@config.event"`,
 /// `tabChangeEvent: "@config.event"`. Used by L2.7 to suppress
-/// false-positive `EmitDeclaredButUnfired` warnings on atoms that
+/// false-positive `EmitDeclaredButUnfired` findings on atoms that
 /// expose their event names through configuration.
 pub(crate) fn trait_has_dynamic_event_prop_binding(td: &TraitDefinition) -> bool {
     let event_keys = ui_event_prop_names();
@@ -391,6 +391,7 @@ mod tests {
                 exposes: None,
                 domain_context: None,
                 design: None,
+                types: None,
                 id: None,
             }],
             metadata: None,
@@ -472,6 +473,7 @@ mod tests {
         let mut browse = bare_trait("ArticleBrowse");
         browse.emits = Some(vec![orbital_core::schema::EmitDefinition {
             definer_knob: None,
+            scope_overridden: None,
             event: "EDIT".to_string(),
             event_id: None,
             description: None,
@@ -507,6 +509,7 @@ mod tests {
         let mut browse = bare_trait("ArticleBrowse");
         browse.emits = Some(vec![orbital_core::schema::EmitDefinition {
             definer_knob: None,
+            scope_overridden: None,
             event: "EDIT".to_string(),
             event_id: None,
             description: None,

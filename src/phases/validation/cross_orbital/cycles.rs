@@ -177,6 +177,7 @@ mod tests {
     fn emit(event: &str, scope: Option<EventScope>) -> EmitDefinition {
         EmitDefinition {
             definer_knob: None,
+            scope_overridden: None,
             event: event.to_string(),
             scope,
             description: None,
@@ -254,6 +255,7 @@ mod tests {
 
     fn orbital_with(name: &str, traits: Vec<TraitReference>) -> Orbital {
         Orbital {
+            types: None,
             name: name.to_string(),
             uses: None,
             expects: None,

@@ -126,6 +126,7 @@ fn schema_with_effects(
         version: Some("0.1.0".to_string()),
         description: None,
         orbitals: vec![Orbital {
+            types: None,
             name: "TestOrbital".to_string(),
             uses: None,
             expects: None,
@@ -151,6 +152,7 @@ fn schema_with_effects(
 fn declared_emit(event: &str, external: bool) -> EmitDefinition {
     EmitDefinition {
         definer_knob: None,
+        scope_overridden: None,
         event: event.to_string(),
         description: None,
         synonyms: None,

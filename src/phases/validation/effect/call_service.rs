@@ -17,8 +17,7 @@ const RESERVED_OPTION_KEYS: [&str; 4] = ["emit", "onSuccess", "onError", "timeou
 
 /// Validate the service name against inline `schema.services` ∪ the services
 /// registry (the union gate — an inline declaration must never mask registry
-/// services). Unknown name: hard error when the schema declares inline
-/// services (it opted into decidability), else the staged Phase-F warning.
+/// services). Unknown name is a hard error either way.
 fn check_service_name(
     service_name: &str,
     path: &str,
@@ -48,10 +47,9 @@ fn check_service_name(
         );
     } else if !registry.actions.is_empty() {
         // No inline schema.services (every .lolo lowers to services: None),
-        // so gate against the services registry. Staged as a WARNING —
-        // hard-error flip criteria recorded in the I-1 ledger row.
+        // so gate against the services registry.
         result.add_error(
-            ValidationError::phase_f_warning(
+            ValidationError::error(
                 ErrorCode::EffectCallServiceUnknownService,
                 path,
                 format!(

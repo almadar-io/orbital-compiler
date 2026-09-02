@@ -546,6 +546,7 @@ mod tests {
 
     fn orbital_with_use(alias: &str, from: &str, reference: &str) -> Orbital {
         Orbital {
+            types: None,
             name: "Consumer".to_string(),
             id: None,
             uses: Some(vec![UseDeclaration {

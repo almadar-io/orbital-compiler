@@ -154,7 +154,7 @@ pub(crate) fn validate_external_emit_payloads(schema: &OrbitalSchema) -> Validat
 
                     if !has_payload && has_consumer && consumer_expects_fields {
                         result.add_error(
-                            ValidationError::warning(
+                            ValidationError::error(
                                 ErrorCode::TraitEventExternalMissingPayload,
                                 format!("traits.{}.emits.{}", trait_def.name, emit.event),
                                 format!(
@@ -233,6 +233,7 @@ mod tests {
     fn emit(event: &str, scope: EventScope, payload: Option<Vec<PayloadField>>) -> EmitDefinition {
         EmitDefinition {
             definer_knob: None,
+            scope_overridden: None,
             event: event.to_string(),
             scope: Some(scope),
             description: Some("desc".to_string()),
@@ -292,6 +293,7 @@ mod tests {
 
     fn orbital_with(name: &str, entity: &str, traits: Vec<TraitReference>) -> Orbital {
         Orbital {
+            types: None,
             name: name.to_string(),
             uses: None,
             expects: None,

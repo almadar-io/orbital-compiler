@@ -200,7 +200,7 @@ pub fn validate_page_slots(
         trait_names.dedup();
         if trait_names.len() > 1 {
             result.add_error(
-                ValidationError::warning(
+                ValidationError::error(
                     ErrorCode::SlotContentionRuntime,
                     path,
                     format!(
@@ -218,7 +218,7 @@ pub fn validate_page_slots(
         for slot in &all_slots {
             if GAME_ONLY_SLOTS.contains(&slot.as_str()) {
                 result.add_error(
-                    ValidationError::warning(
+                    ValidationError::error(
                         ErrorCode::SlotHudNonGame,
                         path,
                         format!("Slot '{}' is typically used in game context", slot),
@@ -248,7 +248,7 @@ fn validate_slot_nesting(slots: &HashSet<String>, path: &str) -> ValidationResul
 
     if overlay_slots.len() > 1 {
         result.add_error(
-            ValidationError::warning(
+            ValidationError::error(
                 ErrorCode::SlotInvalidNesting,
                 path,
                 format!(
@@ -355,7 +355,7 @@ pub fn validate_main_slot_coverage(
 
     if !has_main && !traits.is_empty() {
         result.add_error(
-            ValidationError::warning(
+            ValidationError::error(
                 ErrorCode::SlotMainNotCovered,
                 path,
                 format!("Main slot may not be covered in state '{}'", state),

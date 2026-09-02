@@ -965,7 +965,7 @@ pub fn validate_binding(
             }
             "state" if parts.len() > 1 => {
                 result.add_error(
-                    ValidationError::warning(
+                    ValidationError::error(
                         ErrorCode::BindingStateNoPath,
                         path,
                         "@state should not have a path - it returns the state name directly",
@@ -975,7 +975,7 @@ pub fn validate_binding(
             }
             "now" if parts.len() > 1 => {
                 result.add_error(
-                    ValidationError::warning(
+                    ValidationError::error(
                         ErrorCode::BindingNowNoPath,
                         path,
                         "@now should not have a path - it returns the current timestamp directly",
@@ -989,7 +989,7 @@ pub fn validate_binding(
         // Entity binding (e.g., @Task, @User)
         if !known_entities.is_empty() && !known_entities.contains(root) {
             result.add_error(
-                ValidationError::warning(
+                ValidationError::error(
                     ErrorCode::BindingUnknownEntity,
                     path,
                     format!("Entity '{}' in binding may not exist", root),
@@ -1010,7 +1010,7 @@ pub fn validate_binding(
         ));
     } else {
         result.add_error(
-            ValidationError::warning(
+            ValidationError::error(
                 ErrorCode::BindingUnknownRoot,
                 path,
                 format!("Unknown binding root: '@{}'", root),
@@ -1480,13 +1480,14 @@ fn validate_entity_fields_have_setters(
                 .unwrap_or(false);
             if !group_credits_id && !embed_credits_id {
                 result.add_error(
-                    ValidationError::phase_f_warning(
+                    ValidationError::error(
                         ErrorCode::BindingPersistRowIdNeverSet,
                         path,
                         format!(
                             "trait {:?} runs (persist update|delete {} @entity) on event {:?} \
-                             but no transition runs (set @entity.id <value>); the whole row is \
-                             passed, so the write lands on the row keyed by the empty string",
+                             but no transition runs (set @entity.id <value>); the row key \
+                             resolves empty, and the runtime refuses the write and reports \
+                             success without ever touching a row",
                             trait_def.name, trait_linked_entity, event
                         ),
                     )
@@ -1514,15 +1515,13 @@ fn validate_entity_fields_have_setters(
             .map(|credit| credit.contains(field))
             .unwrap_or(false);
         if !set_fields.contains(field) && !satisfied_by_group && !satisfied_by_embed {
-            // Staged as a warning during the rollout so existing atoms in
-            // `@almadar/std` keep loading. Graduates to an error after the
-            // L4 std audit completes (every render-ui that binds `@entity.X`
-            // gets a corresponding `(set @entity.X <value>)` in INIT or a
-            // success-listener transition). The L1 lolo
+            // Hard error: every render-ui that binds `@entity.X` must carry a
+            // corresponding `(set @entity.X <value>)` in INIT or a
+            // success-listener transition. The L1 lolo
             // `LowerError::EntityFieldNeverSet` is already a hard error for
             // new authoring.
             result.add_error(
-                ValidationError::phase_f_warning(
+                ValidationError::error(
                     ErrorCode::BindingEntityFieldNeverSet,
                     path,
                     format!(
@@ -2660,7 +2659,7 @@ mod tests {
         );
         assert!(
             result
-                .warnings
+                .errors
                 .iter()
                 .any(|e| e.code == ErrorCode::BindingEntityFieldNeverSet),
             "Reading @entity.currentPage with no (set) must produce BindingEntityFieldNeverSet — got {:?}",
@@ -2672,7 +2671,7 @@ mod tests {
     /// so `id` is never an `@entity.id` read and the sibling never-set check is
     /// structurally blind to it. Without this the write lands on row "".
     #[test]
-    fn test_persist_update_whole_row_without_id_setter_warns() {
+    fn test_persist_update_whole_row_without_id_setter_errors() {
         let persist = arr(vec![s("persist"), s("update"), s("Ticket"), s("@entity")]);
         let trait_def =
             build_trait_fixture("SaveTicket", Some("Ticket"), vec![("SAVE", vec![persist])]);
@@ -2685,11 +2684,11 @@ mod tests {
         );
         assert!(
             result
-                .warnings
+                .errors
                 .iter()
                 .any(|e| e.code == ErrorCode::BindingPersistRowIdNeverSet),
-            "(persist update Ticket @entity) with no (set @entity.id) must warn — got {:?}",
-            result.warnings,
+            "(persist update Ticket @entity) with no (set @entity.id) must error — got {:?}",
+            result.errors,
         );
     }
 
@@ -2712,11 +2711,11 @@ mod tests {
         );
         assert!(
             !result
-                .warnings
+                .errors
                 .iter()
                 .any(|e| e.code == ErrorCode::BindingPersistRowIdNeverSet),
-            "A bound row key must not warn — got {:?}",
-            result.warnings,
+            "A bound row key must not error — got {:?}",
+            result.errors,
         );
     }
 
@@ -2735,11 +2734,11 @@ mod tests {
         );
         assert!(
             !result
-                .warnings
+                .errors
                 .iter()
                 .any(|e| e.code == ErrorCode::BindingPersistRowIdNeverSet),
-            "(persist create …) must not warn — got {:?}",
-            result.warnings,
+            "(persist create …) must not error — got {:?}",
+            result.errors,
         );
     }
 
@@ -3001,7 +3000,7 @@ mod tests {
         );
         assert!(
             result
-                .warnings
+                .errors
                 .iter()
                 .any(|e| e.code == ErrorCode::BindingEntityFieldNeverSet),
             "Guard-only @entity.X read with no setter must fail — errors: {:?}",
@@ -3034,6 +3033,7 @@ mod tests {
 
     fn orbital_with_traits(traits: Vec<TraitDefinition>) -> Orbital {
         Orbital {
+            types: None,
             name: "TestOrbital".to_string(),
             uses: None,
             expects: None,
@@ -3260,11 +3260,11 @@ mod tests {
         );
         assert!(
             result2
-                .warnings
+                .errors
                 .iter()
                 .any(|e| e.code == ErrorCode::BindingEntityFieldNeverSet),
-            "with no parent setter the never-set warning must remain: {:?}",
-            result2.warnings
+            "with no parent setter the never-set error must remain: {:?}",
+            result2.errors
         );
     }
 
@@ -3334,11 +3334,11 @@ mod tests {
         );
         assert!(
             result2
-                .warnings
+                .errors
                 .iter()
                 .any(|e| e.code == ErrorCode::BindingEntityFieldNeverSet),
             "a cross-entity parent must not credit the child: {:?}",
-            result2.warnings
+            result2.errors
         );
     }
 
@@ -3381,11 +3381,11 @@ mod tests {
             None,
         );
         assert!(
-            bad.warnings
+            bad.errors
                 .iter()
                 .any(|e| e.code == ErrorCode::BindingEntityFieldNeverSet),
             "an undefaulted, unset field must still report: {:?}",
-            bad.warnings
+            bad.errors
         );
     }
 
@@ -3467,11 +3467,11 @@ mod tests {
             validate_entity_fields_have_setters(&trait_a, "test", &HashSet::new(), &group, None);
         assert!(
             result
-                .warnings
+                .errors
                 .iter()
                 .any(|e| e.code == ErrorCode::BindingEntityFieldNeverSet),
-            "Neither trait in the shared group sets neverSet — must still warn: {:?}",
-            result.warnings
+            "Neither trait in the shared group sets neverSet — must still report: {:?}",
+            result.errors
         );
     }
 
@@ -3535,11 +3535,11 @@ mod tests {
             validate_entity_fields_have_setters(&trait_a, "test", &HashSet::new(), &group, None);
         assert!(
             result
-                .warnings
+                .errors
                 .iter()
                 .any(|e| e.code == ErrorCode::BindingEntityFieldNeverSet),
             "Non-shared entity must keep per-trait-only behavior — Trait B's setter must not satisfy Trait A: {:?}",
-            result.warnings
+            result.errors
         );
     }
 }

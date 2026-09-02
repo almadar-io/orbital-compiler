@@ -166,7 +166,7 @@ fn check_operator_reference(op: &str, path: &str, result: &mut ValidationResult)
         "Use a registered operator — `orb signatures` lists the canonical set".to_string()
     });
     result.add_error(
-        ValidationError::warning(
+        ValidationError::error(
             ErrorCode::SExprInvalidOperator,
             path,
             format!(
@@ -185,7 +185,7 @@ fn check_pattern_reference(pattern_type: &str, path: &str, result: &mut Validati
     // Project-local patterns may legitimately extend the core registry; emit
     // a warning rather than an error.
     result.add_error(
-        ValidationError::warning(
+        ValidationError::error(
             ErrorCode::RenderUIInvalidPattern,
             path,
             format!(

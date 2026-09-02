@@ -88,7 +88,7 @@ pub(crate) fn check_field_relation(
                     .map(|s| (**s).to_string())
                     .collect::<Vec<_>>();
                 result.add_error(
-                    ValidationError::warning(
+                    ValidationError::error(
                         ErrorCode::UnresolvedRelationTarget,
                         format!("{}.relation.entity", path),
                         format!(
@@ -132,6 +132,7 @@ mod tests {
             version: Some("1.0.0".to_string()),
             description: None,
             orbitals: vec![Orbital {
+                types: None,
                 name: "TaskOrbital".to_string(),
                 uses: None,
                 expects: None,
@@ -181,6 +182,7 @@ mod tests {
         let mut schema = create_minimal_schema();
         // Add a second orbital that declares "Patient".
         schema.orbitals.push(Orbital {
+            types: None,
             name: "PatientOrbital".to_string(),
             uses: None,
             expects: None,

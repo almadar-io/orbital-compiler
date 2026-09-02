@@ -67,9 +67,9 @@ use crate::loader::{
 };
 use orbital_core::schema::{
     ConfigProvenanceRecord, EntityDefinition, EntityRef, ExpectDeclaration, Orbital, OrbitalSchema,
-    SchemaMetadata, ThemeRef, TraitReference,
+    PayloadField, SchemaMetadata, ThemeRef, TraitReference,
 };
-use std::collections::{HashMap, HashSet};
+use std::collections::{BTreeMap, HashMap, HashSet};
 use std::path::Path;
 use thiserror::Error;
 
@@ -168,6 +168,18 @@ pub enum InlineError {
         /// Source-tagged path to the host trait.
         path: String,
     },
+
+    #[error(
+        "Struct-alias '{name}' at {path} is declared BOTH locally and by an imported trait's \
+         `::` argument / declaration default with a DIFFERENT shape — ambiguity is never \
+         resolved silently. Rename one of the two declarations."
+    )]
+    ConflictingTypeAlias {
+        /// The colliding struct-alias name.
+        name: String,
+        /// Source-tagged path to the consuming orbital.
+        path: String,
+    },
 }
 
 impl InlineError {
@@ -180,6 +192,7 @@ impl InlineError {
             InlineError::EventRenameUnknownKey { path, .. } => path,
             InlineError::LambdaStatefulTrait { path, .. } => path,
             InlineError::EmitMergeConflict { path, .. } => path,
+            InlineError::ConflictingTypeAlias { path, .. } => path,
             _ => "",
         }
     }
@@ -194,6 +207,7 @@ impl InlineError {
             InlineError::DuplicateTraitName { .. } => "ORB_T_DUPLICATE_NAME",
             InlineError::LambdaStatefulTrait { .. } => "ORB_T_LAMBDA_STATEFUL_TRAIT",
             InlineError::EmitMergeConflict { .. } => "ORB_T_EMIT_MERGE_CONFLICT",
+            InlineError::ConflictingTypeAlias { .. } => "ORB_T_CONFLICTING_TYPE_ALIAS",
             _ => "INLINE_ERROR",
         }
     }
@@ -359,6 +373,14 @@ pub fn inline_schema_with_config_diagnostics(
     // Phase-5f sweep — resolution mutates, reporting validates, same split the
     // type-parameter sentinels already use.
     sigil_types::resolve_sigil_types(schema);
+
+    // §61 OPEN 1, FIX 2: once every trait has inlined (so FIX 1's own
+    // narrowing above has already run per-trait), rewrite the ui-input
+    // atom's OWN internal display-buffer `set` to stringify the now-numeric
+    // wire value back into its string-typed entity field. Whole-schema for
+    // the same reason `resolve_sigil_types` is: a rebind target entity can
+    // live on a sibling orbital.
+    r#trait::rewrite_narrowed_number_display_writes(schema);
 
     // Emit the config→knob provenance into `_metadata.configProvenance` so a
     // consumer (Studio contextual edit) can trace a substituted render-ui
@@ -956,6 +978,115 @@ fn inline_orbital(
                 merge_expectation(&mut merged, decl);
             }
             orbital.expects = Some(merged);
+        }
+    }
+
+    // ----------------------------------------------------------------
+    // Type-parameter struct-alias resolution (Gap A/C follow-up,
+    // `docs/Almadar_LOLO.md`): a `::` struct-alias arg or a declared param
+    // default resolves LEXICALLY — against the `types` map of the orbital
+    // whose FILE the clause was AUTHORED in, never the consumer's. For a
+    // trait imported wholesale via `uses`, that authoring scope is the
+    // SOURCE behavior's orbital, not this one. The per-orbital sentinel
+    // pass (`rewrite::resolve_orbital_type_param_sentinels`, run once this
+    // orbital is fully inlined) only ever consults the CURRENT orbital's
+    // `types` map — so the specific alias shapes an imported trait's
+    // call-site `::` args or its own declared param defaults reference are
+    // merged onto THIS orbital's `types` here, before that pass runs.
+    // A name already present locally with a DIFFERENT shape is a blocking
+    // conflict — ambiguity is never resolved silently; an identical shape
+    // merges fine (harmless re-declaration).
+    //
+    // TRANSITIVE imports (std-inventory shape: A imports B's trait, which is
+    // itself B's `::`-bound reference onto C's atom) need one more step.
+    // `ctx.get_trait` returns B's OWN already-spliced clone of the trait,
+    // whose `type_args` STILL carries B's `::` binding — `inline_traits`
+    // (below, later) hasn't run for THIS orbital's references yet, and the
+    // per-orbital sentinel pass never runs on an imported orbital, only on
+    // the top-level one — so it survives unconsumed. But when THIS orbital's
+    // own reference to B's trait supplies no `::` of its own, `inline_traits`
+    // unconditionally OVERWRITES `type_args` with this reference's (here:
+    // none), discarding B's binding and stranding the sentinel. So: for any
+    // param this reference did NOT itself supply an arg for, the source's
+    // still-unconsumed arg is carried FORWARD onto this reference's own
+    // `type_args` — exactly as if this orbital had authored the same `::`
+    // clause itself (the value string is copied verbatim, never
+    // reinterpreted) — so the later splice sees something to preserve
+    // instead of a clobbering `None`.
+    {
+        let mut merged_types: BTreeMap<String, Vec<PayloadField>> =
+            orbital.types.clone().unwrap_or_default();
+        let orbital_path = format!("orbitals[name={}]", orbital.name);
+        for trait_ref in orbital.traits.iter_mut() {
+            if let TraitReference::Reference {
+                reference: Some(ref ref_str),
+                ref_id,
+                type_args,
+                ..
+            } = trait_ref
+            {
+                if let Ok(ParsedReference::Trait { alias, name }) = parse_reference(ref_str) {
+                    let source_types =
+                        ctx.get_types_for_trait_orbital(&alias, &name, ref_id.as_deref());
+                    let source_trait = ref_id
+                        .as_deref()
+                        .and_then(|rid| ctx.get_trait_by_ref_id(&alias, rid))
+                        .or_else(|| ctx.get_trait(&alias, &name).ok());
+                    let source_def = match &source_trait {
+                        Some(TraitReference::Inline(def)) => Some(def),
+                        _ => None,
+                    };
+
+                    // Inherit forward: fill only the params THIS reference
+                    // left unset, from the source's own still-unconsumed
+                    // `type_args`.
+                    let mut effective_args = type_args.clone().unwrap_or_default();
+                    if let Some(source_def) = source_def {
+                        if let Some(inherited) = &source_def.type_args {
+                            for (k, v) in inherited {
+                                effective_args.entry(k.clone()).or_insert_with(|| v.clone());
+                            }
+                        }
+                    }
+                    if !effective_args.is_empty() {
+                        *type_args = Some(effective_args.clone());
+                    }
+
+                    if source_types.is_empty() {
+                        continue;
+                    }
+                    // Candidate names: every effective `::` arg VALUE
+                    // (call-site + inherited), plus the source trait's OWN
+                    // declared param DEFAULT values — either may name a
+                    // struct alias (a primitive/entity name simply isn't
+                    // found in `source_types` and is skipped below).
+                    let mut candidates: HashSet<String> = effective_args.values().cloned().collect();
+                    if let Some(source_def) = source_def {
+                        if let Some(params) = &source_def.type_params {
+                            candidates.extend(params.iter().filter_map(|p| p.default.clone()));
+                        }
+                    }
+                    for candidate in candidates {
+                        let Some(shape) = source_types.get(&candidate) else {
+                            continue;
+                        };
+                        match merged_types.get(&candidate) {
+                            Some(existing) if existing != shape => {
+                                return Err(InlineError::ConflictingTypeAlias {
+                                    name: candidate,
+                                    path: orbital_path,
+                                });
+                            }
+                            _ => {
+                                merged_types.insert(candidate, shape.clone());
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        if !merged_types.is_empty() {
+            orbital.types = Some(merged_types);
         }
     }
 
@@ -1988,6 +2119,7 @@ mod tests {
     fn make_orbital_with_trait(name: &str, trait_def: TraitDefinition) -> Orbital {
         use orbital_core::schema::EntityDefinition;
         Orbital {
+            types: None,
             name: name.to_string(),
             uses: None,
             expects: None,
@@ -2197,6 +2329,7 @@ mod tests {
     fn make_orbital_with_service(name: &str, service_def: ServiceDefinition) -> Orbital {
         use orbital_core::schema::EntityDefinition;
         Orbital {
+            types: None,
             name: name.to_string(),
             uses: None,
             expects: None,
@@ -2434,6 +2567,7 @@ mod tests {
     /// stash a base entity in the InlineContext under an alias.
     fn make_orbital_with_entity(name: &str, entity_def: EntityDefinition) -> Orbital {
         Orbital {
+            types: None,
             name: name.to_string(),
             uses: None,
             expects: None,
@@ -3742,6 +3876,7 @@ mod tests {
         use orbital_core::schema::{EntityDefinition, PageDefinition};
 
         let orb0 = Orbital {
+            types: None,
             name: "ArcadeState".to_string(),
             uses: None,
             expects: None,
@@ -3787,6 +3922,7 @@ mod tests {
         };
 
         let orb1 = Orbital {
+            types: None,
             name: "ArcadeCanvas".to_string(),
             uses: None,
             expects: None,
@@ -4221,6 +4357,7 @@ mod tests {
         use orbital_core::schema::FieldType;
 
         let orb0 = Orbital {
+            types: None,
             name: "StateOrbital".to_string(),
             uses: None,
             expects: None,
@@ -4253,6 +4390,7 @@ mod tests {
         };
 
         let orb1 = Orbital {
+            types: None,
             name: "ActionOrbital".to_string(),
             uses: None,
             expects: None,

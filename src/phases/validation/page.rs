@@ -31,7 +31,7 @@ pub fn validate_all_pages(schema: &OrbitalSchema, ctx: &mut ValidationContext) {
 
         if !has_pages {
             ctx.add_error(
-                ValidationError::warning(
+                ValidationError::error(
                     ErrorCode::OrbitalMissingPages,
                     format!("orbitals[{}]", i),
                     format!(
@@ -92,7 +92,7 @@ pub fn validate_page(
     } else if check_naming && !NAME_REGEX.is_match(&page.name) {
         // GAP-V001: Skip ASCII naming check for non-Latin schemas
         result.add_error(
-            ValidationError::warning(
+            ValidationError::error(
                 ErrorCode::PageMissingName,
                 format!("{}.name", path),
                 format!("Page name '{}' should be PascalCase", page.name),
@@ -179,7 +179,7 @@ pub fn validate_page(
         // Only warn if neither traits nor primaryEntity is specified
         if page.primary_entity.is_none() {
             result.add_error(
-                ValidationError::warning(
+                ValidationError::error(
                     ErrorCode::PageMissingTraits,
                     format!("{}.traits", path),
                     "Page should have traits array for trait-driven UI",

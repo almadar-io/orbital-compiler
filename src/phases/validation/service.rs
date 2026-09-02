@@ -120,7 +120,7 @@ pub fn validate_service_definition(service: &ServiceDefinition, path: &str) -> V
                 if auth.auth_type == orbital_core::schema::RestAuthType::ApiKey
                     && auth.key_name.is_none()
                 {
-                    result.add_error(ValidationError::warning(
+                    result.add_error(ValidationError::error(
                         ErrorCode::MissingField,
                         format!("{}.auth.keyName", path),
                         "api-key auth should specify keyName",
@@ -130,7 +130,7 @@ pub fn validate_service_definition(service: &ServiceDefinition, path: &str) -> V
                 // secretEnv should follow env var naming convention
                 if let Some(secret_env) = &auth.secret_env {
                     if !is_valid_env_var_name(secret_env) {
-                        result.add_error(ValidationError::warning(
+                        result.add_error(ValidationError::error(
                             ErrorCode::InvalidValue,
                             format!("{}.auth.secretEnv", path),
                             format!("secretEnv '{}' should be UPPER_SNAKE_CASE", secret_env),
@@ -142,7 +142,7 @@ pub fn validate_service_definition(service: &ServiceDefinition, path: &str) -> V
             // Validate timeout
             if let Some(timeout) = rest.timeout {
                 if timeout == 0 {
-                    result.add_error(ValidationError::warning(
+                    result.add_error(ValidationError::error(
                         ErrorCode::InvalidValue,
                         format!("{}.timeout", path),
                         "Timeout of 0 may cause immediate failures",
@@ -180,7 +180,7 @@ pub fn validate_service_definition(service: &ServiceDefinition, path: &str) -> V
 
             // Validate events
             if socket.events.inbound.is_empty() && socket.events.outbound.is_empty() {
-                result.add_error(ValidationError::warning(
+                result.add_error(ValidationError::error(
                     ErrorCode::MissingField,
                     format!("{}.events", path),
                     "Socket service has no inbound or outbound events defined",
@@ -208,7 +208,7 @@ pub fn validate_service_definition(service: &ServiceDefinition, path: &str) -> V
 
             // Validate capabilities
             if mcp.capabilities.is_empty() {
-                result.add_error(ValidationError::warning(
+                result.add_error(ValidationError::error(
                     ErrorCode::MissingField,
                     format!("{}.capabilities", path),
                     "MCP service has no capabilities defined",

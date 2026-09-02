@@ -591,6 +591,35 @@ mod enum_tests {
         let arr = set("title", SExpression::String("anything".into()));
         assert!(validate_set_enum_value(&arr, "p", &m).errors.is_empty());
     }
+
+    /// Safety test 3's L2 half: a field whose `field_type` is `"union"` (a
+    /// recursive struct's back-reference resolves through the SAME kind
+    /// lattice slot a tagged union does — `oir_type_kind`'s `TypeRef` arm
+    /// reports `"object"`, and `entity_field_type_map`'s callers only ever
+    /// populate `enum_values` from a field's own `values` list, which a
+    /// struct-typed field never carries) must never be read as a string enum
+    /// — `(set @entity.subMenu "MenuItem")` assigning the alias's OWN name
+    /// must not be waved through as a legal "enum member".
+    #[test]
+    fn union_typed_field_never_reads_as_enum_even_with_stray_values() {
+        let mut m = HashMap::new();
+        // Defensive: even if some future caller mistakenly populated
+        // `enum_values` for a union-typed field (it shouldn't — a struct
+        // union's declared "values" are variant NAMES, not legal literals),
+        // the explicit `field_type == "union"` skip must still win.
+        m.insert(
+            "subMenu".to_string(),
+            EntityFieldMeta {
+                field_type: "union".into(),
+                enum_values: vec!["MenuItem".into()],
+            },
+        );
+        let arr = set("subMenu", SExpression::String("MenuItem".into()));
+        assert!(
+            validate_set_enum_value(&arr, "p", &m).errors.is_empty(),
+            "a union-typed field must never be checked as a string enum"
+        );
+    }
 }
 
 #[cfg(test)]

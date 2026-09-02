@@ -195,7 +195,7 @@ fn validate_icon_value(icon: &SExpression, path: &str) -> ValidationResult {
     // Check if it's a common icon
     if !is_common_icon(icon_name) {
         let similar = find_similar_icons(icon_name, 3);
-        let mut error = ValidationError::warning(
+        let mut error = ValidationError::error(
             ErrorCode::IconNotFound,
             path,
             format!(

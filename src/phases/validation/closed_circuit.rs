@@ -494,7 +494,7 @@ fn validate_dead_handlers(
                 .collect();
 
             result.add_error(
-                ValidationError::warning(
+                ValidationError::error(
                     ErrorCode::CircuitDeadHandler,
                     &action.path,
                     format!(
@@ -634,7 +634,7 @@ fn validate_dead_end_components(
 
         if !has_actions {
             result.add_error(
-                ValidationError::warning(
+                ValidationError::error(
                     ErrorCode::CircuitDeadEndComponent,
                     &render_ui.path,
                     format!(
@@ -892,7 +892,7 @@ fn validate_modal_exit_completeness(
 
         if has_modal_null && !has_main_render {
             result.add_error(
-                ValidationError::warning(
+                ValidationError::error(
                     ErrorCode::CircuitModalExitIncomplete,
                     format!(
                         "{}.transitions[{:?}->{}->{}]",
@@ -998,7 +998,7 @@ fn validate_overlay_close_on_exit(
                 });
                 if !has_close {
                     result.add_error(
-                        ValidationError::warning(
+                        ValidationError::error(
                             ErrorCode::CircuitModalExitIncomplete,
                             format!(
                                 "{}.transitions[{:?}->{}->{}]",
@@ -1044,7 +1044,7 @@ fn validate_dead_end_states(state_machine: &StateMachine, path: &str) -> Validat
 
         if outgoing.is_empty() {
             result.add_error(
-                ValidationError::warning(
+                ValidationError::error(
                     ErrorCode::CircuitDeadEndState,
                     format!("{}.stateMachine.states", path),
                     format!(
@@ -1098,7 +1098,7 @@ fn validate_state_appropriate_actions(
                 let has_form_pattern = patterns.iter().any(|p| is_form_pattern(p));
                 if !has_form_pattern && !patterns.is_empty() {
                     result.add_error(
-                        ValidationError::warning(
+                        ValidationError::error(
                             ErrorCode::CircuitActionComponentMismatch,
                             &action.path,
                             format!(
@@ -1118,7 +1118,7 @@ fn validate_state_appropriate_actions(
                 let has_list_pattern = patterns.iter().any(|p| is_list_pattern(p));
                 if !has_list_pattern && !patterns.is_empty() {
                     result.add_error(
-                        ValidationError::warning(
+                        ValidationError::error(
                             ErrorCode::CircuitActionComponentMismatch,
                             &action.path,
                             format!(

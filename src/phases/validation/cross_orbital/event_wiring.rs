@@ -33,6 +33,13 @@ pub(crate) fn validate_event_wiring(schema: &OrbitalSchema) -> ValidationResult 
     // everywhere. See ORB-X-EXTERNAL-EMIT-EXEMPTION in
     // `docs/Almadar_Compiler_Gaps.md`.
     let mut exempt_external: HashSet<(String, String)> = HashSet::new();
+    // The subset of `exempt_external` whose scope came from a CALL-SITE
+    // `emitsScope` override (`scope_overridden`), not the atom's own
+    // declaration. For an imported trait's dead control, only THIS form
+    // exempts: the composition consciously forwarded the obligation
+    // ("my consumer wires this"), which is a different statement from the
+    // atom's unexamined `-> external` default.
+    let mut call_site_external: HashSet<(String, String)> = HashSet::new();
     let mut imported_traits: HashSet<String> = HashSet::new();
     // An emit whose event NAME came from a config knob (`emits { @config.X }`)
     // is the atom OFFERING an affordance, not this file promising to use it.
@@ -50,6 +57,9 @@ pub(crate) fn validate_event_wiring(schema: &OrbitalSchema) -> ValidationResult 
                         }
                         if emit.scope == Some(EventScope::External) {
                             exempt_external.insert((td.name.clone(), emit.event.clone()));
+                            if emit.scope_overridden == Some(true) {
+                                call_site_external.insert((td.name.clone(), emit.event.clone()));
+                            }
                         }
                     }
                 }
@@ -123,7 +133,7 @@ pub(crate) fn validate_event_wiring(schema: &OrbitalSchema) -> ValidationResult 
         {
             for listener in listeners {
                 result.add_error(
-                    ValidationError::warning(
+                    ValidationError::error(
                         ErrorCode::CrossOrbitalOrphanListener,
                         format!("traits.{}", listener),
                         format!(
@@ -170,13 +180,17 @@ pub(crate) fn validate_event_wiring(schema: &OrbitalSchema) -> ValidationResult 
                 let imported = imported_traits.contains(emitter);
 
                 // Exemption is per-emitter, not per event name — see the
-                // `exempt_external` construction above. Skipped for an
-                // imported trait's dead-control case: honouring the SOURCE
-                // atom's `-> external` there was measured and rejected
-                // (947→0, the check evaporates — see
-                // ORB-X-EXTERNAL-EMIT-EXEMPTION in Almadar_Compiler_Gaps.md).
-                if !(imported && by_control)
-                    && exempt_external.contains(&(emitter.clone(), event.clone()))
+                // `exempt_external` construction above. For an imported
+                // trait's dead-control case only the CALL-SITE `emitsScope`
+                // form exempts — honouring the SOURCE atom's `-> external`
+                // there was measured and rejected (947→0, the check
+                // evaporates — see ORB-X-EXTERNAL-EMIT-EXEMPTION in
+                // Almadar_Compiler_Gaps.md), while a composition restating
+                // it is the consumer's own obligation-forward
+                // (C-X-ATOM-CHAIN-AFFORDANCE).
+                let key = (emitter.clone(), event.clone());
+                if (!(imported && by_control) && exempt_external.contains(&key))
+                    || call_site_external.contains(&key)
                 {
                     continue;
                 }
@@ -260,20 +274,18 @@ pub(crate) fn validate_event_wiring(schema: &OrbitalSchema) -> ValidationResult 
                         " (nothing in this composition fires it, so this is a stale declaration rather than a dead control)"
                     }
                 );
-                // The dead-control class is the real defect and is destined for
-                // blocking severity; it lands warn-only for one wave so the
-                // corpus can be measured and burned down before it reds a
-                // build. Flipping it is this one boolean.
-                const DEAD_CONTROL_IS_BLOCKING: bool = false;
+                // The dead-control class is the real defect and is now
+                // blocking severity, corpus-wide.
+                const DEAD_CONTROL_IS_BLOCKING: bool = true;
                 let blocking = by_control && !undecidable && DEAD_CONTROL_IS_BLOCKING;
                 let finding = if !blocking && imported {
-                    ValidationError::phase_f_warning(
+                    ValidationError::error(
                         ErrorCode::CrossOrbitalUnusedEmission,
                         format!("traits.{}", emitter),
                         message,
                     )
                 } else {
-                    ValidationError::warning(
+                    ValidationError::error(
                         ErrorCode::CrossOrbitalUnusedEmission,
                         format!("traits.{}", emitter),
                         message,
@@ -703,6 +715,7 @@ mod tests {
                 exposes: None,
                 domain_context: None,
                 design: None,
+                types: None,
                 id: None,
             }],
             metadata: None,
@@ -1169,6 +1182,7 @@ mod tests {
             linked_entity: Some("Task".to_string()),
             emits: Some(vec![orbital_core::schema::EmitDefinition {
                 definer_knob: None,
+                scope_overridden: None,
                 event: event.to_string(),
                 event_id: None,
                 description: None,
@@ -1274,8 +1288,10 @@ mod tests {
         }];
     }
 
-    /// `(blocking, non_blocking)` — `add_error` routes by severity, and the
-    /// imported class reports non-blocking on purpose (see the call site).
+    /// `(blocking, non_blocking)` — `add_error` routes by severity.
+    /// `CrossOrbitalUnusedEmission` is hard-error-only now, so the second
+    /// slot stays 0; kept as a pair so a future non-blocking class doesn't
+    /// need every call site rewritten.
     fn unused_emission_counts(schema: &OrbitalSchema) -> (usize, usize) {
         let r = wire(schema);
         let count = |v: &Vec<ValidationError>| {
@@ -1317,8 +1333,8 @@ mod tests {
         schema.orbitals[0].traits = vec![td];
         assert_eq!(
             unused_emission_counts(&schema),
-            (0, 1),
-            "an external emit on an imported trait is decidable here and must report non-blocking"
+            (1, 0),
+            "an external emit on an imported trait is decidable here and must report"
         );
     }
 
@@ -1359,6 +1375,7 @@ mod tests {
         if let TraitReference::Inline(def) = &mut td {
             def.emits = Some(vec![orbital_core::schema::EmitDefinition {
                 definer_knob: None,
+                scope_overridden: None,
                 event: event.to_string(),
                 event_id: None,
                 description: None,
@@ -1469,7 +1486,7 @@ mod tests {
         schema.orbitals[0].traits = vec![td];
         assert_eq!(
             unused_emission_counts(&schema),
-            (0, 1),
+            (1, 0),
             "a persist effect literally referencing the event keeps the finding"
         );
     }
@@ -1522,7 +1539,7 @@ mod tests {
         }
         schema.orbitals[0].traits = vec![td];
         let msgs: Vec<String> = wire(&schema)
-            .warnings
+            .errors
             .iter()
             .map(|e| e.message.clone())
             .collect();
@@ -1547,8 +1564,46 @@ mod tests {
         schema.orbitals[0].traits = vec![authored, imported];
         assert_eq!(
             unused_emission_counts(&schema),
-            (0, 1),
+            (1, 0),
             "only the imported emitter is reported; the authored namesake stays exempt"
+        );
+    }
+
+    /// A CALL-SITE `emitsScope external` (recorded as `scope_overridden` by
+    /// the inline phase) is the composition's own obligation-forward and
+    /// exempts even an imported trait's dead control — the
+    /// C-X-ATOM-CHAIN-AFFORDANCE forwarding surface.
+    #[test]
+    fn call_site_emits_scope_exempts_imported_dead_control() {
+        let mut schema = create_minimal_schema();
+        let mut td = externally_emitting_trait("ArticleDoc", "EDIT", true);
+        render_control_firing(&mut td, "EDIT");
+        if let TraitReference::Inline(def) = &mut td {
+            for e in def.emits.as_mut().unwrap() {
+                e.scope_overridden = Some(true);
+            }
+        }
+        schema.orbitals[0].traits = vec![td];
+        assert_eq!(
+            unused_emission_counts(&schema),
+            (0, 0),
+            "a call-site emitsScope forward exempts the imported dead control"
+        );
+    }
+
+    /// SAFETY INVERSE: the source atom's own `-> external` (no call-site
+    /// override, `scope_overridden` unset) still does NOT exempt an imported
+    /// dead control — dropping that override was measured at 947→0.
+    #[test]
+    fn atom_declared_external_alone_still_reports_imported_dead_control() {
+        let mut schema = create_minimal_schema();
+        let mut td = externally_emitting_trait("ArticleDoc", "EDIT", true);
+        render_control_firing(&mut td, "EDIT");
+        schema.orbitals[0].traits = vec![td];
+        assert_eq!(
+            unused_emission_counts(&schema),
+            (1, 0),
+            "atom-declared external without a call-site forward keeps reporting"
         );
     }
 }

@@ -201,6 +201,78 @@ fn render_ui_effect_reads_entity(effect: &SExpression) -> bool {
     !referenced.is_empty()
 }
 
+/// Every `@entity.<field>` READ per trait, keyed trait name → field set,
+/// across ALL of the trait's guards, transition effects, and tick effects —
+/// render-ui bindings and effect arguments (call-service, persist, emit
+/// payloads) alike. The consequence a split write carries is a READ that
+/// misses it; this is the read side of that dependency.
+fn collect_entity_field_reads(
+    traits: &[&TraitDefinition],
+    entity_name: &str,
+) -> HashMap<String, HashSet<String>> {
+    let mut reads: HashMap<String, HashSet<String>> = HashMap::new();
+    for trait_def in traits {
+        if trait_def.linked_entity.as_deref() != Some(entity_name) {
+            continue;
+        }
+        let mut referenced: HashMap<String, String> = HashMap::new();
+        let mut set_fields: HashSet<String> = HashSet::new();
+        for transition in &trait_def.state_machine.transitions {
+            if let Some(guard) = &transition.guard {
+                guard.collect_entity_field_refs(&mut referenced, &mut set_fields, "GUARD");
+            }
+            if let Some(effects) = &transition.effects {
+                for effect in effects {
+                    effect.collect_entity_field_refs(&mut referenced, &mut set_fields, "EFFECT");
+                }
+            }
+        }
+        if let Some(ticks) = &trait_def.ticks {
+            for tick in ticks {
+                for effect in &tick.effects {
+                    effect.collect_entity_field_refs(&mut referenced, &mut set_fields, "TICK");
+                }
+            }
+        }
+        if !referenced.is_empty() {
+            reads.insert(trait_def.name.clone(), referenced.into_keys().collect());
+        }
+    }
+    reads
+}
+
+/// The consequence predicate for a split mutation: some trait READS a field
+/// it never writes while a DIFFERENT trait writes it — on isolated per-trait
+/// copies that read provably misses the write. Returns one witnessing
+/// `(reader, field, writer)`; `None` means every reader is self-sufficient
+/// (each populates its own copy, typically via bus-routed payloads — e.g.
+/// `std-record-detail`'s drawer re-stashing the row the detail trait
+/// broadcast) and the isolation carries no consequence.
+fn cross_read_dependency(
+    field_map: &HashMap<String, HashSet<String>>,
+    reads_by_trait: &HashMap<String, HashSet<String>>,
+) -> Option<(String, String, String)> {
+    let mut readers: Vec<&String> = reads_by_trait.keys().collect();
+    readers.sort();
+    for reader in readers {
+        let mut fields: Vec<&String> = reads_by_trait[reader].iter().collect();
+        fields.sort();
+        for field in fields {
+            if let Some(writers) = field_map.get(field) {
+                if writers.contains(reader) {
+                    continue;
+                }
+                let mut others: Vec<&String> = writers.iter().collect();
+                others.sort();
+                if let Some(writer) = others.first() {
+                    return Some(((*reader).clone(), (*field).clone(), (**writer).clone()));
+                }
+            }
+        }
+    }
+    None
+}
+
 /// Transitive page membership: trait name → set of page names it is active
 /// on. Seeded from each page's `traits[]` list, then closed over `@trait.X`
 /// render-ui references (`collect_sibling_trait_refs` — the same graph
@@ -445,21 +517,23 @@ fn validate_orbital_entity_mutations(
                 continue;
             }
 
-            let has_reader = renderers
-                .get(entity_name)
-                .map(|r| !r.is_empty())
-                .unwrap_or(false);
-            // No render-ui reader observed the split: likely legitimate
-            // isolated per-trait scratch state — no consequence to report.
-            if !has_reader {
+            // Consequence = a READ that provably misses a write. A reader
+            // that populates its own copy (every field it reads, it also
+            // writes — usually from bus-routed payloads) is self-sufficient;
+            // isolation without a cross-trait read dependency changes
+            // nothing observable and is not constructed.
+            let reads_by_trait = collect_entity_field_reads(traits, entity_name);
+            let Some((reader, field, writer)) =
+                cross_read_dependency(field_map, &reads_by_trait)
+            else {
                 continue;
-            }
+            };
             let message = format!(
-                "Entity '{}' (runtime, not [shared]) is mutated by {} distinct traits {:?} and read by a render-ui — each mutator gets an ISOLATED per-trait copy, so the render never sees the other traits' writes; this is provably wrong unless the entity is meant to be one shared instance",
-                entity_name, all_mutators.len(), all_mutators
+                "Entity '{}' (runtime, not [shared]) is mutated by {} distinct traits {:?} on ISOLATED per-trait copies, and trait '{}' reads '@entity.{}' which it never writes — only '{}' writes it, on a copy '{}' can't see; that read provably misses the write",
+                entity_name, all_mutators.len(), all_mutators, reader, field, writer, reader
             );
             result.add_error(
-                ValidationError::phase_f_warning(ErrorCode::EntitySplitMutation, path.as_str(), message)
+                ValidationError::error(ErrorCode::EntitySplitMutation, path.as_str(), message)
                     .with_suggestion(format!(
                         "If these traits are meant to co-mutate one instance, add [shared] to entity '{}'",
                         entity_name
@@ -509,7 +583,7 @@ fn validate_trait_tick_guards(
                 .unwrap_or(false);
             if is_persistent {
                 result.add_error(
-                    ValidationError::phase_f_warning(
+                    ValidationError::error(
                         ErrorCode::TickRequiresRuntime,
                         format!("{}.ticks", path),
                         format!(
@@ -533,7 +607,7 @@ fn validate_trait_tick_guards(
         for (j, effect) in tick.effects.iter().enumerate() {
             if let Some(op_name) = find_async_operator_call(effect) {
                 result.add_error(
-                    ValidationError::phase_f_warning(
+                    ValidationError::error(
                         ErrorCode::TickAsyncEffect,
                         format!("{}.ticks[{}].effects[{}]", path, i, j),
                         format!(
@@ -739,14 +813,90 @@ mod tests {
         let result = validate_orbital_entity_mutations(&traits, "orbitals[0]", &defs, &HashMap::new());
         assert!(
             result
-                .warnings
+                .errors
                 .iter()
                 .any(|e| e.code == ErrorCode::EntitySplitMutation),
-            "Expected EntitySplitMutation warning: errors={:?} warnings={:?}",
+            "Expected EntitySplitMutation error: errors={:?} warnings={:?}",
             result.errors,
             result.warnings
         );
-        assert!(result.errors.is_empty(), "Must be a warning, not an error");
+        assert!(result.warnings.is_empty(), "Must be an error, not a warning");
+    }
+
+    /// Self-sufficient readers: each trait reads only fields IT writes (the
+    /// `std-record-detail` shape — the drawer re-stashes the row the detail
+    /// trait broadcast, then renders its own copy). No read misses any
+    /// write, so nothing is constructed.
+    #[test]
+    fn split_mutation_silent_when_every_reader_writes_its_own_reads() {
+        let t1 = trait_with_init_effects(
+            "Detail",
+            "Blob",
+            vec![set_effect("x"), render_ui_reading("x")],
+        );
+        let t2 = trait_with_init_effects(
+            "Drawer",
+            "Blob",
+            vec![set_effect("y"), render_ui_reading("y")],
+        );
+        let traits = vec![&t1, &t2];
+        let mut defs = HashMap::new();
+        defs.insert(
+            "Blob".to_string(),
+            entity("Blob", false, Some(Persistence::Runtime)),
+        );
+        let result = validate_orbital_entity_mutations(&traits, "orbitals[0]", &defs, &HashMap::new());
+        assert!(
+            !result
+                .warnings
+                .iter()
+                .chain(result.errors.iter())
+                .any(|e| e.code == ErrorCode::EntitySplitMutation),
+            "self-sufficient readers carry no consequence: {:?}",
+            result.warnings
+        );
+    }
+
+    /// An EFFECT-argument cross-read (not render): the reader's call-service
+    /// arg reads a field only the sibling writes — the value provably never
+    /// arrives. Reported, same as a render cross-read.
+    #[test]
+    fn split_mutation_reports_effect_arg_cross_read() {
+        let t1 = trait_with_init_effects("Input", "Blob", vec![set_effect("ttl")]);
+        let t2 = trait_with_init_effects(
+            "Host",
+            "Blob",
+            vec![
+                set_effect("status"),
+                arr(vec![
+                    s("call-service"),
+                    s("redis"),
+                    s("set"),
+                    SExpression::Object({
+                        let mut m = std::collections::HashMap::new();
+                        m.insert("ttl".to_string(), s("@entity.ttl"));
+                        m
+                    }),
+                ]),
+            ],
+        );
+        let traits = vec![&t1, &t2];
+        let mut defs = HashMap::new();
+        defs.insert(
+            "Blob".to_string(),
+            entity("Blob", false, Some(Persistence::Runtime)),
+        );
+        let result = validate_orbital_entity_mutations(&traits, "orbitals[0]", &defs, &HashMap::new());
+        assert!(
+            result
+                .errors
+                .iter()
+                .any(|e| e.code == ErrorCode::EntitySplitMutation
+                    && e.message.contains("@entity.ttl")),
+            "an effect-arg read that misses the write is the consequence: {:?} {:?}",
+            result.errors,
+            result.warnings
+        );
     }
 
     #[test]
@@ -840,11 +990,11 @@ mod tests {
         let result = validate_orbital_entity_mutations(&traits, "orbitals[0]", &defs, &HashMap::new());
         assert!(
             result
-                .warnings
+                .errors
                 .iter()
                 .any(|e| e.code == ErrorCode::EntitySplitMutation),
             "Mutators from different sources (one imported, one authored) must still report: {:?}",
-            result.warnings
+            result.errors
         );
     }
 
@@ -900,11 +1050,11 @@ mod tests {
         let result = validate_orbital_entity_mutations(&traits, "orbitals[0]", &defs, &trait_pages);
         assert!(
             result
-                .warnings
+                .errors
                 .iter()
                 .any(|e| e.code == ErrorCode::EntitySplitMutation),
             "Mutators sharing a page must still report: {:?}",
-            result.warnings
+            result.errors
         );
     }
 
@@ -950,6 +1100,7 @@ mod tests {
             exposes: None,
             domain_context: None,
             design: None,
+            types: None,
         };
         let trait_pages = collect_trait_pages(&orbital, &[&host, &child]);
         assert!(
@@ -1210,13 +1361,13 @@ mod tests {
         let result = validate_trait_tick_guards(&t, "test", &defs);
         assert!(
             result
-                .warnings
+                .errors
                 .iter()
                 .any(|e| e.code == ErrorCode::TickRequiresRuntime),
-            "Expected TickRequiresRuntime warning: {:?}",
-            result.warnings
+            "Expected TickRequiresRuntime error: {:?}",
+            result.errors
         );
-        assert!(result.errors.is_empty());
+        assert!(result.warnings.is_empty());
     }
 
     #[test]
@@ -1267,13 +1418,13 @@ mod tests {
         let result = validate_trait_tick_guards(&t, "test", &defs);
         assert!(
             result
-                .warnings
+                .errors
                 .iter()
                 .any(|e| e.code == ErrorCode::TickAsyncEffect),
-            "Expected TickAsyncEffect warning: {:?}",
-            result.warnings
+            "Expected TickAsyncEffect error: {:?}",
+            result.errors
         );
-        assert!(result.errors.is_empty());
+        assert!(result.warnings.is_empty());
     }
 
     #[test]

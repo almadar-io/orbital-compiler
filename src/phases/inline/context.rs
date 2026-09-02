@@ -3,9 +3,10 @@
 use super::InlineError;
 use orbital_core::schema::{
     ExpectDeclaration,
-    EntityDefinition, EntityRef, Orbital, PageRef, ServiceRef, ThemeRef, TraitReference,
+    EntityDefinition, EntityRef, Orbital, PageRef, PayloadField, ServiceRef, ThemeRef,
+    TraitReference,
 };
-use std::collections::HashMap;
+use std::collections::{BTreeMap, HashMap};
 
 // ============================================================================
 // Reference Parser
@@ -304,6 +305,31 @@ impl InlineContext {
             return Vec::new();
         };
         orbital.expects.clone().unwrap_or_default()
+    }
+
+    /// The `types` map (Gap A struct aliases, `docs/Almadar_LOLO.md`) of the
+    /// orbital that owns an imported trait — the LEXICAL scope a `::`
+    /// struct-alias arg or a declared param default resolves against for a
+    /// spliced trait. `inline_orbital`'s pre-pass merges the SPECIFIC alias
+    /// shapes such a clause references onto the consuming orbital's own
+    /// `types` map (never onto the trait itself), so the existing
+    /// per-orbital sentinel-resolution pass — which only ever consults the
+    /// CURRENT orbital's `types` — finds an alias declared in the imported
+    /// atom's file. Same orbital-matching rules as `get_expects_for_trait_orbital`.
+    pub(crate) fn get_types_for_trait_orbital(
+        &self,
+        alias: &str,
+        trait_name: &str,
+        trait_ref_id: Option<&str>,
+    ) -> BTreeMap<String, Vec<PayloadField>> {
+        let Some(entry) = self.aliases.get(alias) else {
+            return BTreeMap::new();
+        };
+        let Some((orbital, _)) = Self::find_orbital_for_trait(entry, trait_name, trait_ref_id)
+        else {
+            return BTreeMap::new();
+        };
+        orbital.types.clone().unwrap_or_default()
     }
 
     /// §52 (C-RESOLVE-ATOM-MERGE-FIRST-ENTITY): the entity the trait's OWN

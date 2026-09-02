@@ -174,7 +174,7 @@ pub fn validate_trait_render_ui(
                     let effect_path =
                         format!("{}.stateMachine.transitions[{}].effects[{}]", path, i, j);
                     result.add_error(
-                        ValidationError::warning(
+                        ValidationError::error(
                             ErrorCode::EffectMissingFetchForEntityPattern,
                             &effect_path,
                             format!(
@@ -206,7 +206,7 @@ pub fn validate_trait_render_ui(
         for (slot, count) in slot_counts {
             if count > 1 {
                 result.add_error(
-                    ValidationError::warning(
+                    ValidationError::error(
                         ErrorCode::EffectSlotConflict,
                         format!("{}.stateMachine.transitions[{}]", path, i),
                         format!(
@@ -343,7 +343,7 @@ fn walk_pattern_for_trait_positions(
                 let prop_desc = enclosing_prop_name.unwrap_or("<root>");
                 let pattern_desc = enclosing_pattern_type.unwrap_or("<unknown>");
                 result.add_error(
-                    ValidationError::warning(
+                    ValidationError::error(
                         ErrorCode::BindingTraitInvalidPosition,
                         path,
                         format!(

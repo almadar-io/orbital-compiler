@@ -111,14 +111,14 @@ fn check_entity_field(field: &FieldDefinition, path: &str, result: &mut Validati
 
 fn check_config_type(field_type: &str, path: &str, result: &mut ValidationResult) {
     // Bare/array `object` is already a hard error (`TraitConfigObjectArrayForbidden`);
-    // only warn on the survivors so a single site is not double-reported.
+    // only report the survivors so a single site is not double-reported.
     if matches!(base_type(field_type), "json" | "any") {
         result.add_error(warn(path, "Config field", field_type));
     }
 }
 
 /// Walk every declaration position the `.orb` IR carries and report generic
-/// types. Non-blocking (phase-F) while the corpus migrates.
+/// types. Hard error.
 pub fn validate_generic_types(schema: &OrbitalSchema, ctx: &mut ValidationContext) {
     let mut result = ValidationResult::new();
 
@@ -274,6 +274,43 @@ mod tests {
         let mut result = ValidationResult::new();
         check_entity_field(&typed, "entities.E.fields.point", &mut result);
         assert!(result.errors.is_empty());
+    }
+
+    /// Recursive-types safety (spec §3 `generic_types.rs`): the by-name
+    /// back-reference form must never trip this gate. On the payload side
+    /// it's a bare alias-name `field_type` (e.g. `"[MenuItem]"`/`"MenuItem"`,
+    /// never `"object"`/`"json"`/`"any"`) with an EMPTY (not absent)
+    /// `properties` marker; on the entity side it's `FieldType::Union` with
+    /// `properties: None`, a variant this function's `match` doesn't even
+    /// list (falls to `_ => {}`). Neither reads as "object with no declared
+    /// properties" — that check is keyed strictly on `field_type == "object"`.
+    #[test]
+    fn recursive_backref_forms_produce_no_finding() {
+        let mut result = ValidationResult::new();
+        check_payload_field(
+            &payload("[MenuItem]", Some(vec![])),
+            "t.emits.ItemPicked",
+            &mut result,
+        );
+        check_payload_field(
+            &payload("MenuItem", Some(vec![])),
+            "t.emits.ItemPicked",
+            &mut result,
+        );
+        assert!(
+            result.errors.is_empty(),
+            "a recursive back-reference must not read as a generic type: {:?}",
+            result.errors
+        );
+
+        let mut result = ValidationResult::new();
+        let backref = entity_field(FieldType::Union);
+        check_entity_field(&backref, "entities.E.fields.subMenu", &mut result);
+        assert!(
+            result.errors.is_empty(),
+            "FieldType::Union isn't matched by check_entity_field at all — a properties-none Union is not \"object with no properties\": {:?}",
+            result.errors
+        );
     }
 
     #[test]

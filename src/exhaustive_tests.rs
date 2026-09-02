@@ -1065,6 +1065,7 @@ mod tests {
             themes: vec![],
             services: vec![],
             expected_entities: vec![],
+            named_types: std::collections::BTreeMap::new(),
             metadata: OirMetadata::default(),
         }
     }

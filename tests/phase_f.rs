@@ -6,7 +6,7 @@
 //! per the Phase F brief).
 
 use orbital_compiler::phases::validation::{
-    validate_comprehensive_full_with_phase_f, ErrorCode, SchemaLanguage,
+    validate_comprehensive_full, ErrorCode, SchemaLanguage,
 };
 use orbital_core::schema::{
     EmitDefinition, EntityDefinition, EntityRef, EventScope, FieldDefinition, FieldType,
@@ -37,6 +37,7 @@ fn payload_field(name: &str, ty: &str, required: bool) -> PayloadField {
 fn emit_def(event: &str, fields: Vec<PayloadField>) -> EmitDefinition {
     EmitDefinition {
         definer_knob: None,
+        scope_overridden: None,
         event: event.to_string(),
         description: None,
         synonyms: None,
@@ -83,16 +84,12 @@ fn task_entity() -> EntityDefinition {
     }
 }
 
-fn run(
-    schema: &OrbitalSchema,
-    strict: bool,
-) -> orbital_compiler::phases::validation::ValidationResult {
-    validate_comprehensive_full_with_phase_f(
+fn run(schema: &OrbitalSchema) -> orbital_compiler::phases::validation::ValidationResult {
+    validate_comprehensive_full(
         schema,
         None,
         SchemaLanguage::English,
         orbital_compiler::embedded::ServiceRegistryData::default(),
-        strict,
     )
 }
 
@@ -165,6 +162,7 @@ fn schema_for_f1(strict_target_event: &str) -> OrbitalSchema {
         version: Some("0.1.0".to_string()),
         description: None,
         orbitals: vec![Orbital {
+            types: None,
             name: "TestOrbital".to_string(),
             uses: None,
             expects: None,
@@ -190,7 +188,7 @@ fn schema_for_f1(strict_target_event: &str) -> OrbitalSchema {
 #[test]
 fn f1_strict_mode_reports_missing_required_in_errors() {
     let schema = schema_for_f1("USER_SAVED");
-    let result = run(&schema, true);
+    let result = run(&schema);
     let hit = result
         .errors
         .iter()
@@ -202,25 +200,8 @@ fn f1_strict_mode_reports_missing_required_in_errors() {
     );
 }
 
-#[test]
-fn f1_lenient_mode_still_records_missing_required() {
-    // The current `ValidationError::warning` shim produces an Error-severity
-    // diagnostic regardless, so the missing field still surfaces. The flag
-    // is the gate for the future when warnings become real warnings.
-    let schema = schema_for_f1("USER_SAVED");
-    let result = run(&schema, false);
-    let hit = result
-        .errors
-        .iter()
-        .chain(result.warnings.iter())
-        .any(|e| matches!(e.code, ErrorCode::EmitPayloadMissingRequired));
-    assert!(
-        hit,
-        "F.1 lenient: expected EmitPayloadMissingRequired diagnostic. errors={:?} warnings={:?}",
-        result.errors.iter().map(|e| &e.code).collect::<Vec<_>>(),
-        result.warnings.iter().map(|e| &e.code).collect::<Vec<_>>()
-    );
-}
+// (The former "lenient mode" test was removed with the phase_f_strict
+// toggle: there was never a second severity behind it.)
 
 // ============================================================================
 // F.2 — cross-emitter declared-payload consensus
@@ -282,6 +263,7 @@ fn schema_with_two_emitters(
     // second orbital with a `Listener` trait reaches every L2.6 narrowing
     // arm for the test case.
     let listener_orbital = Orbital {
+        types: None,
         name: "ListenerOrbital".to_string(),
         uses: None,
         expects: None,
@@ -326,6 +308,7 @@ fn schema_with_two_emitters(
         description: None,
         orbitals: vec![
             Orbital {
+                types: None,
                 name: "TestOrbital".to_string(),
                 uses: None,
                 expects: None,
@@ -371,7 +354,7 @@ fn f2_mismatched_emitters_warns() {
         ],
         vec![payload_field("a", "string", true)],
     );
-    let result = run(&schema, true);
+    let result = run(&schema);
     let hit = result
         .errors
         .iter()
@@ -391,7 +374,7 @@ fn f2_matching_emitters_pass() {
         vec![payload_field("a", "string", true)],
         vec![payload_field("a", "string", true)],
     );
-    let result = run(&schema, true);
+    let result = run(&schema);
     let hit = result
         .errors
         .iter()
@@ -447,6 +430,7 @@ fn schema_with_default(field: FieldDefinition) -> OrbitalSchema {
         version: Some("0.1.0".to_string()),
         description: None,
         orbitals: vec![Orbital {
+            types: None,
             name: "TestOrbital".to_string(),
             uses: None,
             expects: None,
@@ -487,7 +471,7 @@ fn f3_default_outside_values_errors() {
         synonyms: None,
     };
     let schema = schema_with_default(field);
-    let result = run(&schema, true);
+    let result = run(&schema);
     let hit = result
         .errors
         .iter()
@@ -517,7 +501,7 @@ fn f3_default_inside_values_passes() {
         synonyms: None,
     };
     let schema = schema_with_default(field);
-    let result = run(&schema, true);
+    let result = run(&schema);
     let hit = result
         .errors
         .iter()
@@ -548,7 +532,7 @@ fn f3_no_values_passes() {
         synonyms: None,
     };
     let schema = schema_with_default(field);
-    let result = run(&schema, true);
+    let result = run(&schema);
     let hit = result
         .errors
         .iter()

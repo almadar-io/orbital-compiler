@@ -165,11 +165,6 @@ pub struct ValidationContext {
     /// contracts), loaded from services-registry.json for call-service
     /// validation — one struct so the two can never drift.
     pub service_registry: crate::embedded::ServiceRegistryData,
-    /// Phase F: when true, the F-series validators escalate the
-    /// declared-vs-actual emit drift class (`EmitPayloadMissingRequired`)
-    /// from warning to hard error. Defaults to true so the validator's
-    /// default mode catches the regression class that produced G31.
-    pub phase_f_strict: bool,
 }
 
 /// Domain type for context-aware validation
@@ -197,7 +192,6 @@ impl Default for ValidationContext {
             page_init_payloads: std::collections::HashMap::new(),
             extra_patterns: None,
             service_registry: crate::embedded::ServiceRegistryData::default(),
-            phase_f_strict: true,
         }
     }
 }
@@ -435,38 +429,20 @@ pub fn validate_comprehensive_with_options(
 }
 
 /// Run comprehensive validation with all options including service action registry.
+// `validate_comprehensive_full_with_phase_f` (the `phase_f_strict: bool`
+// toggle) was removed 2026-09-02 along with the legacy `warning()` severity
+// alias: the toggle only selected between two spellings of the same blocking
+// severity, so "non-strict" was never a real mode.
 pub fn validate_comprehensive_full(
     schema: &OrbitalSchema,
     extra_patterns: Option<ExtraPatterns>,
     schema_language: SchemaLanguage,
     service_registry: crate::embedded::ServiceRegistryData,
 ) -> ValidationResult {
-    validate_comprehensive_full_with_phase_f(
-        schema,
-        extra_patterns,
-        schema_language,
-        service_registry,
-        true,
-    )
-}
-
-/// Run comprehensive validation with explicit Phase F strict toggle.
-///
-/// `phase_f_strict = true` (the default) escalates the F.1
-/// declared-vs-actual emit drift class to a hard error. Pass `false` from
-/// tests that need to verify the legacy warn-only behavior.
-pub fn validate_comprehensive_full_with_phase_f(
-    schema: &OrbitalSchema,
-    extra_patterns: Option<ExtraPatterns>,
-    schema_language: SchemaLanguage,
-    service_registry: crate::embedded::ServiceRegistryData,
-    phase_f_strict: bool,
-) -> ValidationResult {
     let mut ctx = ValidationContext::new();
     ctx.extra_patterns = extra_patterns;
     ctx.schema_language = schema_language;
     ctx.service_registry = service_registry;
-    ctx.phase_f_strict = phase_f_strict;
 
     // Detect domain from schema metadata or orbital context
     if let Some(orbitals) = schema.orbitals.first() {
@@ -509,7 +485,7 @@ pub fn validate_comprehensive_full_with_phase_f(
     // Phase 5b: V2 Phase 0 P0.7 — emit-literal payload shape checks
     // (missing required, extra field, primitive type mismatch). Runs
     // after effect because it reuses emit-declaration data effect
-    // collected via `trait_def.emits`. Warn-only severity.
+    // collected via `trait_def.emits`. Error severity.
     emit_payload::validate_all_emit_payloads(schema, &mut ctx);
 
     // Phase 5b.1: G6 Rule 1 — every emit/event payloadSchema field name must
@@ -519,7 +495,7 @@ pub fn validate_comprehensive_full_with_phase_f(
 
     // Phase 5c: Phase F.2 cross-emitter declared-payload consensus.
     // Compares every event's declared payload across all traits that emit
-    // it; warn when two emitters disagree on the field list.
+    // it; errors when two emitters disagree on the field list.
     cross_emitter::validate_cross_emitter(schema, &mut ctx);
 
     // Phase 5d: Listen-trigger-matched backstop. Runs POST-inline so the
@@ -528,9 +504,9 @@ pub fn validate_comprehensive_full_with_phase_f(
     // is a silent dead wire. Error severity.
     ctx.merge(cross_orbital::validate_listen_triggers(schema));
 
-    // Phase 5e: Gate C of the type-integrity campaign — non-blocking
-    // deprecation warnings for generic types (json / shapeless object / any)
-    // in declaration positions. Flips to a hard error post-migration.
+    // Phase 5e: Gate C of the type-integrity campaign — hard error for
+    // generic types (json / shapeless object / any) in declaration
+    // positions.
     generic_types::validate_generic_types(schema, &mut ctx);
 
     // Phase 5f: increment 3-I defensive sweep — a `$`-prefixed payload

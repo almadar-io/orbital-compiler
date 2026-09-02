@@ -14,7 +14,7 @@
 //!   the same event (authored forward vs resolved runtime name).
 //! - `ORB_ID_KIND_MISMATCH` (error) — an id's prefix kind (`id_kind_of`)
 //!   disagrees with the position it occupies.
-//! - `ORB_ID_LEDGER_ORPHAN` (warning) — a ledger row no node carries (stale).
+//! - `ORB_ID_LEDGER_ORPHAN` (error) — a ledger row no node carries (stale).
 //!
 //! One id-index pass over the declarations builds the arena (`id → kind + name`
 //! via declared nodes ∪ ledger); a single reference walk then applies rules 1–3
@@ -584,7 +584,7 @@ pub fn validate_id_integrity(schema: &OrbitalSchema, ctx: &mut ValidationContext
                         .as_deref()
                         .is_some_and(|p| index.trait_ids.contains(p)));
             if !carried {
-                result.add_error(ValidationError::phase_f_warning(
+                result.add_error(ValidationError::error(
                     ErrorCode::OrbIdLedgerOrphan,
                     format!("ledger.entries[{}]", entry.id),
                     format!(
@@ -831,7 +831,7 @@ mod tests {
     }
 
     #[test]
-    fn ledger_orphan_fires_as_warning() {
+    fn ledger_orphan_fires_as_error() {
         let mut v = healthy_json();
         v["ledger"]["entries"]["ent_GHOST00000000000000000000"] = serde_json::json!({
             "id": "ent_GHOST00000000000000000000",
@@ -848,9 +848,8 @@ mod tests {
             "codes: {:?}",
             id_codes(&result)
         );
-        // Orphan must be a non-blocking warning (does not fail validate).
-        assert!(result.is_valid(), "orphan must not block validation");
-        assert_eq!(result.warning_count(), 1, "orphan lands in warnings");
+        assert!(!result.is_valid(), "orphan must block validation");
+        assert_eq!(result.error_count(), 1, "orphan lands in errors");
     }
 
     #[test]

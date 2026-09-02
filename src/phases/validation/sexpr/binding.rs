@@ -58,7 +58,7 @@ pub(crate) fn validate_binding(
             // Entity binding: @EntityName
             if !known_entities.is_empty() && !known_entities.contains(root) {
                 result.add_error(
-                    ValidationError::warning(
+                    ValidationError::error(
                         ErrorCode::SExprUnknownEntity,
                         path,
                         format!("Entity '{}' in binding may not exist", root),
@@ -69,7 +69,7 @@ pub(crate) fn validate_binding(
         }
         _ => {
             result.add_error(
-                ValidationError::warning(
+                ValidationError::error(
                     ErrorCode::BindingUnknownRoot,
                     path,
                     format!("Unknown binding root: '@{}'", root),
@@ -94,7 +94,7 @@ pub(crate) fn validate_binding(
     // @state and @now should not have paths
     if (root == "state" || root == "now") && parts.len() > 1 {
         result.add_error(
-            ValidationError::warning(
+            ValidationError::error(
                 ErrorCode::BindingStateNoPath,
                 path,
                 format!("@{} should not have a path", root),

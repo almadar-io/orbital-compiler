@@ -58,7 +58,7 @@ pub fn validate_cross_orbital(schema: &OrbitalSchema, ctx: &mut ValidationContex
     if let Some(version) = &schema.version {
         if version.is_empty() {
             result.add_error(
-                ValidationError::warning(
+                ValidationError::error(
                     ErrorCode::SchemaEmptyVersion,
                     "version",
                     "Schema version should not be empty",
@@ -81,13 +81,13 @@ pub fn validate_cross_orbital(schema: &OrbitalSchema, ctx: &mut ValidationContex
     result.merge(validate_external_emit_payloads(schema));
 
     // COMP-7: validate that cross-trait override wires only touch emits
-    // declared `scope: 'external'`. Staged as a warning per Phase 2.A.
+    // declared `scope: 'external'`. Error severity.
     result.merge(validate_scope_boundary(schema));
 
     // COMP-9: validate that every `type: 'relation'` field's target entity
-    // resolves to an entity declared in the same schema. Staged as a warning
-    // per Phase 2.A; the entity-scope validator still emits the blocking
-    // `ORB_E_INVALID_RELATION` error for the same condition.
+    // resolves to an entity declared in the same schema. Error severity; the
+    // entity-scope validator also emits `ORB_E_INVALID_RELATION` for the
+    // same condition.
     result.merge(validate_relation_targets(schema));
 
     // Cross-orbital trait isolation (gap #13). Listens integrity (error):
@@ -147,6 +147,7 @@ mod tests {
             version: Some("1.0.0".to_string()),
             description: None,
             orbitals: vec![Orbital {
+                types: None,
                 name: "TaskOrbital".to_string(),
                 uses: None,
                 expects: None,

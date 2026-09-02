@@ -7,7 +7,7 @@ use orbital_core::schema::{
     ConfigProvenanceRecord, EntityDefinition, EntityRef, FieldDefinition, FieldType, ListenSource,
     Orbital, PayloadField, SExpression, TraitDefinition, TraitReference,
 };
-use std::collections::{HashMap, HashSet};
+use std::collections::{BTreeMap, HashMap, HashSet};
 
 /// Fold an `events:` rename into the `event`-TYPED MEMBERS of a config knob
 /// value (SCAN-DETAIL-PANEL-ACTIONS-UNTAGGED-1).
@@ -924,10 +924,20 @@ pub(crate) fn rewrite_payload_entity_refs(
 /// before, byte-for-byte.
 /// `trait_def.type_args` is consumed (taken) and cleared here — it is a
 /// transient carrier and never appears in a final emitted `.orb`.
+///
+/// Gap C: when a call-site arg is absent, the chain falls through — for
+/// Entity-kind params, first to `entity_def` (the 3-I linked-entity default,
+/// unchanged), then — for ANY kind, Entity included — to the param's own
+/// declared `(name : Kind = <default>)` value, resolved through the SAME
+/// `resolve_type_arg_value` vocabulary a call-site arg uses. Only then does
+/// the sentinel survive unresolved for the sweep. This is what lets a
+/// Type-kind param validate on the declaring atom's own (parameter-less)
+/// self-test page.
 pub(crate) fn resolve_type_param_sentinels(
     trait_def: &mut TraitDefinition,
     entity_def: Option<&EntityDefinition>,
     entities_by_name: &HashMap<String, EntityDefinition>,
+    types_by_name: &BTreeMap<String, Vec<PayloadField>>,
 ) -> bool {
     let type_args = trait_def.type_args.take();
     let declared: Vec<orbital_core::schema::TraitTypeParamDef> = trait_def
@@ -940,9 +950,19 @@ pub(crate) fn resolve_type_param_sentinels(
         declared_names.insert(p.name.clone());
         let arg_value = type_args.as_ref().and_then(|m| m.get(&p.name));
         let sub = match arg_value {
-            Some(v) => resolve_type_arg_value(v, entities_by_name),
-            None if p.kind == "Entity" => entity_def.map(|e| ParamSub::Entity(e.clone())),
-            None => None,
+            Some(v) => resolve_type_arg_value(v, entities_by_name, types_by_name),
+            None => {
+                let entity_default = if p.kind == "Entity" {
+                    entity_def.map(|e| ParamSub::Entity(e.clone()))
+                } else {
+                    None
+                };
+                entity_default.or_else(|| {
+                    p.default
+                        .as_deref()
+                        .and_then(|d| resolve_type_arg_value(d, entities_by_name, types_by_name))
+                })
+            }
         };
         if let Some(sub) = sub {
             subs.insert(p.name.clone(), sub);
@@ -1072,6 +1092,11 @@ enum ParamSub {
     /// no-arg default (the trait's own `linked_entity`) — the sentinel field
     /// becomes `field_type: "object"` + the entity's flattened fields.
     Entity(EntityDefinition),
+    /// A struct-alias-typed call-site arg (`:: p PoApprovalPayload`) —
+    /// resolved against the consuming orbital's `types` map (Gap A). The
+    /// sentinel field becomes `field_type: "object"` + this flattened shape,
+    /// same treatment an Entity substitution gets.
+    Struct(Vec<PayloadField>),
 }
 
 /// The primitive type-name vocabulary a call-site type-parameter arg may
@@ -1082,23 +1107,29 @@ enum ParamSub {
 const PRIMITIVE_TYPE_ARG_NAMES: &[&str] = &[
     "string", "money", "any", "icon", "component", "email", "url", "phone", "uuid", "image",
     "node", "json", "render-ui", "relation", "int", "float", "number", "duration", "bool",
-    "boolean", "date", "datetime", "timestamp", "object", "sexpr",
+    "boolean", "date", "datetime", "timestamp", "object", "sexpr", "scalar",
 ];
 
 /// Resolve a call-site type-parameter argument's VALUE (the string the
 /// author wrote after the param name, e.g. `"string"` in `:: V string`, or
 /// `"Booking"` in `:: E Booking`) to a substitution. A primitive name is a
 /// scalar; an entity name found in `entities_by_name` is an entity
-/// substitution; anything else is unresolvable (the sentinel survives for
-/// the sweep — the value named neither a primitive nor a known entity).
+/// substitution; a struct-alias name found in `types_by_name` (Gap A) is a
+/// struct substitution; anything else is unresolvable (the sentinel survives
+/// for the sweep — the value named neither a primitive, a known entity, nor
+/// a known struct alias).
 fn resolve_type_arg_value(
     value: &str,
     entities_by_name: &HashMap<String, EntityDefinition>,
+    types_by_name: &BTreeMap<String, Vec<PayloadField>>,
 ) -> Option<ParamSub> {
     if PRIMITIVE_TYPE_ARG_NAMES.contains(&value) {
         return Some(ParamSub::Scalar(value.to_string()));
     }
-    entities_by_name.get(value).map(|e| ParamSub::Entity(e.clone()))
+    if let Some(e) = entities_by_name.get(value) {
+        return Some(ParamSub::Entity(e.clone()));
+    }
+    types_by_name.get(value).map(|shape| ParamSub::Struct(shape.clone()))
 }
 
 /// Recursive worker for `resolve_type_param_sentinels`. A field whose
@@ -1154,6 +1185,14 @@ fn resolve_sentinel_fields(
                             "object".to_string()
                         };
                         field.properties = Some(entity_fields_to_payload_fields(entity));
+                    }
+                    ParamSub::Struct(shape) => {
+                        field.field_type = if is_array_sentinel {
+                            "[object]".to_string()
+                        } else {
+                            "object".to_string()
+                        };
+                        field.properties = Some(shape.clone());
                     }
                 }
                 changed = true;
@@ -1237,13 +1276,20 @@ pub(crate) fn resolve_orbital_type_param_sentinels(orbital: &mut Orbital) {
             }
         }
     }
+    // Gap A: cloned ahead of the mutable trait-iteration below (both would
+    // otherwise borrow `orbital`) — this orbital's own `types` map is the
+    // ONLY scope a `::`/default struct-alias arg resolves against; a sibling
+    // orbital's aliases are not visible here (matches how `entities` above is
+    // scoped to this orbital's own + auxiliary entities, not the schema).
+    let types_by_name: BTreeMap<String, Vec<PayloadField>> =
+        orbital.types.clone().unwrap_or_default();
     for tr in orbital.traits.iter_mut() {
         if let TraitReference::Inline(trait_def) = tr {
             let entity_def = trait_def
                 .linked_entity
                 .as_deref()
                 .and_then(|name| entities.get(name));
-            resolve_type_param_sentinels(trait_def, entity_def, &entities);
+            resolve_type_param_sentinels(trait_def, entity_def, &entities, &types_by_name);
         }
     }
 }

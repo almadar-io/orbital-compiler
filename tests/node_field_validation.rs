@@ -12,8 +12,8 @@
 //! - a computed value into a node field → nothing constructed (no
 //!   statically-checkable consequence; `ORB_RUI_NODE_FIELD_UNCHECKED_CONTENT`
 //!   was removed — a no-consequence finding, never blocking)
-//! - a pattern literal into a NON-node field → non-blocking
-//!   `ORB_RUI_RENDERABLE_IN_GENERIC_FIELD` (anti-loophole; flips with Gate C)
+//! - a pattern literal into a NON-node field → blocking
+//!   `ORB_RUI_RENDERABLE_IN_GENERIC_FIELD` (anti-loophole)
 
 use orbital_compiler::phases::validation::{render_ui, ValidationContext};
 use orbital_core::schema::OrbitalSchema;
@@ -199,18 +199,17 @@ fn computed_value_into_node_field_is_silent() {
 
 #[test]
 fn pattern_literal_into_non_node_field_is_the_anti_loophole() {
-    let (errors, warnings) = run(schema_with_effects(
+    let (errors, _warnings) = run(schema_with_effects(
         node_scalar_field(),
         json!([["set", "@entity.rows", [
             { "type": "card", "variant": "bordered", "children": [] }
         ]]]),
     ));
-    assert!(errors.is_empty(), "phase-F while the corpus migrates, got {errors:?}");
     assert!(
-        warnings
+        errors
             .iter()
-            .any(|w| w == "ORB_RUI_RENDERABLE_IN_GENERIC_FIELD"),
-        "expected the anti-loophole warning, got {warnings:?}"
+            .any(|e| e == "ORB_RUI_RENDERABLE_IN_GENERIC_FIELD"),
+        "expected the anti-loophole error, got {errors:?}"
     );
 }
 
@@ -223,18 +222,15 @@ fn map_of_node_is_renderable_and_its_leaves_are_checked() {
         json!({ "name": "view", "type": "object",
                 "items": { "type": "array", "items": { "type": "node" } } });
 
-    let (errors, warnings) = run(schema_with_effects(
+    let (errors, _warnings) = run(schema_with_effects(
         map_field.clone(),
         json!([["set", "@entity.view", {
             "knight": [{ "type": "typography", "variant": "body", "content": "hi" }]
         }]]),
     ));
-    assert!(errors.is_empty(), "a valid map of node must be clean, got {errors:?}");
     assert!(
-        !warnings
-            .iter()
-            .any(|w| w == "ORB_RUI_RENDERABLE_IN_GENERIC_FIELD"),
-        "a Map-of-node field is node-typed, not a generic loophole, got {warnings:?}"
+        errors.is_empty(),
+        "a Map-of-node field is node-typed, not a generic loophole, got {errors:?}"
     );
 
     // The leaves are really checked — a bogus pattern inside a map value errors
@@ -256,19 +252,16 @@ fn canvas_shape_data_does_not_false_positive() {
     // Canvas shapes share the `grid` name with a real pattern; the detector's
     // second condition (a registered prop of that pattern) must keep shape
     // data out of the anti-loophole arm.
-    let (errors, warnings) = run(schema_with_effects(
+    let (errors, _warnings) = run(schema_with_effects(
         node_scalar_field(),
         json!([["set", "@entity.rows", [
             { "type": "circle", "x": 10, "y": 20, "radius": 5 },
             { "type": "grid", "xStep": 1, "yStep": 1 }
         ]]]),
     ));
-    assert!(errors.is_empty(), "got {errors:?}");
     assert!(
-        !warnings
-            .iter()
-            .any(|w| w == "ORB_RUI_RENDERABLE_IN_GENERIC_FIELD"),
-        "canvas shape data must not trip the anti-loophole arm, got {warnings:?}"
+        errors.is_empty(),
+        "canvas shape data must not trip the anti-loophole arm, got {errors:?}"
     );
 }
 

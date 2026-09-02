@@ -108,6 +108,7 @@ pub fn apply_event_wiring(
                     scope: Some(EventScope::External),
                     payload_schema: None,
                     event_id: None,
+                    scope_overridden: None,
                 });
             }
         }

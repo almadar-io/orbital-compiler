@@ -280,7 +280,7 @@ pub(crate) fn validate_sexpr_with_locals(
                                     .to_string()
                             });
                         result.add_error(
-                            ValidationError::warning(
+                            ValidationError::error(
                                 ErrorCode::SExprInvalidOperator,
                                 path,
                                 format!("Unknown operator: '{}'", operator),

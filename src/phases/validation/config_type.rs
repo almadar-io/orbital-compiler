@@ -289,23 +289,19 @@ fn knob_prop_type_union(trait_def: &TraitDefinition, value_str: &str) -> Option<
 /// `retag_callsite_payload` — so this arm is live defense for the case
 /// where the field is declared LOCALLY, not a no-op).
 ///
-/// Non-blocking (`phase_f_warning`) pending a corpus-impact measurement: 508
-/// hits across 1200 files, ALL of which fall into two systemic, largely
-/// benign classes rather than 508 distinct bugs — (1) 411 cases where the
-/// TARGET RENDER PATTERN accepts a wider type than the wrapping atom's own
-/// config-knob declares (`stat-display.value` is registry-typed `[number,
-/// string]`, but atoms wrap it behind a knob declared `string`-only; ditto
-/// `typography.content` against `node`) — `set_value_type_compatible` has no
-/// "number renders fine as a string/node" widening (unlike its `date` family
-/// arm), and adding one is an `orbital-core` change outside this file's
-/// ownership; (2) 96 cases where `@entity.focusedRow.<field>` resolves to
-/// `object` because `focusedRow` is declared a schemaless `object` (no
-/// `properties`) on `std-thread.lolo` — `resolve_binding_type` conservatively
-/// stops at the container's own type when it can't see inside, which is
-/// correct behavior, not a resolver bug, but leaves nested access through it
-/// unresolvable to a leaf type. Escalate to error once one of those is
-/// addressed (widen the knob declarations, or add `properties` to the
-/// schemaless container) and the corpus is reverified at 0.
+/// **HARD ERROR.** Measured at 508 hits across 1200 files, ALL of which fell
+/// into two systemic, largely benign classes rather than 508 distinct bugs —
+/// (1) 411 cases where the TARGET RENDER PATTERN accepts a wider type than
+/// the wrapping atom's own config-knob declares (`stat-display.value` is
+/// registry-typed `[number, string]`, but atoms wrap it behind a knob
+/// declared `string`-only; ditto `typography.content` against `node`) —
+/// `set_value_type_compatible` has no "number renders fine as a
+/// string/node" widening (unlike its `date` family arm); (2) 96 cases where
+/// `@entity.focusedRow.<field>` resolves to `object` because `focusedRow` is
+/// declared a schemaless `object` (no `properties`) on `std-thread.lolo` —
+/// `resolve_binding_type` conservatively stops at the container's own type
+/// when it can't see inside, which is correct behavior, not a resolver bug,
+/// but leaves nested access through it unresolvable to a leaf type.
 fn check_reference_binding_type(
     field: &ConfigField,
     value_str: &str,
@@ -386,7 +382,7 @@ fn check_reference_binding_type(
             "event-payload"
         };
         result.add_error(
-            ValidationError::phase_f_warning(
+            ValidationError::error(
                 ErrorCode::TraitConfigShapeMismatch,
                 path,
                 format!(
@@ -849,12 +845,9 @@ fn check_config_default_shape(
     // the reason `Map` could not be offered as the honest replacement for
     // `json` (retyping into an unchecked type is laundering, not typing).
     //
-    // ⚠️ WARN-ONLY for the measurement pass, same discipline as the named-struct
-    // arm below: 56 Map knobs exist corpus-wide and none has ever been checked,
-    // so the class counts come first and the flip to `error` comes after.
     if field.field_type.starts_with("Map<") {
         let SExpression::Object(entries) = default else {
-            result.warnings.push(ValidationError::phase_f_warning(
+            result.add_error(ValidationError::error(
                 ErrorCode::TraitConfigShapeMismatch,
                 path,
                 format!(
@@ -865,6 +858,7 @@ fn check_config_default_shape(
             return result;
         };
         if let Some(value_schema) = &field.items {
+            let ancestors = root_ancestor_map(field, Some(value_schema));
             let mut probe = ValidationResult::new();
             for (key, entry) in entries {
                 probe.merge(check_field_def_shape(
@@ -872,12 +866,11 @@ fn check_config_default_shape(
                     entry,
                     &format!("{}.{}", path, key),
                     orbital_events,
+                    &ancestors,
                 ));
             }
             for e in probe.errors {
-                result
-                    .warnings
-                    .push(ValidationError::phase_f_warning(e.code, e.path, e.message));
+                result.add_error(ValidationError::error(e.code, e.path, e.message));
             }
             result.warnings.extend(probe.warnings);
         }
@@ -905,6 +898,7 @@ fn check_config_default_shape(
             return result;
         };
         if let Some(item_schema) = &field.items {
+            let ancestors = root_ancestor_map(field, Some(item_schema));
             for (i, elem) in items.iter().enumerate() {
                 let elem_path = format!("{}[{}]", path, i);
                 result.merge(check_field_def_shape(
@@ -912,6 +906,7 @@ fn check_config_default_shape(
                     elem,
                     &elem_path,
                     orbital_events,
+                    &ancestors,
                 ));
             }
         }
@@ -950,11 +945,29 @@ fn check_config_default_shape(
     // member missing) is deliberately not added in the same change — one new
     // rule at a time, so a corpus movement has one attributable cause.
     //
-    // ⚠️ WARN-ONLY for the measurement pass. 453 knobs corpus-wide carry
-    // `properties`; escalating before counting the classes is how a narrowing
-    // ships blind. Flip these to `error` once measured.
     if let Some(props) = &field.properties {
         if let SExpression::Object(map) = default {
+            // A property can self-reference the OWNING alias (`type MenuItem
+            // = { subMenu : [MenuItem] }` on a knob declared `lighting :
+            // MenuItem`) — the ancestor for that case is THIS struct itself,
+            // synthesized here since a `ConfigField` isn't a `FieldDefinition`
+            // (they're structurally parallel but distinct wire types).
+            let root_struct = FieldDefinition {
+                name: None,
+                field_type: FieldType::Object,
+                required: None,
+                primary_key: None,
+                unique: None,
+                default: None,
+                values: None,
+                relation: None,
+                items: None,
+                properties: Some(props.clone()),
+                intrinsic: None,
+                description: None,
+                synonyms: None,
+            };
+            let ancestors = root_ancestor_map(field, Some(&root_struct));
             let mut probe = ValidationResult::new();
             for (key, prop_schema) in props {
                 if let Some(prop_value) = map.get(key) {
@@ -963,13 +976,12 @@ fn check_config_default_shape(
                         prop_value,
                         &format!("{}.{}", path, key),
                         orbital_events,
+                        &ancestors,
                     ));
                 }
             }
             for e in probe.errors {
-                result
-                    .warnings
-                    .push(ValidationError::phase_f_warning(e.code, e.path, e.message));
+                result.add_error(ValidationError::error(e.code, e.path, e.message));
             }
         }
     }
@@ -978,15 +990,67 @@ fn check_config_default_shape(
     result
 }
 
+/// The bare alias-name candidate a `ConfigField.field_type` string names,
+/// stripping array (`[X]` → `X`) and Map-value (`Map<K,V>` → `V`) wrapper
+/// syntax. A harmless no-op key when the config field isn't actually
+/// recursive — the returned name is only ever consulted by a back-reference
+/// that spells the SAME name, and a non-recursive field's descendants never
+/// carry one.
+fn config_field_root_alias_name(field_type: &str) -> &str {
+    let trimmed = field_type.trim();
+    if let Some(inner) = trimmed.strip_prefix("Map<").and_then(|s| s.strip_suffix('>')) {
+        return inner.rsplit(',').next().map(str::trim).unwrap_or(inner);
+    }
+    trimmed
+        .strip_prefix('[')
+        .and_then(|s| s.strip_suffix(']'))
+        .unwrap_or(trimmed)
+}
+
+/// Seed `check_field_def_shape`'s ancestor map from the ONE `.orb` position a
+/// struct alias's own NAME survives to — the declaring `ConfigField`'s
+/// `field_type` string itself. Everything the field's `items`/`properties`
+/// carry below that is anonymous (the alias name is erased by lowering), so
+/// this can only ever discover the field's OWN root alias, never a nested
+/// one — matching `check_field_def_shape`'s doc comment on the limit.
+fn root_ancestor_map<'a>(
+    field: &ConfigField,
+    root_schema: Option<&'a FieldDefinition>,
+) -> HashMap<String, &'a FieldDefinition> {
+    let mut map = HashMap::new();
+    if let Some(schema) = root_schema {
+        let name = config_field_root_alias_name(&field.field_type);
+        if !name.is_empty() {
+            map.insert(name.to_string(), schema);
+        }
+    }
+    map
+}
+
 /// Walk a `FieldDefinition` (used by `ConfigField.items` /
 /// `ConfigField.properties[k]`) against a concrete `SExpression`. Same
 /// rules as `check_config_default_shape` but typed against
 /// `FieldDefinition` instead of `ConfigField`.
+///
+/// `ancestors`: alias name → the `FieldDefinition` it names, seeded by the
+/// caller from the outermost `ConfigField.field_type` (the one position that
+/// still carries the alias's NAME — `resolve_config_field_shape`'s "[Name]"/
+/// "Map<K,Name>" string; everything below is the anonymous, name-erased
+/// `.orb` object/array carrier). A recursive struct's back-reference
+/// (`FieldType::Union`, `values: [Name]`, `properties: None`) re-enters
+/// `ancestors[Name]` instead of skipping — the depth-3 literal check (feature
+/// test 5) needs this to actually walk INTO the recursion rather than
+/// stopping at "nothing carried to check". Only names discoverable at the
+/// outermost declaration are ever in the map (a config field's `field_type`
+/// string is the only wire-format position a struct alias's OWN name
+/// survives to); a back-reference to any other name still falls back to
+/// "nothing to check", never panics.
 fn check_field_def_shape(
     schema: &FieldDefinition,
     value: &SExpression,
     path: &str,
     orbital_events: &HashSet<String>,
+    ancestors: &HashMap<String, &FieldDefinition>,
 ) -> ValidationResult {
     let mut result = ValidationResult::new();
     // Same computed-value deferral as the top-level default: a per-element
@@ -1002,7 +1066,17 @@ fn check_field_def_shape(
         // checking at all is what `json` did.
         FieldType::Union => {
             let (Some(names), Some(variants)) = (&schema.values, &schema.properties) else {
-                return result; // by-name recursive back-reference: nothing carried to check
+                // By-name recursive back-reference. Re-enter the ancestor
+                // whose expansion this reference names, if the outermost
+                // declaration made it discoverable; otherwise there is
+                // genuinely nothing carried to check — skip, never panic.
+                let Some(names) = &schema.values else {
+                    return result;
+                };
+                let Some(ancestor) = names.first().and_then(|n| ancestors.get(n)) else {
+                    return result;
+                };
+                return check_field_def_shape(ancestor, value, path, orbital_events, ancestors);
             };
             let SExpression::Object(map) = value else {
                 result.add_error(ValidationError::error(
@@ -1017,7 +1091,13 @@ fn check_field_def_shape(
             };
             match select_union_variant(map, names, variants) {
                 VariantChoice::Matched(chosen) => {
-                    result.merge(check_field_def_shape(chosen, value, path, orbital_events));
+                    result.merge(check_field_def_shape(
+                        chosen,
+                        value,
+                        path,
+                        orbital_events,
+                        ancestors,
+                    ));
                     // A union variant is a CLOSED shape — that is the whole
                     // point of discriminating. Elsewhere an undeclared key is
                     // ignored (only declared-and-present keys are checked),
@@ -1082,6 +1162,7 @@ fn check_field_def_shape(
                         elem,
                         &elem_path,
                         orbital_events,
+                        ancestors,
                     ));
                 }
             }
@@ -1123,6 +1204,7 @@ fn check_field_def_shape(
                                 prop_value,
                                 &prop_path,
                                 orbital_events,
+                                ancestors,
                             ));
                         }
                         None if prop_schema.required.unwrap_or(false) => {
@@ -2129,9 +2211,8 @@ mod struct_event_field_tests {
 /// C-CONFIG-REF-TYPE-HOLE: `@entity.X` / `@payload.X` on a post-inline
 /// config field default, checked against the field's declared type (or,
 /// when a direct pattern-prop site is found, the pattern registry's full
-/// `PropSchema.types` union — see `knob_prop_type_union`). Non-blocking
-/// (`phase_f_warning`): assertions read `result.warnings`, never
-/// `result.errors`.
+/// `PropSchema.types` union — see `knob_prop_type_union`). Hard error:
+/// assertions read `result.errors`.
 #[cfg(test)]
 mod reference_binding_type_tests {
     use super::*;
@@ -2152,9 +2233,9 @@ mod reference_binding_type_tests {
         ctx.result
     }
 
-    fn mismatch_warnings(result: &ValidationResult) -> Vec<&ValidationError> {
+    fn mismatch_errors(result: &ValidationResult) -> Vec<&ValidationError> {
         result
-            .warnings
+            .errors
             .iter()
             .filter(|e| e.code == ErrorCode::TraitConfigShapeMismatch && e.message.contains("resolves to"))
             .collect()
@@ -2197,16 +2278,16 @@ mod reference_binding_type_tests {
         // site in the tree — falls back to the collapsed declared type, which
         // genuinely disagrees.
         let result = run(&entity_trait_schema("string", "@entity.count", "[]"));
-        let warns = mismatch_warnings(&result);
-        assert_eq!(warns.len(), 1, "{:?}", result.warnings);
-        assert!(result.errors.is_empty(), "must be non-blocking: {:?}", result.errors);
+        let errs = mismatch_errors(&result);
+        assert_eq!(errs.len(), 1, "{:?}", result.errors);
+        assert!(result.warnings.is_empty(), "must be blocking: {:?}", result.warnings);
     }
 
     #[test]
     fn entity_string_field_on_string_knob_is_silent() {
         // The negative pairing: same shape, compatible types.
         let result = run(&entity_trait_schema("string", "@entity.title", "[]"));
-        assert!(mismatch_warnings(&result).is_empty(), "{:?}", result.warnings);
+        assert!(mismatch_errors(&result).is_empty(), "{:?}", result.errors);
     }
 
     #[test]
@@ -2220,9 +2301,9 @@ mod reference_binding_type_tests {
         let effect = r#"["render-ui", "main", { "type": "stat-display", "value": "@entity.count", "label": "Total" }]"#;
         let result = run(&entity_trait_schema("string", "@entity.count", effect));
         assert!(
-            mismatch_warnings(&result).is_empty(),
+            mismatch_errors(&result).is_empty(),
             "pattern union must widen past the collapsed knob type: {:?}",
-            result.warnings
+            result.errors
         );
     }
 
@@ -2240,7 +2321,7 @@ mod reference_binding_type_tests {
         // still exercises the narrow-union path this test exists to pin.
         let effect = r#"["render-ui", "main", { "type": "typography", "align": "@entity.count" }]"#;
         let result = run(&entity_trait_schema("string", "@entity.count", effect));
-        assert_eq!(mismatch_warnings(&result).len(), 1, "{:?}", result.warnings);
+        assert_eq!(mismatch_errors(&result).len(), 1, "{:?}", result.errors);
     }
 
     fn payload_trait_schema(field_type: &str, payload_type: &str, default_ref: &str) -> String {
@@ -2273,14 +2354,161 @@ mod reference_binding_type_tests {
         // through the Reference-merge `retag_callsite_payload` pass, since
         // there is no `ref` here) is a live, checkable case.
         let result = run(&payload_trait_schema("string", "number", "@payload.amount"));
-        let warns = mismatch_warnings(&result);
-        assert_eq!(warns.len(), 1, "{:?}", result.warnings);
-        assert!(result.errors.is_empty(), "must be non-blocking: {:?}", result.errors);
+        let errs = mismatch_errors(&result);
+        assert_eq!(errs.len(), 1, "{:?}", result.errors);
+        assert!(result.warnings.is_empty(), "must be blocking: {:?}", result.warnings);
     }
 
     #[test]
     fn payload_string_field_on_string_knob_is_silent() {
         let result = run(&payload_trait_schema("string", "string", "@payload.amount"));
-        assert!(mismatch_warnings(&result).is_empty(), "{:?}", result.warnings);
+        assert!(mismatch_errors(&result).is_empty(), "{:?}", result.errors);
+    }
+}
+
+#[cfg(test)]
+mod recursive_type_literal_tests {
+    use super::*;
+
+    /// A config field declared `subMenu : [MenuItem]` where `MenuItem` is
+    /// self-referential — `resolve_config_field_shape`'s wire shape:
+    /// `field_type: "[MenuItem]"`, `items` carries MenuItem's own fields, and
+    /// the recursion point is `FieldType::Union { values: ["MenuItem"],
+    /// properties: None }`.
+    fn menu_item_config_field() -> ConfigField {
+        let back_ref = FieldDefinition {
+            name: Some("subMenu".to_string()),
+            field_type: FieldType::Union,
+            required: None,
+            primary_key: None,
+            unique: None,
+            default: None,
+            values: Some(vec!["MenuItem".to_string()]),
+            relation: None,
+            items: None,
+            properties: None,
+            intrinsic: None,
+            description: None,
+            synonyms: None,
+        };
+        let sub_menu_array = FieldDefinition {
+            name: Some("subMenu".to_string()),
+            field_type: FieldType::Array,
+            required: None,
+            primary_key: None,
+            unique: None,
+            default: None,
+            values: None,
+            relation: None,
+            items: Some(Box::new(back_ref)),
+            properties: None,
+            intrinsic: None,
+            description: None,
+            synonyms: None,
+        };
+        let label = FieldDefinition {
+            name: Some("label".to_string()),
+            field_type: FieldType::String,
+            required: Some(true),
+            primary_key: None,
+            unique: None,
+            default: None,
+            values: None,
+            relation: None,
+            items: None,
+            properties: None,
+            intrinsic: None,
+            description: None,
+            synonyms: None,
+        };
+        let mut props = HashMap::new();
+        props.insert("label".to_string(), label);
+        props.insert("subMenu".to_string(), sub_menu_array);
+        let menu_item = FieldDefinition {
+            name: None,
+            field_type: FieldType::Object,
+            required: None,
+            primary_key: None,
+            unique: None,
+            default: None,
+            values: None,
+            relation: None,
+            items: None,
+            properties: Some(props),
+            intrinsic: None,
+            description: None,
+            synonyms: None,
+        };
+        ConfigField {
+            field_type: "[MenuItem]".to_string(),
+            default: None,
+            label: None,
+            description: None,
+            synonyms: None,
+            tier: None,
+            values: None,
+            items: Some(Box::new(menu_item)),
+            properties: None,
+            required: None,
+            ref_id: None,
+        }
+    }
+
+    fn item(label: &str, sub_menu: Vec<SExpression>) -> SExpression {
+        let mut obj = std::collections::HashMap::new();
+        obj.insert("label".to_string(), SExpression::String(label.to_string()));
+        obj.insert("subMenu".to_string(), SExpression::Array(sub_menu));
+        SExpression::Object(obj)
+    }
+
+    /// Feature test 5, valid half: a depth-3 literal against MenuItem
+    /// validates — the ancestor-stack re-entry actually walks INTO the
+    /// recursion (proving the Union back-reference no longer silently skips
+    /// every literal beneath it) and finds it well-formed.
+    #[test]
+    fn depth_3_literal_against_recursive_struct_validates() {
+        let field = menu_item_config_field();
+        let events = HashSet::new();
+        let depth3 = item("A", vec![item("B", vec![item("C", vec![])])]);
+        let result = check_config_default_shape(
+            &field,
+            &SExpression::Array(vec![depth3]),
+            "t.config.subMenu",
+            &events,
+            None,
+        );
+        assert!(
+            result.errors.is_empty(),
+            "a well-formed depth-3 literal must validate: {:?}",
+            result.errors
+        );
+    }
+
+    /// Feature test 5, invalid half: the same depth-3 literal with a wrong
+    /// inner field name (the deepest node's required `label` key renamed to
+    /// a typo) must error — proof the recursion re-entry actually CHECKS the
+    /// nested literal instead of only reaching it.
+    #[test]
+    fn depth_3_literal_with_wrong_inner_field_name_errors() {
+        let field = menu_item_config_field();
+        let events = HashSet::new();
+        let mut typo_leaf = std::collections::HashMap::new();
+        typo_leaf.insert(
+            "labell".to_string(), // typo: required "label" is now absent
+            SExpression::String("C".to_string()),
+        );
+        typo_leaf.insert("subMenu".to_string(), SExpression::Array(vec![]));
+        let depth3 = item("A", vec![item("B", vec![SExpression::Object(typo_leaf)])]);
+        let result = check_config_default_shape(
+            &field,
+            &SExpression::Array(vec![depth3]),
+            "t.config.subMenu",
+            &events,
+            None,
+        );
+        assert!(
+            !result.errors.is_empty(),
+            "a required field missing three levels deep must be caught, not silently skipped"
+        );
     }
 }

@@ -91,7 +91,7 @@ pub fn validate_theme_definition(theme: &ThemeDefinition, path: &str) -> Validat
     if let Some(colors) = &theme.tokens.colors {
         for (key, value) in colors {
             if !is_valid_css_color(value) {
-                result.add_error(ValidationError::warning(
+                result.add_error(ValidationError::error(
                     ErrorCode::InvalidValue,
                     format!("{}.tokens.colors.{}", path, key),
                     format!("Color value '{}' may not be a valid CSS color", value),
@@ -104,7 +104,7 @@ pub fn validate_theme_definition(theme: &ThemeDefinition, path: &str) -> Validat
     if let Some(radii) = &theme.tokens.radii {
         for (key, value) in radii {
             if !is_valid_css_length(value) {
-                result.add_error(ValidationError::warning(
+                result.add_error(ValidationError::error(
                     ErrorCode::InvalidValue,
                     format!("{}.tokens.radii.{}", path, key),
                     format!("Radius value '{}' may not be a valid CSS length", value),
@@ -117,7 +117,7 @@ pub fn validate_theme_definition(theme: &ThemeDefinition, path: &str) -> Validat
     if let Some(spacing) = &theme.tokens.spacing {
         for (key, value) in spacing {
             if !is_valid_css_length(value) {
-                result.add_error(ValidationError::warning(
+                result.add_error(ValidationError::error(
                     ErrorCode::InvalidValue,
                     format!("{}.tokens.spacing.{}", path, key),
                     format!("Spacing value '{}' may not be a valid CSS length", value),
@@ -135,7 +135,7 @@ pub fn validate_theme_definition(theme: &ThemeDefinition, path: &str) -> Validat
             if let Some(colors) = &variant.colors {
                 for (key, value) in colors {
                     if !is_valid_css_color(value) {
-                        result.add_error(ValidationError::warning(
+                        result.add_error(ValidationError::error(
                             ErrorCode::InvalidValue,
                             format!("{}.colors.{}", variant_path, key),
                             format!("Color value '{}' may not be a valid CSS color", value),

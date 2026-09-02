@@ -199,7 +199,7 @@ pub(crate) fn validate_pattern(
                             pattern_type,
                         )
                     } else {
-                        ValidationError::warning(
+                        ValidationError::error(
                             ErrorCode::RenderUIInvalidPattern,
                             path,
                             format!("Unknown pattern type: '{}'", pattern_type),
@@ -412,7 +412,7 @@ pub(crate) fn validate_pattern(
                         });
                         if !type_matches {
                             result.add_error(
-                                ValidationError::warning(
+                                ValidationError::error(
                                     ErrorCode::RenderUIPropTypeMismatch,
                                     path,
                                     format!(
@@ -587,7 +587,7 @@ pub(crate) fn validate_pattern(
                     && !obj.contains_key("event")
                 {
                     result.add_error(
-                        ValidationError::warning(
+                        ValidationError::error(
                             ErrorCode::RenderUIMissingAction,
                             path,
                             format!(
@@ -714,7 +714,7 @@ pub(crate) fn validate_pattern(
                         pattern_type,
                     )
                 } else {
-                    let mut err = ValidationError::warning(
+                    let mut err = ValidationError::error(
                         ErrorCode::RenderUIInvalidPattern,
                         path,
                         format!("Unknown pattern type: '{}'", pattern_type),

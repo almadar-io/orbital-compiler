@@ -386,7 +386,7 @@ pub fn validate_trait_definition(
         let has_render_ui = has_render_ui_effects(&trait_def.state_machine);
         if !has_render_ui {
             result.add_error(
-                ValidationError::warning(
+                ValidationError::error(
                     ErrorCode::TraitMissingRenderUI,
                     path,
                     format!(
@@ -550,7 +550,7 @@ pub fn validate_state_machine(
 
         if !has_init {
             result.add_error(
-                ValidationError::warning(
+                ValidationError::error(
                     ErrorCode::TraitMissingInitTransition,
                     format!("{}.transitions", sm_path),
                     format!(
@@ -614,7 +614,7 @@ pub fn validate_state_machine(
         for state in &sm.states {
             if !reached.contains(state.name.as_str()) {
                 result.add_error(
-                    ValidationError::warning(
+                    ValidationError::error(
                         ErrorCode::TraitStateUnreachable,
                         format!("{}.states", sm_path),
                         format!(
@@ -700,7 +700,7 @@ pub fn validate_transitions(
             && !event_names.contains(transition.event.as_str())
         {
             result.add_error(
-                ValidationError::warning(
+                ValidationError::error(
                     ErrorCode::TraitUndefinedEvent,
                     format!("{}.event", trans_path),
                     format!(
@@ -923,7 +923,7 @@ fn validate_orbital_init_fetch(
             continue;
         }
         result.add_error(
-            ValidationError::warning(
+            ValidationError::error(
                 ErrorCode::TraitInitMissingFetch,
                 format!(
                     "orbitals[{}].traits[{}].stateMachine.transitions",
@@ -1416,6 +1416,7 @@ mod tests {
 
     fn make_orbital(traits: Vec<TraitDefinition>) -> Orbital {
         Orbital {
+            types: None,
             name: "TestOrbital".to_string(),
             uses: None,
             expects: None,

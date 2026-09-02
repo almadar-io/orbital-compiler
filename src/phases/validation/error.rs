@@ -121,9 +121,8 @@ pub enum ErrorCode {
     /// eliminated from the language: renderable content belongs in `node`,
     /// structured data in inline `{ k: T }` shapes / named aliases /
     /// `Map K V`, and genuinely polymorphic atoms in declared type
-    /// parameters. Ships as a non-blocking phase-F warning while the corpus
-    /// migrates; flips to a hard error once both behavior packages report
-    /// zero occurrences.
+    /// parameters. Hard error since 2026-09-01 (both behavior packages
+    /// report zero occurrences).
     GenericTypeDeprecated,
     /// A `node`-typed entity field receives a value the validator cannot
     /// statically check (a computed expression rather than a pattern-tree
@@ -133,9 +132,8 @@ pub enum ErrorCode {
     NodeFieldUncheckedContent,
     /// A render-ui pattern literal is assigned to a field NOT typed `node`
     /// — renderable content hiding in a generic/structured field escapes
-    /// every render-ui check. Type the field `node` (or `[node]`).
-    /// Ships non-blocking while the corpus migrates; flips to an error
-    /// with Gate C.
+    /// every render-ui check. Type the field `node` (or `[node]`). Error
+    /// severity.
     RenderableContentInGenericField,
     /// Config field's `@tier "..."` annotation uses a value outside the
     /// allowed set. Allowed values: `essential`, `customization`,
@@ -302,8 +300,7 @@ pub enum ErrorCode {
     /// call_service missing service name
     EffectCallServiceMissingService,
     /// call_service names a service in neither schema.services nor the
-    /// services registry. Staged as a WARNING until lolo grows a
-    /// service-declaration form.
+    /// services registry. Error severity.
     EffectCallServiceUnknownService,
     /// call_service missing action
     EffectCallServiceMissingAction,
@@ -436,19 +433,16 @@ pub enum ErrorCode {
     /// author-time check on hand-authored `.lolo`.
     ListenTriggerUnmatched,
     /// Composing trait's override map touches an event declared `scope: 'internal'`.
-    /// Staged as a warning until all atoms declare explicit scopes (then graduates
-    /// to an error). See COMP-7 in docs/Almadar_Agent_Behaviors_Plan.md.
+    /// Error severity. See COMP-7 in docs/Almadar_Agent_Behaviors_Plan.md.
     InternalEventExposed,
     /// A `type: 'relation'` field's `relation.entity` does not resolve to any
-    /// entity declared in the same schema. Staged as a warning; the entity-scope
-    /// validator continues to emit `ORB_E_INVALID_RELATION` at error severity.
+    /// entity declared in the same schema. Error severity; the entity-scope
+    /// validator also emits `ORB_E_INVALID_RELATION` for the same condition.
     /// See COMP-9 in docs/Almadar_Agent_Behaviors_Plan.md.
     UnresolvedRelationTarget,
     /// A pattern prop tagged `kind: 'field-ref'` (scalar) or `itemKind: 'field-ref'`
     /// (array element) carries a value that does not resolve to any field on the
-    /// linked entity. Staged as a warning until the pattern-registry enrichment
-    /// is complete and atoms have stabilized; will graduate to an error once the
-    /// scope declarations in Phase 4 land. See Phase 3.2/3.3 in
+    /// linked entity. Error severity. See Phase 3.2/3.3 in
     /// docs/Almadar_Agent_Behaviors_Plan.md.
     UnresolvedPatternFieldRef,
 
@@ -504,14 +498,13 @@ pub enum ErrorCode {
     /// rejects (Gap G-LOLO-SET-OP-RETURN).
     SetReturnTypeMismatch,
     /// `(emit EVT {...})` literal payload is missing a field the event's
-    /// declared payload marks as required. Warn-only in V2 Phase 0;
-    /// escalates to error in Phase 5.
+    /// declared payload marks as required. Error severity.
     EmitPayloadMissingRequired,
     /// `(emit EVT {...})` literal carries a field that is not declared on
-    /// the event's payload schema. Warn-only.
+    /// the event's payload schema. Error severity.
     EmitPayloadExtraField,
     /// `(emit EVT {...})` literal provides a value whose primitive type
-    /// does not match the declared `PayloadField.field_type`. Warn-only.
+    /// does not match the declared `PayloadField.field_type`. Error severity.
     EmitPayloadFieldTypeMismatch,
     /// An event/emit `payloadSchema` field name is not a valid TypeScript
     /// identifier (contains a dot, space, or leading digit). Codegen turns
@@ -544,7 +537,7 @@ pub enum ErrorCode {
     /// emitted is legal, declaring one that is never emitted is not. Replaces
     /// the narrower `EmitSuccessPayloadWrapped` (persist-only) and
     /// `EmitSuccessPayloadReturnMismatch` (empty-payload-only) checks.
-    /// Non-blocking (`phase_f_warning`) pending a corpus-impact measurement.
+    /// Error severity.
     EmitPayloadNotProduced,
     /// **RETIRED (2026-08-30) — superseded by `EmitPayloadNotProduced`.** This
     /// check only recognised a wrapper on `persist create`/`update` whose type
@@ -566,7 +559,7 @@ pub enum ErrorCode {
     /// Phase F.2: two or more traits declare the same external event name in
     /// their `emits` arrays but disagree on the declared payload field list.
     /// Consumers that listen on the event will see one shape from one
-    /// emitter and a different shape from another. Warn-only.
+    /// emitter and a different shape from another. Error severity.
     CrossEmitterDeclaredPayloadMismatch,
 
     /// @entity.field references a field not present on the linked entity
@@ -581,10 +574,8 @@ pub enum ErrorCode {
     BindingEntityFieldNeverSet,
     /// `(persist update|delete <Entity> @entity)` passes the WHOLE row, so the
     /// row key never appears as an `@entity.id` read and
-    /// `BindingEntityFieldNeverSet` cannot see it. An unbound `id` makes the
-    /// write land on the row keyed by the empty string — silently, while the
-    /// entity is unpoliced; as a hard denial once an `@update` directive
-    /// forces the row to be loaded.
+    /// `BindingEntityFieldNeverSet` cannot see it. An unbound `id` resolves
+    /// empty and the runtime refuses the write outright.
     BindingPersistRowIdNeverSet,
     /// `@trait` binding with no trait name — bare `@trait` is not resolvable.
     BindingTraitMissingName,
@@ -613,9 +604,7 @@ pub enum ErrorCode {
     /// a tick write) by ≥2 distinct traits. Each mutator gets an isolated
     /// per-trait copy, so if one of the mutators' render-ui also reads the
     /// entity, it only ever sees its own trait's writes — never the others'.
-    /// Staged as a warning: nothing in the corpus declares `[shared]` yet, so
-    /// this rule doubles as the migration worklist for entities that should
-    /// be marked `[shared]`.
+    /// Error severity: add `[shared]` to the entity, or isolate the mutators.
     EntitySplitMutation,
     /// A `[shared]` entity has ≥2 distinct traits writing the SAME field.
     /// Coupled mechanics writing one field must be one ordered pipeline, not
@@ -627,14 +616,12 @@ pub enum ErrorCode {
     SharedEntityRenderAuthority,
     /// A trait runs a non-`Cron` tick (frame/duration interval) against a
     /// `Persistent` linked entity. Corpus-facing backstop mirroring the lolo
-    /// L1 tick guards; staged as a warning because 5 existing std atoms
-    /// (`std-game-clock`, `std-cooldown`, `std-data-erasure`, `std-lifecycle`,
-    /// `std-reminder-scheduler`) trip it today and are migrated separately.
+    /// L1 tick guards. Error severity.
     TickRequiresRuntime,
     /// A non-`Cron` tick effect calls a server-async operator (the canonical
     /// registry's `std-agent` category — `agent/generate`, `agent/invoke`,
     /// etc.). Repeated per-tick LLM/agent calls can pile up faster than they
-    /// resolve. Staged as a warning pending a corpus re-classification pass.
+    /// resolve. Error severity.
     TickAsyncEffect,
 
     // =========================================================================
@@ -793,7 +780,7 @@ pub enum ErrorCode {
     /// position it occupies (e.g. an `ent_` id sitting in a trait `refId`).
     OrbIdKindMismatch,
     /// A ledger row whose id no node in the schema carries — a stale row left
-    /// behind after its node was removed. Warning severity.
+    /// behind after its node was removed. Error severity.
     OrbIdLedgerOrphan,
     /// One event id is declared by two or more DIFFERENT traits in the same
     /// orbital (`stateMachine.events[].id` / `emits[].eventId`). Ids are the
@@ -1430,35 +1417,14 @@ impl ValidationError {
         }
     }
 
-    /// Create a new "warning". Intentionally identical to `error()` — every
-    /// validator diagnostic is now a blocking error. The `warning` constructor
-    /// is kept so existing call sites still compile, but it no longer produces
-    /// a non-blocking issue: the validator has zero non-error output.
-    pub fn warning(code: ErrorCode, path: impl Into<String>, message: impl Into<String>) -> Self {
-        Self::error(code, path, message)
-    }
-
-    /// Phase F: a true non-blocking warning, used by the heuristic checks
-    /// (cross-emitter consensus, render-emit cycle) where firing on shipped
-    /// std atoms would be too noisy if escalated. Bypasses the
-    /// `warning()` shim so it actually lands in `ValidationResult::warnings`
-    /// and does not block CI.
-    pub fn phase_f_warning(
-        code: ErrorCode,
-        path: impl Into<String>,
-        message: impl Into<String>,
-    ) -> Self {
-        Self {
-            code,
-            message: message.into(),
-            path: path.into(),
-            severity: Severity::Warning,
-            suggestion: None,
-            valid_values: None,
-            expected_shape: None,
-            fix_guidance: None,
-        }
-    }
+    // `warning()` — the legacy alias of `error()` — was removed 2026-09-02:
+    // a constructor named "warning" that produced a blocking error misnamed
+    // severity at every call site. `phase_f_warning()` — the only genuinely
+    // non-blocking constructor — was removed 2026-09-02 too: every site that
+    // used it was audited and flipped to `error()`. `Severity::Warning` and
+    // `ValidationResult::warnings` remain (JSON output shape, `is_warning()`),
+    // but nothing in this codebase constructs a `Warning`-severity finding
+    // any more.
 
     /// Add a suggestion
     pub fn with_suggestion(mut self, suggestion: impl Into<String>) -> Self {
@@ -1624,7 +1590,7 @@ mod tests {
         // an Error-severity diagnostic (see its docstring) — the validator
         // has zero non-error output by design. So routing it through
         // `add_error` puts it in the `errors` bucket, not `warnings`.
-        result.add_error(ValidationError::warning(
+        result.add_error(ValidationError::error(
             ErrorCode::TraitMissingRenderUI,
             "test",
             "warning",

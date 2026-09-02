@@ -609,6 +609,7 @@ mod tests {
             })
         };
         let orbital = |name: &str, ent: EntityRef, expects: Option<Vec<ExpectDeclaration>>| Orbital {
+            types: None,
             name: name.to_string(),
             uses: None,
             expects,

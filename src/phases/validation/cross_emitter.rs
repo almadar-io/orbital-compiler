@@ -6,7 +6,7 @@
 //! emitter and a different shape from another, the runtime cannot
 //! reconcile them, and downstream listeners drop fields silently.
 //!
-//! This pass emits a warn-only `CrossEmitterDeclaredPayloadMismatch` for
+//! This pass emits a hard-error `CrossEmitterDeclaredPayloadMismatch` for
 //! every event whose payload-field set is not identical across all
 //! declaring traits. The signature compared is the tuple
 //! `(name, field_type, required-as-bool)`; description is ignored. Two
@@ -150,7 +150,7 @@ pub fn validate_cross_emitter(schema: &OrbitalSchema, ctx: &mut ValidationContex
             if other_sig != anchor_sig {
                 let diff = describe_diff(anchor_sig, other_sig);
                 ctx.add_error(
-                    ValidationError::phase_f_warning(
+                    ValidationError::error(
                         ErrorCode::CrossEmitterDeclaredPayloadMismatch,
                         format!("{} vs {}", anchor_path, other_path),
                         format!(

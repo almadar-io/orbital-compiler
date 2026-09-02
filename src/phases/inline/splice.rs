@@ -486,6 +486,7 @@ mod tests {
     fn emit(event: &str, field: &str) -> EmitDefinition {
         EmitDefinition {
             definer_knob: None,
+            scope_overridden: None,
             event: event.to_string(),
             description: None,
             synonyms: None,
@@ -508,6 +509,7 @@ mod tests {
 
     fn make_orbital(traits: Vec<TraitDefinition>) -> Orbital {
         Orbital {
+            types: None,
             name: "TestOrbital".to_string(),
             uses: None,
             expects: None,

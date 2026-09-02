@@ -115,7 +115,7 @@ pub fn validate_entity(
     } else if check_naming && !ENTITY_NAME_REGEX.is_match(&entity.name) {
         // GAP-V001: Only check ASCII naming for English/Latin schemas
         result.add_error(
-            ValidationError::warning(
+            ValidationError::error(
                 ErrorCode::EntityInvalidFieldName,
                 format!("{}.name", path),
                 format!("Entity name '{}' should be PascalCase", entity.name),
@@ -225,7 +225,7 @@ pub fn validate_field(
             // Check field name format (camelCase) — skip for non-Latin schemas (GAP-V001)
             if check_naming && !FIELD_NAME_REGEX.is_match(name) {
                 result.add_error(
-                    ValidationError::warning(
+                    ValidationError::error(
                         ErrorCode::EntityInvalidFieldName,
                         format!("{}.name", path),
                         format!("Field name '{}' should be camelCase", name),

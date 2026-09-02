@@ -173,6 +173,7 @@ fn schema_with_config(config: HashMap<String, ConfigField>) -> OrbitalSchema {
         version: Some("0.1.0".to_string()),
         description: None,
         orbitals: vec![Orbital {
+            types: None,
             name: "TestOrbital".to_string(),
             uses: None,
             expects: None,
@@ -753,15 +754,6 @@ fn non_number_on_int_or_float_fails() {
     }
 }
 
-fn shape_warnings(schema: &OrbitalSchema) -> Vec<String> {
-    validate_comprehensive(schema)
-        .warnings
-        .into_iter()
-        .filter(|e| e.code == ErrorCode::TraitConfigShapeMismatch)
-        .map(|e| format!("@ {}: {}", e.path, e.message))
-        .collect()
-}
-
 fn string_value_field() -> FieldDefinition {
     FieldDefinition {
         name: None,
@@ -811,9 +803,9 @@ fn map_with_conforming_values_passes() {
     let schema = map_knob(SExpression::Object(entries));
     assert!(shape_errors(&schema).is_empty());
     assert!(
-        shape_warnings(&schema).is_empty(),
+        shape_errors(&schema).is_empty(),
         "conforming map must not warn: {:?}",
-        shape_warnings(&schema)
+        shape_errors(&schema)
     );
 }
 
@@ -826,7 +818,7 @@ fn map_with_a_wrong_typed_value_is_reported() {
     let mut entries: HashMap<String, SExpression> = HashMap::new();
     entries.insert("draft".to_string(), SExpression::Number(3.0));
     let schema = map_knob(SExpression::Object(entries));
-    let warns = shape_warnings(&schema);
+    let warns = shape_errors(&schema);
     assert_eq!(warns.len(), 1, "expected one map-value finding, got: {warns:?}");
     assert!(
         warns[0].contains("expected string, got number") && warns[0].contains("config(labels).draft"),
@@ -839,7 +831,7 @@ fn map_with_a_wrong_typed_value_is_reported() {
 #[test]
 fn map_with_a_non_object_default_is_reported() {
     let schema = map_knob(SExpression::String("not-a-map".to_string()));
-    let warns = shape_warnings(&schema);
+    let warns = shape_errors(&schema);
     assert_eq!(warns.len(), 1, "expected one finding, got: {warns:?}");
     assert!(warns[0].contains("isn't an object"), "unexpected: {}", warns[0]);
 }
@@ -867,7 +859,7 @@ fn an_array_type_merely_starting_with_map_is_not_treated_as_a_map() {
     );
     let schema = schema_with_config(config);
     assert!(shape_errors(&schema).is_empty());
-    assert!(shape_warnings(&schema).is_empty());
+    assert!(shape_errors(&schema).is_empty());
 }
 
 fn scalar_knob(default: SExpression) -> OrbitalSchema {
@@ -970,9 +962,9 @@ fn map_of_scalar_accepts_mixed_primitive_values_but_not_nesting() {
     let schema = schema_with_config(config);
     assert!(shape_errors(&schema).is_empty());
     assert!(
-        shape_warnings(&schema).is_empty(),
+        shape_errors(&schema).is_empty(),
         "mixed primitives are legal in Map string scalar: {:?}",
-        shape_warnings(&schema)
+        shape_errors(&schema)
     );
 
     let mut bad: HashMap<String, SExpression> = HashMap::new();
@@ -996,9 +988,9 @@ fn map_of_scalar_accepts_mixed_primitive_values_but_not_nesting() {
     );
     let schema2 = schema_with_config(config2);
     assert_eq!(
-        shape_warnings(&schema2).len(),
+        shape_errors(&schema2).len(),
         1,
         "a nested value is not a scalar: {:?}",
-        shape_warnings(&schema2)
+        shape_errors(&schema2)
     );
 }

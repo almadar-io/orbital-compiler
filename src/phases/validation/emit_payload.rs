@@ -11,8 +11,7 @@
 //!   3. Primitive type mismatches between literal values and declared
 //!      `field_type` (string / number / boolean / object / array / entity).
 //!
-//! All three classes are warn-only during V2 Phase 0 rollout; they escalate
-//! to hard errors in Phase 5 per `docs/Almadar_Entity_V2_Plan.md` §9.
+//! All three classes are hard errors.
 
 use std::collections::HashMap;
 
@@ -36,7 +35,6 @@ use super::{ValidationContext, ValidationResult};
 /// validation (phase 5) and before closed-circuit (phase 12). Accumulates
 /// warnings into the shared `ValidationContext`.
 pub fn validate_all_emit_payloads(schema: &OrbitalSchema, ctx: &mut ValidationContext) {
-    let strict = ctx.phase_f_strict;
 
     // L2.7 prep: every event name fired anywhere in the schema. The walker is
     // shared with `cross_orbital::event_wiring`, whose fired-but-unheard check
@@ -87,7 +85,6 @@ pub fn validate_all_emit_payloads(schema: &OrbitalSchema, ctx: &mut ValidationCo
                                 effect,
                                 &path,
                                 &emit_schemas,
-                                strict,
                                 &entity_field_types,
                                 &payload_field_types,
                             );
@@ -115,7 +112,6 @@ pub fn validate_all_emit_payloads(schema: &OrbitalSchema, ctx: &mut ValidationCo
                                 effect,
                                 &path,
                                 &emit_schemas,
-                                strict,
                                 &entity_field_types,
                                 &payload_field_types,
                             );
@@ -133,14 +129,14 @@ pub fn validate_all_emit_payloads(schema: &OrbitalSchema, ctx: &mut ValidationCo
             }
 
             // L2.7: declared-but-unfired emit detection (gap #2 defense).
-            // Schema-wide scope: warn only when an event declared in
+            // Schema-wide scope: reports only when an event declared in
             // emits[] is never fired by ANY trait/tick across the schema.
             // Per-trait orphans (declared on trait A, fired on sibling
             // B in the same orbital) are a legitimate "namespace owner"
             // pattern (e.g. std-cms's ArticleBrowse declares all
             // Article* events for documentation; ArticleCreate /
             // ArticleEdit / ArticleDelete actually fire them) — those
-            // skip the warning.
+            // skip the finding.
             //
             // Atom-level dynamic-event pattern: if the trait has any
             // render-ui prop with kind in {event, event-ref, event-listen,
@@ -179,7 +175,7 @@ pub fn validate_all_emit_payloads(schema: &OrbitalSchema, ctx: &mut ValidationCo
                 unfired.sort();
                 for unfired_event in unfired {
                     ctx.add_error(
-                        ValidationError::phase_f_warning(
+                        ValidationError::error(
                             ErrorCode::EmitDeclaredButUnfired,
                             &trait_path,
                             format!(
@@ -201,14 +197,10 @@ pub fn validate_all_emit_payloads(schema: &OrbitalSchema, ctx: &mut ValidationCo
 /// schema for EVT on this trait's `emits` block. Non-emit effects and emits
 /// without a literal payload pass silently.
 ///
-/// `strict` controls Phase F.1 escalation of the
-/// `EmitPayloadMissingRequired` class from warning to hard error. Extra and
-/// type-mismatch fields stay at warn severity regardless.
 fn validate_emit_literal(
     effect: &SExpression,
     path: &str,
     emit_schemas: &HashMap<&str, &[PayloadField]>,
-    strict: bool,
     entity_field_types: &HashMap<String, EntityFieldMeta>,
     payload_field_types: &HashMap<String, String>,
 ) -> ValidationResult {
@@ -236,13 +228,9 @@ fn validate_emit_literal(
         _ => None,
     };
 
-    // Missing-required-field check. Phase F.1: when `strict` is set, escalate
-    // this class to error. The other two emit-payload classes stay at warn.
-    let make_missing = if strict {
-        ValidationError::error
-    } else {
-        ValidationError::warning
-    };
+    // Missing-required-field check — blocking (the legacy `warning()` alias
+    // and its `strict` toggle were removed; there was only ever one severity).
+    let make_missing = ValidationError::error;
     for field in schema.iter().filter(|f| f.required.unwrap_or(false)) {
         let present = payload_obj
             .map(|obj| obj.contains_key(&field.name))
@@ -276,7 +264,7 @@ fn validate_emit_literal(
             match declared.get(key.as_str()) {
                 None => {
                     result.add_error(
-                        ValidationError::warning(
+                        ValidationError::error(
                             ErrorCode::EmitPayloadExtraField,
                             path,
                             format!(
@@ -294,7 +282,7 @@ fn validate_emit_literal(
                     if let Some(actual) = orbital_core::literal_value_type(value) {
                         if !primitive_types_compatible(expected, actual) {
                             result.add_error(
-                                ValidationError::warning(
+                                ValidationError::error(
                                     ErrorCode::EmitPayloadFieldTypeMismatch,
                                     path,
                                     format!(
@@ -320,7 +308,7 @@ fn validate_emit_literal(
                         // incompatible inferred type reaches here — an unresolvable shape or an
                         // unknowable `Json` inferred type never rejects.
                         result.add_error(
-                            ValidationError::warning(
+                            ValidationError::error(
                                 ErrorCode::EmitPayloadFieldTypeMismatch,
                                 path,
                                 format!(
@@ -378,9 +366,7 @@ fn validate_emit_literal(
 /// catches the mirror-image defect the old checks were blind to: an event
 /// declaring a field that the operator never emits at all.
 ///
-/// Uses `phase_f_warning` (the only genuinely non-blocking severity —
-/// `ValidationError::warning` is an alias for `error`) so the corpus can be
-/// measured before this escalates to blocking.
+/// Hard error via `ValidationError::error`.
 fn validate_emit_success_return(
     effect: &SExpression,
     path: &str,
@@ -577,13 +563,9 @@ fn primitive_types_compatible(declared: &str, actual: &str) -> bool {
 mod tests {
     use super::*;
 
-    /// True when the payload-invariant check flagged `event`.
-    ///
-    /// Scans BOTH buckets: the check is raised via `phase_f_warning` (genuinely
-    /// non-blocking) while the corpus impact is being measured, so it lands in
-    /// `warnings` today — but `ValidationError::warning` is an alias for
-    /// `error`, so a future escalation moves it to `errors` without touching
-    /// these tests.
+    /// True when the payload-invariant check flagged `event`. Scans both
+    /// buckets even though the check is a hard error (lands in `errors`)
+    /// so the helper stays correct regardless of severity.
     fn has_wrapped(ctx: &ValidationContext, event: &str) -> bool {
         ctx.result
             .errors
@@ -813,8 +795,8 @@ mod tests {
         );
     }
     fn has_unfired(ctx: &ValidationContext, event: &str) -> bool {
-        // EmitDeclaredButUnfired is a warning, so it lands in `warnings`;
-        // scan `errors` too in case Phase F escalation ever moves it.
+        // EmitDeclaredButUnfired is a hard error; scans both buckets so
+        // the helper stays correct regardless of severity.
         ctx.result
             .errors
             .iter()

@@ -50,6 +50,7 @@ fn payload_field(name: &str, ty: &str, required: bool) -> PayloadField {
 fn declared_emit_with_payload(event: &str, fields: Vec<PayloadField>) -> EmitDefinition {
     EmitDefinition {
         definer_knob: None,
+        scope_overridden: None,
         event: event.to_string(),
         description: None,
         synonyms: None,
@@ -137,6 +138,7 @@ fn schema_with_emit(emit: SExpression, declared: EmitDefinition) -> OrbitalSchem
         version: Some("0.1.0".to_string()),
         description: None,
         orbitals: vec![Orbital {
+            types: None,
             name: "TestOrbital".to_string(),
             uses: None,
             expects: None,

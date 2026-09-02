@@ -10,8 +10,8 @@ use super::rewrite::{
 };
 use super::InlineError;
 use orbital_core::schema::{
-    ConfigField, ConfigProvenanceRecord, EntityDefinition, SExpression, SourceBehaviorMetadata,
-    TraitDefinition, TraitReference,
+    ConfigField, ConfigProvenanceRecord, EntityDefinition, EntityRef, FieldType, OrbitalSchema,
+    SExpression, SourceBehaviorMetadata, TraitDefinition, TraitReference,
 };
 use std::collections::{HashMap, HashSet};
 
@@ -346,6 +346,13 @@ pub(crate) fn apply_overrides_to_trait(
             }
         }
     }
+
+    // `inputType: number` narrowing (§61 OPEN 1): the GAP-AG-VALUE-DRIFT fold
+    // just above already baked the call site's resolved override into
+    // `trait_def.config["inputType"].default`, so this is the first point
+    // where "the call site set inputType to the literal number" is knowable.
+    narrow_number_input_value_payload(trait_def);
+
     // The `event`-TYPED twin of the step-3c emit-driven fold (gap #30/C1
     // root fix): a knob declared `: event` holds an event-name REFERENCE,
     // so an `events:` rename must rewrite its settled value the same way it
@@ -480,6 +487,198 @@ pub(crate) fn apply_overrides_to_trait(
     }
 }
 
+/// §61 OPEN 1: a composed trait whose emit event is DEFINED by a config knob
+/// (`definer_knob` — the atom's `emits { @config.<knob> -> … }` shape) and
+/// whose config separately declares `inputType` narrows that emit's `value`
+/// payload field from `string` to `number` once the RESOLVED `inputType` is
+/// the literal `"number"`. Detected by SHAPE (a definer-knob emit paired with
+/// an `inputType` knob declaring the payload field it types), never by trait
+/// or atom name — any future pattern with the same shape gets the same
+/// narrowing. Mirrors the rewrite onto the matching `stateMachine.events[]`
+/// entry so both surfaces a `set`/codegen check reads from stay in lockstep.
+/// A forwarded/unresolved `@config.*` knob (not yet a literal `"number"`)
+/// leaves `value` as `string` — only the literal call-site value narrows.
+/// The predicate itself (`resolves_input_type_to_number`) lives in
+/// `orbital_core::schema` — the render-ui event-binding-payload check
+/// (`phases/validation/render_ui/binding.rs`) consults the SAME function so
+/// the two never drift apart by wording.
+fn narrow_number_input_value_payload(trait_def: &mut TraitDefinition) {
+    if !orbital_core::schema::resolves_input_type_to_number(trait_def) {
+        return;
+    }
+
+    let events_to_narrow = definer_knob_value_events(trait_def, "string");
+    if events_to_narrow.is_empty() {
+        return;
+    }
+
+    let narrow_fields = |fields: &mut [orbital_core::schema::PayloadField]| {
+        for f in fields.iter_mut() {
+            if f.name == "value" && f.field_type == "string" {
+                f.field_type = "number".to_string();
+            }
+        }
+    };
+    for emit in trait_def.emits.iter_mut().flatten() {
+        if events_to_narrow.contains(&emit.event) {
+            if let Some(fields) = emit.payload_schema.as_mut() {
+                narrow_fields(fields);
+            }
+        }
+    }
+    for ev in trait_def.state_machine.events.iter_mut().flatten() {
+        if events_to_narrow.contains(&ev.key) {
+            if let Some(fields) = ev.payload_schema.as_mut() {
+                narrow_fields(fields);
+            }
+        }
+    }
+}
+
+/// Definer-knob emit events on `trait_def` whose declared `value` payload
+/// field is exactly `field_type`. Shared by the narrowing pass above (looks
+/// for `"string"`, the pre-narrow state) and the FIX-2 display-buffer
+/// rewrite below (looks for `"number"`, the post-narrow state) so both walk
+/// the same definer-knob-emit shape once rather than two copies of it.
+fn definer_knob_value_events(trait_def: &TraitDefinition, field_type: &str) -> HashSet<String> {
+    trait_def
+        .emits
+        .iter()
+        .flatten()
+        .filter(|emit| {
+            emit.definer_knob.is_some()
+                && emit.payload_schema.as_ref().is_some_and(|fields| {
+                    fields.iter().any(|f| f.name == "value" && f.field_type == field_type)
+                })
+        })
+        .map(|emit| emit.event.clone())
+        .collect()
+}
+
+/// §61 OPEN 1, FIX 2: the atom's OWN internal `(set @entity.<f> ?value)` —
+/// its DOM display buffer, historically and honestly typed `string` on the
+/// atom's own entity — must not be handed the now-numeric wire value
+/// directly once its event narrowed (the pass above). Wraps the read in
+/// `(str/concat ?value)` — NOT bare `concat` (the JS evaluator maps bare
+/// `concat` to ARRAY concat; `str/concat` is string-concat on both the JS
+/// and Rust paths) — so codegen stringifies the number back into the
+/// string-typed buffer field. Only fires when `<f>`'s declared type on the
+/// trait's RESOLVED linked entity is actually `string` — a number-typed
+/// buffer field needs no conversion.
+///
+/// NOT gated by the TRIGGERING event matching the narrowed (renamed)
+/// definer-knob event: ui-input's own internal display-sync transition
+/// listens on its fixed internal key (`ACTION`), independent of whatever
+/// external name the `action` knob resolves the OUTBOUND emit to (e.g.
+/// `SET_TTL`) — confirmed against the real `std-service-redis` UiInput3
+/// composition, where `transitions[1].event` stays `"ACTION"` while
+/// `emits[0].event` is `"SET_TTL"`. The type-validator itself (`phases/
+/// validation/effect/mod.rs`'s `collect_payload_field_types`) already
+/// resolves `?value`/`@payload.value` the SAME event-untethered way — by
+/// FIELD NAME across the trait's declared emits, not per triggering event —
+/// so this mirrors that, not a new assumption: within a trait that narrows
+/// (`resolves_input_type_to_number` + at least one definer-knob emit whose
+/// `value` field is now `number`), a `set` reading the literal `value` field
+/// is the narrowed one, wherever in the trait it lives.
+///
+/// Whole-schema, run once after `resolve_sigil_types` (mirrors its own
+/// per-orbital entity-name→fields walk) so a rebind target entity declared
+/// in a sibling orbital is visible the same way sigil resolution needs it to
+/// be, and so it runs after every trait's own inline (hence its own FIX-1
+/// narrowing) has landed.
+pub(crate) fn rewrite_narrowed_number_display_writes(schema: &mut OrbitalSchema) {
+    let mut entities: HashMap<String, Vec<orbital_core::schema::FieldDefinition>> = HashMap::new();
+    for orbital in &schema.orbitals {
+        if let EntityRef::Inline(def) = &orbital.entity {
+            entities.insert(def.name.clone(), def.fields.clone());
+        }
+        for aux in orbital.auxiliary_entities.iter().flatten() {
+            if let EntityRef::Inline(def) = aux {
+                entities.entry(def.name.clone()).or_insert_with(|| def.fields.clone());
+            }
+        }
+    }
+
+    for orbital in &mut schema.orbitals {
+        for trait_ref in &mut orbital.traits {
+            let TraitReference::Inline(trait_def) = trait_ref else {
+                continue;
+            };
+            if !orbital_core::schema::resolves_input_type_to_number(trait_def) {
+                continue;
+            }
+            // Trait-level existence check: at least one definer-knob emit
+            // actually narrowed its `value` field to `number` — otherwise
+            // there is nothing an internal `?value` read could have picked
+            // up as numeric.
+            if definer_knob_value_events(trait_def, "number").is_empty() {
+                continue;
+            }
+            let Some(linked) = trait_def.linked_entity.clone() else {
+                continue;
+            };
+            let Some(fields) = entities.get(&linked) else {
+                continue;
+            };
+            let string_fields: HashSet<String> = fields
+                .iter()
+                .filter(|f| f.field_type == FieldType::String)
+                .filter_map(|f| f.name.clone())
+                .collect();
+            if string_fields.is_empty() {
+                continue;
+            }
+            for transition in trait_def.state_machine.transitions.iter_mut() {
+                if let Some(effects) = transition.effects.as_mut() {
+                    for effect in effects.iter_mut() {
+                        wrap_narrowed_display_set(effect, &string_fields);
+                    }
+                }
+            }
+        }
+    }
+}
+
+/// `(set @entity.<f> ?value)` (or `@payload.value`) → `(set @entity.<f>
+/// (str/concat ?value))` for any `<f>` in `string_fields` — matched by the
+/// FIELD the value is read from (the narrowed contract's own `value` name,
+/// never a name-blind match on every `set`), not by trait/atom name.
+/// Recurses into every array/object position so a `set` inside a guard-gated
+/// branch is caught too.
+fn wrap_narrowed_display_set(expr: &mut SExpression, string_fields: &HashSet<String>) {
+    if let SExpression::Array(items) = expr {
+        let is_narrowed_set = items.len() >= 3
+            && matches!(&items[0], SExpression::String(op) if op == "set")
+            && matches!(
+                &items[2],
+                SExpression::String(s) if s == "?value" || s == "@payload.value"
+            )
+            && set_entity_field(&items[1]).is_some_and(|f| string_fields.contains(f));
+        if is_narrowed_set {
+            let value = items[2].clone();
+            items[2] = SExpression::Array(vec![SExpression::String("str/concat".to_string()), value]);
+        }
+        for item in items.iter_mut() {
+            wrap_narrowed_display_set(item, string_fields);
+        }
+    } else if let SExpression::Object(map) = expr {
+        for v in map.values_mut() {
+            wrap_narrowed_display_set(v, string_fields);
+        }
+    }
+}
+
+/// Extract `<field>` from a `@entity.<field>` string target. Local twin of
+/// `phases::validation::effect::set::set_entity_field` (private to that
+/// module, and that file has unrelated in-flight edits) — same one-line
+/// prefix-strip contract, not a divergent rule.
+fn set_entity_field(target: &SExpression) -> Option<&str> {
+    let SExpression::String(s) = target else {
+        return None;
+    };
+    s.strip_prefix("@entity.").filter(|f| !f.is_empty())
+}
+
 /// Rewrite every `emits[*].event` that is a `@config.<knob>` reference to its
 /// resolved literal, and mirror the rewrite onto the matching
 /// `stateMachine.events[*].key` entries (L1 lowering unions emit keys into the
@@ -582,6 +781,10 @@ fn apply_post_subst_overrides_to_trait(
         if let Some(emits) = trait_def.emits.as_mut() {
             for emit in emits.iter_mut() {
                 emit.scope = Some(scope.clone());
+                // Call-site provenance: this scope is the COMPOSITION's own
+                // statement, not the atom's default — the dead-control check
+                // treats only this form as a consumer's deferral.
+                emit.scope_overridden = Some(true);
             }
         }
     }

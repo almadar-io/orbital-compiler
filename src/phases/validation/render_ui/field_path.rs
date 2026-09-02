@@ -70,7 +70,7 @@ pub(super) fn validate_field_paths(
 
         let Some(relation_field) = relation_field else {
             result.add_error(
-                ValidationError::warning(
+                ValidationError::error(
                     ErrorCode::RenderUIInvalidFieldPath,
                     path,
                     format!(
@@ -112,7 +112,7 @@ pub(super) fn validate_field_paths(
 
             if !field_exists {
                 result.add_error(
-                    ValidationError::warning(
+                    ValidationError::error(
                         ErrorCode::RenderUIInvalidFieldPath,
                         path,
                         format!(
@@ -132,7 +132,7 @@ pub(super) fn validate_field_paths(
             // to encourage simpler data structures.
             if segments.len() > 2 {
                 result.add_error(
-                    ValidationError::warning(
+                    ValidationError::error(
                         ErrorCode::RenderUIInvalidFieldPath,
                         path,
                         format!(
@@ -153,7 +153,7 @@ pub(super) fn validate_field_paths(
 
 /// Resolve a single field-ref value against the linked entity's fields.
 ///
-/// Emits a `UnresolvedPatternFieldRef` warning if `field_name` does not match
+/// Emits an `UnresolvedPatternFieldRef` error if `field_name` does not match
 /// any field on `entity_name`. Dotted paths (e.g. `"company.name"`) are left
 /// for the existing `validate_field_paths` helper — this function only checks
 /// flat field names used by `kind: 'field-ref'` / `itemKind: 'field-ref'`
@@ -203,7 +203,7 @@ pub(super) fn validate_pattern_field_ref(
             .collect();
 
         result.add_error(
-            ValidationError::warning(
+            ValidationError::error(
                 ErrorCode::UnresolvedPatternFieldRef,
                 path,
                 format!(

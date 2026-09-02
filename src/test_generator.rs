@@ -738,6 +738,10 @@ fn default_value_for_type(ty: &orbital_core::ir::OirType) -> &'static str {
         OirType::Trait => "'@trait.Mock'",
         OirType::SExpr => "'noop'",
         OirType::Node => "null",
+        // A recursive named-type reference — generation needs a depth cap,
+        // never an expansion; the empty placeholder terminates immediately,
+        // same posture as the other struct-ish leaves above.
+        OirType::TypeRef { .. } => "{}",
     }
 }
 
@@ -769,6 +773,7 @@ fn rust_default_value(ty: &orbital_core::ir::OirType) -> &'static str {
         OirType::Trait => "String::from(\"@trait.Mock\")",
         OirType::SExpr => "String::from(\"noop\")",
         OirType::Node => "serde_json::Value::Null",
+        OirType::TypeRef { .. } => "serde_json::Value::Null",
     }
 }
 
@@ -799,6 +804,7 @@ fn python_default_value(ty: &orbital_core::ir::OirType) -> &'static str {
         OirType::Trait => "\"@trait.Mock\"",
         OirType::SExpr => "\"noop\"",
         OirType::Node => "None",
+        OirType::TypeRef { .. } => "{}",
     }
 }
 

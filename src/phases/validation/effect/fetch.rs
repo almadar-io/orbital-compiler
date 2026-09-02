@@ -79,7 +79,7 @@ pub(crate) fn validate_fetch(
                     // a fetch-by-ID that should use the options object syntax.
                     // The resolve phase handles this as legacy compat, but warn the author.
                     result.add_error(
-                        ValidationError::warning(
+                        ValidationError::error(
                             ErrorCode::EffectFetchInvalidEntity,
                             path,
                             format!(
@@ -101,7 +101,7 @@ pub(crate) fn validate_fetch(
             // When using options object syntax, no extra positional args allowed
             if matches!(config, SExpression::Object(_)) && arr.len() > 3 {
                 result.add_error(
-                    ValidationError::warning(
+                    ValidationError::error(
                         ErrorCode::EffectFetchInvalidEntity,
                         path,
                         format!(
@@ -118,7 +118,7 @@ pub(crate) fn validate_fetch(
     // Legacy positional: ["fetch", Entity, filter, orderBy, limit] — max 5 elements
     if arr.len() > 5 {
         result.add_error(
-            ValidationError::warning(
+            ValidationError::error(
                 ErrorCode::EffectFetchInvalidEntity,
                 path,
                 format!(

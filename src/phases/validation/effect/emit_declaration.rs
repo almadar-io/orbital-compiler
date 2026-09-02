@@ -86,7 +86,7 @@ pub(crate) fn validate_emit_against_declaration(
 
                 if declared.is_none() {
                     result.add_error(
-                        ValidationError::warning(
+                        ValidationError::error(
                             ErrorCode::TraitEventUndeclared,
                             path,
                             format!(
@@ -350,7 +350,7 @@ pub(crate) fn validate_effect(
                     }
                     op if !effect_operators().contains(&op) => {
                         result.add_error(
-                            ValidationError::warning(
+                            ValidationError::error(
                                 ErrorCode::EffectUnknownType,
                                 path,
                                 format!("Unknown effect operator: '{}'", op),

@@ -141,7 +141,7 @@ pub(crate) fn validate_scope_boundary(schema: &OrbitalSchema) -> ValidationResul
                     if let Some(emit) = target_emits.iter().find(|e| &e.event == source_event) {
                         if emit.scope == Some(EventScope::Internal) {
                             result.add_error(
-                                ValidationError::warning(
+                                ValidationError::error(
                                     ErrorCode::InternalEventExposed,
                                     format!("{}.events", path_base),
                                     format!(
@@ -170,7 +170,7 @@ pub(crate) fn validate_scope_boundary(schema: &OrbitalSchema) -> ValidationResul
                     if let Some(emit) = target_emits.iter().find(|e| e.event == listen.event) {
                         if emit.scope == Some(EventScope::Internal) {
                             result.add_error(
-                                ValidationError::warning(
+                                ValidationError::error(
                                     ErrorCode::InternalEventExposed,
                                     format!("{}.listens", path_base),
                                     format!(
@@ -237,6 +237,7 @@ mod tests {
             linked_entity: Some("Task".to_string()),
             emits: Some(vec![EmitDefinition {
                 definer_knob: None,
+                scope_overridden: None,
                 event: "OPEN".to_string(),
                 scope: Some(atom_scope),
                 description: None,
@@ -263,6 +264,7 @@ mod tests {
             trait_embed_ids: None,
         };
         let atom_orbital = Orbital {
+            types: None,
             name: "AtomHost".to_string(),
             uses: None,
             expects: None,
@@ -312,6 +314,7 @@ mod tests {
             ref_id: None,
         };
         let composer_orbital = Orbital {
+            types: None,
             name: "Composer".to_string(),
             uses: Some(vec![orbital_core::schema::UseDeclaration {
                 from: "local/does-not-matter".to_string(),

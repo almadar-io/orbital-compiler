@@ -320,7 +320,7 @@ mod tests {
     }
 
     #[test]
-    fn test_call_service_unknown_service_registry_gate_warns() {
+    fn test_call_service_unknown_service_registry_gate_errors() {
         let effect = SExpression::Array(vec![
             SExpression::String("call-service".to_string()),
             SExpression::String("unknownService".to_string()),
@@ -348,9 +348,9 @@ mod tests {
             &HashMap::new(),
             &HashMap::new(),
         );
-        assert!(result.is_valid(), "unexpected errors: {:?}", result.errors);
+        assert!(!result.is_valid());
         assert!(result
-            .warnings
+            .errors
             .iter()
             .any(|e| e.code == ErrorCode::EffectCallServiceUnknownService));
     }

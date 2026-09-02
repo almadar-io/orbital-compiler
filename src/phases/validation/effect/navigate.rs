@@ -47,7 +47,7 @@ pub(crate) fn validate_navigate(
     if let Some(ref nav_path) = nav_path_str {
         if !is_external_url(nav_path) && !nav_path.starts_with('/') && !nav_path.starts_with('@') {
             result.add_error(
-                ValidationError::warning(
+                ValidationError::error(
                     ErrorCode::PageInvalidPath,
                     path,
                     format!("Navigate path should start with '/': '{}'", nav_path),

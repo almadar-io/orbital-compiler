@@ -28,7 +28,7 @@ pub(crate) fn validate_emit(arr: &[SExpression], path: &str) -> ValidationResult
         SExpression::String(event_name) => {
             if !is_valid_event_identifier(event_name) {
                 result.add_error(
-                    ValidationError::warning(
+                    ValidationError::error(
                         ErrorCode::TraitEventInvalidName,
                         path,
                         format!(
@@ -155,7 +155,7 @@ pub(crate) fn validate_emit_config(
                 } else if let Some(declared) = declared_emits {
                     if !declared.iter().any(|d| d.event == *event_name) {
                         result.add_error(
-                            ValidationError::warning(
+                            ValidationError::error(
                                 ErrorCode::EffectEmitUndeclaredEvent,
                                 path,
                                 format!(

@@ -15,7 +15,8 @@ use orbital_core::schema::{
     PageDefinition, PageRef, SExpression, SectionDefinition, ServiceRef, StringOrArray, ThemeRef,
     TraitDefinition, TraitReference, TransitionDefinition,
 };
-use std::collections::HashMap;
+use std::cell::RefCell;
+use std::collections::{BTreeMap, HashMap, HashSet};
 use thiserror::Error;
 
 /// Resolution error
@@ -81,11 +82,41 @@ pub(crate) fn is_substrate_op(name: &str) -> bool {
 /// Resolver state
 pub struct Resolver<'a> {
     schema: &'a OrbitalSchema,
+    /// Named struct types discovered while resolving entity/payload fields —
+    /// see `OirModule::named_types`'s doc for the registration rule. Interior
+    /// mutability because every resolve method below is `&self` (recursive
+    /// descent shares the same borrow); flushed into the module at the end
+    /// of `resolve()`.
+    named_types: RefCell<BTreeMap<String, OirType>>,
+    /// Names currently being looked up in `schema.orbitals[].types` (Gap A)
+    /// to build a `named_types` entry — guards MUTUAL recursion (`type A = {
+    /// b : B }`, `type B = { a : A }`): computing A's shape by name-lookup
+    /// recurses into B's shape, which itself contains a `TypeRef` back to A;
+    /// without this, that recursion never terminates (A isn't in
+    /// `named_types` yet — it's still being computed). A name found here
+    /// mid-lookup is left as a bare `TypeRef` for THIS occurrence; the outer
+    /// frame that's already computing it owns the eventual registration.
+    named_types_in_progress: RefCell<HashSet<String>>,
 }
 
 impl<'a> Resolver<'a> {
     fn new(schema: &'a OrbitalSchema) -> Self {
-        Self { schema }
+        Self {
+            schema,
+            named_types: RefCell::new(BTreeMap::new()),
+            named_types_in_progress: RefCell::new(HashSet::new()),
+        }
+    }
+
+    /// Borrow the three pieces `register_named_type_children` /
+    /// `payload_field_to_oir_type` / `lookup_named_type_shape` need, bundled
+    /// as one `NamedTypeCtx`.
+    fn named_type_ctx(&self) -> NamedTypeCtx<'_> {
+        NamedTypeCtx {
+            schema: self.schema,
+            named_types: &self.named_types,
+            in_progress: &self.named_types_in_progress,
+        }
     }
 
     /// Get entity definition from EntityRef
@@ -297,6 +328,8 @@ impl<'a> Resolver<'a> {
                 }
             }
         }
+
+        module.named_types = self.named_types.take();
 
         Ok(module)
     }
@@ -658,11 +691,21 @@ impl<'a> Resolver<'a> {
             // order, `properties` their shapes. Iterating `values` (not the
             // HashMap) is what keeps variant order stable across runs, which
             // codegen output depends on. No `properties` means this is a
-            // by-name recursive back-reference — resolve to Json instead of
-            // expanding it forever.
+            // by-name recursive back-reference (`lower/entity.rs`'s RESOLVING
+            // cycle guard degrading a self-referential struct alias to this
+            // shape rather than expanding forever) — resolve to a `TypeRef`
+            // naming what it would have expanded to, so a backend with a
+            // named-type facility (the TS shell) can emit a real recursive
+            // reference instead of degrading to Json.
             FieldType::Union => {
-                let (Some(names), Some(props)) = (&field.values, &field.properties) else {
+                let Some(names) = &field.values else {
                     return Ok(OirType::Json);
+                };
+                let Some(props) = &field.properties else {
+                    return Ok(match names.first() {
+                        Some(name) => OirType::TypeRef { name: name.clone() },
+                        None => OirType::Json,
+                    });
                 };
                 let mut variants: Vec<OirField> = Vec::new();
                 for name in names {
@@ -697,6 +740,8 @@ impl<'a> Resolver<'a> {
                         struct_fields.push(nested);
                     }
                     struct_fields.sort_by(|a, b| a.name.cmp(&b.name));
+                    // Named-type registration — see `register_named_type_children`'s doc.
+                    register_named_type_children(&struct_fields, &self.named_type_ctx());
                     Ok(OirType::Struct {
                         fields: struct_fields,
                     })
@@ -909,7 +954,7 @@ impl<'a> Resolver<'a> {
                     let mut schema = std::collections::HashMap::new();
                     let mut required = std::collections::BTreeSet::new();
                     for field in payload_fields {
-                        let oir_type = payload_field_to_oir_type(field);
+                        let oir_type = payload_field_to_oir_type(field, &self.named_type_ctx());
                         schema.insert(field.name.clone(), oir_type);
                         if field.required.unwrap_or(false) {
                             required.insert(field.name.clone());
@@ -2593,13 +2638,52 @@ impl<'a> Resolver<'a> {
 /// `type X = { … }` alias) becomes an `OirType::Struct` so codegen emits a
 /// strict inline object type; everything else uses the flat `field_type`
 /// string parse.
-fn payload_field_to_oir_type(field: &orbital_core::schema::PayloadField) -> OirType {
+/// Bundles what the named-type registration path needs, so
+/// `payload_field_to_oir_type` / `register_named_type_children` /
+/// `lookup_named_type_shape` thread one reference instead of three.
+struct NamedTypeCtx<'a> {
+    schema: &'a OrbitalSchema,
+    named_types: &'a RefCell<BTreeMap<String, OirType>>,
+    /// See `Resolver::named_types_in_progress`'s doc — the mutual-recursion
+    /// guard for `lookup_named_type_shape`.
+    in_progress: &'a RefCell<HashSet<String>>,
+}
+
+fn payload_field_to_oir_type(
+    field: &orbital_core::schema::PayloadField,
+    ctx: &NamedTypeCtx,
+) -> OirType {
+    // Recursive back-reference marker: `properties: Some([])` — present but
+    // EMPTY, distinct from the absent (`None`) case `parse_payload_field_type`
+    // handles below. `orbital-lolo`'s cycle guard (`lower/emit_listen.rs`'s
+    // `struct_payload_properties`) degrades a self-referential struct alias to
+    // this shape instead of expanding forever: `field_type` stays the bare
+    // alias name (or its array form, `"[Name]"`), but `properties` is an
+    // empty — not absent — Vec so this arm can tell "a recursive struct
+    // reference" apart from "an unresolved/entity name" (which also reaches
+    // here as a bare string, via `parse_payload_field_type`'s fallback, but
+    // with `properties: None`).
+    if field.properties.as_ref().is_some_and(|p| p.is_empty()) {
+        let trimmed = field.field_type.trim();
+        let name = trimmed
+            .strip_prefix('[')
+            .and_then(|s| s.strip_suffix(']'))
+            .unwrap_or(trimmed);
+        let type_ref = OirType::TypeRef {
+            name: name.to_string(),
+        };
+        return if trimmed.starts_with('[') {
+            OirType::array(type_ref)
+        } else {
+            type_ref
+        };
+    }
     if let Some(props) = &field.properties {
-        let fields = props
+        let fields: Vec<OirField> = props
             .iter()
             .map(|p| OirField {
                 name: p.name.clone(),
-                field_type: payload_field_to_oir_type(p),
+                field_type: payload_field_to_oir_type(p, ctx),
                 description: p.description.clone(),
                 required: p.required.unwrap_or(false),
                 default: None,
@@ -2617,6 +2701,10 @@ fn payload_field_to_oir_type(field: &orbital_core::schema::PayloadField) -> OirT
         if field.field_type == "union" {
             return OirType::Union { variants: fields };
         }
+        // Named-type registration — see `register_named_type_children`'s doc.
+        // Runs before the array-wrap decision below — the registered shape is
+        // always the ELEMENT's struct, never the array.
+        register_named_type_children(&fields, ctx);
         let struct_ty = OirType::Struct { fields };
         // `field_type` "[object]" signals an array-of-struct: `properties` holds
         // the ELEMENT shape, so wrap in an array. Plain "object" is a direct
@@ -2627,6 +2715,95 @@ fn payload_field_to_oir_type(field: &orbital_core::schema::PayloadField) -> OirT
         return struct_ty;
     }
     parse_payload_field_type(&field.field_type)
+}
+
+/// The alias name a resolved `OirType` self-references, if it is (or wraps,
+/// one Array/Optional layer deep, since a recursive field is almost always
+/// `[Name]`/`Name?`) a `TypeRef`.
+fn typeref_name(ty: &OirType) -> Option<&str> {
+    match ty {
+        OirType::TypeRef { name } => Some(name),
+        OirType::Array { inner } | OirType::Optional { inner } => typeref_name(inner),
+        _ => None,
+    }
+}
+
+/// For every name a `TypeRef` among `fields` (this struct's OWN, possibly
+/// Array/Optional-wrapped, direct children) self-references, register that
+/// name's definition — looked up by NAME in `schema.orbitals[].types` (Gap
+/// A's alias table, the authoritative name→shape carrier every struct alias
+/// is keyed under regardless of where a `TypeRef` to it happens to occur).
+/// `fields` itself (the CONTAINING struct) is only a fallback for a name Gap
+/// A doesn't carry (a pre-Gap-A `.orb` authored/emitted before that table
+/// existed) — using it as the primary source was the bug: for DIRECT
+/// self-reference the containing struct genuinely IS the definition, but
+/// under MUTUAL recursion (`type A = { b : B }`, `type B = { a : A }`) the
+/// struct that CONTAINS the back-reference to "A" is B's, not A's.
+///
+/// Shared by `resolve_field_shape`'s Object branch (entity/config fields)
+/// and `payload_field_to_oir_type` (emit/listen payload fields) — one rule,
+/// both wire shapes. First registration for a name wins; a name is stable
+/// across the module once it's been looked up once.
+fn register_named_type_children(fields: &[OirField], ctx: &NamedTypeCtx) {
+    for f in fields {
+        let Some(name) = typeref_name(&f.field_type) else {
+            continue;
+        };
+        if ctx.named_types.borrow().contains_key(name) {
+            continue;
+        }
+        if !ctx.in_progress.borrow_mut().insert(name.to_string()) {
+            // Already being computed higher up this same call stack (a
+            // mutual-recursion cycle) — that frame owns the eventual
+            // registration; recursing again here would never terminate.
+            continue;
+        }
+        let shape = lookup_named_type_shape(name, ctx).unwrap_or_else(|| OirType::Struct {
+            fields: fields.to_vec(),
+        });
+        ctx.named_types
+            .borrow_mut()
+            .entry(name.to_string())
+            .or_insert(shape);
+        ctx.in_progress.borrow_mut().remove(name);
+    }
+}
+
+/// Look up a named struct alias's own shape by NAME in `schema.orbitals[].
+/// types` (Gap A) — every struct alias in an orbital's file, and (via the
+/// inline pre-pass) imported ones, keyed under its OWN declared name.
+/// Searches every orbital's map; first hit wins. `None` when no orbital
+/// carries the name (the pre-Gap-A fallback case).
+///
+/// The looked-up `Vec<PayloadField>` may carry one extra expansion level
+/// before hitting the by-name back-reference marker, versus the shape a
+/// `TypeRef` OCCURRENCE site produces — the map is built by lowering from
+/// the alias's own BODY (not from a call site re-entering it), so the cycle
+/// guard triggers one level deeper. Structurally equivalent; not normalized.
+fn lookup_named_type_shape(name: &str, ctx: &NamedTypeCtx) -> Option<OirType> {
+    for orbital in &ctx.schema.orbitals {
+        let Some(types_map) = &orbital.types else {
+            continue;
+        };
+        let Some(payload_fields) = types_map.get(name) else {
+            continue;
+        };
+        let fields: Vec<OirField> = payload_fields
+            .iter()
+            .map(|p| OirField {
+                name: p.name.clone(),
+                field_type: payload_field_to_oir_type(p, ctx),
+                description: p.description.clone(),
+                required: p.required.unwrap_or(false),
+                default: None,
+                constraints: Vec::new(),
+                enum_values: None,
+                relation: None,
+            })
+            .collect();
+        return Some(OirType::Struct { fields });
+    }
+    None
 }
 
 fn parse_payload_field_type(field_type: &str) -> OirType {
@@ -2709,6 +2886,23 @@ fn parse_payload_field_type(field_type: &str) -> OirType {
 mod tests {
     use super::*;
 
+    /// A schema with no orbitals — every named-type test that doesn't
+    /// exercise Gap A's `orbital.types` lookup itself uses this, so
+    /// `lookup_named_type_shape` finds nothing and `register_named_type_children`
+    /// falls back to the containing-struct inference (the pre-Gap-A path).
+    fn empty_schema() -> OrbitalSchema {
+        OrbitalSchema {
+            name: String::new(),
+            version: None,
+            description: None,
+            theme: None,
+            orbitals: Vec::new(),
+            metadata: None,
+            ledger: None,
+            schema_version: None,
+        }
+    }
+
     /// A payload field tagged `union` carries VARIANTS in `properties`, not the
     /// members of one object. Resolving it as a struct emitted
     /// `{ string?: string; number?: number; … }` — an object of optional variant
@@ -2733,7 +2927,15 @@ mod tests {
                 variant("array", "[string]"),
             ]),
         };
-        match payload_field_to_oir_type(&field) {
+        let schema = empty_schema();
+        let named_types = RefCell::new(BTreeMap::new());
+        let in_progress = RefCell::new(HashSet::new());
+        let ctx = NamedTypeCtx {
+            schema: &schema,
+            named_types: &named_types,
+            in_progress: &in_progress,
+        };
+        match payload_field_to_oir_type(&field, &ctx) {
             OirType::Union { variants } => {
                 assert_eq!(variants.len(), 3);
                 assert!(matches!(variants[0].field_type, OirType::String));
@@ -2761,10 +2963,260 @@ mod tests {
                 properties: None,
             }]),
         };
+        let schema = empty_schema();
+        let named_types = RefCell::new(BTreeMap::new());
+        let in_progress = RefCell::new(HashSet::new());
+        let ctx = NamedTypeCtx {
+            schema: &schema,
+            named_types: &named_types,
+            in_progress: &in_progress,
+        };
         assert!(matches!(
-            payload_field_to_oir_type(&field),
+            payload_field_to_oir_type(&field, &ctx),
             OirType::Struct { .. }
         ));
+    }
+
+    /// Recursive named struct type (test 1 of the spec's required suite):
+    /// a payload field shaped like the lolo lowerer's cycle-guard output for
+    /// `type MenuItem = { label: string!, subMenu: [MenuItem] }` — `subMenu`
+    /// carries the empty-`properties` back-reference marker — resolves to a
+    /// real recursive shape (`Array<TypeRef>`), not `Reference` (which would
+    /// wrongly read it as an entity) nor an infinite/empty struct, and
+    /// registers `MenuItem`'s definition in the named-types registry.
+    #[test]
+    fn recursive_struct_payload_field_resolves_to_type_ref_and_registers() {
+        let sub_menu_backref = orbital_core::schema::PayloadField {
+            name: "subMenu".to_string(),
+            field_type: "[MenuItem]".to_string(),
+            required: None,
+            description: None,
+            properties: Some(vec![]), // the back-reference marker
+        };
+        let row = orbital_core::schema::PayloadField {
+            name: "row".to_string(),
+            field_type: "object".to_string(),
+            required: Some(true),
+            description: None,
+            properties: Some(vec![
+                orbital_core::schema::PayloadField {
+                    name: "label".to_string(),
+                    field_type: "string".to_string(),
+                    required: Some(true),
+                    description: None,
+                    properties: None,
+                },
+                sub_menu_backref,
+            ]),
+        };
+        let schema = empty_schema();
+        let named_types = RefCell::new(BTreeMap::new());
+        let in_progress = RefCell::new(HashSet::new());
+        let ctx = NamedTypeCtx {
+            schema: &schema,
+            named_types: &named_types,
+            in_progress: &in_progress,
+        };
+        let resolved = payload_field_to_oir_type(&row, &ctx);
+        let OirType::Struct { fields } = &resolved else {
+            panic!("expected a struct, got {resolved:?}");
+        };
+        let sub_menu = fields
+            .iter()
+            .find(|f| f.name == "subMenu")
+            .expect("subMenu field present");
+        match &sub_menu.field_type {
+            OirType::Array { inner } => {
+                assert!(
+                    matches!(inner.as_ref(), OirType::TypeRef { name } if name == "MenuItem"),
+                    "subMenu[] element must be a TypeRef to MenuItem, got {:?}",
+                    inner
+                );
+            }
+            other => panic!("expected subMenu to be an array, got {other:?}"),
+        }
+        let registered = named_types
+            .borrow()
+            .get("MenuItem")
+            .cloned()
+            .expect("MenuItem must be registered");
+        assert_eq!(registered, resolved, "MenuItem's registered definition must be row's own struct");
+    }
+
+    /// Feature test 1's ENTITY half: a `.orb` entity field shaped like
+    /// `lower/entity.rs`'s cycle-guard output for `field x : MenuItem` (a
+    /// direct self-referential struct field) resolves through
+    /// `resolve_field_shape` to a real recursive `OirType` — the array
+    /// element is `TypeRef { name: "MenuItem" }`, not `Json` — and registers
+    /// `MenuItem`'s definition.
+    #[test]
+    fn recursive_struct_entity_field_resolves_to_type_ref_and_registers() {
+        let field: FieldDefinition = serde_json::from_value(serde_json::json!({
+            "name": "x",
+            "type": "object",
+            "properties": {
+                "label": { "type": "string", "required": true },
+                "subMenu": {
+                    "type": "array",
+                    "items": { "type": "union", "values": ["MenuItem"] }
+                }
+            }
+        }))
+        .expect("field fixture must deserialize");
+        let schema = OrbitalSchema {
+            name: String::new(),
+            version: None,
+            description: None,
+            theme: None,
+            orbitals: Vec::new(),
+            metadata: None,
+            ledger: None,
+            schema_version: None,
+        };
+        let resolver = Resolver::new(&schema);
+        let resolved = resolver
+            .resolve_field_shape(&field)
+            .expect("field resolves");
+        let OirType::Struct { fields } = &resolved else {
+            panic!("expected a struct, got {resolved:?}");
+        };
+        let sub_menu = fields
+            .iter()
+            .find(|f| f.name == "subMenu")
+            .expect("subMenu field present");
+        match &sub_menu.field_type {
+            OirType::Array { inner } => {
+                assert!(
+                    matches!(inner.as_ref(), OirType::TypeRef { name } if name == "MenuItem"),
+                    "subMenu[] element must be a TypeRef to MenuItem, got {:?}",
+                    inner
+                );
+            }
+            other => panic!("expected subMenu to be an array, got {other:?}"),
+        }
+        let registered = resolver
+            .named_types
+            .borrow()
+            .get("MenuItem")
+            .cloned()
+            .expect("MenuItem must be registered");
+        assert_eq!(registered, resolved);
+    }
+
+    /// Mutual recursion (coordinator review 2026-09-02): `type A = { b : B
+    /// }`, `type B = { a : A }` — the containing-struct inference
+    /// (`register_named_type_children`'s old, buggy sole source) would
+    /// register B's struct (`{ a: TypeRef A }`) as "A"'s definition, since B
+    /// is what directly contains the back-reference to A. The fix looks
+    /// "A" up BY NAME in `schema.orbitals[].types` (Gap A) instead, which
+    /// carries A's own true shape (`{ b: … }`) independent of where the
+    /// `TypeRef` occurrence happens to sit.
+    #[test]
+    fn mutual_recursion_registers_each_name_under_its_own_shape_not_the_containing_struct() {
+        // `Orbital.types`, as `lower/mod.rs`'s Gap-A pre-pass would populate
+        // it: each alias keyed under its OWN name, body-first (one extra
+        // expansion level before the by-name marker — see
+        // `lookup_named_type_shape`'s doc; not normalized).
+        let schema: OrbitalSchema = serde_json::from_value(serde_json::json!({
+            "name": "MutualApp",
+            "version": "1.0.0",
+            "orbitals": [{
+                "name": "MutualOrbital",
+                "entity": { "name": "Container", "fields": [] },
+                "traits": [],
+                "pages": [],
+                "types": {
+                    "A": [{
+                        "name": "b", "type": "object", "properties": [
+                            { "name": "a", "type": "object", "properties": [
+                                { "name": "b", "type": "B", "properties": [] }
+                            ]}
+                        ]
+                    }],
+                    "B": [{
+                        "name": "a", "type": "object", "properties": [
+                            { "name": "b", "type": "object", "properties": [
+                                { "name": "a", "type": "A", "properties": [] }
+                            ]}
+                        ]
+                    }]
+                }
+            }]
+        }))
+        .expect("schema fixture must deserialize");
+
+        // An entity field `x : A` — `lower/entity.rs`'s lowered shape for a
+        // mutually-recursive struct field: full expansion down to the FIRST
+        // re-entrant occurrence (`x.b.a` re-enters "A").
+        let field: FieldDefinition = serde_json::from_value(serde_json::json!({
+            "name": "x",
+            "type": "object",
+            "properties": {
+                "b": {
+                    "type": "object",
+                    "properties": {
+                        "a": { "type": "union", "values": ["A"] }
+                    }
+                }
+            }
+        }))
+        .expect("field fixture must deserialize");
+
+        let resolver = Resolver::new(&schema);
+        resolver.resolve_field_shape(&field).expect("field resolves");
+
+        let registered = resolver
+            .named_types
+            .borrow()
+            .get("A")
+            .cloned()
+            .expect("A must be registered");
+        let OirType::Struct { fields } = &registered else {
+            panic!("expected a struct, got {registered:?}");
+        };
+        assert_eq!(
+            fields.len(),
+            1,
+            "A's registered shape must be its OWN single field, not the containing B-shaped struct"
+        );
+        assert_eq!(
+            fields[0].name, "b",
+            "A's registered shape must start with field 'b' (its own field) — 'a' would mean the \
+             containing struct (B's) was registered instead, the mutual-recursion bug"
+        );
+    }
+
+    /// Safety test 3's L2 half: a single-member back-reference resolves to a
+    /// `TypeRef`, never something a downstream reader could mistake for an
+    /// enum's declared-value list (the field carries no `Enum`/values at
+    /// all — `TypeRef` is a distinct variant).
+    #[test]
+    fn single_member_backref_is_not_an_enum_shape() {
+        let field: FieldDefinition = serde_json::from_value(serde_json::json!({
+            "type": "union",
+            "values": ["MenuItem"]
+        }))
+        .expect("field fixture must deserialize");
+        let schema = OrbitalSchema {
+            name: String::new(),
+            version: None,
+            description: None,
+            theme: None,
+            orbitals: Vec::new(),
+            metadata: None,
+            ledger: None,
+            schema_version: None,
+        };
+        let resolver = Resolver::new(&schema);
+        let resolved = resolver.resolve_field_shape(&field).expect("resolves");
+        assert!(
+            matches!(&resolved, OirType::TypeRef { name } if name == "MenuItem"),
+            "expected TypeRef, got {resolved:?}"
+        );
+        assert!(
+            !matches!(resolved, OirType::Enum { .. }),
+            "a back-reference must never resolve to Enum"
+        );
     }
 
     #[test]
