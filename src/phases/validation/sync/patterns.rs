@@ -33,6 +33,7 @@ pub static PATTERN_TYPES: LazyLock<HashSet<&'static str>> = LazyLock::new(|| {
         "carousel",
         "checkbox",
         "code-block",
+        "command-palette",
         "community-links",
         "conditional-wrapper",
         "confetti-effect",
@@ -356,6 +357,7 @@ pub static PATTERN_TO_CATEGORY: LazyLock<HashMap<&'static str, &'static str>> =
             ("carousel", "component"),
             ("checkbox", "component"),
             ("code-block", "component"),
+            ("command-palette", "component"),
             ("community-links", "component"),
             ("conditional-wrapper", "component"),
             ("confetti-effect", "component"),
@@ -670,6 +672,7 @@ pub static PATTERN_REQUIRED_PROPS: LazyLock<HashMap<&'static str, Vec<&'static s
             ("chart-legend", vec!["items"]),
             ("choice-button", vec!["text"]),
             ("code-runner-panel", vec!["code", "language"]),
+            ("command-palette", vec!["open", "onOpenChange", "commands"]),
             ("conditional-wrapper", vec!["context", "children"]),
             ("confetti-effect", vec!["trigger"]),
             ("confirm-dialog", vec!["title"]),
@@ -1489,6 +1492,20 @@ pub static PATTERN_PROPS_SCHEMA: LazyLock<HashMap<&'static str, HashSet<&'static
                 .collect(),
             ),
             ("code-runner-panel", ["className", "code", "language", "onRun", "runEvent", "runnable"].into_iter().collect()),
+            (
+                "command-palette",
+                [
+                    "className",
+                    "commands",
+                    "emptyLabel",
+                    "onOpenChange",
+                    "onSelect",
+                    "open",
+                    "placeholder",
+                ]
+                .into_iter()
+                .collect(),
+            ),
             ("community-links", ["className", "discord", "github", "heading", "subtitle", "twitter"].into_iter().collect()),
             ("conditional-wrapper", ["animate", "children", "condition", "context", "fallback"].into_iter().collect()),
             ("confetti-effect", ["className", "duration", "particleCount", "trigger"].into_iter().collect()),
@@ -5375,6 +5392,20 @@ pub static PATTERN_PROP_TYPES: LazyLock<HashMap<&'static str, HashMap<&'static s
                     ("runnable", &["boolean"] as &[&str]),
                     ("onRun", &["function"] as &[&str]),
                     ("runEvent", &["string"] as &[&str]),
+                    ("className", &["string"] as &[&str]),
+                ]
+                .into_iter()
+                .collect(),
+            ),
+            (
+                "command-palette",
+                [
+                    ("open", &["boolean"] as &[&str]),
+                    ("onOpenChange", &["function"] as &[&str]),
+                    ("commands", &["array"] as &[&str]),
+                    ("onSelect", &["function"] as &[&str]),
+                    ("placeholder", &["string"] as &[&str]),
+                    ("emptyLabel", &["string"] as &[&str]),
                     ("className", &["string"] as &[&str]),
                 ]
                 .into_iter()
