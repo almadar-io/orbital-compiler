@@ -901,7 +901,7 @@ pub fn factory_signatures_json_io() -> &'static str {
 // Values are gzip bytes (build.rs → $OUT_DIR/baked-gz/…), inflated lazily by
 // `get_std_behavior_content` — the baked corpus is ~31MB raw, ~2MB gzipped.
 pub static EMBEDDED_STD_BEHAVIORS: phf::Map<&'static str, &'static [u8]> = phf::phf_map! {
-    // === Atoms (634) ===
+    // === Atoms (635) ===
     "std/behaviors/dnd-combat" => include_bytes!(concat!(env!("OUT_DIR"), "/baked-gz/io/dnd/atoms/dnd-combat.orb.gz")),
     "std/behaviors/dnd-dice" => include_bytes!(concat!(env!("OUT_DIR"), "/baked-gz/io/dnd/atoms/dnd-dice.orb.gz")),
     "std/behaviors/dnd-dungeon-gen" => include_bytes!(concat!(env!("OUT_DIR"), "/baked-gz/io/dnd/atoms/dnd-dungeon-gen.orb.gz")),
@@ -1027,6 +1027,7 @@ pub static EMBEDDED_STD_BEHAVIORS: phf::Map<&'static str, &'static [u8]> = phf::
     "std/behaviors/std-cache-aside" => include_bytes!(concat!(env!("OUT_DIR"), "/baked-gz/std/infra/atoms/std-cache-aside.orb.gz")),
     "std/behaviors/std-calendar" => include_bytes!(concat!(env!("OUT_DIR"), "/baked-gz/std/ui/core/atoms/std-calendar.orb.gz")),
     "std/behaviors/std-calendar-sync" => include_bytes!(concat!(env!("OUT_DIR"), "/baked-gz/std/infra/atoms/std-calendar-sync.orb.gz")),
+    "std/behaviors/std-camera-rig" => include_bytes!(concat!(env!("OUT_DIR"), "/baked-gz/std/ui/game/atoms/std-camera-rig.orb.gz")),
     "std/behaviors/std-campaign-goal" => include_bytes!(concat!(env!("OUT_DIR"), "/baked-gz/io/app/atoms/std-campaign-goal.orb.gz")),
     "std/behaviors/std-cascade-on-delete" => include_bytes!(concat!(env!("OUT_DIR"), "/baked-gz/std/infra/atoms/std-cascade-on-delete.orb.gz")),
     "std/behaviors/std-change-order" => include_bytes!(concat!(env!("OUT_DIR"), "/baked-gz/io/app/atoms/std-change-order.orb.gz")),
