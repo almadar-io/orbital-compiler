@@ -901,7 +901,7 @@ pub fn factory_signatures_json_io() -> &'static str {
 // Values are gzip bytes (build.rs → $OUT_DIR/baked-gz/…), inflated lazily by
 // `get_std_behavior_content` — the baked corpus is ~31MB raw, ~2MB gzipped.
 pub static EMBEDDED_STD_BEHAVIORS: phf::Map<&'static str, &'static [u8]> = phf::phf_map! {
-    // === Atoms (635) ===
+    // === Atoms (637) ===
     "std/behaviors/dnd-combat" => include_bytes!(concat!(env!("OUT_DIR"), "/baked-gz/io/dnd/atoms/dnd-combat.orb.gz")),
     "std/behaviors/dnd-dice" => include_bytes!(concat!(env!("OUT_DIR"), "/baked-gz/io/dnd/atoms/dnd-dice.orb.gz")),
     "std/behaviors/dnd-dungeon-gen" => include_bytes!(concat!(env!("OUT_DIR"), "/baked-gz/io/dnd/atoms/dnd-dungeon-gen.orb.gz")),
@@ -1007,6 +1007,7 @@ pub static EMBEDDED_STD_BEHAVIORS: phf::Map<&'static str, &'static [u8]> = phf::
     "std/behaviors/std-astro-orbit" => include_bytes!(concat!(env!("OUT_DIR"), "/baked-gz/io/learning/atoms/std-astro-orbit.orb.gz")),
     "std/behaviors/std-astro-orbit-3d" => include_bytes!(concat!(env!("OUT_DIR"), "/baked-gz/io/learning/atoms/std-astro-orbit-3d.orb.gz")),
     "std/behaviors/std-astro-stellar" => include_bytes!(concat!(env!("OUT_DIR"), "/baked-gz/io/learning/atoms/std-astro-stellar.orb.gz")),
+    "std/behaviors/std-audio-cue" => include_bytes!(concat!(env!("OUT_DIR"), "/baked-gz/std/ui/game/atoms/std-audio-cue.orb.gz")),
     "std/behaviors/std-audit-capture" => include_bytes!(concat!(env!("OUT_DIR"), "/baked-gz/std/infra/atoms/std-audit-capture.orb.gz")),
     "std/behaviors/std-billable-hour" => include_bytes!(concat!(env!("OUT_DIR"), "/baked-gz/std/ui/core/atoms/std-billable-hour.orb.gz")),
     "std/behaviors/std-bio-cell" => include_bytes!(concat!(env!("OUT_DIR"), "/baked-gz/io/learning/atoms/std-bio-cell.orb.gz")),
@@ -1465,6 +1466,7 @@ pub static EMBEDDED_STD_BEHAVIORS: phf::Map<&'static str, &'static [u8]> = phf::
     "std/behaviors/ui-feature-card" => include_bytes!(concat!(env!("OUT_DIR"), "/baked-gz/std/ui/marketing/atoms/ui-feature-card.orb.gz")),
     "std/behaviors/ui-filter-pill" => include_bytes!(concat!(env!("OUT_DIR"), "/baked-gz/std/ui/core/atoms/ui-filter-pill.orb.gz")),
     "std/behaviors/ui-flip-container" => include_bytes!(concat!(env!("OUT_DIR"), "/baked-gz/std/ui/core/atoms/ui-flip-container.orb.gz")),
+    "std/behaviors/ui-game-audio-cue" => include_bytes!(concat!(env!("OUT_DIR"), "/baked-gz/std/ui/game/atoms/ui-game-audio-cue.orb.gz")),
     "std/behaviors/ui-game-audio-toggle" => include_bytes!(concat!(env!("OUT_DIR"), "/baked-gz/std/ui/game/atoms/ui-game-audio-toggle.orb.gz")),
     "std/behaviors/ui-game-hud" => include_bytes!(concat!(env!("OUT_DIR"), "/baked-gz/std/ui/game/atoms/ui-game-hud.orb.gz")),
     "std/behaviors/ui-game-icon" => include_bytes!(concat!(env!("OUT_DIR"), "/baked-gz/std/ui/core/atoms/ui-game-icon.orb.gz")),

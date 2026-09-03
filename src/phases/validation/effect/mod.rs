@@ -173,6 +173,25 @@ pub(crate) fn collect_per_event_payload_field_types(
             }
         }
     }
+    // An INBOUND event's declared payload — authored as
+    // `listens { EVENT { field : type } }` and lowered onto
+    // `stateMachine.events[].payloadSchema` — is the only declared type for an
+    // event this trait receives but never emits. It wins over a same-named
+    // emits entry, matching L1's `@payload.X` precedence (`checks.rs` resolves
+    // listen payloads first, then emits). Without it a `?field` read falls back
+    // to the flat trait-wide map and resolves against ANOTHER event's
+    // same-named field — the false ORB_X_SET_VALUE_TYPE_MISMATCH class.
+    if let Some(events) = &trait_def.state_machine.events {
+        for event in events {
+            if let Some(schema) = &event.payload_schema {
+                let mut fields: HashMap<String, String> = HashMap::new();
+                for field in schema {
+                    fields.insert(field.name.clone(), field.field_type.clone());
+                }
+                map.insert(event.key.clone(), fields);
+            }
+        }
+    }
     map
 }
 
@@ -204,4 +223,47 @@ pub(crate) struct DeclaredEmit {
     #[allow(dead_code)] // collected + constructed by tests; not read by validators yet
     pub(crate) payload_fields: Vec<String>,
     pub(crate) required_fields: Vec<String>,
+}
+
+#[cfg(test)]
+mod per_event_payload_tests {
+    use super::*;
+
+    /// An inbound event declared via `listens { EVENT { field : type } }`
+    /// lowers onto `stateMachine.events[].payloadSchema`. Its type must win
+    /// for that event, even when an UNRELATED emit declares a same-named
+    /// field with a different type — resolving `?value` against the emit was
+    /// a false ORB_X_SET_VALUE_TYPE_MISMATCH on every writeback in the trait.
+    #[test]
+    fn inbound_event_payload_wins_over_same_named_emit_field() {
+        let trait_def: orbital_core::schema::TraitDefinition = serde_json::from_value(
+            serde_json::json!({
+                "name": "SvcTrait",
+                "stateMachine": {
+                    "initial": "idle",
+                    "states": [{ "name": "idle" }],
+                    "events": [
+                        { "key": "SET_KEY", "payloadSchema": [{ "name": "value", "type": "string" }] }
+                    ],
+                    "transitions": []
+                },
+                "emits": [
+                    { "event": "GetDone", "payloadSchema": [{ "name": "value", "type": "Map<string,scalar>" }] }
+                ]
+            }),
+        )
+        .expect("fixture deserializes");
+
+        let per_event = collect_per_event_payload_field_types(&trait_def);
+        assert_eq!(
+            per_event.get("SET_KEY").and_then(|f| f.get("value")).map(String::as_str),
+            Some("string"),
+            "SET_KEY's own declared payload must type its `?value`"
+        );
+        assert_eq!(
+            per_event.get("GetDone").and_then(|f| f.get("value")).map(String::as_str),
+            Some("Map<string,scalar>"),
+            "the emit keeps its own payload type"
+        );
+    }
 }
