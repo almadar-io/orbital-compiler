@@ -2,7 +2,7 @@
 //!
 //! Source: packages/almadar-core/src/patterns/patterns-registry.json
 //!
-//! Last synced: 2026-09-02
+//! Last synced: 2026-09-03
 //! To regenerate: npx tsx tools/almadar-pattern-sync/index.ts
 //!
 //! DO NOT EDIT MANUALLY - changes will be overwritten on next sync.
@@ -48,6 +48,7 @@ pub static PATTERN_TYPES: LazyLock<HashSet<&'static str>> = LazyLock::new(|| {
         "file-tree",
         "flex",
         "floating-action-button",
+        "floating-toolbar",
         "form-actions",
         "geometric-pattern",
         "gradient-divider",
@@ -246,6 +247,7 @@ pub static PATTERN_TYPES: LazyLock<HashSet<&'static str>> = LazyLock::new(|| {
         "box",
         "center",
         "divider",
+        "dock-layout",
         "drawer-slot",
         "flip-container",
         "grid",
@@ -369,6 +371,7 @@ pub static PATTERN_TO_CATEGORY: LazyLock<HashMap<&'static str, &'static str>> =
             ("file-tree", "component"),
             ("flex", "component"),
             ("floating-action-button", "component"),
+            ("floating-toolbar", "component"),
             ("form-actions", "component"),
             ("geometric-pattern", "component"),
             ("gradient-divider", "component"),
@@ -567,6 +570,7 @@ pub static PATTERN_TO_CATEGORY: LazyLock<HashMap<&'static str, &'static str>> =
             ("box", "layout"),
             ("center", "layout"),
             ("divider", "layout"),
+            ("dock-layout", "layout"),
             ("drawer-slot", "layout"),
             ("flip-container", "layout"),
             ("grid", "layout"),
@@ -682,6 +686,7 @@ pub static PATTERN_REQUIRED_PROPS: LazyLock<HashMap<&'static str, Vec<&'static s
             ("doc-breadcrumb", vec!["items"]),
             ("doc-sidebar", vec!["items"]),
             ("doc-toc", vec!["items"]),
+            ("dock-layout", vec!["main"]),
             ("draw-fx-layer", vec!["type", "items"]),
             ("draw-group", vec!["type", "position", "items"]),
             ("draw-mesh", vec!["type", "shape", "position"]),
@@ -702,6 +707,7 @@ pub static PATTERN_REQUIRED_PROPS: LazyLock<HashMap<&'static str, Vec<&'static s
             ("flex", vec!["children"]),
             ("flip-card", vec!["front", "back"]),
             ("flip-container", vec!["flipped", "children"]),
+            ("floating-toolbar", vec!["items"]),
             ("form", vec!["fields"]),
             ("form-field", vec!["label", "children"]),
             ("form-layout", vec!["children"]),
@@ -1801,6 +1807,40 @@ pub static PATTERN_PROPS_SCHEMA: LazyLock<HashMap<&'static str, HashSet<&'static
             ("doc-search", ["className", "onSearch", "placeholder"].into_iter().collect()),
             ("doc-sidebar", ["className", "items"].into_iter().collect()),
             ("doc-toc", ["activeId", "className", "items"].into_iter().collect()),
+            (
+                "dock-layout",
+                [
+                    "bottomPanel",
+                    "bottomPanelClassName",
+                    "bottomPanelCollapsed",
+                    "bottomPanelHeight",
+                    "bottomPanelMinSize",
+                    "className",
+                    "main",
+                    "mainClassName",
+                    "onBottomPanelCollapsedChange",
+                    "onBottomPanelHeightChange",
+                    "onSecondarySidebarCollapsedChange",
+                    "onSidebarCollapsedChange",
+                    "onSidebarWidthChange",
+                    "rail",
+                    "railClassName",
+                    "railWidth",
+                    "secondarySidebar",
+                    "secondarySidebarClassName",
+                    "secondarySidebarCollapsed",
+                    "secondarySidebarWidth",
+                    "sidebar",
+                    "sidebarClassName",
+                    "sidebarCollapsed",
+                    "sidebarMinSize",
+                    "sidebarWidth",
+                    "statusBar",
+                    "statusBarClassName",
+                ]
+                .into_iter()
+                .collect(),
+            ),
             ("document-details", ["className", "entity", "fields", "metaCommitEvent", "relationEvent", "title"].into_iter().collect()),
             (
                 "document-panel",
@@ -2181,6 +2221,7 @@ pub static PATTERN_PROPS_SCHEMA: LazyLock<HashMap<&'static str, HashSet<&'static
                     "nodeActionLabel",
                     "onFileSelect",
                     "onNodeAction",
+                    "onNodeReorder",
                     "onNodeSelect",
                     "selectedId",
                     "selectedPath",
@@ -2262,6 +2303,7 @@ pub static PATTERN_PROPS_SCHEMA: LazyLock<HashMap<&'static str, HashSet<&'static
                 .into_iter()
                 .collect(),
             ),
+            ("floating-toolbar", ["children", "className", "items", "position"].into_iter().collect()),
             (
                 "form",
                 [
@@ -2916,6 +2958,7 @@ pub static PATTERN_PROPS_SCHEMA: LazyLock<HashMap<&'static str, HashSet<&'static
                     "isLoading",
                     "keyMap",
                     "keyUpMap",
+                    "labelFontSize",
                     "onShapeClick",
                     "points",
                     "readouts",
@@ -2925,6 +2968,7 @@ pub static PATTERN_PROPS_SCHEMA: LazyLock<HashMap<&'static str, HashSet<&'static
                     "showCurveLabels",
                     "showGrid",
                     "showTickLabels",
+                    "tickLabelFontSize",
                     "title",
                     "traces",
                     "vectors",
@@ -3641,6 +3685,7 @@ pub static PATTERN_PROPS_SCHEMA: LazyLock<HashMap<&'static str, HashSet<&'static
                     "left",
                     "leftClassName",
                     "minSize",
+                    "onRatioChange",
                     "ratio",
                     "resizable",
                     "right",
@@ -5781,6 +5826,40 @@ pub static PATTERN_PROP_TYPES: LazyLock<HashMap<&'static str, HashMap<&'static s
                 .collect(),
             ),
             (
+                "dock-layout",
+                [
+                    ("rail", &["node"] as &[&str]),
+                    ("sidebar", &["node"] as &[&str]),
+                    ("main", &["node"] as &[&str]),
+                    ("bottomPanel", &["node"] as &[&str]),
+                    ("statusBar", &["node"] as &[&str]),
+                    ("secondarySidebar", &["node"] as &[&str]),
+                    ("railWidth", &["number"] as &[&str]),
+                    ("secondarySidebarWidth", &["number"] as &[&str]),
+                    ("sidebarCollapsed", &["boolean"] as &[&str]),
+                    ("onSidebarCollapsedChange", &["function"] as &[&str]),
+                    ("sidebarWidth", &["number"] as &[&str]),
+                    ("onSidebarWidthChange", &["function"] as &[&str]),
+                    ("sidebarMinSize", &["number"] as &[&str]),
+                    ("bottomPanelCollapsed", &["boolean"] as &[&str]),
+                    ("onBottomPanelCollapsedChange", &["function"] as &[&str]),
+                    ("bottomPanelHeight", &["number"] as &[&str]),
+                    ("onBottomPanelHeightChange", &["function"] as &[&str]),
+                    ("bottomPanelMinSize", &["number"] as &[&str]),
+                    ("secondarySidebarCollapsed", &["boolean"] as &[&str]),
+                    ("onSecondarySidebarCollapsedChange", &["function"] as &[&str]),
+                    ("className", &["string"] as &[&str]),
+                    ("railClassName", &["string"] as &[&str]),
+                    ("sidebarClassName", &["string"] as &[&str]),
+                    ("mainClassName", &["string"] as &[&str]),
+                    ("bottomPanelClassName", &["string"] as &[&str]),
+                    ("statusBarClassName", &["string"] as &[&str]),
+                    ("secondarySidebarClassName", &["string"] as &[&str]),
+                ]
+                .into_iter()
+                .collect(),
+            ),
+            (
                 "document-details",
                 [
                     ("entity", &["object"] as &[&str]),
@@ -6244,6 +6323,7 @@ pub static PATTERN_PROP_TYPES: LazyLock<HashMap<&'static str, HashMap<&'static s
                     ("onNodeAction", &["function"] as &[&str]),
                     ("nodeActionIcon", &["string"] as &[&str]),
                     ("nodeActionLabel", &["string"] as &[&str]),
+                    ("onNodeReorder", &["function"] as &[&str]),
                     ("className", &["string"] as &[&str]),
                     ("indent", &["number"] as &[&str]),
                 ]
@@ -6340,6 +6420,17 @@ pub static PATTERN_PROP_TYPES: LazyLock<HashMap<&'static str, HashMap<&'static s
                     ("variant", &["string"] as &[&str]),
                     ("label", &["string"] as &[&str]),
                     ("position", &["string"] as &[&str]),
+                    ("className", &["string"] as &[&str]),
+                ]
+                .into_iter()
+                .collect(),
+            ),
+            (
+                "floating-toolbar",
+                [
+                    ("items", &["array"] as &[&str]),
+                    ("position", &["string"] as &[&str]),
+                    ("children", &["node"] as &[&str]),
                     ("className", &["string"] as &[&str]),
                 ]
                 .into_iter()
@@ -7141,6 +7232,8 @@ pub static PATTERN_PROP_TYPES: LazyLock<HashMap<&'static str, HashMap<&'static s
                     ("gridColor", &["string"] as &[&str]),
                     ("axisColor", &["string"] as &[&str]),
                     ("showTickLabels", &["boolean"] as &[&str]),
+                    ("tickLabelFontSize", &["number"] as &[&str]),
+                    ("labelFontSize", &["number"] as &[&str]),
                     ("showCurveLabels", &["boolean"] as &[&str]),
                     ("curves", &["array"] as &[&str]),
                     ("points", &["array"] as &[&str]),
@@ -8092,6 +8185,7 @@ pub static PATTERN_PROP_TYPES: LazyLock<HashMap<&'static str, HashMap<&'static s
                     ("className", &["string"] as &[&str]),
                     ("leftClassName", &["string"] as &[&str]),
                     ("rightClassName", &["string"] as &[&str]),
+                    ("onRatioChange", &["function"] as &[&str]),
                 ]
                 .into_iter()
                 .collect(),
@@ -9457,6 +9551,7 @@ pub static PATTERN_PROP_ENUM_VALUES: LazyLock<HashMap<&'static str, HashMap<&'st
                 .collect(),
             ),
             ("floating-action-button", [("variant", &["primary", "secondary", "success", "danger", "warning"] as &[&str])].into_iter().collect()),
+            ("floating-toolbar", [("position", &["bottom-center", "bottom-left", "bottom-right"] as &[&str])].into_iter().collect()),
             (
                 "form",
                 [
