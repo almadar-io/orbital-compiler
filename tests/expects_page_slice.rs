@@ -77,14 +77,18 @@ fn category_slice(expects: Option<Value>) -> Value {
 fn slice_without_the_declaration_reports_the_navigate_unreachable() {
     // The baseline this feature exists to fix: nothing is wrong with the
     // program, only with checking it in isolation.
-    assert!(codes(category_slice(None)).iter().any(|c| c == NAV_UNREACHABLE));
+    assert!(codes(category_slice(None))
+        .iter()
+        .any(|c| c == NAV_UNREACHABLE));
 }
 
 #[test]
 fn expects_page_makes_the_sibling_route_reachable() {
     let expects = json!([{ "kind": "page", "path": "/articles/:slug" }]);
     assert!(
-        !codes(category_slice(Some(expects))).iter().any(|c| c == NAV_UNREACHABLE),
+        !codes(category_slice(Some(expects)))
+            .iter()
+            .any(|c| c == NAV_UNREACHABLE),
         "a declared route expectation must satisfy navigate reachability"
     );
 }
@@ -95,7 +99,9 @@ fn an_unrelated_expected_route_does_not_satisfy_the_navigate() {
     // a navigate that does not match it still fails. This is what keeps a real
     // typo an error: derivation only ever emits a pattern the target matched.
     let expects = json!([{ "kind": "page", "path": "/authors/:id" }]);
-    assert!(codes(category_slice(Some(expects))).iter().any(|c| c == NAV_UNREACHABLE));
+    assert!(codes(category_slice(Some(expects)))
+        .iter()
+        .any(|c| c == NAV_UNREACHABLE));
 }
 
 #[test]
@@ -109,7 +115,10 @@ fn a_real_declaration_still_wins_over_an_expectation_of_the_same_path() {
     let declared_only = codes(category_slice(None));
     assert_eq!(
         with_both.iter().filter(|c| *c != NAV_UNREACHABLE).count(),
-        declared_only.iter().filter(|c| *c != NAV_UNREACHABLE).count(),
+        declared_only
+            .iter()
+            .filter(|c| *c != NAV_UNREACHABLE)
+            .count(),
         "expecting a route the orbital declares itself must change nothing else"
     );
 }

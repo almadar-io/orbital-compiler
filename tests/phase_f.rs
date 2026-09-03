@@ -31,6 +31,7 @@ fn payload_field(name: &str, ty: &str, required: bool) -> PayloadField {
         required: if required { Some(true) } else { None },
         description: None,
         properties: None,
+        type_when: None,
     }
 }
 

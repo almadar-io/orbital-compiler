@@ -480,8 +480,9 @@ fn bad_event_rename_does_not_uninline_sibling_orbitals() {
     // `inline_schema` mid-loop, every LATER orbital kept its
     // TraitReference::Reference form, and validators (which index Inline
     // traits only) reported those healthy siblings as ORB_T_UNDEFINED_TRAIT.
-    let path = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-        .join("../../test-schemas/use-std-behavior/button-config-ref-events-unknown-key-sibling.orb");
+    let path = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join(
+        "../../test-schemas/use-std-behavior/button-config-ref-events-unknown-key-sibling.orb",
+    );
 
     let mut schema = parse_file(&path).expect("fixture must parse");
     let mut diagnostics = Vec::new();
@@ -508,9 +509,9 @@ fn bad_event_rename_does_not_uninline_sibling_orbitals() {
         gadget.traits
     );
     assert!(
-        diagnostics
-            .iter()
-            .any(|d| d.unknown_event_rename_keys.contains(&"NOPE_NOT_A_REAL_EVENT".to_string())),
+        diagnostics.iter().any(|d| d
+            .unknown_event_rename_keys
+            .contains(&"NOPE_NOT_A_REAL_EVENT".to_string())),
         "the bad rename must still be diagnosed"
     );
 }
@@ -616,7 +617,14 @@ fn cart_extends_lowered_output_has_inherited_and_extra_fields() {
     // The 5 inherited fields from std-modal's `ModalRecord`.
     // (`seedRow` joined ModalRecord upstream 2026-08 — the @intrinsic
     // edit-mode seed stash; the inherited set tracks the live atom.)
-    for inherited in ["id", "name", "description", "status", "seedRow", "createdAt"] {
+    for inherited in [
+        "id",
+        "name",
+        "description",
+        "status",
+        "seedRow",
+        "createdAt",
+    ] {
         assert!(
             field_names.contains(&inherited),
             "inherited field `{}` missing from merged CartItem; got {:?}",

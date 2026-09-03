@@ -153,7 +153,7 @@ pub(crate) fn extract_static_path_prefix(expr: &SExpression) -> Option<String> {
     if let SExpression::Array(arr) = expr {
         if arr.len() >= 2 {
             if let SExpression::String(op) = &arr[0] {
-                if op == "str/concat" || op == "concat" {
+                if op == "str/concat" {
                     // First argument might be a static string
                     if let SExpression::String(first) = &arr[1] {
                         // External URLs in dynamic expressions skip page validation entirely.

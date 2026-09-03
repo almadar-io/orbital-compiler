@@ -13,17 +13,16 @@ fn run(schema: Value) -> Vec<String> {
         serde_json::from_value(schema).expect("schema fixture must deserialize");
     let mut ctx = ValidationContext::new();
     entity_access::validate_entity_access(&schema, &mut ctx);
-    ctx.result.errors.iter().map(|e| e.code.as_str().to_string()).collect()
+    ctx.result
+        .errors
+        .iter()
+        .map(|e| e.code.as_str().to_string())
+        .collect()
 }
 
 /// A `Ticket` entity carrying all four directives, an identity roster, and an
 /// `assignee` reference field — the exact shape `std-helpdesk.lolo` uses.
-fn schema_with_ticket_policies(
-    read: Value,
-    create: Value,
-    update: Value,
-    delete: Value,
-) -> Value {
+fn schema_with_ticket_policies(read: Value, create: Value, update: Value, delete: Value) -> Value {
     json!({
         "name": "App",
         "orbitals": [{
@@ -64,7 +63,11 @@ fn schema_with_ticket_policies(
 #[test]
 fn a_known_entity_field_is_accepted() {
     let codes = run(schema_with_ticket_policies(
-        json!(["=", ["object/get", "@entity", "assignee"], ["object/get", "@user", "id"]]),
+        json!([
+            "=",
+            ["object/get", "@entity", "assignee"],
+            ["object/get", "@user", "id"]
+        ]),
         Value::Null,
         Value::Null,
         Value::Null,
@@ -75,7 +78,11 @@ fn a_known_entity_field_is_accepted() {
 #[test]
 fn an_unknown_entity_field_is_an_error() {
     let codes = run(schema_with_ticket_policies(
-        json!(["=", ["object/get", "@entity", "ownerId"], ["object/get", "@user", "id"]]),
+        json!([
+            "=",
+            ["object/get", "@entity", "ownerId"],
+            ["object/get", "@user", "id"]
+        ]),
         Value::Null,
         Value::Null,
         Value::Null,

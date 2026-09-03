@@ -8,6 +8,7 @@
 //!
 //! See `docs/Lolo_Language_Spec_v3_PLAN.md` Section 8 for context.
 
+use orbital_core::schema::PayloadTypeWhen;
 use serde::Deserialize;
 use std::borrow::Cow;
 use std::collections::{HashMap, HashSet};
@@ -539,6 +540,13 @@ pub struct EmbeddedPayloadField {
     pub r#type: String,
     #[serde(default)]
     pub required: bool,
+    /// Declared knob-conditional type list (component JSDoc's
+    /// `@payloadTypeWhen`, pattern-synced into the registry as `typeWhen`).
+    /// The render-ui binding check (`phases/validation/render_ui/binding.rs`)
+    /// evaluates this against the consuming trait's own resolved config —
+    /// the SAME `resolve_payload_type_when` the inline narrowing pass uses.
+    #[serde(rename = "typeWhen", default)]
+    pub type_when: Option<Vec<PayloadTypeWhen>>,
 }
 
 /// A single positional arg of a React callback prop. Used by L2 to verify
@@ -893,7 +901,7 @@ pub fn factory_signatures_json_io() -> &'static str {
 // Values are gzip bytes (build.rs → $OUT_DIR/baked-gz/…), inflated lazily by
 // `get_std_behavior_content` — the baked corpus is ~31MB raw, ~2MB gzipped.
 pub static EMBEDDED_STD_BEHAVIORS: phf::Map<&'static str, &'static [u8]> = phf::phf_map! {
-    // === Atoms (611) ===
+    // === Atoms (617) ===
     "std/behaviors/dnd-combat" => include_bytes!(concat!(env!("OUT_DIR"), "/baked-gz/io/dnd/atoms/dnd-combat.orb.gz")),
     "std/behaviors/dnd-dice" => include_bytes!(concat!(env!("OUT_DIR"), "/baked-gz/io/dnd/atoms/dnd-dice.orb.gz")),
     "std/behaviors/dnd-dungeon-gen" => include_bytes!(concat!(env!("OUT_DIR"), "/baked-gz/io/dnd/atoms/dnd-dungeon-gen.orb.gz")),
@@ -920,8 +928,10 @@ pub static EMBEDDED_STD_BEHAVIORS: phf::Map<&'static str, &'static [u8]> = phf::
     "std/behaviors/riya-level-decay" => include_bytes!(concat!(env!("OUT_DIR"), "/baked-gz/io/riya/atoms/riya-level-decay.orb.gz")),
     "std/behaviors/riya-level-deriv" => include_bytes!(concat!(env!("OUT_DIR"), "/baked-gz/io/riya/atoms/riya-level-deriv.orb.gz")),
     "std/behaviors/riya-level-doubling" => include_bytes!(concat!(env!("OUT_DIR"), "/baked-gz/io/riya/atoms/riya-level-doubling.orb.gz")),
+    "std/behaviors/riya-level-fourier" => include_bytes!(concat!(env!("OUT_DIR"), "/baked-gz/io/riya/atoms/riya-level-fourier.orb.gz")),
     "std/behaviors/riya-level-gallery" => include_bytes!(concat!(env!("OUT_DIR"), "/baked-gz/io/riya/atoms/riya-level-gallery.orb.gz")),
     "std/behaviors/riya-level-gradient" => include_bytes!(concat!(env!("OUT_DIR"), "/baked-gz/io/riya/atoms/riya-level-gradient.orb.gz")),
+    "std/behaviors/riya-level-limits" => include_bytes!(concat!(env!("OUT_DIR"), "/baked-gz/io/riya/atoms/riya-level-limits.orb.gz")),
     "std/behaviors/riya-level-log" => include_bytes!(concat!(env!("OUT_DIR"), "/baked-gz/io/riya/atoms/riya-level-log.orb.gz")),
     "std/behaviors/riya-level-mountain" => include_bytes!(concat!(env!("OUT_DIR"), "/baked-gz/io/riya/atoms/riya-level-mountain.orb.gz")),
     "std/behaviors/riya-level-partial" => include_bytes!(concat!(env!("OUT_DIR"), "/baked-gz/io/riya/atoms/riya-level-partial.orb.gz")),
@@ -929,8 +939,10 @@ pub static EMBEDDED_STD_BEHAVIORS: phf::Map<&'static str, &'static [u8]> = phf::
     "std/behaviors/riya-level-pole" => include_bytes!(concat!(env!("OUT_DIR"), "/baked-gz/io/riya/atoms/riya-level-pole.orb.gz")),
     "std/behaviors/riya-level-ramp" => include_bytes!(concat!(env!("OUT_DIR"), "/baked-gz/io/riya/atoms/riya-level-ramp.orb.gz")),
     "std/behaviors/riya-level-saddle" => include_bytes!(concat!(env!("OUT_DIR"), "/baked-gz/io/riya/atoms/riya-level-saddle.orb.gz")),
+    "std/behaviors/riya-level-secant" => include_bytes!(concat!(env!("OUT_DIR"), "/baked-gz/io/riya/atoms/riya-level-secant.orb.gz")),
     "std/behaviors/riya-level-series" => include_bytes!(concat!(env!("OUT_DIR"), "/baked-gz/io/riya/atoms/riya-level-series.orb.gz")),
     "std/behaviors/riya-level-shifts" => include_bytes!(concat!(env!("OUT_DIR"), "/baked-gz/io/riya/atoms/riya-level-shifts.orb.gz")),
+    "std/behaviors/riya-level-sine" => include_bytes!(concat!(env!("OUT_DIR"), "/baked-gz/io/riya/atoms/riya-level-sine.orb.gz")),
     "std/behaviors/riya-level-tail" => include_bytes!(concat!(env!("OUT_DIR"), "/baked-gz/io/riya/atoms/riya-level-tail.orb.gz")),
     "std/behaviors/riya-level-taylor" => include_bytes!(concat!(env!("OUT_DIR"), "/baked-gz/io/riya/atoms/riya-level-taylor.orb.gz")),
     "std/behaviors/riya-level-valley" => include_bytes!(concat!(env!("OUT_DIR"), "/baked-gz/io/riya/atoms/riya-level-valley.orb.gz")),
@@ -1081,6 +1093,7 @@ pub static EMBEDDED_STD_BEHAVIORS: phf::Map<&'static str, &'static [u8]> = phf::
     "std/behaviors/std-filter" => include_bytes!(concat!(env!("OUT_DIR"), "/baked-gz/std/ui/core/atoms/std-filter.orb.gz")),
     "std/behaviors/std-form-advanced" => include_bytes!(concat!(env!("OUT_DIR"), "/baked-gz/std/ui/core/atoms/std-form-advanced.orb.gz")),
     "std/behaviors/std-form-builder" => include_bytes!(concat!(env!("OUT_DIR"), "/baked-gz/io/app/atoms/std-form-builder.orb.gz")),
+    "std/behaviors/std-fx-narrative" => include_bytes!(concat!(env!("OUT_DIR"), "/baked-gz/std/ui/game/atoms/std-fx-narrative.orb.gz")),
     "std/behaviors/std-fx-particles" => include_bytes!(concat!(env!("OUT_DIR"), "/baked-gz/std/ui/game/atoms/std-fx-particles.orb.gz")),
     "std/behaviors/std-fx-trail" => include_bytes!(concat!(env!("OUT_DIR"), "/baked-gz/std/ui/game/atoms/std-fx-trail.orb.gz")),
     "std/behaviors/std-gallery" => include_bytes!(concat!(env!("OUT_DIR"), "/baked-gz/std/ui/core/atoms/std-gallery.orb.gz")),
@@ -1243,6 +1256,7 @@ pub static EMBEDDED_STD_BEHAVIORS: phf::Map<&'static str, &'static [u8]> = phf::
     "std/behaviors/std-physics-spring" => include_bytes!(concat!(env!("OUT_DIR"), "/baked-gz/io/learning/atoms/std-physics-spring.orb.gz")),
     "std/behaviors/std-physics-wave" => include_bytes!(concat!(env!("OUT_DIR"), "/baked-gz/io/learning/atoms/std-physics-wave.orb.gz")),
     "std/behaviors/std-physics-wave-3d" => include_bytes!(concat!(env!("OUT_DIR"), "/baked-gz/io/learning/atoms/std-physics-wave-3d.orb.gz")),
+    "std/behaviors/std-pickup" => include_bytes!(concat!(env!("OUT_DIR"), "/baked-gz/std/ui/game/atoms/std-pickup.orb.gz")),
     "std/behaviors/std-platformer-body" => include_bytes!(concat!(env!("OUT_DIR"), "/baked-gz/std/ui/game/atoms/std-platformer-body.orb.gz")),
     "std/behaviors/std-pong-rally" => include_bytes!(concat!(env!("OUT_DIR"), "/baked-gz/io/game/atoms/std-pong-rally.orb.gz")),
     "std/behaviors/std-portfolio" => include_bytes!(concat!(env!("OUT_DIR"), "/baked-gz/io/app/atoms/std-portfolio.orb.gz")),

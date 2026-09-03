@@ -43,9 +43,7 @@ pub(crate) fn success_emit_key(op_name: &str) -> &'static str {
 fn call_site_entity(op_name: &str, args: &[SExpression]) -> Option<String> {
     let idx = match op_name {
         "persist" => match args.get(1) {
-            Some(SExpression::String(op))
-                if op == "create" || op == "update" || op == "delete" =>
-            {
+            Some(SExpression::String(op)) if op == "create" || op == "update" || op == "delete" => {
                 2
             }
             _ => 1,
@@ -112,9 +110,10 @@ fn field_shape(
                 let (inner, props) = field_shape(of, entity);
                 (format!("[{inner}]"), props)
             }
-            OperatorTypeRefKind::Object { fields, .. } => {
-                ("object".to_string(), Some(object_payload_fields(fields, entity)))
-            }
+            OperatorTypeRefKind::Object { fields, .. } => (
+                "object".to_string(),
+                Some(object_payload_fields(fields, entity)),
+            ),
             // A union / binding / sexpr / slot in a field position is not
             // something this check can adjudicate.
             _ => ("any".to_string(), None),
@@ -136,6 +135,7 @@ fn object_payload_fields(
                 required: None,
                 description: None,
                 properties,
+                type_when: None,
             }
         })
         .collect();
@@ -157,6 +157,7 @@ fn entity_payload_fields(entity: &EntityDefinition) -> Vec<PayloadField> {
             required: None,
             description: None,
             properties: None,
+            type_when: None,
         })
         .collect();
     out.sort_by(|a, b| a.name.cmp(&b.name));

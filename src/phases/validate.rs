@@ -214,7 +214,9 @@ fn collect_names(schema: &OrbitalSchema, ctx: &mut ValidationContext) {
                 ExpectDeclaration::Entity { name, .. } => {
                     ctx.entity_names.insert(name.clone());
                 }
-                ExpectDeclaration::Identity { name: Some(name), .. } => {
+                ExpectDeclaration::Identity {
+                    name: Some(name), ..
+                } => {
                     ctx.entity_names.insert(name.clone());
                 }
                 ExpectDeclaration::Page { path } => {
@@ -608,24 +610,25 @@ mod tests {
                 id: None,
             })
         };
-        let orbital = |name: &str, ent: EntityRef, expects: Option<Vec<ExpectDeclaration>>| Orbital {
-            types: None,
-            name: name.to_string(),
-            uses: None,
-            expects,
-            theme: None,
-            services: None,
-            entity: ent,
-            auxiliary_entities: None,
-            traits: vec![],
-            pages: None,
-            emits: None,
-            listens: None,
-            exposes: None,
-            domain_context: None,
-            design: None,
-            id: None,
-        };
+        let orbital =
+            |name: &str, ent: EntityRef, expects: Option<Vec<ExpectDeclaration>>| Orbital {
+                types: None,
+                name: name.to_string(),
+                uses: None,
+                expects,
+                theme: None,
+                services: None,
+                entity: ent,
+                auxiliary_entities: None,
+                traits: vec![],
+                pages: None,
+                emits: None,
+                listens: None,
+                exposes: None,
+                domain_context: None,
+                design: None,
+                id: None,
+            };
         let consumer = orbital(
             "ConsumerOrbital",
             entity("Consumer"),
@@ -670,8 +673,14 @@ mod tests {
     fn expectation_name_never_shadows_a_real_declaration() {
         // Both orderings must agree, and both must be clean: the expectation
         // is a promise about a name, not a declaration of it.
-        assert_eq!(duplicate_errors(&expects_vs_provider_schema(true)), Vec::<String>::new());
-        assert_eq!(duplicate_errors(&expects_vs_provider_schema(false)), Vec::<String>::new());
+        assert_eq!(
+            duplicate_errors(&expects_vs_provider_schema(true)),
+            Vec::<String>::new()
+        );
+        assert_eq!(
+            duplicate_errors(&expects_vs_provider_schema(false)),
+            Vec::<String>::new()
+        );
     }
 
     #[test]

@@ -24,7 +24,11 @@ fn run_scoped(schema: Value) -> Vec<String> {
     user_identity::validate_user_identity(&schema, &mut ctx);
     entity_access::validate_entity_access(&schema, &mut ctx);
     expectations::validate_expectations(&schema, &mut ctx);
-    ctx.result.errors.iter().map(|e| e.code.as_str().to_string()).collect()
+    ctx.result
+        .errors
+        .iter()
+        .map(|e| e.code.as_str().to_string())
+        .collect()
 }
 
 /// The full pipeline — for the licensing arms (relation targets, persist /
@@ -73,7 +77,8 @@ fn slice_with_policy(policy: Value) -> Value {
 }
 
 fn role_policy(literal: &str) -> Value {
-    json!(["or",
+    json!([
+        "or",
         ["=", "@user.role", "store-manager"],
         ["=", "@user.role", literal]
     ])
@@ -88,7 +93,11 @@ fn role_policy(literal: &str) -> Value {
 #[test]
 fn slice_with_expects_identity_validates_clean() {
     let codes = run_scoped(slice_with_policy(role_policy("operations-director")));
-    assert_eq!(codes, Vec::<String>::new(), "expected a clean slice, got {codes:?}");
+    assert_eq!(
+        codes,
+        Vec::<String>::new(),
+        "expected a clean slice, got {codes:?}"
+    );
 }
 
 /// The same slice WITHOUT `expects` errors exactly as today — the escape
@@ -96,7 +105,10 @@ fn slice_with_expects_identity_validates_clean() {
 #[test]
 fn without_expects_the_same_slice_still_requires_identity() {
     let mut schema = slice_with_policy(role_policy("operations-director"));
-    schema["orbitals"][0].as_object_mut().unwrap().remove("expects");
+    schema["orbitals"][0]
+        .as_object_mut()
+        .unwrap()
+        .remove("expects");
     let codes = run_scoped(schema);
     assert!(
         codes.contains(&"ORB_S_ACCESS_POLICY_REQUIRES_IDENTITY".to_string()),
@@ -179,7 +191,11 @@ fn a_named_expects_identity_satisfies_owner_field_typing() {
         }]
     });
     let codes = run_scoped(schema);
-    assert_eq!(codes, Vec::<String>::new(), "expected a clean slice, got {codes:?}");
+    assert_eq!(
+        codes,
+        Vec::<String>::new(),
+        "expected a clean slice, got {codes:?}"
+    );
 }
 
 /// A BARE `expects identity` satisfies the roster requirement but is NOT a
@@ -311,7 +327,9 @@ fn an_expects_licensed_linked_entity_defers_the_entity_sentinel() {
             }]
         })
     };
-    let licensed = run_full(orbital(json!([{ "kind": "entity", "name": "HealthScoreSearch" }])));
+    let licensed = run_full(orbital(
+        json!([{ "kind": "entity", "name": "HealthScoreSearch" }]),
+    ));
     assert!(
         !licensed.contains(&"ORB_T_UNRESOLVED_TYPE_PARAM".to_string()),
         "expects-licensed linkedEntity must defer the @entity sentinel to compose, got {licensed:?}"
@@ -319,7 +337,9 @@ fn an_expects_licensed_linked_entity_defers_the_entity_sentinel() {
     let unlicensed = run_full(orbital(json!([])));
     assert!(
         unlicensed.contains(&"ORB_T_UNRESOLVED_TYPE_PARAM".to_string())
-            || unlicensed.iter().any(|c| c.contains("LINKED_ENTITY") || c.contains("INVALID")),
+            || unlicensed
+                .iter()
+                .any(|c| c.contains("LINKED_ENTITY") || c.contains("INVALID")),
         "without the expects declaration the slice must still be rejected, got {unlicensed:?}"
     );
 }
@@ -467,7 +487,11 @@ fn a_persist_payload_inside_the_declared_shape_is_clean() {
         }]
     });
     let codes = run_scoped(schema);
-    assert_eq!(codes, Vec::<String>::new(), "expected a clean slice, got {codes:?}");
+    assert_eq!(
+        codes,
+        Vec::<String>::new(),
+        "expected a clean slice, got {codes:?}"
+    );
 }
 
 // ---------------------------------------------------------------------------
@@ -517,7 +541,11 @@ fn a_single_orbital_schema_never_reports_unsatisfied() {
         "orbitals": [consumer_expecting(json!({ "kind": "entity", "name": "Nobody" }))]
     });
     let codes = run_scoped(schema);
-    assert_eq!(codes, Vec::<String>::new(), "a slice trusts its expectations, got {codes:?}");
+    assert_eq!(
+        codes,
+        Vec::<String>::new(),
+        "a slice trusts its expectations, got {codes:?}"
+    );
 }
 
 /// An expectation whose provider is ABSENT is deferred to the importer, not an
@@ -831,7 +859,9 @@ fn a_satisfied_composed_program_is_clean() {
     });
     let codes = run_full(schema);
     assert!(
-        !codes.iter().any(|c| c.starts_with("ORB_S_EXPECT") || c.starts_with("ORB_S_ACCESS_POLICY")),
+        !codes
+            .iter()
+            .any(|c| c.starts_with("ORB_S_EXPECT") || c.starts_with("ORB_S_ACCESS_POLICY")),
         "a satisfied program must be clean of expectation codes, got {codes:?}"
     );
 }
@@ -1012,7 +1042,11 @@ fn slice_with_user_id_read(imported: bool) -> Value {
 #[test]
 fn an_imported_bodys_user_reads_are_not_checked_against_the_declaration() {
     let codes = run_scoped(slice_with_user_id_read(true));
-    assert_eq!(codes, Vec::<String>::new(), "imported body must be skipped, got {codes:?}");
+    assert_eq!(
+        codes,
+        Vec::<String>::new(),
+        "imported body must be skipped, got {codes:?}"
+    );
 }
 
 /// The SAME read in a trait authored directly on the orbital is the declared
@@ -1046,7 +1080,10 @@ fn an_authored_traits_user_reads_are_checked_against_the_declaration() {
 fn composed_with_propagated_expectation(roster_has_id: bool) -> Value {
     let mut fields = vec![json!({ "name": "name", "type": "string", "required": true })];
     if roster_has_id {
-        fields.insert(0, json!({ "name": "id", "type": "string", "required": true }));
+        fields.insert(
+            0,
+            json!({ "name": "id", "type": "string", "required": true }),
+        );
     }
     json!({
         "name": "App",

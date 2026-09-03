@@ -74,19 +74,16 @@ pub(crate) fn validate_listens_integrity(schema: &OrbitalSchema) -> ValidationRe
                     // declare the event in a SIBLING orbital, the qualified
                     // `Orbital.Trait.EVENT` form already routes there on every
                     // path (static + both runtimes) — name it.
-                    let sibling_hit = matches!(
-                        &listen.source,
-                        Some(ListenSource::Trait { .. })
-                    )
-                    .then(|| {
-                        trait_emits.iter().find_map(|((o, t), events)| {
-                            (t == &source_trait
-                                && o != &source_orbital
-                                && events.contains(&listen.event))
-                            .then(|| o.clone())
+                    let sibling_hit = matches!(&listen.source, Some(ListenSource::Trait { .. }))
+                        .then(|| {
+                            trait_emits.iter().find_map(|((o, t), events)| {
+                                (t == &source_trait
+                                    && o != &source_orbital
+                                    && events.contains(&listen.event))
+                                .then(|| o.clone())
+                            })
                         })
-                    })
-                    .flatten();
+                        .flatten();
                     let suggestion = match sibling_hit {
                         Some(o) => format!(
                             "Trait '{}' declares event '{}' in sibling orbital '{}' — a bare \
@@ -220,7 +217,10 @@ mod tests {
             SExpression::Array(vec![descriptor("VIEW_ITEM")]),
         ]);
         let mut node: Map<String, SExpression> = Map::new();
-        node.insert("type".to_string(), SExpression::String("data-list".to_string()));
+        node.insert(
+            "type".to_string(),
+            SExpression::String("data-list".to_string()),
+        );
         node.insert("itemActions".to_string(), item_actions);
         let render_effect = SExpression::Array(vec![
             SExpression::String("render-ui".to_string()),

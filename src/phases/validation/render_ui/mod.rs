@@ -561,7 +561,10 @@ mod tests {
         let effect = SExpression::Array(vec![
             s("render-ui"),
             s("main"),
-            obj(&[("type", s("stack")), ("children", SExpression::Array(vec![cond]))]),
+            obj(&[
+                ("type", s("stack")),
+                ("children", SExpression::Array(vec![cond])),
+            ]),
         ]);
         let entity_defs = HashMap::new();
         let result = validate_render_ui_effect(&effect, "test", &entity_defs, None, None);
@@ -586,7 +589,10 @@ mod tests {
         let effect = SExpression::Array(vec![
             s("render-ui"),
             s("main"),
-            obj(&[("type", s("stack")), ("children", SExpression::Array(vec![cond]))]),
+            obj(&[
+                ("type", s("stack")),
+                ("children", SExpression::Array(vec![cond])),
+            ]),
         ]);
         let entity_defs = HashMap::new();
         let result = validate_render_ui_effect(&effect, "test", &entity_defs, None, None);
@@ -614,7 +620,10 @@ mod tests {
         let effect = SExpression::Array(vec![
             s("render-ui"),
             s("main"),
-            obj(&[("type", s("stack")), ("children", SExpression::Array(vec![cond]))]),
+            obj(&[
+                ("type", s("stack")),
+                ("children", SExpression::Array(vec![cond])),
+            ]),
         ]);
         let entity_defs = HashMap::new();
         let result = validate_render_ui_effect(&effect, "test", &entity_defs, None, None);
@@ -635,7 +644,10 @@ mod tests {
         let effect = SExpression::Array(vec![
             s("render-ui"),
             s("main"),
-            obj(&[("type", s("stack")), ("children", SExpression::Array(vec![bogus]))]),
+            obj(&[
+                ("type", s("stack")),
+                ("children", SExpression::Array(vec![bogus])),
+            ]),
         ]);
         let entity_defs = HashMap::new();
         let result = validate_render_ui_effect(&effect, "test", &entity_defs, None, None);

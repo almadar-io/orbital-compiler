@@ -403,7 +403,6 @@ pub fn inline_schema_with_config_diagnostics(
     Ok(())
 }
 
-
 /// Drop an imported auxiliary entity when its name collides with a PRIMARY
 /// entity the consumer declares AND nothing in the importing orbital references
 /// it.
@@ -454,7 +453,9 @@ fn drop_unreferenced_colliding_auxiliaries(schema: &mut OrbitalSchema) {
         // narrow where the analysis is provably complete.
         let traits_blob = serde_json::to_string(&orbital.traits).unwrap_or_default();
         aux.retain(|e| {
-            let EntityRef::Inline(def) = e else { return true };
+            let EntityRef::Inline(def) = e else {
+                return true;
+            };
             // Only a collision with ANOTHER orbital's primary is at issue; an
             // aux matching this orbital's own primary is already filtered when
             // the list is built.
@@ -1060,7 +1061,8 @@ fn inline_orbital(
                     // declared param DEFAULT values — either may name a
                     // struct alias (a primitive/entity name simply isn't
                     // found in `source_types` and is skipped below).
-                    let mut candidates: HashSet<String> = effective_args.values().cloned().collect();
+                    let mut candidates: HashSet<String> =
+                        effective_args.values().cloned().collect();
                     if let Some(source_def) = source_def {
                         if let Some(params) = &source_def.type_params {
                             candidates.extend(params.iter().filter_map(|p| p.default.clone()));
@@ -1090,98 +1092,101 @@ fn inline_orbital(
         }
     }
 
-/// Union one imported expectation into a consuming orbital's `expects` list.
-///
-/// The `.lolo` parser rejects duplicates (`expects_duplicate`): two
-/// `expects identity` — bare included — or two `expects entity X` are a parse
-/// error. So propagated declarations must MERGE with any same-target entry
-/// rather than append, or the composed `.orb` would carry a shape the language
-/// itself forbids.
-///
-/// Field union rules: a field contributed by any party is required if ANY
-/// contributor marks it required (the strictest need must be satisfiable), and
-/// an existing field's declaration wins on type so a consumer's own hand-written
-/// expectation is never silently retyped by an import.
-fn merge_expectation(into: &mut Vec<ExpectDeclaration>, incoming: ExpectDeclaration) {
-    fn union_shape(
-        existing: &mut Option<Vec<orbital_core::schema::FieldDefinition>>,
-        incoming: Option<Vec<orbital_core::schema::FieldDefinition>>,
-    ) {
-        let Some(add) = incoming else { return };
-        let target = existing.get_or_insert_with(Vec::new);
-        for field in add {
-            let Some(name) = field.name.as_deref() else { continue };
-            match target.iter_mut().find(|f| f.name.as_deref() == Some(name)) {
-                Some(existing_field) => {
-                    // Strictest wins: any contributor needing it required makes
-                    // it required for the provider.
-                    if field.required == Some(true) {
-                        existing_field.required = Some(true);
+    /// Union one imported expectation into a consuming orbital's `expects` list.
+    ///
+    /// The `.lolo` parser rejects duplicates (`expects_duplicate`): two
+    /// `expects identity` — bare included — or two `expects entity X` are a parse
+    /// error. So propagated declarations must MERGE with any same-target entry
+    /// rather than append, or the composed `.orb` would carry a shape the language
+    /// itself forbids.
+    ///
+    /// Field union rules: a field contributed by any party is required if ANY
+    /// contributor marks it required (the strictest need must be satisfiable), and
+    /// an existing field's declaration wins on type so a consumer's own hand-written
+    /// expectation is never silently retyped by an import.
+    fn merge_expectation(into: &mut Vec<ExpectDeclaration>, incoming: ExpectDeclaration) {
+        fn union_shape(
+            existing: &mut Option<Vec<orbital_core::schema::FieldDefinition>>,
+            incoming: Option<Vec<orbital_core::schema::FieldDefinition>>,
+        ) {
+            let Some(add) = incoming else { return };
+            let target = existing.get_or_insert_with(Vec::new);
+            for field in add {
+                let Some(name) = field.name.as_deref() else {
+                    continue;
+                };
+                match target.iter_mut().find(|f| f.name.as_deref() == Some(name)) {
+                    Some(existing_field) => {
+                        // Strictest wins: any contributor needing it required makes
+                        // it required for the provider.
+                        if field.required == Some(true) {
+                            existing_field.required = Some(true);
+                        }
                     }
+                    None => target.push(field),
                 }
-                None => target.push(field),
             }
         }
-    }
 
-    match incoming {
-        ExpectDeclaration::Identity { name, shape } => {
-            // At most ONE identity expectation per orbital — `@user` is a single
-            // viewer, and the parser enforces it. Merge into whichever exists.
-            if let Some(ExpectDeclaration::Identity {
-                name: existing_name,
-                shape: existing_shape,
-            }) = into
-                .iter_mut()
-                .find(|d| matches!(d, ExpectDeclaration::Identity { .. }))
-            {
-                if existing_name.is_none() {
-                    // A named expectation is more specific than a bare one, but
-                    // an unnamed one resolves to whatever the host tagged
-                    // [identity] — keep the bare form, which is what lets a
-                    // composed app satisfy imports from several organisms whose
-                    // rosters have different names.
-                    let _ = &name;
-                } 
-                union_shape(existing_shape, shape);
-            } else {
-                into.push(ExpectDeclaration::Identity { name, shape });
+        match incoming {
+            ExpectDeclaration::Identity { name, shape } => {
+                // At most ONE identity expectation per orbital — `@user` is a single
+                // viewer, and the parser enforces it. Merge into whichever exists.
+                if let Some(ExpectDeclaration::Identity {
+                    name: existing_name,
+                    shape: existing_shape,
+                }) = into
+                    .iter_mut()
+                    .find(|d| matches!(d, ExpectDeclaration::Identity { .. }))
+                {
+                    if existing_name.is_none() {
+                        // A named expectation is more specific than a bare one, but
+                        // an unnamed one resolves to whatever the host tagged
+                        // [identity] — keep the bare form, which is what lets a
+                        // composed app satisfy imports from several organisms whose
+                        // rosters have different names.
+                        let _ = &name;
+                    }
+                    union_shape(existing_shape, shape);
+                } else {
+                    into.push(ExpectDeclaration::Identity { name, shape });
+                }
             }
-        }
-        ExpectDeclaration::Entity { name, shape } => {
-            if let Some(ExpectDeclaration::Entity {
-                shape: existing_shape,
-                ..
-            }) = into.iter_mut().find(
-                |d| matches!(d, ExpectDeclaration::Entity { name: n, .. } if *n == name),
-            ) {
-                union_shape(existing_shape, shape);
-            } else {
-                into.push(ExpectDeclaration::Entity { name, shape });
+            ExpectDeclaration::Entity { name, shape } => {
+                if let Some(ExpectDeclaration::Entity {
+                    shape: existing_shape,
+                    ..
+                }) = into
+                    .iter_mut()
+                    .find(|d| matches!(d, ExpectDeclaration::Entity { name: n, .. } if *n == name))
+                {
+                    union_shape(existing_shape, shape);
+                } else {
+                    into.push(ExpectDeclaration::Entity { name, shape });
+                }
             }
-        }
-        // Phase 2 construct with no validation effect yet; dedup by (trait, event).
-        ExpectDeclaration::Event { trait_name, event } => {
-            let dup = into.iter().any(|d| {
-                matches!(d, ExpectDeclaration::Event { trait_name: t, event: e }
+            // Phase 2 construct with no validation effect yet; dedup by (trait, event).
+            ExpectDeclaration::Event { trait_name, event } => {
+                let dup = into.iter().any(|d| {
+                    matches!(d, ExpectDeclaration::Event { trait_name: t, event: e }
                          if *t == trait_name && *e == event)
-            });
-            if !dup {
-                into.push(ExpectDeclaration::Event { trait_name, event });
+                });
+                if !dup {
+                    into.push(ExpectDeclaration::Event { trait_name, event });
+                }
             }
-        }
-        // A route has no shape to union — the path IS the declaration, so
-        // dedup by path and keep the first.
-        ExpectDeclaration::Page { path } => {
-            let dup = into
-                .iter()
-                .any(|d| matches!(d, ExpectDeclaration::Page { path: p } if *p == path));
-            if !dup {
-                into.push(ExpectDeclaration::Page { path });
+            // A route has no shape to union — the path IS the declaration, so
+            // dedup by path and keep the first.
+            ExpectDeclaration::Page { path } => {
+                let dup = into
+                    .iter()
+                    .any(|d| matches!(d, ExpectDeclaration::Page { path: p } if *p == path));
+                if !dup {
+                    into.push(ExpectDeclaration::Page { path });
+                }
             }
         }
     }
-}
 
     // Inline entity
     orbital.entity = inline_entity(&orbital.entity, &ctx)?;
@@ -1594,7 +1599,10 @@ mod tests {
 
         uniquify_cross_orbital_pulled_siblings(
             &mut schema,
-            &[(0, vec!["DataGrid1".to_string()]), (1, vec!["DataGrid1".to_string()])],
+            &[
+                (0, vec!["DataGrid1".to_string()]),
+                (1, vec!["DataGrid1".to_string()]),
+            ],
         );
 
         let serialized = serde_json::to_string(&schema).unwrap();
@@ -1606,7 +1614,9 @@ mod tests {
             let renamed = format!("{orb_name}DataGrid1");
             let orb = &schema.orbitals[idx];
             assert!(
-                orb.traits.iter().any(|t| matches!(t, TraitReference::Inline(td) if td.name == renamed)),
+                orb.traits
+                    .iter()
+                    .any(|t| matches!(t, TraitReference::Inline(td) if td.name == renamed)),
                 "{orb_name}: sibling declaration renamed to {renamed}"
             );
             let host = orb
@@ -1617,10 +1627,17 @@ mod tests {
                     _ => None,
                 })
                 .expect("host trait");
-            let effects_json = serde_json::to_string(&host.state_machine.transitions[0].effects).unwrap();
-            assert!(effects_json.contains(&format!("@trait.{renamed}")), "{orb_name}: effect token rewritten");
+            let effects_json =
+                serde_json::to_string(&host.state_machine.transitions[0].effects).unwrap();
+            assert!(
+                effects_json.contains(&format!("@trait.{renamed}")),
+                "{orb_name}: effect token rewritten"
+            );
             let config_json = serde_json::to_string(&host.config).unwrap();
-            assert!(config_json.contains(&format!("@trait.{renamed}")), "{orb_name}: config default rewritten");
+            assert!(
+                config_json.contains(&format!("@trait.{renamed}")),
+                "{orb_name}: config default rewritten"
+            );
         }
     }
 
@@ -4337,7 +4354,10 @@ mod tests {
             .as_ref()
             .expect("merged replies field must keep its relation");
 
-        assert_eq!(rel.entity, "Ticket", "relation name must retarget to the caller entity");
+        assert_eq!(
+            rel.entity, "Ticket",
+            "relation name must retarget to the caller entity"
+        );
         assert_eq!(
             rel.entity_id.as_deref(),
             Some("ent_CALLER_TICKET"),

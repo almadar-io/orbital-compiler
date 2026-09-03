@@ -2,9 +2,8 @@
 
 use super::InlineError;
 use orbital_core::schema::{
-    ExpectDeclaration,
-    EntityDefinition, EntityRef, Orbital, PageRef, PayloadField, ServiceRef, ThemeRef,
-    TraitReference,
+    EntityDefinition, EntityRef, ExpectDeclaration, Orbital, PageRef, PayloadField, ServiceRef,
+    ThemeRef, TraitReference,
 };
 use std::collections::{BTreeMap, HashMap};
 
@@ -424,7 +423,9 @@ impl InlineContext {
                             return Some(TraitReference::Inline(trait_def.clone()));
                         }
                     }
-                    TraitReference::Reference { ref_id: rid, id, .. } => {
+                    TraitReference::Reference {
+                        ref_id: rid, id, ..
+                    } => {
                         // Match the entry's TARGET id (transitive re-export
                         // semantics) OR its LOCAL declaration id (the
                         // composed-surface backbone mints one per Reference

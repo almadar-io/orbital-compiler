@@ -347,11 +347,11 @@ pub(crate) fn apply_overrides_to_trait(
         }
     }
 
-    // `inputType: number` narrowing (§61 OPEN 1): the GAP-AG-VALUE-DRIFT fold
-    // just above already baked the call site's resolved override into
-    // `trait_def.config["inputType"].default`, so this is the first point
-    // where "the call site set inputType to the literal number" is knowable.
-    narrow_number_input_value_payload(trait_def);
+    // Declared `@typeWhen` payload-field conditionals (§61 OPEN 1's
+    // replacement): the GAP-AG-VALUE-DRIFT fold just above already baked the
+    // call site's resolved override into `trait_def.config[<knob>].default`,
+    // so this is the first point where a condition's knob value is knowable.
+    apply_payload_type_conditionals(trait_def);
 
     // The `event`-TYPED twin of the step-3c emit-driven fold (gap #30/C1
     // root fix): a knob declared `: event` holds an event-name REFERENCE,
@@ -487,83 +487,101 @@ pub(crate) fn apply_overrides_to_trait(
     }
 }
 
-/// §61 OPEN 1: a composed trait whose emit event is DEFINED by a config knob
-/// (`definer_knob` — the atom's `emits { @config.<knob> -> … }` shape) and
-/// whose config separately declares `inputType` narrows that emit's `value`
-/// payload field from `string` to `number` once the RESOLVED `inputType` is
-/// the literal `"number"`. Detected by SHAPE (a definer-knob emit paired with
-/// an `inputType` knob declaring the payload field it types), never by trait
-/// or atom name — any future pattern with the same shape gets the same
-/// narrowing. Mirrors the rewrite onto the matching `stateMachine.events[]`
-/// entry so both surfaces a `set`/codegen check reads from stay in lockstep.
-/// A forwarded/unresolved `@config.*` knob (not yet a literal `"number"`)
-/// leaves `value` as `string` — only the literal call-site value narrows.
-/// The predicate itself (`resolves_input_type_to_number`) lives in
-/// `orbital_core::schema` — the render-ui event-binding-payload check
-/// (`phases/validation/render_ui/binding.rs`) consults the SAME function so
-/// the two never drift apart by wording.
-fn narrow_number_input_value_payload(trait_def: &mut TraitDefinition) {
-    if !orbital_core::schema::resolves_input_type_to_number(trait_def) {
-        return;
-    }
-
-    let events_to_narrow = definer_knob_value_events(trait_def, "string");
-    if events_to_narrow.is_empty() {
-        return;
-    }
-
-    let narrow_fields = |fields: &mut [orbital_core::schema::PayloadField]| {
+/// §61 OPEN 1 replacement: resolve every emit payload field AND matching
+/// `stateMachine.events[]` payload field's declared `@typeWhen` conditionals
+/// (`PayloadField.type_when`) against the trait's DECLARED config (already
+/// carrying the call site's resolved override via the GAP-AG-VALUE-DRIFT
+/// fold just above). On a literal match, `field_type` is rewritten to the
+/// condition's `ty`; a forwarded/unresolved knob matches nothing and leaves
+/// the field's declared type as-is. `type_when` itself is left in place here
+/// (not cleared) — `rewrite_narrowed_number_display_writes` below is the one
+/// whole-schema pass that both clears it for good (the emitted `.orb` must
+/// carry only the resolved truth) and needs to know a field WAS
+/// knob-conditional to gate the display-buffer wrap; clearing here would
+/// erase that signal before it's read. ZERO knob-name or pattern-name
+/// knowledge: the conditions are authored data, this only evaluates them —
+/// any future `@typeWhen` declaration on any field gets the same treatment.
+fn apply_payload_type_conditionals(trait_def: &mut TraitDefinition) {
+    let config = trait_def.config.clone();
+    let resolve_fields = |fields: &mut [orbital_core::schema::PayloadField]| {
         for f in fields.iter_mut() {
-            if f.name == "value" && f.field_type == "string" {
-                f.field_type = "number".to_string();
+            let Some(conditions) = f.type_when.as_ref() else {
+                continue;
+            };
+            if let Some(ty) =
+                orbital_core::schema::resolve_payload_type_when(conditions, config.as_ref())
+            {
+                f.field_type = ty;
             }
         }
     };
     for emit in trait_def.emits.iter_mut().flatten() {
-        if events_to_narrow.contains(&emit.event) {
-            if let Some(fields) = emit.payload_schema.as_mut() {
-                narrow_fields(fields);
-            }
+        if let Some(fields) = emit.payload_schema.as_mut() {
+            resolve_fields(fields);
         }
     }
     for ev in trait_def.state_machine.events.iter_mut().flatten() {
-        if events_to_narrow.contains(&ev.key) {
-            if let Some(fields) = ev.payload_schema.as_mut() {
-                narrow_fields(fields);
-            }
+        if let Some(fields) = ev.payload_schema.as_mut() {
+            resolve_fields(fields);
         }
     }
 }
 
-/// Definer-knob emit events on `trait_def` whose declared `value` payload
-/// field is exactly `field_type`. Shared by the narrowing pass above (looks
-/// for `"string"`, the pre-narrow state) and the FIX-2 display-buffer
-/// rewrite below (looks for `"number"`, the post-narrow state) so both walk
-/// the same definer-knob-emit shape once rather than two copies of it.
-fn definer_knob_value_events(trait_def: &TraitDefinition, field_type: &str) -> HashSet<String> {
-    trait_def
-        .emits
-        .iter()
-        .flatten()
-        .filter(|emit| {
-            emit.definer_knob.is_some()
-                && emit.payload_schema.as_ref().is_some_and(|fields| {
-                    fields.iter().any(|f| f.name == "value" && f.field_type == field_type)
-                })
-        })
-        .map(|emit| emit.event.clone())
-        .collect()
+/// True for an array-shaped payload type (`[T]` or the literal `array`). The
+/// display-buffer wrap below must never fire for one of these — stringifying
+/// an array is display corruption, not a display fix; such a field just
+/// type-checks normally downstream instead.
+fn is_array_shaped_payload_type(ty: &str) -> bool {
+    ty.starts_with('[') || ty == "array"
+}
+
+/// Clears every payload field's now-resolved `type_when` on `trait_def` (the
+/// emitted `.orb` must carry only the resolved truth, never the conditional
+/// — a still-forwarded/unresolved condition has no further chance to resolve
+/// once this, the last pre-codegen schema pass, has run) and reports whether
+/// the trait's own `"value"` transport field — the read `wrap_narrowed_
+/// display_set` below targets — was narrowed AWAY FROM `string` to a
+/// non-array scalar by `apply_payload_type_conditionals` above. Presence of
+/// `type_when` (regardless of whether it matched) is exactly that signal: a
+/// field never declared `@typeWhen` never carries it, so an organically
+/// `number`-typed `value` field (no conditional involved) correctly reports
+/// `false` here.
+fn finalize_payload_type_conditionals(trait_def: &mut TraitDefinition) -> bool {
+    let mut value_narrowed_to_scalar = false;
+    let mut sweep = |fields: &mut [orbital_core::schema::PayloadField]| {
+        for f in fields.iter_mut() {
+            let was_conditional = f.type_when.take().is_some();
+            if was_conditional
+                && f.name == "value"
+                && f.field_type != "string"
+                && !is_array_shaped_payload_type(&f.field_type)
+            {
+                value_narrowed_to_scalar = true;
+            }
+        }
+    };
+    for emit in trait_def.emits.iter_mut().flatten() {
+        if let Some(fields) = emit.payload_schema.as_mut() {
+            sweep(fields);
+        }
+    }
+    for ev in trait_def.state_machine.events.iter_mut().flatten() {
+        if let Some(fields) = ev.payload_schema.as_mut() {
+            sweep(fields);
+        }
+    }
+    value_narrowed_to_scalar
 }
 
 /// §61 OPEN 1, FIX 2: the atom's OWN internal `(set @entity.<f> ?value)` —
 /// its DOM display buffer, historically and honestly typed `string` on the
-/// atom's own entity — must not be handed the now-numeric wire value
+/// atom's own entity — must not be handed a now-non-string wire value
 /// directly once its event narrowed (the pass above). Wraps the read in
 /// `(str/concat ?value)` — NOT bare `concat` (the JS evaluator maps bare
 /// `concat` to ARRAY concat; `str/concat` is string-concat on both the JS
-/// and Rust paths) — so codegen stringifies the number back into the
+/// and Rust paths) — so codegen stringifies the value back into the
 /// string-typed buffer field. Only fires when `<f>`'s declared type on the
-/// trait's RESOLVED linked entity is actually `string` — a number-typed
+/// trait's RESOLVED linked entity is actually `string` — a non-string
 /// buffer field needs no conversion.
 ///
 /// NOT gated by the TRIGGERING event matching the narrowed (renamed)
@@ -576,16 +594,17 @@ fn definer_knob_value_events(trait_def: &TraitDefinition, field_type: &str) -> H
 /// validation/effect/mod.rs`'s `collect_payload_field_types`) already
 /// resolves `?value`/`@payload.value` the SAME event-untethered way — by
 /// FIELD NAME across the trait's declared emits, not per triggering event —
-/// so this mirrors that, not a new assumption: within a trait that narrows
-/// (`resolves_input_type_to_number` + at least one definer-knob emit whose
-/// `value` field is now `number`), a `set` reading the literal `value` field
-/// is the narrowed one, wherever in the trait it lives.
+/// so this mirrors that, not a new assumption: within a trait that narrowed
+/// at least one definer-knob emit's `value` field away from `string`, a
+/// `set` reading the literal `value` field is the narrowed one, wherever in
+/// the trait it lives.
 ///
 /// Whole-schema, run once after `resolve_sigil_types` (mirrors its own
 /// per-orbital entity-name→fields walk) so a rebind target entity declared
 /// in a sibling orbital is visible the same way sigil resolution needs it to
-/// be, and so it runs after every trait's own inline (hence its own FIX-1
-/// narrowing) has landed.
+/// be, and so it runs after every trait's own inline (hence its own
+/// `apply_payload_type_conditionals` pass) has landed — this IS the point
+/// that finalizes and clears every trait's `type_when`, gated trait or not.
 pub(crate) fn rewrite_narrowed_number_display_writes(schema: &mut OrbitalSchema) {
     let mut entities: HashMap<String, Vec<orbital_core::schema::FieldDefinition>> = HashMap::new();
     for orbital in &schema.orbitals {
@@ -594,7 +613,9 @@ pub(crate) fn rewrite_narrowed_number_display_writes(schema: &mut OrbitalSchema)
         }
         for aux in orbital.auxiliary_entities.iter().flatten() {
             if let EntityRef::Inline(def) = aux {
-                entities.entry(def.name.clone()).or_insert_with(|| def.fields.clone());
+                entities
+                    .entry(def.name.clone())
+                    .or_insert_with(|| def.fields.clone());
             }
         }
     }
@@ -604,14 +625,10 @@ pub(crate) fn rewrite_narrowed_number_display_writes(schema: &mut OrbitalSchema)
             let TraitReference::Inline(trait_def) = trait_ref else {
                 continue;
             };
-            if !orbital_core::schema::resolves_input_type_to_number(trait_def) {
-                continue;
-            }
-            // Trait-level existence check: at least one definer-knob emit
-            // actually narrowed its `value` field to `number` — otherwise
-            // there is nothing an internal `?value` read could have picked
-            // up as numeric.
-            if definer_knob_value_events(trait_def, "number").is_empty() {
+            // Always finalize (clear) `type_when` — the wrap below is an
+            // ADDITIONAL step gated on the return value, not a precondition
+            // for clearing.
+            if !finalize_payload_type_conditionals(trait_def) {
                 continue;
             }
             let Some(linked) = trait_def.linked_entity.clone() else {
@@ -656,7 +673,8 @@ fn wrap_narrowed_display_set(expr: &mut SExpression, string_fields: &HashSet<Str
             && set_entity_field(&items[1]).is_some_and(|f| string_fields.contains(f));
         if is_narrowed_set {
             let value = items[2].clone();
-            items[2] = SExpression::Array(vec![SExpression::String("str/concat".to_string()), value]);
+            items[2] =
+                SExpression::Array(vec![SExpression::String("str/concat".to_string()), value]);
         }
         for item in items.iter_mut() {
             wrap_narrowed_display_set(item, string_fields);
@@ -1554,19 +1572,43 @@ pub(crate) fn inline_traits(
         let mut pulled_as: HashMap<(String, String, String), String> = HashMap::new();
         // Consumer-declared names (explicit composition) keep first-wins skip.
         let consumer_declared: HashSet<String> = seen_names.clone();
+        // Provenance of each consumer-declared trait, for the skip's gate
+        // below: a pull is satisfied by a consumer trait only when that trait
+        // is an instance of the SAME source trait (alias + original name). A
+        // name-only match is coincidence — L1 numbers generated inline chrome
+        // per FILE (`InlineStackRender8` exists in most atoms AND in any
+        // consumer whose own markup reaches eight stacks), and skipping on the
+        // name alone binds the pulled body's `@trait.<Sibling>` tokens to the
+        // consumer's unrelated trait: a phantom `ORB_BINDING_TRAIT_CYCLE` when
+        // the consumer's copy embeds the pulling parent, a silently vanished
+        // affordance when the atom's copy carried the behavior (both measured,
+        // std-devops-dashboard / std-marketing-campaign single-orbital drafts).
+        let consumer_declared_provenance: HashMap<String, (String, String)> = result
+            .iter()
+            .filter_map(|tr| match tr {
+                TraitReference::Inline(td) => td.source_behavior.as_ref().map(|sb| {
+                    (
+                        td.name.clone(),
+                        (sb.alias.clone(), sb.original_name.clone()),
+                    )
+                }),
+                _ => None,
+            })
+            .collect();
         // Rewrite one parent's `@trait.<from>` tokens to the disambiguated
         // name, scoped to that parent only (never schema-wide).
-        let rewrite_parent = |result: &mut Vec<TraitReference>, parent: &str, from: &str, to: &str| {
-            let subs: HashMap<String, String> =
-                HashMap::from([(from.to_string(), to.to_string())]);
-            for tr in result.iter_mut() {
-                if let TraitReference::Inline(td) = tr {
-                    if td.name == parent {
-                        rewrite_trait_embed_tokens(td, &subs);
+        let rewrite_parent =
+            |result: &mut Vec<TraitReference>, parent: &str, from: &str, to: &str| {
+                let subs: HashMap<String, String> =
+                    HashMap::from([(from.to_string(), to.to_string())]);
+                for tr in result.iter_mut() {
+                    if let TraitReference::Inline(td) = tr {
+                        if td.name == parent {
+                            rewrite_trait_embed_tokens(td, &subs);
+                        }
                     }
                 }
-            }
-        };
+            };
         while let Some((alias, sibling_name, linked_entity, parent_name, owner)) = worklist.pop() {
             // An explicit Reference to this same source trait, rebound to the
             // SAME entity, satisfies the pull no matter what local name the
@@ -1603,11 +1645,20 @@ pub(crate) fn inline_traits(
                 continue;
             }
             if seen_names.contains(&sibling_name) {
-                if consumer_declared.contains(&sibling_name) {
-                    // Explicit composition wins (documented override surface).
+                if consumer_declared.contains(&sibling_name)
+                    && consumer_declared_provenance
+                        .get(&sibling_name)
+                        .is_some_and(|(a, o)| a == &alias && o == &sibling_name)
+                {
+                    // Explicit composition wins (documented override surface) —
+                    // but only when the consumer's trait IS this source trait;
+                    // a coincidental name (no provenance, or a different
+                    // source) falls through to disambiguation like any other
+                    // taken name.
                     continue;
                 }
-                // Taken by ANOTHER owner's pull: disambiguate under this owner.
+                // Taken by a coincidentally-named consumer trait or ANOTHER
+                // owner's pull: disambiguate under this owner.
                 final_name = format!("{owner}{sibling_name}");
                 if seen_names.contains(&final_name) {
                     // Even the prefixed name is taken by something that is not
@@ -1861,10 +1912,7 @@ fn sexpr_references_config(expr: &SExpression, token: &str) -> bool {
 /// (the knob flows up to a composing parent) — then every payload field stays a
 /// call-site capture, preserving the leaf-embed error case
 /// (`content={?error}` on a TypographyRender rendered under `INIT {}`).
-fn local_payload_fields_for_knob(
-    trait_def: &TraitDefinition,
-    knob: &str,
-) -> HashSet<String> {
+fn local_payload_fields_for_knob(trait_def: &TraitDefinition, knob: &str) -> HashSet<String> {
     let event_fields: HashMap<&str, &Vec<orbital_core::schema::PayloadField>> = trait_def
         .state_machine
         .events
@@ -1913,13 +1961,18 @@ mod entity_id_reader_tests {
             required: None,
             description: None,
             properties: None,
+            type_when: None,
         }
     }
 
     /// A child trait that renders `@config.<knob>` under a transition whose
     /// event declares `<payload_field>`. Mirrors std-browse rendering
     /// `galleryBodyContent` under `BrowseItemLoaded { data }`.
-    fn trait_rendering_knob(knob: &str, event: &str, payload_field_name: Option<&str>) -> TraitDefinition {
+    fn trait_rendering_knob(
+        knob: &str,
+        event: &str,
+        payload_field_name: Option<&str>,
+    ) -> TraitDefinition {
         let events = payload_field_name.map(|f| {
             vec![EventDefinition {
                 key: event.to_string(),
@@ -1986,7 +2039,10 @@ mod entity_id_reader_tests {
         assert!(local.contains("data"), "data must be local: {local:?}");
         // A knob the child never renders itself → no local fields (flows up).
         let none = local_payload_fields_for_knob(&td, "idleContent");
-        assert!(none.is_empty(), "unrendered knob has no local fields: {none:?}");
+        assert!(
+            none.is_empty(),
+            "unrendered knob has no local fields: {none:?}"
+        );
     }
 
     #[test]
@@ -1995,7 +2051,10 @@ mod entity_id_reader_tests {
         // local fields, so `@payload.error` stays a call-site capture.
         let td = trait_rendering_knob("content", "INIT", None);
         let local = local_payload_fields_for_knob(&td, "content");
-        assert!(local.is_empty(), "INIT-rendered leaf has no local payload: {local:?}");
+        assert!(
+            local.is_empty(),
+            "INIT-rendered leaf has no local payload: {local:?}"
+        );
     }
 
     /// A trait bound to entity id `ent-1` whose body references the entity by
@@ -2078,7 +2137,10 @@ mod entity_id_reader_tests {
         let mut td = trait_with_entity_token("Product");
         td.linked_entity = Some("Item".to_string());
         td.linked_entity_id = Some("ent-1".to_string());
-        td.entity_ref_ids = Some(HashMap::from([("Product".to_string(), "ent-1".to_string())]));
+        td.entity_ref_ids = Some(HashMap::from([(
+            "Product".to_string(),
+            "ent-1".to_string(),
+        )]));
 
         let entity_ids = HashMap::from([("Cart".to_string(), "ent-9".to_string())]);
         let mut recorder = Vec::new();
@@ -2142,5 +2204,4 @@ mod entity_id_reader_tests {
             "name path must rebind (ref/fetch Product): {json}"
         );
     }
-
 }

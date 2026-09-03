@@ -337,7 +337,7 @@ mod tests {
                 event_ids: None,
                 linked_entity_id: None,
                 ref_id: None,
-                }]),
+            }]),
             primary_entity: None,
             view_type: None,
             is_initial: None,
@@ -374,7 +374,14 @@ mod tests {
     fn test_valid_page() {
         let page = create_valid_page();
         let mut seen_paths = HashSet::new();
-        let result = validate_page(&page, "test", &HashSet::new(), &HashSet::new(), &mut seen_paths, true);
+        let result = validate_page(
+            &page,
+            "test",
+            &HashSet::new(),
+            &HashSet::new(),
+            &mut seen_paths,
+            true,
+        );
         assert!(result.is_valid(), "Errors: {:?}", result.errors);
     }
 
@@ -386,8 +393,7 @@ mod tests {
         // what replaced the deleted `rewrite_page_trait_refs` name rewrite.
         let page = page_with_ref("StaleOldName", Some("trt_current0000000000000000"));
         let known_traits = HashSet::new(); // stale name is NOT here
-        let known_trait_ids =
-            HashSet::from(["trt_current0000000000000000".to_string()]);
+        let known_trait_ids = HashSet::from(["trt_current0000000000000000".to_string()]);
         let mut seen_paths = HashSet::new();
         let result = validate_page(
             &page,
@@ -435,7 +441,14 @@ mod tests {
         page.name = String::new();
 
         let mut seen_paths = HashSet::new();
-        let result = validate_page(&page, "test", &HashSet::new(), &HashSet::new(), &mut seen_paths, true);
+        let result = validate_page(
+            &page,
+            "test",
+            &HashSet::new(),
+            &HashSet::new(),
+            &mut seen_paths,
+            true,
+        );
         assert!(!result.is_valid());
         assert!(result
             .errors
@@ -449,7 +462,14 @@ mod tests {
         page.path = String::new();
 
         let mut seen_paths = HashSet::new();
-        let result = validate_page(&page, "test", &HashSet::new(), &HashSet::new(), &mut seen_paths, true);
+        let result = validate_page(
+            &page,
+            "test",
+            &HashSet::new(),
+            &HashSet::new(),
+            &mut seen_paths,
+            true,
+        );
         assert!(!result.is_valid());
         assert!(result
             .errors
@@ -463,7 +483,14 @@ mod tests {
         page.path = "tasks".to_string(); // Missing leading /
 
         let mut seen_paths = HashSet::new();
-        let result = validate_page(&page, "test", &HashSet::new(), &HashSet::new(), &mut seen_paths, true);
+        let result = validate_page(
+            &page,
+            "test",
+            &HashSet::new(),
+            &HashSet::new(),
+            &mut seen_paths,
+            true,
+        );
         assert!(!result.is_valid());
         assert!(result
             .errors
@@ -477,7 +504,14 @@ mod tests {
         page.traits = Some(vec![]);
 
         let mut seen_paths = HashSet::new();
-        let result = validate_page(&page, "test", &HashSet::new(), &HashSet::new(), &mut seen_paths, true);
+        let result = validate_page(
+            &page,
+            "test",
+            &HashSet::new(),
+            &HashSet::new(),
+            &mut seen_paths,
+            true,
+        );
         assert!(!result.is_valid());
         assert!(result
             .errors
@@ -505,7 +539,14 @@ mod tests {
         }]);
 
         let mut seen_paths = HashSet::new();
-        let result = validate_page(&page, "test", &HashSet::new(), &HashSet::new(), &mut seen_paths, true);
+        let result = validate_page(
+            &page,
+            "test",
+            &HashSet::new(),
+            &HashSet::new(),
+            &mut seen_paths,
+            true,
+        );
         assert!(!result.is_valid());
         assert!(result
             .errors
@@ -518,7 +559,14 @@ mod tests {
         let page = create_valid_page(); // Uses std/List
 
         let mut seen_paths = HashSet::new();
-        let result = validate_page(&page, "test", &HashSet::new(), &HashSet::new(), &mut seen_paths, true);
+        let result = validate_page(
+            &page,
+            "test",
+            &HashSet::new(),
+            &HashSet::new(),
+            &mut seen_paths,
+            true,
+        );
         assert!(result.is_valid()); // std traits are always valid
     }
 
@@ -528,7 +576,14 @@ mod tests {
         page.view_type = Some("invalid".to_string());
 
         let mut seen_paths = HashSet::new();
-        let result = validate_page(&page, "test", &HashSet::new(), &HashSet::new(), &mut seen_paths, true);
+        let result = validate_page(
+            &page,
+            "test",
+            &HashSet::new(),
+            &HashSet::new(),
+            &mut seen_paths,
+            true,
+        );
         assert!(!result.is_valid());
         assert!(result
             .errors

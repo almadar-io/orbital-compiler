@@ -9273,16 +9273,6 @@ pub static PATTERN_PROP_ENUM_VALUES: LazyLock<HashMap<&'static str, HashMap<&'st
                 .collect(),
             ),
             (
-                "control-button",
-                [
-                    ("size", &["sm", "md", "lg", "xl"] as &[&str]),
-                    ("shape", &["circle", "rounded", "square"] as &[&str]),
-                    ("variant", &["primary", "secondary", "ghost"] as &[&str]),
-                ]
-                .into_iter()
-                .collect(),
-            ),
-            (
                 "control-grid",
                 [
                     ("kind", &["dpad", "actions"] as &[&str]),
@@ -9383,22 +9373,13 @@ pub static PATTERN_PROP_ENUM_VALUES: LazyLock<HashMap<&'static str, HashMap<&'st
                 .collect(),
             ),
             ("draw-text-layer", [("type", &["draw-text-layer"] as &[&str])].into_iter().collect()),
-            (
-                "drawer",
-                [
-                    ("position", &["left", "right"] as &[&str]),
-                    ("width", &["sm", "md", "lg", "xl", "full"] as &[&str]),
-                ]
-                .into_iter()
-                .collect(),
-            ),
+            ("drawer", [("position", &["left", "right"] as &[&str])].into_iter().collect()),
             ("drawer-slot", [("position", &["left", "right"] as &[&str]), ("size", &["sm", "md", "lg", "xl", "full"] as &[&str])].into_iter().collect()),
             (
                 "edge-decoration",
                 [
                     ("variant", &["arch", "vine", "lattice"] as &[&str]),
                     ("side", &["left", "right", "both"] as &[&str]),
-                    ("color", &["primary", "secondary", "success", "warning", "error", "muted"] as &[&str]),
                 ]
                 .into_iter()
                 .collect(),
@@ -9475,21 +9456,12 @@ pub static PATTERN_PROP_ENUM_VALUES: LazyLock<HashMap<&'static str, HashMap<&'st
                 .into_iter()
                 .collect(),
             ),
-            (
-                "floating-action-button",
-                [
-                    ("variant", &["primary", "secondary", "success", "danger", "warning"] as &[&str]),
-                    ("position", &["bottom-right", "bottom-left", "bottom-center", "top-right", "top-left", "top-center"] as &[&str]),
-                ]
-                .into_iter()
-                .collect(),
-            ),
+            ("floating-action-button", [("variant", &["primary", "secondary", "success", "danger", "warning"] as &[&str])].into_iter().collect()),
             (
                 "form",
                 [
                     ("layout", &["vertical", "horizontal", "inline"] as &[&str]),
                     ("gap", &["sm", "md", "lg"] as &[&str]),
-                    ("mode", &["create", "edit"] as &[&str]),
                 ]
                 .into_iter()
                 .collect(),
@@ -9510,23 +9482,13 @@ pub static PATTERN_PROP_ENUM_VALUES: LazyLock<HashMap<&'static str, HashMap<&'st
                 [
                     ("layout", &["vertical", "horizontal", "inline"] as &[&str]),
                     ("gap", &["sm", "md", "lg"] as &[&str]),
-                    ("mode", &["create", "edit"] as &[&str]),
                 ]
                 .into_iter()
                 .collect(),
             ),
             ("form-section-header", [("badgeVariant", &["default", "primary", "success", "warning", "danger"] as &[&str])].into_iter().collect()),
             ("game-audio-toggle", [("size", &["sm", "md", "lg"] as &[&str])].into_iter().collect()),
-            (
-                "game-hud",
-                [
-                    ("position", &["top", "bottom", "corners"] as &[&str]),
-                    ("size", &["sm", "md", "lg"] as &[&str]),
-                    ("variant", &["floating", "bar"] as &[&str]),
-                ]
-                .into_iter()
-                .collect(),
-            ),
+            ("game-hud", [("size", &["sm", "md", "lg"] as &[&str]), ("variant", &["floating", "bar"] as &[&str])].into_iter().collect()),
             ("game-icon", [("size", &["sm", "md", "lg"] as &[&str])].into_iter().collect()),
             (
                 "geometric-pattern",
@@ -9537,7 +9499,6 @@ pub static PATTERN_PROP_ENUM_VALUES: LazyLock<HashMap<&'static str, HashMap<&'st
                 .into_iter()
                 .collect(),
             ),
-            ("gradient-divider", [("color", &["primary", "secondary", "success", "warning", "error", "muted"] as &[&str])].into_iter().collect()),
             ("graph-canvas", [("layout", &["force", "circular", "grid"] as &[&str])].into_iter().collect()),
             ("graph-view", [("layout", &["force", "flow", "tree", "radial"] as &[&str])].into_iter().collect()),
             (
@@ -9598,7 +9559,6 @@ pub static PATTERN_PROP_ENUM_VALUES: LazyLock<HashMap<&'static str, HashMap<&'st
                 "icon",
                 [
                     ("size", &["xs", "sm", "md", "lg", "xl"] as &[&str]),
-                    ("color", &["primary", "secondary", "success", "warning", "error", "muted"] as &[&str]),
                     ("animation", &["spin", "pulse", "none"] as &[&str]),
                 ]
                 .into_iter()
@@ -9768,16 +9728,6 @@ pub static PATTERN_PROP_ENUM_VALUES: LazyLock<HashMap<&'static str, HashMap<&'st
             ),
             ("star-rating", [("precision", &["full", "half"] as &[&str]), ("size", &["sm", "md", "lg"] as &[&str])].into_iter().collect()),
             (
-                "stat-badge",
-                [
-                    ("format", &["number", "hearts", "bar", "text"] as &[&str]),
-                    ("size", &["sm", "md", "lg"] as &[&str]),
-                    ("variant", &["default", "primary", "success", "warning", "danger"] as &[&str]),
-                ]
-                .into_iter()
-                .collect(),
-            ),
-            (
                 "stat-card",
                 [
                     ("sortDirection", &["asc", "desc"] as &[&str]),
@@ -9934,7 +9884,6 @@ pub static PATTERN_EVENT_PROPS: LazyLock<HashMap<&'static str, HashSet<&'static 
             ("infinite-scroll-sentinel", ["loadMoreEvent"].into_iter().collect()),
             ("overlay", ["action"].into_iter().collect()),
             ("pull-to-refresh", ["refreshEvent"].into_iter().collect()),
-            ("select", ["action"].into_iter().collect()),
             ("stack", ["action"].into_iter().collect()),
             ("table-view", ["itemClickEvent"].into_iter().collect()),
             ("textarea", ["action"].into_iter().collect()),

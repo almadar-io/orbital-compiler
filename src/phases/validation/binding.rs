@@ -2144,6 +2144,7 @@ mod tests {
             required: Some(true),
             description: None,
             properties: None,
+            type_when: None,
         }];
         let result = validate_payload_field_references(&expr, "test", Some(&fields), "READ");
         assert!(result
@@ -2161,6 +2162,7 @@ mod tests {
             required: Some(true),
             description: None,
             properties: None,
+            type_when: None,
         }];
         let result = validate_payload_field_references(&expr, "test", Some(&fields), "READ");
         assert!(result.errors.is_empty());
@@ -2177,6 +2179,7 @@ mod tests {
             required: Some(true),
             description: None,
             properties: None,
+            type_when: None,
         }];
         let result = validate_payload_field_references(&expr, "test", Some(&fields), "SLOT_CLICK");
         let err = result
@@ -2185,8 +2188,14 @@ mod tests {
             .find(|e| e.code == ErrorCode::BindingPayloadFieldUndeclared)
             .expect("hybrid path must still error");
         let suggestion = err.suggestion.as_deref().unwrap_or("");
-        assert!(suggestion.contains("`?date`"), "got suggestion: {suggestion}");
-        assert!(suggestion.contains("`@payload.date`"), "got suggestion: {suggestion}");
+        assert!(
+            suggestion.contains("`?date`"),
+            "got suggestion: {suggestion}"
+        );
+        assert!(
+            suggestion.contains("`@payload.date`"),
+            "got suggestion: {suggestion}"
+        );
     }
 
     #[test]
@@ -2205,7 +2214,9 @@ mod tests {
                 required: Some(true),
                 description: None,
                 properties: None,
+                type_when: None,
             }]),
+            type_when: None,
         }];
         let result = validate_payload_field_references(&expr, "test", Some(&fields), "READ");
         let err = result
@@ -3318,7 +3329,10 @@ mod tests {
             "Parent",
             Some("Lesson"),
             vec![
-                ("INIT", vec![arr(vec![s("set"), s("@entity.title"), s("t")])]),
+                (
+                    "INIT",
+                    vec![arr(vec![s("set"), s("@entity.title"), s("t")])],
+                ),
                 ("VIEW", vec![render_children(vec!["@trait.Child"])]),
             ],
         );
@@ -3359,13 +3373,8 @@ mod tests {
         let reader = build_trait_fixture("Reader", Some("Scene"), vec![("INIT", vec![read])]);
 
         let exempt: HashSet<String> = ["done".to_string()].into_iter().collect();
-        let ok = validate_entity_fields_have_setters(
-            &reader,
-            "test",
-            &exempt,
-            &HashMap::new(),
-            None,
-        );
+        let ok =
+            validate_entity_fields_have_setters(&reader, "test", &exempt, &HashMap::new(), None);
         assert!(
             ok.warnings.is_empty() && ok.errors.is_empty(),
             "a defaulted field must not report never-set: {:?}",

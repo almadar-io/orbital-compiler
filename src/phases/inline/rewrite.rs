@@ -63,7 +63,8 @@ pub(crate) fn fold_event_typed_members(
                 // A descriptor can hold descriptors.
                 if decl.items.is_some() {
                     if let Some(nested) = map.get_mut(member.as_str()) {
-                        touched |= fold_event_typed_members(nested, decl.items.as_deref(), event_subs);
+                        touched |=
+                            fold_event_typed_members(nested, decl.items.as_deref(), event_subs);
                     }
                 }
             }
@@ -940,10 +941,8 @@ pub(crate) fn resolve_type_param_sentinels(
     types_by_name: &BTreeMap<String, Vec<PayloadField>>,
 ) -> bool {
     let type_args = trait_def.type_args.take();
-    let declared: Vec<orbital_core::schema::TraitTypeParamDef> = trait_def
-        .type_params
-        .clone()
-        .unwrap_or_default();
+    let declared: Vec<orbital_core::schema::TraitTypeParamDef> =
+        trait_def.type_params.clone().unwrap_or_default();
     let mut subs: HashMap<String, ParamSub> = HashMap::new();
     let mut declared_names: HashSet<String> = HashSet::new();
     for p in &declared {
@@ -1105,9 +1104,32 @@ enum ParamSub {
 /// `orbital-lolo`, so this is a deliberate parallel list, not a duplicate of
 /// a reachable one).
 const PRIMITIVE_TYPE_ARG_NAMES: &[&str] = &[
-    "string", "money", "any", "icon", "component", "email", "url", "phone", "uuid", "image",
-    "node", "json", "render-ui", "relation", "int", "float", "number", "duration", "bool",
-    "boolean", "date", "datetime", "timestamp", "object", "sexpr", "scalar",
+    "string",
+    "money",
+    "any",
+    "icon",
+    "component",
+    "email",
+    "url",
+    "phone",
+    "uuid",
+    "image",
+    "node",
+    "json",
+    "render-ui",
+    "relation",
+    "int",
+    "float",
+    "number",
+    "duration",
+    "bool",
+    "boolean",
+    "date",
+    "datetime",
+    "timestamp",
+    "object",
+    "sexpr",
+    "scalar",
 ];
 
 /// Resolve a call-site type-parameter argument's VALUE (the string the
@@ -1129,7 +1151,9 @@ fn resolve_type_arg_value(
     if let Some(e) = entities_by_name.get(value) {
         return Some(ParamSub::Entity(e.clone()));
     }
-    types_by_name.get(value).map(|shape| ParamSub::Struct(shape.clone()))
+    types_by_name
+        .get(value)
+        .map(|shape| ParamSub::Struct(shape.clone()))
 }
 
 /// Recursive worker for `resolve_type_param_sentinels`. A field whose
@@ -1160,11 +1184,15 @@ fn resolve_sentinel_fields(
             }
             continue;
         }
-        let is_array_sentinel = field.field_type.starts_with("[$") && field.field_type.ends_with(']');
+        let is_array_sentinel =
+            field.field_type.starts_with("[$") && field.field_type.ends_with(']');
         let is_bare_sentinel = !is_array_sentinel && field.field_type.starts_with('$');
         if is_bare_sentinel || is_array_sentinel {
             let param_name = if is_array_sentinel {
-                field.field_type.trim_start_matches("[$").trim_end_matches(']')
+                field
+                    .field_type
+                    .trim_start_matches("[$")
+                    .trim_end_matches(']')
             } else {
                 field.field_type.trim_start_matches('$')
             };
@@ -1417,7 +1445,10 @@ mod literal_list_tests {
             ]),
         );
         let mut cell = HashMap::new();
-        cell.insert("type".to_string(), SExpression::String("draw-shape".to_string()));
+        cell.insert(
+            "type".to_string(),
+            SExpression::String("draw-shape".to_string()),
+        );
         cell.insert("position".to_string(), SExpression::Object(food));
         let mut v = arr(vec![
             SExpression::String("array/concat".to_string()),
@@ -1437,10 +1468,7 @@ mod literal_list_tests {
     fn ignores_non_array_slots_and_non_string_heads() {
         let mut scalar = arr(vec![SExpression::String("path".to_string())]);
         mark_literal_list_in_place(&mut scalar, "string");
-        assert_eq!(
-            scalar,
-            arr(vec![SExpression::String("path".to_string())])
-        );
+        assert_eq!(scalar, arr(vec![SExpression::String("path".to_string())]));
         let mut object_headed = arr(vec![SExpression::Object(HashMap::new())]);
         mark_literal_list_in_place(&mut object_headed, "[json]");
         match &object_headed {
@@ -1463,7 +1491,10 @@ mod conditional_event_list_tests {
 
     fn data_list_with_item_actions(item_actions: SExpression) -> SExpression {
         let mut node = HashMap::new();
-        node.insert("type".to_string(), SExpression::String("data-list".to_string()));
+        node.insert(
+            "type".to_string(),
+            SExpression::String("data-list".to_string()),
+        );
         node.insert("itemActions".to_string(), item_actions);
         SExpression::Object(node)
     }

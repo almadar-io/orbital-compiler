@@ -1041,10 +1041,14 @@ impl ErrorCode {
             ErrorCode::SchemaIdentityNotUnique => "ORB_S_IDENTITY_NOT_UNIQUE",
             ErrorCode::SchemaRoleLiteralNotMember => "ORB_S_ROLE_LITERAL_NOT_MEMBER",
             ErrorCode::SchemaUnknownIdentityField => "ORB_S_UNKNOWN_IDENTITY_FIELD",
-            ErrorCode::SchemaAccessPolicyUnknownEntityField => "ORB_S_ACCESS_POLICY_UNKNOWN_ENTITY_FIELD",
+            ErrorCode::SchemaAccessPolicyUnknownEntityField => {
+                "ORB_S_ACCESS_POLICY_UNKNOWN_ENTITY_FIELD"
+            }
             ErrorCode::SchemaOwnerFieldNotIdentityTyped => "ORB_S_OWNER_FIELD_NOT_IDENTITY_TYPED",
             ErrorCode::SchemaAccessPolicyInvalidBinding => "ORB_S_ACCESS_POLICY_INVALID_BINDING",
-            ErrorCode::SchemaAccessPolicyRequiresIdentity => "ORB_S_ACCESS_POLICY_REQUIRES_IDENTITY",
+            ErrorCode::SchemaAccessPolicyRequiresIdentity => {
+                "ORB_S_ACCESS_POLICY_REQUIRES_IDENTITY"
+            }
             ErrorCode::SchemaCollectionPolicyConflict => "ORB_S_COLLECTION_POLICY_CONFLICT",
             ErrorCode::SchemaExpectationUnsatisfied => "ORB_S_EXPECTATION_UNSATISFIED",
             ErrorCode::SchemaExpectationProviderMismatch => "ORB_S_EXPECTATION_PROVIDER_MISMATCH",

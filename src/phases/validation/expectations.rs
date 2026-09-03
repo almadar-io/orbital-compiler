@@ -78,7 +78,9 @@ pub(super) fn expected_entity_names(orbital: &Orbital) -> Vec<&str> {
                 .iter()
                 .filter_map(|e| match e {
                     ExpectDeclaration::Entity { name, .. } => Some(name.as_str()),
-                    ExpectDeclaration::Identity { name: Some(name), .. } => Some(name.as_str()),
+                    ExpectDeclaration::Identity {
+                        name: Some(name), ..
+                    } => Some(name.as_str()),
                     _ => None,
                 })
                 .collect()
@@ -122,7 +124,10 @@ pub fn validate_expectations(schema: &OrbitalSchema, ctx: &mut ValidationContext
 // Self-consistency: persist payloads vs the consumer's own declared shape
 // =============================================================================
 
-fn validate_persist_payload_self_consistency(schema: &OrbitalSchema, result: &mut ValidationResult) {
+fn validate_persist_payload_self_consistency(
+    schema: &OrbitalSchema,
+    result: &mut ValidationResult,
+) {
     for (i, orbital) in schema.orbitals.iter().enumerate() {
         if orbital.expects.is_none() {
             continue;
@@ -197,7 +202,10 @@ fn check_persist_payload(
         return;
     }
     for key in payload.keys() {
-        if shape.iter().any(|f| f.name.as_deref() == Some(key.as_str())) {
+        if shape
+            .iter()
+            .any(|f| f.name.as_deref() == Some(key.as_str()))
+        {
             continue;
         }
         let mut declared: Vec<&str> = shape.iter().filter_map(|f| f.name.as_deref()).collect();
@@ -233,7 +241,8 @@ fn check_persist_payload(
 fn providers(schema: &OrbitalSchema) -> Vec<(&EntityDefinition, &str)> {
     let mut out = Vec::new();
     for orbital in &schema.orbitals {
-        for er in std::iter::once(&orbital.entity).chain(orbital.auxiliary_entities.iter().flatten())
+        for er in
+            std::iter::once(&orbital.entity).chain(orbital.auxiliary_entities.iter().flatten())
         {
             if let EntityRef::Inline(def) = er {
                 out.push((def, orbital.name.as_str()));
@@ -415,9 +424,15 @@ fn check_shape(
                         .collect()
                 })
                 .unwrap_or_default();
-            format!("values {} are not members of the provider's vocabulary", missing.join(", "))
+            format!(
+                "values {} are not members of the provider's vocabulary",
+                missing.join(", ")
+            )
         } else {
-            format!("type `{}` is not compatible with `{}`", expected_type, actual_type)
+            format!(
+                "type `{}` is not compatible with `{}`",
+                expected_type, actual_type
+            )
         };
         result.add_error(
             ValidationError::error(

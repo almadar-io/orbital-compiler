@@ -164,7 +164,6 @@ pub(crate) fn detect_cycle<'a>(
     None
 }
 
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -206,7 +205,11 @@ mod tests {
 
     /// A trait that emits AND listens to `APPROVE`, with a propagating
     /// transition on it (emit effect) so the cycle check counts the edge.
-    fn mod_trait(name: &str, emit_scope: Option<EventScope>, listen_scope: Option<EventScope>) -> TraitReference {
+    fn mod_trait(
+        name: &str,
+        emit_scope: Option<EventScope>,
+        listen_scope: Option<EventScope>,
+    ) -> TraitReference {
         TraitReference::Inline(TraitDefinition {
             type_params: None,
             type_args: None,
@@ -307,10 +310,7 @@ mod tests {
     #[test]
     fn cross_orbital_shared_event_names_no_cycle() {
         let schema = schema_with(vec![
-            orbital_with(
-                "PMOrbital",
-                vec![mod_trait("TaskModeration", None, None)],
-            ),
+            orbital_with("PMOrbital", vec![mod_trait("TaskModeration", None, None)]),
             orbital_with(
                 "DashboardOrbital",
                 vec![mod_trait("DashboardModeration", None, None)],
@@ -332,11 +332,19 @@ mod tests {
         let schema = schema_with(vec![
             orbital_with(
                 "PMOrbital",
-                vec![mod_trait("TaskModeration", Some(EventScope::External), None)],
+                vec![mod_trait(
+                    "TaskModeration",
+                    Some(EventScope::External),
+                    None,
+                )],
             ),
             orbital_with(
                 "DashboardOrbital",
-                vec![mod_trait("DashboardModeration", Some(EventScope::External), None)],
+                vec![mod_trait(
+                    "DashboardModeration",
+                    Some(EventScope::External),
+                    None,
+                )],
             ),
         ]);
 
@@ -354,11 +362,19 @@ mod tests {
         let schema = schema_with(vec![
             orbital_with(
                 "PMOrbital",
-                vec![mod_trait("TaskModeration", None, Some(EventScope::External))],
+                vec![mod_trait(
+                    "TaskModeration",
+                    None,
+                    Some(EventScope::External),
+                )],
             ),
             orbital_with(
                 "DashboardOrbital",
-                vec![mod_trait("DashboardModeration", None, Some(EventScope::External))],
+                vec![mod_trait(
+                    "DashboardModeration",
+                    None,
+                    Some(EventScope::External),
+                )],
             ),
         ]);
 

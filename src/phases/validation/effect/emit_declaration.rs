@@ -1,6 +1,7 @@
 //! Emit declaration collection + effect dispatch.
 
 use super::super::{ErrorCode, PageInitPayload, ValidationError, ValidationResult};
+use super::call_service::walk_nested_call_services;
 use super::fetch::validate_fetch_stream;
 use super::validate_send_server;
 use super::{
@@ -10,7 +11,6 @@ use super::{
     validate_set_object, validate_set_return_type, validate_set_value_type, DeclaredEmit,
     EntityFieldMeta,
 };
-use super::call_service::walk_nested_call_services;
 use crate::embedded::ServiceRegistryData;
 use orbital_core::schema::{EntityDefinition, SExpression, TraitDefinition};
 use std::collections::{HashMap, HashSet};

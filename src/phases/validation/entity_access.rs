@@ -31,7 +31,10 @@ fn entity_field_of(s: &str) -> Option<&str> {
 
 /// Look a field up on an arbitrary entity by name.
 fn field_on<'a>(entity: &'a EntityDefinition, name: &str) -> Option<&'a FieldDefinition> {
-    entity.fields.iter().find(|f| f.name.as_deref() == Some(name))
+    entity
+        .fields
+        .iter()
+        .find(|f| f.name.as_deref() == Some(name))
 }
 
 /// The bare sigil root of a binding string (`@entity.x` → `entity`, `@user` →
@@ -519,7 +522,11 @@ fn check_entity_field(
     if field_on(owner, field).is_some() {
         return;
     }
-    let mut declared: Vec<&str> = owner.fields.iter().filter_map(|f| f.name.as_deref()).collect();
+    let mut declared: Vec<&str> = owner
+        .fields
+        .iter()
+        .filter_map(|f| f.name.as_deref())
+        .collect();
     declared.sort_unstable();
     result.add_error(
         ValidationError::error(

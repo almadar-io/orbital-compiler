@@ -498,6 +498,7 @@ mod tests {
                 required: None,
                 description: None,
                 properties: None,
+                type_when: None,
             }]),
             event_id: None,
         }

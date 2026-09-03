@@ -602,6 +602,7 @@ mod tests {
             required: Some(true),
             description: None,
             properties: None,
+            type_when: None,
         }];
         let ctx = BindingContext {
             trait_def: &t,
@@ -815,6 +816,7 @@ mod tests {
             required: None,
             description: None,
             properties: None,
+            type_when: None,
         }];
         let ctx = BindingContext {
             trait_def: &t,

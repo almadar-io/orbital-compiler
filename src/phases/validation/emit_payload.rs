@@ -16,10 +16,8 @@
 use std::collections::HashMap;
 
 use orbital_core::schema::{
-    EntityDefinition, EventScope, OrbitalSchema, PayloadField, SExpression,
-    TraitReference,
+    EntityDefinition, EventScope, OrbitalSchema, PayloadField, SExpression, TraitReference,
 };
-
 
 use super::effect::{
     collect_payload_field_types, entity_field_type_map, expr_return_incompatible, EntityFieldMeta,
@@ -35,7 +33,6 @@ use super::{ValidationContext, ValidationResult};
 /// validation (phase 5) and before closed-circuit (phase 12). Accumulates
 /// warnings into the shared `ValidationContext`.
 pub fn validate_all_emit_payloads(schema: &OrbitalSchema, ctx: &mut ValidationContext) {
-
     // L2.7 prep: every event name fired anywhere in the schema. The walker is
     // shared with `cross_orbital::event_wiring`, whose fired-but-unheard check
     // is this one's dual — one definition of "produced", so the two can never

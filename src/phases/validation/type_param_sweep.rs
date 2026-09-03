@@ -61,7 +61,10 @@ fn is_sentinel(field_type: &str) -> bool {
 }
 
 fn sentinel_param_name(field_type: &str) -> &str {
-    if let Some(inner) = field_type.strip_prefix("[$").and_then(|s| s.strip_suffix(']')) {
+    if let Some(inner) = field_type
+        .strip_prefix("[$")
+        .and_then(|s| s.strip_suffix(']'))
+    {
         inner
     } else {
         field_type.trim_start_matches('$')
@@ -167,46 +170,49 @@ fn check_payload_field(
 /// meaningless literal string. The sigil type constructors (`@payload <knob>`,
 /// `@entity <knob>`, `@user`) resolve in config position, so an unresolved one
 /// must be reported here rather than silently emitted.
-pub fn validate_type_param_sentinels(schema: &orbital_core::schema::OrbitalSchema, ctx: &mut ValidationContext) {
+pub fn validate_type_param_sentinels(
+    schema: &orbital_core::schema::OrbitalSchema,
+    ctx: &mut ValidationContext,
+) {
     let mut result = super::ValidationResult::new();
 
     for (i, orbital) in schema.orbitals.iter().enumerate() {
-      for (j, trait_ref) in orbital.traits.iter().enumerate() {
-        let trait_def = match trait_ref {
-            TraitReference::Inline(trait_def) => trait_def,
-            TraitReference::Reference { .. } => continue,
-        };
-        let trait_path = trait_path(i, &orbital.name, j, trait_ref);
-        let deferred = linked_entity_is_expects_licensed(orbital, trait_def);
-        if let Some(emits) = &trait_def.emits {
-            for emit in emits {
-                if let Some(payload) = &emit.payload_schema {
-                    let path = format!("{trait_path}.emits.{}", emit.event);
-                    for field in payload {
-                        check_payload_field(field, &path, trait_def, deferred, &mut result);
+        for (j, trait_ref) in orbital.traits.iter().enumerate() {
+            let trait_def = match trait_ref {
+                TraitReference::Inline(trait_def) => trait_def,
+                TraitReference::Reference { .. } => continue,
+            };
+            let trait_path = trait_path(i, &orbital.name, j, trait_ref);
+            let deferred = linked_entity_is_expects_licensed(orbital, trait_def);
+            if let Some(emits) = &trait_def.emits {
+                for emit in emits {
+                    if let Some(payload) = &emit.payload_schema {
+                        let path = format!("{trait_path}.emits.{}", emit.event);
+                        for field in payload {
+                            check_payload_field(field, &path, trait_def, deferred, &mut result);
+                        }
                     }
                 }
             }
-        }
-        if let Some(events) = &trait_def.state_machine.events {
-            for event in events {
-                if let Some(payload) = &event.payload_schema {
-                    let path = format!("{trait_path}.events.{}", event.key);
-                    for field in payload {
-                        check_payload_field(field, &path, trait_def, deferred, &mut result);
+            if let Some(events) = &trait_def.state_machine.events {
+                for event in events {
+                    if let Some(payload) = &event.payload_schema {
+                        let path = format!("{trait_path}.events.{}", event.key);
+                        for field in payload {
+                            check_payload_field(field, &path, trait_def, deferred, &mut result);
+                        }
                     }
                 }
             }
-        }
-        if let Some(config) = &trait_def.config {
-            for (knob, field) in config {
-                if deferred
-                    && (field.field_type == "@entity" || field.field_type == "[@entity]")
-                {
-                    continue;
-                }
-                if let Some(reason) = unresolved_sigil_reason(&field.field_type) {
-                    result.add_error(
+            if let Some(config) = &trait_def.config {
+                for (knob, field) in config {
+                    if deferred
+                        && (field.field_type == "@entity" || field.field_type == "[@entity]")
+                    {
+                        continue;
+                    }
+                    if let Some(reason) = unresolved_sigil_reason(&field.field_type) {
+                        result.add_error(
                         ValidationError::error(
                             ErrorCode::UnresolvedTypeParam,
                             format!("{trait_path}.config.{knob}"),
@@ -217,10 +223,10 @@ pub fn validate_type_param_sentinels(schema: &orbital_core::schema::OrbitalSchem
                         )
                         .with_suggestion(SIGIL_GUIDANCE.to_string()),
                     );
+                    }
                 }
             }
         }
-      }
     }
 
     ctx.merge(result);

@@ -46,8 +46,9 @@ fn registry_shape(operator: &str, persist_action: Option<&str>) -> Option<Produc
 
 fn assert_agrees(operator: &str, persist_action: Option<&str>) {
     let core = success_payload(operator, persist_action);
-    let registry = registry_shape(operator, persist_action)
-        .unwrap_or_else(|| panic!("registry has no decidable produces for {operator} {persist_action:?}"));
+    let registry = registry_shape(operator, persist_action).unwrap_or_else(|| {
+        panic!("registry has no decidable produces for {operator} {persist_action:?}")
+    });
     match (&core, &registry) {
         (ProducedPayload::EntityRow, ProducedPayload::EntityRow) => {}
         (ProducedPayload::Fields(a), ProducedPayload::Fields(b)) => {

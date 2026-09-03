@@ -38,8 +38,9 @@ pub const CORE_OPERATORS: &[&str] = &[
     "floor",
     "ceil",
     "round",
-    // String
-    "concat",
+    // String — bare "concat" is deliberately absent: ambiguous between
+    // str/concat and array/concat (R-EVAL-CONCAT-PATH-DIVERGENCE), rejected
+    // explicitly in validate.rs rather than accepted as an alias.
     "substring",
     "length",
     "upper",

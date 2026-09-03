@@ -56,7 +56,7 @@ pub(crate) fn get_arity_rule(operator: &str) -> Option<ArityRule> {
         }),
 
         // Binary or more
-        "add" | "mul" | "concat" | "merge" | "min" | "max" => Some(ArityRule { min: 2, max: None }),
+        "add" | "mul" | "merge" | "min" | "max" => Some(ArityRule { min: 2, max: None }),
 
         // Ternary
         "substring" | "replace" | "slice" => Some(ArityRule {

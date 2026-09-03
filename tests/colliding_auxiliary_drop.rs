@@ -90,8 +90,7 @@ fn aux_names(schema: &OrbitalSchema, orbital: &str) -> Vec<String> {
 }
 
 fn inline(schema: Value) -> OrbitalSchema {
-    let mut s: OrbitalSchema =
-        serde_json::from_value(schema).expect("fixture must deserialize");
+    let mut s: OrbitalSchema = serde_json::from_value(schema).expect("fixture must deserialize");
     inline_schema(&mut s, &InlineConfig::default(), None).expect("inline must succeed");
     s
 }

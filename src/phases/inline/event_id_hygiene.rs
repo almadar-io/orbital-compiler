@@ -152,7 +152,10 @@ fn uniquify_orbital(
     for_each_inline_trait(orbital, &mut |td| {
         let key = owner_key(td).to_string();
         declared_event_ids(td, &mut |id| {
-            owners.entry(id.to_string()).or_default().insert(key.clone());
+            owners
+                .entry(id.to_string())
+                .or_default()
+                .insert(key.clone());
         });
     });
     let colliding: HashSet<&String> = owners
@@ -170,7 +173,9 @@ fn uniquify_orbital(
     // lands on the same derived id as the instance itself.
     let mut rows_by_new: HashMap<String, DerivedRow> = HashMap::new();
     for_each_trait_ref_mut(orbital, &mut |tr| {
-        let TraitReference::Inline(td) = tr else { return };
+        let TraitReference::Inline(td) = tr else {
+            return;
+        };
         let disc = owner_key(td).to_string();
         let mut subs: HashMap<String, String> = HashMap::new();
         declared_event_ids(td, &mut |id| {
@@ -195,12 +200,14 @@ fn uniquify_orbital(
             }
         }
         for (old, new) in &subs {
-            rows_by_new.entry(new.clone()).or_insert_with(|| DerivedRow {
-                old_id: old.clone(),
-                new_id: new.clone(),
-                key: key_of.get(old).cloned().unwrap_or_default(),
-                parent: td.id.clone(),
-            });
+            rows_by_new
+                .entry(new.clone())
+                .or_insert_with(|| DerivedRow {
+                    old_id: old.clone(),
+                    new_id: new.clone(),
+                    key: key_of.get(old).cloned().unwrap_or_default(),
+                    parent: td.id.clone(),
+                });
         }
         for ev in td.state_machine.events.iter_mut().flatten() {
             swap_id(&mut ev.id, &subs);
@@ -232,12 +239,16 @@ fn uniquify_orbital(
     for_each_inline_trait(orbital, &mut |td| {
         for ev in td.state_machine.events.iter().flatten() {
             if let Some(id) = &ev.id {
-                key_to_id.entry(ev.key.clone()).or_insert_with(|| id.clone());
+                key_to_id
+                    .entry(ev.key.clone())
+                    .or_insert_with(|| id.clone());
             }
         }
         for e in td.emits.iter().flatten() {
             if let Some(id) = &e.event_id {
-                key_to_id.entry(e.event.clone()).or_insert_with(|| id.clone());
+                key_to_id
+                    .entry(e.event.clone())
+                    .or_insert_with(|| id.clone());
             }
         }
     });
@@ -245,7 +256,12 @@ fn uniquify_orbital(
         TraitReference::Inline(td) => {
             for l in td.listens.iter_mut().flatten() {
                 reresolve(&mut l.event_id, Some(&l.event), &colliding, &key_to_id);
-                reresolve(&mut l.triggers_id, l.triggers.as_deref(), &colliding, &key_to_id);
+                reresolve(
+                    &mut l.triggers_id,
+                    l.triggers.as_deref(),
+                    &colliding,
+                    &key_to_id,
+                );
             }
             reresolve_config(td.config.as_mut(), &colliding, &key_to_id);
         }
@@ -359,15 +375,24 @@ mod tests {
         uniquify_instance_event_ids(&mut s);
         let a = inline_at(&s, 0);
         let b = inline_at(&s, 1);
-        let a_id = a.state_machine.events.as_ref().unwrap()[0].id.clone().unwrap();
-        let b_id = b.state_machine.events.as_ref().unwrap()[0].id.clone().unwrap();
+        let a_id = a.state_machine.events.as_ref().unwrap()[0]
+            .id
+            .clone()
+            .unwrap();
+        let b_id = b.state_machine.events.as_ref().unwrap()[0]
+            .id
+            .clone()
+            .unwrap();
         assert_ne!(a_id, b_id, "instances must not share an event id");
         assert_ne!(a_id, "evt_shared");
         assert_ne!(b_id, "evt_shared");
         assert!(a_id.starts_with("evt_"), "kind prefix kept: {a_id}");
         // Every intra-owner position moved together.
         for td in [a, b] {
-            let id = td.state_machine.events.as_ref().unwrap()[0].id.as_deref().unwrap();
+            let id = td.state_machine.events.as_ref().unwrap()[0]
+                .id
+                .as_deref()
+                .unwrap();
             assert_eq!(td.emits.as_ref().unwrap()[0].event_id.as_deref(), Some(id));
             assert_eq!(
                 td.state_machine.transitions[0].event_id.as_deref(),
@@ -393,28 +418,41 @@ mod tests {
         let mut s = schema(two_instance_json());
         uniquify_instance_event_ids(&mut s);
         let ledger = s.ledger.as_ref().unwrap();
-        assert!(!ledger.entries.contains_key("evt_shared"), "retired row dropped");
+        assert!(
+            !ledger.entries.contains_key("evt_shared"),
+            "retired row dropped"
+        );
         let a_id = inline_at(&s, 0).state_machine.events.as_ref().unwrap()[0]
             .id
             .clone()
             .unwrap();
         let row = ledger.entries.get(&a_id).expect("derived row present");
         assert_eq!(row.cur_name, "NOTE_SEARCH");
-        assert_eq!(row.baked_name, "SEARCH", "baked name copied from the retired row");
-        assert_eq!(row.parent.as_deref(), Some("trt_a1"), "parent = the OWNING instance");
+        assert_eq!(
+            row.baked_name, "SEARCH",
+            "baked name copied from the retired row"
+        );
+        assert_eq!(
+            row.parent.as_deref(),
+            Some("trt_a1"),
+            "parent = the OWNING instance"
+        );
     }
 
     #[test]
     fn cross_trait_listen_rersolves_by_key_first_declared() {
         let mut v = two_instance_json();
-        v["orbitals"][0]["traits"].as_array_mut().unwrap().push(json!({
-            "name": "Watcher", "id": "trt_w", "linkedEntity": "Note",
-            "listens": [{ "event": "SEARCH", "eventId": "evt_shared" }],
-            "stateMachine": {
-                "states": [{ "name": "idle", "isInitial": true }],
-                "transitions": [{ "from": "idle", "to": "idle", "event": "INIT" }]
-            }
-        }));
+        v["orbitals"][0]["traits"]
+            .as_array_mut()
+            .unwrap()
+            .push(json!({
+                "name": "Watcher", "id": "trt_w", "linkedEntity": "Note",
+                "listens": [{ "event": "SEARCH", "eventId": "evt_shared" }],
+                "stateMachine": {
+                    "states": [{ "name": "idle", "isInitial": true }],
+                    "transitions": [{ "from": "idle", "to": "idle", "event": "INIT" }]
+                }
+            }));
         let mut s = schema(v);
         uniquify_instance_event_ids(&mut s);
         let watcher = inline_at(&s, 2);

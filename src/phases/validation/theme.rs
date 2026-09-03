@@ -232,7 +232,7 @@ mod tests {
         assert!(is_valid_theme_reference("MyTheme.theme", &empty));
         assert!(!is_valid_theme_reference("ocean.theme", &empty)); // must start with uppercase
         assert!(!is_valid_theme_reference("Ocean.themes", &empty)); // must be .theme
-        // Built-in registry keys accepted (full <base>-<variant> data-theme values).
+                                                                    // Built-in registry keys accepted (full <base>-<variant> data-theme values).
         assert!(is_valid_theme_reference("linear-clean-light", &empty));
         assert!(is_valid_theme_reference("terminal-dark", &empty));
         // Bare base names are NOT valid (the CSS defines only suffixed keys).

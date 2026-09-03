@@ -247,7 +247,10 @@ fn normalize_config_ref_tokens(
 
 /// Entity side: `entity_ref_ids` body tokens (`@entity`, positional
 /// `fetch`/`persist`/`ref`/`spawn`, payload types) + `linked_entity_id`.
-fn normalize_trait_entity_tokens(td: &mut TraitDefinition, entity_id_to_name: &HashMap<String, String>) {
+fn normalize_trait_entity_tokens(
+    td: &mut TraitDefinition,
+    entity_id_to_name: &HashMap<String, String>,
+) {
     if entity_id_to_name.is_empty() {
         return;
     }
@@ -300,7 +303,10 @@ fn normalize_trait_entity_tokens(td: &mut TraitDefinition, entity_id_to_name: &H
 
 /// Trait-embed side: `@trait.<Name>` render tokens carried in this trait's
 /// effect trees, resolved by `trait_embed_ids`.
-fn normalize_trait_embed_tokens(td: &mut TraitDefinition, trait_id_to_name: &HashMap<String, String>) {
+fn normalize_trait_embed_tokens(
+    td: &mut TraitDefinition,
+    trait_id_to_name: &HashMap<String, String>,
+) {
     if trait_id_to_name.is_empty() {
         return;
     }
@@ -328,7 +334,10 @@ fn normalize_trait_embed_tokens(td: &mut TraitDefinition, trait_id_to_name: &Has
 /// default and in every substituted copy). Shared by the id-driven
 /// normalization above and the name-driven uniquify rename in `inline/mod.rs`
 /// (whose Reference-trait siblings carry no embed id to normalize by).
-pub(super) fn rewrite_trait_embed_tokens(td: &mut TraitDefinition, trait_subs: &HashMap<String, String>) {
+pub(super) fn rewrite_trait_embed_tokens(
+    td: &mut TraitDefinition,
+    trait_subs: &HashMap<String, String>,
+) {
     for transition in td.state_machine.transitions.iter_mut() {
         if let Some(effects) = transition.effects.as_mut() {
             for effect in effects.iter_mut() {
@@ -437,15 +446,21 @@ mod tests {
         };
         assert_eq!(td.linked_entity.as_deref(), Some("Record"));
         let effects = td.state_machine.transitions[0].effects.as_ref().unwrap();
-        assert_eq!(effects[0], SExpression::Array(vec![
-            SExpression::String("persist".into()),
-            SExpression::String("create".into()),
-            SExpression::String("Record".into()),
-        ]));
-        assert_eq!(effects[1], SExpression::Array(vec![
-            SExpression::String("fetch".into()),
-            SExpression::String("Record".into()),
-        ]));
+        assert_eq!(
+            effects[0],
+            SExpression::Array(vec![
+                SExpression::String("persist".into()),
+                SExpression::String("create".into()),
+                SExpression::String("Record".into()),
+            ])
+        );
+        assert_eq!(
+            effects[1],
+            SExpression::Array(vec![
+                SExpression::String("fetch".into()),
+                SExpression::String("Record".into()),
+            ])
+        );
     }
 
     /// A page trait `ref` (canonical) is rewritten to the renamed inline trait's
@@ -525,11 +540,14 @@ mod tests {
             _ => panic!("inline"),
         };
         let effect = &host.state_machine.transitions[0].effects.as_ref().unwrap()[0];
-        assert_eq!(*effect, SExpression::Array(vec![
-            SExpression::String("render-ui".into()),
-            SExpression::String("main".into()),
-            SExpression::String("@trait.BrowseView".into()),
-        ]));
+        assert_eq!(
+            *effect,
+            SExpression::Array(vec![
+                SExpression::String("render-ui".into()),
+                SExpression::String("main".into()),
+                SExpression::String("@trait.BrowseView".into()),
+            ])
+        );
     }
 
     /// An `entity`-typed config knob carrying a stamped `refId` rewrites its
@@ -617,12 +635,15 @@ mod tests {
         }));
         normalize_identity_tokens(&mut s);
         let default_of = |i: usize| match &s.orbitals[0].traits[i] {
-            TraitReference::Inline(td) => td.config.as_ref().unwrap()["searchEvent"]
-                .default
-                .clone(),
+            TraitReference::Inline(td) => {
+                td.config.as_ref().unwrap()["searchEvent"].default.clone()
+            }
             _ => panic!("inline"),
         };
-        assert_eq!(default_of(0), Some(SExpression::String("NOTE_SEARCH".into())));
+        assert_eq!(
+            default_of(0),
+            Some(SExpression::String("NOTE_SEARCH".into()))
+        );
         assert_eq!(default_of(1), Some(SExpression::String("SEARCH".into())));
     }
 

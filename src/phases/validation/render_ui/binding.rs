@@ -13,7 +13,7 @@ use crate::phases::validation::render_ui_binding::{
 };
 use crate::phases::validation::trait_path;
 use orbital_core::schema::{
-    resolves_input_type_to_number, OrbitalSchema, PayloadField, SExpression, TraitDefinition,
+    resolve_payload_type_when, OrbitalSchema, PayloadField, SExpression, TraitDefinition,
     TraitReference,
 };
 use std::collections::HashMap;
@@ -364,21 +364,6 @@ fn check_event_binding_payload(
         return;
     };
 
-    // §61 OPEN 1: the SAME predicate the inline narrowing pass consults
-    // (`narrow_number_input_value_payload` in `phases/inline/trait.rs`) —
-    // one definition in `orbital_core::schema`, read here instead of a
-    // second copy of the "config declares inputType, resolved to the
-    // literal number" check. `emit_is_definer_knob` additionally requires
-    // THIS event to be the definer-knob emit that pass narrows (never a
-    // literally-named emit that happens to share the field name).
-    let emit_is_definer_knob = bctx
-        .trait_def
-        .emits
-        .as_deref()
-        .and_then(|emits| emits.iter().find(|e| e.event == event_name))
-        .is_some_and(|e| e.definer_knob.is_some());
-    let number_input_narrowed = emit_is_definer_knob && resolves_input_type_to_number(bctx.trait_def);
-
     if is_event_ref {
         // Compare emitPayloadSchema (registry) vs declared payload.
         let Some(emit_schema) = &prop_meta.emit_payload_schema else {
@@ -406,16 +391,27 @@ fn check_event_binding_payload(
                     );
                 }
                 Some(declared_field) => {
-                    // The component itself coerces to a JS number at emit
-                    // time when `inputType === 'number'` (`Input.tsx`'s
-                    // `handleKeyDown`) — the registry's static `value:
-                    // string` is the untyped-input default, not what THIS
-                    // narrowed call site actually sends.
-                    let number_narrowing_covers_this_field = number_input_narrowed
-                        && required_field.r#type == "string"
-                        && declared_field.field_type == "number";
+                    // The component itself coerces the emitted value at
+                    // runtime under some knob-conditional shape (e.g.
+                    // `Input.tsx`'s `handleKeyDown` when `inputType ===
+                    // 'number'`) — the registry's static declared type is
+                    // just the unconditional default, not necessarily what
+                    // THIS call site's resolved config actually sends.
+                    // `required_field.type_when`, evaluated against this
+                    // trait's own resolved config, is the declared escape
+                    // hatch: a match means the component and the trait agree
+                    // on the SAME resolved type, so the static mismatch below
+                    // is excused. Zero knob-name knowledge here — the
+                    // conditions are authored data on the component's JSDoc.
+                    let type_when_covers_this_field = required_field
+                        .type_when
+                        .as_deref()
+                        .and_then(|conds| {
+                            resolve_payload_type_when(conds, bctx.trait_def.config.as_ref())
+                        })
+                        .is_some_and(|resolved_ty| resolved_ty == declared_field.field_type);
                     if !primitive_event_compat(&declared_field.field_type, &required_field.r#type)
-                        && !number_narrowing_covers_this_field
+                        && !type_when_covers_this_field
                     {
                         diagnostics.push(
                             ValidationError::error(
@@ -678,9 +674,7 @@ fn is_node_field(field: &orbital_core::schema::FieldDefinition) -> bool {
     use orbital_core::schema::FieldType;
     match field.field_type {
         FieldType::Node => true,
-        FieldType::Array | FieldType::Object => {
-            field.items.as_deref().is_some_and(is_node_field)
-        }
+        FieldType::Array | FieldType::Object => field.items.as_deref().is_some_and(is_node_field),
         _ => false,
     }
 }
@@ -928,7 +922,11 @@ fn derive_typed_payload_decl(arg: &crate::embedded::EmbeddedCallbackArg) -> Opti
         .iter()
         .map(|(name, p)| {
             let ty = p.types.first().map(String::as_str).unwrap_or("string");
-            let bang = if required.iter().any(|r| r == name) { "!" } else { "" };
+            let bang = if required.iter().any(|r| r == name) {
+                "!"
+            } else {
+                ""
+            };
             format!("{name} : {ty}{bang}")
         })
         .collect();
@@ -960,8 +958,7 @@ fn check_callback_arg_schema(
     }
 
     let Some(declared_props) = declared_field.properties.as_ref() else {
-        let hint = derive_typed_payload_decl(arg)
-            .unwrap_or_else(|| "{ ... }".to_string());
+        let hint = derive_typed_payload_decl(arg).unwrap_or_else(|| "{ ... }".to_string());
         diagnostics.push(
             ValidationError::error(
                 ErrorCode::RenderUIEventBindingPayloadMismatch,

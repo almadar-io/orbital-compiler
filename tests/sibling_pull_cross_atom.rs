@@ -145,8 +145,14 @@ fn embed_ref_of(td: &TraitDefinition) -> String {
 fn cross_atom_same_named_siblings_both_pulled_and_correctly_wired() {
     let schema = inline_fixture(
         &[
-            ("atom-alpha.orb", atom_with_button("atom-alpha", "AlphaMain", "ALPHA_FIRE")),
-            ("atom-beta.orb", atom_with_button("atom-beta", "BetaMain", "BETA_FIRE")),
+            (
+                "atom-alpha.orb",
+                atom_with_button("atom-alpha", "AlphaMain", "ALPHA_FIRE"),
+            ),
+            (
+                "atom-beta.orb",
+                atom_with_button("atom-beta", "BetaMain", "BETA_FIRE"),
+            ),
         ],
         CROSS_ATOM_CONSUMER,
     );
@@ -175,7 +181,9 @@ fn cross_atom_same_named_siblings_both_pulled_and_correctly_wired() {
         let target = traits
             .iter()
             .find(|t| t.name == referenced)
-            .unwrap_or_else(|| panic!("{parent_name} refs {referenced} which must exist; got {names:?}"));
+            .unwrap_or_else(|| {
+                panic!("{parent_name} refs {referenced} which must exist; got {names:?}")
+            });
         let target_json = serde_json::to_string(target).expect("serialize");
         assert!(
             target_json.contains(marker),
@@ -302,4 +310,111 @@ fn pulled_sibling_listen_source_follows_host_rename() {
         }
         other => panic!("expected a trait-scoped source, got {other:?}"),
     }
+}
+
+const CONSUMER_WITH_COINCIDENTAL_CHROME: &str = r#"{
+  "name": "test-coincidental-chrome-consumer",
+  "version": "1.0.0",
+  "orbitals": [
+    {
+      "name": "AppOrbital",
+      "uses": [
+        { "from": "./atom-alpha.orb", "as": "Alpha" }
+      ],
+      "entity": {
+        "name": "Thing",
+        "persistence": "persistent",
+        "fields": [ { "name": "id", "type": "string", "required": true } ]
+      },
+      "traits": [
+        { "ref": "Alpha.traits.AlphaMain", "linkedEntity": "Thing", "name": "ThingAlpha" },
+        {
+          "name": "InlineButtonRender1",
+          "linkedEntity": "Thing",
+          "category": "interaction",
+          "stateMachine": {
+            "states": [ { "name": "idle", "isInitial": true } ],
+            "events": [ { "key": "CONSUMER_FIRE" } ],
+            "transitions": [
+              {
+                "from": "idle",
+                "to": "idle",
+                "event": "CONSUMER_FIRE",
+                "effects": [
+                  ["render-ui", "main", { "type": "button", "label": "CONSUMER_FIRE" }]
+                ]
+              }
+            ]
+          }
+        }
+      ],
+      "pages": [
+        { "name": "AppPage", "path": "/app", "linkedEntity": "Thing", "traits": [ { "ref": "ThingAlpha" }, { "ref": "InlineButtonRender1" } ] }
+      ]
+    }
+  ]
+}"#;
+
+/// C-COMPILER-INLINE-RENDER-NAME-COLLISION-1: a consumer trait that merely
+/// SHARES a pulled sibling's name (L1-generated chrome, or any hand-authored
+/// trait with no provenance) must NOT satisfy the pull. The old name-only
+/// "explicit composition wins" skip bound the atom's `@trait.<Sibling>` tokens
+/// to the consumer's unrelated trait — a phantom ORB_BINDING_TRAIT_CYCLE when
+/// the consumer's copy embeds the pulling parent (std-devops-dashboard), a
+/// silently vanished affordance when the atom's copy carried the behavior
+/// (std-marketing-campaign's CREATE button). Provenance gates the skip now:
+/// only an explicit instance of the SAME source trait satisfies the pull.
+#[test]
+fn coincidentally_named_consumer_trait_does_not_capture_pulled_sibling() {
+    let schema = inline_fixture(
+        &[(
+            "atom-alpha.orb",
+            atom_with_button("atom-alpha", "AlphaMain", "ALPHA_FIRE"),
+        )],
+        CONSUMER_WITH_COINCIDENTAL_CHROME,
+    );
+
+    let traits = inline_traits_of(&schema);
+    let names: Vec<&str> = traits.iter().map(|t| t.name.as_str()).collect();
+
+    // The atom's button is pulled as a DISTINCT trait beside the consumer's.
+    let buttons: Vec<&&TraitDefinition> = traits
+        .iter()
+        .filter(|t| t.name.contains("InlineButtonRender1"))
+        .collect();
+    assert_eq!(
+        buttons.len(),
+        2,
+        "the atom's sibling must be pulled beside the consumer's same-named trait; got {names:?}"
+    );
+
+    // The composed parent references the trait carrying the ATOM's event —
+    // never the consumer's coincidental one.
+    let parent = traits
+        .iter()
+        .find(|t| t.name == "ThingAlpha")
+        .unwrap_or_else(|| panic!("ThingAlpha present; got {names:?}"));
+    let referenced = embed_ref_of(parent);
+    let target = traits
+        .iter()
+        .find(|t| t.name == referenced)
+        .unwrap_or_else(|| panic!("ThingAlpha refs {referenced} which must exist; got {names:?}"));
+    let target_json = serde_json::to_string(target).expect("serialize");
+    assert!(
+        target_json.contains("ALPHA_FIRE"),
+        "ThingAlpha must reference the ATOM's button; refs {referenced} whose body lacks ALPHA_FIRE"
+    );
+
+    // The consumer's own trait is untouched and still fires its own event.
+    let consumer_copy = traits
+        .iter()
+        .find(|t| t.name == "InlineButtonRender1")
+        .unwrap_or_else(|| {
+            panic!("consumer's own InlineButtonRender1 must keep its name; got {names:?}")
+        });
+    let consumer_json = serde_json::to_string(consumer_copy).expect("serialize");
+    assert!(
+        consumer_json.contains("CONSUMER_FIRE"),
+        "the trait keeping the original name must be the CONSUMER's copy"
+    );
 }

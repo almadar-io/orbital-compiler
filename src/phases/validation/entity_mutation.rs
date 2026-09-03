@@ -374,7 +374,10 @@ fn same_source_trait(names: &[String], trait_by_name: &HashMap<&str, &TraitDefin
 /// can never split-write the same instance. A mutator absent from every page
 /// is NOT exempted (conservatively kept reported) — its runtime membership
 /// isn't provable from static page wiring alone.
-fn mutators_page_disjoint(names: &[String], trait_pages: &HashMap<String, HashSet<String>>) -> bool {
+fn mutators_page_disjoint(
+    names: &[String],
+    trait_pages: &HashMap<String, HashSet<String>>,
+) -> bool {
     let mut sets: Vec<&HashSet<String>> = Vec::with_capacity(names.len());
     for name in names {
         match trait_pages.get(name) {
@@ -523,8 +526,7 @@ fn validate_orbital_entity_mutations(
             // isolation without a cross-trait read dependency changes
             // nothing observable and is not constructed.
             let reads_by_trait = collect_entity_field_reads(traits, entity_name);
-            let Some((reader, field, writer)) =
-                cross_read_dependency(field_map, &reads_by_trait)
+            let Some((reader, field, writer)) = cross_read_dependency(field_map, &reads_by_trait)
             else {
                 continue;
             };
@@ -810,7 +812,8 @@ mod tests {
             "Blob".to_string(),
             entity("Blob", false, Some(Persistence::Runtime)),
         );
-        let result = validate_orbital_entity_mutations(&traits, "orbitals[0]", &defs, &HashMap::new());
+        let result =
+            validate_orbital_entity_mutations(&traits, "orbitals[0]", &defs, &HashMap::new());
         assert!(
             result
                 .errors
@@ -820,7 +823,10 @@ mod tests {
             result.errors,
             result.warnings
         );
-        assert!(result.warnings.is_empty(), "Must be an error, not a warning");
+        assert!(
+            result.warnings.is_empty(),
+            "Must be an error, not a warning"
+        );
     }
 
     /// Self-sufficient readers: each trait reads only fields IT writes (the
@@ -845,7 +851,8 @@ mod tests {
             "Blob".to_string(),
             entity("Blob", false, Some(Persistence::Runtime)),
         );
-        let result = validate_orbital_entity_mutations(&traits, "orbitals[0]", &defs, &HashMap::new());
+        let result =
+            validate_orbital_entity_mutations(&traits, "orbitals[0]", &defs, &HashMap::new());
         assert!(
             !result
                 .warnings
@@ -886,7 +893,8 @@ mod tests {
             "Blob".to_string(),
             entity("Blob", false, Some(Persistence::Runtime)),
         );
-        let result = validate_orbital_entity_mutations(&traits, "orbitals[0]", &defs, &HashMap::new());
+        let result =
+            validate_orbital_entity_mutations(&traits, "orbitals[0]", &defs, &HashMap::new());
         assert!(
             result
                 .errors
@@ -912,7 +920,8 @@ mod tests {
             "Blob".to_string(),
             entity("Blob", false, Some(Persistence::Runtime)),
         );
-        let result = validate_orbital_entity_mutations(&traits, "orbitals[0]", &defs, &HashMap::new());
+        let result =
+            validate_orbital_entity_mutations(&traits, "orbitals[0]", &defs, &HashMap::new());
         assert!(
             !result
                 .all_issues()
@@ -922,7 +931,11 @@ mod tests {
         );
     }
 
-    fn with_source_behavior(mut td: TraitDefinition, behavior: &str, original_name: &str) -> TraitDefinition {
+    fn with_source_behavior(
+        mut td: TraitDefinition,
+        behavior: &str,
+        original_name: &str,
+    ) -> TraitDefinition {
         td.source_behavior = Some(orbital_core::schema::SourceBehaviorMetadata {
             behavior: behavior.to_string(),
             alias: td.name.clone(),
@@ -956,7 +969,8 @@ mod tests {
             "Form".to_string(),
             entity("Form", false, Some(Persistence::Runtime)),
         );
-        let result = validate_orbital_entity_mutations(&traits, "orbitals[0]", &defs, &HashMap::new());
+        let result =
+            validate_orbital_entity_mutations(&traits, "orbitals[0]", &defs, &HashMap::new());
         assert!(
             !result
                 .all_issues()
@@ -987,7 +1001,8 @@ mod tests {
             "Blob".to_string(),
             entity("Blob", false, Some(Persistence::Runtime)),
         );
-        let result = validate_orbital_entity_mutations(&traits, "orbitals[0]", &defs, &HashMap::new());
+        let result =
+            validate_orbital_entity_mutations(&traits, "orbitals[0]", &defs, &HashMap::new());
         assert!(
             result
                 .errors
@@ -1016,8 +1031,14 @@ mod tests {
             entity("Blob", false, Some(Persistence::Runtime)),
         );
         let mut trait_pages: HashMap<String, HashSet<String>> = HashMap::new();
-        trait_pages.insert("Mover".to_string(), ["PageA".to_string()].into_iter().collect());
-        trait_pages.insert("Renderer".to_string(), ["PageB".to_string()].into_iter().collect());
+        trait_pages.insert(
+            "Mover".to_string(),
+            ["PageA".to_string()].into_iter().collect(),
+        );
+        trait_pages.insert(
+            "Renderer".to_string(),
+            ["PageB".to_string()].into_iter().collect(),
+        );
         let result = validate_orbital_entity_mutations(&traits, "orbitals[0]", &defs, &trait_pages);
         assert!(
             !result
@@ -1045,8 +1066,14 @@ mod tests {
             entity("Blob", false, Some(Persistence::Runtime)),
         );
         let mut trait_pages: HashMap<String, HashSet<String>> = HashMap::new();
-        trait_pages.insert("Mover".to_string(), ["PageA".to_string()].into_iter().collect());
-        trait_pages.insert("Renderer".to_string(), ["PageA".to_string()].into_iter().collect());
+        trait_pages.insert(
+            "Mover".to_string(),
+            ["PageA".to_string()].into_iter().collect(),
+        );
+        trait_pages.insert(
+            "Renderer".to_string(),
+            ["PageA".to_string()].into_iter().collect(),
+        );
         let result = validate_orbital_entity_mutations(&traits, "orbitals[0]", &defs, &trait_pages);
         assert!(
             result
@@ -1126,7 +1153,8 @@ mod tests {
             "Blob".to_string(),
             entity("Blob", false, Some(Persistence::Runtime)),
         );
-        let result = validate_orbital_entity_mutations(&traits, "orbitals[0]", &defs, &HashMap::new());
+        let result =
+            validate_orbital_entity_mutations(&traits, "orbitals[0]", &defs, &HashMap::new());
         assert!(
             !result
                 .all_issues()
@@ -1152,7 +1180,8 @@ mod tests {
             "Blob".to_string(),
             entity("Blob", false, Some(Persistence::Persistent)),
         );
-        let result = validate_orbital_entity_mutations(&traits, "orbitals[0]", &defs, &HashMap::new());
+        let result =
+            validate_orbital_entity_mutations(&traits, "orbitals[0]", &defs, &HashMap::new());
         assert!(
             !result
                 .all_issues()
@@ -1171,7 +1200,8 @@ mod tests {
         let traits = vec![&t1, &t2];
         let mut defs = HashMap::new();
         defs.insert("Pool".to_string(), entity("Pool", true, None));
-        let result = validate_orbital_entity_mutations(&traits, "orbitals[0]", &defs, &HashMap::new());
+        let result =
+            validate_orbital_entity_mutations(&traits, "orbitals[0]", &defs, &HashMap::new());
         assert!(
             result
                 .errors
@@ -1189,7 +1219,8 @@ mod tests {
         let traits = vec![&t1, &t2];
         let mut defs = HashMap::new();
         defs.insert("Pool".to_string(), entity("Pool", true, None));
-        let result = validate_orbital_entity_mutations(&traits, "orbitals[0]", &defs, &HashMap::new());
+        let result =
+            validate_orbital_entity_mutations(&traits, "orbitals[0]", &defs, &HashMap::new());
         assert!(
             !result
                 .all_issues()
@@ -1206,7 +1237,8 @@ mod tests {
         let traits = vec![&t1, &t2];
         let mut defs = HashMap::new();
         defs.insert("Pool".to_string(), entity("Pool", true, None));
-        let result = validate_orbital_entity_mutations(&traits, "orbitals[0]", &defs, &HashMap::new());
+        let result =
+            validate_orbital_entity_mutations(&traits, "orbitals[0]", &defs, &HashMap::new());
         assert!(
             result
                 .errors
@@ -1252,7 +1284,8 @@ mod tests {
         let traits = vec![&host, &w1, &w2];
         let mut defs = HashMap::new();
         defs.insert("Pool".to_string(), entity("Pool", true, None));
-        let result = validate_orbital_entity_mutations(&traits, "orbitals[0]", &defs, &HashMap::new());
+        let result =
+            validate_orbital_entity_mutations(&traits, "orbitals[0]", &defs, &HashMap::new());
         assert!(
             !result
                 .all_issues()
@@ -1281,7 +1314,8 @@ mod tests {
         let traits = vec![&host, &child, &grand];
         let mut defs = HashMap::new();
         defs.insert("Pool".to_string(), entity("Pool", true, None));
-        let result = validate_orbital_entity_mutations(&traits, "orbitals[0]", &defs, &HashMap::new());
+        let result =
+            validate_orbital_entity_mutations(&traits, "orbitals[0]", &defs, &HashMap::new());
         assert!(
             !result
                 .all_issues()
@@ -1307,7 +1341,8 @@ mod tests {
         let traits = vec![&host, &w1, &rogue];
         let mut defs = HashMap::new();
         defs.insert("Pool".to_string(), entity("Pool", true, None));
-        let result = validate_orbital_entity_mutations(&traits, "orbitals[0]", &defs, &HashMap::new());
+        let result =
+            validate_orbital_entity_mutations(&traits, "orbitals[0]", &defs, &HashMap::new());
         assert!(
             result
                 .errors
@@ -1337,7 +1372,8 @@ mod tests {
         let traits = vec![&a, &b];
         let mut defs = HashMap::new();
         defs.insert("Pool".to_string(), entity("Pool", true, None));
-        let result = validate_orbital_entity_mutations(&traits, "orbitals[0]", &defs, &HashMap::new());
+        let result =
+            validate_orbital_entity_mutations(&traits, "orbitals[0]", &defs, &HashMap::new());
         assert!(
             result
                 .errors

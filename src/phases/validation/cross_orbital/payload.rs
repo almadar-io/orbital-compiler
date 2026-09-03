@@ -77,8 +77,7 @@ pub(crate) fn validate_external_emit_payloads(schema: &OrbitalSchema) -> Validat
                             .or_default()
                             .insert(orbital.name.clone());
                         if expects_fields {
-                            expectant_targeted
-                                .insert((trait_name.clone(), listen.event.clone()));
+                            expectant_targeted.insert((trait_name.clone(), listen.event.clone()));
                         }
                     }
                     Some(ListenSource::Any) | None => {
@@ -269,6 +268,7 @@ mod tests {
                     required: Some(true),
                     description: None,
                     properties: None,
+                    type_when: None,
                 }]),
             }]);
         }
@@ -456,7 +456,11 @@ mod tests {
         let consumer = orbital_with(
             "LedgerOrbital",
             "Ledger",
-            vec![trait_with("LedgerTrait", None, Some(vec![listen("ORDER_PAID")]))],
+            vec![trait_with(
+                "LedgerTrait",
+                None,
+                Some(vec![listen("ORDER_PAID")]),
+            )],
         );
         let emitter = orbital_with(
             "OrderOrbital",
@@ -472,6 +476,7 @@ mod tests {
                         required: Some(true),
                         description: Some("The order ID".to_string()),
                         properties: None,
+                        type_when: None,
                     }]),
                 )]),
                 None,

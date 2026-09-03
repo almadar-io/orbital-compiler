@@ -218,8 +218,7 @@ fn pattern_literal_into_non_node_field_is_the_anti_loophole() {
 /// leaves must still reach the pattern checks.
 #[test]
 fn map_of_node_is_renderable_and_its_leaves_are_checked() {
-    let map_field =
-        json!({ "name": "view", "type": "object",
+    let map_field = json!({ "name": "view", "type": "object",
                 "items": { "type": "array", "items": { "type": "node" } } });
 
     let (errors, _warnings) = run(schema_with_effects(

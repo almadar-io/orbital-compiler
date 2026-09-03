@@ -649,9 +649,11 @@ fn validate_config_field(
                         if matches!(element, SExpression::String(_) | SExpression::Null) {
                             continue;
                         }
-                        result.merge(crate::phases::validation::render_ui::pattern::validate_pattern(
-                            element, path, &empty, None, None,
-                        ));
+                        result.merge(
+                            crate::phases::validation::render_ui::pattern::validate_pattern(
+                                element, path, &empty, None, None,
+                            ),
+                        );
                     }
                 }
                 SExpression::String(_) | SExpression::Null => {}
@@ -998,7 +1000,10 @@ fn check_config_default_shape(
 /// carry one.
 fn config_field_root_alias_name(field_type: &str) -> &str {
     let trimmed = field_type.trim();
-    if let Some(inner) = trimmed.strip_prefix("Map<").and_then(|s| s.strip_suffix('>')) {
+    if let Some(inner) = trimmed
+        .strip_prefix("Map<")
+        .and_then(|s| s.strip_suffix('>'))
+    {
         return inner.rsplit(',').next().map(str::trim).unwrap_or(inner);
     }
     trimmed
@@ -1187,7 +1192,9 @@ fn check_field_def_shape(
                 );
                 err = err.with_suggestion(match &expected_fields {
                     Some(keys) => {
-                        format!("write this entry as an object literal `{{ … }}` with fields: {keys}")
+                        format!(
+                            "write this entry as an object literal `{{ … }}` with fields: {keys}"
+                        )
                     }
                     None => "write this entry as an object literal `{ … }`".to_string(),
                 });
@@ -1343,8 +1350,12 @@ fn select_union_variant<'a>(
     let mut fallback: Option<&FieldDefinition> = None;
     let mut deferred = false;
     for name in names {
-        let Some(variant) = variants.get(name) else { continue };
-        let Some(props) = &variant.properties else { continue };
+        let Some(variant) = variants.get(name) else {
+            continue;
+        };
+        let Some(props) = &variant.properties else {
+            continue;
+        };
         let mut discriminators = 0usize;
         let mut agreed = 0usize;
         for (field_name, def) in props {
@@ -1511,8 +1522,8 @@ fn validate_dangling_config_refs(schema: &OrbitalSchema) -> ValidationResult {
                     _ => None,
                 };
                 for (k, v) in map {
-                    let ctx = pattern_props
-                        .map(|props| (k.as_str(), props.contains_key(k.as_str())));
+                    let ctx =
+                        pattern_props.map(|props| (k.as_str(), props.contains_key(k.as_str())));
                     collect_config_keys_inner(v, ctx, out);
                 }
             }
@@ -1795,7 +1806,13 @@ mod node_config_tests {
             { "type": "typography", "content": "hi" }
         ]))
         .unwrap();
-        let result = validate_config_field(&field("node", default), "t.config.children", None, &HashSet::new(), None);
+        let result = validate_config_field(
+            &field("node", default),
+            "t.config.children",
+            None,
+            &HashSet::new(),
+            None,
+        );
         assert!(result.errors.is_empty(), "{:?}", result.errors);
     }
 
@@ -1805,7 +1822,13 @@ mod node_config_tests {
             ["if", ["==", "@entity.result", "none"], null, { "type": "game-menu" }]
         ))
         .unwrap();
-        let result = validate_config_field(&field("node", default), "t.config.overlay", None, &HashSet::new(), None);
+        let result = validate_config_field(
+            &field("node", default),
+            "t.config.overlay",
+            None,
+            &HashSet::new(),
+            None,
+        );
         assert!(
             result.errors.is_empty(),
             "computed node config must not be pattern-checked: {:?}",
@@ -1819,7 +1842,13 @@ mod node_config_tests {
             { "type": "not-a-real-pattern", "x": 1 }
         ]))
         .unwrap();
-        let result = validate_config_field(&field("node", default), "t.config.children", None, &HashSet::new(), None);
+        let result = validate_config_field(
+            &field("node", default),
+            "t.config.children",
+            None,
+            &HashSet::new(),
+            None,
+        );
         assert!(!result.errors.is_empty());
     }
 }
@@ -1907,8 +1936,7 @@ mod event_config_tests {
 
     #[test]
     fn vacuous_event_set_skips() {
-        let result = run(
-            r#"{
+        let result = run(r#"{
       "name": "t", "version": "1.0.0",
       "orbitals": [{
         "name": "O",
@@ -1919,8 +1947,7 @@ mod event_config_tests {
           "stateMachine": { "states": [{ "name": "idle", "isInitial": true }], "transitions": [] }
         }]
       }]
-    }"#,
-        );
+    }"#);
         assert!(event_errors(&result).is_empty(), "{:?}", result.errors);
     }
 
@@ -1929,8 +1956,7 @@ mod event_config_tests {
         // The trait transitions on `@config.onPageChange` (dynamic sentinel);
         // a SIBLING event-typed knob naming the sentinel's resolved value is
         // a member (the pageChangeEvent edge from the corpus simulation).
-        let result = run(
-            r#"{
+        let result = run(r#"{
       "name": "t", "version": "1.0.0",
       "orbitals": [{
         "name": "O",
@@ -1949,8 +1975,7 @@ mod event_config_tests {
           }
         }]
       }]
-    }"#,
-        );
+    }"#);
         assert!(event_errors(&result).is_empty(), "{:?}", result.errors);
     }
 
@@ -1961,8 +1986,7 @@ mod event_config_tests {
         // against the trait's own event set (which wouldn't even contain a
         // literal "CLICKED" here, since the trait's only member is the
         // sentinel form `@config.onEventClick` itself).
-        let result = run(
-            r#"{
+        let result = run(r#"{
       "name": "t", "version": "1.0.0",
       "orbitals": [{
         "name": "O",
@@ -1978,8 +2002,7 @@ mod event_config_tests {
           }
         }]
       }]
-    }"#,
-        );
+    }"#);
         assert!(event_errors(&result).is_empty(), "{:?}", result.errors);
     }
 
@@ -1987,8 +2010,7 @@ mod event_config_tests {
     fn definer_typed_event_still_rejects_non_string_default() {
         // The definer skip only lifts the MEMBERSHIP check — a non-string
         // default is still decidably wrong regardless of role.
-        let result = run(
-            r#"{
+        let result = run(r#"{
       "name": "t", "version": "1.0.0",
       "orbitals": [{
         "name": "O",
@@ -2004,8 +2026,7 @@ mod event_config_tests {
           }
         }]
       }]
-    }"#,
-        );
+    }"#);
         let errs = event_errors(&result);
         assert_eq!(errs.len(), 1, "{:?}", result.errors);
         assert_eq!(errs[0].code, ErrorCode::TraitInvalidEventDefault);
@@ -2015,8 +2036,7 @@ mod event_config_tests {
     fn reference_arm_skips_membership() {
         // A pre-inline Reference override has no base-trait vocabulary — the
         // event membership check must not fire there.
-        let result = run(
-            r#"{
+        let result = run(r#"{
       "name": "t", "version": "1.0.0",
       "orbitals": [{
         "name": "O",
@@ -2027,8 +2047,7 @@ mod event_config_tests {
           "config": { "clickEvent": { "type": "event", "default": "WHATEVER" } }
         }]
       }]
-    }"#,
-        );
+    }"#);
         assert!(event_errors(&result).is_empty(), "{:?}", result.errors);
     }
 }
@@ -2237,7 +2256,9 @@ mod reference_binding_type_tests {
         result
             .errors
             .iter()
-            .filter(|e| e.code == ErrorCode::TraitConfigShapeMismatch && e.message.contains("resolves to"))
+            .filter(|e| {
+                e.code == ErrorCode::TraitConfigShapeMismatch && e.message.contains("resolves to")
+            })
             .collect()
     }
 
@@ -2280,7 +2301,11 @@ mod reference_binding_type_tests {
         let result = run(&entity_trait_schema("string", "@entity.count", "[]"));
         let errs = mismatch_errors(&result);
         assert_eq!(errs.len(), 1, "{:?}", result.errors);
-        assert!(result.warnings.is_empty(), "must be blocking: {:?}", result.warnings);
+        assert!(
+            result.warnings.is_empty(),
+            "must be blocking: {:?}",
+            result.warnings
+        );
     }
 
     #[test]
@@ -2356,7 +2381,11 @@ mod reference_binding_type_tests {
         let result = run(&payload_trait_schema("string", "number", "@payload.amount"));
         let errs = mismatch_errors(&result);
         assert_eq!(errs.len(), 1, "{:?}", result.errors);
-        assert!(result.warnings.is_empty(), "must be blocking: {:?}", result.warnings);
+        assert!(
+            result.warnings.is_empty(),
+            "must be blocking: {:?}",
+            result.warnings
+        );
     }
 
     #[test]

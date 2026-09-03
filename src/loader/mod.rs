@@ -374,7 +374,10 @@ pub enum BrowseMapping {
 /// path basename verbatim. A browse-prefixed specifier with no basename is
 /// `Malformed`; anything not starting with a mount alias is `NotBrowseForm`.
 pub fn map_browse_specifier(import_path: &str) -> BrowseMapping {
-    for (prefix, package) in [("@std/", "std/behaviors/"), ("@behaviors/", "almadar-behaviors/")] {
+    for (prefix, package) in [
+        ("@std/", "std/behaviors/"),
+        ("@behaviors/", "almadar-behaviors/"),
+    ] {
         let Some(rest) = import_path.strip_prefix(prefix) else {
             continue;
         };
@@ -584,13 +587,12 @@ impl ExternalOrbitalLoader {
                         .unwrap_or(b)
                 };
                 let canonical = format!("std/behaviors/{basename}");
-                let known_canonically = canonical != import_path
-                    && (crate::embedded::get_std_behavior_content(&canonical).is_some()
-                        || self
-                            .config
-                            .behaviors_registry_roots
-                            .values()
-                            .any(|root| resolve_behavior_in_registry(basename, root).is_some()));
+                let known_canonically =
+                    canonical != import_path
+                        && (crate::embedded::get_std_behavior_content(&canonical).is_some()
+                            || self.config.behaviors_registry_roots.values().any(|root| {
+                                resolve_behavior_in_registry(basename, root).is_some()
+                            }));
                 if known_canonically {
                     return Err(LoaderError::StdImportNotCanonical {
                         given: import_path.to_string(),

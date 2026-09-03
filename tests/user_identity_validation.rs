@@ -141,7 +141,10 @@ fn without_a_declared_identity_entity_an_unknown_field_is_still_an_error() {
         }
     });
     let codes = run(schema_with(json!([]), json!([ok_trait]), false));
-    assert!(codes.is_empty(), "default-shape fields must stay readable, got {codes:?}");
+    assert!(
+        codes.is_empty(),
+        "default-shape fields must stay readable, got {codes:?}"
+    );
 }
 
 /// `=` and `==` both occur in committed `.orb` files.

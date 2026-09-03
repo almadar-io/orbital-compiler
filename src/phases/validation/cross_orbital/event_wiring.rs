@@ -176,7 +176,9 @@ pub(crate) fn validate_event_wiring(schema: &OrbitalSchema) -> ValidationResult 
                 // A trait-level "does it render?" proxy was tried first and is
                 // too coarse: a Sim renders its canvas AND broadcasts telemetry
                 // from a tick effect, so ~100 broadcasts read as dead controls.
-                let by_control = fired_events.by_control.contains(&(emitter.clone(), event.clone()));
+                let by_control = fired_events
+                    .by_control
+                    .contains(&(emitter.clone(), event.clone()));
                 let imported = imported_traits.contains(emitter);
 
                 // Exemption is per-emitter, not per event name — see the
@@ -1009,7 +1011,11 @@ mod tests {
         let mut schema = create_minimal_schema();
         schema.orbitals[0].traits = vec![
             TraitReference::Inline(trait_with_effect("SummaryData", fetch_effect)),
-            TraitReference::Inline(scoped_listener("SummaryStats", "SummaryData", "SummaryLoaded")),
+            TraitReference::Inline(scoped_listener(
+                "SummaryStats",
+                "SummaryData",
+                "SummaryLoaded",
+            )),
         ];
         let result = wire(&schema);
         assert!(
@@ -1209,9 +1215,7 @@ mod tests {
                     "action".to_string(),
                     orbital_core::schema::ConfigField {
                         field_type: "event".to_string(),
-                        default: Some(orbital_core::schema::SExpression::String(
-                            event.to_string(),
-                        )),
+                        default: Some(orbital_core::schema::SExpression::String(event.to_string())),
                         label: None,
                         description: None,
                         synonyms: None,

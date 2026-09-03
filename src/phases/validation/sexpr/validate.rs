@@ -167,8 +167,12 @@ pub(crate) fn validate_sexpr_with_locals(
             // vs a data array (first element is a field name or literal value)
             let is_sexpr_call = if let SExpression::String(first) = &arr[0] {
                 // It's an S-expression call if the first element is a known operator
-                // or looks like an operator (contains '/' for namespaced ops)
-                is_known_operator(first) || first.contains('/')
+                // or looks like an operator (contains '/' for namespaced ops).
+                // "concat" is a special case: no longer a known operator (removed as
+                // an ambiguous alias, R-EVAL-CONCAT-PATH-DIVERGENCE), but still forced
+                // through the call path so it hits the unknown-operator error below
+                // instead of silently passing as a literal data array.
+                is_known_operator(first) || first.contains('/') || first == "concat"
             } else {
                 // Non-string first element (array, object, etc) - treat as data
                 false
@@ -272,8 +276,21 @@ pub(crate) fn validate_sexpr_with_locals(
                         );
                     }
 
-                    // Check operator validity (only warn for namespaced operators that aren't known)
-                    if !is_known_operator(operator) && operator.contains('/') {
+                    // Check operator validity (only warn for namespaced operators that
+                    // aren't known — plus "concat" specifically, a retired ambiguous
+                    // alias that must not silently pass as a data array).
+                    if operator == "concat" {
+                        result.add_error(
+                            ValidationError::error(
+                                ErrorCode::SExprInvalidOperator,
+                                path,
+                                "Ambiguous operator: 'concat' — use 'str/concat' (string) or 'array/concat' (array)".to_string(),
+                            )
+                            .with_suggestion(
+                                "Replace 'concat' with 'str/concat' or 'array/concat'",
+                            ),
+                        );
+                    } else if !is_known_operator(operator) && operator.contains('/') {
                         let suggestion = super::operators::suggest_operator(operator)
                             .unwrap_or_else(|| {
                                 "Use a known operator or ensure custom operator is registered"
@@ -525,6 +542,26 @@ mod tests {
             .errors
             .iter()
             .any(|e| e.code == ErrorCode::SExprEffectInGuard));
+    }
+
+    #[test]
+    fn concat_conformance_bare_concat_is_rejected() {
+        // R-EVAL-CONCAT-PATH-DIVERGENCE: bare "concat" is ambiguous between
+        // str/concat and array/concat and must be a blocking validation
+        // error naming both replacements, not silently pass as a data array.
+        let expr = SExpression::Array(vec![
+            SExpression::String("concat".to_string()),
+            SExpression::String("a".to_string()),
+            SExpression::String("b".to_string()),
+        ]);
+        let result = validate_sexpr(&expr, "test", SExprContext::Guard, &HashSet::new());
+        assert!(!result.is_valid());
+        let err = result
+            .errors
+            .iter()
+            .find(|e| e.code == ErrorCode::SExprInvalidOperator)
+            .expect("expected an SExprInvalidOperator error for bare concat");
+        assert!(err.message.contains("str/concat") && err.message.contains("array/concat"));
     }
 
     #[test]

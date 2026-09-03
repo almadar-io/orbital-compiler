@@ -127,7 +127,12 @@ pub(crate) fn merge_imported_entity_fields(
 /// id in place while renaming the target dangles a ledger-mismatched reference
 /// (`ORB_ID_NAME_MISMATCH`: the id still resolves to the imported entity's own
 /// ledger row, not the rebind target's).
-fn rewrite_self_relation_target(field: &mut FieldDefinition, old: &str, new: &str, new_id: Option<&str>) {
+fn rewrite_self_relation_target(
+    field: &mut FieldDefinition,
+    old: &str,
+    new: &str,
+    new_id: Option<&str>,
+) {
     if let Some(rel) = field.relation.as_mut() {
         if rel.entity == old {
             rel.entity = new.to_string();

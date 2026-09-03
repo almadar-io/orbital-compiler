@@ -117,6 +117,21 @@ fn check_config_type(field_type: &str, path: &str, result: &mut ValidationResult
     }
 }
 
+fn check_types_map(
+    types: Option<&std::collections::BTreeMap<String, Vec<PayloadField>>>,
+    oi: usize,
+    result: &mut ValidationResult,
+) {
+    if let Some(types) = types {
+        for (alias, fields) in types {
+            let path = format!("orbitals[{oi}].types.{alias}");
+            for field in fields {
+                check_payload_field(field, &path, result);
+            }
+        }
+    }
+}
+
 /// Walk every declaration position the `.orb` IR carries and report generic
 /// types. Hard error.
 pub fn validate_generic_types(schema: &OrbitalSchema, ctx: &mut ValidationContext) {
@@ -128,6 +143,15 @@ pub fn validate_generic_types(schema: &OrbitalSchema, ctx: &mut ValidationContex
             let path = format!("entities.{name}.fields.{field_name}");
             check_entity_field(field, &path, &mut result);
         }
+    }
+
+    // The orbital's struct-alias map (`Orbital.types`) is a declaration
+    // position in its own right: alias members reach payloads BY NAME
+    // (recursive back-reference), so a generic type inside an alias shape is
+    // invisible to the payload walks below — the exact hole `targetQuestionId:
+    // json` sat in while the file validated 0/0.
+    for (oi, orbital) in schema.orbitals.iter().enumerate() {
+        check_types_map(orbital.types.as_ref(), oi, &mut result);
     }
 
     for (trait_def, trait_path) in inline_traits(schema) {
@@ -191,6 +215,7 @@ mod tests {
             required: None,
             description: None,
             properties,
+            type_when: None,
         }
     }
 
@@ -211,6 +236,30 @@ mod tests {
             "opaque must not be reported, got {:?}",
             result.errors
         );
+    }
+
+    /// The struct-alias map is a declaration position: alias members reach
+    /// payloads by NAME (recursive back-reference), so a generic type hiding
+    /// inside an alias shape is invisible to the payload walks — the hole
+    /// `targetQuestionId: json` validated 0/0 through.
+    #[test]
+    fn types_alias_map_generics_are_rejected() {
+        let mut result = ValidationResult::new();
+        let types: std::collections::BTreeMap<String, Vec<PayloadField>> = [(
+            "RulesItem".to_string(),
+            vec![payload("string", None), payload("json", None)],
+        )]
+        .into_iter()
+        .collect();
+        check_types_map(Some(&types), 0, &mut result);
+        assert_eq!(result.errors.len(), 1);
+        assert_eq!(
+            result.errors[0].code.as_str(),
+            "ORB_T_GENERIC_TYPE_DEPRECATED"
+        );
+        assert!(result.errors[0]
+            .path
+            .contains("orbitals[0].types.RulesItem"));
     }
 
     /// The safety half: `opaque` must not become a blanket amnesty. The generic

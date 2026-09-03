@@ -692,10 +692,7 @@ fn number_on_a_name_carrying_scalar_tag_fails() {
 /// (`null`) stays permitted — only L1 ever rejected null here.
 #[test]
 fn string_and_null_on_a_name_carrying_scalar_tag_pass() {
-    for value in [
-        SExpression::String("circle".to_string()),
-        SExpression::Null,
-    ] {
+    for value in [SExpression::String("circle".to_string()), SExpression::Null] {
         let mut config = HashMap::new();
         config.insert(
             "knob".to_string(),
@@ -798,7 +795,10 @@ fn map_knob(default: SExpression) -> OrbitalSchema {
 #[test]
 fn map_with_conforming_values_passes() {
     let mut entries: HashMap<String, SExpression> = HashMap::new();
-    entries.insert("draft".to_string(), SExpression::String("Draft".to_string()));
+    entries.insert(
+        "draft".to_string(),
+        SExpression::String("Draft".to_string()),
+    );
     entries.insert("sent".to_string(), SExpression::String("Sent".to_string()));
     let schema = map_knob(SExpression::Object(entries));
     assert!(shape_errors(&schema).is_empty());
@@ -819,9 +819,14 @@ fn map_with_a_wrong_typed_value_is_reported() {
     entries.insert("draft".to_string(), SExpression::Number(3.0));
     let schema = map_knob(SExpression::Object(entries));
     let warns = shape_errors(&schema);
-    assert_eq!(warns.len(), 1, "expected one map-value finding, got: {warns:?}");
+    assert_eq!(
+        warns.len(),
+        1,
+        "expected one map-value finding, got: {warns:?}"
+    );
     assert!(
-        warns[0].contains("expected string, got number") && warns[0].contains("config(labels).draft"),
+        warns[0].contains("expected string, got number")
+            && warns[0].contains("config(labels).draft"),
         "finding must name the offending KEY and both types: {}",
         warns[0]
     );
@@ -833,7 +838,11 @@ fn map_with_a_non_object_default_is_reported() {
     let schema = map_knob(SExpression::String("not-a-map".to_string()));
     let warns = shape_errors(&schema);
     assert_eq!(warns.len(), 1, "expected one finding, got: {warns:?}");
-    assert!(warns[0].contains("isn't an object"), "unexpected: {}", warns[0]);
+    assert!(
+        warns[0].contains("isn't an object"),
+        "unexpected: {}",
+        warns[0]
+    );
 }
 
 /// `[MapViewMarkersItem]` starts with the letters "Map" but is an ARRAY. The

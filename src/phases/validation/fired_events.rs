@@ -297,9 +297,7 @@ pub(crate) fn collect_fired_events_recursive(
                     if let Some(SExpression::Object(emit_cfg)) = obj.get("emit") {
                         for (_k, v) in emit_cfg.iter() {
                             if let SExpression::String(s) = v {
-                                fired
-                                    .by_effect
-                                    .insert((trait_name.to_string(), s.clone()));
+                                fired.by_effect.insert((trait_name.to_string(), s.clone()));
                             }
                         }
                     }
@@ -334,9 +332,7 @@ pub(crate) fn collect_fired_events_recursive(
                             // emitter let the dead button suppress the very
                             // warning that would have found it.
                             if !s.starts_with('@') && !is_bus_excluded_event(s) {
-                                fired
-                                    .by_control
-                                    .insert((trait_name.to_string(), s.clone()));
+                                fired.by_control.insert((trait_name.to_string(), s.clone()));
                             }
                         }
                     }
@@ -452,7 +448,10 @@ mod tests {
                 SExpression::String("main".to_string()),
                 SExpression::Object(
                     [
-                        ("type".to_string(), SExpression::String("button".to_string())),
+                        (
+                            "type".to_string(),
+                            SExpression::String("button".to_string()),
+                        ),
                         ("action".to_string(), SExpression::String(event.to_string())),
                     ]
                     .into_iter()
@@ -491,7 +490,9 @@ mod tests {
         let fired = collect_schema_fired_events(&schema);
 
         assert!(
-            fired.by_control.contains(&("ArticleEdit".to_string(), "EDIT".to_string())),
+            fired
+                .by_control
+                .contains(&("ArticleEdit".to_string(), "EDIT".to_string())),
             "the actual renderer must be credited"
         );
         assert!(
@@ -532,4 +533,3 @@ mod tests {
         );
     }
 }
-

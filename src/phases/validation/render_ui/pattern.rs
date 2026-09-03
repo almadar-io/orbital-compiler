@@ -204,12 +204,12 @@ pub(crate) fn validate_pattern(
                             path,
                             format!("Unknown pattern type: '{}'", pattern_type),
                         )
-                        .with_suggestion(suggest_pattern_type(pattern_type).unwrap_or_else(
-                            || {
+                        .with_suggestion(
+                            suggest_pattern_type(pattern_type).unwrap_or_else(|| {
                                 "Use a known pattern type or ensure custom pattern is registered"
                                     .to_string()
-                            },
-                        ))
+                            }),
+                        )
                     });
                 }
 
@@ -1357,7 +1357,12 @@ fn suggest_prop(unknown: &str, valid: &[String]) -> Option<String> {
     }
     valid
         .iter()
-        .map(|v| (crate::phases::validation::sexpr::operators::edit_distance(unknown, v), v))
+        .map(|v| {
+            (
+                crate::phases::validation::sexpr::operators::edit_distance(unknown, v),
+                v,
+            )
+        })
         .filter(|(d, _)| *d <= 2)
         .min_by_key(|(d, _)| *d)
         .map(|(_, v)| v.clone())
@@ -1447,8 +1452,8 @@ mod children_operator_tests {
         ]));
         let got = codes(&check(&p));
         assert!(
-            !got.iter().any(|c| c == "ORB_RUI_INVALID_PATTERN"
-                || c == "ORB_RUI_MISSING_PATTERN_TYPE"),
+            !got.iter()
+                .any(|c| c == "ORB_RUI_INVALID_PATTERN" || c == "ORB_RUI_MISSING_PATTERN_TYPE"),
             "an operator call in children must not be validated as a pattern: {got:?}"
         );
     }

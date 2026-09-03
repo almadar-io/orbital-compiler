@@ -124,7 +124,12 @@ fn no_linked_entity_leaves_sentinel_and_sweep_flags_it() {
 
     let mut ctx = ValidationContext::new();
     type_param_sweep::validate_type_param_sentinels(&schema, &mut ctx);
-    assert_eq!(ctx.result.errors.len(), 2, "one per surviving sentinel occurrence (emits + events): {:?}", ctx.result.errors);
+    assert_eq!(
+        ctx.result.errors.len(),
+        2,
+        "one per surviving sentinel occurrence (emits + events): {:?}",
+        ctx.result.errors
+    );
     for err in &ctx.result.errors {
         assert_eq!(err.code.as_str(), "ORB_T_UNRESOLVED_TYPE_PARAM");
     }
@@ -170,7 +175,10 @@ fn at_entity_self_reference_resolves_like_the_entity_default() {
     let mut schema = schema_with_at_entity(Some("Thing"));
     inline_schema(&mut schema, &InlineConfig::default(), None).expect("inline must succeed");
     let trait_def = thing_trait(&schema);
-    let row = &trait_def.emits.as_ref().unwrap()[0].payload_schema.as_ref().unwrap()[0];
+    let row = &trait_def.emits.as_ref().unwrap()[0]
+        .payload_schema
+        .as_ref()
+        .unwrap()[0];
     assert_eq!(row.field_type, "object");
     let props = row.properties.as_ref().expect("entity fields substituted");
     assert_eq!(props.len(), 3);
@@ -180,7 +188,10 @@ fn at_entity_self_reference_resolves_like_the_entity_default() {
     let mut ctx = ValidationContext::new();
     generic_types::validate_generic_types(&schema, &mut ctx);
     assert!(
-        !ctx.result.warnings.iter().any(|w| w.path.contains("RowSaved") && w.message.contains("no declared properties")),
+        !ctx.result
+            .warnings
+            .iter()
+            .any(|w| w.path.contains("RowSaved") && w.message.contains("no declared properties")),
         "a substituted @entity row must not be a shapeless-object warning: {:?}",
         ctx.result.warnings
     );
@@ -193,7 +204,10 @@ fn at_entity_without_linked_entity_is_swept() {
     let mut ctx = ValidationContext::new();
     type_param_sweep::validate_type_param_sentinels(&schema, &mut ctx);
     assert!(
-        ctx.result.errors.iter().any(|e| e.code.as_str() == "ORB_T_UNRESOLVED_TYPE_PARAM"),
+        ctx.result
+            .errors
+            .iter()
+            .any(|e| e.code.as_str() == "ORB_T_UNRESOLVED_TYPE_PARAM"),
         "an unresolvable @entity must be swept: {:?}",
         ctx.result.errors
     );
@@ -258,7 +272,9 @@ fn schema_with_sigils(action_default: Option<&str>, identity_shape: bool) -> Orb
 }
 
 fn knob_type(schema: &OrbitalSchema, knob: &str) -> String {
-    thing_trait(schema).config.as_ref().unwrap()[knob].field_type.clone()
+    thing_trait(schema).config.as_ref().unwrap()[knob]
+        .field_type
+        .clone()
 }
 
 #[test]
@@ -283,9 +299,21 @@ fn sigil_types_resolve_against_the_knob_values() {
     assert_eq!(knob_type(&schema, "actor"), "IdentityRow");
 
     let cfg = thing_trait(&schema).config.as_ref().unwrap();
-    assert!(cfg["actionPayload"].properties.as_ref().unwrap().contains_key("id"));
-    assert!(cfg["targetRow"].properties.as_ref().unwrap().contains_key("a"));
-    assert!(cfg["actor"].properties.as_ref().unwrap().contains_key("email"));
+    assert!(cfg["actionPayload"]
+        .properties
+        .as_ref()
+        .unwrap()
+        .contains_key("id"));
+    assert!(cfg["targetRow"]
+        .properties
+        .as_ref()
+        .unwrap()
+        .contains_key("a"));
+    assert!(cfg["actor"]
+        .properties
+        .as_ref()
+        .unwrap()
+        .contains_key("email"));
 
     let mut ctx = ValidationContext::new();
     type_param_sweep::validate_type_param_sentinels(&schema, &mut ctx);
@@ -299,7 +327,10 @@ fn an_event_nothing_declares_resolves_to_an_empty_shape() {
     // default and no listener has declared that event.
     let mut schema = schema_with_sigils(Some("NOBODY_DECLARES_ME"), true);
     inline_schema(&mut schema, &InlineConfig::default(), None).expect("inline must succeed");
-    assert_eq!(knob_type(&schema, "actionPayload"), "NobodyDeclaresMePayload");
+    assert_eq!(
+        knob_type(&schema, "actionPayload"),
+        "NobodyDeclaresMePayload"
+    );
     let props = thing_trait(&schema).config.as_ref().unwrap()["actionPayload"]
         .properties
         .as_ref()
@@ -308,7 +339,11 @@ fn an_event_nothing_declares_resolves_to_an_empty_shape() {
 
     let mut ctx = ValidationContext::new();
     type_param_sweep::validate_type_param_sentinels(&schema, &mut ctx);
-    assert!(ctx.result.errors.is_empty(), "empty is not unresolved: {:?}", ctx.result.errors);
+    assert!(
+        ctx.result.errors.is_empty(),
+        "empty is not unresolved: {:?}",
+        ctx.result.errors
+    );
 }
 
 #[test]
@@ -320,8 +355,11 @@ fn a_payload_knob_with_no_event_knob_is_swept() {
     let mut ctx = ValidationContext::new();
     type_param_sweep::validate_type_param_sentinels(&schema, &mut ctx);
     assert!(
-        ctx.result.errors.iter().any(|e| e.path.contains("actionPayload")
-            && e.code.as_str() == "ORB_T_UNRESOLVED_TYPE_PARAM"),
+        ctx.result
+            .errors
+            .iter()
+            .any(|e| e.path.contains("actionPayload")
+                && e.code.as_str() == "ORB_T_UNRESOLVED_TYPE_PARAM"),
         "unresolvable @payload must be swept, not silently shipped: {:?}",
         ctx.result.errors
     );
@@ -347,8 +385,9 @@ fn bare_at_entity_in_config_without_a_linked_entity_is_swept() {
     let mut ctx = ValidationContext::new();
     type_param_sweep::validate_type_param_sentinels(&schema, &mut ctx);
     assert!(
-        ctx.result.errors.iter().any(|e| e.path.contains("boundRow")
-            && e.code.as_str() == "ORB_T_UNRESOLVED_TYPE_PARAM"),
+        ctx.result.errors.iter().any(
+            |e| e.path.contains("boundRow") && e.code.as_str() == "ORB_T_UNRESOLVED_TYPE_PARAM"
+        ),
         "unresolvable bare @entity must be swept: {:?}",
         ctx.result.errors
     );
@@ -367,8 +406,11 @@ fn at_entity_naming_an_undeclared_entity_is_swept() {
             panic!("fixture trait must be inline");
         };
         let cfg = td.config.as_mut().expect("fixture declares config");
-        cfg.get_mut("targetEntity").expect("fixture declares targetEntity").default =
-            Some(orbital_core::schema::SExpression::String("Ghost".to_string()));
+        cfg.get_mut("targetEntity")
+            .expect("fixture declares targetEntity")
+            .default = Some(orbital_core::schema::SExpression::String(
+            "Ghost".to_string(),
+        ));
     }
     inline_schema(&mut schema, &InlineConfig::default(), None).expect("inline must succeed");
 
@@ -380,8 +422,11 @@ fn at_entity_naming_an_undeclared_entity_is_swept() {
     let mut ctx = ValidationContext::new();
     type_param_sweep::validate_type_param_sentinels(&schema, &mut ctx);
     assert!(
-        ctx.result.errors.iter().any(|e| e.path.contains("targetRow")
-            && e.code.as_str() == "ORB_T_UNRESOLVED_TYPE_PARAM"),
+        ctx.result
+            .errors
+            .iter()
+            .any(|e| e.path.contains("targetRow")
+                && e.code.as_str() == "ORB_T_UNRESOLVED_TYPE_PARAM"),
         "unresolvable @entity must be swept: {:?}",
         ctx.result.errors
     );

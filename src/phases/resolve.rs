@@ -3,12 +3,11 @@
 //! Resolves all references and produces the final OIR (Orbital Intermediate Representation).
 
 use orbital_core::ir::{
-    OirBinaryOp, OirBinding, OirBindingRoot, OirCardinality, OirConfigFieldType, OirConstraint, OirEffect, OirEmit,
-    OirEmitConfig,
-    OirEntity, OirEvent, OirEventScope, OirExpr, OirField, OirInterval, OirListener, OirMetadata,
-    OirModule, OirPage, OirPattern, OirPayloadField, OirPersistence, OirRelation, OirSection,
-    OirState, OirTick, OirTrait, OirTraitBinding, OirTraitSource, OirTransition, OirTransitionFrom,
-    OirType, OirValue,
+    OirBinaryOp, OirBinding, OirBindingRoot, OirCardinality, OirConfigFieldType, OirConstraint,
+    OirEffect, OirEmit, OirEmitConfig, OirEntity, OirEvent, OirEventScope, OirExpr, OirField,
+    OirInterval, OirListener, OirMetadata, OirModule, OirPage, OirPattern, OirPayloadField,
+    OirPersistence, OirRelation, OirSection, OirState, OirTick, OirTrait, OirTraitBinding,
+    OirTraitSource, OirTransition, OirTransitionFrom, OirType, OirValue,
 };
 use orbital_core::schema::{
     Cardinality, EntityDefinition, EntityRef, FieldDefinition, FieldType, OrbitalSchema,
@@ -301,10 +300,8 @@ impl<'a> Resolver<'a> {
                             if p.path.contains(':') || !seen.insert(p.path.clone()) {
                                 continue;
                             }
-                            let label = p
-                                .label
-                                .clone()
-                                .unwrap_or_else(|| derive_nav_label(&p.name));
+                            let label =
+                                p.label.clone().unwrap_or_else(|| derive_nav_label(&p.name));
                             entries.push((p.path.clone(), label, p.icon.clone()));
                         }
                     }
@@ -427,20 +424,35 @@ fn substitute_schema_sigils(
             then_branch: Box::new(sub(*then_branch)),
             else_branch: Box::new(sub(*else_branch)),
         },
-        OirExpr::Call { function, args } => {
-            OirExpr::Call { function, args: args.into_iter().map(sub).collect() }
-        }
-        OirExpr::Map { source, variable, body } => OirExpr::Map {
+        OirExpr::Call { function, args } => OirExpr::Call {
+            function,
+            args: args.into_iter().map(sub).collect(),
+        },
+        OirExpr::Map {
+            source,
+            variable,
+            body,
+        } => OirExpr::Map {
             source: Box::new(sub(*source)),
             variable,
             body: Box::new(sub(*body)),
         },
-        OirExpr::Filter { source, variable, predicate } => OirExpr::Filter {
+        OirExpr::Filter {
+            source,
+            variable,
+            predicate,
+        } => OirExpr::Filter {
             source: Box::new(sub(*source)),
             variable,
             predicate: Box::new(sub(*predicate)),
         },
-        OirExpr::Reduce { source, variable, accumulator, initial, body } => OirExpr::Reduce {
+        OirExpr::Reduce {
+            source,
+            variable,
+            accumulator,
+            initial,
+            body,
+        } => OirExpr::Reduce {
             source: Box::new(sub(*source)),
             variable,
             accumulator,
@@ -460,7 +472,9 @@ fn substitute_schema_sigils(
                     *v = substitute_value_sigils(v.clone(), pages, theme_key);
                 }
             }
-            OirExpr::Effect { effect: Box::new(eff) }
+            OirExpr::Effect {
+                effect: Box::new(eff),
+            }
         }
         // Literals — pass through.
         other => other,
@@ -493,7 +507,10 @@ fn substitute_value_sigils(
         ),
         OirValue::String(s) if s == "@currentTheme" => OirValue::String(theme_key.to_string()),
         OirValue::Array(items) => OirValue::Array(
-            items.into_iter().map(|v| substitute_value_sigils(v, pages, theme_key)).collect(),
+            items
+                .into_iter()
+                .map(|v| substitute_value_sigils(v, pages, theme_key))
+                .collect(),
         ),
         OirValue::Object(fields) => OirValue::Object(
             fields
@@ -506,7 +523,6 @@ fn substitute_value_sigils(
 }
 
 impl<'a> Resolver<'a> {
-
     fn resolve_entity(&self, entity: &EntityDefinition) -> Result<OirEntity, ResolveError> {
         let mut oir_entity = OirEntity::new(&entity.name);
         oir_entity.id = entity.id.clone();
@@ -1791,7 +1807,10 @@ impl<'a> Resolver<'a> {
                 "persist requires operation and entity".to_string(),
             ));
         }
-        let operation = self.sexpr_as_str(&args[0], "(persist …) argument 1 — the operation (create|update|delete)")?;
+        let operation = self.sexpr_as_str(
+            &args[0],
+            "(persist …) argument 1 — the operation (create|update|delete)",
+        )?;
         let entity = self.sexpr_as_str(&args[1], "(persist …) argument 2 — the entity name")?;
 
         // The trailing arg may be an options object carrying `emit:`. When
@@ -1866,15 +1885,15 @@ impl<'a> Resolver<'a> {
                 let include = if let Some(SExpression::Array(arr)) = obj.get("include") {
                     let fields: Vec<String> =
                         crate::phases::inline::rewrite::strip_literal_list_marker(arr)
-                        .iter()
-                        .filter_map(|v| {
-                            if let SExpression::String(s) = v {
-                                Some(s.clone())
-                            } else {
-                                None
-                            }
-                        })
-                        .collect();
+                            .iter()
+                            .filter_map(|v| {
+                                if let SExpression::String(s) = v {
+                                    Some(s.clone())
+                                } else {
+                                    None
+                                }
+                            })
+                            .collect();
                     if fields.is_empty() {
                         None
                     } else {
@@ -2014,7 +2033,8 @@ impl<'a> Resolver<'a> {
                 "fetch-stream requires entity name".to_string(),
             ));
         }
-        let entity = self.sexpr_as_str(&args[0], "(fetch-stream …) argument 1 — the entity name")?;
+        let entity =
+            self.sexpr_as_str(&args[0], "(fetch-stream …) argument 1 — the entity name")?;
 
         if args.len() > 1 {
             if let SExpression::Object(obj) = &args[1] {
@@ -2112,7 +2132,10 @@ impl<'a> Resolver<'a> {
             }
         }
 
-        let target_str = self.sexpr_as_str(&args[0], "(set …) argument 1 — the binding target (e.g. @entity.field)")?;
+        let target_str = self.sexpr_as_str(
+            &args[0],
+            "(set …) argument 1 — the binding target (e.g. @entity.field)",
+        )?;
         let target = OirBinding::parse(&target_str).ok_or_else(|| {
             ResolveError::InvalidSExpr(format!("Invalid binding: {}", target_str))
         })?;
@@ -2189,7 +2212,9 @@ impl<'a> Resolver<'a> {
         // Handle null pattern - used to clear a slot
         let pattern = if matches!(&args[1], SExpression::Null) {
             OirPattern::new("clear")
-        } else if let Ok(pattern_type) = self.sexpr_as_str(&args[1], "(render-ui …) argument 2 — the pattern") {
+        } else if let Ok(pattern_type) =
+            self.sexpr_as_str(&args[1], "(render-ui …) argument 2 — the pattern")
+        {
             OirPattern::new(pattern_type)
         } else if let SExpression::Object(obj) = &args[1] {
             let pattern_type = obj
@@ -2251,8 +2276,10 @@ impl<'a> Resolver<'a> {
                 "call-service requires service name and action".to_string(),
             ));
         }
-        let service = self.sexpr_as_str(&args[0], "(call-service …) argument 1 — the service name")?;
-        let method = self.sexpr_as_str(&args[1], "(call-service …) argument 2 — the action name")?;
+        let service =
+            self.sexpr_as_str(&args[0], "(call-service …) argument 1 — the service name")?;
+        let method =
+            self.sexpr_as_str(&args[1], "(call-service …) argument 2 — the action name")?;
 
         // Detect trailing options object carrying `emit:`. Only pulled out
         // of the args list if it actually carries an `emit:` key — a plain
@@ -2339,15 +2366,15 @@ impl<'a> Resolver<'a> {
                 let include = if let Some(SExpression::Array(arr)) = obj.get("include") {
                     let fields: Vec<String> =
                         crate::phases::inline::rewrite::strip_literal_list_marker(arr)
-                        .iter()
-                        .filter_map(|v| {
-                            if let SExpression::String(s) = v {
-                                Some(s.clone())
-                            } else {
-                                None
-                            }
-                        })
-                        .collect();
+                            .iter()
+                            .filter_map(|v| {
+                                if let SExpression::String(s) = v {
+                                    Some(s.clone())
+                                } else {
+                                    None
+                                }
+                            })
+                            .collect();
                     if fields.is_empty() {
                         None
                     } else {
@@ -2915,6 +2942,7 @@ mod tests {
             required: None,
             description: None,
             properties: None,
+            type_when: None,
         };
         let field = orbital_core::schema::PayloadField {
             name: "value".to_string(),
@@ -2926,6 +2954,7 @@ mod tests {
                 variant("number", "number"),
                 variant("array", "[string]"),
             ]),
+            type_when: None,
         };
         let schema = empty_schema();
         let named_types = RefCell::new(BTreeMap::new());
@@ -2961,7 +2990,9 @@ mod tests {
                 required: Some(true),
                 description: None,
                 properties: None,
+                type_when: None,
             }]),
+            type_when: None,
         };
         let schema = empty_schema();
         let named_types = RefCell::new(BTreeMap::new());
@@ -2992,6 +3023,7 @@ mod tests {
             required: None,
             description: None,
             properties: Some(vec![]), // the back-reference marker
+            type_when: None,
         };
         let row = orbital_core::schema::PayloadField {
             name: "row".to_string(),
@@ -3005,9 +3037,11 @@ mod tests {
                     required: Some(true),
                     description: None,
                     properties: None,
+                    type_when: None,
                 },
                 sub_menu_backref,
             ]),
+            type_when: None,
         };
         let schema = empty_schema();
         let named_types = RefCell::new(BTreeMap::new());
@@ -3040,7 +3074,10 @@ mod tests {
             .get("MenuItem")
             .cloned()
             .expect("MenuItem must be registered");
-        assert_eq!(registered, resolved, "MenuItem's registered definition must be row's own struct");
+        assert_eq!(
+            registered, resolved,
+            "MenuItem's registered definition must be row's own struct"
+        );
     }
 
     /// Feature test 1's ENTITY half: a `.orb` entity field shaped like
@@ -3163,7 +3200,9 @@ mod tests {
         .expect("field fixture must deserialize");
 
         let resolver = Resolver::new(&schema);
-        resolver.resolve_field_shape(&field).expect("field resolves");
+        resolver
+            .resolve_field_shape(&field)
+            .expect("field resolves");
 
         let registered = resolver
             .named_types
@@ -3224,10 +3263,7 @@ mod tests {
         let orb = ThemeRef::Reference("clay-light".to_string());
         let app = ThemeRef::Reference("linear-clean-light".to_string());
         assert_eq!(resolve_theme_key(Some(&orb), Some(&app)), "clay-light");
-        assert_eq!(
-            resolve_theme_key(None, Some(&app)),
-            "linear-clean-light"
-        );
+        assert_eq!(resolve_theme_key(None, Some(&app)), "linear-clean-light");
         assert_eq!(resolve_theme_key(None, None), DEFAULT_THEME_KEY);
         let empty = ThemeRef::Reference(String::new());
         assert_eq!(
@@ -3425,7 +3461,10 @@ mod tests {
             binding.trait_name, "RenamedTrait",
             "page binding must take the current name resolved via ref_id, not the stale ref name"
         );
-        assert_eq!(binding.trait_id.as_deref(), Some("trt_x00000000000000000000000"));
+        assert_eq!(
+            binding.trait_id.as_deref(),
+            Some("trt_x00000000000000000000000")
+        );
     }
 
     #[test]
@@ -3458,7 +3497,11 @@ mod tests {
         .expect("fixture parses");
 
         let oir = resolve_to_oir(&schema).expect("resolves");
-        let board = oir.traits.iter().find(|t| t.name == "Board").expect("trait present");
+        let board = oir
+            .traits
+            .iter()
+            .find(|t| t.name == "Board")
+            .expect("trait present");
         assert!(
             board.events.iter().all(|e| !e.key.is_empty()),
             "an unfulfilled config-forward event slot must not become an OirEvent: {:?}",
@@ -3494,13 +3537,21 @@ mod tests {
         .expect("fixture parses");
 
         let oir = resolve_to_oir(&schema).expect("resolves");
-        let board = oir.traits.iter().find(|t| t.name == "Board").expect("trait present");
+        let board = oir
+            .traits
+            .iter()
+            .find(|t| t.name == "Board")
+            .expect("trait present");
         let event = board
             .events
             .iter()
             .find(|e| e.key == "PRODUCE")
             .expect("named config-forward event survives");
-        assert!(event.payload_schema.as_ref().expect("payload schema kept").contains_key("id"));
+        assert!(event
+            .payload_schema
+            .as_ref()
+            .expect("payload schema kept")
+            .contains_key("id"));
     }
 
     #[test]

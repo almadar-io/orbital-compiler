@@ -21,7 +21,9 @@
 //! very organism that motivated the rule.
 
 use super::{ErrorCode, ValidationContext, ValidationError, ValidationResult};
-use orbital_core::schema::{EntityDefinition, EntityRef, FieldDefinition, OrbitalSchema, TraitReference};
+use orbital_core::schema::{
+    EntityDefinition, EntityRef, FieldDefinition, OrbitalSchema, TraitReference,
+};
 use orbital_core::type_compat::enum_value_is_member;
 use serde_json::Value;
 
@@ -36,7 +38,10 @@ pub(super) enum IdentitySource<'a> {
     /// No declaration anywhere — the implicit default shape.
     Default,
     /// The orbital's own `expects identity` declaration (shape present).
-    Expectation { orbital: &'a str, entity: Option<&'a str> },
+    Expectation {
+        orbital: &'a str,
+        entity: Option<&'a str>,
+    },
 }
 
 /// The sigil root this module is about.
@@ -129,7 +134,10 @@ pub(super) fn vocabulary(field: &FieldDefinition) -> Option<&Vec<String>> {
 }
 
 /// Look a field up on the identity entity by name.
-pub(super) fn identity_field<'a>(identity: &'a EntityDefinition, name: &str) -> Option<&'a FieldDefinition> {
+pub(super) fn identity_field<'a>(
+    identity: &'a EntityDefinition,
+    name: &str,
+) -> Option<&'a FieldDefinition> {
     identity
         .fields
         .iter()
@@ -252,11 +260,10 @@ pub fn validate_user_identity(schema: &OrbitalSchema, ctx: &mut ValidationContex
         if matches!(source, IdentitySource::Declared) {
             if let Some(exp) = super::expectations::identity_expectation(orbital) {
                 if let Some(shape) = exp.shape {
-                    let declared =
-                        super::expectations::shape_as_identity_entity(
-                            exp.name.unwrap_or("@user"),
-                            shape,
-                        );
+                    let declared = super::expectations::shape_as_identity_entity(
+                        exp.name.unwrap_or("@user"),
+                        shape,
+                    );
                     let declared_source = IdentitySource::Expectation {
                         orbital: orbital.name.as_str(),
                         entity: exp.name,

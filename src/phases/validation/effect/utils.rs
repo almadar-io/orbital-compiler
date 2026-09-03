@@ -494,9 +494,12 @@ mod tests {
         ]);
         let known_services: HashSet<String> = ["api".to_string()].into_iter().collect();
         let registry = crate::embedded::ServiceRegistryData {
-            actions: [("email".to_string(), ["send".to_string()].into_iter().collect())]
-                .into_iter()
-                .collect(),
+            actions: [(
+                "email".to_string(),
+                ["send".to_string()].into_iter().collect(),
+            )]
+            .into_iter()
+            .collect(),
             params: HashMap::new(),
         };
         let result = validate_effect(
@@ -519,7 +522,10 @@ mod tests {
         // The I-13 class: `recipient` where the contract says `to`.
         let params = SExpression::Object(
             [
-                ("recipient".to_string(), SExpression::String("a@b.c".to_string())),
+                (
+                    "recipient".to_string(),
+                    SExpression::String("a@b.c".to_string()),
+                ),
                 ("subject".to_string(), SExpression::String("s".to_string())),
                 ("body".to_string(), SExpression::String("b".to_string())),
             ]
@@ -542,7 +548,10 @@ mod tests {
     fn test_call_service_valid_params_clean() {
         let params = SExpression::Object(
             [
-                ("to".to_string(), SExpression::String("@payload.email".to_string())),
+                (
+                    "to".to_string(),
+                    SExpression::String("@payload.email".to_string()),
+                ),
                 ("subject".to_string(), SExpression::String("s".to_string())),
                 ("body".to_string(), SExpression::String("b".to_string())),
             ]
@@ -615,9 +624,12 @@ mod tests {
             [(
                 "emit".to_string(),
                 SExpression::Object(
-                    [("success".to_string(), SExpression::String("SENT".to_string()))]
-                        .into_iter()
-                        .collect(),
+                    [(
+                        "success".to_string(),
+                        SExpression::String("SENT".to_string()),
+                    )]
+                    .into_iter()
+                    .collect(),
                 ),
             )]
             .into_iter()
@@ -666,7 +678,10 @@ mod tests {
     fn test_nested_call_service_param_check() {
         let nested = call_email(SExpression::Object(
             [
-                ("recipient".to_string(), SExpression::String("a@b.c".to_string())),
+                (
+                    "recipient".to_string(),
+                    SExpression::String("a@b.c".to_string()),
+                ),
                 ("subject".to_string(), SExpression::String("s".to_string())),
                 ("body".to_string(), SExpression::String("b".to_string())),
                 ("to".to_string(), SExpression::String("a@b.c".to_string())),

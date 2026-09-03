@@ -25,7 +25,8 @@ fn check_service_name(
     registry: &ServiceRegistryData,
 ) -> ValidationResult {
     let mut result = ValidationResult::new();
-    let known = known_services.contains(service_name) || registry.actions.contains_key(service_name);
+    let known =
+        known_services.contains(service_name) || registry.actions.contains_key(service_name);
     if known {
         return result;
     }
@@ -256,7 +257,12 @@ fn check_array_call(
             return result;
         }
     };
-    result.merge(check_service_name(service_name, path, known_services, registry));
+    result.merge(check_service_name(
+        service_name,
+        path,
+        known_services,
+        registry,
+    ));
 
     let Some(SExpression::String(action)) = arr.get(2) else {
         result.add_error(ValidationError::error(
@@ -279,7 +285,11 @@ fn check_array_call(
             }
         }
     }
-    let params = if args_end > 3 { arr.get(args_end - 1) } else { None };
+    let params = if args_end > 3 {
+        arr.get(args_end - 1)
+    } else {
+        None
+    };
     result.merge(check_params(service_name, action, params, path, registry));
 
     result
@@ -389,24 +399,44 @@ pub(crate) fn walk_nested_call_services(
                 }
             }
             for item in arr.iter().skip(1) {
-                result.merge(walk_nested_call_services(item, path, known_services, registry));
+                result.merge(walk_nested_call_services(
+                    item,
+                    path,
+                    known_services,
+                    registry,
+                ));
             }
             // A non-call head array (a plain list literal) still nests: walk
             // the head position too when it is not an operator string.
             if let Some(first) = arr.first() {
                 if !matches!(first, SExpression::String(_)) {
-                    result.merge(walk_nested_call_services(first, path, known_services, registry));
+                    result.merge(walk_nested_call_services(
+                        first,
+                        path,
+                        known_services,
+                        registry,
+                    ));
                 }
             }
         }
         SExpression::Object(obj) => {
             if obj.contains_key("call_service") || obj.contains_key("call-service") {
-                result.merge(validate_call_service_object(obj, path, known_services, registry));
+                result.merge(validate_call_service_object(
+                    obj,
+                    path,
+                    known_services,
+                    registry,
+                ));
             }
             let mut keys: Vec<&String> = obj.keys().collect();
             keys.sort();
             for key in keys {
-                result.merge(walk_nested_call_services(&obj[key], path, known_services, registry));
+                result.merge(walk_nested_call_services(
+                    &obj[key],
+                    path,
+                    known_services,
+                    registry,
+                ));
             }
         }
         _ => {}

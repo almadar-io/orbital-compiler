@@ -147,7 +147,10 @@ fn events_rename_keeps_sourced_listen_source_side() {
     // The sourced listen becomes `CloseButton.CLOSE -> DASHBOARD_MOD_CLOSE`:
     // source side intact (CloseButton's vocabulary), trigger side renamed
     // (the composed trait's own vocabulary).
-    let listens = review.listens.as_ref().expect("listens must survive inline");
+    let listens = review
+        .listens
+        .as_ref()
+        .expect("listens must survive inline");
     let sourced = listens
         .iter()
         .find(|l| {

@@ -71,7 +71,8 @@ fn build_payload_index(schema: &OrbitalSchema) -> HashMap<String, Vec<PayloadFie
             for emit in td.emits.as_deref().unwrap_or(&[]) {
                 if let Some(fields) = &emit.payload_schema {
                     if !fields.is_empty() {
-                        idx.entry(emit.event.clone()).or_insert_with(|| fields.clone());
+                        idx.entry(emit.event.clone())
+                            .or_insert_with(|| fields.clone());
                     }
                 }
             }
@@ -138,7 +139,9 @@ pub(crate) fn resolve_sigil_types(schema: &mut OrbitalSchema) {
         }
         for aux in orbital.auxiliary_entities.iter().flatten() {
             if let EntityRef::Inline(def) = aux {
-                entities.entry(def.name.clone()).or_insert_with(|| def.fields.clone());
+                entities
+                    .entry(def.name.clone())
+                    .or_insert_with(|| def.fields.clone());
             }
         }
         // `expects` promises are the local type environment a standalone
@@ -149,7 +152,9 @@ pub(crate) fn resolve_sigil_types(schema: &mut OrbitalSchema) {
                     name,
                     shape: Some(shape),
                 } => {
-                    entities.entry(name.clone()).or_insert_with(|| shape.clone());
+                    entities
+                        .entry(name.clone())
+                        .or_insert_with(|| shape.clone());
                 }
                 ExpectDeclaration::Identity {
                     shape: Some(shape), ..
@@ -226,12 +231,13 @@ pub(crate) fn resolve_sigil_types(schema: &mut OrbitalSchema) {
                                 .unwrap_or_default(),
                         )
                     }),
-                    Sigil::NamedEntity(knob) => knob_value(declared.as_ref(), knob)
-                        .and_then(|name| {
+                    Sigil::NamedEntity(knob) => {
+                        knob_value(declared.as_ref(), knob).and_then(|name| {
                             entities
                                 .get(&name)
                                 .map(|f| (format!("{}Row", pascal(&name)), f.clone()))
-                        }),
+                        })
+                    }
                     Sigil::BoundEntity => linked.as_ref().and_then(|name| {
                         entities
                             .get(name)
@@ -266,7 +272,10 @@ pub(crate) fn payload_field_of(f: &FieldDefinition) -> PayloadField {
     // `Object` + `items` is a MAP (dynamic keys, uniform value): it has no
     // properties by construction and carries its value shape in the tag.
     let tag = if f.field_type == FieldType::Object && f.items.is_some() {
-        let v = f.items.as_deref().map(crate::phases::validation::field_type_str);
+        let v = f
+            .items
+            .as_deref()
+            .map(crate::phases::validation::field_type_str);
         format!("Map<string,{}>", v.unwrap_or_else(|| "string".to_string()))
     } else {
         serde_json::to_value(&f.field_type)
@@ -314,6 +323,7 @@ pub(crate) fn payload_field_of(f: &FieldDefinition) -> PayloadField {
         required: f.required,
         description: None,
         properties: props,
+        type_when: None,
     }
 }
 

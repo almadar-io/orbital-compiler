@@ -220,7 +220,11 @@ mod tests {
             .iter()
             .find(|e| e.code == ErrorCode::EffectEmitInvalidName)
             .expect("hard error expected for object-as-event-name");
-        assert!(err.message.contains("event name missing"), "got: {}", err.message);
+        assert!(
+            err.message.contains("event name missing"),
+            "got: {}",
+            err.message
+        );
         assert!(err
             .suggestion
             .as_deref()

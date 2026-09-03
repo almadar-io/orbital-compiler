@@ -158,7 +158,10 @@ fn listen_source_of(td: &TraitDefinition) -> String {
 
 #[test]
 fn two_rebinds_of_one_atom_each_get_their_own_sub_view() {
-    let schema = inline_fixture(&[("atom-browse.orb", ATOM.to_string())], TWO_REBIND_CONSUMER);
+    let schema = inline_fixture(
+        &[("atom-browse.orb", ATOM.to_string())],
+        TWO_REBIND_CONSUMER,
+    );
     let traits = inline_traits_of(&schema);
     let names: Vec<&str> = traits.iter().map(|t| t.name.as_str()).collect();
 

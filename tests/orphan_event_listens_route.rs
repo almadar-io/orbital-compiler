@@ -105,7 +105,11 @@ fn a_listens_route_closes_the_circuit_even_when_it_renames_the_event() {
 fn without_the_route_the_action_is_still_reported_orphaned() {
     // The baseline the fix must not erase: nothing anywhere handles DELETE.
     let errors = orphan_errors(schema_with(None));
-    assert_eq!(errors.len(), 1, "expected exactly one orphan, got {errors:?}");
+    assert_eq!(
+        errors.len(),
+        1,
+        "expected exactly one orphan, got {errors:?}"
+    );
     assert!(errors[0].contains("DELETE"), "got {errors:?}");
 }
 
@@ -118,6 +122,10 @@ fn a_route_for_a_different_event_does_not_launder_the_orphan() {
         "triggers": "REVERT"
     }]);
     let errors = orphan_errors(schema_with(Some(listens)));
-    assert_eq!(errors.len(), 1, "expected exactly one orphan, got {errors:?}");
+    assert_eq!(
+        errors.len(),
+        1,
+        "expected exactly one orphan, got {errors:?}"
+    );
     assert!(errors[0].contains("DELETE"), "got {errors:?}");
 }

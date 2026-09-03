@@ -51,9 +51,7 @@ fn apply_overrides_to_page(page_def: &mut PageDefinition, obj: &PageRefObject) {
                             // entity rename). Empty side-map = `trait_subs`
                             // equals `entity_subs`, so the name path is unchanged.
                             let mut trait_subs = entity_subs.clone();
-                            for (from, to) in
-                                stale_entity_rebind_subs(inline_trait, new_entity)
-                            {
+                            for (from, to) in stale_entity_rebind_subs(inline_trait, new_entity) {
                                 trait_subs.entry(from).or_insert(to);
                             }
                             // Rebind the trait's linked_entity if it

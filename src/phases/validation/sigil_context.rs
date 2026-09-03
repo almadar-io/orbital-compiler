@@ -425,7 +425,13 @@ mod tests {
         let mut locals = HashSet::new();
         locals.insert("item".to_string());
         let mut result = ValidationResult::new();
-        check_binding_sigil("@item.id", "test", SigilContext::Effect, &locals, &mut result);
+        check_binding_sigil(
+            "@item.id",
+            "test",
+            SigilContext::Effect,
+            &locals,
+            &mut result,
+        );
         assert!(result.is_valid());
     }
 
@@ -508,7 +514,13 @@ mod tests {
             SExpression::String("@x".to_string()),
         ]);
         let mut r_bad = ValidationResult::new();
-        walk_expr(&bad, "test", SigilContext::Tick, &HashSet::new(), &mut r_bad);
+        walk_expr(
+            &bad,
+            "test",
+            SigilContext::Tick,
+            &HashSet::new(),
+            &mut r_bad,
+        );
         assert!(
             !r_bad.is_valid(),
             "unknown root in a let value-expr must still be flagged"

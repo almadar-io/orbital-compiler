@@ -216,7 +216,12 @@ fn materialize_and_inline(
     type_args_fragment: &str,
     entity_extra_fields: &str,
 ) -> OrbitalSchema {
-    materialize_and_inline_with_types(type_params_json, type_args_fragment, entity_extra_fields, "")
+    materialize_and_inline_with_types(
+        type_params_json,
+        type_args_fragment,
+        entity_extra_fields,
+        "",
+    )
 }
 
 fn materialize_and_inline_with_types(
@@ -259,7 +264,12 @@ fn materialize_and_inline_array_with_types(
     std::fs::write(&atom_path, atom_fixture_array(type_params_json)).expect("write atom");
     std::fs::write(
         &composer_path,
-        composer_source(type_args_fragment, "./atom.orb", "", composer_types_fragment),
+        composer_source(
+            type_args_fragment,
+            "./atom.orb",
+            "",
+            composer_types_fragment,
+        ),
     )
     .expect("write composer");
 
@@ -291,7 +301,12 @@ fn materialize_import_scope_result(
     .expect("write atom");
     std::fs::write(
         &composer_path,
-        composer_source(type_args_fragment, "./atom.orb", "", composer_types_fragment),
+        composer_source(
+            type_args_fragment,
+            "./atom.orb",
+            "",
+            composer_types_fragment,
+        ),
     )
     .expect("write composer");
 
@@ -311,7 +326,9 @@ fn lookup_run_trait(schema: &OrbitalSchema) -> &orbital_core::schema::TraitDefin
         .expect("expected inlined LookupRun")
 }
 
-fn candidate_field(trait_def: &orbital_core::schema::TraitDefinition) -> &orbital_core::schema::PayloadField {
+fn candidate_field(
+    trait_def: &orbital_core::schema::TraitDefinition,
+) -> &orbital_core::schema::PayloadField {
     &trait_def.emits.as_ref().unwrap()[0]
         .payload_schema
         .as_ref()
@@ -387,7 +404,11 @@ fn entity_kind_param_with_no_arg_defaults_to_linked_entity() {
         .as_ref()
         .expect("Entity-kind default must carry the linkedEntity's fields");
     let prop_names: Vec<&str> = props.iter().map(|p| p.name.as_str()).collect();
-    assert_eq!(prop_names, vec!["id"], "must default to Booking (the linkedEntity), not some other entity");
+    assert_eq!(
+        prop_names,
+        vec!["id"],
+        "must default to Booking (the linkedEntity), not some other entity"
+    );
 
     let mut ctx = ValidationContext::new();
     type_param_sweep::validate_type_param_sentinels(&schema, &mut ctx);
@@ -644,7 +665,10 @@ fn call_site_arg_wins_over_declared_default() {
         field.field_type, "object",
         "the explicit call-site arg (Booking, an entity) must win over the declared default (scalar)"
     );
-    let props = field.properties.as_ref().expect("entity substitution must carry fields");
+    let props = field
+        .properties
+        .as_ref()
+        .expect("entity substitution must carry fields");
     let prop_names: Vec<&str> = props.iter().map(|p| p.name.as_str()).collect();
     assert_eq!(prop_names, vec!["id", "when"]);
 }
@@ -783,7 +807,6 @@ fn imported_trait_declared_default_resolves_lexically_from_source_file() {
         ctx.result.errors
     );
 }
-
 
 /// 12. TRANSITIVE two-level import — the actual std-inventory shape: Top
 /// imports Middle's trait, which is itself Middle's `::`-bound reference
