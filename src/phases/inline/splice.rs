@@ -441,6 +441,7 @@ mod tests {
 
     fn render_only_trait(name: &str, pattern: SExpression) -> TraitDefinition {
         TraitDefinition {
+            effect_row: None,
             type_params: None,
             type_args: None,
             name: name.to_string(),

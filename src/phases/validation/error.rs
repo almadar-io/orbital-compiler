@@ -209,6 +209,10 @@ pub enum ErrorCode {
     /// Multiple traits rendering to same slot in a reachable post-INIT state
     /// (emitted as a warning; INIT-state case still errors via `SlotContention`)
     SlotContentionRuntime,
+    /// Two or more traits mounted on one page repaint the same slot from inside
+    /// a `ticks` block, with no guard proving either one dead. Tick bodies run
+    /// every frame, so they paint together rather than alternating.
+    SlotContentionTick,
     /// Invalid slot nesting (e.g., modal in modal)
     SlotInvalidNesting,
     /// Priority conflict between traits on same slot
@@ -871,6 +875,7 @@ impl ErrorCode {
             ErrorCode::SlotMainNotCovered => "ORB_SLOT_MAIN_NOT_COVERED",
             ErrorCode::SlotContention => "ORB_SLOT_CONTENTION",
             ErrorCode::SlotContentionRuntime => "ORB_SLOT_CONTENTION_RUNTIME",
+            ErrorCode::SlotContentionTick => "ORB_SLOT_CONTENTION_TICK",
             ErrorCode::SlotInvalidNesting => "ORB_SLOT_INVALID_NESTING",
             ErrorCode::SlotPriorityConflict => "ORB_SLOT_PRIORITY_CONFLICT",
             ErrorCode::SlotInvalidName => "ORB_SLOT_INVALID_NAME",
@@ -1135,6 +1140,7 @@ impl ErrorCode {
             ErrorCode::SlotMainNotCovered
             | ErrorCode::SlotContention
             | ErrorCode::SlotContentionRuntime
+            | ErrorCode::SlotContentionTick
             | ErrorCode::SlotInvalidNesting
             | ErrorCode::SlotPriorityConflict
             | ErrorCode::SlotInvalidName

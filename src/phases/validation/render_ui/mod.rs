@@ -1132,6 +1132,7 @@ mod tests {
         };
 
         TraitDefinition {
+            effect_row: None,
             type_params: None,
             type_args: None,
             name: "TestTrait".to_string(),

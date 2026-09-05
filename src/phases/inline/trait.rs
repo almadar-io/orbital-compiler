@@ -1985,6 +1985,7 @@ mod entity_id_reader_tests {
             }]
         });
         TraitDefinition {
+            effect_row: None,
             type_params: None,
             type_args: None,
             name: "Body".to_string(),
@@ -2063,6 +2064,7 @@ mod entity_id_reader_tests {
     /// caller so the two scenarios (renamed vs not) can be expressed.
     fn trait_with_entity_token(token: &str) -> TraitDefinition {
         TraitDefinition {
+            effect_row: None,
             type_params: None,
             type_args: None,
             name: "Feed".to_string(),

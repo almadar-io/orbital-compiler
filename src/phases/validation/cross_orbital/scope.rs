@@ -226,6 +226,7 @@ mod tests {
     /// `Alias.traits.Atom` reference with an `events:` rename override.
     fn build_scope_boundary_fixture(atom_scope: EventScope) -> OrbitalSchema {
         let atom = TraitDefinition {
+            effect_row: None,
             type_params: None,
             type_args: None,
             name: "Atom".to_string(),

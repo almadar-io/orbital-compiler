@@ -93,6 +93,7 @@ fn schema_with_emit(emit: SExpression, declared: EmitDefinition) -> OrbitalSchem
         id: None,
     };
     let trait_def = TraitDefinition {
+        effect_row: None,
         type_params: None,
         type_args: None,
         name: "TaskEmitter".to_string(),

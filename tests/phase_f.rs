@@ -110,6 +110,7 @@ fn schema_for_f1(strict_target_event: &str) -> OrbitalSchema {
     ]);
 
     let trait_def = TraitDefinition {
+        effect_row: None,
         type_params: None,
         type_args: None,
         name: "TaskEmitter".to_string(),
@@ -218,6 +219,7 @@ fn schema_with_two_emitters(
                     listens: Option<Vec<ListenDefinition>>|
      -> TraitDefinition {
         TraitDefinition {
+            effect_row: None,
             type_params: None,
             type_args: None,
             name: name.to_string(),

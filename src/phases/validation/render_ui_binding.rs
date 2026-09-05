@@ -539,6 +539,7 @@ mod tests {
 
     fn empty_trait(name: &str, linked: Option<&str>) -> TraitDefinition {
         TraitDefinition {
+            effect_row: None,
             type_params: None,
             type_args: None,
             name: name.to_string(),

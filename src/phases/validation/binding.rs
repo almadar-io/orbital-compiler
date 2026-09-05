@@ -2601,6 +2601,7 @@ mod tests {
             })
             .collect();
         orbital_core::schema::TraitDefinition {
+            effect_row: None,
             type_params: None,
             type_args: None,
             name: name.to_string(),
@@ -2961,6 +2962,7 @@ mod tests {
                 StateDefinition, StateMachine, StringOrArray, TransitionDefinition,
             };
             orbital_core::schema::TraitDefinition {
+                effect_row: None,
                 type_params: None,
                 type_args: None,
                 name: "GuardOnlyReader".to_string(),

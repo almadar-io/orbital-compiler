@@ -75,6 +75,7 @@ fn schema_with_effects(
     };
 
     let trait_def = TraitDefinition {
+        effect_row: None,
         type_params: None,
         type_args: None,
         name: "PatientLoader".to_string(),

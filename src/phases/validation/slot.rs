@@ -7,7 +7,9 @@ use super::{
     render_ui::{extract_slot, is_render_ui_effect},
     Domain, ErrorCode, ValidationContext, ValidationError, ValidationResult,
 };
-use orbital_core::schema::{OrbitalSchema, StateMachine, TraitDefinition, TraitReference};
+use orbital_core::schema::{
+    Orbital, OrbitalSchema, PageDefinition, StateMachine, TraitDefinition, TraitReference,
+};
 use std::collections::{HashMap, HashSet, VecDeque};
 
 /// Slots that cannot contain other slots
@@ -367,6 +369,177 @@ pub fn validate_main_slot_coverage(
     result
 }
 
+/// Resolve a page's trait mounts to this orbital's own trait definitions.
+///
+/// A `page "/x" -> A, B` declaration lowers to
+/// `page.traits = [{"ref":"A"},{"ref":"B"}]` — NAME references into the orbital's
+/// trait list, never inline definitions. Any page-scoped check that reads
+/// `page.traits` and keeps only `TraitReference::Inline` therefore sees an empty
+/// list on every real program and silently checks nothing, which is how
+/// `validate_page_slots` came to have never fired on the corpus. Resolve through
+/// the reference instead.
+///
+/// Mounts that name a trait the orbital does not define are dropped here;
+/// reporting an undefined trait is `ORB_T_UNDEFINED_TRAIT`'s job, not a slot
+/// check's.
+pub(crate) fn resolve_page_traits<'a>(
+    orbital: &'a Orbital,
+    page: &'a PageDefinition,
+) -> Vec<&'a TraitDefinition> {
+    let by_name: HashMap<&str, &TraitDefinition> = orbital
+        .traits
+        .iter()
+        .filter_map(|t| match t {
+            TraitReference::Inline(def) => Some((def.name.as_str(), def)),
+            TraitReference::Reference { .. } => None,
+        })
+        .collect();
+
+    page.traits
+        .as_ref()
+        .map(|mounts| {
+            mounts
+                .iter()
+                .filter_map(|mount| match mount {
+                    TraitReference::Inline(def) => Some(def),
+                    TraitReference::Reference { reference, name, .. } => {
+                        // A page mount names a sibling trait; `reference` carries
+                        // the `Alias.traits.Name` form only for imports.
+                        let key = name
+                            .as_deref()
+                            .or_else(|| reference.as_deref())
+                            .unwrap_or_default();
+                        by_name.get(key).copied()
+                    }
+                })
+                .collect()
+        })
+        .unwrap_or_default()
+}
+
+/// Every trait mounted on `page` that repaints `slot` from inside a `ticks`
+/// block, skipping any whose tick guard is provably dead.
+///
+/// Reads the inferred effect row rather than re-walking the effect tree: the row
+/// already resolved `@config.<knob>` slots at inline, and re-deriving it here
+/// would be a second implementation of the same question.
+fn tick_slot_writers<'a>(
+    traits: &[&'a TraitDefinition],
+) -> HashMap<String, Vec<&'a TraitDefinition>> {
+    let mut writers: HashMap<String, Vec<&TraitDefinition>> = HashMap::new();
+    for trait_def in traits {
+        if !has_live_tick(trait_def) {
+            continue;
+        }
+        let Some(row) = trait_def.effect_row.as_ref() else {
+            continue;
+        };
+        let mut slots: Vec<&str> = row.tick_rendered_slots().collect();
+        slots.sort();
+        slots.dedup();
+        for slot in slots {
+            writers.entry(slot.to_string()).or_default().push(trait_def);
+        }
+    }
+    writers
+}
+
+/// True when at least one of the trait's ticks can actually run.
+///
+/// A call site that sets `config { running: false }` on all but one composed
+/// trait is using the sanctioned way to keep a single owner for a resource; at
+/// inline that knob is substituted into the tick guard, which folds to a literal
+/// `false`. Flagging those would flag the remedy.
+fn has_live_tick(trait_def: &TraitDefinition) -> bool {
+    let Some(ticks) = trait_def.ticks.as_ref() else {
+        return false;
+    };
+    ticks.iter().any(|tick| {
+        tick.guard
+            .as_ref()
+            .map(|g| !g.is_statically_false())
+            .unwrap_or(true)
+    })
+}
+
+/// Two or more traits on one page repainting one slot every frame.
+///
+/// This is the tick-scoped sibling of `SlotContention`, and the tick scoping is
+/// what makes it decidable. Traits that name the same slot from TRANSITIONS
+/// routinely never coexist — a modal over the catalog behind it, a detail panel
+/// swapped by state — which is why the transition-scoped check has to be narrow.
+/// A `ticks` body carries no such alternation: it runs on every frame of the
+/// clock, so two of them on one slot paint together, and the runtime stacks the
+/// writers into one column rather than letting either win.
+pub fn validate_tick_slot_contention(schema: &OrbitalSchema, ctx: &mut ValidationContext) {
+    let mut result = ValidationResult::new();
+
+    for (i, orbital) in schema.orbitals.iter().enumerate() {
+        let Some(pages) = &orbital.pages else {
+            continue;
+        };
+        for (j, page_ref) in pages.iter().enumerate() {
+            let Some(page) = page_ref.as_inline() else {
+                continue;
+            };
+            let mounted = resolve_page_traits(orbital, page);
+            if mounted.len() < 2 {
+                continue;
+            }
+
+            let mut conflicts: Vec<(String, Vec<&TraitDefinition>)> =
+                tick_slot_writers(&mounted)
+                    .into_iter()
+                    .filter(|(_, writers)| writers.len() > 1)
+                    .collect();
+            conflicts.sort_by(|a, b| a.0.cmp(&b.0));
+
+            for (slot, writers) in conflicts {
+                let mut names: Vec<&str> =
+                    writers.iter().map(|t| t.name.as_str()).collect();
+                names.sort();
+                let path = format!("orbitals[{}].pages[{}]", i, j);
+                result.add_error(
+                    ValidationError::error(
+                        ErrorCode::SlotContentionTick,
+                        &path,
+                        format!(
+                            "page \"{}\": traits {} both render into slot '{}' from inside a ticks block, and no tick guard switches either one off — a ticks block runs EVERY frame, so they paint slot '{}' on every frame and the runtime stacks them into one growing column instead of showing either",
+                            page.path,
+                            format_trait_list(&names),
+                            slot,
+                            slot
+                        ),
+                    )
+                    .with_suggestion(format!(
+                        "Give exactly one trait slot '{}': set config {{ running: false }} on the others at this call site, or send them to different slots by making the slot a config knob on the atom (write (render-ui @config.surface ...) in the atom's .lolo, declare `surface` in its config, then set a different value per trait here)",
+                        slot
+                    )),
+                );
+            }
+        }
+    }
+
+    ctx.merge(result);
+}
+
+/// `'A' and 'B'` for two, `'A', 'B' and 'C'` beyond — the message names every
+/// participant, never "multiple traits", so a reader knows exactly what to edit.
+fn format_trait_list(names: &[&str]) -> String {
+    match names {
+        [] => String::new(),
+        [only] => format!("'{only}'"),
+        [rest @ .., last] => {
+            let head = rest
+                .iter()
+                .map(|n| format!("'{n}'"))
+                .collect::<Vec<_>>()
+                .join(", ");
+            format!("{head} and '{last}'")
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -376,6 +549,7 @@ mod tests {
 
     fn create_trait_with_render_ui(name: &str, slot: &str) -> TraitDefinition {
         TraitDefinition {
+            effect_row: None,
             type_params: None,
             type_args: None,
             name: name.to_string(),
@@ -554,6 +728,7 @@ mod tests {
         });
 
         TraitDefinition {
+            effect_row: None,
             type_params: None,
             type_args: None,
             name: name.to_string(),
@@ -790,6 +965,7 @@ mod tests {
             ],
         };
         let trait_orphan = TraitDefinition {
+            effect_row: None,
             type_params: None,
             type_args: None,
             name: "TraitOrphan".to_string(),

@@ -14,6 +14,7 @@
 //! - `"Alias.theme"` → Theme from aliased schema
 //! - `"Alias.services.ServiceName"` → Service by name from aliased orbital
 
+mod effect_row;
 mod context;
 mod entity;
 mod event_id_hygiene;
@@ -333,6 +334,11 @@ pub fn inline_schema_with_config_diagnostics(
         // only for renaming, so ordering here doesn't matter relative to
         // that call; it must simply happen once per orbital, post-inline.
         rewrite::resolve_orbital_type_param_sentinels(orbital);
+
+        // The trait bodies are final here — call-site config merged and
+        // substituted, every ref materialized — so the effect row L1 stamped
+        // from single-file knowledge is now re-derivable with real resources.
+        effect_row::recompute_effect_rows(orbital);
 
         if !pulled.is_empty() {
             pulled_by_orbital.push((idx, pulled));
@@ -1813,6 +1819,7 @@ mod tests {
     fn make_trait(name: &str) -> TraitDefinition {
         use orbital_core::schema::StateMachine;
         TraitDefinition {
+            effect_row: None,
             type_params: None,
             type_args: None,
             name: name.to_string(),
@@ -3202,6 +3209,7 @@ mod tests {
             EventDefinition, StateDefinition, StateMachine, StringOrArray, TransitionDefinition,
         };
         let mut trait_def = TraitDefinition {
+            effect_row: None,
             type_params: None,
             type_args: None,
             name: "T".to_string(),
@@ -3307,6 +3315,7 @@ mod tests {
             EventDefinition, StateDefinition, StateMachine, StringOrArray, TransitionDefinition,
         };
         let mut trait_def = TraitDefinition {
+            effect_row: None,
             type_params: None,
             type_args: None,
             name: "ModalRecordModal".to_string(),
@@ -3570,6 +3579,7 @@ mod tests {
         use orbital_core::schema::{StateMachine, StringOrArray, TransitionDefinition};
 
         let mut trait_def = TraitDefinition {
+            effect_row: None,
             type_params: None,
             type_args: None,
             name: "SourceSearchTrait".to_string(),

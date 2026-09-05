@@ -2,7 +2,7 @@
 //!
 //! Source: packages/almadar-core/src/patterns/patterns-registry.json
 //!
-//! Last synced: 2026-09-04
+//! Last synced: 2026-09-05
 //! To regenerate: npx tsx tools/almadar-pattern-sync/index.ts
 //!
 //! DO NOT EDIT MANUALLY - changes will be overwritten on next sync.
@@ -261,6 +261,7 @@ pub static PATTERN_TYPES: LazyLock<HashSet<&'static str>> = LazyLock::new(|| {
         "split-section",
         "time-slot-cell",
         "toast-slot",
+        "ui-slot-component",
         "ui-slot-renderer",
         // Learning Patterns
         "algo-graph-canvas",
@@ -586,6 +587,7 @@ pub static PATTERN_TO_CATEGORY: LazyLock<HashMap<&'static str, &'static str>> =
             ("split-section", "layout"),
             ("time-slot-cell", "layout"),
             ("toast-slot", "layout"),
+            ("ui-slot-component", "layout"),
             ("ui-slot-renderer", "layout"),
             // Learning
             ("algo-graph-canvas", "learning"),
@@ -803,6 +805,7 @@ pub static PATTERN_REQUIRED_PROPS: LazyLock<HashMap<&'static str, Vec<&'static s
             ("trait-frame", vec!["traitName"]),
             ("trait-slot", vec!["slotNumber"]),
             ("typewriter-text", vec!["text"]),
+            ("ui-slot-component", vec!["slot"]),
             ("version-diff", vec!["revisions"]),
             ("violation-alert", vec!["violation"]),
             ("vote-stack", vec!["count"]),
@@ -4438,6 +4441,26 @@ pub static PATTERN_PROPS_SCHEMA: LazyLock<HashMap<&'static str, HashSet<&'static
                     "truncate",
                     "variant",
                     "weight",
+                ]
+                .into_iter()
+                .collect(),
+            ),
+            (
+                "ui-slot-component",
+                [
+                    "children",
+                    "className",
+                    "draggable",
+                    "entity",
+                    "error",
+                    "fallback",
+                    "isLoading",
+                    "mode",
+                    "pattern",
+                    "portal",
+                    "position",
+                    "slot",
+                    "sourceTrait",
                 ]
                 .into_iter()
                 .collect(),
@@ -9133,6 +9156,26 @@ pub static PATTERN_PROP_TYPES: LazyLock<HashMap<&'static str, HashMap<&'static s
                 .collect(),
             ),
             (
+                "ui-slot-component",
+                [
+                    ("slot", &["object"] as &[&str]),
+                    ("portal", &["boolean"] as &[&str]),
+                    ("position", &["string"] as &[&str]),
+                    ("className", &["string"] as &[&str]),
+                    ("draggable", &["boolean"] as &[&str]),
+                    ("isLoading", &["boolean"] as &[&str]),
+                    ("error", &["object"] as &[&str]),
+                    ("entity", &["string"] as &[&str]),
+                    ("children", &["node"] as &[&str]),
+                    ("pattern", &["string"] as &[&str]),
+                    ("sourceTrait", &["string"] as &[&str]),
+                    ("fallback", &["node"] as &[&str]),
+                    ("mode", &["string"] as &[&str]),
+                ]
+                .into_iter()
+                .collect(),
+            ),
+            (
                 "ui-slot-renderer",
                 [
                     ("includeHud", &["boolean"] as &[&str]),
@@ -9647,7 +9690,14 @@ pub static PATTERN_PROP_ENUM_VALUES: LazyLock<HashMap<&'static str, HashMap<&'st
                 .collect(),
             ),
             ("floating-action-button", [("variant", &["primary", "secondary", "success", "danger", "warning"] as &[&str])].into_iter().collect()),
-            ("floating-toolbar", [("position", &["bottom-center", "bottom-left", "bottom-right"] as &[&str])].into_iter().collect()),
+            (
+                "floating-toolbar",
+                [
+                    ("position", &["bottom-center", "bottom-left", "bottom-right", "top-center", "top-left", "top-right"] as &[&str]),
+                ]
+                .into_iter()
+                .collect(),
+            ),
             (
                 "form",
                 [
@@ -10013,6 +10063,15 @@ pub static PATTERN_PROP_ENUM_VALUES: LazyLock<HashMap<&'static str, HashMap<&'st
                     ("size", &["none", "xs", "sm", "md", "lg", "xl", "2xl", "3xl"] as &[&str]),
                     ("overflow", &["visible", "hidden", "wrap", "clamp-2", "clamp-3"] as &[&str]),
                     ("format", &["none", "date", "time", "datetime", "number", "currency", "percent"] as &[&str]),
+                ]
+                .into_iter()
+                .collect(),
+            ),
+            (
+                "ui-slot-component",
+                [
+                    ("position", &["left", "right", "top-right", "top-left", "bottom-right", "bottom-left"] as &[&str]),
+                    ("mode", &["replace", "append"] as &[&str]),
                 ]
                 .into_iter()
                 .collect(),

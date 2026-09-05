@@ -520,6 +520,9 @@ pub fn validate_comprehensive_full(
 
     // Phase 7: Slot validation
     slot::validate_all_slots(schema, &mut ctx);
+    // Tick-scoped slot contention: page mounts resolved through their refs, so
+    // unlike `validate_all_slots` this one actually sees the corpus.
+    slot::validate_tick_slot_contention(schema, &mut ctx);
 
     // Phase 8: S-expression validation
     sexpr::validate_all_sexprs(schema, &mut ctx);
