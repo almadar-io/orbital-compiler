@@ -1141,6 +1141,9 @@ mod tests {
             only: None,
             config: None,
             events: None,
+            roles: None,
+            entities: None,
+            mounts: None,
         };
         let mut diagnostics = Vec::new();
         resolve_orbital_reference(&mut orbital, &obj, &ctx, None, &mut diagnostics).expect("resolves");
@@ -1167,6 +1170,9 @@ mod tests {
             only: None,
             config: None,
             events: None,
+            roles: None,
+            entities: None,
+            mounts: None,
         };
         let mut diagnostics = Vec::new();
         resolve_orbital_reference(&mut orbital, &obj, &ctx, None, &mut diagnostics).expect("resolves");
@@ -1196,6 +1202,9 @@ mod tests {
             only: None,
             config: None,
             events: None,
+            roles: None,
+            entities: None,
+            mounts: None,
         };
         let mut diagnostics = Vec::new();
         resolve_orbital_reference(&mut orbital, &obj, &ctx, None, &mut diagnostics).expect("resolves");
@@ -1236,6 +1245,9 @@ mod tests {
             only: None,
             config: Some(overrides),
             events: None,
+            roles: None,
+            entities: None,
+            mounts: None,
         };
         let mut diagnostics = Vec::new();
         resolve_orbital_reference(&mut orbital, &obj, &ctx, None, &mut diagnostics).expect("resolves");
@@ -1287,6 +1299,9 @@ mod tests {
             only: None,
             config: None,
             events: None,
+            roles: None,
+            entities: None,
+            mounts: None,
         };
         let mut diagnostics = Vec::new();
         resolve_orbital_reference(&mut orbital, &obj, &ctx, Some(&schema_config), &mut diagnostics)
@@ -1313,6 +1328,9 @@ mod tests {
             only: None,
             config: None,
             events: None,
+            roles: None,
+            entities: None,
+            mounts: None,
         };
 
         let mut first = consumer_orbital("Local");
@@ -1339,6 +1357,9 @@ mod tests {
             only: None,
             config: None,
             events: None,
+            roles: None,
+            entities: None,
+            mounts: None,
         };
 
         let mut one = consumer_orbital("One");
@@ -1398,6 +1419,9 @@ mod tests {
             only: None,
             config: None,
             events: None,
+            roles: None,
+            entities: None,
+            mounts: None,
         };
         let mut diagnostics = Vec::new();
         resolve_orbital_reference(&mut orbital, &obj, &ctx, None, &mut diagnostics).expect("resolves");
@@ -1452,6 +1476,9 @@ mod tests {
             only: None,
             config: None,
             events: None,
+            roles: None,
+            entities: None,
+            mounts: None,
         };
         let mut diagnostics = Vec::new();
         resolve_orbital_reference(&mut orbital, &obj, &ctx, None, &mut diagnostics).expect("resolves");

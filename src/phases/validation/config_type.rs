@@ -1556,8 +1556,21 @@ fn validate_dangling_config_refs(schema: &OrbitalSchema) -> ValidationResult {
     }
 
     let mut result = ValidationResult::new();
+    // App-level `config {}` is a declaring source for every orbital (§4.5).
+    let schema_keys: HashSet<&str> = schema
+        .config
+        .iter()
+        .flat_map(|c| c.keys())
+        .map(|k| k.as_str())
+        .collect();
 
     for (oi, orbital) in schema.orbitals.iter().enumerate() {
+        let orbital_keys: HashSet<&str> = orbital
+            .config
+            .iter()
+            .flat_map(|c| c.keys())
+            .map(|k| k.as_str())
+            .collect();
         // Declared knob keys per trait + child -> referrers adjacency (the
         // same config-OR-state-machine scan core's embed walkers use).
         let mut declared: HashMap<&str, HashSet<&str>> = HashMap::new();
@@ -1610,6 +1623,9 @@ fn validate_dangling_config_refs(schema: &OrbitalSchema) -> ValidationResult {
         }
 
         let key_reachable = |owner: &str, key: &str| -> bool {
+            if orbital_keys.contains(key) || schema_keys.contains(key) {
+                return true;
+            }
             let mut queue = vec![owner];
             let mut seen: HashSet<&str> = HashSet::new();
             while let Some(name) = queue.pop() {
@@ -1773,6 +1789,56 @@ mod dangling_config_tests {
             0,
             "self-named pattern-prop declaration default is the enrich idiom, not a dangle"
         );
+    }
+
+    const ORBITAL_DECLARED: &str = r#"{
+      "name": "t", "version": "1.0.0",
+      "orbitals": [{
+        "name": "O",
+        "config": { "browseColumns": { "type": "json", "default": [] } },
+        "entity": { "name": "W", "fields": [] },
+        "traits": [{
+          "name": "Browse",
+          "config": { "columns": { "type": "json", "default": "@config.browseColumns" } },
+          "stateMachine": {
+            "states": [{ "name": "idle", "isInitial": true }],
+            "transitions": [{
+              "from": "idle", "to": "idle", "event": "INIT",
+              "effects": [["render-ui", "main", { "type": "typography", "content": "@config.browseColumns" }]]
+            }]
+          }
+        }]
+      }]
+    }"#;
+
+    const APP_DECLARED: &str = r#"{
+      "name": "t", "version": "1.0.0",
+      "config": { "appName": { "type": "string", "default": "Time Tracking" } },
+      "orbitals": [{
+        "name": "O",
+        "entity": { "name": "W", "fields": [] },
+        "traits": [{
+          "name": "Shell",
+          "config": { "title": { "type": "string", "default": "@config.appName" } },
+          "stateMachine": {
+            "states": [{ "name": "idle", "isInitial": true }],
+            "transitions": [{
+              "from": "idle", "to": "idle", "event": "INIT",
+              "effects": [["render-ui", "main", { "type": "typography", "content": "@config.appName" }]]
+            }]
+          }
+        }]
+      }]
+    }"#;
+
+    #[test]
+    fn accepts_key_declared_at_orbital_level() {
+        assert_eq!(dangles(ORBITAL_DECLARED), 0, "an orbital `config {{}}` knob is a declaring source");
+    }
+
+    #[test]
+    fn accepts_key_declared_at_app_level() {
+        assert_eq!(dangles(APP_DECLARED), 0, "an app-level `config {{}}` knob is a declaring source");
     }
 
     #[test]

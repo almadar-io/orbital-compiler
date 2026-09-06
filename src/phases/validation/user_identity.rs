@@ -22,7 +22,7 @@
 
 use super::{ErrorCode, ValidationContext, ValidationError, ValidationResult};
 use orbital_core::schema::{
-    EntityDefinition, EntityRef, FieldDefinition, OrbitalSchema, TraitReference,
+    EntityDefinition, EntityRef, FieldDefinition, Orbital, OrbitalSchema, TraitReference,
 };
 use orbital_core::type_compat::enum_value_is_member;
 use serde_json::Value;
@@ -48,22 +48,28 @@ pub(super) enum IdentitySource<'a> {
 const USER_SIGIL: &str = "@user.";
 
 /// Comparison operators whose two operands are compared for equality. `=` and
-/// `==` both occur in committed `.orb` files. Shared with `entity_access.rs`.
-pub(super) const EQUALITY_OPS: &[&str] = &["=", "==", "!=", "!==", "eq", "neq"];
+/// `==` both occur in committed `.orb` files. Shared with `entity_access.rs`
+/// and (Stage B) the orbital-import role-literal rewrite (`inline/rewrite.rs`
+/// `rewrite_role_literals`, which must stay shape-identical to
+/// `check_comparison` below).
+pub(crate) const EQUALITY_OPS: &[&str] = &["=", "==", "!=", "!==", "eq", "neq"];
 
-/// Every `[identity]`-tagged entity in the schema, primaries first, each
+/// Every `[identity]`-tagged entity in `orbitals`, primaries first, each
 /// paired with whether it is an orbital's PRIMARY entity (`true`) or an
-/// auxiliary copy pulled in by an import (`false`).
-fn identity_entities_tagged(schema: &OrbitalSchema) -> Vec<(&EntityDefinition, bool)> {
+/// auxiliary copy pulled in by an import (`false`). The schema-wide and
+/// orbital-slice callers (`identity_entities_tagged` / Stage B's
+/// `identity_entities_of`) both apply the SAME primary-shadows-import rule
+/// over whatever orbital slice they're given — this is the one walker.
+fn identity_entities_tagged_of(orbitals: &[Orbital]) -> Vec<(&EntityDefinition, bool)> {
     let mut out = Vec::new();
-    for orbital in &schema.orbitals {
+    for orbital in orbitals {
         if let EntityRef::Inline(def) = &orbital.entity {
             if def.identity {
                 out.push((def, true));
             }
         }
     }
-    for orbital in &schema.orbitals {
+    for orbital in orbitals {
         for er in orbital.auxiliary_entities.iter().flatten() {
             if let EntityRef::Inline(def) = er {
                 if def.identity {
@@ -73,6 +79,26 @@ fn identity_entities_tagged(schema: &OrbitalSchema) -> Vec<(&EntityDefinition, b
         }
     }
     out
+}
+
+fn identity_entities_tagged(schema: &OrbitalSchema) -> Vec<(&EntityDefinition, bool)> {
+    identity_entities_tagged_of(&schema.orbitals)
+}
+
+/// The `[identity]` entities that decide what `@user` resolves to, computed
+/// over an arbitrary orbital slice — same primary-shadows-import rule
+/// `identity_entities` applies schema-wide (see its doc comment for the
+/// rationale). Stage B's orbital-import splice calls this over one alias's
+/// `AliasEntry.orbitals` to find the UPSTREAM roster a `roles {}` remap
+/// resolves against, independent of the consumer schema's own roster.
+pub(crate) fn identity_entities_of(orbitals: &[Orbital]) -> Vec<&EntityDefinition> {
+    let tagged = identity_entities_tagged_of(orbitals);
+    let has_primary = tagged.iter().any(|(_, primary)| *primary);
+    tagged
+        .into_iter()
+        .filter(|(_, primary)| *primary || !has_primary)
+        .map(|(def, _)| def)
+        .collect()
 }
 
 /// The `[identity]` entities that decide what `@user` resolves to.
@@ -91,14 +117,8 @@ fn identity_entities_tagged(schema: &OrbitalSchema) -> Vec<(&EntityDefinition, b
 ///
 /// Shared with `entity_access.rs`, which needs the same answer for the four
 /// access directives.
-pub(super) fn identity_entities(schema: &OrbitalSchema) -> Vec<&EntityDefinition> {
-    let tagged = identity_entities_tagged(schema);
-    let has_primary = tagged.iter().any(|(_, primary)| *primary);
-    tagged
-        .into_iter()
-        .filter(|(_, primary)| *primary || !has_primary)
-        .map(|(def, _)| def)
-        .collect()
+pub(crate) fn identity_entities(schema: &OrbitalSchema) -> Vec<&EntityDefinition> {
+    identity_entities_of(&schema.orbitals)
 }
 
 /// Every name tagged `[identity]` anywhere, shadowed copies included.
@@ -122,7 +142,7 @@ pub(super) fn identity_entity_names(schema: &OrbitalSchema) -> Vec<&str> {
 /// The declared vocabulary for an identity field, following `items` for the
 /// array form. `roles : ["a" | "b"]` keeps the union on the ELEMENT, so a
 /// multi-valued role field must be read through `items`.
-pub(super) fn vocabulary(field: &FieldDefinition) -> Option<&Vec<String>> {
+pub(crate) fn vocabulary(field: &FieldDefinition) -> Option<&Vec<String>> {
     if let Some(values) = field.values.as_ref().filter(|v| !v.is_empty()) {
         return Some(values);
     }
@@ -146,7 +166,7 @@ pub(super) fn identity_field<'a>(
 
 /// `@user.role` → `Some("role")`. Only a direct field read; `@user` alone and
 /// deeper paths (`@user.profile.x`) are not field claims this rule can judge.
-pub(super) fn user_field_of(s: &str) -> Option<&str> {
+pub(crate) fn user_field_of(s: &str) -> Option<&str> {
     let rest = s.strip_prefix(USER_SIGIL)?;
     if rest.is_empty() || rest.contains('.') || rest.contains('[') {
         return None;
