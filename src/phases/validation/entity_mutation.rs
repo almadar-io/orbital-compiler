@@ -1129,6 +1129,8 @@ mod tests {
             domain_context: None,
             design: None,
             types: None,
+            reference: None,
+            config: None,
         };
         let trait_pages = collect_trait_pages(&orbital, &[&host, &child]);
         assert!(

@@ -61,6 +61,7 @@ pub fn resolve_sexpr_standalone(sexpr: &SExpression) -> Result<OirExpr, ResolveE
         metadata: None,
         ledger: None,
         schema_version: None,
+        config: None,
     };
     Resolver::new(&empty).resolve_sexpr(sexpr)
 }
@@ -2927,6 +2928,7 @@ mod tests {
             metadata: None,
             ledger: None,
             schema_version: None,
+            config: None,
         }
     }
 
@@ -3109,6 +3111,7 @@ mod tests {
             metadata: None,
             ledger: None,
             schema_version: None,
+            config: None,
         };
         let resolver = Resolver::new(&schema);
         let resolved = resolver
@@ -3245,6 +3248,7 @@ mod tests {
             metadata: None,
             ledger: None,
             schema_version: None,
+            config: None,
         };
         let resolver = Resolver::new(&schema);
         let resolved = resolver.resolve_field_shape(&field).expect("resolves");
@@ -3565,6 +3569,7 @@ mod tests {
             metadata: None,
             ledger: None,
             schema_version: None,
+            config: None,
         };
 
         let result = resolve_to_oir(&schema);
@@ -3599,6 +3604,7 @@ mod tests {
             metadata: None,
             ledger: None,
             schema_version: None,
+            config: None,
         });
         Resolver::new(schema)
     }

@@ -821,18 +821,49 @@ fn apply_post_subst_overrides_to_trait(
 /// `@config.fields` where a value belongs — a populated list rendering blank.
 ///
 /// Only whole-string forwards resolve here. A `@config.<knob>.<path>` form and
-/// a knob the embedder does not declare are left alone for the binding
+/// a knob none of the three rungs declare are left alone for the binding
 /// validator to judge.
-fn forwarded_sibling_config(
+///
+/// `parent_name` names the trait (already resolved in `result`) that embeds
+/// `sibling` via `@trait.<sibling.name>` at THIS pull site — `None` only
+/// when this particular sibling genuinely has no embedder in `result` (e.g.
+/// a same-owner pull whose parent isn't in `result` yet). The orbital-import
+/// materialization path (`inline/orbital.rs`) has its own embedder lookup
+/// (a trait can be embedded by more than one surviving sibling there) and
+/// calls `forwarded_sibling_config_from` directly with the resolved
+/// embedder's declared config, rather than through this `result`-scoped
+/// wrapper. `orbital_config`/`schema_config` are the two
+/// Almadar_Orbital_Import.md §4.5 rungs both call sites fall through to,
+/// one rung further out than the embedder.
+pub(super) fn forwarded_sibling_config(
     sibling: &TraitDefinition,
     result: &[TraitReference],
-    parent_name: &str,
+    parent_name: Option<&str>,
+    orbital_config: Option<&HashMap<String, ConfigField>>,
+    schema_config: Option<&HashMap<String, ConfigField>>,
+) -> Option<HashMap<String, ConfigField>> {
+    let parent_declared = parent_name.and_then(|pn| {
+        result.iter().find_map(|tr| match tr {
+            TraitReference::Inline(td) if td.name == pn => td.config.as_ref(),
+            _ => None,
+        })
+    });
+    forwarded_sibling_config_from(sibling, parent_declared, orbital_config, schema_config)
+}
+
+/// Lower-level twin of `forwarded_sibling_config` that takes the embedder's
+/// declared config directly instead of looking it up by name in a `result`
+/// list — used by the orbital-import splice (`inline/orbital.rs`), which
+/// resolves a pulled trait's embedder(s) from its own `kept` set (a trait can
+/// be embedded by more than one surviving sibling there) rather than from a
+/// single named parent in an in-progress `result` accumulator.
+pub(super) fn forwarded_sibling_config_from(
+    sibling: &TraitDefinition,
+    parent_declared: Option<&HashMap<String, ConfigField>>,
+    orbital_config: Option<&HashMap<String, ConfigField>>,
+    schema_config: Option<&HashMap<String, ConfigField>>,
 ) -> Option<HashMap<String, ConfigField>> {
     let declared = sibling.config.as_ref()?;
-    let parent = result.iter().find_map(|tr| match tr {
-        TraitReference::Inline(td) if td.name == parent_name => td.config.as_ref(),
-        _ => None,
-    })?;
     let mut out: HashMap<String, ConfigField> = HashMap::new();
     for (key, field) in declared.iter() {
         let Some(SExpression::String(forward)) = field.default.as_ref() else {
@@ -844,12 +875,19 @@ fn forwarded_sibling_config(
         if knob.contains('.') {
             continue;
         }
-        let Some(value) = parent.get(knob).and_then(|f| f.default.as_ref()) else {
+        let is_still_forward = |v: &SExpression| matches!(v, SExpression::String(s) if s == forward);
+        let mut value = parent_declared.and_then(|p| p.get(knob)).and_then(|f| f.default.as_ref());
+        if value.is_none_or(is_still_forward) {
+            value = orbital_config.and_then(|c| c.get(knob)).and_then(|f| f.default.as_ref());
+        }
+        if value.is_none_or(is_still_forward) {
+            value = schema_config.and_then(|c| c.get(knob)).and_then(|f| f.default.as_ref());
+        }
+        let Some(value) = value else {
             continue;
         };
-        // The embedder forwards the same token upward — nothing to resolve yet;
-        // its own embedder supplies the value one pull further out.
-        if matches!(value, SExpression::String(v) if v == forward) {
+        // Still a forward at the outermost rung — nothing left to resolve.
+        if is_still_forward(value) {
             continue;
         }
         let mut forwarded = field.clone();
@@ -1009,6 +1047,7 @@ pub(crate) type InlinedTraits = (
 /// `name` override on at least one reference. The error fires AFTER the
 /// rename has been applied, so users with two distinct `name` overrides
 /// (e.g. `CartItemAddItem` and `CartItemEditItem`) are unaffected.
+#[allow(clippy::too_many_arguments)]
 pub(crate) fn inline_traits(
     traits: &[TraitReference],
     ctx: &InlineContext,
@@ -1018,6 +1057,12 @@ pub(crate) fn inline_traits(
     // entity node (see `apply_overrides_to_trait`).
     entity_ids: &HashMap<String, String>,
     recorder: &mut Vec<ConfigProvenanceRecord>,
+    // The two outer §4.5 config-forward rungs a pulled sibling's `@config.X`
+    // falls through to when the embedder doesn't (yet) resolve it: this
+    // orbital's own declared `config {}` (already final by the time this
+    // runs — see `inline_orbital`), then the schema's app-level `config {}`.
+    orbital_config: Option<&HashMap<String, ConfigField>>,
+    schema_config: Option<&HashMap<String, ConfigField>>,
 ) -> Result<InlinedTraits, InlineError> {
     let mut result = Vec::new();
     let mut config_diagnostics: Vec<TraitRefConfigDiagnostic> = Vec::new();
@@ -1689,7 +1734,13 @@ pub(crate) fn inline_traits(
             let forwarded_config = if ctx.defer_config_subst {
                 None
             } else {
-                forwarded_sibling_config(&sibling_def, &result, &parent_name)
+                forwarded_sibling_config(
+                    &sibling_def,
+                    &result,
+                    Some(&parent_name),
+                    orbital_config,
+                    schema_config,
+                )
             };
             apply_overrides_to_trait(
                 &mut sibling_def,

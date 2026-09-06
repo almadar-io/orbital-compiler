@@ -24,6 +24,8 @@ pub(crate) enum ParsedReference {
     Theme { alias: String },
     /// Alias.services.ServiceName
     Service { alias: String, name: String },
+    /// Alias.orbitals.OrbitalName
+    Orbital { alias: String, name: String },
 }
 
 /// Parse a reference string into components
@@ -72,6 +74,15 @@ pub(crate) fn parse_reference(reference: &str) -> Result<ParsedReference, Inline
                 return Err(InlineError::InvalidReference(reference.to_string()));
             }
             Ok(ParsedReference::Service {
+                alias,
+                name: parts[2].to_string(),
+            })
+        }
+        "orbitals" => {
+            if parts.len() != 3 {
+                return Err(InlineError::InvalidReference(reference.to_string()));
+            }
+            Ok(ParsedReference::Orbital {
                 alias,
                 name: parts[2].to_string(),
             })
@@ -700,5 +711,25 @@ impl InlineContext {
             name.to_string(),
             entry.source_label.clone(),
         ))
+    }
+
+    /// Look up an orbital by name within an imported behavior — the
+    /// orbital-keyed twin of `get_trait`/`get_page`/`get_service`. The
+    /// returned `Orbital` is already fully inlined: `add_alias_multi` only
+    /// ever stores orbitals that have themselves been through
+    /// `inline_orbital` (recursively, for every loaded import), so a
+    /// reference-form orbital among `entry.orbitals` has already had its own
+    /// `reference` resolved by the time this runs — nested orbital-imports
+    /// come for free.
+    pub(crate) fn get_orbital(&self, alias: &str, name: &str) -> Result<Orbital, InlineError> {
+        let entry = self.get_entry(alias)?;
+        entry
+            .orbitals
+            .iter()
+            .find(|o| o.name == name)
+            .cloned()
+            .ok_or_else(|| {
+                InlineError::OrbitalNotFound(name.to_string(), entry.source_label.clone())
+            })
     }
 }

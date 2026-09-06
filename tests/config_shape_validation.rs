@@ -190,10 +190,13 @@ fn schema_with_config(config: HashMap<String, ConfigField>) -> OrbitalSchema {
             domain_context: None,
             design: None,
             id: None,
+            reference: None,
+            config: None,
         }],
         metadata: None,
         ledger: None,
         schema_version: None,
+        config: None,
     }
 }
 

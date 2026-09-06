@@ -289,6 +289,8 @@ mod tests {
             domain_context: None,
             design: None,
             id: None,
+            reference: None,
+            config: None,
         }
     }
 
@@ -302,6 +304,7 @@ mod tests {
             metadata: None,
             ledger: None,
             schema_version: None,
+            config: None,
         }
     }
 

@@ -839,6 +839,7 @@ mod tests {
             metadata: None,
             ledger: None,
             schema_version: None,
+            config: None,
         };
         let loaded = LoadedSchema {
             schema,

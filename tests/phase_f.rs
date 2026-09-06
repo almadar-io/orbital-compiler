@@ -180,10 +180,13 @@ fn schema_for_f1(strict_target_event: &str) -> OrbitalSchema {
             domain_context: None,
             design: None,
             id: None,
+            reference: None,
+            config: None,
         }],
         metadata: None,
         ledger: None,
         schema_version: None,
+        config: None,
     }
 }
 
@@ -303,6 +306,8 @@ fn schema_with_two_emitters(
         domain_context: None,
         design: None,
         id: None,
+        reference: None,
+        config: None,
     };
     OrbitalSchema {
         theme: None,
@@ -338,12 +343,15 @@ fn schema_with_two_emitters(
                 domain_context: None,
                 design: None,
                 id: None,
+                reference: None,
+                config: None,
             },
             listener_orbital,
         ],
         metadata: None,
         ledger: None,
         schema_version: None,
+        config: None,
     }
 }
 
@@ -449,10 +457,13 @@ fn schema_with_default(field: FieldDefinition) -> OrbitalSchema {
             domain_context: None,
             design: None,
             id: None,
+            reference: None,
+            config: None,
         }],
         metadata: None,
         ledger: None,
         schema_version: None,
+        config: None,
     }
 }
 

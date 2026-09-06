@@ -552,6 +552,7 @@ mod tests {
             uses: Some(vec![UseDeclaration {
                 from: from.to_string(),
                 alias: alias.to_string(),
+                config: None,
             }]),
             expects: None,
             theme: None,
@@ -565,6 +566,8 @@ mod tests {
             exposes: None,
             domain_context: None,
             design: None,
+            reference: None,
+            config: None,
         }
     }
 
@@ -582,6 +585,7 @@ mod tests {
             metadata: None,
             ledger: None,
             schema_version: None,
+            config: None,
         };
 
         let mut by_from = HashMap::new();
@@ -625,6 +629,7 @@ mod tests {
             metadata: None,
             ledger: None,
             schema_version: None,
+            config: None,
         };
 
         let mut by_from = HashMap::new();
@@ -664,6 +669,7 @@ mod tests {
             metadata: None,
             ledger: None,
             schema_version: None,
+            config: None,
         };
 
         let mut by_from = HashMap::new();
@@ -772,6 +778,7 @@ mod tests {
             metadata: None,
             ledger: None,
             schema_version: None,
+            config: None,
         };
 
         let config = LoaderConfig {
@@ -832,6 +839,7 @@ mod tests {
             metadata: None,
             ledger: None,
             schema_version: None,
+            config: None,
         };
 
         let config = LoaderConfig {

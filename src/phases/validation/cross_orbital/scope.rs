@@ -295,6 +295,8 @@ mod tests {
             domain_context: None,
             design: None,
             id: None,
+            reference: None,
+            config: None,
         };
 
         let mut events_rename = HashMap::new();
@@ -320,6 +322,7 @@ mod tests {
             uses: Some(vec![orbital_core::schema::UseDeclaration {
                 from: "local/does-not-matter".to_string(),
                 alias: "Lib".to_string(),
+                config: None,
             }]),
             expects: None,
             theme: None,
@@ -348,6 +351,8 @@ mod tests {
             domain_context: None,
             design: None,
             id: None,
+            reference: None,
+            config: None,
         };
 
         OrbitalSchema {
@@ -359,6 +364,7 @@ mod tests {
             metadata: None,
             ledger: None,
             schema_version: None,
+            config: None,
         }
     }
 

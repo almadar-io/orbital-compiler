@@ -162,10 +162,13 @@ mod tests {
                 domain_context: None,
                 design: None,
                 id: None,
+                reference: None,
+                config: None,
             }],
             metadata: None,
             ledger: None,
             schema_version: None,
+            config: None,
         }
     }
 
@@ -212,6 +215,8 @@ mod tests {
             domain_context: None,
             design: None,
             id: None,
+            reference: None,
+            config: None,
         });
         // Point Task.patient at Patient — should resolve cleanly.
         if let EntityRef::Inline(task) = &mut schema.orbitals[0].entity {

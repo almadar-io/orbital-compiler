@@ -192,6 +192,19 @@ pub enum ErrorCode {
     PageEmptyTraits,
     /// Orbital has no pages defined
     OrbitalMissingPages,
+    /// An `orbital X = Alias.orbitals.Y { config { … } } }` call-site
+    /// override names a key the upstream orbital's declared `config {}`
+    /// does not have (`Almadar_Orbital_Import.md` §4.5).
+    OrbitalRefConfigUnknownKey,
+    /// An `orbital X = Alias.orbitals.Y { omit { … } } }` call site drops a
+    /// trait that a surviving trait still embeds via `@trait.<X>` — the
+    /// embed token has nothing left to render.
+    OrbitalRefOmitEmbeddedTrait,
+    /// A declared `Orbital.config` or `OrbitalSchema.config` knob
+    /// (`Almadar_Orbital_Import.md` §4.5) that no trait in the schema
+    /// forwards (`config[*].default == "@config.<knob>"`) — dead: nothing
+    /// publishes it, so no call site can ever reach it.
+    OrbitalConfigDeadKnob,
     /// Static sections are forbidden (use render_ui)
     PageSectionsForbidden,
     /// Invalid trait reference on page
@@ -769,6 +782,10 @@ pub enum ErrorCode {
     /// identity` shape, or a `persist` payload field outside its `expects
     /// entity` shape. The consumer's declaration is its own source of truth.
     SchemaExpectationFieldUndeclared,
+    /// A `uses A from "…" { config { … } }` call-site override names a key
+    /// the imported behavior's app-level `config {}` (`OrbitalSchema.config`,
+    /// `Almadar_Orbital_Import.md` §4.5) does not declare.
+    UsesConfigUnknownKey,
 
     // =========================================================================
     // Identity Errors (ORB_ID_*) — Rabit V4 Phase 3 dual-carry id integrity
@@ -867,6 +884,9 @@ impl ErrorCode {
             ErrorCode::PageMissingTraits => "ORB_P_MISSING_TRAITS",
             ErrorCode::PageEmptyTraits => "ORB_P_EMPTY_TRAITS",
             ErrorCode::OrbitalMissingPages => "ORB_O_MISSING_PAGES",
+            ErrorCode::OrbitalRefConfigUnknownKey => "ORB_O_CONFIG_UNKNOWN_KEY",
+            ErrorCode::OrbitalRefOmitEmbeddedTrait => "ORB_O_OMIT_EMBEDDED_TRAIT",
+            ErrorCode::OrbitalConfigDeadKnob => "ORB_O_CONFIG_DEAD_KNOB",
             ErrorCode::PageSectionsForbidden => "ORB_P_SECTIONS_FORBIDDEN",
             ErrorCode::PageInvalidTraitRef => "ORB_P_INVALID_TRAIT_REF",
             ErrorCode::PageInvalidViewType => "ORB_P_INVALID_VIEW_TYPE",
@@ -1060,6 +1080,7 @@ impl ErrorCode {
             ErrorCode::SchemaExpectedFieldNotProvided => "ORB_S_EXPECTED_FIELD_NOT_PROVIDED",
             ErrorCode::SchemaExpectedFieldTypeMismatch => "ORB_S_EXPECTED_FIELD_TYPE_MISMATCH",
             ErrorCode::SchemaExpectationFieldUndeclared => "ORB_S_EXPECTATION_FIELD_UNDECLARED",
+            ErrorCode::UsesConfigUnknownKey => "ORB_U_CONFIG_UNKNOWN_KEY",
 
             // Identity
             ErrorCode::OrbIdUnknownRef => "ORB_ID_UNKNOWN_REF",
@@ -1133,6 +1154,9 @@ impl ErrorCode {
             | ErrorCode::PageMissingTraits
             | ErrorCode::PageEmptyTraits
             | ErrorCode::OrbitalMissingPages
+            | ErrorCode::OrbitalRefConfigUnknownKey
+            | ErrorCode::OrbitalRefOmitEmbeddedTrait
+            | ErrorCode::OrbitalConfigDeadKnob
             | ErrorCode::PageSectionsForbidden
             | ErrorCode::PageInvalidTraitRef
             | ErrorCode::PageInvalidViewType => "page",
@@ -1300,7 +1324,8 @@ impl ErrorCode {
             | ErrorCode::SchemaExpectationProviderMismatch
             | ErrorCode::SchemaExpectedFieldNotProvided
             | ErrorCode::SchemaExpectedFieldTypeMismatch
-            | ErrorCode::SchemaExpectationFieldUndeclared => "schema",
+            | ErrorCode::SchemaExpectationFieldUndeclared
+            | ErrorCode::UsesConfigUnknownKey => "schema",
 
             ErrorCode::OrbIdUnknownRef
             | ErrorCode::OrbIdNameMismatch

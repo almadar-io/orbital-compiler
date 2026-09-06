@@ -19,6 +19,7 @@ mod context;
 mod entity;
 mod event_id_hygiene;
 mod identity_normalize;
+mod orbital;
 mod page;
 pub(crate) mod rewrite;
 mod service;
@@ -52,6 +53,10 @@ pub(crate) use r#trait::collect_sibling_trait_refs;
 // the type as `crate::phases::inline::TraitRefConfigDiagnostic` without
 // reaching into the private `r#trait` submodule directly.
 pub use r#trait::TraitRefConfigDiagnostic;
+// Diagnostics collected while resolving `orbital X = Alias.orbitals.Y { … }`
+// references — re-exported so `phases::validation` (W4-R) can name them.
+pub use orbital::{OrbitalRefDiagnostic, UsesConfigDiagnostic};
+use orbital::resolve_orbital_reference;
 use rewrite::{apply_inline_config_defaults, trait_ref_name};
 use service::inline_services;
 use splice::splice_lambda_trait_refs;
@@ -67,8 +72,8 @@ use crate::loader::{
     discover_registry_roots, ExternalOrbitalLoader, ImportChain, LoaderConfig, LoaderError,
 };
 use orbital_core::schema::{
-    ConfigProvenanceRecord, EntityDefinition, EntityRef, ExpectDeclaration, Orbital, OrbitalSchema,
-    PayloadField, SchemaMetadata, ThemeRef, TraitReference,
+    ConfigField, ConfigProvenanceRecord, EntityDefinition, EntityRef, ExpectDeclaration, Orbital,
+    OrbitalSchema, PayloadField, SchemaMetadata, ThemeRef, TraitReference,
 };
 use std::collections::{BTreeMap, HashMap, HashSet};
 use std::path::Path;
@@ -108,6 +113,9 @@ pub enum InlineError {
 
     #[error("Service '{0}' not found in orbital '{1}'")]
     ServiceNotFound(String, String),
+
+    #[error("Orbital '{0}' not found in imported behavior '{1}'")]
+    OrbitalNotFound(String, String),
 
     #[error("Theme not found in schema '{0}'")]
     ThemeNotFound(String),
@@ -252,6 +260,40 @@ pub fn inline_schema_with_config_diagnostics(
     source_path: Option<&Path>,
     diagnostics: &mut Vec<r#trait::TraitRefConfigDiagnostic>,
 ) -> Result<(), InlineError> {
+    let mut orbital_ref_diagnostics = Vec::new();
+    let mut uses_config_diagnostics = Vec::new();
+    inline_schema_with_orbital_diagnostics(
+        schema,
+        config,
+        source_path,
+        diagnostics,
+        &mut orbital_ref_diagnostics,
+        &mut uses_config_diagnostics,
+    )
+}
+
+/// Same as [`inline_schema_with_config_diagnostics`], additionally collecting
+/// the two orbital-import diagnostic classes (Almadar_Orbital_Import.md §4.5,
+/// §8): a call-site `config {}` override on an `orbital X = Alias.orbitals.Y
+/// { … }` reference (or on the `uses … { config }` that feeds it) naming a
+/// knob the upstream doesn't declare, and an `omit {}` that drops a trait a
+/// surviving trait still embeds via `@trait.<X>`. W4-R's validators turn
+/// these into `ORB_O_CONFIG_UNKNOWN_KEY` / `ORB_O_OMIT_EMBEDDED_TRAIT` /
+/// `ORB_U_CONFIG_UNKNOWN_KEY`.
+///
+/// A separate entry point — rather than adding params directly to
+/// [`inline_schema_with_config_diagnostics`] — because that function's
+/// production callers in `orbital-cli` are outside this crate (W3-R's scope
+/// is `orbital-compiler` only); this keeps their call sites untouched while
+/// still surfacing the new diagnostics to whichever caller wants them.
+pub fn inline_schema_with_orbital_diagnostics(
+    schema: &mut OrbitalSchema,
+    config: &InlineConfig,
+    source_path: Option<&Path>,
+    diagnostics: &mut Vec<r#trait::TraitRefConfigDiagnostic>,
+    orbital_ref_diagnostics: &mut Vec<orbital::OrbitalRefDiagnostic>,
+    uses_config_diagnostics: &mut Vec<orbital::UsesConfigDiagnostic>,
+) -> Result<(), InlineError> {
     if config.skip_inline {
         return Ok(());
     }
@@ -297,6 +339,12 @@ pub fn inline_schema_with_config_diagnostics(
         chain.push(path);
     }
 
+    // Computed once: threaded into every orbital as the outermost §4.5
+    // config-forward rung. Cloned (not borrowed) so the per-orbital loop
+    // below can hold `&mut schema.orbitals` without fighting the borrow
+    // checker over a second field on the same `schema`.
+    let schema_config = schema.config.clone();
+
     // Process each orbital, recording the names the auto-pull loop added and
     // the config→knob provenance for substituted render-ui props.
     let mut pulled_by_orbital: Vec<(usize, Vec<String>)> = Vec::new();
@@ -319,6 +367,9 @@ pub fn inline_schema_with_config_diagnostics(
             Some(&mut pulled),
             &mut provenance,
             diagnostics,
+            schema_config.as_ref(),
+            orbital_ref_diagnostics,
+            uses_config_diagnostics,
         ) {
             if first_error.is_none() {
                 first_error = Some(e);
@@ -405,6 +456,17 @@ pub fn inline_schema_with_config_diagnostics(
             }
         }
     }
+
+    // The wire contract (Almadar_Orbital_Import.md §6): `reference` is
+    // transient, set only by lowering an unresolved `orbital X =
+    // Alias.orbitals.Y { … }` and must never survive inline into validation,
+    // codegen, or a committed `.orb`. Every orbital (including ones loaded
+    // purely as imports, never spliced into `schema.orbitals` — those never
+    // carried a reference at this level to begin with) must show `None` here.
+    debug_assert!(
+        schema.orbitals.iter().all(|o| o.reference.is_none()),
+        "orbital.reference must be cleared by inline_orbital's resolve_orbital_reference call"
+    );
 
     Ok(())
 }
@@ -631,6 +693,7 @@ fn uniquify_cross_orbital_pulled_siblings(
 /// pass needs the raw `@config.X` strings present so its override values can
 /// replace them. Eager default substitution at import-load time clobbers the
 /// override surface for any field that has a default declared on the atom.
+#[allow(clippy::too_many_arguments)]
 fn inline_orbital(
     orbital: &mut Orbital,
     loader: &mut ExternalOrbitalLoader,
@@ -642,6 +705,12 @@ fn inline_orbital(
     pulled_names_sink: Option<&mut Vec<String>>,
     recorder: &mut Vec<ConfigProvenanceRecord>,
     config_diagnostics: &mut Vec<r#trait::TraitRefConfigDiagnostic>,
+    // Schema-level (app) declared `config {}` — the outermost §4.5 rung, for
+    // both `resolve_orbital_reference`'s config fold and (further down) the
+    // sibling-pull chain's fallback.
+    schema_config: Option<&HashMap<String, ConfigField>>,
+    orbital_ref_diagnostics: &mut Vec<orbital::OrbitalRefDiagnostic>,
+    uses_config_diagnostics: &mut Vec<orbital::UsesConfigDiagnostic>,
 ) -> Result<(), InlineError> {
     // Skip the import-loading + reference-substitution machinery when
     // the orbital has no `uses[]` declarations (e.g. an atom compiled
@@ -704,7 +773,7 @@ fn inline_orbital(
         // "Trait X not found in orbital Y". We now clone ALL orbitals and
         // stash them in the context, so `get_trait` / `get_page` /
         // `get_service` can iterate every orbital.
-        let (mut inlined_orbitals, loaded_source) = {
+        let (mut inlined_orbitals, loaded_source, loaded_schema_config) = {
             let loaded = loader.load(&use_decl.from, source_path, chain)?;
             if loaded.schema.orbitals.is_empty() {
                 // Defensive: a valid imported `.orb` always has at least one
@@ -712,8 +781,36 @@ fn inline_orbital(
                 // should be unreachable. Skip the alias rather than panic.
                 continue;
             }
-            (loaded.schema.orbitals.clone(), loaded.source_path.clone())
+            (
+                loaded.schema.orbitals.clone(),
+                loaded.source_path.clone(),
+                loaded.schema.config.clone(),
+            )
         };
+
+        // `uses A from "…" { config { … } }` — a call-site override of a
+        // knob the imported behavior's app-level `config {}` never declared
+        // is the JS twin's ORB_U_CONFIG_UNKNOWN_KEY (Almadar_Orbital_Import.md
+        // §4.5). Collected as a diagnostic (not a hard error) so the rest of
+        // this orbital still inlines; W4-R turns it into the validator code.
+        if let Some(overrides) = use_decl.config.as_ref() {
+            let unknown_keys: Vec<String> = overrides
+                .keys()
+                .filter(|k| {
+                    loaded_schema_config
+                        .as_ref()
+                        .is_none_or(|declared| !declared.contains_key(*k))
+                })
+                .cloned()
+                .collect();
+            if !unknown_keys.is_empty() {
+                uses_config_diagnostics.push(orbital::UsesConfigDiagnostic {
+                    path: format!("orbitals[name={}]", orbital.name),
+                    alias: use_decl.alias.clone(),
+                    unknown_keys,
+                });
+            }
+        }
 
         for inlined_orbital in &mut inlined_orbitals {
             inline_orbital(
@@ -725,6 +822,9 @@ fn inline_orbital(
                 None,
                 recorder,
                 config_diagnostics,
+                loaded_schema_config.as_ref(),
+                orbital_ref_diagnostics,
+                uses_config_diagnostics,
             )?;
         }
 
@@ -733,6 +833,22 @@ fn inline_orbital(
         // That is what the author wrote, so it is the actionable label when
         // a trait/page lookup fails.
         ctx.add_alias_multi(&use_decl.alias, inlined_orbitals, use_decl.from.clone());
+    }
+
+    // `orbital X = Alias.orbitals.Y { … }` — resolve AFTER every alias in
+    // this orbital's `uses` (including file-scope ones merged in above) is
+    // loaded, so `Alias` resolves through the SAME per-orbital `ctx` loop
+    // every other reference form uses, and BEFORE the entity-field auto-merge
+    // below (which reads `orbital.entity`/`orbital.traits` and must see the
+    // materialized ones, not the reference-form placeholder).
+    if let Some(reference) = orbital.reference.take() {
+        resolve_orbital_reference(
+            orbital,
+            &reference,
+            &ctx,
+            schema_config,
+            orbital_ref_diagnostics,
+        )?;
     }
 
     // ----------------------------------------------------------------
@@ -1224,6 +1340,8 @@ fn inline_orbital(
         &orbital_path_prefix,
         &entity_ids,
         recorder,
+        orbital.config.as_ref(),
+        schema_config,
     )?;
     orbital.traits = inlined_traits;
     config_diagnostics.extend(trait_config_diagnostics);
@@ -2173,6 +2291,8 @@ mod tests {
             domain_context: None,
             design: None,
             id: None,
+            reference: None,
+            config: None,
         }
     }
 
@@ -2220,7 +2340,7 @@ mod tests {
             modal_ref(None, Some("CartItem")),
         ];
 
-        let result = inline_traits(&traits, &ctx, "<test>", &HashMap::new(), &mut Vec::new());
+        let result = inline_traits(&traits, &ctx, "<test>", &HashMap::new(), &mut Vec::new(), None, None);
         match result {
             Err(InlineError::DuplicateTraitName { name, .. }) => {
                 assert_eq!(
@@ -2248,7 +2368,7 @@ mod tests {
         ];
 
         let (result, _rename_map, _aux, _pulled, _cfg_diags) =
-            inline_traits(&traits, &ctx, "<test>", &HashMap::new(), &mut Vec::new())
+            inline_traits(&traits, &ctx, "<test>", &HashMap::new(), &mut Vec::new(), None, None)
                 .expect("two distinct `name` overrides must inline successfully without collision");
         assert_eq!(result.len(), 2, "both references must be inlined");
 
@@ -2290,7 +2410,7 @@ mod tests {
         ];
 
         let (result, _rename_map, _aux, _pulled, _cfg_diags) =
-            inline_traits(&traits, &ctx, "<test>", &HashMap::new(), &mut Vec::new())
+            inline_traits(&traits, &ctx, "<test>", &HashMap::new(), &mut Vec::new(), None, None)
                 .expect("one renamed + one not-renamed must succeed (no name collision)");
         assert_eq!(result.len(), 2);
 
@@ -2318,7 +2438,7 @@ mod tests {
             modal_ref(None, None),
         ];
 
-        let result = inline_traits(&traits, &ctx, "<test>", &HashMap::new(), &mut Vec::new());
+        let result = inline_traits(&traits, &ctx, "<test>", &HashMap::new(), &mut Vec::new(), None, None);
         match result {
             Err(InlineError::DuplicateTraitName { name, .. }) => {
                 assert_eq!(name, "ModalRecordModal");
@@ -2383,6 +2503,8 @@ mod tests {
             domain_context: None,
             design: None,
             id: None,
+            reference: None,
+            config: None,
         }
     }
 
@@ -2607,6 +2729,8 @@ mod tests {
             domain_context: None,
             design: None,
             id: None,
+            reference: None,
+            config: None,
         }
     }
 
@@ -3933,6 +4057,8 @@ mod tests {
             domain_context: None,
             design: None,
             id: None,
+            reference: None,
+            config: None,
         };
 
         let canvas_page = PageDefinition {
@@ -3979,6 +4105,8 @@ mod tests {
             domain_context: None,
             design: None,
             id: None,
+            reference: None,
+            config: None,
         };
 
         let mut ctx = InlineContext::new();
@@ -4417,6 +4545,8 @@ mod tests {
             domain_context: None,
             design: None,
             id: None,
+            reference: None,
+            config: None,
         };
 
         let orb1 = Orbital {
@@ -4453,6 +4583,8 @@ mod tests {
             domain_context: None,
             design: None,
             id: None,
+            reference: None,
+            config: None,
         };
 
         let mut ctx = InlineContext::new();

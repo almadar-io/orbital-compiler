@@ -56,6 +56,8 @@ pub mod generic_types;
 pub mod icon;
 pub mod id_integrity;
 pub mod literal_default;
+pub mod orbital_config;
+pub mod orbital_ref_config;
 pub mod page;
 pub mod payload_field_name;
 pub mod produced_shape;
@@ -585,6 +587,11 @@ pub fn validate_comprehensive_full(
     // id-free `.orb`; errors on dangling/kind-mismatched/name-drifted id edges,
     // warns on stale ledger rows.
     id_integrity::validate_id_integrity(schema, &mut ctx);
+
+    // Phase 15: orbital-import declared config forwarding (ORB_O_CONFIG_DEAD_KNOB,
+    // Almadar_Orbital_Import.md §4.5). Post-inline so every trait in the
+    // flattened schema is visible as a candidate forwarder.
+    ctx.merge(orbital_config::validate_orbital_config_forwarding(schema));
 
     ctx.into_result()
 }

@@ -3062,6 +3062,8 @@ mod tests {
             domain_context: None,
             design: None,
             id: None,
+            reference: None,
+            config: None,
         }
     }
 
