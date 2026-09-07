@@ -678,6 +678,18 @@ pub struct EmbeddedPatternProp {
     /// renders blank rows. Enforced by `ORB_X_ENTITY_PROP_CONTRACT`.
     #[serde(rename = "requiredFields", default)]
     pub required_fields: Option<Vec<String>>,
+    /// `@payloadFor <sibling>` pairing read off THIS struct member (not an
+    /// enclosing prop — a struct member declared inside an array-item
+    /// interface, e.g. `FloatingToolbarItem.actionPayload`, has no parent
+    /// `ExtractedProp` to surface it on). Names a sibling key in this SAME
+    /// `properties` map, itself carrying `kind: "event"`. The render-ui
+    /// binding check (`check_callback_arg_schema`) uses this pair to derive
+    /// the correct expected type (`event` / `@payload(.sibling)`) instead of
+    /// falling back to `types.first()` ("string"/"object"), which produced a
+    /// false `ORB_RUI_EVENT_BINDING_PAYLOAD_MISMATCH` against the trait's
+    /// honestly-declared dependent type.
+    #[serde(rename = "payloadFor", default)]
+    pub payload_for: Option<String>,
 }
 
 /// A single pattern entry from `patterns-registry.json`.

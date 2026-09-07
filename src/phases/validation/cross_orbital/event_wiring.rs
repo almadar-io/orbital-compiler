@@ -1232,6 +1232,7 @@ mod tests {
                         properties: None,
                         required: None,
                         ref_id: None,
+                        forwarded_from: None,
                     },
                 )]
                 .into_iter()

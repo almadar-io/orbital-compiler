@@ -14,8 +14,8 @@
 //! - `"Alias.theme"` → Theme from aliased schema
 //! - `"Alias.services.ServiceName"` → Service by name from aliased orbital
 
-mod effect_row;
 mod context;
+mod effect_row;
 mod entity;
 mod event_id_hygiene;
 mod identity_normalize;
@@ -55,8 +55,10 @@ pub(crate) use r#trait::collect_sibling_trait_refs;
 pub use r#trait::TraitRefConfigDiagnostic;
 // Diagnostics collected while resolving `orbital X = Alias.orbitals.Y { … }`
 // references — re-exported so `phases::validation` (W4-R) can name them.
+use orbital::{
+    fold_declared_config_override, materialized_primary_entity, resolve_orbital_reference,
+};
 pub use orbital::{OrbitalRefDiagnostic, UsesConfigDiagnostic};
-use orbital::resolve_orbital_reference;
 use rewrite::{apply_inline_config_defaults, trait_ref_name};
 use service::inline_services;
 use splice::splice_lambda_trait_refs;
@@ -345,6 +347,54 @@ pub fn inline_schema_with_orbital_diagnostics(
     // checker over a second field on the same `schema`.
     let schema_config = schema.config.clone();
 
+    // Stage B: every CONSUMER orbital's own primary + auxiliary entity name
+    // → id, built ONCE here (before any orbital-reference resolves) so an
+    // `entities {}` remap can repoint a relation at an already-declared
+    // consumer entity and know its id. Only `EntityRef::Inline` entities
+    // count — a reference-form orbital's own (not-yet-resolved) placeholder
+    // entity is excluded by construction, which is exactly right: its real
+    // entity doesn't exist yet at this point, so it can't be a valid
+    // `entities {}` target anyway.
+    let mut consumer_entity_ids: HashMap<String, String> = schema
+        .orbitals
+        .iter()
+        .flat_map(|o| {
+            let primary = match &o.entity {
+                EntityRef::Inline(def) => Some((def.name.clone(), def.id.clone())),
+                _ => None,
+            };
+            let aux: Vec<(String, Option<String>)> = o
+                .auxiliary_entities
+                .iter()
+                .flatten()
+                .filter_map(|e| match e {
+                    EntityRef::Inline(def) => Some((def.name.clone(), def.id.clone())),
+                    _ => None,
+                })
+                .collect();
+            primary.into_iter().chain(aux)
+        })
+        .filter_map(|(name, id)| id.map(|id| (name, id)))
+        .collect();
+
+    // (B) fix: the build above excludes reference-form orbitals BY
+    // CONSTRUCTION (their real primary entity doesn't exist until THEY
+    // resolve), which made the approved two-import Project Friday shape
+    // order-dependent — orbital N's `entities {}` naming orbital M's own
+    // materialized primary only worked if M happened to already be inline.
+    // Add every reference-form orbital's OWN materialized primary name →
+    // derived id too, so `entities {}` targeting works ORDER-FREE across
+    // sibling imports in the same file. `extend` never overwrites an
+    // already-inline orbital's OWN entry (this schema's orbitals are either
+    // inline XOR reference-form, never both, so no name can collide with
+    // itself) — the shallow pre-pass below only ever adds NEW keys.
+    consumer_entity_ids.extend(precompute_reference_form_primary_ids(
+        schema,
+        &mut loader,
+        &mut chain,
+        source_path,
+    ));
+
     // Process each orbital, recording the names the auto-pull loop added and
     // the config→knob provenance for substituted render-ui props.
     let mut pulled_by_orbital: Vec<(usize, Vec<String>)> = Vec::new();
@@ -368,14 +418,35 @@ pub fn inline_schema_with_orbital_diagnostics(
             &mut provenance,
             diagnostics,
             schema_config.as_ref(),
+            &consumer_entity_ids,
             orbital_ref_diagnostics,
             uses_config_diagnostics,
+            Some(idx),
         ) {
             if first_error.is_none() {
                 first_error = Some(e);
             }
             continue;
         }
+        // Feed this orbital's now-final entity set — including any
+        // NO-REBIND sibling pull `inline_orbital` just merged into
+        // `orbital.auxiliary_entities` (a trait composed with no `-> X`
+        // override keeps the SOURCE atom's own bound entity, carried in
+        // verbatim with the atom's OWN id, e.g. `Audit.traits.
+        // AuditCaptureListener` pulling `AuditEntry`) — FORWARD into
+        // `consumer_entity_ids` for every orbital still to come. Without
+        // this, a LATER orbital composing the SAME entity NAME through a
+        // DIFFERENT atom with an EXPLICIT rebind (`Browse.traits.
+        // BrowseItemBrowse -> AuditEntry`, std-api-gateway's
+        // `GatewayUserOrbital.AuditBrowseList`) never finds "AuditEntry" in
+        // its own `entity_ids` snapshot (built once, before ANY orbital
+        // inlines) and keeps the rebind atom's foreign id
+        // (`ORB_ID_UNKNOWN_REF`) even though an EARLIER orbital in this same
+        // file already established the canonical id for that name. This
+        // orbital's own names still win within itself via
+        // `collect_orbital_entity_ids` layered on top inside
+        // `inline_orbital` — this only widens what LATER orbitals see.
+        consumer_entity_ids.extend(collect_orbital_entity_ids(orbital));
         // Increment 3-I (`docs/Almadar_LOLO.md` ~line 315/1387): now that this
         // orbital's traits are fully inlined — every `linkedEntity` rebind,
         // sibling-pull, and auxiliary-entity import resolved — monomorphize
@@ -395,6 +466,24 @@ pub fn inline_schema_with_orbital_diagnostics(
             pulled_by_orbital.push((idx, pulled));
         }
         if !provenance.is_empty() {
+            // Deterministic order: `record_config_provenance` walks each
+            // trait's render-ui pattern nodes (`HashMap<String,
+            // SExpression>` props) and config-default trees, so the order
+            // records land in `provenance` for one trait is a hash-iteration
+            // artifact — it can differ between runs even though the SET of
+            // `{trait, patternPath, prop, knob}` records is identical.
+            // Canonicalize once here, at the point `_metadata.configProvenance`
+            // is finalized for this orbital, rather than reordering the
+            // render-ui walker itself. (Found pre-existing — this recorder
+            // and its walk predate the orbital-import program.)
+            provenance.sort_by(|a, b| {
+                (&a.trait_name, &a.pattern_path, &a.prop, &a.knob).cmp(&(
+                    &b.trait_name,
+                    &b.pattern_path,
+                    &b.prop,
+                    &b.knob,
+                ))
+            });
             all_provenance.insert(orbital.name.clone(), provenance);
         }
     }
@@ -684,6 +773,56 @@ fn uniquify_cross_orbital_pulled_siblings(
     }
 }
 
+/// (B) fix: the materialized primary name → derived id of every
+/// REFERENCE-FORM orbital this schema declares (`orbital X = Alias.orbitals.Y
+/// { … }`), computed order-free — WITHOUT requiring any other orbital in
+/// `schema` to have resolved first, and without recursively inlining the
+/// upstream. Each reference's alias is loaded SHALLOWLY (`loader.load`,
+/// which caches by path — the REAL load `inline_orbital`'s own `uses` loop
+/// performs moments later is then a cache hit, no duplicate work) and its
+/// named orbital looked up directly in the loaded (un-inlined) schema: an
+/// upstream's OWN primary entity id/name never change through inline
+/// (zero-churn stamping — only a CONSUMER-side CLONE gets a fresh derived
+/// id), so the shallow load's `entity.id` is exactly what the real resolve
+/// pass would see too. Uses the SAME `materialized_primary_entity` pair
+/// `resolve_orbital_reference` computes for itself — one owner. Best-effort:
+/// a reference this pre-pass cannot resolve (unknown alias, malformed
+/// reference string, upstream orbital not found) is silently skipped here —
+/// the REAL `resolve_orbital_reference` call moments later still surfaces
+/// the actual `InlineError` for it.
+fn precompute_reference_form_primary_ids(
+    schema: &OrbitalSchema,
+    loader: &mut ExternalOrbitalLoader,
+    chain: &mut ImportChain,
+    source_path: Option<&Path>,
+) -> HashMap<String, String> {
+    let mut out: HashMap<String, String> = HashMap::new();
+    for orbital in &schema.orbitals {
+        let Some(reference) = orbital.reference.as_ref() else {
+            continue;
+        };
+        let Ok(ParsedReference::Orbital { alias, name }) = parse_reference(&reference.reference)
+        else {
+            continue;
+        };
+        let Some(use_decl) = orbital.uses.iter().flatten().find(|u| u.alias == alias) else {
+            continue;
+        };
+        let Ok(loaded) = loader.load(&use_decl.from, source_path, chain) else {
+            continue;
+        };
+        let Some(upstream) = loaded.schema.orbitals.iter().find(|o| o.name == name) else {
+            continue;
+        };
+        if let Some((primary_name, primary_id)) =
+            materialized_primary_entity(upstream, reference, &orbital.name)
+        {
+            out.insert(primary_name, primary_id);
+        }
+    }
+    out
+}
+
 /// Inline all references in an orbital.
 ///
 /// `is_top_level` distinguishes the consumer-facing entry call (true) from
@@ -709,8 +848,22 @@ fn inline_orbital(
     // both `resolve_orbital_reference`'s config fold and (further down) the
     // sibling-pull chain's fallback.
     schema_config: Option<&HashMap<String, ConfigField>>,
+    // Stage B: every consumer orbital's own primary + aux entity name → id,
+    // built once in `inline_schema_with_orbital_diagnostics` — threaded
+    // through recursive `inline_orbital` calls unchanged (an import's OWN
+    // `entities {}` remap still resolves against the TOP-LEVEL consumer's
+    // roster, since that is what "declares an entity for this name" means).
+    consumer_entity_ids: &HashMap<String, String>,
     orbital_ref_diagnostics: &mut Vec<orbital::OrbitalRefDiagnostic>,
     uses_config_diagnostics: &mut Vec<orbital::UsesConfigDiagnostic>,
+    // `.lolo` spans (Stage C): this orbital's index into the TOP-LEVEL
+    // `schema.orbitals` array (`Some` only when `is_top_level` — a
+    // recursively-inlined alias orbital lives in a different file's index
+    // space, so `None` there; `diag_path` falls back to the old
+    // `orbitals[name=X]` shape, unresolvable but not a regression since it
+    // never resolved before either). See `resolve_orbital_reference`'s own
+    // `orbital_index` doc.
+    orbital_index: Option<usize>,
 ) -> Result<(), InlineError> {
     // Skip the import-loading + reference-substitution machinery when
     // the orbital has no `uses[]` declarations (e.g. an atom compiled
@@ -750,6 +903,16 @@ fn inline_orbital(
     // import's own defaults would bake the value in and clobber the consumer's
     // override surface (the variation → base → consumer config-override path).
     ctx.defer_config_subst = !is_top_level;
+
+    // (A) fix: per-alias schema (app-level) config rung for `orbital X =
+    // Alias.orbitals.Y { … }` — the ALIAS's own loaded `config {}`, folded
+    // with THIS `uses Alias { config {…} }` call-site override. Built here,
+    // beside `ctx.add_alias_multi` below, so `resolve_orbital_reference`
+    // (called after the whole `uses` loop) can look it up by alias instead
+    // of receiving the CONSUMER's own top-level `schema_config` — a
+    // different file's app knobs entirely, which is what it was
+    // (incorrectly) receiving before.
+    let mut alias_schema_configs: HashMap<String, HashMap<String, ConfigField>> = HashMap::new();
 
     for use_decl in &uses {
         // Phase F.10: recursive composition. The loaded orbital may itself
@@ -804,12 +967,35 @@ fn inline_orbital(
                 .cloned()
                 .collect();
             if !unknown_keys.is_empty() {
+                // `.lolo` spans (Stage C): the digit-bracket indexed form
+                // `LoloSourceMap::normalize` accepts — see
+                // `resolve_orbital_reference`'s matching `diag_path` fix.
+                let path = match orbital_index {
+                    Some(i) => format!("orbitals[{i}]"),
+                    None => format!("orbitals[name={}]", orbital.name),
+                };
                 uses_config_diagnostics.push(orbital::UsesConfigDiagnostic {
-                    path: format!("orbitals[name={}]", orbital.name),
+                    path,
                     alias: use_decl.alias.clone(),
                     unknown_keys,
                 });
             }
+        }
+
+        // Fold this alias's OWN loaded app-config with its call-site
+        // override — the SAME fold `resolve_orbital_reference`'s own
+        // orbital-rung uses (`fold_declared_config_override`), one owner.
+        // `None` when the alias declares no app-level `config {}` at all
+        // (nothing to key), matching the prior `Option`-typed passthrough.
+        if let Some(mut folded) =
+            fold_declared_config_override(loaded_schema_config.as_ref(), use_decl.config.as_ref())
+        {
+            // A `uses Alias { config { k: @config.j } }` override FORWARDS the
+            // consumer's own app knob into the alias's app knob: take that
+            // last hop here (whole-string token only, provenance stamped) so
+            // the imported shells never see the literal token.
+            orbital::forward_consumer_app_knobs(&mut folded, schema_config);
+            alias_schema_configs.insert(use_decl.alias.clone(), folded);
         }
 
         for inlined_orbital in &mut inlined_orbitals {
@@ -823,8 +1009,10 @@ fn inline_orbital(
                 recorder,
                 config_diagnostics,
                 loaded_schema_config.as_ref(),
+                consumer_entity_ids,
                 orbital_ref_diagnostics,
                 uses_config_diagnostics,
+                None,
             )?;
         }
 
@@ -846,8 +1034,10 @@ fn inline_orbital(
             orbital,
             &reference,
             &ctx,
-            schema_config,
+            &alias_schema_configs,
+            consumer_entity_ids,
             orbital_ref_diagnostics,
+            orbital_index,
         )?;
     }
 
@@ -1323,8 +1513,18 @@ fn inline_orbital(
     // Consumer-scope entity name → dual-carry id map, so a `linkedEntity` rebind
     // rewrites the cloned trait's id sibling to the consumer's entity node (the
     // primary + any auxiliary entities declared on this orbital, all id-stamped
-    // by L1 before the compiler runs).
-    let entity_ids = collect_orbital_entity_ids(orbital);
+    // by L1 before the compiler runs). Widened with `consumer_entity_ids` (every
+    // SIBLING orbital's own primary+aux roster too, spanning the whole composed
+    // `.orb` file) — a trait's SECONDARY (non-`linked_entity`) positional
+    // reference can name an entity that lives in a DIFFERENT orbital of the
+    // same multi-orbital file (std-wiki: `RevisionOrbital`'s primary
+    // `WikiRevision`, not `DocumentOrbital`'s own aux — `WikiRevisionCapture`'s
+    // positional `persist create` target needs it to resolve via
+    // `consumer_known_entity_rebind_subs`). This orbital's OWN names win on
+    // collision — the more specific, authoritative view for entities actually
+    // declared here.
+    let mut entity_ids = consumer_entity_ids.clone();
+    entity_ids.extend(collect_orbital_entity_ids(orbital));
     let (
         inlined_traits,
         // V4: the returned name→name map was consumed only by the deleted
@@ -1342,6 +1542,7 @@ fn inline_orbital(
         recorder,
         orbital.config.as_ref(),
         schema_config,
+        &alias_schema_configs,
     )?;
     orbital.traits = inlined_traits;
     config_diagnostics.extend(trait_config_diagnostics);
@@ -2340,7 +2541,16 @@ mod tests {
             modal_ref(None, Some("CartItem")),
         ];
 
-        let result = inline_traits(&traits, &ctx, "<test>", &HashMap::new(), &mut Vec::new(), None, None);
+        let result = inline_traits(
+            &traits,
+            &ctx,
+            "<test>",
+            &HashMap::new(),
+            &mut Vec::new(),
+            None,
+            None,
+            &HashMap::new(),
+        );
         match result {
             Err(InlineError::DuplicateTraitName { name, .. }) => {
                 assert_eq!(
@@ -2367,9 +2577,17 @@ mod tests {
             modal_ref(Some("CartItemEditItem"), Some("CartItem")),
         ];
 
-        let (result, _rename_map, _aux, _pulled, _cfg_diags) =
-            inline_traits(&traits, &ctx, "<test>", &HashMap::new(), &mut Vec::new(), None, None)
-                .expect("two distinct `name` overrides must inline successfully without collision");
+        let (result, _rename_map, _aux, _pulled, _cfg_diags) = inline_traits(
+            &traits,
+            &ctx,
+            "<test>",
+            &HashMap::new(),
+            &mut Vec::new(),
+            None,
+            None,
+            &HashMap::new(),
+        )
+        .expect("two distinct `name` overrides must inline successfully without collision");
         assert_eq!(result.len(), 2, "both references must be inlined");
 
         let names: Vec<&str> = result
@@ -2409,9 +2627,17 @@ mod tests {
             modal_ref(None, Some("CartItem")),
         ];
 
-        let (result, _rename_map, _aux, _pulled, _cfg_diags) =
-            inline_traits(&traits, &ctx, "<test>", &HashMap::new(), &mut Vec::new(), None, None)
-                .expect("one renamed + one not-renamed must succeed (no name collision)");
+        let (result, _rename_map, _aux, _pulled, _cfg_diags) = inline_traits(
+            &traits,
+            &ctx,
+            "<test>",
+            &HashMap::new(),
+            &mut Vec::new(),
+            None,
+            None,
+            &HashMap::new(),
+        )
+        .expect("one renamed + one not-renamed must succeed (no name collision)");
         assert_eq!(result.len(), 2);
 
         let names: Vec<&str> = result
@@ -2438,7 +2664,16 @@ mod tests {
             modal_ref(None, None),
         ];
 
-        let result = inline_traits(&traits, &ctx, "<test>", &HashMap::new(), &mut Vec::new(), None, None);
+        let result = inline_traits(
+            &traits,
+            &ctx,
+            "<test>",
+            &HashMap::new(),
+            &mut Vec::new(),
+            None,
+            None,
+            &HashMap::new(),
+        );
         match result {
             Err(InlineError::DuplicateTraitName { name, .. }) => {
                 assert_eq!(name, "ModalRecordModal");

@@ -1000,18 +1000,48 @@ fn check_callback_arg_schema(
             }
             None => {}
             Some(nested) => {
-                // A prop with several `types` is a UNION, and the declared field
-                // only has to match ONE of them — taking `.first()` alone made
-                // the check depend on member ORDER, so the same union passed or
-                // failed by however the extractor happened to sort it.
-                let expected = prop.types.first().map(String::as_str).unwrap_or("string");
-                let compatible = if prop.types.len() > 1 {
-                    prop.types
-                        .iter()
-                        .any(|t| primitive_event_compat(&nested.field_type, t))
-                } else {
-                    primitive_event_compat(&nested.field_type, expected)
-                };
+                // A struct member typed the `EventKey` semantic alias
+                // (`FloatingToolbarItem.action`, `SwipeAction.event`) carries
+                // `kind: "event"` in the registry (mirrors a top-level prop's
+                // `kind`, but for a member with no parent `ExtractedProp` to
+                // surface it on) — the trait honestly declares it `event`,
+                // never the structural `string` `prop.types` alone would say.
+                // Likewise `payloadFor` on an `eventPayloadBrand` member
+                // means the trait declares the dependent `@payload(.<sibling>)`
+                // type, not the registry's structural `object`. Both bypass
+                // `prop.types` entirely — there is no primitive kind here to
+                // union-match.
+                let payload_for_expected =
+                    prop.payload_for.as_deref().map(|s| format!("@payload(.{s})"));
+                let (expected, compatible): (&str, bool) =
+                    if prop.kind.as_deref() == Some("event") {
+                        // `event`-typed IS structurally a string at the OIR/
+                        // runtime boundary (`FieldType::Event => OirType::
+                        // String`, `resolve.rs`) — plenty of pre-existing
+                        // traits legitimately declare the field plain
+                        // `string` rather than the `event` type tag. Accept
+                        // both; only a genuinely unrelated declared type is
+                        // a real mismatch.
+                        let declared = nested.field_type.trim_end_matches('!');
+                        ("event", declared == "event" || declared == "string")
+                    } else if let Some(expected) = payload_for_expected.as_deref() {
+                        (expected, nested.field_type.trim_end_matches('!') == expected)
+                    } else {
+                        // A prop with several `types` is a UNION, and the declared
+                        // field only has to match ONE of them — taking `.first()`
+                        // alone made the check depend on member ORDER, so the same
+                        // union passed or failed by however the extractor happened
+                        // to sort it.
+                        let expected = prop.types.first().map(String::as_str).unwrap_or("string");
+                        let compatible = if prop.types.len() > 1 {
+                            prop.types
+                                .iter()
+                                .any(|t| primitive_event_compat(&nested.field_type, t))
+                        } else {
+                            primitive_event_compat(&nested.field_type, expected)
+                        };
+                        (expected, compatible)
+                    };
                 if !compatible {
                     diagnostics.push(
                         ValidationError::error(

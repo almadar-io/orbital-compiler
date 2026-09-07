@@ -9,6 +9,8 @@ use orbital_core::schema::{
 use std::collections::HashSet;
 use thiserror::Error;
 
+use super::validation::page::validate_page_path_uniqueness;
+
 /// Validation error
 #[derive(Debug, Error)]
 pub enum ValidationError {
@@ -73,7 +75,6 @@ struct ValidationContext {
     errors: Vec<ValidationError>,
     entity_names: HashSet<String>,
     trait_names: HashSet<String>,
-    page_paths: HashSet<String>,
 }
 
 impl ValidationContext {
@@ -82,7 +83,6 @@ impl ValidationContext {
             errors: Vec::new(),
             entity_names: HashSet::new(),
             trait_names: HashSet::new(),
-            page_paths: HashSet::new(),
         }
     }
 
@@ -114,6 +114,16 @@ pub fn validate_schema(schema: &OrbitalSchema) -> Result<(), ValidationError> {
     // Second pass: validate each orbital
     for (i, orbital) in schema.orbitals.iter().enumerate() {
         validate_orbital(orbital, i, &mut ctx);
+    }
+
+    // Page-path uniqueness has ONE owner — `validation::page::validate_page_path_uniqueness`
+    // (param-shape normalized, `ORB_P_DUPLICATE_PATH`) — so this compile-time gate calls it
+    // too instead of keeping its own exact-string duplicate set.
+    for err in validate_page_path_uniqueness(schema).errors {
+        ctx.add_error(ValidationError::duplicate(
+            err.path,
+            format!("[{}] {}", err.code, err.message),
+        ));
     }
 
     ctx.into_result()
@@ -177,37 +187,24 @@ fn collect_names(schema: &OrbitalSchema, ctx: &mut ValidationContext) {
                 }
             }
         }
-
-        // Collect page paths (only for inline pages, not references)
-        if let Some(pages) = &orbital.pages {
-            for page_ref in pages {
-                if let Some(page) = page_ref.as_inline() {
-                    if !ctx.page_paths.insert(page.path.clone()) {
-                        ctx.add_error(ValidationError::duplicate(
-                            format!("orbitals.{}.pages", orbital.name),
-                            &page.path,
-                        ));
-                    }
-                }
-            }
-        }
     }
 
     // FINAL pass — expectation names. `expects entity X` / `expects identity X`
-    // / `expects page "/p/:id"` declare something this program does NOT
-    // provide: the consumer promises it, and the provider is checked at the
-    // link step once one supplies it (see `validation/expectations.rs`).
-    // Relation targets, `linkedEntity` bindings, fetch/persist entity args and
-    // navigate targets naming them are therefore legitimate here.
+    // declare something this program does NOT provide: the consumer promises
+    // it, and the provider is checked at the link step once one supplies it
+    // (see `validation/expectations.rs`). Relation targets, `linkedEntity`
+    // bindings, fetch/persist entity args and navigate targets naming them
+    // are therefore legitimate here.
     //
     // This runs LAST, after EVERY real declaration of every kind, and that
-    // ordering is the whole point: `entity_names` and `page_paths` are both a
-    // resolution set AND the thing a uniqueness check tests against, so an
-    // expectation seeded before a real declaration turns the declaration into
-    // a "duplicate" — a bug that depended only on orbital array order
-    // (SCAN-DUP-ENTITY-COMPOSE-1 for entities; reintroduced and caught for
-    // pages the moment `expects page` seeded before the page loop). NAMES
-    // ONLY: nothing is synthesized, and nothing here can ever error.
+    // ordering is the whole point: `entity_names` is both a resolution set
+    // AND the thing a uniqueness check tests against, so an expectation
+    // seeded before a real declaration turns the declaration into a
+    // "duplicate" — a bug that depended only on orbital array order
+    // (SCAN-DUP-ENTITY-COMPOSE-1). NAMES ONLY: nothing is synthesized, and
+    // nothing here can ever error. `expects page` needs no entry here —
+    // page-path uniqueness (`validate_page_path_uniqueness`) never
+    // considers `expects` declarations at all, only real `pages {}` entries.
     for orbital in &schema.orbitals {
         for expectation in orbital.expects.iter().flatten() {
             match expectation {
@@ -218,9 +215,6 @@ fn collect_names(schema: &OrbitalSchema, ctx: &mut ValidationContext) {
                     name: Some(name), ..
                 } => {
                     ctx.entity_names.insert(name.clone());
-                }
-                ExpectDeclaration::Page { path } => {
-                    ctx.page_paths.insert(path.clone());
                 }
                 _ => {}
             }
@@ -938,6 +932,52 @@ mod tests {
         assert!(
             ctx.errors.is_empty(),
             "Expected no errors when CANCEL transition exists"
+        );
+    }
+
+    /// B3-R convergence: this compile-time gate no longer keeps its own
+    /// exact-string page-path set — it calls the SAME
+    /// `validate_page_path_uniqueness` owner `orb validate` uses. Proof: a
+    /// PARAM-SHAPE collision (`/x/:id` vs `/x/:slug`, no exact string match)
+    /// — which the old exact-only check would have missed entirely — must
+    /// still fail `validate_schema`, and the error text must carry the
+    /// shared owner's code.
+    #[test]
+    fn duplicate_page_path_is_caught_via_the_shared_page_path_owner() {
+        let schema: OrbitalSchema = serde_json::from_value(serde_json::json!({
+            "name": "test-validate-page-path",
+            "version": "1.0.0",
+            "orbitals": [{
+                "name": "WidgetOrbital",
+                "entity": {
+                    "name": "Widget",
+                    "persistence": "persistent",
+                    "fields": [{ "name": "id", "type": "string", "required": true }]
+                },
+                "traits": [{
+                    "name": "WidgetView",
+                    "linkedEntity": "Widget",
+                    "category": "interaction",
+                    "stateMachine": {
+                        "states": [{ "name": "idle", "isInitial": true }],
+                        "events": [{ "key": "OPEN" }],
+                        "transitions": [{ "from": "idle", "to": "idle", "event": "OPEN", "effects": [] }]
+                    }
+                }],
+                "pages": [
+                    { "name": "ByIdPage", "path": "/x/:id", "traits": [{ "ref": "WidgetView" }] },
+                    { "name": "BySlugPage", "path": "/x/:slug", "traits": [{ "ref": "WidgetView" }] }
+                ]
+            }]
+        }))
+        .expect("fixture must deserialize");
+
+        let err =
+            validate_schema(&schema).expect_err("param-shape collision must fail validate_schema");
+        let message = err.to_string();
+        assert!(
+            message.contains("ORB_P_DUPLICATE_PATH"),
+            "compile-time gate must surface the shared owner's code, got: {message}"
         );
     }
 }

@@ -2,8 +2,8 @@
 
 use super::InlineError;
 use orbital_core::schema::{
-    EntityDefinition, EntityRef, ExpectDeclaration, Orbital, PageRef, PayloadField, ServiceRef,
-    ThemeRef, TraitReference,
+    ConfigField, EntityDefinition, EntityRef, ExpectDeclaration, Orbital, PageRef, PayloadField,
+    ServiceRef, ThemeRef, TraitReference,
 };
 use std::collections::{BTreeMap, HashMap};
 
@@ -379,6 +379,25 @@ impl InlineContext {
             EntityRef::Inline(e) => Some(e.clone()),
             _ => None,
         }
+    }
+
+    /// §B4-R5: the declared `config {}` of the orbital that OWNS an imported
+    /// trait — the rung a `Alias.traits.X` reference falls through to when
+    /// neither the consumer's embedder chain nor its own `orbital.config`
+    /// resolves one of the trait's `@config.<knob>` forwards. Mirrors
+    /// `get_expects_for_trait_orbital`/`get_types_for_trait_orbital`: same
+    /// orbital-matching rules (`trait_ref_id` first, then the name scan),
+    /// same shared `find_orbital_for_trait` lookup — one owner for "which
+    /// orbital declares this trait".
+    pub(crate) fn get_orbital_config_for_trait(
+        &self,
+        alias: &str,
+        trait_name: &str,
+        trait_ref_id: Option<&str>,
+    ) -> Option<HashMap<String, ConfigField>> {
+        let entry = self.aliases.get(alias)?;
+        let (orbital, _) = Self::find_orbital_for_trait(entry, trait_name, trait_ref_id)?;
+        orbital.config.clone()
     }
 
     /// Locate the orbital under `entry` that carries `trait_name` and the

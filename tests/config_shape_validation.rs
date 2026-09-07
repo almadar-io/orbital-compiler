@@ -240,6 +240,7 @@ fn good_array_of_metricspec_passes() {
             properties: None,
             required: None,
             ref_id: None,
+            forwarded_from: None,
         },
     );
     let schema = schema_with_config(config);
@@ -272,6 +273,7 @@ fn string_value_where_number_expected_fails() {
             properties: None,
             required: None,
             ref_id: None,
+            forwarded_from: None,
         },
     );
     let schema = schema_with_config(config);
@@ -348,6 +350,7 @@ fn bare_string_in_array_of_objects_fails() {
             properties: None,
             required: None,
             ref_id: None,
+            forwarded_from: None,
         },
     );
     let schema = schema_with_config(config);
@@ -380,6 +383,7 @@ fn missing_required_field_fails() {
             properties: None,
             required: None,
             ref_id: None,
+            forwarded_from: None,
         },
     );
     let schema = schema_with_config(config);
@@ -421,6 +425,7 @@ fn enum_value_outside_allowed_set_fails() {
             properties: None,
             required: None,
             ref_id: None,
+            forwarded_from: None,
         },
     );
     let schema = schema_with_config(config);
@@ -462,6 +467,7 @@ fn binding_strings_pass_the_check() {
             properties: None,
             required: None,
             ref_id: None,
+            forwarded_from: None,
         },
     );
     let schema = schema_with_config(config);
@@ -505,6 +511,7 @@ fn computed_sexpr_call_for_array_items_defers() {
             properties: None,
             required: None,
             ref_id: None,
+            forwarded_from: None,
         },
     );
     let schema = schema_with_config(config);
@@ -549,6 +556,7 @@ fn computed_sexpr_call_nested_in_object_property_defers() {
             properties: None,
             required: None,
             ref_id: None,
+            forwarded_from: None,
         },
     );
     let schema = schema_with_config(config);
@@ -618,6 +626,7 @@ fn literal_wrong_shape_still_errors_alongside_computed_defer() {
             properties: None,
             required: None,
             ref_id: None,
+            forwarded_from: None,
         },
     );
     let schema = schema_with_config(config);
@@ -647,6 +656,7 @@ fn array_typed_slot_with_scalar_default_fails() {
             properties: None,
             required: None,
             ref_id: None,
+            forwarded_from: None,
         },
     );
     let schema = schema_with_config(config);
@@ -679,6 +689,7 @@ fn number_on_a_name_carrying_scalar_tag_fails() {
                 properties: None,
                 required: None,
                 ref_id: None,
+                forwarded_from: None,
             },
         );
         let schema = schema_with_config(config);
@@ -712,6 +723,7 @@ fn string_and_null_on_a_name_carrying_scalar_tag_pass() {
                 properties: None,
                 required: None,
                 ref_id: None,
+                forwarded_from: None,
             },
         );
         let schema = schema_with_config(config);
@@ -742,6 +754,7 @@ fn non_number_on_int_or_float_fails() {
                 properties: None,
                 required: None,
                 ref_id: None,
+                forwarded_from: None,
             },
         );
         let schema = schema_with_config(config);
@@ -789,6 +802,7 @@ fn map_knob(default: SExpression) -> OrbitalSchema {
             properties: None,
             required: None,
             ref_id: None,
+            forwarded_from: None,
         },
     );
     schema_with_config(config)
@@ -868,6 +882,7 @@ fn an_array_type_merely_starting_with_map_is_not_treated_as_a_map() {
             properties: None,
             required: None,
             ref_id: None,
+            forwarded_from: None,
         },
     );
     let schema = schema_with_config(config);
@@ -891,6 +906,7 @@ fn scalar_knob(default: SExpression) -> OrbitalSchema {
             properties: None,
             required: None,
             ref_id: None,
+            forwarded_from: None,
         },
     );
     schema_with_config(config)
@@ -970,6 +986,7 @@ fn map_of_scalar_accepts_mixed_primitive_values_but_not_nesting() {
             properties: None,
             required: None,
             ref_id: None,
+            forwarded_from: None,
         },
     );
     let schema = schema_with_config(config);
@@ -997,6 +1014,7 @@ fn map_of_scalar_accepts_mixed_primitive_values_but_not_nesting() {
             properties: None,
             required: None,
             ref_id: None,
+            forwarded_from: None,
         },
     );
     let schema2 = schema_with_config(config2);

@@ -364,7 +364,6 @@ fn field_type_to_string(field_type: &FieldType) -> String {
         FieldType::Node => "node".to_string(),
         FieldType::Event => "event".to_string(),
         FieldType::Scalar => "scalar".to_string(),
-        FieldType::Opaque => "opaque".to_string(),
         FieldType::Union => "union".to_string(),
     }
 }

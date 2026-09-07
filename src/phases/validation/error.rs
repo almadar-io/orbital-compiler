@@ -205,6 +205,34 @@ pub enum ErrorCode {
     /// forwards (`config[*].default == "@config.<knob>"`) — dead: nothing
     /// publishes it, so no call site can ever reach it.
     OrbitalConfigDeadKnob,
+    /// An `orbital X = Alias.orbitals.Y { roles { … } } }` target is not a
+    /// member of the CONSUMER roster's vocabulary (`identity_entities` on the
+    /// importing schema, post-inline).
+    OrbitalRefRoleTargetNotMember,
+    /// An `orbital X = Alias.orbitals.Y { roles { … } } }` key names no
+    /// value in any UPSTREAM identity field's vocabulary (or the upstream
+    /// alias declares no roster at all).
+    OrbitalRefRoleUnknownUpstream,
+    /// A kept trait/relation/page references an out-of-orbital entity that
+    /// `obj.entities {}` never maps — the import splice has nothing to
+    /// rebind it to.
+    OrbitalRefEntityUnmapped,
+    /// An `obj.entities {}` key names no entity in the upstream closure's
+    /// out-of-orbital universe.
+    OrbitalRefEntityUnknownKey,
+    /// An `obj.entities {}` value names no entity the consumer schema
+    /// declares.
+    OrbitalRefEntityTargetUnknown,
+    /// An `obj.pages {}` / `obj.mounts {}` key names no page path the
+    /// imported orbital declares.
+    OrbitalRefPageUnknownPath,
+    /// An `orbital X = Alias.orbitals.Y { extend { … } } }` field name is
+    /// already declared on the upstream primary entity (after `fields {}`
+    /// renames), or equals a `fields {}` rename TARGET (Stage C).
+    OrbitalRefExtendFieldCollision,
+    /// An `extend { … }` field no kept trait reads/sets/renders and no
+    /// orbital-level config knob value forwards (Stage C, warning — rung 2).
+    OrbitalRefExtendFieldUnread,
     /// Static sections are forbidden (use render_ui)
     PageSectionsForbidden,
     /// Invalid trait reference on page
@@ -514,6 +542,12 @@ pub enum ErrorCode {
     /// operator `return_semantics` lattice; an unknowable result (`Json`) never
     /// rejects (Gap G-LOLO-SET-OP-RETURN).
     SetReturnTypeMismatch,
+    /// `(set @entity.X @config.<knob>)` where the value is STILL the literal
+    /// `@config.<knob>` token post-inline (no default resolved it, no
+    /// call-site override supplied one) and `X` is a REQUIRED entity field.
+    /// The emitter has nothing honest to assign — a required TS slot gets
+    /// `undefined`. Give the knob a default or make the field optional.
+    SetRequiredFieldFromOptionalKnob,
     /// `(emit EVT {...})` literal payload is missing a field the event's
     /// declared payload marks as required. Error severity.
     EmitPayloadMissingRequired,
@@ -887,6 +921,14 @@ impl ErrorCode {
             ErrorCode::OrbitalRefConfigUnknownKey => "ORB_O_CONFIG_UNKNOWN_KEY",
             ErrorCode::OrbitalRefOmitEmbeddedTrait => "ORB_O_OMIT_EMBEDDED_TRAIT",
             ErrorCode::OrbitalConfigDeadKnob => "ORB_O_CONFIG_DEAD_KNOB",
+            ErrorCode::OrbitalRefRoleTargetNotMember => "ORB_O_ROLE_TARGET_NOT_MEMBER",
+            ErrorCode::OrbitalRefRoleUnknownUpstream => "ORB_O_ROLE_UNKNOWN_UPSTREAM",
+            ErrorCode::OrbitalRefEntityUnmapped => "ORB_O_ENTITY_UNMAPPED",
+            ErrorCode::OrbitalRefEntityUnknownKey => "ORB_O_ENTITY_UNKNOWN_KEY",
+            ErrorCode::OrbitalRefEntityTargetUnknown => "ORB_O_ENTITY_TARGET_UNKNOWN",
+            ErrorCode::OrbitalRefPageUnknownPath => "ORB_O_PAGE_UNKNOWN_PATH",
+            ErrorCode::OrbitalRefExtendFieldCollision => "ORB_O_EXTEND_FIELD_COLLISION",
+            ErrorCode::OrbitalRefExtendFieldUnread => "ORB_O_EXTEND_FIELD_UNREAD",
             ErrorCode::PageSectionsForbidden => "ORB_P_SECTIONS_FORBIDDEN",
             ErrorCode::PageInvalidTraitRef => "ORB_P_INVALID_TRAIT_REF",
             ErrorCode::PageInvalidViewType => "ORB_P_INVALID_VIEW_TYPE",
@@ -996,6 +1038,9 @@ impl ErrorCode {
             ErrorCode::SetValueTypeMismatch => "ORB_X_SET_VALUE_TYPE_MISMATCH",
             ErrorCode::EnumValueNotMember => "ORB_X_ENUM_VALUE_NOT_MEMBER",
             ErrorCode::SetReturnTypeMismatch => "ORB_X_SET_RETURN_TYPE_MISMATCH",
+            ErrorCode::SetRequiredFieldFromOptionalKnob => {
+                "ORB_X_SET_REQUIRED_FIELD_FROM_OPTIONAL_KNOB"
+            }
             ErrorCode::EmitPayloadMissingRequired => "ORB_EMIT_PAYLOAD_MISSING_REQUIRED",
             ErrorCode::EmitPayloadExtraField => "ORB_EMIT_PAYLOAD_EXTRA_FIELD",
             ErrorCode::EmitPayloadFieldTypeMismatch => "ORB_EMIT_PAYLOAD_FIELD_TYPE_MISMATCH",
@@ -1157,6 +1202,14 @@ impl ErrorCode {
             | ErrorCode::OrbitalRefConfigUnknownKey
             | ErrorCode::OrbitalRefOmitEmbeddedTrait
             | ErrorCode::OrbitalConfigDeadKnob
+            | ErrorCode::OrbitalRefRoleTargetNotMember
+            | ErrorCode::OrbitalRefRoleUnknownUpstream
+            | ErrorCode::OrbitalRefEntityUnmapped
+            | ErrorCode::OrbitalRefEntityUnknownKey
+            | ErrorCode::OrbitalRefEntityTargetUnknown
+            | ErrorCode::OrbitalRefPageUnknownPath
+            | ErrorCode::OrbitalRefExtendFieldCollision
+            | ErrorCode::OrbitalRefExtendFieldUnread
             | ErrorCode::PageSectionsForbidden
             | ErrorCode::PageInvalidTraitRef
             | ErrorCode::PageInvalidViewType => "page",
@@ -1210,6 +1263,7 @@ impl ErrorCode {
             | ErrorCode::SetValueTypeMismatch
             | ErrorCode::EnumValueNotMember
             | ErrorCode::SetReturnTypeMismatch
+            | ErrorCode::SetRequiredFieldFromOptionalKnob
             | ErrorCode::EmitDeclaredButUnfired
             | ErrorCode::EmitConfigRefInvalid => "effect",
 

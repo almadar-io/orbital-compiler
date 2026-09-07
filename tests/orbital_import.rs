@@ -199,7 +199,11 @@ fn trait_names(schema: &OrbitalSchema, orbital_idx: usize) -> Vec<String> {
         .collect()
 }
 
-fn find_trait<'a>(schema: &'a OrbitalSchema, orbital_idx: usize, name: &str) -> &'a orbital_core::schema::TraitDefinition {
+fn find_trait<'a>(
+    schema: &'a OrbitalSchema,
+    orbital_idx: usize,
+    name: &str,
+) -> &'a orbital_core::schema::TraitDefinition {
     schema.orbitals[orbital_idx]
         .traits
         .iter()
@@ -216,7 +220,11 @@ fn after_inline_no_orbital_carries_reference() {
     assert!(
         schema.orbitals.iter().all(|o| o.reference.is_none()),
         "reference must be cleared by inline: {:?}",
-        schema.orbitals.iter().map(|o| o.reference.is_some()).collect::<Vec<_>>()
+        schema
+            .orbitals
+            .iter()
+            .map(|o| o.reference.is_some())
+            .collect::<Vec<_>>()
     );
 }
 
@@ -224,9 +232,18 @@ fn after_inline_no_orbital_carries_reference() {
 fn unconditional_prefix_renames_every_trait_and_entity() {
     let schema = inline_consumer();
     let names = trait_names(&schema, 0);
-    assert!(names.contains(&"FirstImportThingList".to_string()), "{names:?}");
-    assert!(names.contains(&"FirstImportThingDetail".to_string()), "{names:?}");
-    assert!(!names.iter().any(|n| n == "ThingList" || n == "ThingDetail"), "{names:?}");
+    assert!(
+        names.contains(&"FirstImportThingList".to_string()),
+        "{names:?}"
+    );
+    assert!(
+        names.contains(&"FirstImportThingDetail".to_string()),
+        "{names:?}"
+    );
+    assert!(
+        !names.iter().any(|n| n == "ThingList" || n == "ThingDetail"),
+        "{names:?}"
+    );
 
     let EntityRef::Inline(entity) = &schema.orbitals[0].entity else {
         panic!("primary entity must be inline");
@@ -236,7 +253,9 @@ fn unconditional_prefix_renames_every_trait_and_entity() {
         .auxiliary_entities
         .as_ref()
         .expect("aux entities carried");
-    assert!(aux.iter().any(|e| matches!(e, EntityRef::Inline(d) if d.name == "FirstImportThingTag")));
+    assert!(aux
+        .iter()
+        .any(|e| matches!(e, EntityRef::Inline(d) if d.name == "FirstImportThingTag")));
 }
 
 #[test]
@@ -246,8 +265,14 @@ fn entity_rebind_and_fields_override_rewrite_field_tokens() {
         panic!("primary entity must be inline");
     };
     // `fields { title: heading }` renamed the entity's own field key.
-    assert!(entity.fields.iter().any(|f| f.name.as_deref() == Some("heading")));
-    assert!(!entity.fields.iter().any(|f| f.name.as_deref() == Some("title")));
+    assert!(entity
+        .fields
+        .iter()
+        .any(|f| f.name.as_deref() == Some("heading")));
+    assert!(!entity
+        .fields
+        .iter()
+        .any(|f| f.name.as_deref() == Some("title")));
 }
 
 #[test]
@@ -273,8 +298,15 @@ fn listen_source_orbital_kind_is_rewritten_to_the_local_orbital() {
     let listens = list.listens.as_ref().expect("listens carried");
     let source = listens[0].source.as_ref().expect("source");
     match source {
-        ListenSource::Orbital { orbital, trait_name, .. } => {
-            assert_eq!(orbital, "FirstImport", "orbital must be renamed to the LOCAL orbital");
+        ListenSource::Orbital {
+            orbital,
+            trait_name,
+            ..
+        } => {
+            assert_eq!(
+                orbital, "FirstImport",
+                "orbital must be renamed to the LOCAL orbital"
+            );
             assert_eq!(trait_name, "FirstImportThingDetail");
         }
         other => panic!("expected ListenSource::Orbital, got {other:?}"),
@@ -308,15 +340,16 @@ fn pages_remap_and_navigate_targets_rewrite_all_forms() {
                 _ => None,
             })
             .collect();
-        assert!(refs.iter().all(|r| r.starts_with("FirstImport")), "{refs:?}");
+        assert!(
+            refs.iter().all(|r| r.starts_with("FirstImport")),
+            "{refs:?}"
+        );
     }
 
     // Bare-string navigate literal on ThingList: "/things/:id" -> "/local-things/:id".
     let list = find_trait(&schema, 0, "FirstImportThingList");
-    let list_effects = serde_json::to_string(
-        list.state_machine.transitions[0].effects.as_ref().unwrap(),
-    )
-    .unwrap();
+    let list_effects =
+        serde_json::to_string(list.state_machine.transitions[0].effects.as_ref().unwrap()).unwrap();
     assert!(list_effects.contains("/local-things/:id"), "{list_effects}");
     assert!(!list_effects.contains("\"/things/:id\""), "{list_effects}");
 
@@ -324,10 +357,16 @@ fn pages_remap_and_navigate_targets_rewrite_all_forms() {
     // rewritten against the ":id"-stripped page-path map.
     let detail = find_trait(&schema, 0, "FirstImportThingDetail");
     let detail_effects = serde_json::to_string(
-        detail.state_machine.transitions[0].effects.as_ref().unwrap(),
+        detail.state_machine.transitions[0]
+            .effects
+            .as_ref()
+            .unwrap(),
     )
     .unwrap();
-    assert!(detail_effects.contains("/local-things/"), "{detail_effects}");
+    assert!(
+        detail_effects.contains("/local-things/"),
+        "{detail_effects}"
+    );
     assert!(!detail_effects.contains("/things/"), "{detail_effects}");
 }
 
@@ -359,10 +398,22 @@ fn two_imports_of_one_upstream_are_disjoint_by_name_and_id() {
     let schema = inline_consumer();
     let first_names = trait_names(&schema, 0);
     let second_names = trait_names(&schema, 1);
-    assert!(second_names.contains(&"SecondImportThingList".to_string()), "{second_names:?}");
-    assert!(second_names.contains(&"SecondImportThingDetail".to_string()), "{second_names:?}");
-    let overlap: Vec<&String> = first_names.iter().filter(|n| second_names.contains(n)).collect();
-    assert!(overlap.is_empty(), "trait names must be disjoint: {overlap:?}");
+    assert!(
+        second_names.contains(&"SecondImportThingList".to_string()),
+        "{second_names:?}"
+    );
+    assert!(
+        second_names.contains(&"SecondImportThingDetail".to_string()),
+        "{second_names:?}"
+    );
+    let overlap: Vec<&String> = first_names
+        .iter()
+        .filter(|n| second_names.contains(n))
+        .collect();
+    assert!(
+        overlap.is_empty(),
+        "trait names must be disjoint: {overlap:?}"
+    );
 
     let first_list = find_trait(&schema, 0, "FirstImportThingList");
     let second_list = find_trait(&schema, 1, "SecondImportThingList");
@@ -378,7 +429,10 @@ fn two_imports_of_one_upstream_are_disjoint_by_name_and_id() {
     let EntityRef::Inline(second_entity) = &schema.orbitals[1].entity else {
         panic!("primary entity must be inline")
     };
-    assert_ne!(first_entity.id, second_entity.id, "entity ids must also be disjoint per import");
+    assert_ne!(
+        first_entity.id, second_entity.id,
+        "entity ids must also be disjoint per import"
+    );
 
     // The bare (non-overridden) second import must ALSO get the pageSize
     // default forwarded — from the UPSTREAM declared config this time
@@ -446,7 +500,10 @@ fn identity_aux_entity_survives_materialization_as_identity() {
             _ => None,
         })
         .expect("FirstImportThingOwner aux entity carried");
-    assert!(owner.identity, "identity flag must survive the rename untouched");
+    assert!(
+        owner.identity,
+        "identity flag must survive the rename untouched"
+    );
 }
 
 /// Gap (B): `ThingDetail`'s `sourceEntityDefinition` names the pre-rename
@@ -475,7 +532,10 @@ fn source_entity_definition_is_renamed_to_match_the_renamed_linked_entity() {
         .iter()
         .find(|f| f.name.as_deref() == Some("parentId"))
         .expect("source copy carries its own parentId relation field");
-    assert_eq!(parent_id.relation.as_ref().map(|r| r.entity.as_str()), Some("FirstImportThing"));
+    assert_eq!(
+        parent_id.relation.as_ref().map(|r| r.entity.as_str()),
+        Some("FirstImportThing")
+    );
 }
 
 /// Gap (C): the LOCAL placeholder orbital's own `id` (stamped by the
@@ -575,10 +635,18 @@ fn page_names(schema: &OrbitalSchema, orbital_idx: usize) -> Vec<String> {
 fn materialized_page_name_is_prefixed_with_local_orbital_name() {
     let schema = inline_consumer();
     let names = page_names(&schema, 0);
-    assert!(names.contains(&"FirstImportThingListPage".to_string()), "{names:?}");
-    assert!(names.contains(&"FirstImportThingDetailPage".to_string()), "{names:?}");
     assert!(
-        !names.iter().any(|n| n == "ThingListPage" || n == "ThingDetailPage"),
+        names.contains(&"FirstImportThingListPage".to_string()),
+        "{names:?}"
+    );
+    assert!(
+        names.contains(&"FirstImportThingDetailPage".to_string()),
+        "{names:?}"
+    );
+    assert!(
+        !names
+            .iter()
+            .any(|n| n == "ThingListPage" || n == "ThingDetailPage"),
         "{names:?}"
     );
 }
@@ -651,7 +719,11 @@ fn two_imports_of_one_upstream_produce_distinct_page_ids() {
     let mut all: Vec<&String> = first.iter().chain(second.iter()).collect();
     all.sort();
     all.dedup();
-    assert_eq!(all.len(), first.len() + second.len(), "page ids must be unique within an import too");
+    assert_eq!(
+        all.len(),
+        first.len() + second.len(),
+        "page ids must be unique within an import too"
+    );
 }
 
 /// Embedder-forward-through-splice fixture (std-browse's `MasterListView`
@@ -734,7 +806,8 @@ const CONFIG_FORWARD_CONSUMER: &str = r#"{
 #[test]
 fn config_forward_resolves_against_embedder_through_orbital_import() {
     let dir = tempfile::TempDir::new().expect("temp dir");
-    std::fs::write(dir.path().join("upstream.orb"), CONFIG_FORWARD_UPSTREAM).expect("write upstream");
+    std::fs::write(dir.path().join("upstream.orb"), CONFIG_FORWARD_UPSTREAM)
+        .expect("write upstream");
     let consumer_path = dir.path().join("consumer.orb");
     std::fs::write(&consumer_path, CONFIG_FORWARD_CONSUMER).expect("write consumer");
 
@@ -749,7 +822,9 @@ fn config_forward_resolves_against_embedder_through_orbital_import() {
             .as_ref()
             .and_then(|c| c.get("itemClickEvent"))
             .and_then(|f| f.default.clone()),
-        Some(orbital_core::schema::SExpression::String("VIEW".to_string())),
+        Some(orbital_core::schema::SExpression::String(
+            "VIEW".to_string()
+        )),
         "config forward must resolve against the embedder (Embedder), not stay the raw \
          @config.itemClickEvent token"
     );
@@ -764,4 +839,279 @@ fn config_forward_resolves_against_embedder_through_orbital_import() {
         "the state-machine event key (Option B definer) must resolve end-to-end to the \
          embedder-forwarded literal, not stay @config.itemClickEvent"
     );
+}
+
+// ============================================================================
+// Stage B: roles / entities / mounts+siblings / page-forward-ordering,
+// proven through the REAL multi-orbital `uses` loader (not
+// `InlineContext::add_alias_multi` directly, as the white-box tests in
+// `orbital.rs` use) — a separate upstream/consumer pair (mirrors the
+// `CONFIG_FORWARD_UPSTREAM`/`CONFIG_FORWARD_CONSUMER` pattern above) rather
+// than growing `UPSTREAM`/`CONSUMER`, so the ~20 pre-existing assertions
+// above stay byte-for-byte unaffected by Stage B's new vocabulary.
+// ============================================================================
+
+/// Two orbitals under one alias: `MainOrbital` (primary `Widget`, aux
+/// identity `WidgetOwner` with a `role` vocabulary) relates to `Other` —
+/// declared by the SECOND orbital, `OtherOrbital`, of the SAME upstream
+/// file/alias (the "out-of-orbital" shape `entities {}` remaps). `MainView`
+/// forwards the orbital's `navItemsForward` knob (page-path-rewrite-after-
+/// forward) and its `LOAD` guard carries a role-literal comparison.
+const STAGE_B_UPSTREAM: &str = r#"{
+  "name": "test-orbital-import-stage-b-upstream",
+  "version": "1.0.0",
+  "orbitals": [
+    {
+      "name": "MainOrbital",
+      "config": {
+        "navItemsForward": { "type": "array", "default": [ { "href": "/main", "label": "Main" } ] }
+      },
+      "entity": {
+        "name": "Widget",
+        "persistence": "persistent",
+        "fields": [
+          { "name": "id", "type": "string", "required": true },
+          { "name": "otherId", "type": "relation", "relation": { "entity": "Other", "cardinality": "one" } }
+        ]
+      },
+      "auxiliaryEntities": [
+        {
+          "name": "WidgetOwner",
+          "identity": true,
+          "persistence": "persistent",
+          "fields": [
+            { "name": "id", "type": "string", "required": true },
+            { "name": "role", "type": "string", "values": ["employee", "approver"] }
+          ]
+        }
+      ],
+      "traits": [
+        {
+          "name": "MainView",
+          "linkedEntity": "Widget",
+          "category": "interaction",
+          "config": {
+            "navItemsViaForward": { "type": "array", "default": "@config.navItemsForward" }
+          },
+          "stateMachine": {
+            "states": [ { "name": "idle", "isInitial": true } ],
+            "events": [ { "key": "LOAD" } ],
+            "transitions": [
+              {
+                "from": "idle", "to": "idle", "event": "LOAD",
+                "guard": ["=", "@user.role", "approver"],
+                "effects": [ ["fetch", "Other", {}] ]
+              }
+            ]
+          }
+        }
+      ],
+      "pages": [
+        { "name": "MainPage", "path": "/main", "primaryEntity": "Widget", "traits": [ { "ref": "MainView" } ] }
+      ]
+    },
+    {
+      "name": "OtherOrbital",
+      "entity": {
+        "name": "Other",
+        "persistence": "persistent",
+        "fields": [ { "name": "id", "type": "string", "required": true } ]
+      },
+      "traits": []
+    }
+  ]
+}"#;
+
+/// `OtherHolder` is a plain (non-reference) orbital declaring `LocalOther` —
+/// the consumer entity `entities { Other: LocalOther }` repoints the
+/// out-of-orbital relation at. `LocalMain` imports `MainOrbital` with
+/// `roles`/`entities`/`pages`/`mounts` all exercised at once, and its
+/// `traits` array carries `LocalSidebar` — a sibling authored directly
+/// alongside the `reference` (the shape `orbital-lolo`'s lowering produces
+/// for a reference-body trait declaration).
+const STAGE_B_CONSUMER: &str = r#"{
+  "name": "test-orbital-import-stage-b-consumer",
+  "version": "1.0.0",
+  "orbitals": [
+    {
+      "name": "OtherHolder",
+      "entity": {
+        "name": "LocalOther",
+        "persistence": "persistent",
+        "fields": [ { "name": "id", "type": "string", "required": true } ]
+      },
+      "traits": []
+    },
+    {
+      "name": "LocalMain",
+      "uses": [ { "from": "./upstream.orb", "as": "Up" } ],
+      "entity": "Up.orbitals.MainOrbital.entity",
+      "traits": [
+        {
+          "name": "LocalSidebar",
+          "linkedEntity": "LocalMainWidget",
+          "category": "interaction",
+          "stateMachine": { "states": [ { "name": "idle", "isInitial": true } ], "transitions": [] }
+        }
+      ],
+      "reference": {
+        "ref": "Up.orbitals.MainOrbital",
+        "roles": { "approver": ["owner"] },
+        "entities": { "Other": "LocalOther" },
+        "pages": { "/main": "/local-main" },
+        "mounts": { "/main": ["LocalSidebar"] }
+      }
+    }
+  ]
+}"#;
+
+fn inline_stage_b_consumer() -> (
+    OrbitalSchema,
+    Vec<orbital_compiler::phases::inline::OrbitalRefDiagnostic>,
+) {
+    let dir = tempfile::TempDir::new().expect("temp dir");
+    std::fs::write(dir.path().join("upstream.orb"), STAGE_B_UPSTREAM).expect("write upstream");
+    let consumer_path = dir.path().join("consumer.orb");
+    std::fs::write(&consumer_path, STAGE_B_CONSUMER).expect("write consumer");
+
+    let mut schema = parse_file(&consumer_path).expect("consumer parses");
+    let mut trait_diags = Vec::new();
+    let mut orbital_diags = Vec::new();
+    let mut uses_diags = Vec::new();
+    orbital_compiler::phases::inline::inline_schema_with_orbital_diagnostics(
+        &mut schema,
+        &InlineConfig::default(),
+        Some(&consumer_path),
+        &mut trait_diags,
+        &mut orbital_diags,
+        &mut uses_diags,
+    )
+    .expect("stage-b orbital-import inline must succeed");
+    (schema, orbital_diags)
+}
+
+/// `LocalMain` is the SECOND orbital in `schema.orbitals` (`OtherHolder`
+/// is first).
+fn stage_b_local_main(schema: &OrbitalSchema) -> &orbital_core::schema::Orbital {
+    &schema.orbitals[1]
+}
+
+#[test]
+fn stage_b_roles_remap_the_upstream_guard_through_the_real_loader() {
+    let (schema, diagnostics) = inline_stage_b_consumer();
+    assert_eq!(diagnostics.len(), 1);
+    assert!(
+        diagnostics[0].role_unknown_upstream.is_empty(),
+        "{diagnostics:?}"
+    );
+    assert_eq!(
+        diagnostics[0].role_targets,
+        vec![(
+            "role".to_string(),
+            "approver".to_string(),
+            vec!["owner".to_string()]
+        )]
+    );
+    let main = stage_b_local_main(&schema);
+    let view = main
+        .traits
+        .iter()
+        .find_map(|t| match t {
+            TraitReference::Inline(td) if td.name == "LocalMainMainView" => Some(td),
+            _ => None,
+        })
+        .expect("LocalMainMainView carried");
+    let blob = serde_json::to_string(&view.state_machine.transitions).unwrap();
+    assert!(blob.contains("\"owner\""), "{blob}");
+    assert!(!blob.contains("\"approver\""), "{blob}");
+}
+
+/// `entities { Other: LocalOther }` rewrites BOTH the relation target on
+/// the materialized primary entity and the `["fetch", "Other", …]` token
+/// inside `MainView`, through the real loader pipeline.
+#[test]
+fn stage_b_entities_remap_through_the_real_loader() {
+    let (schema, diagnostics) = inline_stage_b_consumer();
+    assert_eq!(diagnostics.len(), 1, "{diagnostics:?}");
+    assert!(diagnostics[0].entity_unmapped.is_empty());
+    assert!(diagnostics[0].entity_unknown_key.is_empty());
+    assert!(diagnostics[0].entity_target_unknown.is_empty());
+    let main = stage_b_local_main(&schema);
+    let EntityRef::Inline(entity) = &main.entity else {
+        panic!("primary must be inline")
+    };
+    let other_id = entity
+        .fields
+        .iter()
+        .find(|f| f.name.as_deref() == Some("otherId"))
+        .unwrap();
+    assert_eq!(other_id.relation.as_ref().unwrap().entity, "LocalOther");
+
+    let view = main
+        .traits
+        .iter()
+        .find_map(|t| match t {
+            TraitReference::Inline(td) if td.name == "LocalMainMainView" => Some(td),
+            _ => None,
+        })
+        .unwrap();
+    let blob = serde_json::to_string(&view.state_machine.transitions).unwrap();
+    assert!(blob.contains("\"LocalOther\""), "{blob}");
+    assert!(!blob.contains("\"Other\""), "{blob}");
+}
+
+/// Page-path rewrite runs AFTER the config forward: `navItemsViaForward`'s
+/// `href` is only reachable once `@config.navItemsForward` resolves.
+#[test]
+fn stage_b_page_path_rewrite_after_forward_through_the_real_loader() {
+    let (schema, _diagnostics) = inline_stage_b_consumer();
+    let main = stage_b_local_main(&schema);
+    let view = main
+        .traits
+        .iter()
+        .find_map(|t| match t {
+            TraitReference::Inline(td) if td.name == "LocalMainMainView" => Some(td),
+            _ => None,
+        })
+        .unwrap();
+    let nav = view
+        .config
+        .as_ref()
+        .and_then(|c| c.get("navItemsViaForward"))
+        .and_then(|f| f.default.clone())
+        .expect("navItemsViaForward resolved");
+    let blob = serde_json::to_string(&nav).unwrap();
+    assert!(blob.contains("/local-main"), "{blob}");
+    assert!(!blob.contains("\"/main\""), "{blob}");
+}
+
+/// The sibling `LocalSidebar` rides along un-prefixed and mounts on the
+/// remapped `/local-main` page.
+#[test]
+fn stage_b_sibling_mounts_on_the_remapped_page_through_the_real_loader() {
+    let (schema, _diagnostics) = inline_stage_b_consumer();
+    let main = stage_b_local_main(&schema);
+    let names: Vec<&str> = main
+        .traits
+        .iter()
+        .filter_map(|t| match t {
+            TraitReference::Inline(td) => Some(td.name.as_str()),
+            _ => None,
+        })
+        .collect();
+    assert!(names.contains(&"LocalSidebar"), "{names:?}");
+    assert!(names.contains(&"LocalMainMainView"), "{names:?}");
+
+    let pages = main.pages.as_ref().expect("pages carried");
+    let PageRef::Inline(page) = &pages[0] else {
+        panic!("page must be inline")
+    };
+    assert_eq!(page.path, "/local-main");
+    let mounted = page.traits.as_ref().unwrap().iter().any(|tr| match tr {
+        TraitReference::Reference {
+            reference: Some(r), ..
+        } => r == "LocalSidebar",
+        _ => false,
+    });
+    assert!(mounted, "{:?}", page.traits);
 }

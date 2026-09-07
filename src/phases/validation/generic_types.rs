@@ -9,14 +9,6 @@
 //! report zero occurrences, which is the condition this gate was always waiting
 //! on, so a generic type in a declaration position is now rejected outright.
 //!
-//! `opaque` is deliberately NOT reported. It is the declared-openness type — an
-//! audit snapshot of an arbitrary row, a third-party response body, an upstream
-//! event's payload arriving at a generic wiring atom. It shares `json`'s wire
-//! shape and differs in intent: `json` means "not typed yet" (the debt this gate
-//! chases), `opaque` means "not closeable, and a struct here would be a lie".
-//! Without it this gate could never become a hard error without forcing authors
-//! to invent fake shapes for data that genuinely has none.
-//!
 //! Coverage note: the L1 lowerer erases a *scalar* entity field authored as
 //! `json`/`any` to `string` before this validator runs, so those residual
 //! authoring sites are invisible here and are swept by source grep during
@@ -31,7 +23,7 @@ use super::{
     inline_traits, ValidationContext,
 };
 
-const GUIDANCE: &str = "Replace the generic type: renderable content → `node`; structured data → an inline `{ k: T }` shape, a named `type` alias, or `Map K V`; a single primitive of unknown kind → `scalar`; the row of an entity a config knob names → `@entity @config.<knob>`; genuinely polymorphic atoms → a declared type parameter. If the shape is genuinely NOT yours to close — an audit snapshot of an arbitrary row, a third-party response body, an upstream event's payload at a generic wiring atom — declare `opaque`, which states that openness instead of leaving it ambiguous. Do not reach for `opaque` to silence a shape you simply have not written down yet: that is what this warning is for.";
+const GUIDANCE: &str = "Replace the generic type: renderable content → `node`; structured data → an inline `{ k: T }` shape, a named `type` alias, or `Map K V`; a single primitive of unknown kind → `scalar`; the row of an entity a config knob names → `@entity @config.<knob>`; genuinely polymorphic atoms → a declared type parameter.";
 
 /// Strip one level of array brackets: `[json]` → `json`.
 fn base_type(ft: &str) -> &str {
@@ -216,26 +208,8 @@ mod tests {
             description: None,
             properties,
             type_when: None,
+            entity: None,
         }
-    }
-
-    /// `opaque` is the DECLARED-openness type and must never be reported —
-    /// otherwise the gate cannot become a hard error without forcing authors to
-    /// invent fake shapes for data that genuinely has none.
-    #[test]
-    fn opaque_is_never_reported_in_any_position() {
-        let mut result = ValidationResult::new();
-        check_payload_field(&payload("opaque", None), "t.emits.E", &mut result);
-        check_payload_field(&payload("[opaque]", None), "t.emits.E", &mut result);
-        check_entity_field(&entity_field(FieldType::Opaque), "e.fields.f", &mut result);
-        check_config_type("opaque", "t.config.k", &mut result);
-        // NOTE: phase-F findings land in `warnings`, not `errors` — asserting on
-        // `errors` here would pass vacuously and prove nothing.
-        assert!(
-            result.errors.is_empty(),
-            "opaque must not be reported, got {:?}",
-            result.errors
-        );
     }
 
     /// The struct-alias map is a declaration position: alias members reach
@@ -260,16 +234,6 @@ mod tests {
         assert!(result.errors[0]
             .path
             .contains("orbitals[0].types.RulesItem"));
-    }
-
-    /// The safety half: `opaque` must not become a blanket amnesty. The generic
-    /// types it sits beside are still reported exactly as before.
-    #[test]
-    fn opaque_does_not_suppress_its_neighbours() {
-        let mut result = ValidationResult::new();
-        check_payload_field(&payload("json", None), "t.emits.E", &mut result);
-        check_entity_field(&entity_field(FieldType::Object), "e.fields.f", &mut result);
-        assert_eq!(result.errors.len(), 2);
     }
 
     #[test]

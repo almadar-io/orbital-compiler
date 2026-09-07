@@ -447,3 +447,162 @@ fn at_user_without_a_declared_identity_shape_is_swept() {
         ctx.result.errors
     );
 }
+
+// ---------------------------------------------------------------------
+// Stage C: `resolve_sentinel_fields` arm-4 stamp fix (orbital-import
+// Stage C program) — one trait exercising all four sentinel-resolution
+// arms in `events[].payloadSchema` AND `emits[].payloadSchema`, so the JS
+// twin (`resolveTypeParamSentinels`, `packages/almadar-runtime`) can be
+// asserted byte-equal against this Rust-produced fixture (the
+// `derive_id.json` shared-fixture pattern — write with `UPDATE_FIXTURES=1`,
+// else assert byte-identical to the committed file).
+// ---------------------------------------------------------------------
+
+/// The RAW (pre-`inline_schema`) input JSON — no ids. `inline_schema`'s
+/// id-stamping pass mints fresh ULIDs (timestamp + randomness) on any
+/// orbital/entity/trait/event that lacks one, which is non-deterministic
+/// run-to-run — so the fixture's `"schema"` field is this raw input (what
+/// the JS twin resolves FROM), never the post-inline result (ids would
+/// drift on every `UPDATE_FIXTURES=1` regeneration).
+fn raw_schema_json() -> serde_json::Value {
+    let four_forms = json!([
+        // Arm 1: `@entity` self-ref.
+        { "name": "selfRow", "type": "@entity" },
+        // Arm 1 (array form): `[@entity]`.
+        { "name": "selfRows", "type": "[@entity]" },
+        // Arm 2: a DECLARED `typeParams` entry of kind `Entity` with no
+        // call-site `typeArgs` — defaults to `entity_def` (`ParamSub::Entity`).
+        { "name": "typedRow", "type": "$RowType" },
+        // Arm 4: a bare `$Name` sentinel with NO declared `typeParams` entry
+        // of that name (the "legacy alias sentinel" arm).
+        { "name": "legacyRow", "type": "$LegacyAlias" }
+    ]);
+    let trait_json = json!({
+        "name": "ThingSave",
+        "linkedEntity": "Thing",
+        "typeParams": [ { "name": "RowType", "kind": "Entity" } ],
+        "emits": [{
+            "event": "RowSaved",
+            "payloadSchema": four_forms
+        }],
+        "stateMachine": {
+            "states": [{ "name": "idle", "isInitial": true }],
+            "transitions": [{ "from": "idle", "to": "idle", "event": "INIT" }],
+            "events": [{
+                "key": "RowSaved",
+                "payloadSchema": four_forms
+            }]
+        }
+    });
+    json!({
+        "name": "App",
+        "orbitals": [{
+            "name": "ThingOrbital",
+            "entity": {
+                "name": "Thing",
+                "persistence": "runtime",
+                "fields": [
+                    { "name": "id", "type": "string" },
+                    { "name": "a", "type": "string" },
+                    { "name": "b", "type": "number" }
+                ]
+            },
+            "traits": [trait_json],
+            "pages": []
+        }]
+    })
+}
+
+fn schema_with_all_four_sentinel_forms() -> OrbitalSchema {
+    serde_json::from_value(raw_schema_json()).expect("schema fixture must deserialize")
+}
+
+/// Shared-fixture contract (`derive_id.json` pattern, mirrors
+/// `orbital.rs::assert_or_write_fixture`): write `{ schema, expected }` to
+/// `tests/fixtures/orbital_import_stage_b/sentinel_payload.json` when
+/// `UPDATE_FIXTURES=1`, else assert the current resolution is byte-identical
+/// to the committed fixture. `schema` is the RAW pre-resolution input
+/// (`raw_schema_json`) — deterministic, unlike the post-inline result.
+fn assert_or_write_sentinel_fixture(expected: &serde_json::Value) {
+    let dir = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join("tests/fixtures/orbital_import_stage_b");
+    std::fs::create_dir_all(&dir).expect("create fixture dir");
+    let path = dir.join("sentinel_payload.json");
+    let combined = json!({
+        "schema": raw_schema_json(),
+        "expected": expected,
+    });
+    let pretty = serde_json::to_string_pretty(&combined).expect("pretty print fixture");
+    if std::env::var("UPDATE_FIXTURES").as_deref() == Ok("1") {
+        std::fs::write(&path, format!("{pretty}\n")).expect("write fixture");
+        return;
+    }
+    let existing = std::fs::read_to_string(&path).unwrap_or_else(|_| {
+        panic!(
+            "missing fixture {path:?} — run with UPDATE_FIXTURES=1 to create it, \
+             then commit the file"
+        )
+    });
+    assert_eq!(
+        existing.trim_end(),
+        pretty,
+        "sentinel resolution drifted from the committed fixture ({path:?}) — the JS \
+         twin asserts the SAME file byte-equal; re-run with UPDATE_FIXTURES=1 only \
+         after confirming the drift is intentional"
+    );
+}
+
+#[test]
+fn arm_four_legacy_alias_sentinel_stamps_entity_and_all_four_forms_resolve() {
+    let mut schema = schema_with_all_four_sentinel_forms();
+    inline_schema(&mut schema, &InlineConfig::default(), None).expect("inline must succeed");
+    let trait_def = thing_trait(&schema);
+
+    let emit_payload = trait_def.emits.as_ref().unwrap()[0]
+        .payload_schema
+        .as_ref()
+        .expect("emit payloadSchema must be populated");
+    let event_payload = trait_def.state_machine.events.as_ref().unwrap()[0]
+        .payload_schema
+        .as_ref()
+        .expect("event payloadSchema must be populated");
+
+    for payload in [emit_payload, event_payload] {
+        assert_eq!(payload.len(), 4);
+        assert_eq!(payload[0].field_type, "object");
+        assert_eq!(payload[0].entity.as_deref(), Some("Thing"), "arm 1 @entity");
+        assert_eq!(payload[1].field_type, "[object]");
+        assert_eq!(
+            payload[1].entity.as_deref(),
+            Some("Thing"),
+            "arm 1 [@entity]"
+        );
+        assert_eq!(payload[2].field_type, "object");
+        assert_eq!(
+            payload[2].entity.as_deref(),
+            Some("Thing"),
+            "arm 2 declared Entity-kind $param"
+        );
+        assert_eq!(payload[3].field_type, "object");
+        assert_eq!(
+            payload[3].entity.as_deref(),
+            Some("Thing"),
+            "arm 4 legacy alias sentinel — the asymmetry this program fixed"
+        );
+    }
+
+    // Gate C / sweep stays clean — every sentinel fully resolved.
+    let mut ctx = ValidationContext::new();
+    type_param_sweep::validate_type_param_sentinels(&schema, &mut ctx);
+    assert!(
+        ctx.result.errors.is_empty(),
+        "fully-resolved schema must not trip the sweep: {:?}",
+        ctx.result.errors
+    );
+
+    let expected = json!({
+        "emits": serde_json::to_value(emit_payload).unwrap(),
+        "events": serde_json::to_value(event_payload).unwrap(),
+    });
+    assert_or_write_sentinel_fixture(&expected);
+}

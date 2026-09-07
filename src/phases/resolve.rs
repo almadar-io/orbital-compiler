@@ -97,6 +97,14 @@ pub struct Resolver<'a> {
     /// mid-lookup is left as a bare `TypeRef` for THIS occurrence; the outer
     /// frame that's already computing it owns the eventual registration.
     named_types_in_progress: RefCell<HashSet<String>>,
+    /// Every entity name declared by this schema (primary + auxiliary, across
+    /// every orbital) — computed once so `payload_field_to_oir_type` can tell
+    /// "this payload field's `entity` marker names a real declared entity"
+    /// from "this is an out-of-scope/foreign name the flattener stamped
+    /// defensively". Mirrors exactly the entities `resolve()` itself pushes
+    /// into `OirModule.entities` (`get_entity_from_ref` on `orbital.entity` +
+    /// `orbital.auxiliary_entities`), so the two never disagree.
+    entity_names: HashSet<String>,
 }
 
 impl<'a> Resolver<'a> {
@@ -105,10 +113,11 @@ impl<'a> Resolver<'a> {
             schema,
             named_types: RefCell::new(BTreeMap::new()),
             named_types_in_progress: RefCell::new(HashSet::new()),
+            entity_names: declared_entity_names(schema),
         }
     }
 
-    /// Borrow the three pieces `register_named_type_children` /
+    /// Borrow the four pieces `register_named_type_children` /
     /// `payload_field_to_oir_type` / `lookup_named_type_shape` need, bundled
     /// as one `NamedTypeCtx`.
     fn named_type_ctx(&self) -> NamedTypeCtx<'_> {
@@ -116,6 +125,7 @@ impl<'a> Resolver<'a> {
             schema: self.schema,
             named_types: &self.named_types,
             in_progress: &self.named_types_in_progress,
+            entity_names: &self.entity_names,
         }
     }
 
@@ -585,7 +595,23 @@ impl<'a> Resolver<'a> {
         let field_type = self.resolve_field_shape(field)?;
         let field_name = field.name.clone().unwrap_or_default();
 
-        let required = field.required.unwrap_or(true);
+        // `None` means the `.lolo` field carried no `!` — lowering
+        // (`orbital-lolo/src/lower/entity.rs`) already documents the
+        // contract for the object-type-field sibling of this same lowering:
+        // "`name : T!` lowers to `required: Some(true)`, unmarked stays
+        // `Some(false)` so codegen emits optional-by-default TS fields
+        // matching lolo authoring semantics." The entity-field lowering
+        // (same file, entity body) instead leaves unmarked fields `None`,
+        // and this `unwrap_or` was defaulting that `None` to REQUIRED —
+        // the opposite of the documented contract, and inconsistent with
+        // this crate's own `resolve_emit` (payload fields: `unwrap_or(false)`).
+        // Net effect measured on the corpus: an unmarked (non-`!`) entity
+        // field NEVER emitted as TS-optional (`field?:`) — 0 of 203 fields
+        // across std-iot-dashboard's 20 entities, verified before this fix —
+        // so an honest `(set @entity.X @config.Y)` with no resolvable value
+        // (ORB_X_SET_REQUIRED_FIELD_FROM_OPTIONAL_KNOB's target class) hit a
+        // bogus TS2352 on every field the author never marked required.
+        let required = field.required.unwrap_or(false);
         let mut oir_field = if required {
             OirField::new(&field_name, field_type)
         } else {
@@ -689,7 +715,6 @@ impl<'a> Resolver<'a> {
             // Closed primitive union — keeps its own tag so codegen emits
             // `string | number | boolean | null` rather than a shapeless record.
             FieldType::Scalar => Ok(OirType::Scalar),
-            FieldType::Opaque => Ok(OirType::Opaque),
             // Variant shapes live in `properties`; without them this is a
             // by-name recursive back-reference, which resolves to Json rather
             // than expanding forever.
@@ -898,6 +923,12 @@ impl<'a> Resolver<'a> {
             "render-ui" => OirType::Json,
             // `SExpr` brand config knob — emits the recursive `SExpr` TS type.
             "sexpr" => OirType::SExpr,
+            // The closed primitive union (`string | number | boolean | null`) —
+            // a config knob generated from a registry prop whose `types` mix
+            // several scalars. Fell through to `String` before (a narrower
+            // type than the `.lolo` declared), so the emitted `Config` member
+            // rejected the knob's numeric default (§80(g)).
+            "scalar" => OirType::Scalar,
             _ => OirType::String, // Default to string for unknown types
         }
     }
@@ -2668,13 +2699,37 @@ impl<'a> Resolver<'a> {
 /// string parse.
 /// Bundles what the named-type registration path needs, so
 /// `payload_field_to_oir_type` / `register_named_type_children` /
-/// `lookup_named_type_shape` thread one reference instead of three.
+/// `lookup_named_type_shape` thread one reference instead of four.
 struct NamedTypeCtx<'a> {
     schema: &'a OrbitalSchema,
     named_types: &'a RefCell<BTreeMap<String, OirType>>,
     /// See `Resolver::named_types_in_progress`'s doc — the mutual-recursion
     /// guard for `lookup_named_type_shape`.
     in_progress: &'a RefCell<HashSet<String>>,
+    /// See `Resolver::entity_names`'s doc.
+    entity_names: &'a HashSet<String>,
+}
+
+/// Every entity name `resolve()` will push into `OirModule.entities`: each
+/// orbital's own primary entity plus its auxiliary entities (Gap #22). One
+/// owner, shared by `Resolver::new` (the real run) and the `payload_field_to_oir_type`
+/// tests below (a fresh `HashSet` built the same way from a fixture schema) —
+/// re-deriving this list a second way would let the two silently drift.
+fn declared_entity_names(schema: &OrbitalSchema) -> HashSet<String> {
+    let mut names = HashSet::new();
+    for orbital in &schema.orbitals {
+        if let EntityRef::Inline(entity) = &orbital.entity {
+            names.insert(entity.name.clone());
+        }
+        if let Some(aux_list) = &orbital.auxiliary_entities {
+            for aux_ref in aux_list {
+                if let EntityRef::Inline(entity) = aux_ref {
+                    names.insert(entity.name.clone());
+                }
+            }
+        }
+    }
+    names
 }
 
 fn payload_field_to_oir_type(
@@ -2705,6 +2760,31 @@ fn payload_field_to_oir_type(
         } else {
             type_ref
         };
+    }
+    // An entity-typed field (`row : Note` / `rows : [Note]`) is flattened to
+    // `object`/`[object]` + `properties` by the lolo lowerer so the emitted
+    // `.orb` schema is self-describing, but codegen must render it as the
+    // NAMED entity interface, not this inline literal — an inferred client
+    // read of the field (a filtered/mapped collection bound straight into a
+    // component's `entity:` prop) needs an assignable-to-`EntityRow` type,
+    // and a structural literal naming another declared entity (`authorId?:
+    // Author`) is not one (`Author` has no index signature). Only when
+    // `field.entity` names an entity THIS schema actually declares — a
+    // foreign/renamed name has no local interface to reference, so the
+    // existing flattened-struct fallback below stays the safe default.
+    if field.field_type != "union" {
+        if let Some(entity_name) = field.entity.as_deref() {
+            if ctx.entity_names.contains(entity_name) {
+                let reference = OirType::Reference {
+                    entity: entity_name.to_string(),
+                };
+                return if field.field_type.trim_start().starts_with('[') {
+                    OirType::array(reference)
+                } else {
+                    reference
+                };
+            }
+        }
     }
     if let Some(props) = &field.properties {
         let fields: Vec<OirField> = props
@@ -2880,6 +2960,8 @@ fn parse_payload_field_type(field_type: &str) -> OirType {
         // an enum as its literal value; neither sidecar (target entity, values)
         // rides the payload schema.
         "relation" | "enum" => return OirType::String,
+        // Closed primitive union — same arm as `type_string_to_oir` (§80(g)).
+        "scalar" => return OirType::Scalar,
         "array" | "list" => return OirType::array(OirType::Json),
         "object" | "json" | "tensor" => return OirType::Json,
         // `SExpr` brand — a compiled s-expression value (config-only; e.g. a
@@ -2945,6 +3027,7 @@ mod tests {
             description: None,
             properties: None,
             type_when: None,
+            entity: None,
         };
         let field = orbital_core::schema::PayloadField {
             name: "value".to_string(),
@@ -2957,14 +3040,17 @@ mod tests {
                 variant("array", "[string]"),
             ]),
             type_when: None,
+            entity: None,
         };
         let schema = empty_schema();
         let named_types = RefCell::new(BTreeMap::new());
         let in_progress = RefCell::new(HashSet::new());
+        let entity_names = HashSet::new();
         let ctx = NamedTypeCtx {
             schema: &schema,
             named_types: &named_types,
             in_progress: &in_progress,
+            entity_names: &entity_names,
         };
         match payload_field_to_oir_type(&field, &ctx) {
             OirType::Union { variants } => {
@@ -2993,21 +3079,122 @@ mod tests {
                 description: None,
                 properties: None,
                 type_when: None,
+                entity: None,
             }]),
             type_when: None,
+            entity: None,
         };
         let schema = empty_schema();
         let named_types = RefCell::new(BTreeMap::new());
         let in_progress = RefCell::new(HashSet::new());
+        let entity_names = HashSet::new();
         let ctx = NamedTypeCtx {
             schema: &schema,
             named_types: &named_types,
             in_progress: &in_progress,
+            entity_names: &entity_names,
         };
         assert!(matches!(
             payload_field_to_oir_type(&field, &ctx),
             OirType::Struct { .. }
         ));
+    }
+
+    /// The `PayloadField.entity` marker's whole reason to exist: an
+    /// entity-typed payload field (`rows : [Note]`) is flattened to
+    /// `[object]` + `properties` by the lolo lowerer, but when `entity`
+    /// names a REAL declared entity, `payload_field_to_oir_type` must hand
+    /// codegen `OirType::Reference` (array-wrapped), not the flattened
+    /// struct — the struct loses the entity's identity, and an inferred
+    /// client read of the field (e.g. a filtered collection bound into a
+    /// component's `entity:` prop) then emits an inline literal that fails
+    /// TS2322 against `readonly EntityRow[]` (C-COMPILED-PATH-RED, std-notes
+    /// `NoteTagNotesOverlay`).
+    #[test]
+    fn entity_marked_payload_field_resolves_to_reference_when_entity_is_declared() {
+        let field = orbital_core::schema::PayloadField {
+            name: "data".to_string(),
+            field_type: "[object]".to_string(),
+            required: None,
+            description: None,
+            properties: Some(vec![orbital_core::schema::PayloadField {
+                name: "id".to_string(),
+                field_type: "string".to_string(),
+                required: Some(true),
+                description: None,
+                properties: None,
+                type_when: None,
+                entity: None,
+            }]),
+            type_when: None,
+            entity: Some("Note".to_string()),
+        };
+        let schema = empty_schema();
+        let named_types = RefCell::new(BTreeMap::new());
+        let in_progress = RefCell::new(HashSet::new());
+        let entity_names: HashSet<String> = ["Note".to_string()].into_iter().collect();
+        let ctx = NamedTypeCtx {
+            schema: &schema,
+            named_types: &named_types,
+            in_progress: &in_progress,
+            entity_names: &entity_names,
+        };
+        match payload_field_to_oir_type(&field, &ctx) {
+            OirType::Array { inner } => {
+                assert!(
+                    matches!(inner.as_ref(), OirType::Reference { entity } if entity == "Note"),
+                    "expected Array<Reference(Note)>, got Array<{:?}>",
+                    inner
+                );
+            }
+            other => panic!("expected an array of Reference, got {other:?}"),
+        }
+    }
+
+    /// The safety fallback: when `entity` names something this schema does
+    /// NOT declare (a foreign/out-of-scope name), there is no local
+    /// interface to reference — keep the existing flattened-struct
+    /// behavior rather than emitting a `Reference` to an entity codegen
+    /// cannot import.
+    #[test]
+    fn entity_marked_payload_field_falls_back_to_struct_when_entity_is_not_declared() {
+        let field = orbital_core::schema::PayloadField {
+            name: "data".to_string(),
+            field_type: "[object]".to_string(),
+            required: None,
+            description: None,
+            properties: Some(vec![orbital_core::schema::PayloadField {
+                name: "id".to_string(),
+                field_type: "string".to_string(),
+                required: Some(true),
+                description: None,
+                properties: None,
+                type_when: None,
+                entity: None,
+            }]),
+            type_when: None,
+            entity: Some("Ghost".to_string()),
+        };
+        let schema = empty_schema();
+        let named_types = RefCell::new(BTreeMap::new());
+        let in_progress = RefCell::new(HashSet::new());
+        let entity_names: HashSet<String> = HashSet::new();
+        let ctx = NamedTypeCtx {
+            schema: &schema,
+            named_types: &named_types,
+            in_progress: &in_progress,
+            entity_names: &entity_names,
+        };
+        match payload_field_to_oir_type(&field, &ctx) {
+            OirType::Array { inner } => {
+                assert!(
+                    matches!(inner.as_ref(), OirType::Struct { .. }),
+                    "expected the flattened-struct fallback, got Array<{:?}>",
+                    inner
+                );
+            }
+            other => panic!("expected an array of Struct, got {other:?}"),
+        }
     }
 
     /// Recursive named struct type (test 1 of the spec's required suite):
@@ -3026,6 +3213,7 @@ mod tests {
             description: None,
             properties: Some(vec![]), // the back-reference marker
             type_when: None,
+            entity: None,
         };
         let row = orbital_core::schema::PayloadField {
             name: "row".to_string(),
@@ -3040,18 +3228,22 @@ mod tests {
                     description: None,
                     properties: None,
                     type_when: None,
+                    entity: None,
                 },
                 sub_menu_backref,
             ]),
             type_when: None,
+            entity: None,
         };
         let schema = empty_schema();
         let named_types = RefCell::new(BTreeMap::new());
         let in_progress = RefCell::new(HashSet::new());
+        let entity_names = HashSet::new();
         let ctx = NamedTypeCtx {
             schema: &schema,
             named_types: &named_types,
             in_progress: &in_progress,
+            entity_names: &entity_names,
         };
         let resolved = payload_field_to_oir_type(&row, &ctx);
         let OirType::Struct { fields } = &resolved else {
@@ -3124,7 +3316,17 @@ mod tests {
             .iter()
             .find(|f| f.name == "subMenu")
             .expect("subMenu field present");
-        match &sub_menu.field_type {
+        // `subMenu` carries no `required` key in the fixture — the honest
+        // read (`resolve_field`'s `unwrap_or(false)`) is optional, so
+        // `OirField::optional` wraps the shape in `Optional`; unwrap it the
+        // same way entity-interface codegen does (`!field.required` arm)
+        // before checking the recursive element type this test cares about.
+        assert!(!sub_menu.required, "unmarked field must resolve optional");
+        let sub_menu_type = match &sub_menu.field_type {
+            OirType::Optional { inner } => inner.as_ref(),
+            other => other,
+        };
+        match sub_menu_type {
             OirType::Array { inner } => {
                 assert!(
                     matches!(inner.as_ref(), OirType::TypeRef { name } if name == "MenuItem"),

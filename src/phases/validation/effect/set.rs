@@ -198,6 +198,85 @@ pub(crate) fn validate_set_value_type(
     result
 }
 
+/// REQUIRED-FIELD-FROM-OPTIONAL-KNOB backstop (rung 2, item 1 of the
+/// orbital-import Stage C emitter-debt close-out).
+///
+/// `(set @entity.<field> @config.<knob>)` where the value is STILL the
+/// literal `@config.<knob>` token post-inline — no declared default resolved
+/// it and no call-site override supplied one; a substituted value would no
+/// longer read as the bare token — and `<field>` is declared REQUIRED on the
+/// trait's linked entity. The emitter has nothing honest to assign: it
+/// lowers to `entity.field = (undefined) as E['field']`, which is wrong for
+/// an OPTIONAL field's honest `undefined` but a live TS2352 lie for a
+/// REQUIRED one. The post-inline exact-token test is decidable and cheap —
+/// the same "does the literal string still read `@config.<key>`" test
+/// `ORB_CONFIG_DANGLING_REF` / `ORB_O_CONFIG_DEAD_KNOB` run.
+///
+/// Called alongside `validate_effect` from the same effects walk (mirrors
+/// `validate_emit_against_declaration`'s call-site shape) rather than from
+/// inside `validate_effect`'s per-operator dispatch, so the owning trait's
+/// name reaches the message without widening that function's already-long
+/// argument list.
+pub(crate) fn validate_set_required_field_from_optional_knob(
+    effect: &SExpression,
+    path: &str,
+    trait_name: &str,
+    entity_field_types: &HashMap<String, EntityFieldMeta>,
+) -> ValidationResult {
+    let mut result = ValidationResult::new();
+
+    let SExpression::Array(arr) = effect else {
+        return result;
+    };
+    if arr.len() < 3 {
+        return result;
+    }
+    let Some(SExpression::String(op)) = arr.first() else {
+        return result;
+    };
+    if op != "set" {
+        return result;
+    }
+    let Some(entity_field) = set_entity_field(&arr[1]) else {
+        return result;
+    };
+    let Some(meta) = entity_field_types.get(entity_field) else {
+        return result;
+    };
+    if !meta.required {
+        return result;
+    }
+    let SExpression::String(value) = &arr[2] else {
+        return result;
+    };
+    let Some(knob) = value
+        .strip_prefix("@config.")
+        .filter(|rest| !rest.is_empty() && !rest.contains(['.', '[']))
+    else {
+        return result;
+    };
+
+    result.add_error(
+        ValidationError::error(
+            ErrorCode::SetRequiredFieldFromOptionalKnob,
+            path,
+            format!(
+                "set @entity.{} (required) on trait '{}' is assigned config knob '{}', which \
+                 declares no default and receives no call-site value here — the token is still \
+                 unresolved and the field is left `undefined`.",
+                entity_field, trait_name, knob
+            ),
+        )
+        .with_suggestion(format!(
+            "Give knob '{}' a default value on trait '{}' (`{} : <type> = <default>`), or make \
+             field '{}' optional if it is honestly allowed to be unset.",
+            knob, trait_name, knob, entity_field
+        )),
+    );
+
+    result
+}
+
 /// ENUM-UNENFORCED check (Gap G-LOLO-ENUM-UNENFORCED).
 ///
 /// For `(set @entity.<field> "literal")` where `<field>` declares an enum
@@ -452,6 +531,7 @@ fn payload_field_ref(value: &SExpression) -> Option<&str> {
 pub(crate) struct EntityFieldMeta {
     pub field_type: String,
     pub enum_values: Vec<String>,
+    pub required: bool,
 }
 
 /// Build the `{ fieldName -> EntityFieldMeta }` map for an entity definition.
@@ -469,6 +549,7 @@ pub(crate) fn entity_field_type_map(entity: &EntityDefinition) -> HashMap<String
                     EntityFieldMeta {
                         field_type: field_type_str(&f.field_type).to_string(),
                         enum_values: f.values.clone().unwrap_or_default(),
+                        required: f.required.unwrap_or(false),
                     },
                 )
             })
@@ -504,7 +585,6 @@ fn field_type_str(ft: &FieldType) -> &'static str {
         FieldType::Node => "node",
         FieldType::Event => "event",
         FieldType::Scalar => "scalar",
-        FieldType::Opaque => "opaque",
         FieldType::Union => "union",
     }
 }
@@ -548,6 +628,7 @@ mod enum_tests {
             EntityFieldMeta {
                 field_type: "string".into(),
                 enum_values: vec!["open".into(), "closed".into(), "pending".into()],
+                required: false,
             },
         );
         m
@@ -586,6 +667,7 @@ mod enum_tests {
             EntityFieldMeta {
                 field_type: "string".into(),
                 enum_values: vec![],
+                required: false,
             },
         );
         let arr = set("title", SExpression::String("anything".into()));
@@ -612,6 +694,7 @@ mod enum_tests {
             EntityFieldMeta {
                 field_type: "union".into(),
                 enum_values: vec!["MenuItem".into()],
+                required: false,
             },
         );
         let arr = set("subMenu", SExpression::String("MenuItem".into()));
@@ -633,6 +716,7 @@ mod return_type_tests {
             EntityFieldMeta {
                 field_type: ty.into(),
                 enum_values: vec![],
+                required: false,
             },
         );
         m
@@ -691,5 +775,103 @@ mod return_type_tests {
                 .errors
                 .is_empty()
         );
+    }
+}
+
+#[cfg(test)]
+mod required_field_from_optional_knob_tests {
+    use super::*;
+
+    fn meta(ty: &str, required: bool) -> HashMap<String, EntityFieldMeta> {
+        let mut m = HashMap::new();
+        m.insert(
+            "value".to_string(),
+            EntityFieldMeta {
+                field_type: ty.into(),
+                enum_values: vec![],
+                required,
+            },
+        );
+        m
+    }
+
+    fn set_effect(field: &str, value: &str) -> SExpression {
+        SExpression::Array(vec![
+            SExpression::String("set".into()),
+            SExpression::String(format!("@entity.{field}")),
+            SExpression::String(value.into()),
+        ])
+    }
+
+    #[test]
+    fn unresolved_config_token_into_required_field_errors() {
+        let effect = set_effect("value", "@config.value");
+        let r = validate_set_required_field_from_optional_knob(
+            &effect,
+            "p",
+            "InputBinding",
+            &meta("string", true),
+        );
+        assert_eq!(r.errors.len(), 1, "errors: {:?}", r.errors);
+        assert_eq!(
+            r.errors[0].code,
+            ErrorCode::SetRequiredFieldFromOptionalKnob
+        );
+        assert!(r.errors[0].message.contains("value"));
+        assert!(r.errors[0].message.contains("InputBinding"));
+    }
+
+    #[test]
+    fn unresolved_config_token_into_optional_field_passes() {
+        let effect = set_effect("value", "@config.value");
+        let r = validate_set_required_field_from_optional_knob(
+            &effect,
+            "p",
+            "InputBinding",
+            &meta("string", false),
+        );
+        assert!(r.errors.is_empty());
+    }
+
+    #[test]
+    fn resolved_literal_value_passes() {
+        // A knob WITH a default (or a call-site override) is substituted
+        // before this ever runs — the literal that reaches here is the
+        // resolved value, not `@config.<k>`.
+        let effect = set_effect("value", "hello");
+        let r = validate_set_required_field_from_optional_knob(
+            &effect,
+            "p",
+            "InputBinding",
+            &meta("string", true),
+        );
+        assert!(r.errors.is_empty());
+    }
+
+    #[test]
+    fn non_set_effect_skips() {
+        let effect = SExpression::Array(vec![
+            SExpression::String("emit".into()),
+            SExpression::String("DONE".into()),
+        ]);
+        let r = validate_set_required_field_from_optional_knob(
+            &effect,
+            "p",
+            "InputBinding",
+            &meta("string", true),
+        );
+        assert!(r.errors.is_empty());
+    }
+
+    #[test]
+    fn unknown_field_skips() {
+        let effect = set_effect("other", "@config.value");
+        let r = validate_set_required_field_from_optional_knob(
+            &effect,
+            "p",
+            "InputBinding",
+            &meta("string", true),
+        );
+        assert!(r.errors.is_empty());
     }
 }

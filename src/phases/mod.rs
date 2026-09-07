@@ -19,6 +19,7 @@
 
 pub mod compose;
 pub mod cross_file_ids;
+pub(crate) mod embed_graph;
 pub mod enrich;
 pub mod inline;
 pub mod parse;

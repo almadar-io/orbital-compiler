@@ -14,7 +14,7 @@ use std::collections::{HashMap, HashSet};
 
 use orbital_core::schema::{
     config_ref_event_knob, definer_knobs_for_trait, ConfigField, EntityDefinition, FieldDefinition,
-    FieldType, OrbitalSchema, PayloadField, SExpression, TraitDefinition, TraitReference,
+    FieldType, Orbital, OrbitalSchema, PayloadField, SExpression, TraitDefinition, TraitReference,
 };
 use orbital_core::type_compat::set_value_type_compatible;
 
@@ -1310,7 +1310,6 @@ fn check_field_def_shape(
                 // per-value walk would fall into the opaque catch-all and the
                 // replacement for `json` would be as unchecked as `json`.
                 FieldType::Scalar => "scalar",
-                FieldType::Opaque => "opaque",
                 _ => return result, // Other field types are opaque to the leaf check.
             };
             result.merge(check_primitive_shape(type_tag, value, path));
@@ -1422,9 +1421,6 @@ fn check_primitive_shape(type_tag: &str, value: &SExpression, path: &str) -> Val
         // accepted both. Null is a member — a scalar bag legitimately holds
         // cleared values.
         "scalar" => matches!(actual, "string" | "number" | "boolean" | "null"),
-        // Open by construction: it admits whatever arrives, exactly like `json`.
-        // Narrowing here would defeat the declaration's whole purpose.
-        "opaque" => true,
         // Name-carrying scalar tags: a Lucide icon name, a slot key, a pattern
         // name, a component name. Each is a STRING in every emitted program, so
         // a number or boolean here is decidably wrong. They also fell through
@@ -1460,6 +1456,25 @@ const TYPED_ALIAS_ARRAY_HINT: &str = "to declare an array of object records, \
 define a named type alias — `type Item = { field : T, … }` — then annotate the \
 knob `name : [Item]`. A bare `[json]` array lowers to unconstrained object \
 elements; `[string]`/scalar element types cannot carry objects.";
+
+/// Config knobs declared at APP level (`schema.config`) or at this
+/// ORBITAL's own level (`orbital.config`) — reachable with no forwarding
+/// trait in between (`Almadar_Orbital_Import.md` §4.5). Shared owner for
+/// `validate_dangling_config_refs`'s reachability check and
+/// `orbital_config::validate_orbital_config_forwarding`'s dead-knob walk —
+/// both used to recompute this union independently.
+pub(crate) fn declared_config_keys<'a>(
+    schema: &'a OrbitalSchema,
+    orbital: &'a Orbital,
+) -> HashSet<&'a str> {
+    schema
+        .config
+        .iter()
+        .chain(orbital.config.iter())
+        .flat_map(|c| c.keys())
+        .map(|k| k.as_str())
+        .collect()
+}
 
 /// C-CONFIG-DANGLING-REF-NO-VALIDATE: a literal `@config.<key>` in a resolved
 /// trait's body (config defaults, transition effects, tick effects) whose key
@@ -1531,83 +1546,24 @@ fn validate_dangling_config_refs(schema: &OrbitalSchema) -> ValidationResult {
         }
     }
 
-    fn collect_trait_refs(expr: &SExpression, out: &mut HashSet<String>) {
-        match expr {
-            SExpression::String(s) => {
-                if let Some(rest) = s.strip_prefix("@trait.") {
-                    let end = rest.find(['.', '[']).unwrap_or(rest.len());
-                    if end > 0 {
-                        out.insert(rest[..end].to_string());
-                    }
-                }
-            }
-            SExpression::Array(items) => {
-                for item in items {
-                    collect_trait_refs(item, out);
-                }
-            }
-            SExpression::Object(map) => {
-                for v in map.values() {
-                    collect_trait_refs(v, out);
-                }
-            }
-            _ => {}
-        }
-    }
-
     let mut result = ValidationResult::new();
-    // App-level `config {}` is a declaring source for every orbital (§4.5).
-    let schema_keys: HashSet<&str> = schema
-        .config
-        .iter()
-        .flat_map(|c| c.keys())
-        .map(|k| k.as_str())
-        .collect();
 
     for (oi, orbital) in schema.orbitals.iter().enumerate() {
-        let orbital_keys: HashSet<&str> = orbital
-            .config
-            .iter()
-            .flat_map(|c| c.keys())
-            .map(|k| k.as_str())
+        // App-level `config {}` and this orbital's own `config {}` are both
+        // declaring sources (§4.5) — reachable with no forwarding trait.
+        let declared_keys = declared_config_keys(schema, orbital);
+        // Declared knob keys per trait + child -> referrers adjacency — the
+        // SAME graph `phases::embed_graph::EmbedGraph` builds for the inline
+        // phase's `@config.<knob>` forward resolver, so a forward the
+        // resolver folds to a literal is exactly a forward this check judges
+        // reachable. By validation time every entry is `TraitReference::Inline`
+        // (comprehensive validation runs post-inline/-compose), so only the
+        // `Inline` half of the graph's contract is ever exercised here.
+        let graph = crate::phases::embed_graph::EmbedGraph::build(&orbital.traits);
+        let declared: HashMap<&str, HashSet<&str>> = graph
+            .declared_iter()
+            .map(|(name, cfg)| (name, cfg.keys().map(|k| k.as_str()).collect()))
             .collect();
-        // Declared knob keys per trait + child -> referrers adjacency (the
-        // same config-OR-state-machine scan core's embed walkers use).
-        let mut declared: HashMap<&str, HashSet<&str>> = HashMap::new();
-        let mut referrers: HashMap<String, Vec<&str>> = HashMap::new();
-        for trait_ref in &orbital.traits {
-            let TraitReference::Inline(td) = trait_ref else {
-                continue;
-            };
-            let keys: HashSet<&str> = td
-                .config
-                .iter()
-                .flat_map(|c| c.keys())
-                .map(|k| k.as_str())
-                .collect();
-            declared.insert(td.name.as_str(), keys);
-            let mut children: HashSet<String> = HashSet::new();
-            for cf in td.config.iter().flat_map(|c| c.values()) {
-                if let Some(default) = &cf.default {
-                    collect_trait_refs(default, &mut children);
-                }
-            }
-            for transition in &td.state_machine.transitions {
-                for effect in transition.effects.iter().flatten() {
-                    collect_trait_refs(effect, &mut children);
-                }
-            }
-            for tick in td.ticks.iter().flatten() {
-                for effect in &tick.effects {
-                    collect_trait_refs(effect, &mut children);
-                }
-            }
-            for child in children {
-                if child != td.name {
-                    referrers.entry(child).or_default().push(td.name.as_str());
-                }
-            }
-        }
         // Undirected embed adjacency: forwards chain UP through referrers
         // (`buildResolvedTraitConfigs`), and a parent's effect tree also
         // inherits its CHILDREN's materialized pattern props whose defaults
@@ -1615,15 +1571,15 @@ fn validate_dangling_config_refs(schema: &OrbitalSchema) -> ValidationResult {
         // embedded stat-display) — so a key declared anywhere in the embed
         // component is reachable; only component-wide undeclared keys dangle.
         let mut adjacency: HashMap<&str, Vec<&str>> = HashMap::new();
-        for (child, parents) in &referrers {
+        for (child, parents) in graph.referrers_iter() {
             for parent in parents {
-                adjacency.entry(child.as_str()).or_default().push(parent);
-                adjacency.entry(parent).or_default().push(child.as_str());
+                adjacency.entry(child).or_default().push(parent.as_str());
+                adjacency.entry(parent.as_str()).or_default().push(child);
             }
         }
 
         let key_reachable = |owner: &str, key: &str| -> bool {
-            if orbital_keys.contains(key) || schema_keys.contains(key) {
+            if declared_keys.contains(key) {
                 return true;
             }
             let mut queue = vec![owner];
@@ -1833,12 +1789,20 @@ mod dangling_config_tests {
 
     #[test]
     fn accepts_key_declared_at_orbital_level() {
-        assert_eq!(dangles(ORBITAL_DECLARED), 0, "an orbital `config {{}}` knob is a declaring source");
+        assert_eq!(
+            dangles(ORBITAL_DECLARED),
+            0,
+            "an orbital `config {{}}` knob is a declaring source"
+        );
     }
 
     #[test]
     fn accepts_key_declared_at_app_level() {
-        assert_eq!(dangles(APP_DECLARED), 0, "an app-level `config {{}}` knob is a declaring source");
+        assert_eq!(
+            dangles(APP_DECLARED),
+            0,
+            "an app-level `config {{}}` knob is a declaring source"
+        );
     }
 
     #[test]
@@ -2546,6 +2510,7 @@ mod recursive_type_literal_tests {
             properties: None,
             required: None,
             ref_id: None,
+            forwarded_from: None,
         }
     }
 

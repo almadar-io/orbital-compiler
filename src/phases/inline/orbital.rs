@@ -22,10 +22,12 @@ use super::context::{parse_reference, InlineContext, ParsedReference};
 use super::identity_normalize::rewrite_trait_embed_tokens;
 use super::r#trait::forwarded_sibling_config_from;
 use super::rewrite::{
-    rewrite_entity_field_paths, rewrite_identifiers, rewrite_payload_entity_refs,
-    rewrite_trait_event_fields,
+    collect_entity_slots, fold_event_typed_members, rewrite_entity_field_paths,
+    rewrite_entity_ref_ids, rewrite_identifiers, rewrite_payload_entity_refs,
+    rewrite_role_literals, rewrite_trait_event_fields,
 };
 use super::InlineError;
+use crate::phases::validation::user_identity::{identity_entities_of, vocabulary};
 use orbital_core::schema::{
     ConfigField, EntityDefinition, EntityRef, FieldDefinition, ListenSource, Orbital,
     OrbitalRefObject, PageRef, SExpression, TraitDefinition, TraitReference,
@@ -38,13 +40,47 @@ use std::collections::{HashMap, HashSet};
 /// `@trait.<X>`. Collected non-fatally at inline time (inlining still
 /// completes on a best-effort basis) — W4-R's validators turn these into
 /// hard `ORB_O_CONFIG_UNKNOWN_KEY` / `ORB_O_OMIT_EMBEDDED_TRAIT` errors.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Default)]
 pub struct OrbitalRefDiagnostic {
     pub path: String,
     pub reference: String,
     pub unknown_config_keys: Vec<String>,
     /// (surviving trait name, omitted trait name it still embeds via `@trait.`).
     pub omitted_but_embedded: Vec<(String, String)>,
+    /// Stage B: (site, entity name) — an out-of-orbital entity referenced by
+    /// a kept trait/relation/page but absent from `obj.entities`. B3-R:
+    /// `ORB_O_ENTITY_UNMAPPED`.
+    pub entity_unmapped: Vec<(String, String)>,
+    /// Stage B: `obj.entities` keys that name no entity in the upstream
+    /// closure's out-of-orbital universe. B3-R: `ORB_O_ENTITY_UNKNOWN_KEY`.
+    pub entity_unknown_key: Vec<String>,
+    /// Stage B: (upstream key, target) — `obj.entities` maps to a name the
+    /// consumer schema declares no entity for. B3-R: `ORB_O_ENTITY_TARGET_UNKNOWN`.
+    pub entity_target_unknown: Vec<(String, String)>,
+    /// Stage B: `obj.roles` keys that name no value in any upstream identity
+    /// field's vocabulary. B3-R: `ORB_O_ROLE_UNKNOWN_UPSTREAM`.
+    pub role_unknown_upstream: Vec<String>,
+    /// Stage B: (upstream field, upstream literal, consumer targets) for
+    /// every `obj.roles` entry whose literal is a member of that upstream
+    /// field's vocabulary — one triple per matching field, since a literal
+    /// can be a member of more than one field. B3-R's post-inline roster
+    /// check (`ORB_O_ROLE_TARGET_NOT_MEMBER`) resolves each triple against
+    /// the SAME-NAMED field on the consumer roster.
+    pub role_targets: Vec<(String, String, Vec<String>)>,
+    /// Stage B: an `obj.pages` or `obj.mounts` key naming no upstream page
+    /// path. B3-R: `ORB_O_PAGE_UNKNOWN_PATH`.
+    pub page_unknown_path: Vec<String>,
+    /// Stage C: (added field name, reason) — an `extend {}` field whose name
+    /// is already on the upstream primary entity (after `fields {}`
+    /// renames), or equals a `fields {}` rename TARGET. C1-L-R:
+    /// `ORB_O_EXTEND_FIELD_COLLISION`.
+    pub extend_collision: Vec<(String, String)>,
+    /// Stage C: `extend {}` field names no kept trait reads/sets/renders
+    /// (guard, effect, tick, listen, or trait config default) and no
+    /// orbital-level config knob value (a `browseColumns`/`formFields`-style
+    /// entry keyed by `key`/`name`) forwards. C1-L-R (warning, rung 2):
+    /// `ORB_O_EXTEND_FIELD_UNREAD`.
+    pub extend_unread: Vec<String>,
 }
 
 /// Diagnostic collected while resolving a `uses A from "…" { config { … } }`
@@ -55,6 +91,105 @@ pub struct UsesConfigDiagnostic {
     pub path: String,
     pub alias: String,
     pub unknown_keys: Vec<String>,
+}
+
+/// Fold a call-site config override onto a declared `config {}` map: every
+/// DECLARED knob survives with its default replaced by the override's value
+/// when one is supplied; an override key naming an UNDECLARED knob is
+/// silently absent from the result (callers that need to diagnose it —
+/// `ORB_O_CONFIG_UNKNOWN_KEY` / `ORB_U_CONFIG_UNKNOWN_KEY` — compute that
+/// separately against the same `declared`/`overrides` pair). `None`
+/// declared ⇒ `None` (nothing to fold onto). One owner for every
+/// declared-config × call-site-override fold in this module: the
+/// orbital-level rung (`obj.config` onto `upstream.config`, used by
+/// `resolve_orbital_reference` itself) AND the schema (alias) rung
+/// (`use_decl.config` onto the alias's loaded app-level `config {}}`,
+/// built in `inline_orbital` alongside `ctx.add_alias_multi`). Two-path
+/// twin: JS's `foldUseConfigOverride` (`reference-resolver.ts`).
+pub(crate) fn fold_declared_config_override(
+    declared: Option<&HashMap<String, ConfigField>>,
+    overrides: Option<&HashMap<String, ConfigField>>,
+) -> Option<HashMap<String, ConfigField>> {
+    declared.map(|decl| {
+        decl.iter()
+            .map(|(k, field)| {
+                let mut field = field.clone();
+                if let Some(over) = overrides.and_then(|o| o.get(k)) {
+                    field.default = over.default.clone();
+                }
+                (k.clone(), field)
+            })
+            .collect()
+    })
+}
+
+/// Last hop of a `uses Alias { config { k: @config.j } }` override: a folded
+/// alias app-knob whose default is exactly the consumer app-knob token
+/// `@config.<j>` takes the consumer's declared default (provenance kept in
+/// `forwarded_from`). Anything else — no such consumer knob, a knob without a
+/// default — is left for `validate_dangling_config_refs` to judge.
+pub(crate) fn forward_consumer_app_knobs(
+    folded: &mut HashMap<String, ConfigField>,
+    consumer: Option<&HashMap<String, ConfigField>>,
+) {
+    let Some(consumer) = consumer else { return };
+    for field in folded.values_mut() {
+        let Some(SExpression::String(token)) = field.default.as_ref() else {
+            continue;
+        };
+        let Some(key) = token.strip_prefix("@config.") else {
+            continue;
+        };
+        if key.contains('.') {
+            continue;
+        }
+        let Some(source) = consumer.get(key) else {
+            continue;
+        };
+        let Some(value) = source.default.clone() else {
+            continue;
+        };
+        field.forwarded_from = Some(token.clone());
+        field.default = Some(value);
+    }
+}
+
+/// The materialized NAME and derived ID of an `orbital X = Alias.orbitals.Y
+/// { … }` reference's PRIMARY entity, computed BEFORE any other part of the
+/// reference resolves — the same pair `resolve_orbital_reference` itself
+/// needs for its `primary_final`/`entity_ids` insert (§4.3's unconditional
+/// prefix + `derive_materialized_id`'s zero-churn clone id). One owner,
+/// used by `resolve_orbital_reference` AND by (B)'s pre-pass
+/// (`inline_schema_with_orbital_diagnostics`'s
+/// `precompute_reference_form_primary_ids`), which needs this SAME pair for
+/// every reference-form orbital in the file — INCLUDING ones not yet
+/// resolved — so `consumer_entity_ids` can already `entities {}`-map onto
+/// them (the approved two-import Project Friday shape is order-free: import
+/// 1 maps an out-of-orbital primary onto import 2's materialized entity,
+/// regardless of file order). `None` only when the upstream's own entity is
+/// itself a non-Inline form (never arises on the real resolve path, since
+/// `ctx.get_orbital` only ever returns already-inlined orbitals; the
+/// pre-pass's shallow, non-recursive load can legitimately hit this).
+pub(crate) fn materialized_primary_entity(
+    upstream: &Orbital,
+    obj: &OrbitalRefObject,
+    local_name: &str,
+) -> Option<(String, String)> {
+    let EntityRef::Inline(upstream_entity) = &upstream.entity else {
+        return None;
+    };
+    let primary_final = obj
+        .entity
+        .clone()
+        .unwrap_or_else(|| format!("{local_name}{}", upstream_entity.name));
+    let primary_id = derive_materialized_id(
+        upstream_entity.id.as_deref(),
+        upstream.id.as_deref(),
+        &upstream_entity.name,
+        local_name,
+        orbital_core::identity::IdKind::Entity,
+    );
+    Some((primary_final, primary_id))
 }
 
 /// Resolve one reference-form `orbital`, splicing the imported orbital's
@@ -72,16 +207,46 @@ pub(crate) fn resolve_orbital_reference(
     orbital: &mut Orbital,
     obj: &OrbitalRefObject,
     ctx: &InlineContext,
-    schema_config: Option<&HashMap<String, ConfigField>>,
+    // (A) fix: the outermost §4.5 config-forward rung for THIS reference's
+    // materialized traits must be the ALIAS's (upstream FILE's) own
+    // app-level `config {}`, folded with the `uses <Alias> { config {…} }`
+    // call-site override — NEVER the consumer's own top-level `schema.config`
+    // (a different file's app knobs entirely). Keyed by alias name so a
+    // multi-`uses` orbital resolves each reference against ITS OWN alias's
+    // schema, built once per alias alongside `ctx.add_alias_multi`
+    // (`inline_orbital`'s `alias_schema_configs`, folded via the shared
+    // `fold_declared_config_override` this function's OWN orbital-rung fold
+    // (step 3 below) also uses). Two-path note: JS's twin is
+    // `ResolvedImport.schemaConfig` (`foldUseConfigOverride`, B4-J2).
+    alias_schema_configs: &HashMap<String, HashMap<String, ConfigField>>,
+    // Every CONSUMER orbital's own primary + auxiliary entity name → id
+    // (built once, before any reference is resolved — Stage B's `entities
+    // {}` fold needs an id for whatever consumer entity it repoints a
+    // relation at, and that entity is never one materialized by THIS call).
+    consumer_entity_ids: &HashMap<String, String>,
     diagnostics: &mut Vec<OrbitalRefDiagnostic>,
+    // `.lolo` spans (Stage C): `Some(i)` for a TOP-LEVEL consumer orbital
+    // (its index into `schema.orbitals`, matching the index `orbital-lolo`
+    // lowering already stamped into `LoloSourceMap` as `orbitals[{i}]` —
+    // see `lower/orbital_ref.rs`'s `source_map.insert(base, …)`); `None`
+    // when resolving an ALIAS's own reference-form orbital recursively (a
+    // different file's index space, no source map to resolve against here
+    // anyway). Threads `diag_path` from the digit-bracket indexed form
+    // `LoloSourceMap::normalize` accepts, replacing the old
+    // `orbitals[name=X]` shape it always rejected outright.
+    orbital_index: Option<usize>,
 ) -> Result<(), InlineError> {
     let local_name = orbital.name.clone();
-    let diag_path = format!("orbitals[name={local_name}]");
+    let diag_path = match orbital_index {
+        Some(i) => format!("orbitals[{i}]"),
+        None => format!("orbitals[name={local_name}]"),
+    };
 
     let ParsedReference::Orbital { alias, name } = parse_reference(&obj.reference)? else {
         return Err(InlineError::InvalidReference(obj.reference.clone()));
     };
     let upstream = ctx.get_orbital(&alias, &name)?;
+    let schema_config = alias_schema_configs.get(&alias);
 
     let EntityRef::Inline(upstream_entity) = upstream.entity.clone() else {
         // The upstream orbital came back from `ctx.get_orbital`, which only
@@ -90,11 +255,15 @@ pub(crate) fn resolve_orbital_reference(
         // the same not-found the plain `Alias.entity` reference form uses.
         return Err(InlineError::EntityNotFound(alias.clone()));
     };
+    let (primary_final, primary_id) = materialized_primary_entity(&upstream, obj, &local_name)
+        .expect("upstream_entity is already Inline (checked above)");
 
     // 1. Trim the trait set (omit/only) BEFORE the unconditional prefix —
     // `subs` below only ever maps survivors. Names here are still upstream's.
-    let only_set: Option<HashSet<&str>> =
-        obj.only.as_ref().map(|v| v.iter().map(String::as_str).collect());
+    let only_set: Option<HashSet<&str>> = obj
+        .only
+        .as_ref()
+        .map(|v| v.iter().map(String::as_str).collect());
     let omit_set: HashSet<&str> = obj
         .omit
         .as_ref()
@@ -148,10 +317,6 @@ pub(crate) fn resolve_orbital_reference(
     for td in &kept {
         subs.insert(td.name.clone(), format!("{local_name}{}", td.name));
     }
-    let primary_final = obj
-        .entity
-        .clone()
-        .unwrap_or_else(|| format!("{local_name}{}", upstream_entity.name));
     subs.insert(upstream_entity.name.clone(), primary_final.clone());
     for e in &aux_entities {
         subs.insert(e.name.clone(), format!("{local_name}{}", e.name));
@@ -166,10 +331,16 @@ pub(crate) fn resolve_orbital_reference(
     // before step 4 overwrites `td.name` with the renamed value.
     let mut embedders_of: HashMap<String, Vec<String>> = HashMap::new();
     for td in &kept {
-        let embedder_final = subs.get(&td.name).cloned().unwrap_or_else(|| td.name.clone());
+        let embedder_final = subs
+            .get(&td.name)
+            .cloned()
+            .unwrap_or_else(|| td.name.clone());
         for child in embedded_trait_refs_of(td) {
             if let Some(child_final) = subs.get(&child) {
-                embedders_of.entry(child_final.clone()).or_default().push(embedder_final.clone());
+                embedders_of
+                    .entry(child_final.clone())
+                    .or_default()
+                    .push(embedder_final.clone());
             }
         }
     }
@@ -185,26 +356,8 @@ pub(crate) fn resolve_orbital_reference(
             }
         }
     }
-    let folded_config: Option<HashMap<String, ConfigField>> = declared_config.as_ref().map(|decl| {
-        decl.iter()
-            .map(|(k, field)| {
-                let mut field = field.clone();
-                if let Some(over) = obj.config.as_ref().and_then(|o| o.get(k)) {
-                    field.default = over.default.clone();
-                }
-                (k.clone(), field)
-            })
-            .collect()
-    });
-
-    if !unknown_config_keys.is_empty() || !omitted_but_embedded.is_empty() {
-        diagnostics.push(OrbitalRefDiagnostic {
-            path: diag_path.clone(),
-            reference: obj.reference.clone(),
-            unknown_config_keys,
-            omitted_but_embedded,
-        });
-    }
+    let folded_config: Option<HashMap<String, ConfigField>> =
+        fold_declared_config_override(declared_config.as_ref(), obj.config.as_ref());
 
     // 4. Ids: every cloned node (trait AND entity) gets a FRESH derived id
     // rooted in its own source id when it has one, else a deterministic
@@ -218,29 +371,32 @@ pub(crate) fn resolve_orbital_reference(
             .get(&td.name)
             .cloned()
             .expect("every kept trait has a subs entry (built from the same `kept` list above)");
-        let final_id =
-            derive_materialized_id(td.id.as_deref(), upstream.id.as_deref(), &td.name, &local_name);
+        let final_id = derive_materialized_id(
+            td.id.as_deref(),
+            upstream.id.as_deref(),
+            &td.name,
+            &local_name,
+            orbital_core::identity::IdKind::Trait,
+        );
         td.name = final_name.clone();
         td.id = Some(final_id.clone());
         id_by_name.insert(final_name, final_id);
     }
 
     let mut entity_ids: HashMap<String, String> = HashMap::new();
-    let primary_id = derive_materialized_id(
-        upstream_entity.id.as_deref(),
-        upstream.id.as_deref(),
-        &upstream_entity.name,
-        &local_name,
-    );
     entity_ids.insert(primary_final.clone(), primary_id.clone());
     let mut final_aux_entities: Vec<EntityDefinition> = Vec::new();
     for e in &aux_entities {
-        let final_name = subs
-            .get(&e.name)
-            .cloned()
-            .expect("every aux entity has a subs entry (built from the same `aux_entities` list above)");
-        let final_id =
-            derive_materialized_id(e.id.as_deref(), upstream.id.as_deref(), &e.name, &local_name);
+        let final_name = subs.get(&e.name).cloned().expect(
+            "every aux entity has a subs entry (built from the same `aux_entities` list above)",
+        );
+        let final_id = derive_materialized_id(
+            e.id.as_deref(),
+            upstream.id.as_deref(),
+            &e.name,
+            &local_name,
+            orbital_core::identity::IdKind::Entity,
+        );
         entity_ids.insert(final_name.clone(), final_id.clone());
         let mut ed = e.clone();
         ed.name = final_name;
@@ -248,24 +404,316 @@ pub(crate) fn resolve_orbital_reference(
         rewrite_entity_fields_in_entity(&mut ed, &field_subs);
         final_aux_entities.push(ed);
     }
+    // Stage B: `entities {}` — an out-of-orbital relation remap. "Out-of-
+    // orbital" = named by the imported closure (a relation target, a
+    // fetch/persist/`@Entity` token, a page's primary entity) but declared
+    // by a DIFFERENT orbital of the SAME upstream alias — a decidable set
+    // once every orbital the alias loaded is known (`ctx.get_entry`; Stage
+    // A's own invariant is that every orbital an alias holds is already
+    // fully inlined). `closure` is upstream's OWN vocabulary (primary + aux,
+    // pre-rename, i.e. what `subs` already covers); `upstream_universe` is
+    // everything ELSE the alias declares.
+    let closure: HashSet<String> = std::iter::once(upstream_entity.name.clone())
+        .chain(aux_entities.iter().map(|e| e.name.clone()))
+        .collect();
+    let alias_entry = ctx.get_entry(&alias)?;
+    let mut upstream_universe: HashSet<String> = HashSet::new();
+    // Full definitions of the same out-of-orbital set, keyed by name — needed
+    // (below) to read `identity` and to clone an AUX-ONLY one into this
+    // import as its own aux entity. Kept separate from `upstream_universe`
+    // itself so `record_referenced`/`collect_relation_targets_referenced`/
+    // `collect_entity_slots` (pure name-membership checks, shared with other
+    // call sites) stay untouched.
+    let mut upstream_universe_defs: HashMap<String, EntityDefinition> = HashMap::new();
+    // Every out-of-orbital name that is the PRIMARY entity of at least one
+    // OTHER orbital of this alias — author-declared domain data (e.g.
+    // `Employee`), regardless of whether persistence happens to be runtime.
+    // A name that never appears here (only ever an aux, materialized by
+    // descent from some atom) is "aux-only" and auto-clones below.
+    let mut primary_anywhere: HashSet<String> = HashSet::new();
+    for other in &alias_entry.orbitals {
+        if other.name == upstream.name {
+            continue;
+        }
+        if let EntityRef::Inline(def) = &other.entity {
+            if !closure.contains(&def.name) {
+                upstream_universe.insert(def.name.clone());
+                upstream_universe_defs.insert(def.name.clone(), def.clone());
+                primary_anywhere.insert(def.name.clone());
+            }
+        }
+        for aux in other.auxiliary_entities.iter().flatten() {
+            if let EntityRef::Inline(def) = aux {
+                if !closure.contains(&def.name) {
+                    upstream_universe.insert(def.name.clone());
+                    upstream_universe_defs.insert(def.name.clone(), def.clone());
+                }
+            }
+        }
+    }
+
+    // `referenced`: every (site, out-of-orbital name) pair the kept closure
+    // actually touches, computed BEFORE any rename below runs so the tokens
+    // are still upstream's own vocabulary — relation targets on the primary
+    // and every auxiliary entity, entity slots (`collect_entity_slots`,
+    // the SAME position rule the rename walk uses) across every kept
+    // trait's transition/tick guards+effects, listen guard/payloadMapping,
+    // and config-field defaults, `source_entity_definition`'s own relation
+    // targets + the trait's `linked_entity`, and every page's `primary_entity`.
+    let mut referenced: Vec<(String, String)> = Vec::new();
+    collect_relation_targets_referenced(
+        &upstream_entity.fields,
+        "primaryEntity",
+        &upstream_universe,
+        &mut referenced,
+    );
+    for e in &aux_entities {
+        collect_relation_targets_referenced(
+            &e.fields,
+            &format!("auxEntity.{}", e.name),
+            &upstream_universe,
+            &mut referenced,
+        );
+    }
+    for td in &kept {
+        let site = format!("trait.{}", td.name);
+        if let Some(src) = &td.source_entity_definition {
+            record_referenced(&site, &src.name, &upstream_universe, &mut referenced);
+            collect_relation_targets_referenced(
+                &src.fields,
+                &site,
+                &upstream_universe,
+                &mut referenced,
+            );
+        }
+        if let Some(le) = &td.linked_entity {
+            record_referenced(&site, le, &upstream_universe, &mut referenced);
+        }
+        let mut slots: HashSet<String> = HashSet::new();
+        for t in &td.state_machine.transitions {
+            if let Some(g) = t.guard.as_ref() {
+                collect_entity_slots(g, &upstream_universe, &mut slots);
+            }
+            if let Some(effs) = t.effects.as_ref() {
+                for e in effs {
+                    collect_entity_slots(e, &upstream_universe, &mut slots);
+                }
+            }
+        }
+        if let Some(ticks) = td.ticks.as_ref() {
+            for tick in ticks {
+                if let Some(g) = tick.guard.as_ref() {
+                    collect_entity_slots(g, &upstream_universe, &mut slots);
+                }
+                for e in &tick.effects {
+                    collect_entity_slots(e, &upstream_universe, &mut slots);
+                }
+            }
+        }
+        if let Some(listens) = td.listens.as_ref() {
+            for l in listens {
+                if let Some(g) = l.guard.as_ref() {
+                    collect_entity_slots(g, &upstream_universe, &mut slots);
+                }
+                if let Some(pm) = l.payload_mapping.as_ref() {
+                    for v in pm.values() {
+                        collect_entity_slots(v, &upstream_universe, &mut slots);
+                    }
+                }
+            }
+        }
+        if let Some(cfg) = td.config.as_ref() {
+            for f in cfg.values() {
+                if let Some(d) = f.default.as_ref() {
+                    collect_entity_slots(d, &upstream_universe, &mut slots);
+                }
+            }
+        }
+        for name in &slots {
+            record_referenced(&site, name, &upstream_universe, &mut referenced);
+        }
+    }
+    if let Some(pages) = &upstream.pages {
+        for p in pages {
+            if let PageRef::Inline(pd) = p {
+                if let Some(pe) = pd.primary_entity.as_ref() {
+                    record_referenced(
+                        &format!("page.{}", pd.path),
+                        pe,
+                        &upstream_universe,
+                        &mut referenced,
+                    );
+                }
+            }
+        }
+    }
+
+    // Ruling (B4-R2, regression on B2-R's original "every out-of-orbital
+    // reference must be mapped" rule): an out-of-orbital entity that is
+    // AUX-ONLY in the upstream — never the PRIMARY entity of any other
+    // orbital of the alias, only ever materialized by descent from an atom
+    // (`std-app-layout`'s `AppLayoutData`, `std-notification-panel`'s
+    // `NotificationRecord`) — is UI/component state, not a shared row: it
+    // sits on whichever sibling orbital happened to pull it first, but every
+    // OTHER orbital of the same alias that also embeds that sibling trait
+    // needs its OWN copy, not a mapping to a row that doesn't conceptually
+    // exist yet. So an aux-only entity auto-clones into this import exactly
+    // like the closure's own aux entities (below) and is NEVER demanded in
+    // `entities {}` — the consumer may still map it explicitly (to genuinely
+    // share state across imports), that's just not required. PERSISTENCE is
+    // NOT the discriminator (a pulled-sibling aux is routinely `persistence:
+    // persistent` storage, e.g. `NotificationRecord`'s `collection:
+    // notifications`) — an entity that IS the primary of another orbital
+    // (author-declared domain data, e.g. `Employee`) keeps the original
+    // rule: unmapped is `ORB_O_ENTITY_UNMAPPED`, even if it happens to be
+    // `persistence: runtime`. EXCEPTION: an aux-only `[identity]` roster
+    // (e.g. `Member`) is NEVER auto-cloned — cloning it would fork `@user`
+    // role/identity comparisons away from the roster every other orbital
+    // shares, so it keeps the "must be mapped" rule too (JS twin B4-J3
+    // parity).
+    let mut entity_unmapped: Vec<(String, String)> = Vec::new();
+    let mut aux_only_referenced_order: Vec<String> = Vec::new();
+    let mut aux_only_referenced_seen: HashSet<String> = HashSet::new();
+    for (site, entity) in &referenced {
+        let is_aux_only = !primary_anywhere.contains(entity)
+            && upstream_universe_defs
+                .get(entity)
+                .is_some_and(|def| !def.identity);
+        if is_aux_only {
+            if aux_only_referenced_seen.insert(entity.clone()) {
+                aux_only_referenced_order.push(entity.clone());
+            }
+            continue;
+        }
+        if obj
+            .entities
+            .as_ref()
+            .is_none_or(|m| !m.contains_key(entity))
+        {
+            entity_unmapped.push((site.clone(), entity.clone()));
+        }
+    }
+    let mut entity_unknown_key: Vec<String> = Vec::new();
+    let mut entity_target_unknown: Vec<(String, String)> = Vec::new();
+    if let Some(entities_map) = obj.entities.as_ref() {
+        for (up_name, target) in entities_map {
+            if !upstream_universe.contains(up_name.as_str()) {
+                entity_unknown_key.push(up_name.clone());
+                continue;
+            }
+            match consumer_entity_ids.get(target) {
+                Some(id) => {
+                    // Fold into the SAME rename map every other closure
+                    // entity goes through — an out-of-orbital rebind is not
+                    // a special case downstream, it is one more `subs` entry.
+                    subs.insert(up_name.clone(), target.clone());
+                    entity_ids.insert(target.clone(), id.clone());
+                }
+                None => entity_target_unknown.push((up_name.clone(), target.clone())),
+            }
+        }
+    }
+    // Auto-clone every referenced AUX-ONLY out-of-orbital entity the
+    // consumer did NOT explicitly map above — same treatment as
+    // `aux_entities`/`final_aux_entities` (fresh derived id, `subs` +
+    // `entity_ids` entry, field-rename through `field_subs`), so two imports
+    // of the same upstream still yield two disjoint clones (each prefixed by
+    // its own `local_name`).
+    for name in &aux_only_referenced_order {
+        if obj
+            .entities
+            .as_ref()
+            .is_some_and(|m| m.contains_key(name.as_str()))
+        {
+            continue;
+        }
+        let Some(def) = upstream_universe_defs.get(name) else {
+            continue;
+        };
+        let final_name = format!("{local_name}{name}");
+        let final_id = derive_materialized_id(
+            def.id.as_deref(),
+            upstream.id.as_deref(),
+            name,
+            &local_name,
+            orbital_core::identity::IdKind::Entity,
+        );
+        subs.insert(name.clone(), final_name.clone());
+        entity_ids.insert(final_name.clone(), final_id.clone());
+        let mut ed = def.clone();
+        ed.name = final_name;
+        ed.id = Some(final_id);
+        rewrite_entity_fields_in_entity(&mut ed, &field_subs);
+        final_aux_entities.push(ed);
+    }
+
+    // Stage B: `roles {}` — `role_fields` is every UPSTREAM identity entity's
+    // own vocabulary-bearing field (field name → declared values), scoped to
+    // the alias's own orbitals (an import's roles remap always resolves
+    // against the UPSTREAM's own words, never the consumer's roster).
+    // `identity_entities_of` applies the same primary-shadows-import rule
+    // `identity_entities(schema)` does, just over one alias's orbitals.
+    let identity_entities = identity_entities_of(&alias_entry.orbitals);
+    let mut role_fields: HashMap<String, Vec<String>> = HashMap::new();
+    for identity in &identity_entities {
+        for field in &identity.fields {
+            let Some(name) = field.name.as_ref() else {
+                continue;
+            };
+            if let Some(values) = vocabulary(field) {
+                role_fields.insert(name.clone(), values.clone());
+            }
+        }
+    }
+    let roles: HashMap<String, Vec<String>> = obj.roles.clone().unwrap_or_default();
+    let mut role_unknown_upstream: Vec<String> = Vec::new();
+    // (upstream field, upstream literal, consumer targets) — one triple per
+    // UPSTREAM field whose vocabulary actually contains the literal. A
+    // literal can appear in more than one upstream field's vocabulary, so
+    // every matching field gets its own triple (sorted for determinism);
+    // B3-R's per-field consumer-roster check resolves each triple against
+    // the SAME-NAMED field on the consumer roster.
+    let mut role_targets: Vec<(String, String, Vec<String>)> = Vec::new();
+    for (literal, targets) in &roles {
+        let mut matching_fields: Vec<&String> = role_fields
+            .iter()
+            .filter(|(_, vocab)| vocab.iter().any(|v| v == literal))
+            .map(|(field, _)| field)
+            .collect();
+        matching_fields.sort();
+        for field in &matching_fields {
+            role_targets.push(((*field).clone(), literal.clone(), targets.clone()));
+        }
+        if matching_fields.is_empty() {
+            role_unknown_upstream.push(literal.clone());
+        }
+    }
+
     // (A) every auxiliary entity's own relation fields (e.g. a self-relation,
     // or a pointer to the primary entity or to ANOTHER aux) must resolve
     // inside the materialized closure — run as a SEPARATE pass, after the
     // loop above, so `entity_ids` is fully populated (primary + every aux)
     // before any relation's `entity_id` sibling is looked up; renaming
     // in-loop would see a partial map for a target declared later in
-    // `aux_entities`.
+    // `aux_entities`. Role-literal rewriting rides along — same "every
+    // materialized entity" scope `rewrite_entity_fields_in_entity` gets.
     for ed in final_aux_entities.iter_mut() {
         rename_entity_refs_in_entity(ed, &subs, &entity_ids);
+        rewrite_role_literals_in_entity(ed, &role_fields, &roles);
     }
 
     // 5. Pages: `obj.pages` remaps upstream→local path; an unmapped path
     // keeps its upstream value. Built before the per-trait pipeline below —
     // it does not depend on any trait mutation, only on `subs`/`id_by_name`.
+    // `known_paths` is every upstream page path the reference actually has
+    // to remap against — a `pages {}` or `mounts {}` key naming anything
+    // else is `page_unknown_path` (Stage B, planning find ii).
     let mut path_map: HashMap<String, String> = HashMap::new();
+    let mut known_paths: HashSet<String> = HashSet::new();
     if let Some(pages) = &upstream.pages {
         for p in pages {
             if let PageRef::Inline(pd) = p {
+                known_paths.insert(pd.path.clone());
                 let mapped = obj
                     .pages
                     .as_ref()
@@ -273,6 +721,21 @@ pub(crate) fn resolve_orbital_reference(
                     .cloned()
                     .unwrap_or_else(|| pd.path.clone());
                 path_map.insert(pd.path.clone(), mapped);
+            }
+        }
+    }
+    let mut page_unknown_path: Vec<String> = Vec::new();
+    if let Some(pages_map) = obj.pages.as_ref() {
+        for k in pages_map.keys() {
+            if !known_paths.contains(k) {
+                page_unknown_path.push(k.clone());
+            }
+        }
+    }
+    if let Some(mounts) = obj.mounts.as_ref() {
+        for k in mounts.keys() {
+            if !known_paths.contains(k) {
+                page_unknown_path.push(k.clone());
             }
         }
     }
@@ -291,10 +754,18 @@ pub(crate) fn resolve_orbital_reference(
         .iter()
         .filter_map(|td| td.config.clone().map(|cfg| (td.name.clone(), cfg)))
         .collect();
+    // Snapshotted alongside `parent_configs` — the loop below borrows `kept`
+    // mutably, so its length must be read before that borrow starts.
+    let kept_len = kept.len();
 
     // 6. Per-trait pipeline, in the same order as the JS twin
     // (`materializeOrbitalRef`): embed tokens → entity roots → entity
-    // fields → listen sources → navigate targets → config forward → events.
+    // fields → listen sources → navigate targets → config forward → PAGE
+    // PATHS → events. (i) Page-path rewriting runs AFTER the config forward
+    // (planning find i): a knob like `navItems: "@config.navItems"` only
+    // HOLDS its literal hrefs once the forward resolves it — rewriting
+    // page-path literals first (the old order) missed every href sitting
+    // behind an unresolved forward.
     for td in kept.iter_mut() {
         rewrite_trait_embed_tokens(td, &subs);
         rename_entities_in_trait(td, &subs, &entity_ids);
@@ -302,6 +773,11 @@ pub(crate) fn resolve_orbital_reference(
         // same rename, or a trait whose atom-original entity coincided with
         // upstream's own entity name reads as a spurious rebind post-import.
         rename_source_entity_definition(td, &subs, &entity_ids);
+        // Stage B: role literals in policies/guards/effects/listens/config
+        // defaults, and (inside) `source_entity_definition`'s own policies —
+        // same scope `rewrite_entity_fields_in_trait` covers, run right
+        // after the source-entity rename above per §5 of the plan.
+        rewrite_role_literals_in_trait(td, &role_fields, &roles);
         if !field_subs.is_empty() {
             rewrite_entity_fields_in_trait(td, &field_subs);
         }
@@ -309,51 +785,114 @@ pub(crate) fn resolve_orbital_reference(
             td,
             &subs,
             &id_by_name,
-            orbital_rename.as_ref().map(|(from, to)| (from.as_str(), to.as_str())),
+            orbital_rename
+                .as_ref()
+                .map(|(from, to)| (from.as_str(), to.as_str())),
         );
         if !path_map.is_empty() {
             rewrite_trait_navigate_targets(td, &path_map);
         }
-        // (D) config-held page-path literals (e.g. an AppLayout's
-        // `navItems[].href`) sit outside the navigate-effect surface above.
-        rewrite_trait_config_page_paths(td, &path_map);
-        // Config forward: resolve against this trait's own embedder(s) in
-        // `kept` first (a splice DOES have embedders — a surviving sibling
-        // that renders `@trait.<this>` — unlike the old `parent_name: None`
-        // assumption), falling through to the orbital/schema rungs when no
-        // embedder yields a delta (same precedence the pull site uses, one
-        // rung further out). `td.name` is already the FINAL name here (step
-        // 4 ran before this loop), matching `embedders_of`/`parent_configs`.
-        let mut delta = None;
+        // Config forward: resolve against EVERY surviving embedder in
+        // `kept`, in order, merging each embedder's delta into `td.config`
+        // immediately so a LATER embedder's lookup sees the knobs an
+        // earlier one already resolved (JS semantic,
+        // `reference-resolver.ts` ~L3170-3179) — replaces the old
+        // first-embedder-wins `break`, which silently dropped every other
+        // embedder's forward on a trait with more than one. `td.name` is
+        // already the FINAL name here (step 4 ran before this loop),
+        // matching `embedders_of`/`parent_configs`.
         if let Some(embedders) = embedders_of.get(&td.name) {
             for embedder in embedders {
                 let Some(parent_cfg) = parent_configs.get(embedder) else {
                     continue;
                 };
-                delta = forwarded_sibling_config_from(
-                    &*td,
-                    Some(parent_cfg),
+                if let Some(delta) = forwarded_sibling_config_from(
+                    td.config.as_ref(),
+                    &[parent_cfg],
                     folded_config.as_ref(),
+                    None,
+                    None,
                     schema_config,
-                );
-                if delta.is_some() {
-                    break;
+                ) {
+                    let cfg = td.config.get_or_insert_with(HashMap::new);
+                    for (k, v) in delta {
+                        cfg.insert(k, v);
+                    }
                 }
             }
         }
-        if delta.is_none() {
-            delta = forwarded_sibling_config_from(&*td, None, folded_config.as_ref(), schema_config);
+        // Hoisted multi-hop forward: a knob none of the DIRECT embedders
+        // above resolved may still resolve through an embedder's own
+        // embedder chain — JSX-hoisted chrome nests several trait layers
+        // deep (`Feed` embeds `Stack8` embeds `Stack5` embeds `Typography4`,
+        // and only `Feed` declares the knob `Typography4` forwards). Walks
+        // out from the first direct embedder via `embedders_of`'s
+        // first-embedder-per-hop (see `embedder_chain_via_first_hop`); a
+        // key already resolved by the direct-embedder loop above is a no-op
+        // here (its default is no longer a forward string).
+        if let Some(first_embedder) = embedders_of.get(&td.name).and_then(|v| v.first()) {
+            let chain = embedder_chain_via_first_hop(
+                first_embedder,
+                &embedders_of,
+                &parent_configs,
+                kept_len,
+            );
+            if let Some(delta) = forwarded_sibling_config_from(
+                td.config.as_ref(),
+                &chain,
+                folded_config.as_ref(),
+                None,
+                None,
+                schema_config,
+            ) {
+                let cfg = td.config.get_or_insert_with(HashMap::new);
+                for (k, v) in delta {
+                    cfg.insert(k, v);
+                }
+            }
         }
-        if let Some(delta) = delta {
+        // No-embedder fallback (orbital/schema rungs only) — also catches
+        // any knob no embedder above resolved.
+        if let Some(delta) = forwarded_sibling_config_from(
+            td.config.as_ref(),
+            &[],
+            folded_config.as_ref(),
+            None,
+            None,
+            schema_config,
+        ) {
             let cfg = td.config.get_or_insert_with(HashMap::new);
             for (k, v) in delta {
                 cfg.insert(k, v);
             }
         }
+        // (D) config-held page-path literals (e.g. an AppLayout's
+        // `navItems[].href`) sit outside the navigate-effect surface above —
+        // moved here, after the config forward, per (i) above.
+        rewrite_trait_config_page_paths(td, &path_map);
         if let Some(events) = obj.events.as_ref() {
             rename_events_in_trait(td, events);
         }
     }
+
+    // Planning find (iii): drop a folded orbital knob no SURVIVING trait
+    // forwards. An `omit {}` can silently strand a knob whose only forwarder
+    // was the omitted trait — `ORB_O_CONFIG_DEAD_KNOB` on the consumer.
+    // Checked against `parent_configs` (every KEPT trait's declared config,
+    // snapshotted BEFORE the per-trait loop above resolved its own
+    // forwards) — the just-run loop already overwrote a resolving trait's
+    // `@config.<key>` default with its resolved value, so `kept`'s current
+    // config no longer carries the literal forward string to match against.
+    let folded_config: Option<HashMap<String, ConfigField>> = folded_config.map(|decl| {
+        decl.into_iter()
+            .filter(|(key, _)| {
+                let forward = SExpression::String(format!("@config.{key}"));
+                parent_configs
+                    .values()
+                    .any(|cfg| cfg.values().any(|f| f.default.as_ref() == Some(&forward)))
+            })
+            .collect()
+    });
 
     let mut final_pages: Vec<PageRef> = Vec::new();
     if let Some(pages) = &upstream.pages {
@@ -362,7 +901,10 @@ pub(crate) fn resolve_orbital_reference(
                 continue;
             };
             let mut pd = page_def.clone();
-            pd.path = path_map.get(&pd.path).cloned().unwrap_or_else(|| pd.path.clone());
+            pd.path = path_map
+                .get(&pd.path)
+                .cloned()
+                .unwrap_or_else(|| pd.path.clone());
             // Unconditional prefix (§4.3), same rule as traits/entities — a
             // materialized page's NAME is upstream vocabulary until here, so
             // two imports of one upstream (each with its own `pages {}` path
@@ -378,6 +920,7 @@ pub(crate) fn resolve_orbital_reference(
                 upstream.id.as_deref(),
                 &page_def.name,
                 &local_name,
+                orbital_core::identity::IdKind::Page,
             ));
             if let Some(traits) = pd.traits.as_mut() {
                 traits.retain_mut(|tr| {
@@ -419,6 +962,33 @@ pub(crate) fn resolve_orbital_reference(
                     pd.primary_entity = Some(to.clone());
                 }
             }
+            // Stage B: `mounts {upstreamPath: [siblingTraitName, …]}` — a
+            // sibling trait declared in the reference body, mounted on this
+            // (already-remapped) page. Siblings are consumer vocabulary and
+            // are NEVER prefixed, so the mount is a plain local-name
+            // reference (matches the local-trait-mount shape
+            // `orbital-lolo`'s own page lowering already produces —
+            // `reference: Some(name)`, no alias qualification).
+            if let Some(mount_names) = obj.mounts.as_ref().and_then(|m| m.get(&page_def.path)) {
+                let traits = pd.traits.get_or_insert_with(Vec::new);
+                for name in mount_names {
+                    traits.push(TraitReference::Reference {
+                        reference: Some(name.clone()),
+                        ref_id: None,
+                        id: None,
+                        name: None,
+                        linked_entity: None,
+                        linked_entity_id: None,
+                        config: None,
+                        events: None,
+                        event_ids: None,
+                        fields: None,
+                        listens: None,
+                        emits_scope: None,
+                        type_args: None,
+                    });
+                }
+            }
             final_pages.push(PageRef::Inline(pd));
         }
     }
@@ -434,15 +1004,159 @@ pub(crate) fn resolve_orbital_reference(
     // [NoteTagRef]`) still name upstream's un-prefixed entities. `entity_ids`
     // is fully populated by this point (primary + every aux, computed above).
     rename_entity_refs_in_entity(&mut primary_entity, &subs, &entity_ids);
+    rewrite_role_literals_in_entity(&mut primary_entity, &role_fields, &roles);
+
+    // Stage C: `extend { … }` — append fields declared in the reference
+    // body onto the materialized primary entity, AFTER `fields {}` renames
+    // apply (already run above). A relation-typed added field resolves its
+    // target in the CONSUMER scope (`consumer_entity_ids` — never `subs`/
+    // `entity_ids`, which only cover upstream-renamed names): `Workspace!`
+    // means the CONSUMER's `Workspace`, never an upstream entity of the
+    // same name.
+    let mut extend_collision: Vec<(String, String)> = Vec::new();
+    let mut extend_unread: Vec<String> = Vec::new();
+    if let Some(extend_fields) = obj.extend.as_ref() {
+        let existing_names: HashSet<String> = primary_entity
+            .fields
+            .iter()
+            .filter_map(|f| f.name.clone())
+            .collect();
+        let rename_targets: HashSet<&str> = field_subs.values().map(String::as_str).collect();
+        let extend_names: HashSet<String> = extend_fields
+            .iter()
+            .filter_map(|f| f.name.clone())
+            .collect();
+
+        // `ORB_O_EXTEND_FIELD_UNREAD`: an added field is "used" when a kept
+        // trait OR a reference-body sibling reads/sets it (`@entity.<f>`,
+        // `(object/get @entity "<f>")`, a render/form entry keyed on it) or
+        // the orbital's own folded config knob VALUES name it.
+        let mut read_slots: HashSet<String> = HashSet::new();
+        let sibling_defs: Vec<&TraitDefinition> = orbital
+            .traits
+            .iter()
+            .filter_map(|tr| match tr {
+                TraitReference::Inline(td) => Some(td),
+                _ => None,
+            })
+            .collect();
+        for td in kept.iter().chain(sibling_defs.into_iter()) {
+            for t in &td.state_machine.transitions {
+                if let Some(g) = t.guard.as_ref() {
+                    collect_extend_field_reads(g, &extend_names, &mut read_slots);
+                }
+                if let Some(effs) = t.effects.as_ref() {
+                    for e in effs {
+                        collect_extend_field_reads(e, &extend_names, &mut read_slots);
+                    }
+                }
+            }
+            if let Some(ticks) = td.ticks.as_ref() {
+                for tick in ticks {
+                    if let Some(g) = tick.guard.as_ref() {
+                        collect_extend_field_reads(g, &extend_names, &mut read_slots);
+                    }
+                    for e in &tick.effects {
+                        collect_extend_field_reads(e, &extend_names, &mut read_slots);
+                    }
+                }
+            }
+            if let Some(listens) = td.listens.as_ref() {
+                for l in listens {
+                    if let Some(g) = l.guard.as_ref() {
+                        collect_extend_field_reads(g, &extend_names, &mut read_slots);
+                    }
+                    if let Some(pm) = l.payload_mapping.as_ref() {
+                        for v in pm.values() {
+                            collect_extend_field_reads(v, &extend_names, &mut read_slots);
+                        }
+                    }
+                }
+            }
+            if let Some(cfg) = td.config.as_ref() {
+                for f in cfg.values() {
+                    if let Some(d) = f.default.as_ref() {
+                        collect_extend_field_reads(d, &extend_names, &mut read_slots);
+                    }
+                }
+            }
+        }
+        let mut config_named: HashSet<String> = HashSet::new();
+        if let Some(cfg) = folded_config.as_ref() {
+            for f in cfg.values() {
+                if let Some(d) = f.default.as_ref() {
+                    for name in &extend_names {
+                        if config_value_names_field(d, name) {
+                            config_named.insert(name.clone());
+                        }
+                    }
+                }
+            }
+        }
+
+        for ef in extend_fields {
+            let Some(name) = ef.name.clone() else {
+                continue;
+            };
+            if existing_names.contains(&name) {
+                extend_collision.push((
+                    name.clone(),
+                    "already declared on the upstream primary entity (after `fields {}` renames)"
+                        .to_string(),
+                ));
+                continue;
+            }
+            if rename_targets.contains(name.as_str()) {
+                extend_collision.push((
+                    name.clone(),
+                    "equals a `fields {}` rename target".to_string(),
+                ));
+                continue;
+            }
+            if !read_slots.contains(&name) && !config_named.contains(&name) {
+                extend_unread.push(name.clone());
+            }
+            let mut field = ef.clone();
+            if let Some(rel) = field.relation.as_mut() {
+                if let Some(id) = consumer_entity_ids.get(&rel.entity) {
+                    rel.entity_id = Some(id.clone());
+                }
+            }
+            primary_entity.fields.push(field);
+        }
+    }
 
     orbital.entity = EntityRef::Inline(primary_entity);
     orbital.auxiliary_entities = if final_aux_entities.is_empty() {
         None
     } else {
-        Some(final_aux_entities.into_iter().map(EntityRef::Inline).collect())
+        Some(
+            final_aux_entities
+                .into_iter()
+                .map(EntityRef::Inline)
+                .collect(),
+        )
     };
-    orbital.traits = kept.into_iter().map(TraitReference::Inline).collect();
-    orbital.pages = if final_pages.is_empty() { None } else { Some(final_pages) };
+    // Siblings (Stage B): trait declarations authored directly in the
+    // reference body — never prefixed, `omit`/`only` never apply — ride
+    // along as `orbital.traits` (lowered there by `orbital-lolo`, no longer
+    // forced empty). They are CONSUMER-scope, so they splice in AFTER the
+    // materialized (upstream) closure and are resolved by the same
+    // `inline_traits` pass that runs on this orbital right after this
+    // function returns (`inline_orbital` calls `resolve_orbital_reference`
+    // before its own `inline_traits` call — verified in `mod.rs`), exactly
+    // like any other trait this orbital declares.
+    let siblings = std::mem::take(&mut orbital.traits);
+    orbital.traits = kept
+        .into_iter()
+        .map(TraitReference::Inline)
+        .chain(siblings)
+        .collect();
+    orbital.pages = if final_pages.is_empty() {
+        None
+    } else {
+        Some(final_pages)
+    };
     orbital.config = folded_config;
     // Orbital-level `emits`/`listens`/`exposes` name UPSTREAM's pre-rename
     // vocabulary — carrying them through would be wrong, and nothing reads
@@ -457,42 +1171,108 @@ pub(crate) fn resolve_orbital_reference(
     // (`ORB_ID_LEDGER_ORPHAN`). Derive from upstream only when the local
     // orbital carries no id of its own.
     if orbital.id.is_none() {
-        orbital.id =
-            upstream.id.as_deref().map(|uid| orbital_core::identity::derive_id(uid, &local_name));
+        orbital.id = upstream
+            .id
+            .as_deref()
+            .map(|uid| orbital_core::identity::derive_id(uid, &local_name));
+    }
+
+    if !unknown_config_keys.is_empty()
+        || !omitted_but_embedded.is_empty()
+        || !entity_unmapped.is_empty()
+        || !entity_unknown_key.is_empty()
+        || !entity_target_unknown.is_empty()
+        || !role_unknown_upstream.is_empty()
+        || !role_targets.is_empty()
+        || !page_unknown_path.is_empty()
+        || !extend_collision.is_empty()
+        || !extend_unread.is_empty()
+    {
+        diagnostics.push(OrbitalRefDiagnostic {
+            path: diag_path.clone(),
+            reference: obj.reference.clone(),
+            unknown_config_keys,
+            omitted_but_embedded,
+            entity_unmapped,
+            entity_unknown_key,
+            entity_target_unknown,
+            role_unknown_upstream,
+            role_targets,
+            page_unknown_path,
+            extend_collision,
+            extend_unread,
+        });
     }
 
     Ok(())
 }
 
-/// Deterministic id for a materialized trait/entity node: rooted in the
+/// Deterministic id for a materialized trait/entity/page node: rooted in the
 /// source node's own id when it has one (`derive_id` keeps that id's KIND —
 /// trait stays trait, entity stays entity); when the source has none yet
 /// (pre-Phase-7, common today), a seed string derived from the upstream
 /// orbital id + the pre-rename source name instead — feeding `upstream.id`
 /// (orbital-kind, `orb_`) straight into `derive_id` would stamp a
 /// trait/entity with the wrong id KIND, since `derive_id` inherits its
-/// parent's kind. The seed string never starts with a reserved id prefix, so
-/// `derive_id` falls back to its own default (`trait`). JS twin:
-/// `deriveMaterializedId` (`reference-resolver.ts:1547`) — same seed shape,
-/// ported byte-for-byte.
+/// parent's kind. The seed is prefixed with `kind.prefix()` so `derive_id`'s
+/// own kind classification (`id_kind_of`, which just checks the prefix)
+/// lands on the CALLER's intended kind instead of always falling back to its
+/// default (`trait`) — an entity/page materialized from a source with no
+/// real id used to get a `trt_` id regardless. JS twin: `deriveMaterializedId`
+/// (`reference-resolver.ts:1547`) threads the same explicit kind through
+/// `asEntityId`/`asPageId`/`asTraitId`.
 fn derive_materialized_id(
     source_id: Option<&str>,
     upstream_orbital_id: Option<&str>,
     source_name: &str,
     local_name: &str,
+    kind: orbital_core::identity::IdKind,
 ) -> String {
     let seed;
     let parent: &str = match source_id {
         Some(id) => id,
         None => {
             seed = format!(
-                "orbital-import-seed:{}:{source_name}",
+                "{}orbital-import-seed:{}:{source_name}",
+                kind.prefix(),
                 upstream_orbital_id.unwrap_or("no-orbital-id")
             );
             &seed
         }
     };
     orbital_core::identity::derive_id(parent, local_name)
+}
+
+/// Multi-hop embedder chain for the config-forward step-6 fallback: starting
+/// at `start` (a direct embedder of the trait being resolved), walks OUT
+/// through the FIRST embedder recorded for each hop (`embedders_of`'s
+/// `kept`-order list — deterministic; a trait embedded by more than one
+/// surviving sibling picks its first for chain-continuation purposes only,
+/// mirroring `inline/trait.rs`'s pull-site `parent_of` walk). Returns
+/// `parent_configs` snapshots, innermost first, matching
+/// `forwarded_sibling_config_from`'s `embedder_chain` contract. Bounded by
+/// `bound` (the number of kept traits) with a `visited` guard — defensive,
+/// `embedders_of` reflects the acyclic composition graph.
+fn embedder_chain_via_first_hop<'a>(
+    start: &str,
+    embedders_of: &HashMap<String, Vec<String>>,
+    parent_configs: &'a HashMap<String, HashMap<String, ConfigField>>,
+    bound: usize,
+) -> Vec<&'a HashMap<String, ConfigField>> {
+    let mut chain = Vec::new();
+    let mut current = start.to_string();
+    let mut visited: HashSet<String> = HashSet::new();
+    let bound = bound.max(1);
+    while chain.len() < bound && visited.insert(current.clone()) {
+        if let Some(cfg) = parent_configs.get(&current) {
+            chain.push(cfg);
+        }
+        match embedders_of.get(&current).and_then(|v| v.first()) {
+            Some(next) => current = next.clone(),
+            None => break,
+        }
+    }
+    chain
 }
 
 /// `@trait.<Sibling>` refs a trait carries, scanned across the same surface
@@ -575,6 +1355,7 @@ fn rename_entities_in_trait(
         }
     }
     rewrite_payload_entity_refs(td, entity_subs);
+    rewrite_entity_ref_ids(td, entity_subs, entity_ids);
 }
 
 /// Apply an `OrbitalRefObject.fields` rename (`{ up: local }`) to every
@@ -645,7 +1426,10 @@ fn rewrite_entity_fields_in_trait(td: &mut TraitDefinition, field_subs: &HashMap
 /// Rename `entity`-level fields on the entity itself: field keys plus any
 /// `@entity.<field>` token in its access policies. JS twin:
 /// `rewriteEntityFieldsInEntity`.
-fn rewrite_entity_fields_in_entity(entity: &mut EntityDefinition, field_subs: &HashMap<String, String>) {
+fn rewrite_entity_fields_in_entity(
+    entity: &mut EntityDefinition,
+    field_subs: &HashMap<String, String>,
+) {
     if field_subs.is_empty() {
         return;
     }
@@ -667,6 +1451,91 @@ fn rewrite_entity_fields_in_entity(entity: &mut EntityDefinition, field_subs: &H
     }
     if let Some(p) = entity.delete_policy.as_mut() {
         rewrite_entity_field_paths(p, field_subs);
+    }
+}
+
+/// Stage B `roles {}`: rewrite role literals across an entity's four access
+/// policies — the same four `rewrite_entity_fields_in_entity` covers, just
+/// for role-literal comparisons instead of `@entity.<field>` reads. Applied
+/// to the primary entity, every auxiliary entity, and (via
+/// `rewrite_role_literals_in_trait`) a trait's `source_entity_definition`
+/// copy.
+fn rewrite_role_literals_in_entity(
+    entity: &mut EntityDefinition,
+    role_fields: &HashMap<String, Vec<String>>,
+    roles: &HashMap<String, Vec<String>>,
+) {
+    if roles.is_empty() {
+        return;
+    }
+    if let Some(p) = entity.read_policy.as_mut() {
+        rewrite_role_literals(p, role_fields, roles);
+    }
+    if let Some(p) = entity.create_policy.as_mut() {
+        rewrite_role_literals(p, role_fields, roles);
+    }
+    if let Some(p) = entity.update_policy.as_mut() {
+        rewrite_role_literals(p, role_fields, roles);
+    }
+    if let Some(p) = entity.delete_policy.as_mut() {
+        rewrite_role_literals(p, role_fields, roles);
+    }
+}
+
+/// Stage B `roles {}`: rewrite role literals across a trait's whole
+/// guard/effect surface — transition + tick guards/effects, listen
+/// guard/payloadMapping, config-field defaults, and (recursively)
+/// `source_entity_definition`'s own four access policies. Same scope
+/// `rewrite_entity_fields_in_trait` covers for the `fields {}` surface.
+fn rewrite_role_literals_in_trait(
+    td: &mut TraitDefinition,
+    role_fields: &HashMap<String, Vec<String>>,
+    roles: &HashMap<String, Vec<String>>,
+) {
+    if roles.is_empty() {
+        return;
+    }
+    for t in td.state_machine.transitions.iter_mut() {
+        if let Some(guard) = t.guard.as_mut() {
+            rewrite_role_literals(guard, role_fields, roles);
+        }
+        if let Some(effects) = t.effects.as_mut() {
+            for e in effects.iter_mut() {
+                rewrite_role_literals(e, role_fields, roles);
+            }
+        }
+    }
+    if let Some(ticks) = td.ticks.as_mut() {
+        for tick in ticks.iter_mut() {
+            if let Some(guard) = tick.guard.as_mut() {
+                rewrite_role_literals(guard, role_fields, roles);
+            }
+            for e in tick.effects.iter_mut() {
+                rewrite_role_literals(e, role_fields, roles);
+            }
+        }
+    }
+    if let Some(listens) = td.listens.as_mut() {
+        for l in listens.iter_mut() {
+            if let Some(guard) = l.guard.as_mut() {
+                rewrite_role_literals(guard, role_fields, roles);
+            }
+            if let Some(pm) = l.payload_mapping.as_mut() {
+                for v in pm.values_mut() {
+                    rewrite_role_literals(v, role_fields, roles);
+                }
+            }
+        }
+    }
+    if let Some(cfg) = td.config.as_mut() {
+        for f in cfg.values_mut() {
+            if let Some(default) = f.default.as_mut() {
+                rewrite_role_literals(default, role_fields, roles);
+            }
+        }
+    }
+    if let Some(src) = td.source_entity_definition.as_mut() {
+        rewrite_role_literals_in_entity(src, role_fields, roles);
     }
 }
 
@@ -711,6 +1580,127 @@ fn rename_relation_targets_in_fields(
         if let Some(props) = f.properties.as_mut() {
             for v in props.values_mut() {
                 rename_relation_targets_in_fields(std::slice::from_mut(v), entity_subs, entity_ids);
+            }
+        }
+    }
+}
+
+/// `ORB_O_EXTEND_FIELD_UNREAD`'s read/set detector over an effect, guard,
+/// payload mapping or config default: `@entity.<f>` (any trailing path),
+/// `(object/get @entity "<f>")`, or an object entry `key`/`name`/`field`
+/// equal to the added field (a column/form entry rendered inline).
+fn collect_extend_field_reads(
+    expr: &SExpression,
+    candidates: &HashSet<String>,
+    out: &mut HashSet<String>,
+) {
+    match expr {
+        SExpression::String(s) => {
+            if let Some(rest) = s.strip_prefix("@entity.") {
+                let head = rest.split(['.', '[']).next().unwrap_or(rest);
+                if candidates.contains(head) {
+                    out.insert(head.to_string());
+                }
+            }
+        }
+        SExpression::Array(items) => {
+            if let [SExpression::String(op), SExpression::String(root), SExpression::String(f), ..] =
+                items.as_slice()
+            {
+                if op == "object/get" && root == "@entity" && candidates.contains(f) {
+                    out.insert(f.clone());
+                }
+            }
+            for item in items {
+                collect_extend_field_reads(item, candidates, out);
+            }
+        }
+        SExpression::Object(map) => {
+            for key in ["key", "name", "field"] {
+                if let Some(SExpression::String(v)) = map.get(key) {
+                    if candidates.contains(v) {
+                        out.insert(v.clone());
+                    }
+                }
+            }
+            for v in map.values() {
+                collect_extend_field_reads(v, candidates, out);
+            }
+        }
+        _ => {}
+    }
+}
+
+/// Stage C `ORB_O_EXTEND_FIELD_UNREAD`: does a config knob's VALUE name
+/// `field` — the shape a `browseColumns`/`formFields`-style list entry uses
+/// (a bare string equal to the field name, or an object with `key`/`name`
+/// equal to it), recursing through arrays/objects. Sibling of
+/// `collect_entity_slots` (which catches `@entity.<field>` reads/sets) for
+/// the other way a field is "used": named by a knob that renders/forwards
+/// it without a literal `@entity.` binding.
+fn config_value_names_field(expr: &SExpression, field: &str) -> bool {
+    match expr {
+        SExpression::String(s) => s == field,
+        SExpression::Array(items) => items.iter().any(|i| config_value_names_field(i, field)),
+        SExpression::Object(map) => {
+            if matches!(map.get("key"), Some(SExpression::String(k)) if k == field) {
+                return true;
+            }
+            if matches!(map.get("name"), Some(SExpression::String(n)) if n == field) {
+                return true;
+            }
+            map.values().any(|v| config_value_names_field(v, field))
+        }
+        _ => false,
+    }
+}
+
+/// Stage B `entities {}`: record `(site, name)` when `name` is a member of
+/// `upstream_universe` — the out-of-orbital candidate set — deduping
+/// identical pairs. One tiny shared guard so every `referenced`-collection
+/// call site in `resolve_orbital_reference` applies the same "is this worth
+/// recording" rule.
+fn record_referenced(
+    site: &str,
+    name: &str,
+    upstream_universe: &HashSet<String>,
+    referenced: &mut Vec<(String, String)>,
+) {
+    if upstream_universe.contains(name) && !referenced.iter().any(|(s, n)| s == site && n == name) {
+        referenced.push((site.to_string(), name.to_string()));
+    }
+}
+
+/// Read-only twin of `rename_relation_targets_in_fields`, scoped to Stage B's
+/// `entities {}` diagnostic: record every relation target reachable from
+/// `fields` (recursing through `items`/`properties`, the same positions the
+/// rename walker covers) that names a member of `upstream_universe`.
+fn collect_relation_targets_referenced(
+    fields: &[FieldDefinition],
+    site: &str,
+    upstream_universe: &HashSet<String>,
+    referenced: &mut Vec<(String, String)>,
+) {
+    for f in fields {
+        if let Some(rel) = f.relation.as_ref() {
+            record_referenced(site, &rel.entity, upstream_universe, referenced);
+        }
+        if let Some(items) = f.items.as_ref() {
+            collect_relation_targets_referenced(
+                std::slice::from_ref(items.as_ref()),
+                site,
+                upstream_universe,
+                referenced,
+            );
+        }
+        if let Some(props) = f.properties.as_ref() {
+            for v in props.values() {
+                collect_relation_targets_referenced(
+                    std::slice::from_ref(v),
+                    site,
+                    upstream_universe,
+                    referenced,
+                );
             }
         }
     }
@@ -780,7 +1770,10 @@ fn rewrite_listen_sources(
     };
     for listen in listens.iter_mut() {
         match listen.source.as_mut() {
-            Some(ListenSource::Trait { trait_name, trait_id }) => {
+            Some(ListenSource::Trait {
+                trait_name,
+                trait_id,
+            }) => {
                 if let Some(target) = subs.get(trait_name.as_str()) {
                     if target != trait_name {
                         *trait_id = id_by_name.get(target).cloned();
@@ -788,10 +1781,18 @@ fn rewrite_listen_sources(
                     }
                 }
             }
-            Some(ListenSource::Orbital { orbital, trait_name, trait_id, orbital_id }) => {
+            Some(ListenSource::Orbital {
+                orbital,
+                trait_name,
+                trait_id,
+                orbital_id,
+            }) => {
                 if let Some((from, to)) = orbital_rename {
                     if orbital.as_str() == from {
-                        let target = subs.get(trait_name.as_str()).cloned().unwrap_or_else(|| trait_name.clone());
+                        let target = subs
+                            .get(trait_name.as_str())
+                            .cloned()
+                            .unwrap_or_else(|| trait_name.clone());
                         *trait_id = id_by_name.get(&target).cloned();
                         *trait_name = target;
                         *orbital = to.to_string();
@@ -852,6 +1853,16 @@ fn rename_events_in_trait(td: &mut TraitDefinition, event_subs: &HashMap<String,
                     }
                 }
             }
+            // (f): the STRUCT-MEMBER twin of the scalar fold above — a knob
+            // declared `[RecordAction]` whose element schema types a member
+            // `event` holds event-name REFERENCES too. Exact port of
+            // `trait.rs:404-445`'s member-fold, reused (not copied) via the
+            // shared `fold_event_typed_members`.
+            if f.items.is_some() {
+                if let Some(default) = f.default.as_mut() {
+                    fold_event_typed_members(default, f.items.as_deref(), event_subs);
+                }
+            }
         }
     }
 }
@@ -877,7 +1888,10 @@ fn navigate_param_stripped_prefix(path: &str) -> Option<String> {
 /// The local prefix a `str/concat`-built navigate target's literal head
 /// rewrites to, given the upstream→local page-path map. Mirrors
 /// `rewriteConcatPrefix` (`reference-resolver.ts:1578`).
-fn rewrite_concat_prefix(literal_prefix: &str, path_map: &HashMap<String, String>) -> Option<String> {
+fn rewrite_concat_prefix(
+    literal_prefix: &str,
+    path_map: &HashMap<String, String>,
+) -> Option<String> {
     let normalized = if literal_prefix.ends_with('/') {
         literal_prefix.to_string()
     } else {
@@ -1023,6 +2037,7 @@ fn rewrite_trait_config_page_paths(td: &mut TraitDefinition, path_map: &HashMap<
 #[cfg(test)]
 mod tests {
     use super::*;
+    use orbital_core::schema::{OrbitalSchema, UseDeclaration};
     use serde_json::json;
 
     /// Upstream orbital fixture: `A` embeds `@trait.B` and listens on it via
@@ -1144,9 +2159,19 @@ mod tests {
             roles: None,
             entities: None,
             mounts: None,
+            extend: None,
         };
         let mut diagnostics = Vec::new();
-        resolve_orbital_reference(&mut orbital, &obj, &ctx, None, &mut diagnostics).expect("resolves");
+        resolve_orbital_reference(
+            &mut orbital,
+            &obj,
+            &ctx,
+            &HashMap::new(),
+            &HashMap::new(),
+            &mut diagnostics,
+            None,
+        )
+        .expect("resolves");
 
         let names = trait_names(&orbital);
         assert_eq!(names.len(), 3, "{names:?}");
@@ -1173,16 +2198,32 @@ mod tests {
             roles: None,
             entities: None,
             mounts: None,
+            extend: None,
         };
         let mut diagnostics = Vec::new();
-        resolve_orbital_reference(&mut orbital, &obj, &ctx, None, &mut diagnostics).expect("resolves");
+        resolve_orbital_reference(
+            &mut orbital,
+            &obj,
+            &ctx,
+            &HashMap::new(),
+            &HashMap::new(),
+            &mut diagnostics,
+            None,
+        )
+        .expect("resolves");
 
         let a = kept_trait(&orbital, "LocalA");
         let listens = a.listens.as_ref().expect("listens carried");
         match listens[0].source.as_ref().expect("source") {
-            ListenSource::Trait { trait_name, trait_id } => {
+            ListenSource::Trait {
+                trait_name,
+                trait_id,
+            } => {
                 assert_eq!(trait_name, "LocalB");
-                assert!(trait_id.is_some(), "renamed source must carry the target's derived id");
+                assert!(
+                    trait_id.is_some(),
+                    "renamed source must carry the target's derived id"
+                );
             }
             other => panic!("expected ListenSource::Trait, got {other:?}"),
         }
@@ -1205,16 +2246,29 @@ mod tests {
             roles: None,
             entities: None,
             mounts: None,
+            extend: None,
         };
         let mut diagnostics = Vec::new();
-        resolve_orbital_reference(&mut orbital, &obj, &ctx, None, &mut diagnostics).expect("resolves");
+        resolve_orbital_reference(
+            &mut orbital,
+            &obj,
+            &ctx,
+            &HashMap::new(),
+            &HashMap::new(),
+            &mut diagnostics,
+            None,
+        )
+        .expect("resolves");
 
         let names = trait_names(&orbital);
         assert!(!names.contains(&"LocalB".to_string()), "{names:?}");
         assert_eq!(diagnostics.len(), 1);
         // Diagnostic names are pre-rename (upstream) names, matching the JS
         // twin — the check runs before the unconditional-prefix step.
-        assert_eq!(diagnostics[0].omitted_but_embedded, vec![("A".to_string(), "B".to_string())]);
+        assert_eq!(
+            diagnostics[0].omitted_but_embedded,
+            vec![("A".to_string(), "B".to_string())]
+        );
 
         // The dangling `@trait.B` embed is left AS-IS (no rename target) for
         // the validator to flag via ORB_O_OMIT_EMBEDDED_TRAIT — never rewritten
@@ -1226,14 +2280,30 @@ mod tests {
 
     #[test]
     fn unknown_config_override_key_is_diagnosed() {
-        let ctx = ctx_with_upstream(Some(json!({
+        // Trait A forwards the orbital's `pageSize` knob — without a
+        // forwarder, the dead-knob drop (planning find iii) would strip
+        // `pageSize` from the folded config entirely, since nothing in
+        // `kept` still names it.
+        let mut upstream = upstream_orbital(Some(json!({
             "pageSize": { "type": "number", "default": 10 }
         })));
+        if let TraitReference::Inline(a) = &mut upstream.traits[0] {
+            a.config = Some(HashMap::from([(
+                "limit".to_string(),
+                serde_json::from_value::<ConfigField>(json!({
+                    "type": "number", "default": "@config.pageSize"
+                }))
+                .unwrap(),
+            )]));
+        }
+        let mut ctx = InlineContext::new();
+        ctx.add_alias("Up", &upstream);
         let mut orbital = consumer_orbital("Local");
         let mut overrides = std::collections::HashMap::new();
         overrides.insert(
             "bogusKnob".to_string(),
-            serde_json::from_value::<ConfigField>(json!({ "type": "number", "default": 99 })).unwrap(),
+            serde_json::from_value::<ConfigField>(json!({ "type": "number", "default": 99 }))
+                .unwrap(),
         );
         let obj = OrbitalRefObject {
             reference: "Up.orbitals.UpOrbital".to_string(),
@@ -1248,12 +2318,25 @@ mod tests {
             roles: None,
             entities: None,
             mounts: None,
+            extend: None,
         };
         let mut diagnostics = Vec::new();
-        resolve_orbital_reference(&mut orbital, &obj, &ctx, None, &mut diagnostics).expect("resolves");
+        resolve_orbital_reference(
+            &mut orbital,
+            &obj,
+            &ctx,
+            &HashMap::new(),
+            &HashMap::new(),
+            &mut diagnostics,
+            None,
+        )
+        .expect("resolves");
 
         assert_eq!(diagnostics.len(), 1);
-        assert_eq!(diagnostics[0].unknown_config_keys, vec!["bogusKnob".to_string()]);
+        assert_eq!(
+            diagnostics[0].unknown_config_keys,
+            vec!["bogusKnob".to_string()]
+        );
         // The declared (known) knob is untouched — the unknown key is dropped,
         // not silently accepted into the folded config.
         let folded = orbital.config.expect("declared config carried");
@@ -1268,7 +2351,12 @@ mod tests {
     fn schema_rung_resolves_a_forward_when_the_orbital_declares_no_config() {
         // Upstream orbital declares NO `config {}` of its own, but trait `A`
         // forwards `@config.pageSize` — with `orbital_config: None`, the
-        // outermost (schema) rung must still resolve it.
+        // outermost (schema) rung must still resolve it, from the ALIAS's
+        // (upstream FILE's) own app-level config — never the consumer's own
+        // `schema.config` (the (A) bug this fixture pins: `resolve_orbital_
+        // reference` used to receive the consumer's OWN `schema_config`
+        // verbatim, so an import's `@config.<appKnob>` forward against the
+        // UPSTREAM's app config never resolved).
         let mut upstream = upstream_orbital(None);
         if let TraitReference::Inline(td) = &mut upstream.traits[0] {
             td.config = Some(std::collections::HashMap::from([(
@@ -1282,11 +2370,14 @@ mod tests {
         let mut ctx = InlineContext::new();
         ctx.add_alias("Up", &upstream);
 
-        let mut schema_config = std::collections::HashMap::new();
-        schema_config.insert(
+        let mut upstream_schema_config = std::collections::HashMap::new();
+        upstream_schema_config.insert(
             "pageSize".to_string(),
-            serde_json::from_value::<ConfigField>(json!({ "type": "number", "default": 42 })).unwrap(),
+            serde_json::from_value::<ConfigField>(json!({ "type": "number", "default": 42 }))
+                .unwrap(),
         );
+        let alias_schema_configs: HashMap<String, HashMap<String, ConfigField>> =
+            HashMap::from([("Up".to_string(), upstream_schema_config)]);
 
         let mut orbital = consumer_orbital("Local");
         let obj = OrbitalRefObject {
@@ -1302,16 +2393,100 @@ mod tests {
             roles: None,
             entities: None,
             mounts: None,
+            extend: None,
         };
         let mut diagnostics = Vec::new();
-        resolve_orbital_reference(&mut orbital, &obj, &ctx, Some(&schema_config), &mut diagnostics)
-            .expect("resolves");
+        resolve_orbital_reference(
+            &mut orbital,
+            &obj,
+            &ctx,
+            &alias_schema_configs,
+            &HashMap::new(),
+            &mut diagnostics,
+            None,
+        )
+        .expect("resolves");
 
         let a = kept_trait(&orbital, "LocalA");
         assert_eq!(
-            a.config.as_ref().and_then(|c| c.get("limit")).and_then(|f| f.default.clone()),
+            a.config
+                .as_ref()
+                .and_then(|c| c.get("limit"))
+                .and_then(|f| f.default.clone()),
             Some(SExpression::Number(42.0)),
-            "with no orbital-level config, the schema rung must still resolve the forward"
+            "with no orbital-level config, the ALIAS's schema rung must still resolve the forward"
+        );
+    }
+
+    /// (A) regression: the CONSUMER's own top-level `schema.config` must
+    /// NEVER be consulted as the schema rung for an orbital import — only
+    /// the ALIAS's (upstream file's) own app-level config, keyed by the
+    /// alias the reference names. A consumer-scope entry for an UNRELATED
+    /// alias key (or none at all) must leave the forward unresolved (still
+    /// the raw `@config.<knob>` string) rather than silently borrow it.
+    #[test]
+    fn schema_rung_never_falls_back_to_the_consumers_own_schema_config() {
+        let mut upstream = upstream_orbital(None);
+        if let TraitReference::Inline(td) = &mut upstream.traits[0] {
+            td.config = Some(std::collections::HashMap::from([(
+                "limit".to_string(),
+                serde_json::from_value::<ConfigField>(json!({
+                    "type": "number", "default": "@config.pageSize"
+                }))
+                .unwrap(),
+            )]));
+        }
+        let mut ctx = InlineContext::new();
+        ctx.add_alias("Up", &upstream);
+
+        // A schema config IS present, but keyed under a DIFFERENT alias
+        // ("SomeOtherAlias") — simulating the consumer's own unrelated
+        // `schema.config` reaching this call under the old (buggy) wiring.
+        let mut other_alias_config = std::collections::HashMap::new();
+        other_alias_config.insert(
+            "pageSize".to_string(),
+            serde_json::from_value::<ConfigField>(json!({ "type": "number", "default": 999 }))
+                .unwrap(),
+        );
+        let alias_schema_configs: HashMap<String, HashMap<String, ConfigField>> =
+            HashMap::from([("SomeOtherAlias".to_string(), other_alias_config)]);
+
+        let mut orbital = consumer_orbital("Local");
+        let obj = OrbitalRefObject {
+            reference: "Up.orbitals.UpOrbital".to_string(),
+            ref_id: None,
+            entity: None,
+            fields: None,
+            pages: None,
+            omit: None,
+            only: None,
+            config: None,
+            events: None,
+            roles: None,
+            entities: None,
+            mounts: None,
+            extend: None,
+        };
+        let mut diagnostics = Vec::new();
+        resolve_orbital_reference(
+            &mut orbital,
+            &obj,
+            &ctx,
+            &alias_schema_configs,
+            &HashMap::new(),
+            &mut diagnostics,
+            None,
+        )
+        .expect("resolves");
+
+        let a = kept_trait(&orbital, "LocalA");
+        assert_eq!(
+            a.config
+                .as_ref()
+                .and_then(|c| c.get("limit"))
+                .and_then(|f| f.default.clone()),
+            Some(SExpression::String("@config.pageSize".to_string())),
+            "an unrelated alias's schema config must never resolve THIS reference's forward"
         );
     }
 
@@ -1331,17 +2506,394 @@ mod tests {
             roles: None,
             entities: None,
             mounts: None,
+            extend: None,
         };
 
         let mut first = consumer_orbital("Local");
-        resolve_orbital_reference(&mut first, &obj, &ctx, None, &mut Vec::new()).expect("resolves");
+        resolve_orbital_reference(
+            &mut first,
+            &obj,
+            &ctx,
+            &HashMap::new(),
+            &HashMap::new(),
+            &mut Vec::new(),
+            None,
+        )
+        .expect("resolves");
         let mut second = consumer_orbital("Local");
-        resolve_orbital_reference(&mut second, &obj, &ctx, None, &mut Vec::new()).expect("resolves");
+        resolve_orbital_reference(
+            &mut second,
+            &obj,
+            &ctx,
+            &HashMap::new(),
+            &HashMap::new(),
+            &mut Vec::new(),
+            None,
+        )
+        .expect("resolves");
 
-        assert_eq!(kept_trait(&first, "LocalA").id, kept_trait(&second, "LocalA").id);
-        let EntityRef::Inline(e1) = &first.entity else { panic!("inline") };
-        let EntityRef::Inline(e2) = &second.entity else { panic!("inline") };
+        assert_eq!(
+            kept_trait(&first, "LocalA").id,
+            kept_trait(&second, "LocalA").id
+        );
+        let EntityRef::Inline(e1) = &first.entity else {
+            panic!("inline")
+        };
+        let EntityRef::Inline(e2) = &second.entity else {
+            panic!("inline")
+        };
         assert_eq!(e1.id, e2.id);
+    }
+
+    /// `derive_materialized_id`'s seed fallback (no real source id — `Widget`
+    /// in `upstream_orbital` declares none) must carry the CALLER's kind, not
+    /// always fall back to `derive_id`'s own default (`trait`) because the
+    /// unprefixed seed string classifies as no known kind. A materialized
+    /// PRIMARY ENTITY must get an `ent_`-prefixed id, and a materialized
+    /// TRAIT must get a `trt_`-prefixed id, from the exact same seed shape.
+    #[test]
+    fn seed_derived_ids_carry_the_callers_kind() {
+        let ctx = ctx_with_upstream(None);
+        let obj = OrbitalRefObject {
+            reference: "Up.orbitals.UpOrbital".to_string(),
+            ref_id: None,
+            entity: None,
+            fields: None,
+            pages: None,
+            omit: None,
+            only: None,
+            config: None,
+            events: None,
+            roles: None,
+            entities: None,
+            mounts: None,
+            extend: None,
+        };
+        let mut orbital = consumer_orbital("Local");
+        resolve_orbital_reference(
+            &mut orbital,
+            &obj,
+            &ctx,
+            &HashMap::new(),
+            &HashMap::new(),
+            &mut Vec::new(),
+            None,
+        )
+        .expect("resolves");
+
+        let EntityRef::Inline(entity) = &orbital.entity else {
+            panic!("primary must be inline")
+        };
+        let entity_id = entity.id.as_deref().expect("entity must have a derived id");
+        assert!(
+            entity_id.starts_with("ent_"),
+            "seed-derived primary entity id must carry the entity prefix, got {entity_id}"
+        );
+
+        let trait_id = kept_trait(&orbital, "LocalA")
+            .id
+            .as_deref()
+            .expect("trait must have a derived id");
+        assert!(
+            trait_id.starts_with("trt_"),
+            "seed-derived trait id must carry the trait prefix, got {trait_id}"
+        );
+    }
+
+    /// `MainOrbital` (being imported) fetches `PanelData`, which is declared
+    /// only as an AUXILIARY entity of a DIFFERENT orbital of the same alias
+    /// (`SiblingOrbital`) — never anyone's primary. `persistence: persistent`
+    /// on purpose: persistence is NOT the discriminator, aux-vs-primary is.
+    fn aux_only_main_orbital() -> Orbital {
+        serde_json::from_value(json!({
+            "name": "MainOrbital",
+            "id": "orb_AUXONLYMAINORBITAL0000000",
+            "entity": {
+                "name": "Widget",
+                "persistence": "persistent",
+                "fields": [ { "name": "id", "type": "string", "required": true } ]
+            },
+            "traits": [
+                {
+                    "name": "PanelFetcher",
+                    "linkedEntity": "Widget",
+                    "category": "interaction",
+                    "stateMachine": {
+                        "states": [ { "name": "idle", "isInitial": true } ],
+                        "events": [ { "key": "LOAD" } ],
+                        "transitions": [ { "from": "idle", "to": "idle", "event": "LOAD",
+                            "effects": [ ["fetch", "PanelData", {}] ] } ]
+                    }
+                }
+            ]
+        }))
+        .expect("aux-only main orbital fixture must deserialize")
+    }
+
+    fn aux_only_sibling_orbital() -> Orbital {
+        serde_json::from_value(json!({
+            "name": "SiblingOrbital",
+            "entity": {
+                "name": "SiblingWidget",
+                "persistence": "persistent",
+                "fields": [ { "name": "id", "type": "string", "required": true } ]
+            },
+            "auxiliaryEntities": [
+                {
+                    "name": "PanelData",
+                    "persistence": "persistent",
+                    "fields": [ { "name": "id", "type": "string", "required": true } ]
+                }
+            ],
+            "traits": []
+        }))
+        .expect("aux-only sibling orbital fixture must deserialize")
+    }
+
+    /// Same shape, but the out-of-orbital entity `Employee` is declared as
+    /// the PRIMARY of `EmployeeOrbital` — author-declared domain data, still
+    /// `persistence: persistent` (matches `aux_only_*`, isolating persistence
+    /// as NOT the discriminator).
+    fn primary_referenced_main_orbital() -> Orbital {
+        serde_json::from_value(json!({
+            "name": "MainOrbital",
+            "id": "orb_PRIMARYREFMAINORBITAL000",
+            "entity": {
+                "name": "Widget",
+                "persistence": "persistent",
+                "fields": [ { "name": "id", "type": "string", "required": true } ]
+            },
+            "traits": [
+                {
+                    "name": "EmployeeFetcher",
+                    "linkedEntity": "Widget",
+                    "category": "interaction",
+                    "stateMachine": {
+                        "states": [ { "name": "idle", "isInitial": true } ],
+                        "events": [ { "key": "LOAD" } ],
+                        "transitions": [ { "from": "idle", "to": "idle", "event": "LOAD",
+                            "effects": [ ["fetch", "Employee", {}] ] } ]
+                    }
+                }
+            ]
+        }))
+        .expect("primary-referenced main orbital fixture must deserialize")
+    }
+
+    fn employee_orbital() -> Orbital {
+        serde_json::from_value(json!({
+            "name": "EmployeeOrbital",
+            "entity": {
+                "name": "Employee",
+                "persistence": "persistent",
+                "fields": [ { "name": "id", "type": "string", "required": true } ]
+            },
+            "traits": []
+        }))
+        .expect("employee orbital fixture must deserialize")
+    }
+
+    #[test]
+    fn aux_only_out_of_orbital_entity_auto_clones_even_when_persistent() {
+        let mut ctx = InlineContext::new();
+        ctx.add_alias_multi(
+            "Up",
+            vec![aux_only_main_orbital(), aux_only_sibling_orbital()],
+            "aux-only-test".to_string(),
+        );
+        let mut orbital = consumer_orbital("Local");
+        let obj = OrbitalRefObject {
+            reference: "Up.orbitals.MainOrbital".to_string(),
+            ref_id: None,
+            entity: None,
+            fields: None,
+            pages: None,
+            omit: None,
+            only: None,
+            config: None,
+            events: None,
+            roles: None,
+            entities: None,
+            mounts: None,
+            extend: None,
+        };
+        let mut diagnostics = Vec::new();
+        resolve_orbital_reference(
+            &mut orbital,
+            &obj,
+            &ctx,
+            &HashMap::new(),
+            &HashMap::new(),
+            &mut diagnostics,
+            None,
+        )
+        .expect("resolves");
+        assert!(
+            diagnostics.is_empty(),
+            "aux-only PanelData must auto-clone, never demanding entities{{}}: {diagnostics:?}"
+        );
+        let aux = orbital
+            .auxiliary_entities
+            .as_ref()
+            .expect("auxiliary entities carried");
+        let cloned = aux.iter().find_map(|e| match e {
+            EntityRef::Inline(def) if def.name == "LocalPanelData" => Some(def),
+            _ => None,
+        });
+        assert!(
+            cloned.is_some(),
+            "PanelData must be auto-cloned as this import's own LocalPanelData aux; got {:?}",
+            aux.iter()
+                .filter_map(|e| match e {
+                    EntityRef::Inline(def) => Some(def.name.clone()),
+                    _ => None,
+                })
+                .collect::<Vec<_>>()
+        );
+    }
+
+    /// Pins the defect the coordinator found on `orbital_import_disjoint.lolo`:
+    /// a kept trait's `entityRefIds` side-map (stamped upstream, key =
+    /// "PanelData" naming the aux-only out-of-orbital entity that
+    /// auto-clones as `LocalPanelData`, value = the UPSTREAM entity's id)
+    /// must be rewritten to key the CONSUMER name and carry the CLONE's own
+    /// freshly-derived id — never left naming an entity/id that doesn't
+    /// exist in the materialized schema. Uses the disjoint shape (an
+    /// upstream aux entity referenced by a non-`linkedEntity`,
+    /// positional-argument token) per the plan's test instruction.
+    #[test]
+    fn orbital_import_rewrites_entity_ref_ids_for_cloned_aux_entity() {
+        let mut main = aux_only_main_orbital();
+        // Stamp the trait's side-map the way `orbital_core::stamp` would:
+        // key = the body token's name at stamp time, value = that entity's
+        // id in the UPSTREAM stamp's own id space (never valid in any other
+        // schema).
+        if let TraitReference::Inline(td) = &mut main.traits[0] {
+            td.entity_ref_ids = Some(HashMap::from([(
+                "PanelData".to_string(),
+                "ent_UPSTREAMPANELDATA00000000".to_string(),
+            )]));
+        }
+        let mut ctx = InlineContext::new();
+        ctx.add_alias_multi(
+            "Up",
+            vec![main, aux_only_sibling_orbital()],
+            "aux-only-entity-ref-ids-test".to_string(),
+        );
+        let mut orbital = consumer_orbital("Local");
+        let obj = OrbitalRefObject {
+            reference: "Up.orbitals.MainOrbital".to_string(),
+            ref_id: None,
+            entity: None,
+            fields: None,
+            pages: None,
+            omit: None,
+            only: None,
+            config: None,
+            events: None,
+            roles: None,
+            entities: None,
+            mounts: None,
+            extend: None,
+        };
+        let mut diagnostics = Vec::new();
+        resolve_orbital_reference(
+            &mut orbital,
+            &obj,
+            &ctx,
+            &HashMap::new(),
+            &HashMap::new(),
+            &mut diagnostics,
+            None,
+        )
+        .expect("resolves");
+        assert!(diagnostics.is_empty(), "{diagnostics:?}");
+
+        let cloned_id = orbital
+            .auxiliary_entities
+            .as_ref()
+            .expect("auxiliary entities carried")
+            .iter()
+            .find_map(|e| match e {
+                EntityRef::Inline(def) if def.name == "LocalPanelData" => def.id.clone(),
+                _ => None,
+            })
+            .expect("LocalPanelData clone carries its own derived id");
+
+        let fetcher = kept_trait(&orbital, "LocalPanelFetcher");
+        let refs = fetcher
+            .entity_ref_ids
+            .as_ref()
+            .expect("entityRefIds side-map survives materialization");
+        assert_eq!(
+            refs.get("LocalPanelData"),
+            Some(&cloned_id),
+            "entityRefIds must key the CONSUMER clone's name and carry its CURRENT id, \
+             not the upstream's: {refs:?}"
+        );
+        assert!(
+            !refs.contains_key("PanelData"),
+            "the stale upstream key must not survive: {refs:?}"
+        );
+        assert!(
+            !refs.values().any(|v| v == "ent_UPSTREAMPANELDATA00000000"),
+            "the stale upstream id must not survive: {refs:?}"
+        );
+    }
+
+    #[test]
+    fn primary_out_of_orbital_entity_still_requires_mapping_even_when_persistent() {
+        let mut ctx = InlineContext::new();
+        ctx.add_alias_multi(
+            "Up",
+            vec![primary_referenced_main_orbital(), employee_orbital()],
+            "primary-ref-test".to_string(),
+        );
+        let mut orbital = consumer_orbital("Local");
+        let obj = OrbitalRefObject {
+            reference: "Up.orbitals.MainOrbital".to_string(),
+            ref_id: None,
+            entity: None,
+            fields: None,
+            pages: None,
+            omit: None,
+            only: None,
+            config: None,
+            events: None,
+            roles: None,
+            entities: None,
+            mounts: None,
+            extend: None,
+        };
+        let mut diagnostics = Vec::new();
+        resolve_orbital_reference(
+            &mut orbital,
+            &obj,
+            &ctx,
+            &HashMap::new(),
+            &HashMap::new(),
+            &mut diagnostics,
+            None,
+        )
+        .expect("resolves");
+        assert_eq!(diagnostics.len(), 1);
+        assert!(
+            diagnostics[0]
+                .entity_unmapped
+                .iter()
+                .any(|(_, e)| e == "Employee"),
+            "'Employee' is another orbital's PRIMARY entity — must still require \
+             entities{{}} mapping even though it's persistent, not aux-only: {:?}",
+            diagnostics[0].entity_unmapped
+        );
+        assert!(
+            orbital
+                .auxiliary_entities
+                .iter()
+                .flatten()
+                .all(|e| !matches!(e, EntityRef::Inline(def) if def.name.contains("Employee"))),
+            "a primary out-of-orbital entity must NOT be auto-cloned"
+        );
     }
 
     #[test]
@@ -1360,17 +2912,40 @@ mod tests {
             roles: None,
             entities: None,
             mounts: None,
+            extend: None,
         };
 
         let mut one = consumer_orbital("One");
-        resolve_orbital_reference(&mut one, &obj, &ctx, None, &mut Vec::new()).expect("resolves");
+        resolve_orbital_reference(
+            &mut one,
+            &obj,
+            &ctx,
+            &HashMap::new(),
+            &HashMap::new(),
+            &mut Vec::new(),
+            None,
+        )
+        .expect("resolves");
         let mut two = consumer_orbital("Two");
-        resolve_orbital_reference(&mut two, &obj, &ctx, None, &mut Vec::new()).expect("resolves");
+        resolve_orbital_reference(
+            &mut two,
+            &obj,
+            &ctx,
+            &HashMap::new(),
+            &HashMap::new(),
+            &mut Vec::new(),
+            None,
+        )
+        .expect("resolves");
 
         assert_ne!(trait_names(&one), trait_names(&two));
         assert_ne!(kept_trait(&one, "OneA").id, kept_trait(&two, "TwoA").id);
-        let EntityRef::Inline(e1) = &one.entity else { panic!("inline") };
-        let EntityRef::Inline(e2) = &two.entity else { panic!("inline") };
+        let EntityRef::Inline(e1) = &one.entity else {
+            panic!("inline")
+        };
+        let EntityRef::Inline(e2) = &two.entity else {
+            panic!("inline")
+        };
         assert_ne!(e1.id, e2.id);
     }
 
@@ -1422,16 +2997,136 @@ mod tests {
             roles: None,
             entities: None,
             mounts: None,
+            extend: None,
         };
         let mut diagnostics = Vec::new();
-        resolve_orbital_reference(&mut orbital, &obj, &ctx, None, &mut diagnostics).expect("resolves");
+        resolve_orbital_reference(
+            &mut orbital,
+            &obj,
+            &ctx,
+            &HashMap::new(),
+            &HashMap::new(),
+            &mut diagnostics,
+            None,
+        )
+        .expect("resolves");
 
         let b = kept_trait(&orbital, "LocalB");
         assert_eq!(
-            b.config.as_ref().and_then(|c| c.get("itemClickEvent")).and_then(|f| f.default.clone()),
+            b.config
+                .as_ref()
+                .and_then(|c| c.get("itemClickEvent"))
+                .and_then(|f| f.default.clone()),
             Some(SExpression::String("VIEW".to_string())),
             "the pulled sibling's forward must resolve against its EMBEDDER's declared \
              config (A), not fall straight through to the orbital/schema rungs"
+        );
+    }
+
+    /// Splice-side twin of `config_override_round_trip.rs`'s
+    /// `sibling_forward_resolves_through_three_deep_hoisted_chain` (pull-site
+    /// coverage): the orbital-import splice must ALSO walk a multi-hop
+    /// embedder chain when a knob's IMMEDIATE embedder doesn't declare it.
+    /// `A` embeds `@trait.B` embeds `@trait.C`; only `A` declares
+    /// `itemClickEvent`; `B` declares nothing relevant; `C` forwards it.
+    #[test]
+    fn embedder_forwards_config_through_hoisted_splice_chain() {
+        let upstream: Orbital = serde_json::from_value(json!({
+            "name": "HoistedSpliceOrbital",
+            "id": "orb_HOISTEDSPLICEORBITAL0000",
+            "entity": {
+                "name": "Widget",
+                "persistence": "persistent",
+                "fields": [ { "name": "id", "type": "string", "required": true } ]
+            },
+            "traits": [
+                {
+                    "name": "A", "linkedEntity": "Widget", "category": "interaction",
+                    "config": { "itemClickEvent": { "type": "string", "default": "VIEW" } },
+                    "stateMachine": {
+                        "states": [ { "name": "idle", "isInitial": true } ],
+                        "events": [ { "key": "OPEN" } ],
+                        "transitions": [ { "from": "idle", "to": "idle", "event": "OPEN",
+                            "effects": [ ["render-ui", "main", { "type": "stack", "children": ["@trait.B"] }] ] } ]
+                    }
+                },
+                {
+                    "name": "B", "linkedEntity": "Widget", "category": "interaction",
+                    "stateMachine": {
+                        "states": [ { "name": "idle", "isInitial": true } ],
+                        "events": [ { "key": "OPEN" } ],
+                        "transitions": [ { "from": "idle", "to": "idle", "event": "OPEN",
+                            "effects": [ ["render-ui", "main", { "type": "stack", "children": ["@trait.C"] }] ] } ]
+                    }
+                },
+                {
+                    "name": "C", "linkedEntity": "Widget", "category": "interaction",
+                    "config": { "itemClickEvent": { "type": "string", "default": "@config.itemClickEvent" } },
+                    "stateMachine": { "states": [ { "name": "idle", "isInitial": true } ], "transitions": [] }
+                }
+            ]
+        }))
+        .expect("fixture deserializes");
+        let mut ctx = InlineContext::new();
+        ctx.add_alias("Up", &upstream);
+
+        let mut orbital = consumer_orbital("Local");
+        let obj = OrbitalRefObject {
+            reference: "Up.orbitals.HoistedSpliceOrbital".to_string(),
+            ref_id: None,
+            entity: None,
+            fields: None,
+            pages: None,
+            omit: None,
+            only: None,
+            config: None,
+            events: None,
+            roles: None,
+            entities: None,
+            mounts: None,
+            extend: None,
+        };
+        let mut diagnostics = Vec::new();
+        resolve_orbital_reference(
+            &mut orbital,
+            &obj,
+            &ctx,
+            &HashMap::new(),
+            &HashMap::new(),
+            &mut diagnostics,
+            None,
+        )
+        .expect("resolves");
+
+        let c = kept_trait(&orbital, "LocalC");
+        assert_eq!(
+            c.config
+                .as_ref()
+                .and_then(|m| m.get("itemClickEvent"))
+                .and_then(|f| f.default.clone()),
+            Some(SExpression::String("VIEW".to_string())),
+            "C's forward must resolve through B (which declares nothing) out to \
+             A's declared value — the direct-embedder loop alone only sees B"
+        );
+    }
+
+    /// `embedder_chain_via_first_hop`'s `visited` guard must terminate on a
+    /// malformed cyclic `embedders_of` (defensive — the composition graph is
+    /// acyclic by construction) rather than loop forever.
+    #[test]
+    fn embedder_chain_via_first_hop_terminates_on_cycle() {
+        let mut embedders_of: HashMap<String, Vec<String>> = HashMap::new();
+        embedders_of.insert("A".to_string(), vec!["B".to_string()]);
+        embedders_of.insert("B".to_string(), vec!["A".to_string()]);
+        let mut parent_configs: HashMap<String, HashMap<String, ConfigField>> = HashMap::new();
+        parent_configs.insert("A".to_string(), HashMap::new());
+        parent_configs.insert("B".to_string(), HashMap::new());
+
+        let chain = embedder_chain_via_first_hop("A", &embedders_of, &parent_configs, 2);
+        assert_eq!(
+            chain.len(),
+            2,
+            "A <-> B must each be visited exactly once, then stop: {chain:?}"
         );
     }
 
@@ -1479,15 +3174,1474 @@ mod tests {
             roles: None,
             entities: None,
             mounts: None,
+            extend: None,
         };
         let mut diagnostics = Vec::new();
-        resolve_orbital_reference(&mut orbital, &obj, &ctx, None, &mut diagnostics).expect("resolves");
+        resolve_orbital_reference(
+            &mut orbital,
+            &obj,
+            &ctx,
+            &HashMap::new(),
+            &HashMap::new(),
+            &mut diagnostics,
+            None,
+        )
+        .expect("resolves");
 
         let b = kept_trait(&orbital, "LocalB");
         assert_eq!(
-            b.config.as_ref().and_then(|c| c.get("itemClickEvent")).and_then(|f| f.default.clone()),
+            b.config
+                .as_ref()
+                .and_then(|c| c.get("itemClickEvent"))
+                .and_then(|f| f.default.clone()),
             Some(SExpression::String("VIEW".to_string())),
             "the embedder rung must win over the orbital rung, same precedence as the pull site"
+        );
+    }
+
+    // ------------------------------------------------------------------
+    // Stage B: roles/entities/mounts/siblings/ordering-fix tests.
+    // ------------------------------------------------------------------
+
+    /// `MainOrbital` (primary `Widget`, aux identity `ThingOwner` with a
+    /// `role : "employee"|"approver"` vocabulary): `Widget.otherId` relates
+    /// to `Other` — an entity declared by the SECOND upstream orbital under
+    /// the same alias (`OtherOrbital`), the "out-of-orbital" shape
+    /// `entities {}` remaps. `Embedder1`/`Embedder2` both embed `Sibling`
+    /// via `@trait.Sibling` and each forward a DIFFERENT config knob to it
+    /// (every-embedder). `OtherFetcher` fetches `Other` and reads a bare
+    /// `@Other.name` token, and forwards the orbital's `deadKnobOrbital`
+    /// knob (its only forwarder — dead-knob-drop fixture). `AppLayoutTrait`
+    /// forwards `navItems` from the orbital's own literal default
+    /// (page-path-rewrite-after-forward fixture). `Widget`'s `read_policy`
+    /// carries a role-literal comparison.
+    fn stage_b_main_orbital() -> Orbital {
+        serde_json::from_value(json!({
+            "name": "MainOrbital",
+            "id": "orb_STAGEBMAINORBITAL0000000",
+            "config": {
+                "navItems": { "type": "array", "default": [ { "href": "/main", "label": "Main" } ] },
+                "deadKnobOrbital": { "type": "string", "default": "only-forwarder-value" }
+            },
+            "entity": {
+                "name": "Widget",
+                "persistence": "persistent",
+                "read_policy": ["=", "@user.role", "approver"],
+                "fields": [
+                    { "name": "id", "type": "string", "required": true },
+                    { "name": "otherId", "type": "relation", "relation": { "entity": "Other", "cardinality": "one" } }
+                ]
+            },
+            "auxiliaryEntities": [
+                {
+                    "name": "ThingOwner",
+                    "identity": true,
+                    "persistence": "persistent",
+                    "fields": [
+                        { "name": "id", "type": "string", "required": true },
+                        { "name": "role", "type": "string", "values": ["employee", "approver"] }
+                    ]
+                }
+            ],
+            "traits": [
+                {
+                    "name": "Embedder1", "linkedEntity": "Widget", "category": "interaction",
+                    "config": { "embedKnob1": { "type": "string", "default": "VALUE1" } },
+                    "stateMachine": {
+                        "states": [ { "name": "idle", "isInitial": true } ],
+                        "events": [ { "key": "OPEN1" } ],
+                        "transitions": [ { "from": "idle", "to": "idle", "event": "OPEN1",
+                            "effects": [ ["render-ui", "main", { "type": "stack", "children": ["@trait.Sibling"] }] ] } ]
+                    }
+                },
+                {
+                    "name": "Embedder2", "linkedEntity": "Widget", "category": "interaction",
+                    "config": { "embedKnob2": { "type": "string", "default": "VALUE2" } },
+                    "stateMachine": {
+                        "states": [ { "name": "idle", "isInitial": true } ],
+                        "events": [ { "key": "OPEN2" } ],
+                        "transitions": [ { "from": "idle", "to": "idle", "event": "OPEN2",
+                            "effects": [ ["render-ui", "aux", { "type": "stack", "children": ["@trait.Sibling"] }] ] } ]
+                    }
+                },
+                {
+                    "name": "Sibling", "linkedEntity": "Widget", "category": "interaction",
+                    "config": {
+                        "embedKnob1": { "type": "string", "default": "@config.embedKnob1" },
+                        "embedKnob2": { "type": "string", "default": "@config.embedKnob2" }
+                    },
+                    "stateMachine": { "states": [ { "name": "idle", "isInitial": true } ], "transitions": [] }
+                },
+                {
+                    "name": "OtherFetcher", "linkedEntity": "Widget", "category": "interaction",
+                    "config": { "deadKnob": { "type": "string", "default": "@config.deadKnobOrbital" } },
+                    "stateMachine": {
+                        "states": [ { "name": "idle", "isInitial": true } ],
+                        "events": [ { "key": "LOAD" } ],
+                        "transitions": [ { "from": "idle", "to": "idle", "event": "LOAD",
+                            "guard": ["!=", "@Other.name", ""],
+                            "effects": [ ["fetch", "Other", {}] ] } ]
+                    }
+                },
+                {
+                    "name": "AppLayoutTrait", "linkedEntity": "Widget", "category": "interaction",
+                    "config": { "navItems": { "type": "array", "default": "@config.navItems" } },
+                    "stateMachine": { "states": [ { "name": "idle", "isInitial": true } ], "transitions": [] }
+                }
+            ],
+            "pages": [
+                { "name": "MainPage", "path": "/main", "primaryEntity": "Widget", "traits": [ { "ref": "AppLayoutTrait" } ] }
+            ]
+        }))
+        .expect("MainOrbital fixture must deserialize")
+    }
+
+    /// Second orbital of the `Up` alias — declares `Other`, the
+    /// out-of-orbital entity `MainOrbital.Widget.otherId` relates to and
+    /// `OtherFetcher` fetches/reads by bare token.
+    fn stage_b_other_orbital() -> Orbital {
+        serde_json::from_value(json!({
+            "name": "OtherOrbital",
+            "entity": {
+                "name": "Other",
+                "persistence": "persistent",
+                "fields": [
+                    { "name": "id", "type": "string", "required": true },
+                    { "name": "name", "type": "string" }
+                ]
+            },
+            "traits": []
+        }))
+        .expect("OtherOrbital fixture must deserialize")
+    }
+
+    fn stage_b_ctx() -> InlineContext {
+        let mut ctx = InlineContext::new();
+        ctx.add_alias_multi(
+            "Up",
+            vec![stage_b_main_orbital(), stage_b_other_orbital()],
+            "stage-b".to_string(),
+        );
+        ctx
+    }
+
+    /// `orbital-compiler`'s `serde_json` builds with `preserve_order`
+    /// (insertion order, not sorted), so a raw `to_value` of a
+    /// `HashMap`-backed struct is NOT deterministic across runs.
+    /// Canonicalizing before writing/comparing a fixture is what makes the
+    /// byte-equality assertion meaningful — one production owner
+    /// (`orbital_core::util::canonical_json`), shared with the CLI's schema
+    /// serialization sites and the other three test-only copies this
+    /// replaced.
+    use orbital_core::util::canonical_json;
+
+    /// The `uses[].from` string shared between the synthesized
+    /// pre-materialization `OrbitalSchema` (`stage_b_fixture_inputs`) and its
+    /// `upstream` map key — arbitrary, but must be the SAME literal on both
+    /// sides since the JS twin's fixture loader keys off it.
+    const STAGE_B_UPSTREAM_FROM: &str = "stage-b";
+
+    /// Build the two extra fixture inputs `assert_or_write_fixture` needs
+    /// alongside the materialized result: the consumer `OrbitalSchema` AS IT
+    /// STOOD BEFORE MATERIALIZATION (still carrying `reference` + a `uses`
+    /// entry, not yet spliced), and the `upstream` map the JS resolver's
+    /// loader stub serves that `uses[].from` from.
+    ///
+    /// `pre` is a clone of the consumer orbital taken right before
+    /// `resolve_orbital_reference` ran (so it still has whatever the test
+    /// set up — e.g. a sibling trait riding along — but not yet the
+    /// materialized closure). `obj` is the same `OrbitalRefObject` passed to
+    /// that call. The referenced orbital (`obj.reference`'s last path
+    /// segment) becomes `upstream.orbital`; `stage_b_main_orbital` +
+    /// `stage_b_other_orbital`, in that order, become `upstream.orbitals` —
+    /// matching `stage_b_ctx`'s `add_alias_multi` call.
+    fn stage_b_fixture_inputs(
+        pre: &Orbital,
+        obj: &OrbitalRefObject,
+        // Same map `resolve_orbital_reference` was called with. The JS twin
+        // has no such side-channel — it derives a consumer entity's id by
+        // reading `schema.orbitals[].entity.id`, so every `entities {}`
+        // target needs a declaring orbital in the fixture `schema`, carrying
+        // whatever id this map supplies (absent stays id-less on both
+        // sides, keeping an unresolved remap unresolved on both sides too).
+        consumer_ids: &HashMap<String, String>,
+    ) -> (OrbitalSchema, HashMap<String, serde_json::Value>) {
+        let mut consumer = pre.clone();
+        consumer.uses = Some(vec![UseDeclaration {
+            from: STAGE_B_UPSTREAM_FROM.to_string(),
+            alias: "Up".to_string(),
+            config: None,
+        }]);
+        consumer.reference = Some(obj.clone());
+        let consumer_name = consumer.name.clone();
+        let mut orbitals = vec![consumer];
+        // A schema is only a valid consumer input (what the JS resolver's
+        // own pre-checks require) when every `entities {}` target is
+        // declared somewhere in it — `resolve_orbital_reference` itself
+        // trusts `consumer_ids` as an external fact and never checks this,
+        // but a fixture destined for the JS twin has to stand on its own.
+        let mut targets: Vec<&String> = obj
+            .entities
+            .as_ref()
+            .map(|m| m.values().collect())
+            .unwrap_or_default();
+        targets.sort();
+        targets.dedup();
+        for target in targets {
+            let owner: Orbital = serde_json::from_value(serde_json::json!({
+                "name": format!("{target}Owner"),
+                "entity": {
+                    "name": target,
+                    "id": consumer_ids.get(target),
+                    "persistence": "persistent",
+                    "fields": [ { "name": "id", "type": "string", "required": true } ]
+                },
+                "traits": []
+            }))
+            .expect("consumer entity-owner fixture orbital must deserialize");
+            orbitals.push(owner);
+        }
+        let schema = OrbitalSchema {
+            name: consumer_name,
+            version: None,
+            description: None,
+            theme: None,
+            config: None,
+            orbitals,
+            metadata: None,
+            schema_version: None,
+            ledger: None,
+        };
+        let upstream_orbitals = vec![stage_b_main_orbital(), stage_b_other_orbital()];
+        let referenced_name = obj
+            .reference
+            .rsplit('.')
+            .next()
+            .expect("reference names an orbital")
+            .to_string();
+        let referenced = upstream_orbitals
+            .iter()
+            .find(|o| o.name == referenced_name)
+            .unwrap_or_else(|| panic!("stage-b upstream has no orbital named {referenced_name}"));
+        let mut upstream = HashMap::new();
+        upstream.insert(
+            STAGE_B_UPSTREAM_FROM.to_string(),
+            serde_json::json!({
+                "orbital": referenced,
+                "orbitals": upstream_orbitals,
+            }),
+        );
+        (schema, upstream)
+    }
+
+    /// Shared-fixture contract (`docs` §B2-R plan, "the `derive_id.json`
+    /// pattern"): write `{ schema, upstream, expected }` to
+    /// `tests/fixtures/orbital_import_stage_b/<case>.json` when
+    /// `UPDATE_FIXTURES=1`, else assert the current materialization is
+    /// byte-identical to the committed fixture — B2-J's runtime materializer
+    /// twin (`reference-resolver-stage-b-fixtures.test.ts`) reads the SAME
+    /// file, resolves `schema` against `upstream` through its OWN
+    /// `resolveOrbitalImports`, and asserts the result equals `expected`.
+    fn assert_or_write_fixture(
+        case: &str,
+        schema: &OrbitalSchema,
+        upstream: &HashMap<String, serde_json::Value>,
+        orbital: &Orbital,
+    ) {
+        let dir = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .join("tests/fixtures/orbital_import_stage_b");
+        std::fs::create_dir_all(&dir).expect("create fixture dir");
+        let path = dir.join(format!("{case}.json"));
+        let combined = serde_json::json!({
+            "schema": serde_json::to_value(schema).expect("schema serializes"),
+            "upstream": serde_json::to_value(upstream).expect("upstream serializes"),
+            "expected": serde_json::to_value(orbital).expect("orbital serializes"),
+        });
+        let canonical = canonical_json(&combined);
+        let pretty = serde_json::to_string_pretty(&canonical).expect("pretty print fixture");
+        if std::env::var("UPDATE_FIXTURES").as_deref() == Ok("1") {
+            std::fs::write(&path, format!("{pretty}\n")).expect("write fixture");
+            return;
+        }
+        let existing = std::fs::read_to_string(&path).unwrap_or_else(|_| {
+            panic!(
+                "missing fixture {path:?} — run with UPDATE_FIXTURES=1 to create it, \
+                 then commit the file"
+            )
+        });
+        assert_eq!(
+            existing.trim_end(),
+            pretty,
+            "materialization for case {case} drifted from the committed fixture \
+             ({path:?}) — the JS twin (B2-J) asserts the SAME file byte-equal; \
+             re-run with UPDATE_FIXTURES=1 only after confirming the drift is intentional"
+        );
+    }
+
+    #[test]
+    fn entities_remap_rewrites_relation_fetch_token_and_page_primary_and_repoints_entity_id() {
+        let ctx = stage_b_ctx();
+        let mut orbital = consumer_orbital("Local");
+        // Real `inline_orbital` never clears `orbital.uses` after loading it —
+        // the materialized result keeps declaring the SAME `uses` its
+        // `reference` resolved through. Set it here (matching what
+        // `stage_b_fixture_inputs` synthesizes onto the fixture's `schema`
+        // copy) so `expected.uses` in the parity fixture isn't spuriously
+        // absent relative to the input `schema` the JS twin resolves.
+        orbital.uses = Some(vec![UseDeclaration {
+            from: STAGE_B_UPSTREAM_FROM.to_string(),
+            alias: "Up".to_string(),
+            config: None,
+        }]);
+        let mut entities = HashMap::new();
+        entities.insert("Other".to_string(), "ConsumerOther".to_string());
+        let obj = OrbitalRefObject {
+            reference: "Up.orbitals.MainOrbital".to_string(),
+            ref_id: None,
+            entity: None,
+            fields: None,
+            pages: None,
+            omit: None,
+            only: None,
+            config: None,
+            events: None,
+            roles: None,
+            entities: Some(entities),
+            mounts: None,
+            extend: None,
+        };
+        let mut consumer_ids = HashMap::new();
+        consumer_ids.insert(
+            "ConsumerOther".to_string(),
+            "ent_CONSUMEROTHERID00000000".to_string(),
+        );
+        let pre = orbital.clone();
+        let mut diagnostics = Vec::new();
+        resolve_orbital_reference(
+            &mut orbital,
+            &obj,
+            &ctx,
+            &HashMap::new(),
+            &consumer_ids,
+            &mut diagnostics,
+            None,
+        )
+        .expect("resolves");
+        assert!(diagnostics.is_empty(), "{diagnostics:?}");
+
+        // Relation target + its dual-carry id sibling, re-pointed at the
+        // CONSUMER entity's own id (not a freshly materialized one).
+        let EntityRef::Inline(entity) = &orbital.entity else {
+            panic!("primary must be inline")
+        };
+        let other_id_field = entity
+            .fields
+            .iter()
+            .find(|f| f.name.as_deref() == Some("otherId"))
+            .expect("otherId field carried");
+        let rel = other_id_field.relation.as_ref().expect("relation carried");
+        assert_eq!(rel.entity, "ConsumerOther");
+        assert_eq!(
+            rel.entity_id.as_deref(),
+            Some("ent_CONSUMEROTHERID00000000")
+        );
+
+        // `["fetch", "Other", …]` token and the bare `@Other.name` guard
+        // token both follow the same remap.
+        let fetcher = kept_trait(&orbital, "LocalOtherFetcher");
+        let blob = serde_json::to_string(&fetcher.state_machine.transitions).unwrap();
+        assert!(blob.contains("\"ConsumerOther\""), "{blob}");
+        assert!(blob.contains("@ConsumerOther.name"), "{blob}");
+        assert!(!blob.contains("\"Other\""), "{blob}");
+        assert!(!blob.contains("@Other."), "{blob}");
+
+        // Page `primaryEntity` follows the PRIMARY rebind (unconditional
+        // prefix), independent of the `entities {}` remap.
+        let pages = orbital.pages.as_ref().expect("pages carried");
+        let PageRef::Inline(page) = &pages[0] else {
+            panic!("page must be inline")
+        };
+        assert_eq!(page.primary_entity.as_deref(), Some("LocalWidget"));
+
+        let (schema, upstream) = stage_b_fixture_inputs(&pre, &obj, &consumer_ids);
+        assert_or_write_fixture("entities_remap", &schema, &upstream, &orbital);
+    }
+
+    #[test]
+    fn uses_config_override_forwards_consumer_app_knob_last_hop() {
+        let field = |v: SExpression| -> ConfigField {
+            serde_json::from_value(json!({ "type": "unknown", "default": v }))
+                .expect("config field")
+        };
+        let mut folded: HashMap<String, ConfigField> = HashMap::from([
+            (
+                "navItems".to_string(),
+                field(SExpression::String("@config.navItems".into())),
+            ),
+            (
+                "appName".to_string(),
+                field(SExpression::String("@config.missing".into())),
+            ),
+            (
+                "title".to_string(),
+                field(SExpression::String("literal".into())),
+            ),
+        ]);
+        let consumer: HashMap<String, ConfigField> = HashMap::from([(
+            "navItems".to_string(),
+            field(SExpression::Array(vec![SExpression::String(
+                "/tasks".into(),
+            )])),
+        )]);
+        forward_consumer_app_knobs(&mut folded, Some(&consumer));
+        let nav = &folded["navItems"];
+        assert_eq!(nav.forwarded_from.as_deref(), Some("@config.navItems"));
+        assert!(matches!(nav.default, Some(SExpression::Array(_))));
+        // an unknown consumer knob and a literal are left for the validator / as-is
+        assert_eq!(
+            folded["appName"].default,
+            Some(SExpression::String("@config.missing".into()))
+        );
+        assert_eq!(
+            folded["title"].default,
+            Some(SExpression::String("literal".into()))
+        );
+    }
+
+    #[test]
+    fn extend_fields_appends_scalar_and_relation_and_writes_fixture() {
+        let ctx = stage_b_ctx();
+        let mut orbital = consumer_orbital("Local");
+        orbital.uses = Some(vec![UseDeclaration {
+            from: STAGE_B_UPSTREAM_FROM.to_string(),
+            alias: "Up".to_string(),
+            config: None,
+        }]);
+        let obj = OrbitalRefObject {
+            reference: "Up.orbitals.MainOrbital".to_string(),
+            ref_id: None,
+            entity: None,
+            fields: None,
+            pages: None,
+            omit: None,
+            only: None,
+            config: None,
+            events: None,
+            roles: None,
+            // The shared upstream's `Widget.otherId -> Other` must be mapped
+            // or the fixture is an INVALID program (parity is defined for
+            // valid inputs only; the JS twin refuses at resolve).
+            entities: Some(HashMap::from([(
+                "Other".to_string(),
+                "ConsumerOther".to_string(),
+            )])),
+            mounts: None,
+            extend: Some(vec![
+                extend_field("overtimeHours", json!("number"), Some(json!(0))),
+                serde_json::from_value(json!({
+                    "name": "workspaceId",
+                    "type": "relation",
+                    "relation": { "entity": "Workspace", "cardinality": "one" }
+                }))
+                .unwrap(),
+            ]),
+        };
+        let mut consumer_ids = HashMap::new();
+        consumer_ids.insert(
+            "Workspace".to_string(),
+            "ent_CONSUMERWORKSPACEID00000".to_string(),
+        );
+        consumer_ids.insert(
+            "ConsumerOther".to_string(),
+            "ent_CONSUMEROTHERID000000000".to_string(),
+        );
+        let pre = orbital.clone();
+        let mut diagnostics = Vec::new();
+        resolve_orbital_reference(
+            &mut orbital,
+            &obj,
+            &ctx,
+            &HashMap::new(),
+            &consumer_ids,
+            &mut diagnostics,
+            None,
+        )
+        .expect("resolves");
+        // `overtimeHours` is unread on this fixture (no trait/config on
+        // `stage_b_main_orbital` forwards it) — expected, asserted below;
+        // `workspaceId` is read via the SAME dead-config-forward rule this
+        // fixture already exercises is not what's under test here, so only
+        // check the SHAPE — the unread finding is covered by the dedicated
+        // `extend_field_*` unit tests above.
+        assert!(diagnostics.iter().all(|d| d.extend_collision.is_empty()));
+
+        let EntityRef::Inline(entity) = &orbital.entity else {
+            panic!("primary must be inline")
+        };
+        let hours = entity
+            .fields
+            .iter()
+            .find(|f| f.name.as_deref() == Some("overtimeHours"))
+            .expect("scalar extend field appended");
+        assert_eq!(hours.field_type, orbital_core::schema::FieldType::Number);
+        let workspace = entity
+            .fields
+            .iter()
+            .find(|f| f.name.as_deref() == Some("workspaceId"))
+            .expect("relation extend field appended");
+        let rel = workspace.relation.as_ref().expect("relation carried");
+        assert_eq!(rel.entity, "Workspace", "never renamed — consumer scope");
+        assert_eq!(
+            rel.entity_id.as_deref(),
+            Some("ent_CONSUMERWORKSPACEID00000")
+        );
+
+        let (mut schema, upstream) = stage_b_fixture_inputs(&pre, &obj, &consumer_ids);
+        // `stage_b_fixture_inputs` only auto-declares an owner orbital for
+        // `obj.entities {}` targets — `extend {}`'s relation target is a
+        // DIFFERENT consumer-scope surface (never routed through
+        // `entities {}`), so this fixture declares its own `Workspace`
+        // owner orbital, matching the SAME id `consumer_ids` supplies, so
+        // the JS twin's schema-derived id lookup resolves identically.
+        let workspace_owner: Orbital = serde_json::from_value(json!({
+            "name": "WorkspaceOwner",
+            "entity": {
+                "name": "Workspace",
+                "id": "ent_CONSUMERWORKSPACEID00000",
+                "persistence": "persistent",
+                "fields": [ { "name": "id", "type": "string", "required": true } ]
+            },
+            "traits": []
+        }))
+        .expect("workspace owner fixture orbital must deserialize");
+        schema.orbitals.push(workspace_owner);
+        assert_or_write_fixture("extend_fields", &schema, &upstream, &orbital);
+    }
+
+    #[test]
+    fn entity_referenced_but_unmapped_is_diagnosed() {
+        let ctx = stage_b_ctx();
+        let mut orbital = consumer_orbital("Local");
+        let obj = OrbitalRefObject {
+            reference: "Up.orbitals.MainOrbital".to_string(),
+            ref_id: None,
+            entity: None,
+            fields: None,
+            pages: None,
+            omit: None,
+            only: None,
+            config: None,
+            events: None,
+            roles: None,
+            entities: None,
+            mounts: None,
+            extend: None,
+        };
+        let mut diagnostics = Vec::new();
+        resolve_orbital_reference(
+            &mut orbital,
+            &obj,
+            &ctx,
+            &HashMap::new(),
+            &HashMap::new(),
+            &mut diagnostics,
+            None,
+        )
+        .expect("resolves");
+        assert_eq!(diagnostics.len(), 1);
+        assert!(
+            diagnostics[0]
+                .entity_unmapped
+                .iter()
+                .any(|(_, e)| e == "Other"),
+            "{:?}",
+            diagnostics[0].entity_unmapped
+        );
+    }
+
+    #[test]
+    fn entities_key_naming_no_out_of_orbital_entity_is_diagnosed() {
+        let ctx = stage_b_ctx();
+        let mut orbital = consumer_orbital("Local");
+        let mut entities = HashMap::new();
+        entities.insert("Bogus".to_string(), "ConsumerOther".to_string());
+        let obj = OrbitalRefObject {
+            reference: "Up.orbitals.MainOrbital".to_string(),
+            ref_id: None,
+            entity: None,
+            fields: None,
+            pages: None,
+            omit: None,
+            only: None,
+            config: None,
+            events: None,
+            roles: None,
+            entities: Some(entities),
+            mounts: None,
+            extend: None,
+        };
+        let mut consumer_ids = HashMap::new();
+        consumer_ids.insert("ConsumerOther".to_string(), "ent_X".to_string());
+        let mut diagnostics = Vec::new();
+        resolve_orbital_reference(
+            &mut orbital,
+            &obj,
+            &ctx,
+            &HashMap::new(),
+            &consumer_ids,
+            &mut diagnostics,
+            None,
+        )
+        .expect("resolves");
+        assert_eq!(diagnostics.len(), 1);
+        assert_eq!(diagnostics[0].entity_unknown_key, vec!["Bogus".to_string()]);
+    }
+
+    #[test]
+    fn entities_target_naming_no_consumer_entity_is_diagnosed() {
+        let ctx = stage_b_ctx();
+        let mut orbital = consumer_orbital("Local");
+        let mut entities = HashMap::new();
+        entities.insert("Other".to_string(), "Nobody".to_string());
+        let obj = OrbitalRefObject {
+            reference: "Up.orbitals.MainOrbital".to_string(),
+            ref_id: None,
+            entity: None,
+            fields: None,
+            pages: None,
+            omit: None,
+            only: None,
+            config: None,
+            events: None,
+            roles: None,
+            entities: Some(entities),
+            mounts: None,
+            extend: None,
+        };
+        let mut diagnostics = Vec::new();
+        resolve_orbital_reference(
+            &mut orbital,
+            &obj,
+            &ctx,
+            &HashMap::new(),
+            &HashMap::new(),
+            &mut diagnostics,
+            None,
+        )
+        .expect("resolves");
+        assert_eq!(diagnostics.len(), 1);
+        assert_eq!(
+            diagnostics[0].entity_target_unknown,
+            vec![("Other".to_string(), "Nobody".to_string())]
+        );
+    }
+
+    #[test]
+    fn roles_single_target_is_diagnosed_and_recorded() {
+        let ctx = stage_b_ctx();
+        let mut orbital = consumer_orbital("Local");
+        let mut roles = HashMap::new();
+        roles.insert("approver".to_string(), vec!["owner".to_string()]);
+        let obj = OrbitalRefObject {
+            reference: "Up.orbitals.MainOrbital".to_string(),
+            ref_id: None,
+            entity: None,
+            fields: None,
+            pages: None,
+            omit: None,
+            only: None,
+            config: None,
+            events: None,
+            roles: Some(roles),
+            entities: None,
+            mounts: None,
+            extend: None,
+        };
+        let mut diagnostics = Vec::new();
+        resolve_orbital_reference(
+            &mut orbital,
+            &obj,
+            &ctx,
+            &HashMap::new(),
+            &HashMap::new(),
+            &mut diagnostics,
+            None,
+        )
+        .expect("resolves");
+
+        let EntityRef::Inline(entity) = &orbital.entity else {
+            panic!("primary must be inline")
+        };
+        assert_eq!(
+            entity.read_policy,
+            Some(SExpression::Array(vec![
+                SExpression::String("=".to_string()),
+                SExpression::String("@user.role".to_string()),
+                SExpression::String("owner".to_string()),
+            ])),
+            "the primary entity's read_policy role literal must be remapped"
+        );
+        assert_eq!(diagnostics.len(), 1);
+        assert!(diagnostics[0].role_unknown_upstream.is_empty());
+        assert_eq!(
+            diagnostics[0].role_targets,
+            vec![(
+                "role".to_string(),
+                "approver".to_string(),
+                vec!["owner".to_string()]
+            )]
+        );
+    }
+
+    #[test]
+    fn role_unknown_upstream_is_diagnosed() {
+        let ctx = stage_b_ctx();
+        let mut orbital = consumer_orbital("Local");
+        let mut roles = HashMap::new();
+        roles.insert("boss".to_string(), vec!["owner".to_string()]);
+        let obj = OrbitalRefObject {
+            reference: "Up.orbitals.MainOrbital".to_string(),
+            ref_id: None,
+            entity: None,
+            fields: None,
+            pages: None,
+            omit: None,
+            only: None,
+            config: None,
+            events: None,
+            roles: Some(roles),
+            entities: None,
+            mounts: None,
+            extend: None,
+        };
+        let mut diagnostics = Vec::new();
+        resolve_orbital_reference(
+            &mut orbital,
+            &obj,
+            &ctx,
+            &HashMap::new(),
+            &HashMap::new(),
+            &mut diagnostics,
+            None,
+        )
+        .expect("resolves");
+        assert_eq!(diagnostics.len(), 1);
+        assert_eq!(
+            diagnostics[0].role_unknown_upstream,
+            vec!["boss".to_string()]
+        );
+    }
+
+    /// Page-path rewrite must happen AFTER the config forward (planning
+    /// find i): `AppLayoutTrait.navItems` only HOLDS its literal `href`
+    /// once `@config.navItems` resolves against the orbital's own default —
+    /// rewriting page paths first (the old order) would have missed it.
+    #[test]
+    fn page_path_rewrite_happens_after_the_config_forward() {
+        let ctx = stage_b_ctx();
+        let mut orbital = consumer_orbital("Local");
+        let mut pages = HashMap::new();
+        pages.insert("/main".to_string(), "/local-main".to_string());
+        let obj = OrbitalRefObject {
+            reference: "Up.orbitals.MainOrbital".to_string(),
+            ref_id: None,
+            entity: None,
+            fields: None,
+            pages: Some(pages),
+            omit: None,
+            only: None,
+            config: None,
+            events: None,
+            roles: None,
+            entities: None,
+            mounts: None,
+            extend: None,
+        };
+        let mut diagnostics = Vec::new();
+        resolve_orbital_reference(
+            &mut orbital,
+            &obj,
+            &ctx,
+            &HashMap::new(),
+            &HashMap::new(),
+            &mut diagnostics,
+            None,
+        )
+        .expect("resolves");
+        // `Other` is out-of-orbital and unmapped in this test (it isn't
+        // exercising `entities {}`) — expected, not what this test checks.
+
+        let app_layout = kept_trait(&orbital, "LocalAppLayoutTrait");
+        let nav_items = app_layout
+            .config
+            .as_ref()
+            .and_then(|c| c.get("navItems"))
+            .and_then(|f| f.default.clone())
+            .expect("navItems default resolved");
+        let blob = serde_json::to_string(&nav_items).unwrap();
+        assert!(blob.contains("/local-main"), "{blob}");
+        assert!(!blob.contains("\"/main\""), "{blob}");
+    }
+
+    /// Every surviving embedder forwards its OWN knob to the shared
+    /// sibling, in order — the old first-embedder `break` would have
+    /// dropped `Embedder2`'s forward.
+    #[test]
+    fn every_embedder_forwards_its_own_knob_to_the_shared_sibling() {
+        let ctx = stage_b_ctx();
+        let mut orbital = consumer_orbital("Local");
+        let obj = OrbitalRefObject {
+            reference: "Up.orbitals.MainOrbital".to_string(),
+            ref_id: None,
+            entity: None,
+            fields: None,
+            pages: None,
+            omit: None,
+            only: None,
+            config: None,
+            events: None,
+            roles: None,
+            entities: None,
+            mounts: None,
+            extend: None,
+        };
+        let mut diagnostics = Vec::new();
+        resolve_orbital_reference(
+            &mut orbital,
+            &obj,
+            &ctx,
+            &HashMap::new(),
+            &HashMap::new(),
+            &mut diagnostics,
+            None,
+        )
+        .expect("resolves");
+        // `Other` is out-of-orbital and unmapped in this test (it isn't
+        // exercising `entities {}`) — expected, not what this test checks.
+
+        let sibling = kept_trait(&orbital, "LocalSibling");
+        assert_eq!(
+            sibling
+                .config
+                .as_ref()
+                .and_then(|c| c.get("embedKnob1"))
+                .and_then(|f| f.default.clone()),
+            Some(SExpression::String("VALUE1".to_string())),
+            "Embedder1's forward must resolve"
+        );
+        assert_eq!(
+            sibling
+                .config
+                .as_ref()
+                .and_then(|c| c.get("embedKnob2"))
+                .and_then(|f| f.default.clone()),
+            Some(SExpression::String("VALUE2".to_string())),
+            "Embedder2's forward must ALSO resolve — every embedder, not just the first"
+        );
+    }
+
+    /// Planning find (iii): an `omit {}` that drops the ONLY forwarder of an
+    /// orbital knob must drop the knob from the folded config too, or the
+    /// consumer keeps a dead `ORB_O_CONFIG_DEAD_KNOB` knob.
+    #[test]
+    fn omitting_the_only_forwarder_drops_the_orbital_knob() {
+        let ctx = stage_b_ctx();
+        let mut orbital = consumer_orbital("Local");
+        let obj = OrbitalRefObject {
+            reference: "Up.orbitals.MainOrbital".to_string(),
+            ref_id: None,
+            entity: None,
+            fields: None,
+            pages: None,
+            omit: Some(vec!["OtherFetcher".to_string()]),
+            only: None,
+            config: None,
+            events: None,
+            roles: None,
+            entities: None,
+            mounts: None,
+            extend: None,
+        };
+        let mut diagnostics = Vec::new();
+        resolve_orbital_reference(
+            &mut orbital,
+            &obj,
+            &ctx,
+            &HashMap::new(),
+            &HashMap::new(),
+            &mut diagnostics,
+            None,
+        )
+        .expect("resolves");
+
+        let folded = orbital.config.expect("folded config carried");
+        assert!(
+            !folded.contains_key("deadKnobOrbital"),
+            "deadKnobOrbital's only forwarder (OtherFetcher) was omitted — the knob must be dropped: {folded:?}"
+        );
+        assert!(
+            folded.contains_key("navItems"),
+            "navItems is still forwarded by the surviving AppLayoutTrait: {folded:?}"
+        );
+    }
+
+    /// Siblings authored directly in the reference body ride along
+    /// un-prefixed and mount on the remapped page; a `pages {}`/`mounts {}`
+    /// key naming no upstream path is diagnosed.
+    #[test]
+    fn sibling_rides_along_unprefixed_and_mounts_on_the_remapped_page() {
+        let ctx = stage_b_ctx();
+        let mut orbital = consumer_orbital("Local");
+        // See the SAME note in `entities_remap_rewrites_...` above: real
+        // `inline_orbital` never clears `orbital.uses`, so the materialized
+        // result keeps it — set it here to match `stage_b_fixture_inputs`'s
+        // synthesized `schema` copy.
+        orbital.uses = Some(vec![UseDeclaration {
+            from: STAGE_B_UPSTREAM_FROM.to_string(),
+            alias: "Up".to_string(),
+            config: None,
+        }]);
+        // Simulate `orbital-lolo`'s lowering of a sibling trait declared in
+        // the reference body: it lands in `orbital.traits` BEFORE the
+        // splice runs, un-prefixed, consumer vocabulary.
+        let sibling_td: TraitDefinition = serde_json::from_value(json!({
+            "name": "LocalSiblingTrait",
+            "linkedEntity": "LocalWidget",
+            "category": "interaction",
+            "stateMachine": { "states": [ { "name": "idle", "isInitial": true } ], "transitions": [] }
+        }))
+        .unwrap();
+        orbital.traits = vec![TraitReference::Inline(sibling_td)];
+
+        let mut pages = HashMap::new();
+        pages.insert("/main".to_string(), "/local-main".to_string());
+        let mut mounts = HashMap::new();
+        mounts.insert("/main".to_string(), vec!["LocalSiblingTrait".to_string()]);
+        let mut unknown_pages = pages.clone();
+        unknown_pages.insert("/nope".to_string(), "/x".to_string());
+        // `MainOrbital.Widget.otherId` relates to the out-of-orbital `Other`
+        // entity; mapping it here (rather than leaving `entities: None`)
+        // keeps this fixture a VALID consumer input for the JS twin, which
+        // refuses an unmapped out-of-orbital reference at resolve time
+        // (`ORB_O_ENTITY_UNMAPPED`) instead of merely diagnosing it the way
+        // `resolve_orbital_reference` does. Unrelated to what this test
+        // actually exercises (sibling-trait mounting), so no assertion below
+        // depends on the remap. `consumer_ids` supplies `ConsumerOther`'s id
+        // (SAME id `entities_remap...` uses) so the retarget actually folds
+        // in Rust AND the fixture's synthesized `ConsumerOtherOwner.entity`
+        // carries an id the JS twin's own id-lookup can index — an id-less
+        // target fixture reports `ORB_O_ENTITY_TARGET_UNKNOWN` on that side.
+        let mut entities = HashMap::new();
+        entities.insert("Other".to_string(), "ConsumerOther".to_string());
+        let obj = OrbitalRefObject {
+            reference: "Up.orbitals.MainOrbital".to_string(),
+            ref_id: None,
+            entity: None,
+            fields: None,
+            pages: Some(unknown_pages),
+            omit: None,
+            only: None,
+            config: None,
+            events: None,
+            roles: None,
+            entities: Some(entities),
+            mounts: Some(mounts),
+            extend: None,
+        };
+        // The parity fixture must be a VALID consumer input (the JS twin
+        // refuses `ORB_O_PAGE_UNKNOWN_PATH` at resolve time); only the
+        // diagnostic assertion below needs the `/nope` key.
+        let fixture_obj = OrbitalRefObject {
+            pages: Some(pages.clone()),
+            ..obj.clone()
+        };
+        let mut consumer_ids = HashMap::new();
+        consumer_ids.insert(
+            "ConsumerOther".to_string(),
+            "ent_CONSUMEROTHERID00000000".to_string(),
+        );
+        let pre = orbital.clone();
+        let mut diagnostics = Vec::new();
+        resolve_orbital_reference(
+            &mut orbital,
+            &obj,
+            &ctx,
+            &HashMap::new(),
+            &consumer_ids,
+            &mut diagnostics,
+            None,
+        )
+        .expect("resolves");
+
+        // Sibling carried un-prefixed, alongside the (prefixed) upstream traits.
+        let names = trait_names(&orbital);
+        assert!(
+            names.contains(&"LocalSiblingTrait".to_string()),
+            "{names:?}"
+        );
+        assert!(
+            names.contains(&"LocalAppLayoutTrait".to_string()),
+            "{names:?}"
+        );
+
+        // Mounted on the remapped page, un-prefixed reference form.
+        let pages = orbital.pages.as_ref().expect("pages carried");
+        let PageRef::Inline(page) = &pages[0] else {
+            panic!("page must be inline")
+        };
+        assert_eq!(page.path, "/local-main");
+        let mounted = page
+            .traits
+            .as_ref()
+            .expect("traits carried")
+            .iter()
+            .any(|tr| matches!(tr, TraitReference::Reference { reference: Some(r), .. } if r == "LocalSiblingTrait"));
+        assert!(mounted, "{:?}", page.traits);
+
+        // Unknown `/nope` pages key diagnosed.
+        assert_eq!(diagnostics.len(), 1);
+        assert_eq!(diagnostics[0].page_unknown_path, vec!["/nope".to_string()]);
+
+        let (schema, upstream) = stage_b_fixture_inputs(&pre, &fixture_obj, &consumer_ids);
+        assert_or_write_fixture("sibling_mount", &schema, &upstream, &orbital);
+    }
+
+    /// (f): a knob declared `[RecordAction]`-shaped (element schema types a
+    /// member `event`) has that member renamed via `events {}` — the struct
+    /// twin of the scalar `event`-typed knob fold.
+    #[test]
+    fn record_action_style_knob_event_member_is_renamed_via_events() {
+        let mut upstream = upstream_orbital(None);
+        if let TraitReference::Inline(a) = &mut upstream.traits[0] {
+            a.config = Some(HashMap::from([(
+                "actions".to_string(),
+                serde_json::from_value::<ConfigField>(json!({
+                    "type": "array",
+                    "default": [ { "event": "EDIT_ITEM", "label": "Edit" } ],
+                    "items": {
+                        "type": "object",
+                        "properties": {
+                            "event": { "type": "event" },
+                            "label": { "type": "string" }
+                        }
+                    }
+                }))
+                .unwrap(),
+            )]));
+        }
+        let mut ctx = InlineContext::new();
+        ctx.add_alias("Up", &upstream);
+
+        let mut orbital = consumer_orbital("Local");
+        let mut events = HashMap::new();
+        events.insert("EDIT_ITEM".to_string(), "EditRow".to_string());
+        let obj = OrbitalRefObject {
+            reference: "Up.orbitals.UpOrbital".to_string(),
+            ref_id: None,
+            entity: None,
+            fields: None,
+            pages: None,
+            omit: None,
+            only: None,
+            config: None,
+            events: Some(events),
+            roles: None,
+            entities: None,
+            mounts: None,
+            extend: None,
+        };
+        let mut diagnostics = Vec::new();
+        resolve_orbital_reference(
+            &mut orbital,
+            &obj,
+            &ctx,
+            &HashMap::new(),
+            &HashMap::new(),
+            &mut diagnostics,
+            None,
+        )
+        .expect("resolves");
+
+        let a = kept_trait(&orbital, "LocalA");
+        let actions = a
+            .config
+            .as_ref()
+            .and_then(|c| c.get("actions"))
+            .and_then(|f| f.default.clone());
+        let blob = serde_json::to_string(&actions).unwrap();
+        assert!(blob.contains("EditRow"), "{blob}");
+        assert!(!blob.contains("EDIT_ITEM"), "{blob}");
+    }
+
+    // -------------------------------------------------------------------
+    // Stage C: `extend { â¦ }` materialization + validators.
+    // -------------------------------------------------------------------
+
+    fn extend_field(
+        name: &str,
+        ty: serde_json::Value,
+        default: Option<serde_json::Value>,
+    ) -> FieldDefinition {
+        let mut value = json!({ "name": name, "type": ty });
+        if let Some(d) = default {
+            value["default"] = d;
+        }
+        serde_json::from_value(value).expect("extend field fixture must deserialize")
+    }
+
+    #[test]
+    fn extend_field_appends_a_new_field_onto_the_primary_entity() {
+        let ctx = ctx_with_upstream(None);
+        let mut orbital = consumer_orbital("Local");
+        let obj = OrbitalRefObject {
+            reference: "Up.orbitals.UpOrbital".to_string(),
+            ref_id: None,
+            entity: None,
+            fields: None,
+            pages: None,
+            omit: None,
+            only: None,
+            config: None,
+            events: None,
+            roles: None,
+            entities: None,
+            mounts: None,
+            extend: Some(vec![extend_field(
+                "overtimeHours",
+                json!("number"),
+                Some(json!(0)),
+            )]),
+        };
+        let mut diagnostics = Vec::new();
+        resolve_orbital_reference(
+            &mut orbital,
+            &obj,
+            &ctx,
+            &HashMap::new(),
+            &HashMap::new(),
+            &mut diagnostics,
+            None,
+        )
+        .expect("resolves");
+
+        let EntityRef::Inline(entity) = &orbital.entity else {
+            panic!("expected inline entity");
+        };
+        let field = entity
+            .fields
+            .iter()
+            .find(|f| f.name.as_deref() == Some("overtimeHours"))
+            .expect("extend field appended");
+        assert_eq!(field.field_type, orbital_core::schema::FieldType::Number);
+
+        // Unread: no trait/config on the tiny `upstream_orbital` fixture
+        // reads/forwards `overtimeHours`.
+        assert_eq!(diagnostics.len(), 1);
+        assert_eq!(
+            diagnostics[0].extend_unread,
+            vec!["overtimeHours".to_string()]
+        );
+        assert!(diagnostics[0].extend_collision.is_empty());
+    }
+
+    #[test]
+    fn extend_field_set_by_a_reference_body_sibling_is_not_flagged_unread() {
+        // The consumer's OWN sibling trait (`trait X -> Local [lifecycle]`
+        // inside the reference body) stamps the added field — a read/set
+        // site the kept-traits-only scan used to miss (Project Friday's
+        // `TimesheetApproval.OPEN_SHEET` `(set @entity.workspaceId ?workspaceId)`).
+        let upstream: Orbital = serde_json::from_value(json!({
+            "name": "UpOrbital",
+            "id": "orb_UPSTREAMTESTORBITAL000000",
+            "entity": {
+                "name": "Widget",
+                "persistence": "persistent",
+                "fields": [ { "name": "id", "type": "string", "required": true } ]
+            },
+            "traits": [
+                {
+                    "name": "Grid",
+                    "linkedEntity": "Widget",
+                    "category": "interaction",
+                    "stateMachine": { "states": [ { "name": "idle", "isInitial": true } ], "transitions": [] }
+                }
+            ]
+        }))
+        .expect("upstream fixture must deserialize");
+        let mut ctx = InlineContext::new();
+        ctx.add_alias("Up", &upstream);
+        let mut orbital = consumer_orbital("Local");
+        let sibling: TraitDefinition = serde_json::from_value(json!({
+            "name": "Stamper",
+            "linkedEntity": "Widget",
+            "category": "lifecycle",
+            "stateMachine": {
+                "states": [ { "name": "open", "isInitial": true } ],
+                "transitions": [ { "from": "open", "to": "open", "event": "OPEN",
+                    "effects": [ ["set", "@entity.workspaceId", "?workspaceId"] ] } ]
+            }
+        }))
+        .expect("sibling fixture must deserialize");
+        orbital.traits = vec![TraitReference::Inline(sibling)];
+        let obj = OrbitalRefObject {
+            reference: "Up.orbitals.UpOrbital".to_string(),
+            ref_id: None,
+            entity: None,
+            fields: None,
+            pages: None,
+            omit: None,
+            only: None,
+            config: None,
+            events: None,
+            roles: None,
+            entities: None,
+            mounts: None,
+            extend: Some(vec![
+                extend_field("workspaceId", json!("string"), None),
+                extend_field("orphan", json!("string"), None),
+            ]),
+        };
+        let mut diagnostics = Vec::new();
+        resolve_orbital_reference(
+            &mut orbital,
+            &obj,
+            &ctx,
+            &HashMap::new(),
+            &HashMap::new(),
+            &mut diagnostics,
+            None,
+        )
+        .expect("resolves");
+        let unread: Vec<String> = diagnostics
+            .iter()
+            .flat_map(|d| d.extend_unread.clone())
+            .collect();
+        assert_eq!(unread, vec!["orphan".to_string()], "{diagnostics:?}");
+    }
+
+    #[test]
+    fn extend_field_read_via_config_knob_value_is_not_flagged_unread() {
+        // `browseColumns`'s default list names `overtimeHours` by `key` —
+        // the `browseColumns`/`formFields`-style knob-value forwarding rule.
+        // A knob only survives onto the materialized orbital (`folded_config`'s
+        // dead-knob filter, `ORB_O_CONFIG_DEAD_KNOB`'s twin rule) if some
+        // KEPT trait forwards it via `@config.<key>` — so this fixture's
+        // trait does exactly that (same shape `stage_b_main_orbital`'s
+        // `AppLayoutTrait` uses for `navItems`).
+        let upstream: Orbital = serde_json::from_value(json!({
+            "name": "UpOrbital",
+            "id": "orb_UPSTREAMTESTORBITAL000000",
+            "config": {
+                "browseColumns": {
+                    "type": "array",
+                    "default": [ { "key": "overtimeHours", "label": "Overtime" } ]
+                }
+            },
+            "entity": {
+                "name": "Widget",
+                "persistence": "persistent",
+                "fields": [ { "name": "id", "type": "string", "required": true } ]
+            },
+            "traits": [
+                {
+                    "name": "Grid",
+                    "linkedEntity": "Widget",
+                    "category": "interaction",
+                    "config": { "browseColumns": { "type": "array", "default": "@config.browseColumns" } },
+                    "stateMachine": { "states": [ { "name": "idle", "isInitial": true } ], "transitions": [] }
+                }
+            ]
+        }))
+        .expect("upstream fixture must deserialize");
+        let mut ctx = InlineContext::new();
+        ctx.add_alias("Up", &upstream);
+        let mut orbital = consumer_orbital("Local");
+        let obj = OrbitalRefObject {
+            reference: "Up.orbitals.UpOrbital".to_string(),
+            ref_id: None,
+            entity: None,
+            fields: None,
+            pages: None,
+            omit: None,
+            only: None,
+            config: None,
+            events: None,
+            roles: None,
+            entities: None,
+            mounts: None,
+            extend: Some(vec![extend_field(
+                "overtimeHours",
+                json!("number"),
+                Some(json!(0)),
+            )]),
+        };
+        let mut diagnostics = Vec::new();
+        resolve_orbital_reference(
+            &mut orbital,
+            &obj,
+            &ctx,
+            &HashMap::new(),
+            &HashMap::new(),
+            &mut diagnostics,
+            None,
+        )
+        .expect("resolves");
+
+        assert!(
+            diagnostics.is_empty(),
+            "a field a config knob value names must not be flagged unread: {diagnostics:?}"
+        );
+    }
+
+    #[test]
+    fn extend_field_colliding_with_upstream_primary_field_is_a_collision() {
+        let ctx = ctx_with_upstream(None);
+        let mut orbital = consumer_orbital("Local");
+        let obj = OrbitalRefObject {
+            reference: "Up.orbitals.UpOrbital".to_string(),
+            ref_id: None,
+            entity: None,
+            fields: None,
+            pages: None,
+            omit: None,
+            only: None,
+            config: None,
+            events: None,
+            roles: None,
+            entities: None,
+            mounts: None,
+            // `Widget` (the upstream primary entity, see `upstream_orbital`)
+            // already declares `id`.
+            extend: Some(vec![extend_field("id", json!("string"), None)]),
+        };
+        let mut diagnostics = Vec::new();
+        resolve_orbital_reference(
+            &mut orbital,
+            &obj,
+            &ctx,
+            &HashMap::new(),
+            &HashMap::new(),
+            &mut diagnostics,
+            None,
+        )
+        .expect("resolves");
+
+        assert_eq!(diagnostics.len(), 1);
+        assert_eq!(diagnostics[0].extend_collision.len(), 1);
+        assert_eq!(diagnostics[0].extend_collision[0].0, "id");
+        assert!(diagnostics[0].extend_unread.is_empty());
+
+        // The colliding field is NOT appended a second time.
+        let EntityRef::Inline(entity) = &orbital.entity else {
+            panic!("expected inline entity");
+        };
+        let id_fields: Vec<_> = entity
+            .fields
+            .iter()
+            .filter(|f| f.name.as_deref() == Some("id"))
+            .collect();
+        assert_eq!(id_fields.len(), 1, "collision must not duplicate the field");
+    }
+
+    #[test]
+    fn extend_field_colliding_with_a_fields_rename_target_is_a_collision() {
+        let ctx = ctx_with_upstream(None);
+        let mut orbital = consumer_orbital("Local");
+        let mut fields = HashMap::new();
+        fields.insert("id".to_string(), "widgetId".to_string());
+        let obj = OrbitalRefObject {
+            reference: "Up.orbitals.UpOrbital".to_string(),
+            ref_id: None,
+            entity: None,
+            fields: Some(fields),
+            pages: None,
+            omit: None,
+            only: None,
+            config: None,
+            events: None,
+            roles: None,
+            entities: None,
+            mounts: None,
+            // `widgetId` is the RENAME TARGET `fields {}` just introduced.
+            extend: Some(vec![extend_field("widgetId", json!("string"), None)]),
+        };
+        let mut diagnostics = Vec::new();
+        resolve_orbital_reference(
+            &mut orbital,
+            &obj,
+            &ctx,
+            &HashMap::new(),
+            &HashMap::new(),
+            &mut diagnostics,
+            None,
+        )
+        .expect("resolves");
+
+        assert_eq!(diagnostics.len(), 1);
+        assert_eq!(diagnostics[0].extend_collision.len(), 1);
+        assert_eq!(diagnostics[0].extend_collision[0].0, "widgetId");
+    }
+
+    #[test]
+    fn extend_relation_field_resolves_target_in_the_consumer_scope() {
+        let ctx = ctx_with_upstream(None);
+        let mut orbital = consumer_orbital("Local");
+        let mut consumer_entity_ids = HashMap::new();
+        // A CONSUMER-scope entity (declared by some OTHER orbital in this
+        // schema) named `Workspace` — never part of the `Up` upstream at all.
+        consumer_entity_ids.insert(
+            "Workspace".to_string(),
+            "ent_CONSUMERWORKSPACEID00000".to_string(),
+        );
+        let obj = OrbitalRefObject {
+            reference: "Up.orbitals.UpOrbital".to_string(),
+            ref_id: None,
+            entity: None,
+            fields: None,
+            pages: None,
+            omit: None,
+            only: None,
+            config: None,
+            events: None,
+            roles: None,
+            entities: None,
+            mounts: None,
+            extend: Some(vec![serde_json::from_value(json!({
+                "name": "workspaceId",
+                "type": "relation",
+                "relation": { "entity": "Workspace", "cardinality": "one" }
+            }))
+            .unwrap()]),
+        };
+        let mut diagnostics = Vec::new();
+        resolve_orbital_reference(
+            &mut orbital,
+            &obj,
+            &ctx,
+            &HashMap::new(),
+            &consumer_entity_ids,
+            &mut diagnostics,
+            None,
+        )
+        .expect("resolves");
+
+        let EntityRef::Inline(entity) = &orbital.entity else {
+            panic!("expected inline entity");
+        };
+        let field = entity
+            .fields
+            .iter()
+            .find(|f| f.name.as_deref() == Some("workspaceId"))
+            .expect("relation extend field appended");
+        let relation = field.relation.as_ref().expect("relation field");
+        assert_eq!(
+            relation.entity, "Workspace",
+            "never renamed — consumer scope"
+        );
+        assert_eq!(
+            relation.entity_id.as_deref(),
+            Some("ent_CONSUMERWORKSPACEID00000"),
+            "resolved against consumer_entity_ids, not the upstream's own ids"
         );
     }
 }

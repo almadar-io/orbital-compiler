@@ -356,8 +356,6 @@ fn field_type_to_binding(ft: &FieldType) -> BindingType {
         // compare — the same posture this file already takes for a leaf it
         // cannot resolve. A narrower answer would invent findings.
         FieldType::Scalar => BindingType::Unknown,
-        // Open by construction — nothing to constrain a render slot with.
-        FieldType::Opaque => BindingType::Unknown,
         // Every variant is an object, so a union binds like one.
         FieldType::Union => BindingType::Object,
     }
@@ -604,6 +602,7 @@ mod tests {
             description: None,
             properties: None,
             type_when: None,
+            entity: None,
         }];
         let ctx = BindingContext {
             trait_def: &t,
@@ -818,6 +817,7 @@ mod tests {
             description: None,
             properties: None,
             type_when: None,
+            entity: None,
         }];
         let ctx = BindingContext {
             trait_def: &t,

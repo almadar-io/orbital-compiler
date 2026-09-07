@@ -1,0 +1,896 @@
+{
+  "expected": {
+    "auxiliaryEntities": [
+      {
+        "fields": [
+          {
+            "name": "id",
+            "required": true,
+            "type": "string"
+          },
+          {
+            "name": "role",
+            "type": "string",
+            "values": [
+              "employee",
+              "approver"
+            ]
+          }
+        ],
+        "id": "ent_55YVZ7R8DA46N29X3378K4WJCG",
+        "identity": true,
+        "name": "LocalThingOwner",
+        "persistence": "persistent"
+      }
+    ],
+    "config": {
+      "deadKnobOrbital": {
+        "default": "only-forwarder-value",
+        "type": "string"
+      },
+      "navItems": {
+        "default": [
+          {
+            "href": "/main",
+            "label": "Main"
+          }
+        ],
+        "type": "array"
+      }
+    },
+    "entity": {
+      "fields": [
+        {
+          "name": "id",
+          "required": true,
+          "type": "string"
+        },
+        {
+          "name": "otherId",
+          "relation": {
+            "cardinality": "one",
+            "entity": "ConsumerOther",
+            "entityId": "ent_CONSUMEROTHERID000000000"
+          },
+          "type": "relation"
+        },
+        {
+          "default": 0.0,
+          "name": "overtimeHours",
+          "type": "number"
+        },
+        {
+          "name": "workspaceId",
+          "relation": {
+            "cardinality": "one",
+            "entity": "Workspace",
+            "entityId": "ent_CONSUMERWORKSPACEID00000"
+          },
+          "type": "relation"
+        }
+      ],
+      "id": "ent_X30JNZ6NG5AR2HDPQT42YSR4QN",
+      "name": "LocalWidget",
+      "persistence": "persistent",
+      "read_policy": [
+        "=",
+        "@user.role",
+        "approver"
+      ]
+    },
+    "id": "orb_B9R604P10Z0GFZYHVBFGMC0K7V",
+    "name": "Local",
+    "pages": [
+      {
+        "id": "pag_ZT5P300Z47FJ3K5CSKE2NR5HK5",
+        "name": "LocalMainPage",
+        "path": "/main",
+        "primaryEntity": "LocalWidget",
+        "traits": [
+          {
+            "ref": "LocalAppLayoutTrait",
+            "refId": "trt_DEE591H3TYHXFDVP5XJ1JTYYGN"
+          }
+        ]
+      }
+    ],
+    "traits": [
+      {
+        "category": "interaction",
+        "config": {
+          "embedKnob1": {
+            "default": "VALUE1",
+            "type": "string"
+          }
+        },
+        "id": "trt_REJZSF8Q9CBMP06BNMMDSXAQH7",
+        "linkedEntity": "LocalWidget",
+        "linkedEntityId": "ent_X30JNZ6NG5AR2HDPQT42YSR4QN",
+        "name": "LocalEmbedder1",
+        "stateMachine": {
+          "events": [
+            {
+              "key": "OPEN1"
+            }
+          ],
+          "states": [
+            {
+              "isInitial": true,
+              "name": "idle"
+            }
+          ],
+          "transitions": [
+            {
+              "effects": [
+                [
+                  "render-ui",
+                  "main",
+                  {
+                    "children": [
+                      "@trait.LocalSibling"
+                    ],
+                    "type": "stack"
+                  }
+                ]
+              ],
+              "event": "OPEN1",
+              "from": "idle",
+              "to": "idle"
+            }
+          ]
+        }
+      },
+      {
+        "category": "interaction",
+        "config": {
+          "embedKnob2": {
+            "default": "VALUE2",
+            "type": "string"
+          }
+        },
+        "id": "trt_JBT1KFKXNTYTXCGRYQCPGT90MJ",
+        "linkedEntity": "LocalWidget",
+        "linkedEntityId": "ent_X30JNZ6NG5AR2HDPQT42YSR4QN",
+        "name": "LocalEmbedder2",
+        "stateMachine": {
+          "events": [
+            {
+              "key": "OPEN2"
+            }
+          ],
+          "states": [
+            {
+              "isInitial": true,
+              "name": "idle"
+            }
+          ],
+          "transitions": [
+            {
+              "effects": [
+                [
+                  "render-ui",
+                  "aux",
+                  {
+                    "children": [
+                      "@trait.LocalSibling"
+                    ],
+                    "type": "stack"
+                  }
+                ]
+              ],
+              "event": "OPEN2",
+              "from": "idle",
+              "to": "idle"
+            }
+          ]
+        }
+      },
+      {
+        "category": "interaction",
+        "config": {
+          "embedKnob1": {
+            "default": "VALUE1",
+            "forwardedFrom": "@config.embedKnob1",
+            "type": "string"
+          },
+          "embedKnob2": {
+            "default": "VALUE2",
+            "forwardedFrom": "@config.embedKnob2",
+            "type": "string"
+          }
+        },
+        "id": "trt_0M4P5T0M0SA0CTJTDF9ABF0YTJ",
+        "linkedEntity": "LocalWidget",
+        "linkedEntityId": "ent_X30JNZ6NG5AR2HDPQT42YSR4QN",
+        "name": "LocalSibling",
+        "stateMachine": {
+          "states": [
+            {
+              "isInitial": true,
+              "name": "idle"
+            }
+          ],
+          "transitions": []
+        }
+      },
+      {
+        "category": "interaction",
+        "config": {
+          "deadKnob": {
+            "default": "only-forwarder-value",
+            "forwardedFrom": "@config.deadKnobOrbital",
+            "type": "string"
+          }
+        },
+        "id": "trt_2N3E6FTPN3BAHKR3ESBHEP1FNX",
+        "linkedEntity": "LocalWidget",
+        "linkedEntityId": "ent_X30JNZ6NG5AR2HDPQT42YSR4QN",
+        "name": "LocalOtherFetcher",
+        "stateMachine": {
+          "events": [
+            {
+              "key": "LOAD"
+            }
+          ],
+          "states": [
+            {
+              "isInitial": true,
+              "name": "idle"
+            }
+          ],
+          "transitions": [
+            {
+              "effects": [
+                [
+                  "fetch",
+                  "ConsumerOther",
+                  {}
+                ]
+              ],
+              "event": "LOAD",
+              "from": "idle",
+              "guard": [
+                "!=",
+                "@ConsumerOther.name",
+                ""
+              ],
+              "to": "idle"
+            }
+          ]
+        }
+      },
+      {
+        "category": "interaction",
+        "config": {
+          "navItems": {
+            "default": [
+              {
+                "href": "/main",
+                "label": "Main"
+              }
+            ],
+            "forwardedFrom": "@config.navItems",
+            "type": "array"
+          }
+        },
+        "id": "trt_DEE591H3TYHXFDVP5XJ1JTYYGN",
+        "linkedEntity": "LocalWidget",
+        "linkedEntityId": "ent_X30JNZ6NG5AR2HDPQT42YSR4QN",
+        "name": "LocalAppLayoutTrait",
+        "stateMachine": {
+          "states": [
+            {
+              "isInitial": true,
+              "name": "idle"
+            }
+          ],
+          "transitions": []
+        }
+      }
+    ],
+    "uses": [
+      {
+        "as": "Up",
+        "from": "stage-b"
+      }
+    ]
+  },
+  "schema": {
+    "name": "Local",
+    "orbitals": [
+      {
+        "entity": "Up.orbitals.UpOrbital.entity",
+        "name": "Local",
+        "reference": {
+          "entities": {
+            "Other": "ConsumerOther"
+          },
+          "extend": [
+            {
+              "default": 0.0,
+              "name": "overtimeHours",
+              "type": "number"
+            },
+            {
+              "name": "workspaceId",
+              "relation": {
+                "cardinality": "one",
+                "entity": "Workspace"
+              },
+              "type": "relation"
+            }
+          ],
+          "ref": "Up.orbitals.MainOrbital"
+        },
+        "traits": [],
+        "uses": [
+          {
+            "as": "Up",
+            "from": "stage-b"
+          }
+        ]
+      },
+      {
+        "entity": {
+          "fields": [
+            {
+              "name": "id",
+              "required": true,
+              "type": "string"
+            }
+          ],
+          "id": "ent_CONSUMEROTHERID000000000",
+          "name": "ConsumerOther",
+          "persistence": "persistent"
+        },
+        "name": "ConsumerOtherOwner",
+        "traits": []
+      },
+      {
+        "entity": {
+          "fields": [
+            {
+              "name": "id",
+              "required": true,
+              "type": "string"
+            }
+          ],
+          "id": "ent_CONSUMERWORKSPACEID00000",
+          "name": "Workspace",
+          "persistence": "persistent"
+        },
+        "name": "WorkspaceOwner",
+        "traits": []
+      }
+    ]
+  },
+  "upstream": {
+    "stage-b": {
+      "orbital": {
+        "auxiliaryEntities": [
+          {
+            "fields": [
+              {
+                "name": "id",
+                "required": true,
+                "type": "string"
+              },
+              {
+                "name": "role",
+                "type": "string",
+                "values": [
+                  "employee",
+                  "approver"
+                ]
+              }
+            ],
+            "identity": true,
+            "name": "ThingOwner",
+            "persistence": "persistent"
+          }
+        ],
+        "config": {
+          "deadKnobOrbital": {
+            "default": "only-forwarder-value",
+            "type": "string"
+          },
+          "navItems": {
+            "default": [
+              {
+                "href": "/main",
+                "label": "Main"
+              }
+            ],
+            "type": "array"
+          }
+        },
+        "entity": {
+          "fields": [
+            {
+              "name": "id",
+              "required": true,
+              "type": "string"
+            },
+            {
+              "name": "otherId",
+              "relation": {
+                "cardinality": "one",
+                "entity": "Other"
+              },
+              "type": "relation"
+            }
+          ],
+          "name": "Widget",
+          "persistence": "persistent",
+          "read_policy": [
+            "=",
+            "@user.role",
+            "approver"
+          ]
+        },
+        "id": "orb_STAGEBMAINORBITAL0000000",
+        "name": "MainOrbital",
+        "pages": [
+          {
+            "name": "MainPage",
+            "path": "/main",
+            "primaryEntity": "Widget",
+            "traits": [
+              {
+                "ref": "AppLayoutTrait"
+              }
+            ]
+          }
+        ],
+        "traits": [
+          {
+            "category": "interaction",
+            "config": {
+              "embedKnob1": {
+                "default": "VALUE1",
+                "type": "string"
+              }
+            },
+            "linkedEntity": "Widget",
+            "name": "Embedder1",
+            "stateMachine": {
+              "events": [
+                {
+                  "key": "OPEN1"
+                }
+              ],
+              "states": [
+                {
+                  "isInitial": true,
+                  "name": "idle"
+                }
+              ],
+              "transitions": [
+                {
+                  "effects": [
+                    [
+                      "render-ui",
+                      "main",
+                      {
+                        "children": [
+                          "@trait.Sibling"
+                        ],
+                        "type": "stack"
+                      }
+                    ]
+                  ],
+                  "event": "OPEN1",
+                  "from": "idle",
+                  "to": "idle"
+                }
+              ]
+            }
+          },
+          {
+            "category": "interaction",
+            "config": {
+              "embedKnob2": {
+                "default": "VALUE2",
+                "type": "string"
+              }
+            },
+            "linkedEntity": "Widget",
+            "name": "Embedder2",
+            "stateMachine": {
+              "events": [
+                {
+                  "key": "OPEN2"
+                }
+              ],
+              "states": [
+                {
+                  "isInitial": true,
+                  "name": "idle"
+                }
+              ],
+              "transitions": [
+                {
+                  "effects": [
+                    [
+                      "render-ui",
+                      "aux",
+                      {
+                        "children": [
+                          "@trait.Sibling"
+                        ],
+                        "type": "stack"
+                      }
+                    ]
+                  ],
+                  "event": "OPEN2",
+                  "from": "idle",
+                  "to": "idle"
+                }
+              ]
+            }
+          },
+          {
+            "category": "interaction",
+            "config": {
+              "embedKnob1": {
+                "default": "@config.embedKnob1",
+                "type": "string"
+              },
+              "embedKnob2": {
+                "default": "@config.embedKnob2",
+                "type": "string"
+              }
+            },
+            "linkedEntity": "Widget",
+            "name": "Sibling",
+            "stateMachine": {
+              "states": [
+                {
+                  "isInitial": true,
+                  "name": "idle"
+                }
+              ],
+              "transitions": []
+            }
+          },
+          {
+            "category": "interaction",
+            "config": {
+              "deadKnob": {
+                "default": "@config.deadKnobOrbital",
+                "type": "string"
+              }
+            },
+            "linkedEntity": "Widget",
+            "name": "OtherFetcher",
+            "stateMachine": {
+              "events": [
+                {
+                  "key": "LOAD"
+                }
+              ],
+              "states": [
+                {
+                  "isInitial": true,
+                  "name": "idle"
+                }
+              ],
+              "transitions": [
+                {
+                  "effects": [
+                    [
+                      "fetch",
+                      "Other",
+                      {}
+                    ]
+                  ],
+                  "event": "LOAD",
+                  "from": "idle",
+                  "guard": [
+                    "!=",
+                    "@Other.name",
+                    ""
+                  ],
+                  "to": "idle"
+                }
+              ]
+            }
+          },
+          {
+            "category": "interaction",
+            "config": {
+              "navItems": {
+                "default": "@config.navItems",
+                "type": "array"
+              }
+            },
+            "linkedEntity": "Widget",
+            "name": "AppLayoutTrait",
+            "stateMachine": {
+              "states": [
+                {
+                  "isInitial": true,
+                  "name": "idle"
+                }
+              ],
+              "transitions": []
+            }
+          }
+        ]
+      },
+      "orbitals": [
+        {
+          "auxiliaryEntities": [
+            {
+              "fields": [
+                {
+                  "name": "id",
+                  "required": true,
+                  "type": "string"
+                },
+                {
+                  "name": "role",
+                  "type": "string",
+                  "values": [
+                    "employee",
+                    "approver"
+                  ]
+                }
+              ],
+              "identity": true,
+              "name": "ThingOwner",
+              "persistence": "persistent"
+            }
+          ],
+          "config": {
+            "deadKnobOrbital": {
+              "default": "only-forwarder-value",
+              "type": "string"
+            },
+            "navItems": {
+              "default": [
+                {
+                  "href": "/main",
+                  "label": "Main"
+                }
+              ],
+              "type": "array"
+            }
+          },
+          "entity": {
+            "fields": [
+              {
+                "name": "id",
+                "required": true,
+                "type": "string"
+              },
+              {
+                "name": "otherId",
+                "relation": {
+                  "cardinality": "one",
+                  "entity": "Other"
+                },
+                "type": "relation"
+              }
+            ],
+            "name": "Widget",
+            "persistence": "persistent",
+            "read_policy": [
+              "=",
+              "@user.role",
+              "approver"
+            ]
+          },
+          "id": "orb_STAGEBMAINORBITAL0000000",
+          "name": "MainOrbital",
+          "pages": [
+            {
+              "name": "MainPage",
+              "path": "/main",
+              "primaryEntity": "Widget",
+              "traits": [
+                {
+                  "ref": "AppLayoutTrait"
+                }
+              ]
+            }
+          ],
+          "traits": [
+            {
+              "category": "interaction",
+              "config": {
+                "embedKnob1": {
+                  "default": "VALUE1",
+                  "type": "string"
+                }
+              },
+              "linkedEntity": "Widget",
+              "name": "Embedder1",
+              "stateMachine": {
+                "events": [
+                  {
+                    "key": "OPEN1"
+                  }
+                ],
+                "states": [
+                  {
+                    "isInitial": true,
+                    "name": "idle"
+                  }
+                ],
+                "transitions": [
+                  {
+                    "effects": [
+                      [
+                        "render-ui",
+                        "main",
+                        {
+                          "children": [
+                            "@trait.Sibling"
+                          ],
+                          "type": "stack"
+                        }
+                      ]
+                    ],
+                    "event": "OPEN1",
+                    "from": "idle",
+                    "to": "idle"
+                  }
+                ]
+              }
+            },
+            {
+              "category": "interaction",
+              "config": {
+                "embedKnob2": {
+                  "default": "VALUE2",
+                  "type": "string"
+                }
+              },
+              "linkedEntity": "Widget",
+              "name": "Embedder2",
+              "stateMachine": {
+                "events": [
+                  {
+                    "key": "OPEN2"
+                  }
+                ],
+                "states": [
+                  {
+                    "isInitial": true,
+                    "name": "idle"
+                  }
+                ],
+                "transitions": [
+                  {
+                    "effects": [
+                      [
+                        "render-ui",
+                        "aux",
+                        {
+                          "children": [
+                            "@trait.Sibling"
+                          ],
+                          "type": "stack"
+                        }
+                      ]
+                    ],
+                    "event": "OPEN2",
+                    "from": "idle",
+                    "to": "idle"
+                  }
+                ]
+              }
+            },
+            {
+              "category": "interaction",
+              "config": {
+                "embedKnob1": {
+                  "default": "@config.embedKnob1",
+                  "type": "string"
+                },
+                "embedKnob2": {
+                  "default": "@config.embedKnob2",
+                  "type": "string"
+                }
+              },
+              "linkedEntity": "Widget",
+              "name": "Sibling",
+              "stateMachine": {
+                "states": [
+                  {
+                    "isInitial": true,
+                    "name": "idle"
+                  }
+                ],
+                "transitions": []
+              }
+            },
+            {
+              "category": "interaction",
+              "config": {
+                "deadKnob": {
+                  "default": "@config.deadKnobOrbital",
+                  "type": "string"
+                }
+              },
+              "linkedEntity": "Widget",
+              "name": "OtherFetcher",
+              "stateMachine": {
+                "events": [
+                  {
+                    "key": "LOAD"
+                  }
+                ],
+                "states": [
+                  {
+                    "isInitial": true,
+                    "name": "idle"
+                  }
+                ],
+                "transitions": [
+                  {
+                    "effects": [
+                      [
+                        "fetch",
+                        "Other",
+                        {}
+                      ]
+                    ],
+                    "event": "LOAD",
+                    "from": "idle",
+                    "guard": [
+                      "!=",
+                      "@Other.name",
+                      ""
+                    ],
+                    "to": "idle"
+                  }
+                ]
+              }
+            },
+            {
+              "category": "interaction",
+              "config": {
+                "navItems": {
+                  "default": "@config.navItems",
+                  "type": "array"
+                }
+              },
+              "linkedEntity": "Widget",
+              "name": "AppLayoutTrait",
+              "stateMachine": {
+                "states": [
+                  {
+                    "isInitial": true,
+                    "name": "idle"
+                  }
+                ],
+                "transitions": []
+              }
+            }
+          ]
+        },
+        {
+          "entity": {
+            "fields": [
+              {
+                "name": "id",
+                "required": true,
+                "type": "string"
+              },
+              {
+                "name": "name",
+                "type": "string"
+              }
+            ],
+            "name": "Other",
+            "persistence": "persistent"
+          },
+          "name": "OtherOrbital",
+          "traits": []
+        }
+      ]
+    }
+  }
+}

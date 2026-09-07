@@ -362,6 +362,33 @@ impl Checker<'_> {
                     td.linked_entity.as_deref(),
                     format!("{path}.linkedEntity"),
                 );
+                // `entity_ref_ids` (V4 leverage-ids: token NAME → the
+                // entity's stable id) is a REFERENCE position for rules 1
+                // ("unknown ref" — the id must resolve to a node THIS
+                // schema's arena/ledger actually carries) and 3 ("kind
+                // mismatch" — must stay an entity id). Rule 2 ("name
+                // mismatch") is deliberately NOT applied here: by design
+                // (`orbital_core::stamp`'s doc comment — "on a rename the
+                // token keeps its old name AND the map key stays old") a
+                // same-schema, same-id declaration rename leaves the key
+                // stale on purpose, resolved transparently by id
+                // (`identity_normalize.rs`, `stale_entity_rebind_subs`) —
+                // that staleness is tolerated, not a defect. What rule 2
+                // WOULD catch instead is a genuinely foreign id (an
+                // orbital-import clone's key still naming the upstream
+                // entity while the value still holds the upstream's id,
+                // which belongs to a different stamp/id space entirely) —
+                // and rule 1 already catches that case directly: the
+                // upstream id resolves to no arena node or ledger entry in
+                // THIS (consumer) schema at all.
+                for (token_name, eid) in td.entity_ref_ids.iter().flatten() {
+                    self.check(
+                        &Some(eid.clone()),
+                        IdKind::Entity,
+                        None,
+                        format!("{path}.entityRefIds[{token_name}]"),
+                    );
+                }
                 for (ei, emit) in td.emits.iter().flatten().enumerate() {
                     self.check(
                         &emit.event_id,
@@ -722,6 +749,36 @@ mod tests {
             serde_json::json!("ent_GHOST00000000000000000000");
         let codes = id_codes(&run(&parse(v)));
         assert_eq!(codes, vec![ErrorCode::OrbIdUnknownRef], "codes: {codes:?}");
+    }
+
+    /// Pins the orbital-import defect this rule was added for: a stale
+    /// `entityRefIds` entry whose value is a FOREIGN id (belongs to no node
+    /// in this schema's arena/ledger — the shape a materialization splice
+    /// left behind when it renamed the trait's body tokens + `linkedEntity`
+    /// but never touched the side-map) is a dangling ref, same as any other
+    /// dual-carry sibling.
+    #[test]
+    fn entity_ref_ids_dangling_id_fires_unknown_ref() {
+        let mut v = healthy_json();
+        v["orbitals"][0]["traits"][0]["entityRefIds"] =
+            serde_json::json!({ "UpstreamTask": "ent_GHOST00000000000000000000" });
+        let codes = id_codes(&run(&parse(v)));
+        assert_eq!(codes, vec![ErrorCode::OrbIdUnknownRef], "codes: {codes:?}");
+    }
+
+    /// A stale `entityRefIds` KEY (naming an old display name) whose VALUE
+    /// still resolves to a live, correctly-kinded id in this schema must
+    /// NOT fire `ORB_ID_NAME_MISMATCH` — `orbital_core::stamp`'s documented
+    /// contract tolerates the key staying old across a same-schema,
+    /// same-id declaration rename (resolved transparently by id), so a
+    /// key/curName drift alone is not a defect for this side-map.
+    #[test]
+    fn entity_ref_ids_stale_key_with_live_id_is_not_a_name_mismatch() {
+        let mut v = healthy_json();
+        v["orbitals"][0]["traits"][0]["entityRefIds"] =
+            serde_json::json!({ "OldTaskName": "ent_TASK000000000000000000000" });
+        let codes = id_codes(&run(&parse(v)));
+        assert!(codes.is_empty(), "codes: {codes:?}");
     }
 
     #[test]

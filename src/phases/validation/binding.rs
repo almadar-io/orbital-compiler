@@ -2145,6 +2145,7 @@ mod tests {
             description: None,
             properties: None,
             type_when: None,
+            entity: None,
         }];
         let result = validate_payload_field_references(&expr, "test", Some(&fields), "READ");
         assert!(result
@@ -2163,6 +2164,7 @@ mod tests {
             description: None,
             properties: None,
             type_when: None,
+            entity: None,
         }];
         let result = validate_payload_field_references(&expr, "test", Some(&fields), "READ");
         assert!(result.errors.is_empty());
@@ -2180,6 +2182,7 @@ mod tests {
             description: None,
             properties: None,
             type_when: None,
+            entity: None,
         }];
         let result = validate_payload_field_references(&expr, "test", Some(&fields), "SLOT_CLICK");
         let err = result
@@ -2215,8 +2218,10 @@ mod tests {
                 description: None,
                 properties: None,
                 type_when: None,
+                entity: None,
             }]),
             type_when: None,
+            entity: None,
         }];
         let result = validate_payload_field_references(&expr, "test", Some(&fields), "READ");
         let err = result

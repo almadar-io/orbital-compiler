@@ -1,0 +1,260 @@
+{
+  "schema": {
+    "name": "App",
+    "orbitals": [
+      {
+        "name": "ThingOrbital",
+        "entity": {
+          "name": "Thing",
+          "persistence": "runtime",
+          "fields": [
+            {
+              "name": "id",
+              "type": "string"
+            },
+            {
+              "name": "a",
+              "type": "string"
+            },
+            {
+              "name": "b",
+              "type": "number"
+            }
+          ]
+        },
+        "traits": [
+          {
+            "name": "ThingSave",
+            "linkedEntity": "Thing",
+            "typeParams": [
+              {
+                "name": "RowType",
+                "kind": "Entity"
+              }
+            ],
+            "emits": [
+              {
+                "event": "RowSaved",
+                "payloadSchema": [
+                  {
+                    "name": "selfRow",
+                    "type": "@entity"
+                  },
+                  {
+                    "name": "selfRows",
+                    "type": "[@entity]"
+                  },
+                  {
+                    "name": "typedRow",
+                    "type": "$RowType"
+                  },
+                  {
+                    "name": "legacyRow",
+                    "type": "$LegacyAlias"
+                  }
+                ]
+              }
+            ],
+            "stateMachine": {
+              "states": [
+                {
+                  "name": "idle",
+                  "isInitial": true
+                }
+              ],
+              "transitions": [
+                {
+                  "from": "idle",
+                  "to": "idle",
+                  "event": "INIT"
+                }
+              ],
+              "events": [
+                {
+                  "key": "RowSaved",
+                  "payloadSchema": [
+                    {
+                      "name": "selfRow",
+                      "type": "@entity"
+                    },
+                    {
+                      "name": "selfRows",
+                      "type": "[@entity]"
+                    },
+                    {
+                      "name": "typedRow",
+                      "type": "$RowType"
+                    },
+                    {
+                      "name": "legacyRow",
+                      "type": "$LegacyAlias"
+                    }
+                  ]
+                }
+              ]
+            }
+          }
+        ],
+        "pages": []
+      }
+    ]
+  },
+  "expected": {
+    "emits": [
+      {
+        "name": "selfRow",
+        "type": "object",
+        "properties": [
+          {
+            "name": "id",
+            "type": "string"
+          },
+          {
+            "name": "a",
+            "type": "string"
+          },
+          {
+            "name": "b",
+            "type": "number"
+          }
+        ],
+        "entity": "Thing"
+      },
+      {
+        "name": "selfRows",
+        "type": "[object]",
+        "properties": [
+          {
+            "name": "id",
+            "type": "string"
+          },
+          {
+            "name": "a",
+            "type": "string"
+          },
+          {
+            "name": "b",
+            "type": "number"
+          }
+        ],
+        "entity": "Thing"
+      },
+      {
+        "name": "typedRow",
+        "type": "object",
+        "properties": [
+          {
+            "name": "id",
+            "type": "string"
+          },
+          {
+            "name": "a",
+            "type": "string"
+          },
+          {
+            "name": "b",
+            "type": "number"
+          }
+        ],
+        "entity": "Thing"
+      },
+      {
+        "name": "legacyRow",
+        "type": "object",
+        "properties": [
+          {
+            "name": "id",
+            "type": "string"
+          },
+          {
+            "name": "a",
+            "type": "string"
+          },
+          {
+            "name": "b",
+            "type": "number"
+          }
+        ],
+        "entity": "Thing"
+      }
+    ],
+    "events": [
+      {
+        "name": "selfRow",
+        "type": "object",
+        "properties": [
+          {
+            "name": "id",
+            "type": "string"
+          },
+          {
+            "name": "a",
+            "type": "string"
+          },
+          {
+            "name": "b",
+            "type": "number"
+          }
+        ],
+        "entity": "Thing"
+      },
+      {
+        "name": "selfRows",
+        "type": "[object]",
+        "properties": [
+          {
+            "name": "id",
+            "type": "string"
+          },
+          {
+            "name": "a",
+            "type": "string"
+          },
+          {
+            "name": "b",
+            "type": "number"
+          }
+        ],
+        "entity": "Thing"
+      },
+      {
+        "name": "typedRow",
+        "type": "object",
+        "properties": [
+          {
+            "name": "id",
+            "type": "string"
+          },
+          {
+            "name": "a",
+            "type": "string"
+          },
+          {
+            "name": "b",
+            "type": "number"
+          }
+        ],
+        "entity": "Thing"
+      },
+      {
+        "name": "legacyRow",
+        "type": "object",
+        "properties": [
+          {
+            "name": "id",
+            "type": "string"
+          },
+          {
+            "name": "a",
+            "type": "string"
+          },
+          {
+            "name": "b",
+            "type": "number"
+          }
+        ],
+        "entity": "Thing"
+      }
+    ]
+  }
+}

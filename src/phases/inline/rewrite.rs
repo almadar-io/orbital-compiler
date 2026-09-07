@@ -1,11 +1,11 @@
 //! SExpression / payload identifier rewriting and config-binding substitution.
 
 use crate::embedded::get_pattern;
-use crate::phases::validation::field_type_str;
 use crate::phases::validation::sync::patterns::{PATTERN_EVENT_LIST_PROPS, PATTERN_EVENT_PROPS};
+use crate::phases::validation::user_identity::{user_field_of, EQUALITY_OPS};
 use orbital_core::schema::{
-    ConfigProvenanceRecord, EntityDefinition, EntityRef, FieldDefinition, FieldType, ListenSource,
-    Orbital, PayloadField, SExpression, TraitDefinition, TraitReference,
+    ConfigProvenanceRecord, EntityDefinition, EntityRef, ListenSource, Orbital, PayloadField,
+    SExpression, TraitDefinition, TraitReference,
 };
 use std::collections::{BTreeMap, HashMap, HashSet};
 
@@ -122,50 +122,303 @@ pub(crate) fn rewrite_identifiers(
     entity_subs: &HashMap<String, String>,
     event_subs: &HashMap<String, String>,
 ) {
-    // Hoist the `@<from>` prefix allocation out of the per-node recursion:
-    // build each `@`-prefixed key once here instead of re-formatting it for
-    // every string node visited during the walk.
-    let entity_at_prefixes: Vec<(String, &str)> = entity_subs
+    rewrite_identifiers_inner(expr, entity_subs, event_subs);
+}
+
+/// The position rule for "this SExpression node names an entity at exactly
+/// this spot" — the `@EntityName[.path]` binding root (boundary-checked so
+/// `@EntityNameOther` never matches candidate `EntityName`: the identifier is
+/// the substring up to the first `.`, so a differently-spelled name can never
+/// partially match), `["ref", "EntityName"]`, `["fetch", "EntityName", …]`,
+/// and `["persist", "create"|"update"|"delete", "EntityName", …]`
+/// (GAP-COMP-11 — `batch`'s position-2 is a rows array, not a bare name, so
+/// it is left alone). Shared by the RENAME walk (`rewrite_identifiers_inner`,
+/// via `f` that substitutes through a rename map) and the read-only
+/// COLLECTOR (`collect_entity_slots`, via `f` that just records membership) —
+/// one position rule, no second copy to drift apart. Never recurses into
+/// children itself (both callers already do their own full recursive walk;
+/// `["fetch", X, {…criteria…}]`'s criteria tail, for instance, still needs
+/// visiting after this fn handles position 1).
+pub(crate) fn visit_entity_slots(expr: &mut SExpression, f: &mut dyn FnMut(&mut String)) {
+    match expr {
+        SExpression::String(s) => {
+            if let Some(rest) = s.strip_prefix('@') {
+                let split_at = rest.find('.').unwrap_or(rest.len());
+                let (name_part, suffix) = rest.split_at(split_at);
+                let mut name = name_part.to_string();
+                f(&mut name);
+                *s = format!("@{name}{suffix}");
+            }
+        }
+        SExpression::Array(items) => {
+            // `["ref", "From"]` — strict 2-element form.
+            if items.len() == 2 {
+                if let (SExpression::String(op), SExpression::String(_)) = (&items[0], &items[1]) {
+                    if op == "ref" {
+                        if let SExpression::String(name) = &mut items[1] {
+                            f(name);
+                        }
+                        return;
+                    }
+                }
+            }
+            if let Some(SExpression::String(op)) = items.first() {
+                match op.as_str() {
+                    "fetch" => {
+                        if let Some(SExpression::String(name)) = items.get_mut(1) {
+                            f(name);
+                        }
+                    }
+                    "persist" => {
+                        let is_single_record = matches!(
+                            items.get(1),
+                            Some(SExpression::String(action))
+                                if matches!(action.as_str(), "create" | "update" | "delete")
+                        );
+                        if is_single_record {
+                            if let Some(SExpression::String(name)) = items.get_mut(2) {
+                                f(name);
+                            }
+                        }
+                    }
+                    _ => {}
+                }
+            }
+        }
+        _ => {}
+    }
+}
+
+/// Read-only twin of `visit_entity_slots`: every entity name at one of its
+/// positions that is also a member of `candidates` is added to `out`.
+///
+/// Rather than hand-writing a second (immutable) copy of the position match —
+/// exactly the kind of drift the two-walker split above exists to prevent —
+/// this clones the CURRENT node (children included; they are visited by this
+/// fn's own recursion below regardless, so the clone's cost is bounded by the
+/// same tree this call already walks) and runs the real mutating dispatcher
+/// on the clone, capturing membership through the callback instead of
+/// rewriting anything. One position rule.
+pub(crate) fn collect_entity_slots(
+    expr: &SExpression,
+    candidates: &HashSet<String>,
+    out: &mut HashSet<String>,
+) {
+    let mut probe = expr.clone();
+    visit_entity_slots(&mut probe, &mut |name| {
+        if candidates.contains(name.as_str()) {
+            out.insert(name.clone());
+        }
+    });
+    match expr {
+        SExpression::Array(items) => {
+            for item in items {
+                collect_entity_slots(item, candidates, out);
+            }
+        }
+        SExpression::Object(map) => {
+            for v in map.values() {
+                collect_entity_slots(v, candidates, out);
+            }
+        }
+        _ => {}
+    }
+}
+
+/// Rewrite a role literal crossing an orbital-import boundary. Mirrors
+/// `validation::user_identity::check_comparison`'s shape rules for what
+/// counts as a role-literal comparison — the two must stay shape-identical
+/// (each cites the other in its doc comment):
+///
+/// (a) An equality node (`EQUALITY_OPS`) with exactly one operand a direct
+///     `@user.<f>` where `f` is a role-vocabulary field (a key of
+///     `role_fields`) and the other a non-`@` string literal that is a key
+///     of `roles`: a single target swaps the literal in place; more than one
+///     target replaces the WHOLE node with `["array/includes", [targets…],
+///     "@user.<f>"]`, wrapped in `["not", …]` when the original op was a
+///     negation (`!=`/`!==`/`neq`).
+/// (b) An `array/includes` node whose first argument is an array of string
+///     literals and whose second is a direct `@user.<f>` role field: each
+///     literal is mapped through `roles` (a list target expands in place;
+///     the result is deduped, first-seen order kept; an unmapped literal is
+///     left as itself for `ORB_S_ROLE_LITERAL_NOT_MEMBER` to catch).
+///
+/// Recurses into every other array/object so a match anywhere in the tree is
+/// found (transition/tick guards+effects, listen guard/payloadMapping, and
+/// config-field defaults all funnel through here from `orbital.rs`).
+pub(crate) fn rewrite_role_literals(
+    expr: &mut SExpression,
+    role_fields: &HashMap<String, Vec<String>>,
+    roles: &HashMap<String, Vec<String>>,
+) {
+    if let SExpression::Array(items) = expr {
+        if let Some(rewritten) = try_rewrite_role_equality(items, role_fields, roles) {
+            *expr = rewritten;
+            return;
+        }
+        if try_rewrite_role_includes(items, role_fields, roles) {
+            return;
+        }
+        for item in items.iter_mut() {
+            rewrite_role_literals(item, role_fields, roles);
+        }
+        return;
+    }
+    if let SExpression::Object(map) = expr {
+        for v in map.values_mut() {
+            rewrite_role_literals(v, role_fields, roles);
+        }
+    }
+}
+
+/// A direct `@user.<f>` read whose field is a role-vocabulary field —
+/// `user_field_of` (the same string-shape check `check_comparison` uses)
+/// filtered to fields `role_fields` actually declares.
+fn direct_role_user_field<'a>(
+    expr: &SExpression,
+    role_fields: &'a HashMap<String, Vec<String>>,
+) -> Option<&'a str> {
+    let SExpression::String(s) = expr else {
+        return None;
+    };
+    let field = user_field_of(s)?;
+    role_fields.keys().map(String::as_str).find(|k| *k == field)
+}
+
+/// Case (a): an equality/inequality node comparing a role field to a literal
+/// that `roles` remaps. Returns the replacement node when it matches, `None`
+/// (node untouched) otherwise.
+fn try_rewrite_role_equality(
+    items: &[SExpression],
+    role_fields: &HashMap<String, Vec<String>>,
+    roles: &HashMap<String, Vec<String>>,
+) -> Option<SExpression> {
+    let SExpression::String(op) = items.first()? else {
+        return None;
+    };
+    if !EQUALITY_OPS.contains(&op.as_str()) || items.len() < 3 {
+        return None;
+    }
+    let (sigil_idx, field) = [1usize, 2usize]
+        .into_iter()
+        .find_map(|i| direct_role_user_field(items.get(i)?, role_fields).map(|f| (i, f)))?;
+    let literal_idx = if sigil_idx == 1 { 2 } else { 1 };
+    let SExpression::String(literal) = items.get(literal_idx)? else {
+        return None;
+    };
+    if literal.starts_with('@') {
+        return None;
+    }
+    let targets = roles.get(literal.as_str())?;
+    let is_negated = matches!(op.as_str(), "!=" | "!==" | "neq");
+    let node = if targets.len() == 1 {
+        let mut new_items = items.to_vec();
+        new_items[literal_idx] = SExpression::String(targets[0].clone());
+        SExpression::Array(new_items)
+    } else {
+        SExpression::Array(vec![
+            SExpression::String("array/includes".to_string()),
+            SExpression::Array(targets.iter().cloned().map(SExpression::String).collect()),
+            SExpression::String(format!("@user.{field}")),
+        ])
+    };
+    if targets.len() > 1 && is_negated {
+        Some(SExpression::Array(vec![
+            SExpression::String("not".to_string()),
+            node,
+        ]))
+    } else {
+        Some(node)
+    }
+}
+
+/// Case (b): an `array/includes` node whose haystack (position 1) is a
+/// literal string array and whose needle (position 2) is a direct role-field
+/// read — each haystack literal is expanded through `roles` in place.
+/// Returns `true` when this node matched the shape (rewritten, whether or
+/// not any literal actually changed) so the caller does not also recurse
+/// into a node this fn already fully handled.
+fn try_rewrite_role_includes(
+    items: &mut [SExpression],
+    role_fields: &HashMap<String, Vec<String>>,
+    roles: &HashMap<String, Vec<String>>,
+) -> bool {
+    if items.len() < 3 {
+        return false;
+    }
+    let SExpression::String(op) = &items[0] else {
+        return false;
+    };
+    if op != "array/includes" {
+        return false;
+    }
+    if direct_role_user_field(&items[2], role_fields).is_none() {
+        return false;
+    }
+    let SExpression::Array(haystack) = &items[1] else {
+        return false;
+    };
+    // Mirror `validation::user_identity::literal_haystack_members` (the two
+    // cite each other): a `list` call's TAIL is the literal member set (the
+    // head is the array-construction marker `mark_literal_list_in_place`
+    // wraps a config-array-override value with, not a member itself); a
+    // bare array is literal only when EVERY element is a non-`@` string
+    // literal — the shape this fn's own multi-target expansion produces
+    // (`["array/includes", [targets…], "@user.<f>"]`). Any other shape — a
+    // nested call like `["object/get", ["array/nth", …], "allowedRoles"]`, a
+    // per-step dynamic role list — is left untouched.
+    let is_list_call = matches!(haystack.first(), Some(SExpression::String(s)) if s == "list");
+    let members: &[SExpression] = if is_list_call {
+        &haystack[1..]
+    } else {
+        haystack
+    };
+    let all_literals = members
         .iter()
-        .map(|(from, to)| (format!("@{}", from), to.as_str()))
-        .collect();
-    rewrite_identifiers_inner(expr, entity_subs, event_subs, &entity_at_prefixes);
+        .all(|v| matches!(v, SExpression::String(s) if !s.starts_with('@')));
+    if !all_literals {
+        return false;
+    }
+    let mut expanded: Vec<String> = Vec::new();
+    for v in members.iter() {
+        let SExpression::String(lit) = v else {
+            continue;
+        };
+        let mapped: Vec<String> = roles
+            .get(lit.as_str())
+            .cloned()
+            .unwrap_or_else(|| vec![lit.clone()]);
+        for m in mapped {
+            if !expanded.contains(&m) {
+                expanded.push(m);
+            }
+        }
+    }
+    let mut new_haystack: Vec<SExpression> = Vec::with_capacity(expanded.len() + 1);
+    if is_list_call {
+        new_haystack.push(SExpression::String("list".to_string()));
+    }
+    new_haystack.extend(expanded.into_iter().map(SExpression::String));
+    items[1] = SExpression::Array(new_haystack);
+    true
 }
 
 fn rewrite_identifiers_inner(
     expr: &mut SExpression,
     entity_subs: &HashMap<String, String>,
     event_subs: &HashMap<String, String>,
-    entity_at_prefixes: &[(String, &str)],
 ) {
-    match expr {
-        SExpression::Null | SExpression::Bool(_) | SExpression::Number(_) => {}
-        SExpression::String(s) => {
-            // Entity binding root rewrite: `@From` or `@From.path` → `@To` or
-            // `@To.path`. Boundary-checked so `@FromOther` is left alone.
-            for (prefix_with_at, to) in entity_at_prefixes {
-                if let Some(rest) = s.strip_prefix(prefix_with_at.as_str()) {
-                    if rest.is_empty() || rest.starts_with('.') {
-                        *s = format!("@{}{}", to, rest);
-                        return;
-                    }
-                }
-            }
+    visit_entity_slots(expr, &mut |name| {
+        if let Some(to) = entity_subs.get(name.as_str()) {
+            *name = to.clone();
         }
+    });
+    match expr {
+        SExpression::Null
+        | SExpression::Bool(_)
+        | SExpression::Number(_)
+        | SExpression::String(_) => {}
         SExpression::Array(items) => {
-            // Detect `["ref", "From"]` (entity rewrite). Strict 2-element
-            // form so we don't accidentally rewrite unrelated 2-arg calls.
-            if items.len() == 2 {
-                if let (SExpression::String(op), SExpression::String(arg)) = (&items[0], &items[1])
-                {
-                    if op == "ref" {
-                        if let Some(to) = entity_subs.get(arg) {
-                            items[1] = SExpression::String(to.clone());
-                            return;
-                        }
-                    }
-                }
-            }
             // Detect `["emit", "EVENT", ...]` and rewrite the event name in
             // position 1. The form is canonically 2 or 3 elements (`emit
             // EVENT` or `emit EVENT payload`); both must be rewritten when
@@ -185,57 +438,8 @@ fn rewrite_identifiers_inner(
                     }
                 }
             }
-            // GAP-COMP-11: Detect entity-name literals in `fetch` / `persist`
-            // effect shapes and rewrite them via `entity_subs`. These shapes
-            // embed the entity name as a bare string, not wrapped in `["ref",
-            // X]`, so the generic ref-arm above does not reach them.
-            //
-            // Shapes:
-            //   ["fetch", "EntityName", ...]           — position 1 is entity
-            //   ["persist", "create", "EntityName", ...] — position 2 is entity
-            //   ["persist", "update", "EntityName", ...] — position 2 is entity
-            //   ["persist", "delete", "EntityName", ...] — position 2 is entity
-            //   ["persist", "batch", rows_array, ...]  — position 2 is NOT an
-            //                                             entity name (it's a
-            //                                             rows array); skip.
-            //
-            // After rewriting the entity-slot literal, we fall through to the
-            // generic recursive walk below so nested SExpressions in the
-            // effect's tail (payloads, criteria, render-ui children, etc.)
-            // are still visited.
-            if let Some(SExpression::String(op)) = items.first() {
-                match op.as_str() {
-                    "fetch" => {
-                        if let Some(SExpression::String(name)) = items.get_mut(1) {
-                            if let Some(to) = entity_subs.get(name) {
-                                *name = to.clone();
-                            }
-                        }
-                    }
-                    "persist" => {
-                        // Only single-record actions carry a bare entity name
-                        // at index 2. For `batch`, index 2 is a rows array —
-                        // leave it for the generic recursive walk so nested
-                        // literals inside the rows (unlikely but possible)
-                        // still get visited.
-                        let is_single_record = matches!(
-                            items.get(1),
-                            Some(SExpression::String(action))
-                                if matches!(action.as_str(), "create" | "update" | "delete")
-                        );
-                        if is_single_record {
-                            if let Some(SExpression::String(name)) = items.get_mut(2) {
-                                if let Some(to) = entity_subs.get(name) {
-                                    *name = to.clone();
-                                }
-                            }
-                        }
-                    }
-                    _ => {}
-                }
-            }
             for item in items.iter_mut() {
-                rewrite_identifiers_inner(item, entity_subs, event_subs, entity_at_prefixes);
+                rewrite_identifiers_inner(item, entity_subs, event_subs);
             }
         }
         SExpression::Object(map) => {
@@ -387,7 +591,7 @@ fn rewrite_identifiers_inner(
                         }
                     }
                 }
-                rewrite_identifiers_inner(v, entity_subs, event_subs, entity_at_prefixes);
+                rewrite_identifiers_inner(v, entity_subs, event_subs);
             }
         }
     }
@@ -448,6 +652,20 @@ pub(crate) fn rewrite_entity_field_paths(
 /// absent (old imports, id-free callers), leaving the name path — the caller's
 /// `trait_def.linked_entity` → `new_entity` substitution — the sole driver, so
 /// resolution is byte-identical to before wherever ids are not populated.
+///
+/// Deliberately does NOT exclude an entry whose `token_name` already equals
+/// `new_entity`: the atom's own copy of that entry still carries the ATOM's
+/// bound-entity id (e.g. baked when a shared generic was last stamped
+/// standalone), which is foreign to whatever schema this trait is being
+/// resolved into now — this is what lets the identity entry through so
+/// `rewrite_entity_ref_ids` (the caller's next step) still refreshes its
+/// VALUE to the consumer's `entity_ids[new_entity]`, even though the token's
+/// NAME needs no rewrite. Without this, a same-name rebind (the atom's own
+/// entity happens to already be called `new_entity`) left the id stale —
+/// found on `std-notes`' `NoteSubpages = PageAtom.traits.NoteSubpages ->
+/// Note`, whose `entityRefIds["Note"]` kept naming an id no orbital in the
+/// composed schema carries, exactly the class of bug `ORB_ID_UNKNOWN_REF`'s
+/// new `entityRefIds` coverage was added to catch.
 pub(crate) fn stale_entity_rebind_subs(
     trait_def: &TraitDefinition,
     new_entity: &str,
@@ -458,8 +676,56 @@ pub(crate) fn stale_entity_rebind_subs(
         trait_def.entity_ref_ids.as_ref(),
     ) {
         for (token_name, entity_id) in map {
-            if entity_id == bound_id && token_name != new_entity {
+            if entity_id == bound_id {
                 out.insert(token_name.clone(), new_entity.to_string());
+            }
+        }
+    }
+    out
+}
+
+/// General case of `stale_entity_rebind_subs`, for a positional (non-`@entity`,
+/// non-`linked_entity`) reference a trait carries to a SECONDARY entity — one
+/// its own rebind never touches because that rebind only retargets the
+/// PRIMARY `linked_entity`. `entity_ref_ids` already carries this reference's
+/// id (the atom's own side-map, unrelated to `linked_entity_id`); when the
+/// CONSUMER orbital independently declares an entity with that SAME id under
+/// a DIFFERENT name (`consumer_entity_ids`, this orbital's own name→id
+/// roster), the atom's positional token is stale and must follow the
+/// consumer's name — the id is the only honest join key across a rename, and
+/// this is the reachable-anywhere-in-effects general case `stale_entity_
+/// rebind_subs` only covers for the trait's OWN bound entity.
+///
+/// Reproduces `WikiRevisionCapture` (std-wiki): rebound `-> WikiPage`
+/// (`linked_entity`, a no-op — the atom's own copy is already `WikiPage`), so
+/// `linked_entity`-driven `entity_subs` is empty, yet its `(persist create
+/// WikiPageRevision {…})` positional target names the SAME id the SIBLING
+/// `WikiHistory` pull rebound to `WikiRevision` (their `entity_ref_ids`
+/// values coincide — both trace to the ORGANISM's single revision entity).
+/// No cross-trait bookkeeping needed: each pull independently resolves its
+/// own stale positional names against the one CONSUMER roster every pull
+/// already receives.
+pub(crate) fn consumer_known_entity_rebind_subs(
+    trait_def: &TraitDefinition,
+    consumer_entity_ids: &HashMap<String, String>,
+) -> HashMap<String, String> {
+    let mut out = HashMap::new();
+    let Some(refs) = trait_def.entity_ref_ids.as_ref() else {
+        return out;
+    };
+    // id -> consumer name. Built once per call; a genuine id collision across
+    // two differently-named consumer entities is a separate id-integrity bug
+    // for another gate to catch, not something to guess between here.
+    let mut id_to_consumer_name: HashMap<&str, &str> = HashMap::new();
+    for (name, id) in consumer_entity_ids {
+        id_to_consumer_name
+            .entry(id.as_str())
+            .or_insert(name.as_str());
+    }
+    for (token_name, entity_id) in refs {
+        if let Some(consumer_name) = id_to_consumer_name.get(entity_id.as_str()) {
+            if *consumer_name != token_name {
+                out.insert(token_name.clone(), (*consumer_name).to_string());
             }
         }
     }
@@ -845,8 +1111,10 @@ fn rewrite_entity_in_type_string(s: &str, entity_subs: &HashMap<String, String>)
     out
 }
 
-/// Apply entity-name substitutions to every `PayloadField.field_type` in the
-/// trait's emits / listens / state-machine event declarations.
+/// Apply entity-name substitutions to every `PayloadField.field_type` AND
+/// `PayloadField.entity` in the trait's emits / state-machine event
+/// declarations, recursing into nested `properties` (an entity marker can
+/// sit on a field several levels deep inside an anonymous struct payload).
 ///
 /// Without this, an organism that rebinds an atom's trait via
 /// `linkedEntity: NewName` keeps the OLD type literal in the declared payload
@@ -854,6 +1122,16 @@ fn rewrite_entity_in_type_string(s: &str, entity_subs: &HashMap<String, String>)
 /// `payload as { data: OldName[] }` — a reference to a type that no longer
 /// exists. Live symptom from std-legal-case: handlers.ts emitting
 /// `payload as { data: Matter[] }` after the `Matter → MatterCase` rebind.
+///
+/// `PayloadField.entity` is a SEPARATE, later-added marker (B4-C: "the
+/// declared entity this field's value IS an instance of") — `field_type`
+/// alone flattens to `"object"`/`"[object]"` and carries no entity name once
+/// lowering flattens an entity-typed field, so `entity` is the only surviving
+/// identity a consumer (e.g. `wholeRow: f.entity === entityName`) can read.
+/// Missing this rewrite left a rebound trait's payload field naming its
+/// ATOM's original entity after the rebind (std-notes' `NoteDelete`, rebound
+/// `ConfirmAction → Note`, still had `DELETE.row.entity == "ConfirmAction"`).
+/// ONE owner for both markers, so a future third one lands here too.
 pub(crate) fn rewrite_payload_entity_refs(
     trait_def: &mut TraitDefinition,
     entity_subs: &HashMap<String, String>,
@@ -861,26 +1139,83 @@ pub(crate) fn rewrite_payload_entity_refs(
     if entity_subs.is_empty() {
         return;
     }
+    fn rewrite_fields(fields: &mut [PayloadField], entity_subs: &HashMap<String, String>) {
+        for field in fields.iter_mut() {
+            field.field_type = rewrite_entity_in_type_string(&field.field_type, entity_subs);
+            if let Some(entity) = field.entity.as_ref() {
+                if let Some(renamed) = entity_subs.get(entity) {
+                    field.entity = Some(renamed.clone());
+                }
+            }
+            if let Some(props) = field.properties.as_mut() {
+                rewrite_fields(props, entity_subs);
+            }
+        }
+    }
     if let Some(emits) = trait_def.emits.as_mut() {
         for emit in emits.iter_mut() {
             if let Some(schema) = emit.payload_schema.as_mut() {
-                for field in schema.iter_mut() {
-                    field.field_type =
-                        rewrite_entity_in_type_string(&field.field_type, entity_subs);
-                }
+                rewrite_fields(schema, entity_subs);
             }
         }
     }
     if let Some(events) = trait_def.state_machine.events.as_mut() {
         for ev in events.iter_mut() {
             if let Some(schema) = ev.payload_schema.as_mut() {
-                for field in schema.iter_mut() {
-                    field.field_type =
-                        rewrite_entity_in_type_string(&field.field_type, entity_subs);
-                }
+                rewrite_fields(schema, entity_subs);
             }
         }
     }
+}
+
+/// Rewrite `TraitDefinition.entity_ref_ids` (the V4 leverage-id side-map:
+/// token NAME → the entity's stable id) the same way every other entity
+/// substitution site is applied: a key naming an entity `entity_subs`
+/// renamed becomes the RENAMED name; EVERY key (renamed or not) then has its
+/// value refreshed to that (possibly renamed) name's CURRENT id in
+/// `entity_ids` (the consumer-scope name→id map `linked_entity_id` is
+/// re-stamped from at every call site) — never the stale id the map
+/// originally carried.
+///
+/// The by-name lookup runs even for a key `entity_subs` does not touch:
+/// `entity_subs` only covers entries a REBIND resolved (the trait's own
+/// `linked_entity`, or an id-equality join via
+/// `consumer_known_entity_rebind_subs`/`stale_entity_rebind_subs`). A
+/// SECONDARY reference whose name happens to be unchanged between the atom
+/// and the consumer (e.g. an atom's own `WikiPage` next to a consumer that
+/// also declares a `WikiPage`, but as a DIFFERENT declaration with a
+/// DIFFERENT id — std-wiki's `WikiAttachmentList = PageAtom.traits.
+/// WikiAttachmentList -> WikiAttachment`, whose secondary `entityRefIds
+/// [WikiPage]` names the ATOM's own foreign `WikiPage` id) is exactly this
+/// case: no rename happens (same name both sides), so `entity_subs` never
+/// carries a "WikiPage" entry, yet the id is genuinely foreign and must
+/// still be joined by NAME against the consumer roster. A name `entity_ids`
+/// does not know at all (a true atom-internal reference no consumer node
+/// covers) falls back to the old id unchanged — the only honest choice left.
+///
+/// Every entity-rename call site in this crate (orbital-import splice,
+/// aux-clone/`entities {}` remap, and the ordinary trait-ref `entity X`
+/// rebind) must call this alongside `rewrite_identifiers`/
+/// `rewrite_payload_entity_refs`, or the side-map goes stale: its keys keep
+/// naming an entity the renamed trait no longer declares, and its values
+/// keep pointing at that entity's OLD id — both of which
+/// `identity_normalize.rs` (and `inline/mod.rs`'s documented "side-maps
+/// always cover their nodes" invariant) assume never happens.
+pub(crate) fn rewrite_entity_ref_ids(
+    trait_def: &mut TraitDefinition,
+    entity_subs: &HashMap<String, String>,
+    entity_ids: &HashMap<String, String>,
+) {
+    let Some(refs) = trait_def.entity_ref_ids.take() else {
+        return;
+    };
+    let mut out: HashMap<String, String> = HashMap::with_capacity(refs.len());
+    for (from, old_id) in refs {
+        let name = entity_subs.get(&from).cloned().unwrap_or(from);
+        let id = entity_ids.get(&name).cloned().unwrap_or(old_id);
+        out.insert(name, id);
+    }
+    trait_def.entity_ref_ids = (!out.is_empty()).then_some(out);
 }
 
 /// Increment 3-I (`docs/Almadar_LOLO.md` ~line 315/1387): monomorphize the
@@ -1180,6 +1515,21 @@ fn resolve_sentinel_fields(
                     "object".to_string()
                 };
                 field.properties = Some(entity_fields_to_payload_fields(entity));
+                // B4-V4: `PayloadField.entity` (B4-C's "the declared entity
+                // this field's value IS an instance of") must be stamped
+                // here too, exactly like the lowering-time literal `row :
+                // Note` annotation stamps it — `field_type` alone flattens
+                // to `object`/`[object]` and carries no entity name once
+                // resolved, so `entity` is the only surviving identity a
+                // consumer (`wholeRow: f.entity === entityName`,
+                // `rewrite_payload_entity_refs`'s own rename walk) can read.
+                // Stamping it here, at the trait's FINAL entity_def (post
+                // rebind/sibling-pull — see this fn's caller doc), means
+                // any LATER rename (orbital-import materialization, an
+                // outer `-> Entity` rebind) picks it up for free through
+                // the SAME `rewrite_payload_entity_refs` walk that already
+                // renames the literal-annotation marker.
+                field.entity = Some(entity.name.clone());
                 changed = true;
             }
             continue;
@@ -1213,6 +1563,10 @@ fn resolve_sentinel_fields(
                             "object".to_string()
                         };
                         field.properties = Some(entity_fields_to_payload_fields(entity));
+                        // Same class as the `@entity` self-ref stamp above —
+                        // an Entity-kind type-param substitution flattens to
+                        // `object`/`[object]` too and needs the SAME marker.
+                        field.entity = Some(entity.name.clone());
                     }
                     ParamSub::Struct(shape) => {
                         field.field_type = if is_array_sentinel {
@@ -1236,8 +1590,13 @@ fn resolve_sentinel_fields(
                 continue;
             }
             // Pre-existing Increment 3-I alias sentinel (no declared trait
-            // param of this name) — unconditional default to entity_def,
-            // unchanged.
+            // param of this name) — unconditional default to entity_def.
+            // Stamps `field.entity` too (asymmetry fix, Stage C): arms 1
+            // (`@entity` self-ref) and 2 (`ParamSub::Entity`) above already
+            // stamp it — this arm resolves to the SAME `object`/`[object]`
+            // + flattened-properties shape and needs the same marker so a
+            // consumer (`wholeRow`, `rewrite_payload_entity_refs`'s rename
+            // walk) can read it.
             if let Some(entity) = entity_def {
                 field.field_type = if is_array_sentinel {
                     "[object]".to_string()
@@ -1245,6 +1604,7 @@ fn resolve_sentinel_fields(
                     "object".to_string()
                 };
                 field.properties = Some(entity_fields_to_payload_fields(entity));
+                field.entity = Some(entity.name.clone());
                 changed = true;
             }
             // No entity to substitute — leave the sentinel for the
@@ -1566,5 +1926,524 @@ mod conditional_event_list_tests {
             panic!("expected descriptor object");
         };
         assert_eq!(dm["event"], SExpression::String("EditRow".to_string()));
+    }
+}
+
+#[cfg(test)]
+mod role_literal_tests {
+    use super::*;
+    use serde_json::json;
+
+    fn role_fields() -> HashMap<String, Vec<String>> {
+        HashMap::from([(
+            "role".to_string(),
+            vec!["employee".to_string(), "approver".to_string()],
+        )])
+    }
+
+    fn roles_single() -> HashMap<String, Vec<String>> {
+        HashMap::from([("approver".to_string(), vec!["owner".to_string()])])
+    }
+
+    fn roles_list() -> HashMap<String, Vec<String>> {
+        HashMap::from([(
+            "approver".to_string(),
+            vec!["owner".to_string(), "project_manager".to_string()],
+        )])
+    }
+
+    fn sexpr(v: serde_json::Value) -> SExpression {
+        serde_json::from_value(v).expect("valid SExpression fixture")
+    }
+
+    /// A single-target remap swaps the literal in place — the op and the
+    /// sigil operand are untouched.
+    #[test]
+    fn equality_single_target_swaps_literal_in_place() {
+        let mut expr = sexpr(json!(["=", "@user.role", "approver"]));
+        rewrite_role_literals(&mut expr, &role_fields(), &roles_single());
+        assert_eq!(expr, sexpr(json!(["=", "@user.role", "owner"])));
+    }
+
+    /// A multi-target remap replaces the WHOLE comparison node with
+    /// `array/includes`.
+    #[test]
+    fn equality_list_target_becomes_array_includes() {
+        let mut expr = sexpr(json!(["=", "@user.role", "approver"]));
+        rewrite_role_literals(&mut expr, &role_fields(), &roles_list());
+        assert_eq!(
+            expr,
+            sexpr(json!([
+                "array/includes",
+                ["owner", "project_manager"],
+                "@user.role"
+            ]))
+        );
+    }
+
+    /// The sigil may be on EITHER side of the equality.
+    #[test]
+    fn equality_sigil_on_the_left_is_also_matched() {
+        let mut expr = sexpr(json!(["==", "approver", "@user.role"]));
+        rewrite_role_literals(&mut expr, &role_fields(), &roles_single());
+        assert_eq!(expr, sexpr(json!(["==", "owner", "@user.role"])));
+    }
+
+    /// `!=`/`!==`/`neq` with a multi-target remap wraps the produced
+    /// `array/includes` in `not` — a single-target remap keeps the original
+    /// negated op untouched (the op itself already encodes the negation).
+    #[test]
+    fn negated_equality_list_target_wraps_in_not() {
+        for op in ["!=", "!==", "neq"] {
+            let mut expr = sexpr(json!([op, "@user.role", "approver"]));
+            rewrite_role_literals(&mut expr, &role_fields(), &roles_list());
+            assert_eq!(
+                expr,
+                sexpr(json!([
+                    "not",
+                    ["array/includes", ["owner", "project_manager"], "@user.role"]
+                ])),
+                "op {op}"
+            );
+        }
+    }
+
+    #[test]
+    fn negated_equality_single_target_keeps_op_no_wrap() {
+        let mut expr = sexpr(json!(["!=", "@user.role", "approver"]));
+        rewrite_role_literals(&mut expr, &role_fields(), &roles_single());
+        assert_eq!(expr, sexpr(json!(["!=", "@user.role", "owner"])));
+    }
+
+    /// `array/includes` whose haystack is a literal array and whose needle
+    /// is a direct role field: each haystack literal is mapped through
+    /// `roles` (a list target expands in place); an unmapped literal is
+    /// left as itself; duplicates introduced by the expansion are deduped,
+    /// first-seen order kept.
+    #[test]
+    fn array_includes_haystack_literals_expand_through_roles() {
+        let mut roles = roles_list();
+        roles.insert("viewer".to_string(), vec!["project_manager".to_string()]);
+        let mut expr = sexpr(json!([
+            "array/includes",
+            ["approver", "viewer", "ghost"],
+            "@user.role"
+        ]));
+        rewrite_role_literals(&mut expr, &role_fields(), &roles);
+        assert_eq!(
+            expr,
+            sexpr(json!([
+                "array/includes",
+                ["owner", "project_manager", "ghost"],
+                "@user.role"
+            ])),
+            "approver+viewer both expand to project_manager, deduped to one occurrence; \
+             unmapped \"ghost\" survives for ORB_S_ROLE_LITERAL_NOT_MEMBER to catch"
+        );
+    }
+
+    /// A literal not present in `roles` is left completely alone.
+    #[test]
+    fn unmapped_literal_is_untouched() {
+        let mut expr = sexpr(json!(["=", "@user.role", "ghost"]));
+        let before = expr.clone();
+        rewrite_role_literals(&mut expr, &role_fields(), &roles_single());
+        assert_eq!(expr, before);
+    }
+
+    /// A field not in `role_fields` (not a role-vocabulary field) is never
+    /// touched even if the literal happens to match a `roles` key.
+    #[test]
+    fn non_role_field_is_untouched() {
+        let mut expr = sexpr(json!(["=", "@user.email", "approver"]));
+        let before = expr.clone();
+        rewrite_role_literals(&mut expr, &role_fields(), &roles_single());
+        assert_eq!(expr, before);
+    }
+
+    /// The rewrite recurses into every nested position — an `and`-wrapped
+    /// guard tree still finds the role comparison inside it.
+    #[test]
+    fn recurses_into_nested_structures() {
+        let mut expr = sexpr(json!([
+            "and",
+            ["=", "@user.role", "approver"],
+            ["=", "@entity.active", true]
+        ]));
+        rewrite_role_literals(&mut expr, &role_fields(), &roles_single());
+        assert_eq!(
+            expr,
+            sexpr(json!([
+                "and",
+                ["=", "@user.role", "owner"],
+                ["=", "@entity.active", true]
+            ]))
+        );
+    }
+
+    /// A dynamic per-step haystack (std-step-flow's role guard idiom,
+    /// `(object/get (array/nth @config.steps i) "allowedRoles")`) is not a
+    /// literal role list — the node is left completely untouched. Mirrors
+    /// `validation::user_identity::literal_haystack_members` returning
+    /// `None` for the identical shape.
+    #[test]
+    fn array_includes_dynamic_object_get_haystack_is_untouched() {
+        let mut expr = sexpr(json!([
+            "array/includes",
+            [
+                "object/get",
+                ["array/nth", "@config.steps", 0],
+                "allowedRoles"
+            ],
+            "@user.role"
+        ]));
+        let before = expr.clone();
+        rewrite_role_literals(&mut expr, &role_fields(), &roles_single());
+        assert_eq!(
+            expr, before,
+            "a nested call in the haystack must never be treated as literal members"
+        );
+    }
+
+    /// A `["list", …]` array-construction wrap (`mark_literal_list_in_place`
+    /// disambiguating a config-array-override default from an operator
+    /// call — both `.lolo` spellings `(a b)`/`[a, b]` lower through it) is a
+    /// literal haystack whose TAIL is the member set: the `list` head is
+    /// re-emitted on the rewritten node, never fed through `roles` as if it
+    /// were a role name itself.
+    #[test]
+    fn array_includes_list_call_haystack_expands_tail_and_keeps_wrap() {
+        let mut expr = sexpr(json!([
+            "array/includes",
+            ["list", "approver", "ghost"],
+            "@user.role"
+        ]));
+        rewrite_role_literals(&mut expr, &role_fields(), &roles_single());
+        assert_eq!(
+            expr,
+            sexpr(json!([
+                "array/includes",
+                ["list", "owner", "ghost"],
+                "@user.role"
+            ])),
+            "\"list\" itself must never be treated as a member; \"approver\" maps to \
+             \"owner\", unmapped \"ghost\" survives, and the wrap is preserved so the \
+             evaluator still reads the result as inert data"
+        );
+    }
+}
+
+#[cfg(test)]
+mod entity_slot_tests {
+    use super::*;
+    use serde_json::json;
+
+    fn sexpr(v: serde_json::Value) -> SExpression {
+        serde_json::from_value(v).expect("valid SExpression fixture")
+    }
+
+    fn candidates() -> HashSet<String> {
+        HashSet::from(["Other".to_string()])
+    }
+
+    #[test]
+    fn collects_at_root_ref_fetch_and_persist_positions() {
+        let mut out = HashSet::new();
+        collect_entity_slots(&sexpr(json!("@Other.id")), &candidates(), &mut out);
+        collect_entity_slots(&sexpr(json!(["ref", "Other"])), &candidates(), &mut out);
+        collect_entity_slots(
+            &sexpr(json!(["fetch", "Other", {}])),
+            &candidates(),
+            &mut out,
+        );
+        collect_entity_slots(
+            &sexpr(json!(["persist", "create", "Other", {}])),
+            &candidates(),
+            &mut out,
+        );
+        assert_eq!(out, HashSet::from(["Other".to_string()]));
+    }
+
+    /// A name outside `candidates` (even one that structurally matches an
+    /// entity-slot position) is never collected.
+    #[test]
+    fn ignores_non_candidate_names() {
+        let mut out = HashSet::new();
+        collect_entity_slots(
+            &sexpr(json!(["fetch", "Unrelated", {}])),
+            &candidates(),
+            &mut out,
+        );
+        assert!(out.is_empty());
+    }
+
+    /// A `persist batch` row array is not an entity-name slot; recursion
+    /// still reaches nested `@Other` tokens inside it.
+    #[test]
+    fn persist_batch_position_is_not_an_entity_slot_but_recursion_still_reaches_nested_tokens() {
+        let mut out = HashSet::new();
+        collect_entity_slots(
+            &sexpr(json!(["persist", "batch", [{"ref": "@Other.id"}]])),
+            &candidates(),
+            &mut out,
+        );
+        assert!(out.contains("Other"));
+    }
+
+    /// The rename walker and the collector agree: renaming then re-collecting
+    /// with the ORIGINAL candidate finds nothing left (it was renamed away).
+    #[test]
+    fn visit_and_collect_agree_on_position() {
+        let mut expr = sexpr(json!(["fetch", "Other", {}]));
+        let mut subs = HashMap::new();
+        subs.insert("Other".to_string(), "Renamed".to_string());
+        rewrite_identifiers(&mut expr, &subs, &HashMap::new());
+        let mut out = HashSet::new();
+        collect_entity_slots(&expr, &candidates(), &mut out);
+        assert!(out.is_empty(), "the name was renamed away: {expr:?}");
+    }
+}
+
+/// `rewrite_payload_entity_refs` — the ONE owner for both `PayloadField`
+/// entity markers (`field_type` type-strings AND the `entity` marker itself,
+/// B4-C's "the declared entity this field's value IS an instance of").
+/// Called from all three entity-rename sites (`apply_overrides_to_trait`'s
+/// linked-entity rebind — which also covers the same-alias pulled-sibling
+/// path, since it calls the same function — `identity_normalize`, and the
+/// orbital-import splice), so a white-box test of the function itself covers
+/// every call site's actual substitution shape (a straight rebind map, a
+/// prefix-rename map, an out-of-orbital retarget map — all just
+/// `HashMap<String, String>` to this function).
+#[cfg(test)]
+mod payload_entity_marker_tests {
+    use super::*;
+    use serde_json::json;
+
+    fn trait_with_payload_fields(fields: serde_json::Value) -> TraitDefinition {
+        serde_json::from_value(json!({
+            "name": "T",
+            "linkedEntity": "ConfirmAction",
+            "category": "interaction",
+            "stateMachine": {
+                "states": [ { "name": "idle", "isInitial": true } ],
+                "events": [ { "key": "DELETE", "payloadSchema": fields } ],
+                "transitions": []
+            }
+        }))
+        .expect("trait fixture deserializes")
+    }
+
+    fn payload_fields(td: &TraitDefinition) -> &[PayloadField] {
+        td.state_machine.events.as_ref().expect("events carried")[0]
+            .payload_schema
+            .as_ref()
+            .expect("payloadSchema carried")
+    }
+
+    /// Scalar entity-typed field (`row: ConfirmAction`, flattened to
+    /// `field_type: "object"` + `entity: "ConfirmAction"`) follows a rebind —
+    /// the exact std-notes `NoteDelete` shape (`ConfirmAction -> Note`).
+    #[test]
+    fn scalar_entity_marker_follows_rebind() {
+        let mut td = trait_with_payload_fields(json!([
+            { "name": "id", "type": "string" },
+            { "name": "row", "type": "object", "entity": "ConfirmAction" }
+        ]));
+        let mut subs = HashMap::new();
+        subs.insert("ConfirmAction".to_string(), "Note".to_string());
+        rewrite_payload_entity_refs(&mut td, &subs);
+        let fields = payload_fields(&td);
+        assert_eq!(fields[0].entity, None, "non-entity field untouched");
+        assert_eq!(
+            fields[1].entity.as_deref(),
+            Some("Note"),
+            "scalar entity marker must follow the rebind"
+        );
+    }
+
+    /// Array-form entity-typed field (`rows: [ConfirmAction]`, flattened to
+    /// `field_type: "[object]"` — `entity` still names the ELEMENT type, not
+    /// an array spelling) follows the same rebind.
+    #[test]
+    fn array_form_entity_marker_follows_rebind() {
+        let mut td = trait_with_payload_fields(json!([
+            { "name": "rows", "type": "[object]", "entity": "ConfirmAction" }
+        ]));
+        let mut subs = HashMap::new();
+        subs.insert("ConfirmAction".to_string(), "Note".to_string());
+        rewrite_payload_entity_refs(&mut td, &subs);
+        assert_eq!(payload_fields(&td)[0].entity.as_deref(), Some("Note"));
+    }
+
+    /// A nested `properties` entity marker (an entity-typed field several
+    /// levels inside an anonymous struct payload) is reached by recursion.
+    #[test]
+    fn nested_properties_entity_marker_follows_rebind() {
+        let mut td = trait_with_payload_fields(json!([
+            {
+                "name": "wrapper",
+                "type": "object",
+                "properties": [
+                    { "name": "inner", "type": "object", "entity": "ConfirmAction" }
+                ]
+            }
+        ]));
+        let mut subs = HashMap::new();
+        subs.insert("ConfirmAction".to_string(), "Note".to_string());
+        rewrite_payload_entity_refs(&mut td, &subs);
+        let outer = &payload_fields(&td)[0];
+        let inner = &outer.properties.as_ref().expect("properties carried")[0];
+        assert_eq!(inner.entity.as_deref(), Some("Note"));
+    }
+
+    /// The orbital-import splice's prefix-rename shape (`Widget ->
+    /// LocalWidget`) — same function, different substitution map, same
+    /// contract.
+    #[test]
+    fn entity_marker_follows_a_splice_prefix_rename() {
+        let mut td = trait_with_payload_fields(json!([
+            { "name": "row", "type": "object", "entity": "Widget" }
+        ]));
+        let mut subs = HashMap::new();
+        subs.insert("Widget".to_string(), "LocalWidget".to_string());
+        rewrite_payload_entity_refs(&mut td, &subs);
+        assert_eq!(
+            payload_fields(&td)[0].entity.as_deref(),
+            Some("LocalWidget")
+        );
+    }
+
+    /// The Stage B `entities {}` out-of-orbital retarget shape (`Other ->
+    /// ConsumerOther`) — same function, same contract.
+    #[test]
+    fn entity_marker_follows_an_entities_block_retarget() {
+        let mut td = trait_with_payload_fields(json!([
+            { "name": "row", "type": "object", "entity": "Other" }
+        ]));
+        let mut subs = HashMap::new();
+        subs.insert("Other".to_string(), "ConsumerOther".to_string());
+        rewrite_payload_entity_refs(&mut td, &subs);
+        assert_eq!(
+            payload_fields(&td)[0].entity.as_deref(),
+            Some("ConsumerOther")
+        );
+    }
+
+    /// A field naming an entity NOT in the substitution map is left alone —
+    /// only declared renames apply, never a heuristic match.
+    #[test]
+    fn entity_marker_naming_an_unrelated_entity_is_untouched() {
+        let mut td = trait_with_payload_fields(json!([
+            { "name": "row", "type": "object", "entity": "SomeoneElse" }
+        ]));
+        let mut subs = HashMap::new();
+        subs.insert("ConfirmAction".to_string(), "Note".to_string());
+        rewrite_payload_entity_refs(&mut td, &subs);
+        assert_eq!(
+            payload_fields(&td)[0].entity.as_deref(),
+            Some("SomeoneElse")
+        );
+    }
+
+    fn entity_fixture(name: &str) -> orbital_core::schema::EntityDefinition {
+        serde_json::from_value(json!({
+            "name": name,
+            "persistence": "persistent",
+            "fields": [ { "name": "id", "type": "string", "required": true } ]
+        }))
+        .expect("entity fixture deserializes")
+    }
+
+    /// B4-V4: `resolve_type_param_sentinels`' `@entity` self-ref arm
+    /// (`resolve_sentinel_fields`) must stamp `PayloadField.entity`, not
+    /// just `field_type`/`properties` — the same marker the LITERAL `row :
+    /// Note` lowering-time annotation carries (B4-C). Before the fix,
+    /// std-notes' `NotePersistor.DO_UPDATE.data` (declared `data :
+    /// @entity!`) had `properties` but no `entity` key even though its
+    /// source was the self-ref sentinel. Uses the `state_machine.events[]`
+    /// shape a `listens { EVENT { data: @entity! } }` declaration lowers
+    /// to.
+    #[test]
+    fn entity_sentinel_stamps_the_entity_marker() {
+        let mut td = trait_with_payload_fields(json!([
+            { "name": "id", "type": "string" },
+            { "name": "data", "type": "@entity" }
+        ]));
+        let note = entity_fixture("Note");
+        let changed =
+            resolve_type_param_sentinels(&mut td, Some(&note), &HashMap::new(), &BTreeMap::new());
+        assert!(changed);
+        let fields = payload_fields(&td);
+        assert_eq!(fields[1].field_type, "object");
+        assert!(fields[1].properties.is_some(), "entity fields spliced in");
+        assert_eq!(
+            fields[1].entity.as_deref(),
+            Some("Note"),
+            "the @entity self-ref sentinel must stamp the SAME entity marker the literal annotation does"
+        );
+    }
+
+    /// The array form (`data : [@entity!]`) gets the same marker.
+    #[test]
+    fn array_entity_sentinel_stamps_the_entity_marker() {
+        let mut td = trait_with_payload_fields(json!([
+            { "name": "rows", "type": "[@entity]" }
+        ]));
+        let note = entity_fixture("Note");
+        resolve_type_param_sentinels(&mut td, Some(&note), &HashMap::new(), &BTreeMap::new());
+        let fields = payload_fields(&td);
+        assert_eq!(fields[0].field_type, "[object]");
+        assert_eq!(fields[0].entity.as_deref(), Some("Note"));
+    }
+
+    /// Stage C: the "legacy alias sentinel" arm — a bare `$Name` sentinel
+    /// with NO declared trait type param of that name (so it never reaches
+    /// `subs`) — is the one `resolve_sentinel_fields` arm that never
+    /// stamped `PayloadField.entity` while arms 1 (`@entity` self-ref) and
+    /// 2 (`ParamSub::Entity`) above already do (asymmetry found during the
+    /// orbital-import Stage C span/extend program). Fixed to stamp the
+    /// same marker.
+    #[test]
+    fn legacy_alias_sentinel_stamps_the_entity_marker() {
+        let mut td = trait_with_payload_fields(json!([
+            { "name": "row", "type": "$SomeUndeclaredAlias" }
+        ]));
+        let note = entity_fixture("Note");
+        let changed =
+            resolve_type_param_sentinels(&mut td, Some(&note), &HashMap::new(), &BTreeMap::new());
+        assert!(changed);
+        let fields = payload_fields(&td);
+        assert_eq!(fields[0].field_type, "object");
+        assert!(fields[0].properties.is_some(), "entity fields spliced in");
+        assert_eq!(
+            fields[0].entity.as_deref(),
+            Some("Note"),
+            "the legacy alias sentinel (arm 4) must stamp the SAME entity marker arms 1-2 do"
+        );
+    }
+
+    /// End-to-end: the marker `resolve_type_param_sentinels` just stamped
+    /// on a trait bound to `Note` must ITSELF follow a LATER entity rename
+    /// (an outer `-> Entity` rebind, or the orbital-import splice) through
+    /// the SAME `rewrite_payload_entity_refs` owner every other entity
+    /// marker already flows through — proving "it must follow rename/
+    /// rebind like the literal marker does" end-to-end, not just that the
+    /// initial stamp lands.
+    #[test]
+    fn entity_sentinel_marker_then_follows_a_later_rebind() {
+        let mut td = trait_with_payload_fields(json!([
+            { "name": "data", "type": "@entity" }
+        ]));
+        let note = entity_fixture("Note");
+        resolve_type_param_sentinels(&mut td, Some(&note), &HashMap::new(), &BTreeMap::new());
+        assert_eq!(payload_fields(&td)[0].entity.as_deref(), Some("Note"));
+
+        // A later rename (e.g. this trait rides an orbital-import splice
+        // that prefixes every closure entity) must retarget the marker
+        // through the SAME general walker, not a parallel one.
+        let mut subs = HashMap::new();
+        subs.insert("Note".to_string(), "LocalNote".to_string());
+        rewrite_payload_entity_refs(&mut td, &subs);
+        assert_eq!(payload_fields(&td)[0].entity.as_deref(), Some("LocalNote"));
     }
 }

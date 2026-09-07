@@ -1,6 +1,6 @@
 // Auto-generated from @almadar/std canonical-operators.json by @almadar-io/almadar-pattern-sync.
 // DO NOT EDIT MANUALLY.
-// Total operators targeting Rust: 239
+// Total operators targeting Rust: 237
 
 /// Operator metadata derived from the canonical @almadar/std registry.
 #[derive(Debug, Clone)]
@@ -249,16 +249,6 @@ pub static CANONICAL_OPERATORS: &[OperatorMeta] = &[
         max_arity: Some(2),
         return_type: "array",
         description: "Skip last n elements",
-        has_side_effects: false,
-        return_semantics: None,
-    },
-    OperatorMeta {
-        name: "array/empty?",
-        category: "std-array",
-        min_arity: 1,
-        max_arity: Some(1),
-        return_type: "boolean",
-        description: "Check if array is empty",
         has_side_effects: false,
         return_semantics: None,
     },
@@ -1319,16 +1309,6 @@ pub static CANONICAL_OPERATORS: &[OperatorMeta] = &[
         max_arity: None,
         return_type: "any",
         description: "Deep merge objects (later wins)",
-        has_side_effects: false,
-        return_semantics: None,
-    },
-    OperatorMeta {
-        name: "object/empty?",
-        category: "std-object",
-        min_arity: 1,
-        max_arity: Some(1),
-        return_type: "boolean",
-        description: "Check if object has no keys",
         has_side_effects: false,
         return_semantics: None,
     },
@@ -2439,7 +2419,7 @@ mod tests {
 
     #[test]
     fn test_canonical_operators_count() {
-        assert_eq!(CANONICAL_OPERATORS.len(), 239);
+        assert_eq!(CANONICAL_OPERATORS.len(), 237);
     }
 
     #[test]

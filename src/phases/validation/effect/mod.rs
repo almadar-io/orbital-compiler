@@ -31,7 +31,8 @@ pub(crate) use persist::validate_persist;
 pub(crate) use r#ref::validate_ref;
 pub(crate) use set::{
     entity_field_type_map, expr_return_incompatible, validate_set, validate_set_enum_value,
-    validate_set_object, validate_set_return_type, validate_set_value_type, EntityFieldMeta,
+    validate_set_object, validate_set_required_field_from_optional_knob, validate_set_return_type,
+    validate_set_value_type, EntityFieldMeta,
 };
 pub use utils::effect_operators;
 pub(crate) use utils::{extract_payload_fields, is_valid_event_identifier};
@@ -114,6 +115,13 @@ pub fn validate_trait_effects(
                 let emit_result =
                     validate_emit_against_declaration(effect, &effect_path, &declared_emits);
                 result.merge(emit_result);
+
+                result.merge(validate_set_required_field_from_optional_knob(
+                    effect,
+                    &effect_path,
+                    &trait_def.name,
+                    &entity_field_types,
+                ));
             }
         }
     }
@@ -141,6 +149,13 @@ pub fn validate_trait_effects(
                 let emit_result =
                     validate_emit_against_declaration(effect, &effect_path, &declared_emits);
                 result.merge(emit_result);
+
+                result.merge(validate_set_required_field_from_optional_knob(
+                    effect,
+                    &effect_path,
+                    &trait_def.name,
+                    &entity_field_types,
+                ));
             }
         }
     }
@@ -256,12 +271,18 @@ mod per_event_payload_tests {
 
         let per_event = collect_per_event_payload_field_types(&trait_def);
         assert_eq!(
-            per_event.get("SET_KEY").and_then(|f| f.get("value")).map(String::as_str),
+            per_event
+                .get("SET_KEY")
+                .and_then(|f| f.get("value"))
+                .map(String::as_str),
             Some("string"),
             "SET_KEY's own declared payload must type its `?value`"
         );
         assert_eq!(
-            per_event.get("GetDone").and_then(|f| f.get("value")).map(String::as_str),
+            per_event
+                .get("GetDone")
+                .and_then(|f| f.get("value"))
+                .map(String::as_str),
             Some("Map<string,scalar>"),
             "the emit keeps its own payload type"
         );

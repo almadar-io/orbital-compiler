@@ -5,7 +5,9 @@
 //! `"patient"` and std-lms's `"student"` pass `orb validate` today and have
 //! always silently rendered the staff branch.
 
-use orbital_compiler::phases::validation::{user_identity, ValidationContext};
+use orbital_compiler::phases::inline::{inline_schema, InlineConfig};
+use orbital_compiler::phases::parse::parse_file;
+use orbital_compiler::phases::validation::{entity_access, user_identity, ValidationContext};
 use orbital_core::schema::OrbitalSchema;
 use serde_json::{json, Value};
 
@@ -206,6 +208,45 @@ fn array_includes_checks_the_element_vocabulary() {
         }]}
     });
     let codes = run(schema_with(json!([roles]), json!([good]), true));
+    assert!(codes.is_empty(), "expected no errors, got {codes:?}");
+}
+
+/// The Stage-B orbital-import role rewrite (`roles {}` remapped to a list of
+/// consumer targets) produces the REVERSE `array/includes` shape from the
+/// test above — a literal array haystack with the `@user.<f>` sigil as the
+/// needle (`(array/includes ["owner","project_manager"] @user.role)`),
+/// rather than the sigil-as-haystack shape. Every haystack literal must be
+/// checked individually against the sigil's field vocabulary — a policy
+/// authored this way directly must fire once per non-member, not zero times.
+#[test]
+fn array_includes_with_a_literal_haystack_checks_every_member() {
+    let role = json!({ "name": "role", "type": "string", "values": ["approver", "owner"] });
+    let bad = json!({
+        "name": "Shell", "linkedEntity": "Person", "category": "interaction",
+        "stateMachine": { "events": [], "states": [], "transitions": [{
+            "from": "idle", "event": "GO", "to": "idle",
+            "guard": ["array/includes", ["approver", "ghost"], "@user.role"]
+        }]}
+    });
+    let codes = run(schema_with(json!([role.clone()]), json!([bad]), true));
+    let ghost_errors: Vec<&String> = codes
+        .iter()
+        .filter(|c| c.as_str() == "ORB_S_ROLE_LITERAL_NOT_MEMBER")
+        .collect();
+    assert_eq!(
+        ghost_errors.len(),
+        1,
+        "expected exactly one ORB_S_ROLE_LITERAL_NOT_MEMBER (for 'ghost' only, not 'approver'), got {codes:?}"
+    );
+
+    let good = json!({
+        "name": "Shell", "linkedEntity": "Person", "category": "interaction",
+        "stateMachine": { "events": [], "states": [], "transitions": [{
+            "from": "idle", "event": "GO", "to": "idle",
+            "guard": ["array/includes", ["approver", "owner"], "@user.role"]
+        }]}
+    });
+    let codes = run(schema_with(json!([role]), json!([good]), true));
     assert!(codes.is_empty(), "expected no errors, got {codes:?}");
 }
 
@@ -460,5 +501,139 @@ fn a_dead_role_branch_on_a_real_entity_is_still_caught() {
     assert!(
         codes.contains(&"ORB_S_ROLE_LITERAL_NOT_MEMBER".to_string()),
         "a dead branch on an entity that IS in the program must still fail, got {codes:?}"
+    );
+}
+
+// ---------------------------------------------------------------------------
+// B3-R: an imported entity's role literal, judged post-inline through the
+// REAL orbital-import pipeline (not `sourceEntityDefinition` — the entity
+// here is fully materialized, splice-in-place, same as any other primary).
+// ---------------------------------------------------------------------------
+
+/// One orbital: primary `Task` carries `read_policy: ["=", "@user.role",
+/// "approver"]`; auxiliary `[identity]` `Approver` is the UPSTREAM roster
+/// (`role : "employee" | "approver"`) a `roles {}` remap resolves against.
+const IMPORTED_POLICY_UPSTREAM: &str = r#"{
+  "name": "test-user-identity-imported-policy-upstream",
+  "version": "1.0.0",
+  "orbitals": [
+    {
+      "name": "TaskOrbital",
+      "entity": {
+        "name": "Task",
+        "persistence": "persistent",
+        "read_policy": ["=", "@user.role", "approver"],
+        "fields": [ { "name": "id", "type": "string", "required": true } ]
+      },
+      "auxiliaryEntities": [
+        {
+          "name": "Approver",
+          "identity": true,
+          "persistence": "persistent",
+          "fields": [
+            { "name": "id", "type": "string", "required": true },
+            { "name": "role", "type": "string", "values": ["employee", "approver"] }
+          ]
+        }
+      ],
+      "traits": [
+        {
+          "name": "TaskView",
+          "linkedEntity": "Task",
+          "category": "interaction",
+          "stateMachine": {
+            "states": [ { "name": "idle", "isInitial": true } ],
+            "events": [ { "key": "OPEN" } ],
+            "transitions": [ { "from": "idle", "to": "idle", "event": "OPEN", "effects": [] } ]
+          }
+        }
+      ],
+      "pages": [
+        { "name": "TaskPage", "path": "/tasks", "primaryEntity": "Task", "traits": [ { "ref": "TaskView" } ] }
+      ]
+    }
+  ]
+}"#;
+
+/// `orbital Local = Up.orbitals.TaskOrbital { <reference_extra> }`, alongside
+/// the CONSUMER's own `[identity]` roster (`Person`, `role : "owner" |
+/// "member"`) — `Task` (imported) is not identity-tagged, so no ambiguity.
+fn imported_policy_consumer(reference_extra: &str) -> String {
+    format!(
+        r#"{{
+  "name": "test-user-identity-imported-policy-consumer",
+  "version": "1.0.0",
+  "orbitals": [
+    {{
+      "name": "Local",
+      "uses": [ {{ "from": "./upstream.orb", "as": "Up" }} ],
+      "entity": "Up.orbitals.TaskOrbital.entity",
+      "traits": [],
+      "reference": {{
+        "ref": "Up.orbitals.TaskOrbital"{extra}
+      }}
+    }},
+    {{
+      "name": "PersonOrbital",
+      "entity": {{
+        "name": "Person",
+        "identity": true,
+        "persistence": "persistent",
+        "fields": [
+          {{ "name": "id", "type": "string", "required": true }},
+          {{ "name": "role", "type": "string", "values": ["owner", "member"] }}
+        ]
+      }},
+      "traits": []
+    }}
+  ]
+}}"#,
+        extra = reference_extra
+    )
+}
+
+fn inline_imported_policy_consumer(reference_extra: &str) -> OrbitalSchema {
+    let dir = tempfile::TempDir::new().expect("temp dir");
+    std::fs::write(dir.path().join("upstream.orb"), IMPORTED_POLICY_UPSTREAM)
+        .expect("write upstream");
+    let consumer_path = dir.path().join("consumer.orb");
+    std::fs::write(&consumer_path, imported_policy_consumer(reference_extra))
+        .expect("write consumer");
+    let mut schema = parse_file(&consumer_path).expect("consumer must parse");
+    inline_schema(&mut schema, &InlineConfig::default(), Some(&consumer_path))
+        .expect("orbital-import inline must succeed");
+    schema
+}
+
+/// `read_policy` lives on the ENTITY, not inside any trait body — it is
+/// `entity_access::validate_entity_access` (not `user_identity::validate_user_identity`,
+/// which only walks trait JSON) that runs `check_comparison` over it.
+fn run_schema(schema: &OrbitalSchema) -> Vec<String> {
+    let mut ctx = ValidationContext::new();
+    entity_access::validate_entity_access(schema, &mut ctx);
+    ctx.result
+        .errors
+        .iter()
+        .map(|e| e.code.as_str().to_string())
+        .collect()
+}
+
+#[test]
+fn an_imported_policy_remapped_to_the_consumer_roster_passes() {
+    let schema = inline_imported_policy_consumer(r#", "roles": { "approver": ["owner"] }"#);
+    let codes = run_schema(&schema);
+    assert!(
+        !codes.contains(&"ORB_S_ROLE_LITERAL_NOT_MEMBER".to_string()),
+        "remapped to 'owner' (a consumer roster member) — must not fire, got {codes:?}"
+    );
+}
+
+#[test]
+fn an_imported_policy_left_unmapped_fires_role_literal_not_member() {
+    let schema = inline_imported_policy_consumer("");
+    let codes = run_schema(&schema);
+    assert!(
+        codes.contains(&"ORB_S_ROLE_LITERAL_NOT_MEMBER".to_string()),
+        "left as upstream's own 'approver', which the consumer roster doesn't declare — must fire, got {codes:?}"
     );
 }

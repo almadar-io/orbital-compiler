@@ -58,6 +58,7 @@ pub mod id_integrity;
 pub mod literal_default;
 pub mod orbital_config;
 pub mod orbital_ref_config;
+pub mod orbital_ref_extend;
 pub mod page;
 pub mod payload_field_name;
 pub mod produced_shape;
@@ -367,7 +368,6 @@ pub const VALID_FIELD_TYPES: &[&str] = &[
     // FieldType since the type-integrity campaign, and absent here, which made
     // it unusable on an ENTITY field even though payloads and config accepted it.
     "scalar",
-    "opaque",
     // A union of type variants (`scalar | FileItem`). Its `values` carry the
     // VARIANT NAMES, not enum members — see the enum-member check, which skips
     // this type for exactly that reason.

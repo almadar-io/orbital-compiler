@@ -21,9 +21,7 @@
 //! very organism that motivated the rule.
 
 use super::{ErrorCode, ValidationContext, ValidationError, ValidationResult};
-use orbital_core::schema::{
-    EntityDefinition, EntityRef, FieldDefinition, Orbital, OrbitalSchema, TraitReference,
-};
+use orbital_core::schema::{EntityDefinition, EntityRef, Orbital, OrbitalSchema, TraitReference};
 use orbital_core::type_compat::enum_value_is_member;
 use serde_json::Value;
 
@@ -44,15 +42,17 @@ pub(super) enum IdentitySource<'a> {
     },
 }
 
-/// The sigil root this module is about.
-const USER_SIGIL: &str = "@user.";
-
-/// Comparison operators whose two operands are compared for equality. `=` and
-/// `==` both occur in committed `.orb` files. Shared with `entity_access.rs`
-/// and (Stage B) the orbital-import role-literal rewrite (`inline/rewrite.rs`
-/// `rewrite_role_literals`, which must stay shape-identical to
-/// `check_comparison` below).
-pub(crate) const EQUALITY_OPS: &[&str] = &["=", "==", "!=", "!==", "eq", "neq"];
+/// `EQUALITY_OPS` / `vocabulary` / `identity_field` / `user_field_of` moved to
+/// `orbital-core/src/runtime/entity_access.rs` (C1-C convergence) so
+/// `orbital-core::runtime::role_satisfying_policy` — the Rust twin of JS
+/// `roleSatisfyingPolicy`, which `orbital-verify` calls per persist step —
+/// shares the SAME `@user.<f>` shape readers `check_comparison` below uses,
+/// rather than a second copy. Re-exported under their original names/paths so
+/// every existing caller in this crate (notably `validation::entity_access`,
+/// which imports `identity_field`/`user_field_of` via
+/// `super::user_identity::{...}`) is unaffected; `check_comparison`'s
+/// behavior is byte-identical to before this move.
+pub(crate) use orbital_core::runtime::{identity_field, user_field_of, vocabulary, EQUALITY_OPS};
 
 /// Every `[identity]`-tagged entity in `orbitals`, primaries first, each
 /// paired with whether it is an orbital's PRIMARY entity (`true`) or an
@@ -139,40 +139,8 @@ pub(super) fn identity_entity_names(schema: &OrbitalSchema) -> Vec<&str> {
     names
 }
 
-/// The declared vocabulary for an identity field, following `items` for the
-/// array form. `roles : ["a" | "b"]` keeps the union on the ELEMENT, so a
-/// multi-valued role field must be read through `items`.
-pub(crate) fn vocabulary(field: &FieldDefinition) -> Option<&Vec<String>> {
-    if let Some(values) = field.values.as_ref().filter(|v| !v.is_empty()) {
-        return Some(values);
-    }
-    field
-        .items
-        .as_ref()
-        .and_then(|item| item.values.as_ref())
-        .filter(|v| !v.is_empty())
-}
-
-/// Look a field up on the identity entity by name.
-pub(super) fn identity_field<'a>(
-    identity: &'a EntityDefinition,
-    name: &str,
-) -> Option<&'a FieldDefinition> {
-    identity
-        .fields
-        .iter()
-        .find(|f| f.name.as_deref() == Some(name))
-}
-
-/// `@user.role` → `Some("role")`. Only a direct field read; `@user` alone and
-/// deeper paths (`@user.profile.x`) are not field claims this rule can judge.
-pub(crate) fn user_field_of(s: &str) -> Option<&str> {
-    let rest = s.strip_prefix(USER_SIGIL)?;
-    if rest.is_empty() || rest.contains('.') || rest.contains('[') {
-        return None;
-    }
-    Some(rest)
-}
+// `vocabulary` / `identity_field` / `user_field_of` — see the `pub(crate) use`
+// re-export above.
 
 pub fn validate_user_identity(schema: &OrbitalSchema, ctx: &mut ValidationContext) {
     let mut result = ValidationResult::new();
@@ -455,6 +423,30 @@ fn check_field_exists(
     );
 }
 
+/// Is a `Value::Array` an `array/includes` haystack of LITERAL role members,
+/// and if so, which elements are the members?
+///
+/// Mirrors `inline::rewrite::try_rewrite_role_includes` shape-for-shape (the
+/// two cite each other): a haystack is literal only when every element is a
+/// string literal — either a `["list", …]` array-construction call (the wrap
+/// `mark_literal_list_in_place` applies to any config-array-override value
+/// that would otherwise collide with operator dispatch; both `.lolo`
+/// spellings `(a b)` and `[a, b]` lower through it) whose TAIL is all-string
+/// (the head is the `list` marker itself, not a member), or a bare array
+/// whose every element (including position 0) is a string literal — the
+/// shape `rewrite_role_literals`'s multi-target expansion produces
+/// (`["array/includes", [targets…], "@user.<f>"]`). Any other shape — e.g. a
+/// nested call like `["object/get", ["array/nth", …], "allowedRoles"]`, a
+/// per-step dynamic role list — is not a literal haystack: `None`.
+fn literal_haystack_members(items: &[Value]) -> Option<Vec<&Value>> {
+    let is_list_call = matches!(items.first(), Some(Value::String(s)) if s == "list");
+    let members = if is_list_call { &items[1..] } else { items };
+    members
+        .iter()
+        .all(|v| matches!(v, Value::String(_)))
+        .then(|| members.iter().collect())
+}
+
 /// A literal compared against a closed-vocabulary `@user.<field>` must be one of
 /// that field's declared members.
 pub(super) fn check_comparison(
@@ -476,9 +468,25 @@ pub(super) fn check_comparison(
         return;
     }
 
-    // `array/includes` is directional: the vocabulary side is the HAYSTACK.
+    // `array/includes` is directional, but the sigil can sit on EITHER side:
+    // `(array/includes @user.roles "ghost")` checks a literal against a
+    // multi-valued field's own vocabulary (field is the haystack, position
+    // 0); the Stage-B orbital-import role rewrite
+    // (`inline/rewrite.rs::rewrite_role_literals`, which this validator
+    // mirrors shape-for-shape) instead produces
+    // `(array/includes ["owner","project_manager"] @user.role)` — a literal
+    // array haystack with the sigil as the needle, position 1. Locate the
+    // sigil by content, not position, so both shapes validate.
     let (sigil_side, literal_side): (&[Value], &[Value]) = if is_includes {
-        (&args[..1], &args[1..2])
+        let first_is_sigil = matches!(
+            args.first(),
+            Some(Value::String(s)) if user_field_of(s).is_some()
+        );
+        if first_is_sigil {
+            (&args[..1], &args[1..2])
+        } else {
+            (&args[1..2], &args[..1])
+        }
     } else {
         (args, args)
     };
@@ -494,7 +502,31 @@ pub(super) fn check_comparison(
         return;
     };
 
-    for arg in literal_side {
+    // The literal side is either a single scalar (equality, or an
+    // `array/includes` whose haystack is the sigil's own multi-valued field)
+    // or, for the role-rewrite shape, a literal array whose EVERY member
+    // must be checked individually — but only when the haystack IS a
+    // literal array. Two legitimate call shapes also serialize as a JSON
+    // array here: a per-step dynamic role list (`(object/get (array/nth
+    // @config.steps i) "allowedRoles")`, std-step-flow's role guard) and the
+    // `["list", …]` array-construction wrap every knob-array override lowers
+    // through (`mark_literal_list_in_place`, both `.lolo` spellings `(a b)`
+    // and `[a, b]`). `literal_haystack_members` tells them apart; `None`
+    // means a dynamic haystack — skip the membership check (no finding).
+    let literals: Vec<&Value> = if is_includes {
+        match literal_side.first() {
+            Some(Value::Array(items)) => match literal_haystack_members(items) {
+                Some(members) => members,
+                None => return,
+            },
+            Some(other) => vec![other],
+            None => Vec::new(),
+        }
+    } else {
+        literal_side.iter().collect()
+    };
+
+    for arg in literals {
         let Value::String(literal) = arg else {
             continue;
         };
@@ -524,5 +556,199 @@ pub(super) fn check_comparison(
                 field_name
             )),
         );
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn orbital_with_identity(name: &str, entity_name: &str) -> Orbital {
+        serde_json::from_value(serde_json::json!({
+            "name": name,
+            "entity": {
+                "name": entity_name,
+                "identity": true,
+                "persistence": "persistent",
+                "fields": [ { "name": "id", "type": "string", "required": true } ]
+            },
+            "traits": []
+        }))
+        .expect("orbital fixture must deserialize")
+    }
+
+    fn orbital_no_identity(name: &str, entity_name: &str) -> Orbital {
+        serde_json::from_value(serde_json::json!({
+            "name": name,
+            "entity": {
+                "name": entity_name,
+                "persistence": "persistent",
+                "fields": [ { "name": "id", "type": "string", "required": true } ]
+            },
+            "traits": []
+        }))
+        .expect("orbital fixture must deserialize")
+    }
+
+    /// Stage B (orbital-import splice) calls `identity_entities_of` over one
+    /// alias's own orbitals — this is the same primary-shadows-import rule
+    /// `identity_entities(schema)` applies schema-wide, just parameterized
+    /// over an arbitrary orbital slice instead of `&schema.orbitals`.
+    #[test]
+    fn primary_shadows_auxiliary_import_over_an_arbitrary_orbital_slice() {
+        let primary = orbital_with_identity("Main", "Person");
+        let mut imported = orbital_no_identity("Imported", "Widget");
+        imported.auxiliary_entities = Some(vec![orbital_core::schema::EntityRef::Inline(
+            serde_json::from_value(serde_json::json!({
+                "name": "ImportedOwner",
+                "identity": true,
+                "persistence": "persistent",
+                "fields": [ { "name": "id", "type": "string", "required": true } ]
+            }))
+            .unwrap(),
+        )]);
+        let orbitals = [primary, imported];
+        let names: Vec<&str> = identity_entities_of(&orbitals)
+            .into_iter()
+            .map(|e| e.name.as_str())
+            .collect();
+        assert_eq!(
+            names,
+            vec!["Person"],
+            "the primary roster must shadow the imported aux copy"
+        );
+    }
+
+    /// With no primary roster, the imported copies still count.
+    #[test]
+    fn no_primary_roster_falls_back_to_imported_copies() {
+        let mut imported = orbital_no_identity("Imported", "Widget");
+        imported.auxiliary_entities = Some(vec![orbital_core::schema::EntityRef::Inline(
+            serde_json::from_value(serde_json::json!({
+                "name": "ImportedOwner",
+                "identity": true,
+                "persistence": "persistent",
+                "fields": [ { "name": "id", "type": "string", "required": true } ]
+            }))
+            .unwrap(),
+        )]);
+        let orbitals = [imported];
+        let names: Vec<&str> = identity_entities_of(&orbitals)
+            .into_iter()
+            .map(|e| e.name.as_str())
+            .collect();
+        assert_eq!(names, vec!["ImportedOwner"]);
+    }
+
+    /// `identity_entities(schema)` is now a thin wrapper — same result as
+    /// calling `identity_entities_of(&schema.orbitals)` directly.
+    #[test]
+    fn identity_entities_delegates_to_identity_entities_of() {
+        let schema: OrbitalSchema = serde_json::from_value(serde_json::json!({
+            "name": "t",
+            "version": "1.0.0",
+            "orbitals": [
+                serde_json::to_value(orbital_with_identity("Main", "Person")).unwrap()
+            ]
+        }))
+        .expect("schema fixture must deserialize");
+        let names: Vec<&str> = identity_entities(&schema)
+            .into_iter()
+            .map(|e| e.name.as_str())
+            .collect();
+        assert_eq!(names, vec!["Person"]);
+    }
+
+    /// `[identity]` entity carrying a closed-vocabulary `role` field
+    /// (`manager`/`cto`) for `check_comparison`'s `array/includes` haystack
+    /// shape tests.
+    fn identity_with_role_vocab() -> EntityDefinition {
+        serde_json::from_value(serde_json::json!({
+            "name": "Person",
+            "identity": true,
+            "persistence": "persistent",
+            "fields": [
+                { "name": "id", "type": "string", "required": true },
+                {
+                    "name": "role",
+                    "type": "enum",
+                    "values": ["manager", "cto"]
+                }
+            ]
+        }))
+        .expect("identity fixture must deserialize")
+    }
+
+    fn run_comparison(items_json: serde_json::Value) -> ValidationResult {
+        let items = match items_json {
+            Value::Array(a) => a,
+            other => panic!("fixture must be a JSON array: {other:?}"),
+        };
+        let mut result = ValidationResult::new();
+        check_comparison(&items, "path", &identity_with_role_vocab(), &mut result);
+        result
+    }
+
+    /// A dynamic per-step haystack (std-step-flow's role guard idiom) is not
+    /// a literal role list — no membership check, no finding. This is the
+    /// exact shape that produced the `object/get`/`allowedRoles` false
+    /// positive on 8 corpus organisms.
+    #[test]
+    fn array_includes_dynamic_object_get_haystack_is_not_checked() {
+        let result = run_comparison(serde_json::json!([
+            "array/includes",
+            [
+                "object/get",
+                ["array/nth", "@config.steps", 0],
+                "allowedRoles"
+            ],
+            "@user.role"
+        ]));
+        assert!(result.errors.is_empty(), "{:?}", result.errors);
+    }
+
+    /// A `["list", …]` array-construction call is a literal haystack whose
+    /// TAIL is the member set — `"list"` itself is never checked against the
+    /// vocabulary (the false positive on cicd-pipeline/cms/inventory), and
+    /// an out-of-vocabulary tail member still gets caught.
+    #[test]
+    fn array_includes_list_call_haystack_checks_tail_only() {
+        let ok = run_comparison(serde_json::json!([
+            "array/includes",
+            ["list", "cto"],
+            "@user.role"
+        ]));
+        assert!(ok.errors.is_empty(), "{:?}", ok.errors);
+
+        let bad = run_comparison(serde_json::json!([
+            "array/includes",
+            ["list", "ceo"],
+            "@user.role"
+        ]));
+        assert_eq!(bad.errors.len(), 1);
+        assert!(bad.errors[0].message.contains("\"ceo\""));
+        assert!(!bad.errors[0].message.contains("\"list\""));
+    }
+
+    /// A bare literal array (no `list` wrap) — the shape
+    /// `rewrite_role_literals`'s multi-target expansion produces
+    /// (`["array/includes", [targets…], "@user.<f>"]`) — checks every
+    /// element.
+    #[test]
+    fn array_includes_bare_literal_array_haystack_checks_every_element() {
+        let ok = run_comparison(serde_json::json!([
+            "array/includes",
+            ["manager", "cto"],
+            "@user.role"
+        ]));
+        assert!(ok.errors.is_empty(), "{:?}", ok.errors);
+
+        let bad = run_comparison(serde_json::json!([
+            "array/includes",
+            ["manager", "ceo"],
+            "@user.role"
+        ]));
+        assert_eq!(bad.errors.len(), 1);
+        assert!(bad.errors[0].message.contains("\"ceo\""));
     }
 }

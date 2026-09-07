@@ -165,7 +165,6 @@ pub const CORE_OPERATORS: &[&str] = &[
     "object/mapValues",
     "object/filter",
     "object/fromEntries",
-    "object/empty?",
     // GAP-V004: Missing object operators from operators.json
     "object/clone",
     "object/equals",

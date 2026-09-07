@@ -324,6 +324,7 @@ pub(crate) fn payload_field_of(f: &FieldDefinition) -> PayloadField {
         description: None,
         properties: props,
         type_when: None,
+        entity: None,
     }
 }
 

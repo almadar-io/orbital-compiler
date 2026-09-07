@@ -45,6 +45,7 @@ fn payload_field(name: &str, ty: &str, required: bool) -> PayloadField {
         description: None,
         properties: None,
         type_when: None,
+        entity: None,
     }
 }
 

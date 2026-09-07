@@ -19,8 +19,6 @@ static NAME_REGEX: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"^[A-Z][a-zA-Z
 
 /// Validate all pages in a schema
 pub fn validate_all_pages(schema: &OrbitalSchema, ctx: &mut ValidationContext) {
-    let mut all_paths: HashSet<&str> = HashSet::new();
-
     for (i, orbital) in schema.orbitals.iter().enumerate() {
         // Check if orbital has pages defined
         let has_pages = orbital
@@ -51,19 +49,15 @@ pub fn validate_all_pages(schema: &OrbitalSchema, ctx: &mut ValidationContext) {
                 // Only validate inline pages, not references (references are validated during resolution)
                 if let Some(page) = page_ref.as_inline() {
                     let check_naming = ctx.schema_language.should_check_ascii_naming();
-                    let result = validate_page(
-                        page,
-                        &path,
-                        &ctx.trait_names,
-                        &ctx.trait_ids,
-                        &mut all_paths,
-                        check_naming,
-                    );
+                    let result =
+                        validate_page(page, &path, &ctx.trait_names, &ctx.trait_ids, check_naming);
                     ctx.merge(result);
                 }
             }
         }
     }
+
+    ctx.merge(validate_page_path_uniqueness(schema));
 }
 
 /// Validate a single page definition
@@ -72,7 +66,6 @@ pub fn validate_page(
     path: &str,
     known_traits: &HashSet<String>,
     known_trait_ids: &HashSet<String>,
-    _seen_paths: &mut HashSet<&str>,
     check_naming: bool,
 ) -> ValidationResult {
     let mut result = ValidationResult::new();
@@ -147,10 +140,6 @@ pub fn validate_page(
                 .with_suggestion("Choose a different path that doesn't start with '/api' (e.g., '/requests' instead of '/apirequests')"),
             );
         }
-
-        // Check for duplicate paths
-        // Note: We can't use seen_paths.insert() with &page.path due to lifetime issues,
-        // so we'll check containment and handle duplicates at a higher level
     }
 
     // Page must have traits (trait-driven UI)
@@ -278,10 +267,29 @@ fn validate_page_trait_ref(
     result
 }
 
-/// Check for duplicate page paths across all orbitals
+/// Collapse a page path to its PARAM SHAPE: every `:name` segment becomes a
+/// bare `:`, so `/x/:id` and `/x/:slug` normalize to the same key — a router
+/// can't tell them apart at dispatch time regardless of the param's name.
+pub fn normalize_page_path(path: &str) -> String {
+    path.split('/')
+        .map(|segment| {
+            if segment.starts_with(':') {
+                ":"
+            } else {
+                segment
+            }
+        })
+        .collect::<Vec<_>>()
+        .join("/")
+}
+
+/// Check for duplicate page paths across all orbitals, keyed on the
+/// PARAM-SHAPE-normalized path (`normalize_page_path`) — an exact string
+/// collision is one instance of a param-shape collision, so one check
+/// covers both instead of the OIR layer separately re-flagging exact dups.
 pub fn validate_page_path_uniqueness(schema: &OrbitalSchema) -> ValidationResult {
     let mut result = ValidationResult::new();
-    let mut path_to_pages: std::collections::HashMap<String, Vec<String>> =
+    let mut normalized_to_pages: std::collections::HashMap<String, Vec<(String, String)>> =
         std::collections::HashMap::new();
 
     for (i, orbital) in schema.orbitals.iter().enumerate() {
@@ -290,24 +298,31 @@ pub fn validate_page_path_uniqueness(schema: &OrbitalSchema) -> ValidationResult
                 let location = format!("orbitals[{}].pages[{}]", i, j);
                 // Only check inline pages for path uniqueness
                 if let Some(page) = page_ref.as_inline() {
-                    path_to_pages
-                        .entry(page.path.clone())
+                    normalized_to_pages
+                        .entry(normalize_page_path(&page.path))
                         .or_default()
-                        .push(location);
+                        .push((location, page.path.clone()));
                 }
             }
         }
     }
 
-    for (path, locations) in path_to_pages {
-        if locations.len() > 1 {
+    for (normalized, entries) in normalized_to_pages {
+        if entries.len() > 1 {
+            let locations: Vec<&str> = entries.iter().map(|(l, _)| l.as_str()).collect();
+            let paths: Vec<&str> = entries.iter().map(|(_, p)| p.as_str()).collect();
             result.add_error(
                 ValidationError::error(
                     ErrorCode::PageDuplicatePath,
-                    locations[0].clone(),
-                    format!("Duplicate page path '{}' found at: {:?}", path, locations),
+                    locations[0].to_string(),
+                    format!(
+                        "Duplicate page path (normalized to '{}'): {:?} found at: {:?}",
+                        normalized, paths, locations
+                    ),
                 )
-                .with_suggestion("Each page must have a unique path"),
+                .with_suggestion(
+                    "Each page must have a unique path — two routes that only differ by a param NAME still collide at dispatch",
+                ),
             );
         }
     }
@@ -373,15 +388,7 @@ mod tests {
     #[test]
     fn test_valid_page() {
         let page = create_valid_page();
-        let mut seen_paths = HashSet::new();
-        let result = validate_page(
-            &page,
-            "test",
-            &HashSet::new(),
-            &HashSet::new(),
-            &mut seen_paths,
-            true,
-        );
+        let result = validate_page(&page, "test", &HashSet::new(), &HashSet::new(), true);
         assert!(result.is_valid(), "Errors: {:?}", result.errors);
     }
 
@@ -394,15 +401,7 @@ mod tests {
         let page = page_with_ref("StaleOldName", Some("trt_current0000000000000000"));
         let known_traits = HashSet::new(); // stale name is NOT here
         let known_trait_ids = HashSet::from(["trt_current0000000000000000".to_string()]);
-        let mut seen_paths = HashSet::new();
-        let result = validate_page(
-            &page,
-            "test",
-            &known_traits,
-            &known_trait_ids,
-            &mut seen_paths,
-            true,
-        );
+        let result = validate_page(&page, "test", &known_traits, &known_trait_ids, true);
         assert!(
             !result
                 .errors
@@ -417,15 +416,7 @@ mod tests {
     fn page_trait_ref_invalid_when_neither_name_nor_id_resolves() {
         // Neither the name nor the ref_id resolves — a genuine dangling ref.
         let page = page_with_ref("Ghost", Some("trt_ghost000000000000000000"));
-        let mut seen_paths = HashSet::new();
-        let result = validate_page(
-            &page,
-            "test",
-            &HashSet::new(),
-            &HashSet::new(),
-            &mut seen_paths,
-            true,
-        );
+        let result = validate_page(&page, "test", &HashSet::new(), &HashSet::new(), true);
         assert!(
             result
                 .errors
@@ -440,15 +431,7 @@ mod tests {
         let mut page = create_valid_page();
         page.name = String::new();
 
-        let mut seen_paths = HashSet::new();
-        let result = validate_page(
-            &page,
-            "test",
-            &HashSet::new(),
-            &HashSet::new(),
-            &mut seen_paths,
-            true,
-        );
+        let result = validate_page(&page, "test", &HashSet::new(), &HashSet::new(), true);
         assert!(!result.is_valid());
         assert!(result
             .errors
@@ -461,15 +444,7 @@ mod tests {
         let mut page = create_valid_page();
         page.path = String::new();
 
-        let mut seen_paths = HashSet::new();
-        let result = validate_page(
-            &page,
-            "test",
-            &HashSet::new(),
-            &HashSet::new(),
-            &mut seen_paths,
-            true,
-        );
+        let result = validate_page(&page, "test", &HashSet::new(), &HashSet::new(), true);
         assert!(!result.is_valid());
         assert!(result
             .errors
@@ -482,15 +457,7 @@ mod tests {
         let mut page = create_valid_page();
         page.path = "tasks".to_string(); // Missing leading /
 
-        let mut seen_paths = HashSet::new();
-        let result = validate_page(
-            &page,
-            "test",
-            &HashSet::new(),
-            &HashSet::new(),
-            &mut seen_paths,
-            true,
-        );
+        let result = validate_page(&page, "test", &HashSet::new(), &HashSet::new(), true);
         assert!(!result.is_valid());
         assert!(result
             .errors
@@ -503,15 +470,7 @@ mod tests {
         let mut page = create_valid_page();
         page.traits = Some(vec![]);
 
-        let mut seen_paths = HashSet::new();
-        let result = validate_page(
-            &page,
-            "test",
-            &HashSet::new(),
-            &HashSet::new(),
-            &mut seen_paths,
-            true,
-        );
+        let result = validate_page(&page, "test", &HashSet::new(), &HashSet::new(), true);
         assert!(!result.is_valid());
         assert!(result
             .errors
@@ -538,15 +497,7 @@ mod tests {
             ref_id: None,
         }]);
 
-        let mut seen_paths = HashSet::new();
-        let result = validate_page(
-            &page,
-            "test",
-            &HashSet::new(),
-            &HashSet::new(),
-            &mut seen_paths,
-            true,
-        );
+        let result = validate_page(&page, "test", &HashSet::new(), &HashSet::new(), true);
         assert!(!result.is_valid());
         assert!(result
             .errors
@@ -558,15 +509,7 @@ mod tests {
     fn test_page_std_trait_ref() {
         let page = create_valid_page(); // Uses std/List
 
-        let mut seen_paths = HashSet::new();
-        let result = validate_page(
-            &page,
-            "test",
-            &HashSet::new(),
-            &HashSet::new(),
-            &mut seen_paths,
-            true,
-        );
+        let result = validate_page(&page, "test", &HashSet::new(), &HashSet::new(), true);
         assert!(result.is_valid()); // std traits are always valid
     }
 
@@ -575,19 +518,117 @@ mod tests {
         let mut page = create_valid_page();
         page.view_type = Some("invalid".to_string());
 
-        let mut seen_paths = HashSet::new();
-        let result = validate_page(
-            &page,
-            "test",
-            &HashSet::new(),
-            &HashSet::new(),
-            &mut seen_paths,
-            true,
-        );
+        let result = validate_page(&page, "test", &HashSet::new(), &HashSet::new(), true);
         assert!(!result.is_valid());
         assert!(result
             .errors
             .iter()
             .any(|e| e.code == ErrorCode::PageInvalidViewType));
+    }
+
+    // ------------------------------------------------------------------
+    // B3-R: page-path convergence — param-shape normalization
+    // (`normalize_page_path`), wired through `validate_all_pages` /
+    // `validate_comprehensive_full`; the OIR layer's own duplicate-PATH
+    // check is deleted (`ir/validation.rs`), so an exact collision now
+    // fires exactly ONCE, from here.
+    // ------------------------------------------------------------------
+
+    fn schema_with_two_page_paths(path_a: &str, path_b: &str) -> OrbitalSchema {
+        serde_json::from_value(serde_json::json!({
+            "name": "test-page-path-convergence",
+            "version": "1.0.0",
+            "orbitals": [
+                {
+                    "name": "WidgetOrbital",
+                    "entity": {
+                        "name": "Widget",
+                        "persistence": "persistent",
+                        "fields": [ { "name": "id", "type": "string", "required": true } ]
+                    },
+                    "traits": [
+                        {
+                            "name": "WidgetView",
+                            "linkedEntity": "Widget",
+                            "category": "interaction",
+                            "stateMachine": {
+                                "states": [ { "name": "idle", "isInitial": true } ],
+                                "events": [ { "key": "OPEN" } ],
+                                "transitions": [ { "from": "idle", "to": "idle", "event": "OPEN", "effects": [] } ]
+                            }
+                        }
+                    ],
+                    "pages": [
+                        { "name": "ByIdPage", "path": path_a, "traits": [ { "ref": "WidgetView" } ] },
+                        { "name": "BySlugPage", "path": path_b, "traits": [ { "ref": "WidgetView" } ] }
+                    ]
+                }
+            ]
+        }))
+        .expect("page-path fixture must deserialize")
+    }
+
+    fn duplicate_path_errors(schema: &OrbitalSchema) -> Vec<ErrorCode> {
+        crate::phases::validate_comprehensive_full(
+            schema,
+            None,
+            crate::phases::validation::SchemaLanguage::English,
+            crate::embedded::ServiceRegistryData::default(),
+        )
+        .errors
+        .into_iter()
+        .filter(|e| e.code == ErrorCode::PageDuplicatePath)
+        .map(|e| e.code)
+        .collect()
+    }
+
+    #[test]
+    fn param_shape_collision_fires_once_through_validate_comprehensive_full() {
+        let schema = schema_with_two_page_paths("/x/:id", "/x/:slug");
+        assert_eq!(
+            duplicate_path_errors(&schema).len(),
+            1,
+            "'/x/:id' and '/x/:slug' normalize to the same param shape ('/x/:') and must collide exactly once"
+        );
+    }
+
+    #[test]
+    fn different_param_shapes_do_not_collide() {
+        let schema = schema_with_two_page_paths("/x/:id", "/y/:id");
+        assert!(
+            duplicate_path_errors(&schema).is_empty(),
+            "'/x/:id' and '/y/:id' normalize to different shapes ('/x/:' vs '/y/:') and must not collide"
+        );
+    }
+
+    #[test]
+    fn oir_layer_no_longer_emits_its_own_duplicate_path_error() {
+        let schema = schema_with_two_page_paths("/tasks", "/tasks");
+        // The compiler-phase check still catches the exact collision.
+        assert_eq!(
+            duplicate_path_errors(&schema).len(),
+            1,
+            "exact duplicate must still fire once"
+        );
+
+        // `phases/validate.rs`'s own compile-time gate now calls this SAME
+        // `validate_page_path_uniqueness` owner (converged — no more second
+        // copy), so `compile_schema` correctly refuses this schema outright;
+        // going through it would never reach OIR at all. `resolve_to_oir` is
+        // Phase 5 alone (no validation gate) — the direct route to an
+        // `OirModule` for what's actually under test here: `OirValidator`
+        // must emit NOTHING about the path (that block was deleted; only
+        // duplicate-NAME stays).
+        let module =
+            crate::phases::resolve::resolve_to_oir(&schema).expect("schema resolves to OIR");
+        let oir_result = orbital_core::ir::OirValidator::new(&module).validate();
+        assert!(
+            !oir_result
+                .errors
+                .iter()
+                .any(|e| e.message.to_lowercase().contains("path")),
+            "OIR layer must not report a path-duplicate finding anymore: {:#?}",
+            oir_result.errors
+        );
     }
 }

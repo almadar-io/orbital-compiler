@@ -270,6 +270,7 @@ mod tests {
                     description: None,
                     properties: None,
                     type_when: None,
+                    entity: None,
                 }]),
             }]);
         }
@@ -481,6 +482,7 @@ mod tests {
                         description: Some("The order ID".to_string()),
                         properties: None,
                         type_when: None,
+                        entity: None,
                     }]),
                 )]),
                 None,

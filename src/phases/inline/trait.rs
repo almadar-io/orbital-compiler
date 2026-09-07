@@ -5,8 +5,9 @@ use super::context::{parse_reference, InlineContext, ParsedReference};
 use super::identity_normalize::rewrite_trait_embed_tokens;
 use super::rewrite::{
     apply_inline_config_defaults, mark_literal_list_in_place, record_config_provenance,
-    rewrite_config_bindings, rewrite_entity_field_paths, rewrite_identifiers,
-    rewrite_payload_entity_refs, rewrite_trait_event_fields, stale_entity_rebind_subs,
+    rewrite_config_bindings, rewrite_entity_field_paths, rewrite_entity_ref_ids,
+    rewrite_identifiers, rewrite_payload_entity_refs, rewrite_trait_event_fields,
+    stale_entity_rebind_subs,
 };
 use super::InlineError;
 use orbital_core::schema::{
@@ -58,6 +59,17 @@ pub(crate) fn apply_overrides_to_trait(
     //    "the atom thinks its canonical entity is X; rebind it to Y". The
     //    pre-existing `trait_def.linked_entity` IS the from-key.
     let mut entity_subs: HashMap<String, String> = HashMap::new();
+    // Secondary (non-`linked_entity`) positional references this trait
+    // carries — independent of whether `linked_entity` itself changes here —
+    // that already name an id the CONSUMER's own roster knows under a
+    // different name. Inserted FIRST so a genuine `linked_entity` delta
+    // below still wins on an overlapping key (it never should: a secondary
+    // reference and the primary bound entity carry different ids by
+    // construction, but the ordering keeps the primary rebind authoritative
+    // if that ever changes).
+    for (from, to) in super::rewrite::consumer_known_entity_rebind_subs(trait_def, entity_ids) {
+        entity_subs.insert(from, to);
+    }
     if let Some(new_entity) = linked_entity {
         // V4 leverage-ids (id-primary, name-fallback): recover any stale
         // token name the `entity_ref_ids` side-map ties to this trait's bound
@@ -78,6 +90,13 @@ pub(crate) fn apply_overrides_to_trait(
         // Keep the dual-carry id sibling in lockstep with the rebound name.
         trait_def.linked_entity_id = entity_ids.get(new_entity).cloned();
     }
+    // Keep `entity_ref_ids` in lockstep with the rebind too: every stale
+    // key `entity_subs` just resolved (whether from the direct
+    // `linked_entity` rename or a recovered stale-token entry) must key the
+    // REBOUND name and carry that entity's CURRENT id (`entity_ids`), not
+    // the atom's original id — same rule the orbital-import splice enforces
+    // in `phases/inline/orbital.rs::rename_entities_in_trait`.
+    rewrite_entity_ref_ids(trait_def, &entity_subs, entity_ids);
 
     // 3. Build the event substitution map directly from the caller args.
     //    Empty entries (or self-mapped no-ops) are pruned to keep the walker
@@ -299,7 +318,11 @@ pub(crate) fn apply_overrides_to_trait(
     // GAP-AG-VALUE-DRIFT: fold call-site overrides AND annotations into the
     // atom's declared config schema so the inlined trait carries the
     // organism's intent end-to-end. For each call-site `ConfigField`:
-    //   - `default` → replaces the atom's declared default (existing behaviour).
+    //   - `default` → replaces the atom's declared default (existing
+    //     behaviour); `forwarded_from` rides along with it (a resolved
+    //     forward's provenance, or `None` for a plain concrete override —
+    //     either way it replaces whatever the atom's own declared field
+    //     carried, since `default` itself just changed).
     //   - `label`/`description`/`synonyms`/`tier` when `Some` → overwrite
     //     the atom's declared value (organism wins). This is the NEW behaviour
     //     for annotated call-site entries; plain wiring entries (no annotations)
@@ -310,6 +333,7 @@ pub(crate) fn apply_overrides_to_trait(
                 if let Some(field) = declared.get_mut(k) {
                     if let Some(v) = cf.default.as_ref() {
                         field.default = Some(v.clone());
+                        field.forwarded_from = cf.forwarded_from.clone();
                     }
                     if cf.label.is_some() {
                         field.label = cf.label.clone();
@@ -827,43 +851,129 @@ fn apply_post_subst_overrides_to_trait(
 /// `parent_name` names the trait (already resolved in `result`) that embeds
 /// `sibling` via `@trait.<sibling.name>` at THIS pull site — `None` only
 /// when this particular sibling genuinely has no embedder in `result` (e.g.
-/// a same-owner pull whose parent isn't in `result` yet). The orbital-import
-/// materialization path (`inline/orbital.rs`) has its own embedder lookup
-/// (a trait can be embedded by more than one surviving sibling there) and
-/// calls `forwarded_sibling_config_from` directly with the resolved
-/// embedder's declared config, rather than through this `result`-scoped
-/// wrapper. `orbital_config`/`schema_config` are the two
-/// Almadar_Orbital_Import.md §4.5 rungs both call sites fall through to,
-/// one rung further out than the embedder.
+/// a same-owner pull whose parent isn't in `result` yet). `parent_of` maps
+/// every already-pulled sibling's FINAL name to its own pulling parent's
+/// final name; walking it from `parent_name` outward (innermost first)
+/// builds the full embedder chain, so a forward hoisted through several
+/// layers of JSX-generated chrome — `Feed` embeds `Stack8` embeds `Stack5`
+/// embeds `Typography4`, and only `Feed` declares the knob — still resolves
+/// even though `Typography4`'s IMMEDIATE embedder (`Stack5`) does not
+/// declare it. The orbital-import materialization path (`inline/orbital.rs`)
+/// has its own embedder lookup (a trait can be embedded by more than one
+/// surviving sibling there, keyed child → embedders rather than child →
+/// parent) and calls `forwarded_sibling_config_from` directly with its own
+/// chain, rather than through this `result`-scoped wrapper.
+/// `orbital_config`/`schema_config` are the two Almadar_Orbital_Import.md
+/// §4.5 rungs both call sites fall through to, one rung further out than the
+/// outermost embedder.
 pub(super) fn forwarded_sibling_config(
     sibling: &TraitDefinition,
     result: &[TraitReference],
     parent_name: Option<&str>,
+    parent_of: &HashMap<String, String>,
     orbital_config: Option<&HashMap<String, ConfigField>>,
     schema_config: Option<&HashMap<String, ConfigField>>,
 ) -> Option<HashMap<String, ConfigField>> {
-    let parent_declared = parent_name.and_then(|pn| {
+    let declared_config_of = |name: &str| -> Option<&HashMap<String, ConfigField>> {
         result.iter().find_map(|tr| match tr {
-            TraitReference::Inline(td) if td.name == pn => td.config.as_ref(),
+            TraitReference::Inline(td) if td.name == name => td.config.as_ref(),
             _ => None,
         })
-    });
-    forwarded_sibling_config_from(sibling, parent_declared, orbital_config, schema_config)
+    };
+    // Innermost-first: `parent_name` itself, then its own parent (via
+    // `parent_of`), and so on out to the top-level trait. Bounded by
+    // `result.len()` (the chain can never be longer than the traits
+    // materialised so far) with a `visited` guard — defensive, `parent_of`
+    // is acyclic by construction (each entry is recorded exactly once, at
+    // the pull that resolves that final name).
+    let mut chain: Vec<&HashMap<String, ConfigField>> = Vec::new();
+    let mut visited: HashSet<String> = HashSet::new();
+    let mut current = parent_name.map(|s| s.to_string());
+    let bound = result.len().max(1);
+    while let Some(name) = current {
+        if chain.len() >= bound || !visited.insert(name.clone()) {
+            break;
+        }
+        if let Some(cfg) = declared_config_of(&name) {
+            chain.push(cfg);
+        }
+        current = parent_of.get(&name).cloned();
+    }
+    forwarded_sibling_config_from(
+        sibling.config.as_ref(),
+        &chain,
+        orbital_config,
+        None,
+        None,
+        schema_config,
+    )
 }
 
-/// Lower-level twin of `forwarded_sibling_config` that takes the embedder's
-/// declared config directly instead of looking it up by name in a `result`
-/// list — used by the orbital-import splice (`inline/orbital.rs`), which
-/// resolves a pulled trait's embedder(s) from its own `kept` set (a trait can
-/// be embedded by more than one surviving sibling there) rather than from a
-/// single named parent in an in-progress `result` accumulator.
+/// Lower-level twin of `forwarded_sibling_config` that takes the resolved
+/// embedder chain directly instead of looking each rung up by name — used
+/// by the orbital-import splice (`inline/orbital.rs`), whose `embedders_of`
+/// map is keyed the other way round (child → embedders, not child →
+/// parent), and by the `TraitReference::Reference` call-site resolution in
+/// `inline_traits` below, via `EmbedGraph::embedder_chain`. THE single owner
+/// of this walk — `phases::embed_graph::EmbedGraph` builds the chain,
+/// `validate_dangling_config_refs` judges reachability over the same graph,
+/// and this function is the only place either forward is actually resolved
+/// to a value.
+///
+/// `declared` is the trait/entry's own declared values to check for
+/// forwards — an `Inline` trait's `config {}`, or a `Reference` entry's
+/// call-site config override map (see `phases::embed_graph` module doc for
+/// why the latter counts as "declared"). `embedder_chain` is INNERMOST
+/// FIRST: `embedder_chain[0]` is the direct embedder's declared values,
+/// `embedder_chain[1]` is that embedder's own embedder, and so on out to the
+/// orbital's top-level trait. For each of `declared`'s knobs whose default
+/// is a whole-string `@config.<knob>` forward, the walk asks each rung in
+/// turn, under the knob name being chased:
+///   - the rung doesn't declare it → move to the next rung, same knob.
+///   - the rung's own value is ALSO a whole-string `@config.<other>`
+///     forward → the knob being chased SWITCHES to `<other>` (a rung can
+///     itself relay a forward under a different key, e.g.
+///     `Stack.title = @config.heading`) and the walk continues outward
+///     under the new name — including the self-forward case
+///     (`@config.<same knob>`, meaning "no override here"), which switches
+///     to itself and is indistinguishable from "not declared".
+///   - anything else (a concrete value, or a dotted `@config.<k>.<path>`
+///     form left for the binding validator) is the answer; the walk stops.
+/// Reaching the end of the chain without a concrete value falls through to
+/// `orbital_config`, then — §B4-R5, the two extra rungs a trait-form
+/// reference (`Alias.traits.X`) needs that no other caller does —
+/// `upstream_orbital_config` (the `config {}` of the orbital that actually
+/// DECLARES the trait being imported, e.g. an orbital-level knob no
+/// consumer ever composed the orbital of) and `upstream_schema_config`
+/// (that alias's own app-level `config {}`, already folded with any
+/// `uses { config }` call-site override — same fold `resolve_orbital_reference`
+/// uses for the orbital-reference form, `fold_declared_config_override`),
+/// then finally `schema_config`. Every rung is looked up under whatever knob
+/// name the walk ended on (the FINAL key, post any switches). Every caller
+/// but the trait-form `Reference` arm passes `None, None` for the two
+/// upstream rungs, leaving their resolution exactly as before — a plain
+/// sibling pull or an orbital-import splice already receives the RIGHT
+/// "orbital_config" for its own shape and has no separate "upstream" rung to
+/// fall through to.
+///
+/// The chain is finite and each rung is consulted at most once per knob, so
+/// a key switch can never loop even if two rungs relay each other's knobs.
+///
+/// Every collapsed field's `forwarded_from` is stamped with the FINAL
+/// `@config.<knob>` token (post any key-switching) that actually supplied
+/// the value — the provenance `validate_orbital_config_forwarding`'s
+/// dead-knob check reads once the literal token itself is gone from
+/// `default` (`ConfigField::forwarded_from`'s doc comment).
+#[allow(clippy::too_many_arguments)]
 pub(super) fn forwarded_sibling_config_from(
-    sibling: &TraitDefinition,
-    parent_declared: Option<&HashMap<String, ConfigField>>,
+    declared: Option<&HashMap<String, ConfigField>>,
+    embedder_chain: &[&HashMap<String, ConfigField>],
     orbital_config: Option<&HashMap<String, ConfigField>>,
+    upstream_orbital_config: Option<&HashMap<String, ConfigField>>,
+    upstream_schema_config: Option<&HashMap<String, ConfigField>>,
     schema_config: Option<&HashMap<String, ConfigField>>,
 ) -> Option<HashMap<String, ConfigField>> {
-    let declared = sibling.config.as_ref()?;
+    let declared = declared?;
     let mut out: HashMap<String, ConfigField> = HashMap::new();
     for (key, field) in declared.iter() {
         let Some(SExpression::String(forward)) = field.default.as_ref() else {
@@ -875,13 +985,46 @@ pub(super) fn forwarded_sibling_config_from(
         if knob.contains('.') {
             continue;
         }
-        let is_still_forward = |v: &SExpression| matches!(v, SExpression::String(s) if s == forward);
-        let mut value = parent_declared.and_then(|p| p.get(knob)).and_then(|f| f.default.as_ref());
+        let mut current_key = knob.to_string();
+        let mut resolved: Option<&SExpression> = None;
+        for rung in embedder_chain {
+            let Some(value) = rung.get(&current_key).and_then(|f| f.default.as_ref()) else {
+                continue;
+            };
+            if let SExpression::String(s) = value {
+                if let Some(next_key) = s.strip_prefix("@config.") {
+                    if !next_key.contains('.') {
+                        current_key = next_key.to_string();
+                        continue;
+                    }
+                }
+            }
+            resolved = Some(value);
+            break;
+        }
+        let target = format!("@config.{current_key}");
+        let is_still_forward =
+            |v: &SExpression| matches!(v, SExpression::String(s) if s == &target);
+        let mut value = resolved;
         if value.is_none_or(is_still_forward) {
-            value = orbital_config.and_then(|c| c.get(knob)).and_then(|f| f.default.as_ref());
+            value = orbital_config
+                .and_then(|c| c.get(&current_key))
+                .and_then(|f| f.default.as_ref());
         }
         if value.is_none_or(is_still_forward) {
-            value = schema_config.and_then(|c| c.get(knob)).and_then(|f| f.default.as_ref());
+            value = upstream_orbital_config
+                .and_then(|c| c.get(&current_key))
+                .and_then(|f| f.default.as_ref());
+        }
+        if value.is_none_or(is_still_forward) {
+            value = upstream_schema_config
+                .and_then(|c| c.get(&current_key))
+                .and_then(|f| f.default.as_ref());
+        }
+        if value.is_none_or(is_still_forward) {
+            value = schema_config
+                .and_then(|c| c.get(&current_key))
+                .and_then(|f| f.default.as_ref());
         }
         let Some(value) = value else {
             continue;
@@ -892,6 +1035,7 @@ pub(super) fn forwarded_sibling_config_from(
         }
         let mut forwarded = field.clone();
         forwarded.default = Some(value.clone());
+        forwarded.forwarded_from = Some(target);
         out.insert(key.clone(), forwarded);
     }
     (!out.is_empty()).then_some(out)
@@ -943,7 +1087,21 @@ pub(crate) fn collect_sibling_trait_refs(expr: &SExpression, out: &mut HashSet<S
 /// clone and dangle once a downstream consumer substitutes the binding.
 /// Scanning config defaults makes sibling discovery independent of whether the
 /// config binding has been substituted yet.
-fn sibling_trait_refs_of(trait_def: &TraitDefinition) -> HashSet<String> {
+///
+/// Returns names sorted alphabetically, not in encounter order: the walk
+/// below visits `trait_def.config`'s HashMap values and recurses into
+/// `SExpression::Object` maps (also HashMap-backed), so "encounter order" is
+/// itself a hash-iteration artifact — a Vec built straight off it would
+/// differ between runs of the same process. Collecting into a HashSet first
+/// (still order-free) then sorting by name is the one canonical order this
+/// set of names can carry; both call sites (the explicit-ref sibling-pull
+/// worklist and its recursive nested-sibling walk) feed a deterministic
+/// stack from it, so the resulting pull/append order into `orbital.traits`
+/// is reproducible across runs. (Found pre-existing — this function and its
+/// callers predate the orbital-import program; the auto-pulled render
+/// siblings it discovers, e.g. std-browse's `MasterListView`/`DataGrid1`/
+/// `DenseTableView` look variants, were already unordered before Stage A/B.)
+fn sibling_trait_refs_of(trait_def: &TraitDefinition) -> Vec<String> {
     let mut out = HashSet::new();
     for transition in &trait_def.state_machine.transitions {
         if let Some(guard) = transition.guard.as_ref() {
@@ -972,7 +1130,9 @@ fn sibling_trait_refs_of(trait_def: &TraitDefinition) -> HashSet<String> {
             }
         }
     }
-    out
+    let mut sorted: Vec<String> = out.into_iter().collect();
+    sorted.sort();
+    sorted
 }
 
 /// One trait Reference whose call-site `config` doesn't exactly match the
@@ -1063,6 +1223,14 @@ pub(crate) fn inline_traits(
     // runs — see `inline_orbital`), then the schema's app-level `config {}`.
     orbital_config: Option<&HashMap<String, ConfigField>>,
     schema_config: Option<&HashMap<String, ConfigField>>,
+    // §B4-R5: per-alias upstream app config, already folded with that
+    // alias's `uses { config }` call-site override (`inline_orbital`'s
+    // `alias_schema_configs`, built by the shared `fold_declared_config_override`
+    // — one owner with `resolve_orbital_reference`'s own orbital-rung fold).
+    // Consulted only by the `Alias.traits.X` trait-form reference arm, as
+    // the outer of the two extra rungs a trait's own unresolved `@config.X`
+    // default falls through to when the consumer's chain doesn't resolve it.
+    alias_schema_configs: &HashMap<String, HashMap<String, ConfigField>>,
 ) -> Result<InlinedTraits, InlineError> {
     let mut result = Vec::new();
     let mut config_diagnostics: Vec<TraitRefConfigDiagnostic> = Vec::new();
@@ -1120,6 +1288,59 @@ pub(crate) fn inline_traits(
     let mut owner_subs: HashMap<String, HashMap<String, String>> = HashMap::new();
     // Pulled sibling final name → the owner it was materialised for.
     let mut pulled_owner: HashMap<String, String> = HashMap::new();
+    // §B4-R2: the "who embeds whom" graph over THIS orbital's pre-resolution
+    // `traits` list — built once, up front, since it reads the untouched
+    // `traits` slice, not `result`. Used below to resolve a `Reference`
+    // entry's own call-site `config` when THAT override value is itself a
+    // `@config.<knob>` forward (the JSX-hoisted top-level `ref:` shape,
+    // e.g. `InlineTypographyRender4.config.content = "@config.title"`) —
+    // distinct from `forwarded_sibling_config`/`parent_of` below, which
+    // resolves a PULLED SIBLING's own declared config and is keyed by names
+    // only known once the pull loop discovers them.
+    let embed_graph = crate::phases::embed_graph::EmbedGraph::build(traits);
+
+    // C1-R2 item 2 (std-wiki TS2552): a rename established by ONE explicit
+    // pull's `linked_entity` override (`trait WikiHistory = PageAtom.traits.
+    // WikiHistory -> WikiRevision`, whose ATOM-LOCAL name was
+    // `WikiPageRevision`) is invisible to a SIBLING pull from the SAME alias
+    // (`trait WikiRevisionCapture = PageAtom.traits.WikiRevisionCapture ->
+    // WikiPage`) whose own `linked_entity` override targets something else
+    // entirely — `apply_overrides_to_trait` only ever sees ONE pull's OWN
+    // delta, never another pull's. But `WikiRevisionCapture`'s body carries a
+    // SECONDARY, positional (non-`@entity`) reference to that SAME
+    // atom-local name (`persist create WikiPageRevision {…}`), which no
+    // rebind of ITS OWN ever touches. Collected here, once, from every
+    // explicit `Alias.traits.X -> Y` pull in this orbital's `traits` list:
+    // `(alias, atom_local_name) -> override_name`. Applied below, per pull,
+    // as an EXTRA substitution alongside that pull's own `entity_subs` —
+    // scoped to the SAME alias, so it only ever fires on a token this
+    // orbital's own authoring already established a rebind for.
+    let mut alias_entity_renames: HashMap<String, HashMap<String, String>> = HashMap::new();
+    for trait_ref in traits {
+        let TraitReference::Reference {
+            reference: Some(ref_str),
+            linked_entity: Some(new_entity),
+            ..
+        } = trait_ref
+        else {
+            continue;
+        };
+        let Ok(ParsedReference::Trait { alias, name }) = parse_reference(ref_str) else {
+            continue;
+        };
+        let Ok(TraitReference::Inline(atom_def)) = ctx.get_trait(&alias, &name) else {
+            continue;
+        };
+        if let Some(atom_local) = atom_def.linked_entity {
+            if &atom_local != new_entity {
+                alias_entity_renames
+                    .entry(alias)
+                    .or_default()
+                    .entry(atom_local)
+                    .or_insert_with(|| new_entity.clone());
+            }
+        }
+    }
 
     for (idx, trait_ref) in traits.iter().enumerate() {
         let trait_path = format!("{path_prefix}.traits[{idx}]");
@@ -1441,17 +1662,159 @@ pub(crate) fn inline_traits(
                                             });
                                         }
                                     }
+                                    // §B4-R2 (C-CONFIG-DANGLING-REF-NO-VALIDATE's
+                                    // third composition shape): this entry's
+                                    // OWN call-site `config` may itself be a
+                                    // whole-string `@config.<knob>` forward —
+                                    // JSX-hoisted top-level `ref:` entries
+                                    // publish their forward as the override
+                                    // value directly (`InlineTypographyRender4
+                                    // .config.content = "@config.title"`)
+                                    // rather than as a declared default on
+                                    // their own atom, so neither the sibling-
+                                    // auto-pull path below nor the atom's own
+                                    // `apply_inline_config_defaults` ever
+                                    // sees it. Resolve through the SAME
+                                    // embedder-chain walk the validator
+                                    // judges reachability over, BEFORE
+                                    // `apply_overrides_to_trait` bakes the
+                                    // raw token into the trait body. An
+                                    // import load defers — the consumer's own
+                                    // resolution (this same arm, running
+                                    // again with `defer_config_subst=false`
+                                    // at the top-level target) resolves it
+                                    // later, same as every other config fold
+                                    // in this function.
+                                    let mut effective_ref_config: HashMap<String, ConfigField> =
+                                        config.clone().unwrap_or_default();
+                                    if !ctx.defer_config_subst {
+                                        let entry_key = name_override.as_deref().unwrap_or("");
+                                        let embedder_chain = embed_graph.embedder_chain(entry_key);
+                                        if let Some(resolved) = forwarded_sibling_config_from(
+                                            config.as_ref(),
+                                            &embedder_chain,
+                                            orbital_config,
+                                            None,
+                                            None,
+                                            schema_config,
+                                        ) {
+                                            effective_ref_config.extend(resolved);
+                                        }
+                                        // §B4-R5: the trait fetched from `ctx.get_trait`
+                                        // above may itself carry an unresolved
+                                        // `@config.<knob>` forward on ITS OWN declared
+                                        // config — a knob native to the orbital that
+                                        // DECLARES the trait (e.g. an orbital-level knob
+                                        // like `TimesheetPanelOrbital.config.browseColumns`
+                                        // forwarded by its inline `TimesheetBrowseList.
+                                        // config.columns`), left raw because the recursive
+                                        // import load that produced this trait deferred
+                                        // substitution for exactly this consumer's benefit.
+                                        // A trait-form reference (`Alias.traits.X`) has no
+                                        // equivalent to `resolve_orbital_reference`'s own
+                                        // re-inline against the upstream orbital's config,
+                                        // so without this the forward is judged only
+                                        // against the CONSUMER's rungs and never resolves —
+                                        // the validator then reports a knob no trait in the
+                                        // referrer chain declares (C-TRAIT-REF-CONFIG-
+                                        // FORWARD-WRONG-RUNG). Same chain as above, plus the
+                                        // two rungs only this call site needs: the orbital
+                                        // that actually owns the trait, then that alias's
+                                        // app config folded with any `uses { config }`
+                                        // override — the SAME chain the knob would have
+                                        // resolved through inside its own home file. The
+                                        // consumer's embedders/orbital rungs are still tried
+                                        // FIRST, so a consumer override of the same knob
+                                        // name still wins.
+                                        if let Some(resolved) = forwarded_sibling_config_from(
+                                            trait_def.config.as_ref(),
+                                            &embedder_chain,
+                                            orbital_config,
+                                            ctx.get_orbital_config_for_trait(
+                                                &alias,
+                                                &name,
+                                                ref_id.as_deref(),
+                                            )
+                                            .as_ref(),
+                                            alias_schema_configs.get(&alias),
+                                            schema_config,
+                                        ) {
+                                            let cfg =
+                                                trait_def.config.get_or_insert_with(HashMap::new);
+                                            for (k, v) in resolved {
+                                                cfg.insert(k, v);
+                                            }
+                                        }
+                                    }
+                                    let ref_config_arg = (!effective_ref_config.is_empty())
+                                        .then_some(&effective_ref_config);
                                     apply_overrides_to_trait(
                                         &mut trait_def,
                                         linked_entity.as_ref(),
                                         entity_ids,
-                                        config.as_ref(),
+                                        ref_config_arg,
                                         name_override.as_deref(),
                                         events_override.as_ref(),
                                         fields_override.as_ref(),
                                         ctx.defer_config_subst,
                                         recorder,
                                     );
+                                    // Alias-scoped cross-trait entity rename
+                                    // (see `alias_entity_renames`'s doc comment
+                                    // above): a SIBLING pull from the SAME
+                                    // alias may already have established a
+                                    // rebind for an atom-local entity name
+                                    // THIS trait's own `linked_entity` override
+                                    // never touches — a secondary, positional
+                                    // reference. Applied as an extra pass, same
+                                    // shape as `apply_overrides_to_trait`'s own
+                                    // step 4 + `rewrite_entity_ref_ids`.
+                                    if let Some(subs) = alias_entity_renames.get(&alias) {
+                                        if !subs.is_empty() {
+                                            for t in trait_def.state_machine.transitions.iter_mut()
+                                            {
+                                                if let Some(guard) = t.guard.as_mut() {
+                                                    rewrite_identifiers(
+                                                        guard,
+                                                        subs,
+                                                        &HashMap::new(),
+                                                    );
+                                                }
+                                                if let Some(effects) = t.effects.as_mut() {
+                                                    for effect in effects.iter_mut() {
+                                                        rewrite_identifiers(
+                                                            effect,
+                                                            subs,
+                                                            &HashMap::new(),
+                                                        );
+                                                    }
+                                                }
+                                            }
+                                            if let Some(ticks) = trait_def.ticks.as_mut() {
+                                                for tick in ticks.iter_mut() {
+                                                    if let Some(guard) = tick.guard.as_mut() {
+                                                        rewrite_identifiers(
+                                                            guard,
+                                                            subs,
+                                                            &HashMap::new(),
+                                                        );
+                                                    }
+                                                    for effect in tick.effects.iter_mut() {
+                                                        rewrite_identifiers(
+                                                            effect,
+                                                            subs,
+                                                            &HashMap::new(),
+                                                        );
+                                                    }
+                                                }
+                                            }
+                                            rewrite_entity_ref_ids(
+                                                &mut trait_def,
+                                                subs,
+                                                entity_ids,
+                                            );
+                                        }
+                                    }
                                     // Increment 3-II: stash the reference's
                                     // call-site type-parameter arguments onto
                                     // the cloned trait_def — it already
@@ -1615,6 +1978,12 @@ pub(crate) fn inline_traits(
         // orbital, so the prefixed name is unique by construction. This subsumes
         // the cross-ALIAS case — an owner pulls from exactly one alias.
         let mut pulled_as: HashMap<(String, String, String), String> = HashMap::new();
+        // Pulled sibling final name → its own pulling parent's final name —
+        // the embedder chain `forwarded_sibling_config` walks to resolve a
+        // forward hoisted through several layers of pulled chrome (see its
+        // doc comment). Recorded once per pull, right after `final_name` is
+        // known, alongside `pulled_as`/`pulled_owner` below.
+        let mut parent_of: HashMap<String, String> = HashMap::new();
         // Consumer-declared names (explicit composition) keep first-wins skip.
         let consumer_declared: HashSet<String> = seen_names.clone();
         // Provenance of each consumer-declared trait, for the skip's gate
@@ -1738,6 +2107,7 @@ pub(crate) fn inline_traits(
                     &sibling_def,
                     &result,
                     Some(&parent_name),
+                    &parent_of,
                     orbital_config,
                     schema_config,
                 )
@@ -1818,6 +2188,9 @@ pub(crate) fn inline_traits(
                 (alias.clone(), sibling_name.clone(), owner.clone()),
                 final_name.clone(),
             );
+            // Record this pull's parent so a DEEPER pull (a sibling THIS
+            // sibling itself embeds) can walk the chain back out through it.
+            parent_of.insert(final_name.clone(), parent_name.clone());
             owner_subs
                 .entry(owner.clone())
                 .or_default()
@@ -2013,6 +2386,7 @@ mod entity_id_reader_tests {
             description: None,
             properties: None,
             type_when: None,
+            entity: None,
         }
     }
 
@@ -2220,6 +2594,24 @@ mod entity_id_reader_tests {
         );
         assert_eq!(td.linked_entity.as_deref(), Some("Cart"));
         assert_eq!(td.linked_entity_id.as_deref(), Some("ent-9"));
+        // `entity_ref_ids` must track the rebind in lockstep with
+        // `linked_entity`/`linked_entity_id` above — a key still naming
+        // "Product" (an entity this trait no longer references) or a value
+        // still carrying "ent-1" (Product's OLD id) is exactly the class of
+        // bug the orbital-import splice had.
+        let refs = td
+            .entity_ref_ids
+            .as_ref()
+            .expect("entityRefIds side-map survives the rebind");
+        assert_eq!(
+            refs.get("Cart"),
+            Some(&"ent-9".to_string()),
+            "entityRefIds must key the REBOUND name and carry its CURRENT id: {refs:?}"
+        );
+        assert!(
+            !refs.contains_key("Product"),
+            "the stale pre-rebind key must not survive: {refs:?}"
+        );
     }
 
     #[test]
@@ -2255,6 +2647,404 @@ mod entity_id_reader_tests {
         assert!(
             !json.contains("\"Product\""),
             "name path must rebind (ref/fetch Product): {json}"
+        );
+    }
+
+    /// C1-R2 item 2 (std-wiki TS2552): a trait rebound TWICE — once inside
+    /// the atom it's authored in (`Product` -> `Item`, applied by a FIRST
+    /// `apply_overrides_to_trait` call, mirroring `RevisionManage -> WikiPageRevision`
+    /// inside `std-wiki-page.lolo`), then again at the organism call site
+    /// (`Item` -> `Cart`, a SECOND call, mirroring `PageAtom.traits.WikiHistory
+    /// -> WikiRevision` inside `std-wiki.lolo`). After the SECOND rebind, the
+    /// positional (non-`@entity`) `fetch`/`ref` tokens must read the FINAL
+    /// name `Cart`, not the intermediate `Item` — reproduced at the real
+    /// registry: `orb emit ts std-wiki.orb` server handlers keep
+    /// `getDataService().list<WikiPageRevision>(...)` after `WikiHistory`
+    /// resolves to `WikiRevision`.
+    #[test]
+    fn double_rebind_rewrites_positional_tokens_to_the_final_name() {
+        let mut td = trait_with_entity_token("Product");
+        td.linked_entity = Some("Product".to_string());
+
+        // First rebind: Product -> Item (the atom's own internal rebind).
+        let entity_ids_1 = HashMap::from([("Item".to_string(), "ent-1".to_string())]);
+        let mut recorder = Vec::new();
+        apply_overrides_to_trait(
+            &mut td,
+            Some(&"Item".to_string()),
+            &entity_ids_1,
+            None,
+            None,
+            None,
+            None,
+            false,
+            &mut recorder,
+        );
+        let json_after_first = effect_json(&td);
+        assert!(
+            json_after_first.contains("@Item.title") && json_after_first.contains("\"Item\""),
+            "sanity: first rebind must land on Item: {json_after_first}"
+        );
+
+        // Second rebind: Item -> Cart (the organism's call-site rebind of the
+        // ALREADY-rebound trait pulled from the atom).
+        let entity_ids_2 = HashMap::from([("Cart".to_string(), "ent-9".to_string())]);
+        apply_overrides_to_trait(
+            &mut td,
+            Some(&"Cart".to_string()),
+            &entity_ids_2,
+            None,
+            None,
+            None,
+            None,
+            false,
+            &mut recorder,
+        );
+
+        let json = effect_json(&td);
+        assert!(
+            json.contains("@Cart.title") && !json.contains("@Item.title"),
+            "the @entity-scoped binding root must land on the FINAL name: {json}"
+        );
+        assert!(
+            json.contains("\"Cart\"")
+                && !json.contains("\"Item\"")
+                && !json.contains("\"Product\""),
+            "positional (ref/fetch) tokens must land on the FINAL name too, not the \
+             intermediate one from the first rebind: {json}"
+        );
+        assert_eq!(td.linked_entity.as_deref(), Some("Cart"));
+    }
+
+    /// C1-R2 item 2 (std-wiki TS2552), the SECONDARY-reference shape:
+    /// `WikiRevisionCapture` is hand-authored `-> WikiPage` inside its atom
+    /// (`std-wiki-page.lolo`) — the organism's call site rebinds it `->
+    /// WikiPage` too, a NO-OP for `linked_entity` (empty `entity_subs` from
+    /// that path alone). But the trait's body ALSO writes a SECONDARY,
+    /// positional target (`persist create WikiPageRevision {…}`, unrelated to
+    /// `@entity`) whose `entity_ref_ids` id the CONSUMER's own roster already
+    /// knows under a DIFFERENT name (`WikiRevision` — the organism's real
+    /// revision entity, established by the SIBLING `WikiHistory` pull's OWN
+    /// rebind, but never communicated to this trait directly). This trait's
+    /// pull must still resolve `WikiPageRevision -> WikiRevision` from the id
+    /// alone — no cross-trait bookkeeping, just the CONSUMER roster every
+    /// pull already receives via `entity_ids`.
+    #[test]
+    fn secondary_reference_rebinds_via_consumer_known_id_even_with_no_op_primary_rebind() {
+        let mut td = trait_with_entity_token("WikiPage");
+        // A second, POSITIONAL-only reference this trait's own rebind never
+        // touches: append a `(persist create WikiPageRevision {…})` effect.
+        td.state_machine.transitions[0]
+            .effects
+            .as_mut()
+            .unwrap()
+            .push(SExpression::Array(vec![
+                s("persist"),
+                s("create"),
+                s("WikiPageRevision"),
+                SExpression::Object(HashMap::new()),
+            ]));
+        td.linked_entity = Some("WikiPage".to_string());
+        td.linked_entity_id = Some("ent-page".to_string());
+        // The atom's own side-map: WikiPage (primary) + WikiPageRevision
+        // (secondary) each carry THEIR OWN id.
+        td.entity_ref_ids = Some(HashMap::from([
+            ("WikiPage".to_string(), "ent-page".to_string()),
+            ("WikiPageRevision".to_string(), "ent-revision".to_string()),
+        ]));
+
+        // The CONSUMER (organism) roster: its OWN entity `WikiRevision`
+        // happens to carry the SAME id the atom's `WikiPageRevision` side-map
+        // entry does — established elsewhere (the sibling `WikiHistory`
+        // pull's own rebind), not by this call.
+        let entity_ids = HashMap::from([
+            ("WikiPage".to_string(), "ent-page".to_string()),
+            ("WikiRevision".to_string(), "ent-revision".to_string()),
+        ]);
+        let mut recorder = Vec::new();
+        apply_overrides_to_trait(
+            &mut td,
+            Some(&"WikiPage".to_string()), // no-op: already WikiPage
+            &entity_ids,
+            None,
+            None,
+            None,
+            None,
+            false,
+            &mut recorder,
+        );
+
+        let json = effect_json(&td);
+        assert!(
+            json.contains("\"WikiRevision\""),
+            "the secondary positional target must resolve to the consumer's \
+             own name for the same id: {json}"
+        );
+        assert!(
+            !json.contains("\"WikiPageRevision\""),
+            "the stale atom-local name must not survive: {json}"
+        );
+        assert_eq!(
+            td.entity_ref_ids
+                .as_ref()
+                .and_then(|m| m.get("WikiRevision")),
+            Some(&"ent-revision".to_string()),
+            "entityRefIds must key the consumer's name for the same id"
+        );
+    }
+
+    /// C1-R3 item 2: the SAME-NAME, DIFFERENT-id secondary-reference shape —
+    /// the general case `secondary_reference_rebinds_via_consumer_known_id_
+    /// even_with_no_op_primary_rebind` above does NOT cover, because that
+    /// test's secondary reference gets a DIFFERENT name in the consumer
+    /// (`WikiPageRevision` -> `WikiRevision`), joinable by id equality alone.
+    /// Reproduces std-wiki's real `WikiAttachmentList = PageAtom.traits.
+    /// WikiAttachmentList -> WikiAttachment`: the primary rebind is a no-op
+    /// (`WikiAttachment` -> `WikiAttachment`, so `entity_subs` never gets a
+    /// "WikiPage" key), and the trait's OWN secondary reference "WikiPage" is
+    /// the atom's OWN local declaration — a DIFFERENT entity than the
+    /// consumer's OWN "WikiPage" (same name, unrelated ids, no id-equality
+    /// join possible). Only a pure NAME join against `entity_ids` (this
+    /// trait's own consumer roster) recovers it — `ORB_ID_UNKNOWN_REF` on
+    /// `entityRefIds[WikiPage]` before this fix.
+    #[test]
+    fn secondary_reference_same_name_different_id_rebinds_by_name_join() {
+        let mut td = trait_with_entity_token("WikiAttachment");
+        // A second, POSITIONAL-only reference naming "WikiPage" — the ATOM's
+        // OWN local WikiPage entity, unrelated to the consumer's WikiPage.
+        td.state_machine.transitions[0]
+            .effects
+            .as_mut()
+            .unwrap()
+            .push(SExpression::Array(vec![s("fetch"), s("WikiPage")]));
+        td.linked_entity = Some("WikiAttachment".to_string());
+        td.linked_entity_id = Some("ent-atom-attachment".to_string());
+        td.entity_ref_ids = Some(HashMap::from([
+            (
+                "WikiAttachment".to_string(),
+                "ent-atom-attachment".to_string(),
+            ),
+            ("WikiPage".to_string(), "ent-atom-page".to_string()),
+        ]));
+
+        // The CONSUMER roster: its OWN "WikiAttachment" and "WikiPage" carry
+        // ENTIRELY DIFFERENT ids than the atom's own copies — genuinely
+        // different declarations that happen to share a name.
+        let entity_ids = HashMap::from([
+            (
+                "WikiAttachment".to_string(),
+                "ent-consumer-attachment".to_string(),
+            ),
+            ("WikiPage".to_string(), "ent-consumer-page".to_string()),
+        ]);
+        let mut recorder = Vec::new();
+        apply_overrides_to_trait(
+            &mut td,
+            Some(&"WikiAttachment".to_string()), // no-op: already WikiAttachment
+            &entity_ids,
+            None,
+            None,
+            None,
+            None,
+            false,
+            &mut recorder,
+        );
+
+        assert_eq!(
+            td.linked_entity_id.as_deref(),
+            Some("ent-consumer-attachment"),
+            "sanity: the primary bound entity's id already refreshes unconditionally"
+        );
+        let refs = td.entity_ref_ids.as_ref().expect("side-map survives");
+        assert_eq!(
+            refs.get("WikiAttachment"),
+            Some(&"ent-consumer-attachment".to_string()),
+            "the primary key must also carry the consumer's id: {refs:?}"
+        );
+        assert_eq!(
+            refs.get("WikiPage"),
+            Some(&"ent-consumer-page".to_string()),
+            "a same-named secondary reference with NO rename must still join the \
+             consumer roster BY NAME, not keep the atom's foreign id: {refs:?}"
+        );
+    }
+
+    /// The name-join fallback (previous test) only fires when the consumer
+    /// roster actually declares the name. A genuinely atom-internal
+    /// reference with no consumer counterpart keeps its old id — the only
+    /// honest choice left, and unchanged from before this fix.
+    #[test]
+    fn secondary_reference_unknown_to_consumer_keeps_old_id() {
+        let mut td = trait_with_entity_token("Widget");
+        td.linked_entity = Some("Widget".to_string());
+        td.linked_entity_id = Some("ent-atom-widget".to_string());
+        td.entity_ref_ids = Some(HashMap::from([(
+            "InternalHelper".to_string(),
+            "ent-atom-helper".to_string(),
+        )]));
+
+        let entity_ids = HashMap::from([("Widget".to_string(), "ent-consumer-widget".to_string())]);
+        let mut recorder = Vec::new();
+        apply_overrides_to_trait(
+            &mut td,
+            Some(&"Widget".to_string()),
+            &entity_ids,
+            None,
+            None,
+            None,
+            None,
+            false,
+            &mut recorder,
+        );
+
+        assert_eq!(
+            td.entity_ref_ids
+                .as_ref()
+                .and_then(|m| m.get("InternalHelper")),
+            Some(&"ent-atom-helper".to_string()),
+            "a name the consumer roster does not know at all keeps its old id"
+        );
+    }
+}
+
+/// Unit coverage for the hoisted-forward chain walk (`forwarded_sibling_config_from`)
+/// and the pull-site chain builder (`forwarded_sibling_config`). End-to-end
+/// coverage of the SAME contract, exercised through the real sibling
+/// auto-pull, lives in `tests/config_override_round_trip.rs`
+/// (`sibling_forward_resolves_through_three_deep_hoisted_chain` /
+/// `sibling_forward_switches_key_through_relaying_rung`).
+#[cfg(test)]
+mod forwarded_sibling_config_tests {
+    use super::*;
+
+    fn config_field(default: serde_json::Value) -> ConfigField {
+        serde_json::from_value(serde_json::json!({ "type": "unknown", "default": default }))
+            .expect("config field deserializes")
+    }
+
+    fn config_map(entries: &[(&str, serde_json::Value)]) -> HashMap<String, ConfigField> {
+        entries
+            .iter()
+            .map(|(k, v)| (k.to_string(), config_field(v.clone())))
+            .collect()
+    }
+
+    fn trait_with_config(name: &str, config: HashMap<String, ConfigField>) -> TraitDefinition {
+        serde_json::from_value(serde_json::json!({
+            "name": name,
+            "linkedEntity": "Item",
+            "category": "interaction",
+            "config": config,
+            "stateMachine": { "states": [ { "name": "idle", "isInitial": true } ], "transitions": [] }
+        }))
+        .expect("trait deserializes")
+    }
+
+    /// `Typography4.content` forwards `@config.title`; its immediate embedder
+    /// `Stack5` and the next rung `Stack8` both declare unrelated knobs, so
+    /// the walk must reach the THIRD rung (`Feed`, declaring `title`)
+    /// before it resolves — the exact JSX-hoisted shape `std-timeline` hit.
+    #[test]
+    fn resolves_through_three_deep_chain() {
+        let sibling = trait_with_config(
+            "Typography4",
+            config_map(&[("content", serde_json::json!("@config.title"))]),
+        );
+        let stack5 = config_map(&[("direction", serde_json::json!("column"))]);
+        let stack8 = config_map(&[("gap", serde_json::json!("8"))]);
+        let feed = config_map(&[("title", serde_json::json!("FeedTitle"))]);
+        let chain: Vec<&HashMap<String, ConfigField>> = vec![&stack5, &stack8, &feed];
+
+        let resolved =
+            forwarded_sibling_config_from(sibling.config.as_ref(), &chain, None, None, None, None)
+                .expect("content must resolve");
+        assert_eq!(
+            resolved.get("content").and_then(|f| f.default.as_ref()),
+            Some(&SExpression::String("FeedTitle".to_string())),
+        );
+    }
+
+    /// The immediate embedder relays the forward under a DIFFERENT key
+    /// (`Stack8.title = @config.heading`) rather than declaring a concrete
+    /// value — the walk must switch the knob being chased and keep going
+    /// outward, landing on `Feed.heading`.
+    #[test]
+    fn switches_key_through_a_relaying_rung() {
+        let sibling = trait_with_config(
+            "Sibling",
+            config_map(&[("title", serde_json::json!("@config.title"))]),
+        );
+        let stack8 = config_map(&[("title", serde_json::json!("@config.heading"))]);
+        let feed = config_map(&[("heading", serde_json::json!("X"))]);
+        let chain: Vec<&HashMap<String, ConfigField>> = vec![&stack8, &feed];
+
+        let resolved =
+            forwarded_sibling_config_from(sibling.config.as_ref(), &chain, None, None, None, None)
+                .expect("title must resolve via the switched key");
+        assert_eq!(
+            resolved.get("title").and_then(|f| f.default.as_ref()),
+            Some(&SExpression::String("X".to_string())),
+        );
+    }
+
+    /// A self-forward rung (`Stack.title = @config.title`, restating the
+    /// same knob) carries no information — the walk treats it exactly like
+    /// "not declared" and keeps going outward instead of stopping.
+    #[test]
+    fn self_forward_rung_is_skipped() {
+        let sibling = trait_with_config(
+            "Sibling",
+            config_map(&[("title", serde_json::json!("@config.title"))]),
+        );
+        let stack = config_map(&[("title", serde_json::json!("@config.title"))]);
+        let feed = config_map(&[("title", serde_json::json!("FeedTitle"))]);
+        let chain: Vec<&HashMap<String, ConfigField>> = vec![&stack, &feed];
+
+        let resolved =
+            forwarded_sibling_config_from(sibling.config.as_ref(), &chain, None, None, None, None)
+                .expect("title must resolve past the self-forward rung");
+        assert_eq!(
+            resolved.get("title").and_then(|f| f.default.as_ref()),
+            Some(&SExpression::String("FeedTitle".to_string())),
+        );
+    }
+
+    /// The pull-site wrapper's `parent_of` walk is bounded by `result.len()`
+    /// with a `visited` guard — a malformed/cyclic `parent_of` (defensive:
+    /// it is acyclic by construction) must terminate rather than loop
+    /// forever, returning whatever it resolved from the partial chain it
+    /// managed to walk before the cycle was detected.
+    #[test]
+    fn parent_of_cycle_terminates() {
+        let sibling = trait_with_config(
+            "Sibling",
+            config_map(&[("title", serde_json::json!("@config.title"))]),
+        );
+        let a = TraitReference::Inline(trait_with_config(
+            "A",
+            config_map(&[("title", serde_json::json!("@config.title"))]),
+        ));
+        let b = TraitReference::Inline(trait_with_config(
+            "B",
+            config_map(&[("title", serde_json::json!("@config.title"))]),
+        ));
+        let result = vec![a, b];
+        // A ↔ B: each names the other as its parent — a cycle that must
+        // never occur in real pull data (each `parent_of` entry is written
+        // once, at the pull that resolves that final name) but is guarded
+        // against defensively.
+        let parent_of: HashMap<String, String> = HashMap::from([
+            ("A".to_string(), "B".to_string()),
+            ("B".to_string(), "A".to_string()),
+        ]);
+
+        // Must return promptly (no infinite loop) with nothing resolved —
+        // neither A nor B ever declares a concrete value.
+        let resolved =
+            forwarded_sibling_config(&sibling, &result, Some("A"), &parent_of, None, None);
+        assert!(
+            resolved.is_none(),
+            "a pure cycle resolves nothing: {resolved:?}"
         );
     }
 }

@@ -500,6 +500,7 @@ mod tests {
                 description: None,
                 properties: None,
                 type_when: None,
+                entity: None,
             }]),
             event_id: None,
         }

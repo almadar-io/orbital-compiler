@@ -402,7 +402,9 @@ pub(crate) fn resolve_page_traits<'a>(
                 .iter()
                 .filter_map(|mount| match mount {
                     TraitReference::Inline(def) => Some(def),
-                    TraitReference::Reference { reference, name, .. } => {
+                    TraitReference::Reference {
+                        reference, name, ..
+                    } => {
                         // A page mount names a sibling trait; `reference` carries
                         // the `Alias.traits.Name` form only for imports.
                         let key = name
@@ -487,16 +489,14 @@ pub fn validate_tick_slot_contention(schema: &OrbitalSchema, ctx: &mut Validatio
                 continue;
             }
 
-            let mut conflicts: Vec<(String, Vec<&TraitDefinition>)> =
-                tick_slot_writers(&mounted)
-                    .into_iter()
-                    .filter(|(_, writers)| writers.len() > 1)
-                    .collect();
+            let mut conflicts: Vec<(String, Vec<&TraitDefinition>)> = tick_slot_writers(&mounted)
+                .into_iter()
+                .filter(|(_, writers)| writers.len() > 1)
+                .collect();
             conflicts.sort_by(|a, b| a.0.cmp(&b.0));
 
             for (slot, writers) in conflicts {
-                let mut names: Vec<&str> =
-                    writers.iter().map(|t| t.name.as_str()).collect();
+                let mut names: Vec<&str> = writers.iter().map(|t| t.name.as_str()).collect();
                 names.sort();
                 let path = format!("orbitals[{}].pages[{}]", i, j);
                 result.add_error(
