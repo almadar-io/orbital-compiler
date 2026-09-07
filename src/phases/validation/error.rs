@@ -233,6 +233,13 @@ pub enum ErrorCode {
     /// An `extend { … }` field no kept trait reads/sets/renders and no
     /// orbital-level config knob value forwards (Stage C, warning — rung 2).
     OrbitalRefExtendFieldUnread,
+    /// A `fields { OLD: NEW }` rename on an `orbital X = Alias.orbitals.Y
+    /// { … }` reference left a structurally-recognized field-reference
+    /// position (a config default's bare/list field-name value) still
+    /// naming the pre-rename upstream field — the rename silently failed to
+    /// reach it (G3, `docs/Almadar_Compiler_Gaps.md` §82, rung 2: what used
+    /// to validate 0/0 with a dead reference now errors instead).
+    OrbitalRefFieldRenameUnapplied,
     /// Static sections are forbidden (use render_ui)
     PageSectionsForbidden,
     /// Invalid trait reference on page
@@ -929,6 +936,7 @@ impl ErrorCode {
             ErrorCode::OrbitalRefPageUnknownPath => "ORB_O_PAGE_UNKNOWN_PATH",
             ErrorCode::OrbitalRefExtendFieldCollision => "ORB_O_EXTEND_FIELD_COLLISION",
             ErrorCode::OrbitalRefExtendFieldUnread => "ORB_O_EXTEND_FIELD_UNREAD",
+            ErrorCode::OrbitalRefFieldRenameUnapplied => "ORB_O_FIELD_RENAME_UNAPPLIED",
             ErrorCode::PageSectionsForbidden => "ORB_P_SECTIONS_FORBIDDEN",
             ErrorCode::PageInvalidTraitRef => "ORB_P_INVALID_TRAIT_REF",
             ErrorCode::PageInvalidViewType => "ORB_P_INVALID_VIEW_TYPE",
@@ -1210,6 +1218,7 @@ impl ErrorCode {
             | ErrorCode::OrbitalRefPageUnknownPath
             | ErrorCode::OrbitalRefExtendFieldCollision
             | ErrorCode::OrbitalRefExtendFieldUnread
+            | ErrorCode::OrbitalRefFieldRenameUnapplied
             | ErrorCode::PageSectionsForbidden
             | ErrorCode::PageInvalidTraitRef
             | ErrorCode::PageInvalidViewType => "page",

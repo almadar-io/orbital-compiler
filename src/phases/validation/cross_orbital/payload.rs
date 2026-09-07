@@ -241,6 +241,7 @@ mod tests {
             tier: None,
             payload_schema: payload,
             event_id: None,
+            payload_entity: None,
         }
     }
 
@@ -272,6 +273,7 @@ mod tests {
                     type_when: None,
                     entity: None,
                 }]),
+                payload_entity: None,
             }]);
         }
         tr

@@ -597,12 +597,41 @@ fn rewrite_identifiers_inner(
     }
 }
 
-/// Rewrite `@entity.<old>` reads to `@entity.<new>` per the call-site `fields`
-/// remap map. Mirrors the entity-root rewrite in `rewrite_identifiers` but
-/// targets the FIELD segment (the part after `@entity.`) rather than the entity
-/// root. Boundary-checked on the field name so `@entity.titleSuffix` is left
-/// alone when remapping `title`; nested paths (`@entity.title.x`) and array
-/// indices (`@entity.title[0]`) are preserved. Empty map = identity walk.
+/// Sigils whose `.field` suffix addresses a field of the trait's bound
+/// entity/row — `@entity` (the bound entity itself) plus `@item`/`@row`,
+/// the two row-iteration binding roots a `*Binding`-suffixed config default
+/// hands out for override (`cardTitleBinding : string = @item.title`,
+/// `Board.traits.BoardItemBoard`; `filter: (fn row (= @row.stage won))`,
+/// `Stats.traits.StatsItemStats`) — the only two named alongside `@entity`
+/// in `Almadar_LOLO.md`'s own sigil list (§ "Bindings": "`@user.*`,
+/// `@row.*`, …"; ELOLO_MATCH_EXPR_SCRUTINEE_IMPURE). An atom-specific
+/// lambda alias picked by that atom's own author (`@card`, `@line`, `@bar`,
+/// … — `fn`/`lambda` parameter names are open-ended, not a fixed sigil
+/// vocabulary) is out of scope: there is no enumerable "every row alias"
+/// set to dispatch on, only the two orbital-core documents by name.
+const ROW_ALIAS_SIGILS: &[&str] = &["@entity.", "@item.", "@row."];
+
+/// Rewrite `@entity.<old>` / `@item.<old>` / `@row.<old>` reads to their
+/// `<new>` counterpart per the call-site `fields` remap map (G3, `docs/
+/// Almadar_Compiler_Gaps.md` §82 — `@item.<f>` widened the original
+/// `@entity.`-only scope). Mirrors the entity-root rewrite in
+/// `rewrite_identifiers` but targets the FIELD segment (the part after the
+/// sigil) rather than the entity root. Boundary-checked on the field name so
+/// `@entity.titleSuffix` is left alone when remapping `title`; nested paths
+/// (`@entity.title.x`) and array indices (`@entity.title[0]`) are preserved.
+/// Also rewrites the call-form of the same read, `(object/get <sigil>
+/// "<old>")` (an access-policy/guard comparison like `(object/get @entity
+/// csm)`, which never reaches the sigil-string case above since the field
+/// name sits in its own positional argument) — mirrors the shape
+/// `collect_extend_field_reads`/`check_object_get` already treat as the
+/// canonical `object/get` field-read recognizer, generalized from
+/// `@entity`-only to the same sigil set above. And rewrites a struct
+/// descriptor's `key`/`name`/`field` member (`{ field: "title", header:
+/// "Title" }` — a `ColumnSpec`/`AppSearchFieldSpec`-style column/form/metric
+/// entry) when its value matches — the SAME member-key set
+/// `collect_extend_field_reads`/`config_value_names_field` already treat as
+/// the canonical "this object entry names a field" shape, generalized here
+/// from detection to rewriting. Empty map = identity walk.
 pub(crate) fn rewrite_entity_field_paths(
     expr: &mut SExpression,
     field_subs: &HashMap<String, String>,
@@ -613,26 +642,137 @@ pub(crate) fn rewrite_entity_field_paths(
     match expr {
         SExpression::Null | SExpression::Bool(_) | SExpression::Number(_) => {}
         SExpression::String(s) => {
-            if let Some(rest) = s.strip_prefix("@entity.") {
+            for sigil in ROW_ALIAS_SIGILS {
+                let Some(rest) = s.strip_prefix(sigil) else {
+                    continue;
+                };
                 // Split off the first segment (field name), keeping any nested
                 // path / index suffix intact.
                 let split_at = rest.find(['.', '[']).unwrap_or(rest.len());
                 let (field, suffix) = rest.split_at(split_at);
                 if let Some(to) = field_subs.get(field) {
-                    *s = format!("@entity.{}{}", to, suffix);
+                    *s = format!("{sigil}{to}{suffix}");
                 }
+                break;
             }
         }
         SExpression::Array(items) => {
+            if let [SExpression::String(op), SExpression::String(root), SExpression::String(f), ..] =
+                items.as_mut_slice()
+            {
+                if op == "object/get" && ROW_ALIAS_SIGILS.contains(&format!("{root}.").as_str()) {
+                    if let Some(to) = field_subs.get(f.as_str()) {
+                        *f = to.clone();
+                    }
+                }
+            }
             for item in items.iter_mut() {
                 rewrite_entity_field_paths(item, field_subs);
             }
         }
         SExpression::Object(map) => {
+            for key in ["key", "name", "field"] {
+                if let Some(SExpression::String(v)) = map.get_mut(key) {
+                    if let Some(to) = field_subs.get(v.as_str()) {
+                        *v = to.clone();
+                    }
+                }
+            }
             for v in map.values_mut() {
                 rewrite_entity_field_paths(v, field_subs);
             }
         }
+    }
+}
+
+/// A `fields {}` rename must also reach a config knob's OWN default value
+/// when the default value itself IS the field-name reference: a bare
+/// string equal to the renamed field (`searchField : string = title`,
+/// `std-app-search`) or a bare list of them (`formFields : [string] =
+/// (title contactId amount stage closedAt)`, `std-board`) — G3, `docs/
+/// Almadar_Compiler_Gaps.md` §82. The struct/array-of-struct case
+/// (`columns : [ColumnSpec]`, `resultFields : [AppSearchFieldSpec]`,
+/// `metrics : [MetricSpec]`) is already covered by
+/// `rewrite_entity_field_paths`'s `key`/`name`/`field` member rule above,
+/// which every call site of this function also runs on the same default.
+///
+/// A call-site `config {}` override collapses the atom's own declared
+/// `field_type` to `"unknown"` on the materialized trait (a separate,
+/// pre-existing gap in the override fold, not this one — the type is
+/// genuinely unrecoverable here), so this dispatches on the DEFAULT
+/// VALUE's shape (bare string / bare array of strings), not the declared
+/// type string. Deliberately scoped to config DEFAULTS ONLY — never
+/// guards/effects, where a bare string literal is far more likely to be an
+/// unrelated comparison value than a field name. `field_subs`'s domain is
+/// the small, closed set of field names actually being renamed on THIS
+/// import, so the residual risk this accepts is a config default whose
+/// value happens to literally equal one of those few old names.
+pub(crate) fn rewrite_bare_field_name_config_default(
+    default: &mut SExpression,
+    field_subs: &HashMap<String, String>,
+) {
+    if field_subs.is_empty() {
+        return;
+    }
+    match default {
+        SExpression::String(s) => {
+            if !s.is_empty() && !s.starts_with('@') {
+                if let Some(to) = field_subs.get(s.as_str()) {
+                    *s = to.clone();
+                }
+            }
+        }
+        SExpression::Array(items) if items.iter().all(|i| matches!(i, SExpression::String(_))) => {
+            for item in items.iter_mut() {
+                if let SExpression::String(s) = item {
+                    if !s.is_empty() && !s.starts_with('@') {
+                        if let Some(to) = field_subs.get(s.as_str()) {
+                            *s = to.clone();
+                        }
+                    }
+                }
+            }
+        }
+        _ => {}
+    }
+}
+
+/// Read-only, POST-rewrite completeness check for G3's `fields {}` rename
+/// (`docs/Almadar_Compiler_Gaps.md` §82, rung 2): does `default` still
+/// contain a bare string exactly equal to one of the PRE-rename field
+/// names, in ANY position — not just the `key`/`name`/`field` member set
+/// `rewrite_entity_field_paths` rewrites, or the bare string/list shape
+/// `rewrite_bare_field_name_config_default` rewrites? A struct member
+/// spelled outside that set (e.g. a pattern-specific `sourceField`) is
+/// invisible to both rewriters while still holding a genuine leftover
+/// reference; called AFTER they run, so a match here means the rename
+/// could not be safely applied — `ORB_O_FIELD_RENAME_UNAPPLIED` turns that
+/// into a diagnostic instead of a silent no-op. Recurses through
+/// arrays/objects; a `@`-prefixed string is a live binding, never a
+/// leftover literal, and `field_subs`'s domain (the few old names actually
+/// being renamed) bounds how broad a match can be.
+pub(crate) fn collect_stale_field_name_literals(
+    default: &SExpression,
+    field_subs: &HashMap<String, String>,
+    out: &mut HashSet<String>,
+) {
+    match default {
+        SExpression::String(s) => {
+            if !s.is_empty() && !s.starts_with('@') && field_subs.contains_key(s.as_str()) {
+                out.insert(s.clone());
+            }
+        }
+        SExpression::Array(items) => {
+            for item in items {
+                collect_stale_field_name_literals(item, field_subs, out);
+            }
+        }
+        SExpression::Object(map) => {
+            for v in map.values() {
+                collect_stale_field_name_literals(v, field_subs, out);
+            }
+        }
+        _ => {}
     }
 }
 
@@ -1157,12 +1297,22 @@ pub(crate) fn rewrite_payload_entity_refs(
             if let Some(schema) = emit.payload_schema.as_mut() {
                 rewrite_fields(schema, entity_subs);
             }
+            if let Some(name) = emit.payload_entity.as_ref() {
+                if let Some(renamed) = entity_subs.get(name) {
+                    emit.payload_entity = Some(renamed.clone());
+                }
+            }
         }
     }
     if let Some(events) = trait_def.state_machine.events.as_mut() {
         for ev in events.iter_mut() {
             if let Some(schema) = ev.payload_schema.as_mut() {
                 rewrite_fields(schema, entity_subs);
+            }
+            if let Some(name) = ev.payload_entity.as_ref() {
+                if let Some(renamed) = entity_subs.get(name) {
+                    ev.payload_entity = Some(renamed.clone());
+                }
             }
         }
     }
@@ -1196,11 +1346,11 @@ pub(crate) fn rewrite_payload_entity_refs(
 /// Every entity-rename call site in this crate (orbital-import splice,
 /// aux-clone/`entities {}` remap, and the ordinary trait-ref `entity X`
 /// rebind) must call this alongside `rewrite_identifiers`/
-/// `rewrite_payload_entity_refs`, or the side-map goes stale: its keys keep
-/// naming an entity the renamed trait no longer declares, and its values
-/// keep pointing at that entity's OLD id — both of which
-/// `identity_normalize.rs` (and `inline/mod.rs`'s documented "side-maps
-/// always cover their nodes" invariant) assume never happens.
+/// `rewrite_payload_entity_refs`/`rewrite_entity_typed_config_values`, or the
+/// side-map goes stale: its keys keep naming an entity the renamed trait no
+/// longer declares, and its values keep pointing at that entity's OLD id —
+/// both of which `identity_normalize.rs` (and `inline/mod.rs`'s documented
+/// "side-maps always cover their nodes" invariant) assume never happens.
 pub(crate) fn rewrite_entity_ref_ids(
     trait_def: &mut TraitDefinition,
     entity_subs: &HashMap<String, String>,
@@ -1216,6 +1366,46 @@ pub(crate) fn rewrite_entity_ref_ids(
         out.insert(name, id);
     }
     trait_def.entity_ref_ids = (!out.is_empty()).then_some(out);
+}
+
+/// Rewrite a trait's `config[].default` VALUE for every knob whose DECLARED
+/// type is `entity` (`targetEntity : entity`, `Almadar_LOLO.md` §12) through
+/// the same `entity_subs` map every other entity-rename call site applies —
+/// dispatch is on `field.field_type`, never on the knob's NAME (G2,
+/// `docs/Almadar_Compiler_Gaps.md` §82: `entity <Name>` renamed the primary
+/// but left `targetEntity: TimeOff` naming the pre-rename upstream entity).
+/// An `entity`-typed knob's default is a bare entity-name string, so a plain
+/// substitution is the whole rewrite. A rewritten field's V4-W5 dual-carry
+/// `ref_id` (`identity_normalize.rs`) is refreshed to the RENAMED entity's
+/// current id from `entity_ids` (or cleared, same "no reliable id to carry"
+/// rule `rewrite_entity_ref_ids` already applies) — never left pointing at
+/// the pre-rename upstream entity's id. Belongs alongside
+/// `rewrite_identifiers`/`rewrite_payload_entity_refs`/`rewrite_entity_ref_ids`
+/// at every call site that builds an `entity_subs` map — the orbital-import
+/// splice's `rename_entities_in_trait` and the ordinary trait-ref `entity X`
+/// rebind's `apply_overrides_to_trait` both call this now, one owner.
+pub(crate) fn rewrite_entity_typed_config_values(
+    trait_def: &mut TraitDefinition,
+    entity_subs: &HashMap<String, String>,
+    entity_ids: &HashMap<String, String>,
+) {
+    if entity_subs.is_empty() {
+        return;
+    }
+    let Some(config) = trait_def.config.as_mut() else {
+        return;
+    };
+    for field in config.values_mut() {
+        if field.field_type != "entity" {
+            continue;
+        }
+        if let Some(SExpression::String(name)) = field.default.as_ref() {
+            if let Some(to) = entity_subs.get(name) {
+                field.default = Some(SExpression::String(to.clone()));
+                field.ref_id = entity_ids.get(to).cloned();
+            }
+        }
+    }
 }
 
 /// Increment 3-I (`docs/Almadar_LOLO.md` ~line 315/1387): monomorphize the
@@ -1305,6 +1495,14 @@ pub(crate) fn resolve_type_param_sentinels(
     let mut changed = false;
     if let Some(emits) = trait_def.emits.as_mut() {
         for emit in emits.iter_mut() {
+            if resolve_payload_entity_schema(
+                emit.payload_entity.as_deref(),
+                &mut emit.payload_schema,
+                entities_by_name,
+            ) {
+                changed = true;
+                continue;
+            }
             if let Some(schema) = emit.payload_schema.as_mut() {
                 if flatten_bare_entity_payload(schema, entity_def, &subs) {
                     changed = true;
@@ -1316,6 +1514,14 @@ pub(crate) fn resolve_type_param_sentinels(
     }
     if let Some(events) = trait_def.state_machine.events.as_mut() {
         for ev in events.iter_mut() {
+            if resolve_payload_entity_schema(
+                ev.payload_entity.as_deref(),
+                &mut ev.payload_schema,
+                entities_by_name,
+            ) {
+                changed = true;
+                continue;
+            }
             if let Some(schema) = ev.payload_schema.as_mut() {
                 if flatten_bare_entity_payload(schema, entity_def, &subs) {
                     changed = true;
@@ -1326,6 +1532,40 @@ pub(crate) fn resolve_type_param_sentinels(
         }
     }
     changed
+}
+
+/// G4 (`Almadar_Compiler_Gaps.md` §82): re-derive an entity-shaped payload
+/// (`EmitDefinition`/`EventDefinition.payload_entity: Some(name)` — the
+/// bare `type X = Event <EntityName>` alias form, `orbital-lolo`'s
+/// `bare_entity_alias_name`) from that entity's CURRENT field set —
+/// `entities_by_name` is this trait's own orbital, already post
+/// `fields{}`-rename / `extend{}` by the time this runs (called after
+/// `inline_orbital` fully resolves the orbital, see
+/// `resolve_orbital_type_param_sentinels`). Without this, an orbital
+/// import's or trait-reference's `fields{}`/`extend{}` override renamed or
+/// grew the entity but the payload flattened at the ATOM's OWN compile time
+/// kept describing the entity's ORIGINAL shape — `persist`'s actually-
+/// emitted fields then disagree with the declared `payloadSchema`
+/// (`ORB_EMIT_PAYLOAD_NOT_PRODUCED`).
+///
+/// Orthogonal to the `@entity`/`$<param>` sentinel mechanism below (a
+/// payload never carries both markers), so this always takes precedence
+/// when present and skips the sentinel walk entirely for this field.
+/// `false` (no-op, `payload_schema` untouched) when `payload_entity` is
+/// `None` or names an entity gone from this orbital's set.
+fn resolve_payload_entity_schema(
+    payload_entity: Option<&str>,
+    payload_schema: &mut Option<Vec<PayloadField>>,
+    entities_by_name: &HashMap<String, EntityDefinition>,
+) -> bool {
+    let Some(name) = payload_entity else {
+        return false;
+    };
+    let Some(entity) = entities_by_name.get(name) else {
+        return false;
+    };
+    *payload_schema = Some(entity_fields_to_payload_fields(entity));
+    true
 }
 
 /// Canonicalize a BARE entity payload so the generic spelling produces the same
@@ -2445,5 +2685,136 @@ mod payload_entity_marker_tests {
         subs.insert("Note".to_string(), "LocalNote".to_string());
         rewrite_payload_entity_refs(&mut td, &subs);
         assert_eq!(payload_fields(&td)[0].entity.as_deref(), Some("LocalNote"));
+    }
+
+    fn trait_with_emit(
+        event: &str,
+        payload_entity: Option<&str>,
+        schema: serde_json::Value,
+    ) -> TraitDefinition {
+        serde_json::from_value(json!({
+            "name": "T",
+            "linkedEntity": "Item",
+            "category": "interaction",
+            "emits": [ { "event": event, "payloadEntity": payload_entity, "payloadSchema": schema } ],
+            "stateMachine": { "states": [ { "name": "idle", "isInitial": true } ], "transitions": [] }
+        }))
+        .expect("trait-with-emit fixture deserializes")
+    }
+
+    fn entity_with_fields(
+        name: &str,
+        fields: &[(&str, &str)],
+    ) -> orbital_core::schema::EntityDefinition {
+        serde_json::from_value(json!({
+            "name": name,
+            "persistence": "persistent",
+            "fields": fields.iter().map(|(n, t)| json!({ "name": n, "type": t })).collect::<Vec<_>>()
+        }))
+        .expect("entity_with_fields fixture deserializes")
+    }
+
+    /// G4 (`Almadar_Compiler_Gaps.md` §82): the core of the fix. An emit
+    /// stamped `payloadEntity: "Item"` (the bare `type X = Event Item`
+    /// alias form) carries a STALE flattened `payloadSchema` — frozen at
+    /// the atom's own compile time, before a downstream orbital-import's
+    /// `fields{}` rename (`hourlyRate` -> `billRate`) and `extend{}`
+    /// addition (`workspaceId`) touched the entity. `resolve_type_param_
+    /// sentinels` must re-derive the schema from `entities_by_name["Item"]`
+    /// — the entity as it stands AFTER those overrides — not leave the
+    /// frozen list in place.
+    #[test]
+    fn payload_entity_marker_recomputes_schema_from_the_entitys_current_fields() {
+        let mut td = trait_with_emit(
+            "ItemUpdated",
+            Some("Item"),
+            json!([ { "name": "hourlyRate", "type": "number" } ]),
+        );
+        let item = entity_with_fields(
+            "Item",
+            &[
+                ("id", "string"),
+                ("billRate", "number"),
+                ("workspaceId", "string"),
+            ],
+        );
+        let mut entities_by_name = HashMap::new();
+        entities_by_name.insert("Item".to_string(), item);
+        let changed =
+            resolve_type_param_sentinels(&mut td, None, &entities_by_name, &BTreeMap::new());
+        assert!(changed);
+        let emit = &td.emits.as_ref().expect("emits carried")[0];
+        let names: Vec<&str> = emit
+            .payload_schema
+            .as_ref()
+            .expect("payloadSchema carried")
+            .iter()
+            .map(|f| f.name.as_str())
+            .collect();
+        assert_eq!(
+            names,
+            vec!["id", "billRate", "workspaceId"],
+            "the stale 'hourlyRate' field must be gone, replaced by the entity's CURRENT field set"
+        );
+    }
+
+    /// End-to-end with a rename in between: the `payload_entity` marker
+    /// itself must follow an entity rename (`rewrite_payload_entity_refs`,
+    /// the same owner every other entity marker flows through — orbital-
+    /// import's unconditional prefix, or an outer `-> Entity` rebind)
+    /// BEFORE the recompute above looks it up, or the lookup misses by
+    /// name and the schema is silently left stale.
+    #[test]
+    fn payload_entity_marker_follows_a_rename_then_recomputes() {
+        let mut td = trait_with_emit(
+            "ItemUpdated",
+            Some("Item"),
+            json!([ { "name": "hourlyRate", "type": "number" } ]),
+        );
+        let mut subs = HashMap::new();
+        subs.insert("Item".to_string(), "LocalItem".to_string());
+        rewrite_payload_entity_refs(&mut td, &subs);
+        assert_eq!(
+            td.emits.as_ref().unwrap()[0].payload_entity.as_deref(),
+            Some("LocalItem")
+        );
+
+        let local_item =
+            entity_with_fields("LocalItem", &[("id", "string"), ("billRate", "number")]);
+        let mut entities_by_name = HashMap::new();
+        entities_by_name.insert("LocalItem".to_string(), local_item);
+        resolve_type_param_sentinels(&mut td, None, &entities_by_name, &BTreeMap::new());
+        let names: Vec<&str> = td.emits.as_ref().unwrap()[0]
+            .payload_schema
+            .as_ref()
+            .unwrap()
+            .iter()
+            .map(|f| f.name.as_str())
+            .collect();
+        assert_eq!(names, vec!["id", "billRate"]);
+    }
+
+    /// Defensive fallback: a `payload_entity` naming an entity NOT in this
+    /// orbital's set (should not happen in practice — every stamp names the
+    /// trait's own closure) leaves the payload untouched rather than
+    /// panicking or clearing it.
+    #[test]
+    fn payload_entity_marker_naming_an_unknown_entity_is_left_untouched() {
+        let mut td = trait_with_emit(
+            "ItemUpdated",
+            Some("Ghost"),
+            json!([ { "name": "hourlyRate", "type": "number" } ]),
+        );
+        let changed =
+            resolve_type_param_sentinels(&mut td, None, &HashMap::new(), &BTreeMap::new());
+        assert!(!changed);
+        let names: Vec<&str> = td.emits.as_ref().unwrap()[0]
+            .payload_schema
+            .as_ref()
+            .unwrap()
+            .iter()
+            .map(|f| f.name.as_str())
+            .collect();
+        assert_eq!(names, vec!["hourlyRate"]);
     }
 }

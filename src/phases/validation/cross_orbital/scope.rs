@@ -246,6 +246,7 @@ mod tests {
                 tier: None,
                 payload_schema: None,
                 event_id: None,
+                payload_entity: None,
             }]),
             listens: None,
             state_machine: StateMachine {

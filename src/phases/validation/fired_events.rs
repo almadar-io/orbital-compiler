@@ -484,6 +484,7 @@ mod tests {
             tier: None,
             scope: None,
             payload_schema: None,
+            payload_entity: None,
         }]);
         let edit = trait_rendering_control("ArticleEdit", "EDIT");
 
@@ -522,6 +523,7 @@ mod tests {
             tier: None,
             scope: None,
             payload_schema: None,
+            payload_entity: None,
         }]);
         let edit = trait_rendering_control("ArticleEdit", "EDIT");
 

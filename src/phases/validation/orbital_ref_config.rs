@@ -225,6 +225,26 @@ pub fn validate_orbital_ref_diagnostics(
                 )),
             );
         }
+
+        for (position, name) in &diag.field_rename_unapplied {
+            result.add_error(
+                ValidationError::error(
+                    ErrorCode::OrbitalRefFieldRenameUnapplied,
+                    position.clone(),
+                    format!(
+                        "`fields {{}}` rename on '{}' left '{}' unapplied at {} — the pre-rename \
+                         upstream field name is still referenced here.",
+                        diag.reference, name, position
+                    ),
+                )
+                .with_suggestion(format!(
+                    "'{}' is a struct member this crate does not yet recognize as a field-name \
+                     reference (outside the `key`/`name`/`field` set); rename it by hand to the \
+                     `fields {{}}` target, or widen the recognized member set.",
+                    name
+                )),
+            );
+        }
     }
 
     result
@@ -271,6 +291,7 @@ fn is_orbital_ref_root(code: ErrorCode) -> bool {
             | ErrorCode::OrbitalRefEntityUnknownKey
             | ErrorCode::OrbitalRefEntityTargetUnknown
             | ErrorCode::OrbitalRefPageUnknownPath
+            | ErrorCode::OrbitalRefFieldRenameUnapplied
             | ErrorCode::UsesConfigUnknownKey
     )
 }
@@ -370,6 +391,14 @@ pub fn suppress_cascaded_by_orbital_ref(
                     .flat_map(|(up_name, target)| [up_name.clone(), target.clone()]),
             );
             entities.extend(diag.entity_unknown_key.iter().cloned());
+            // G3: a stale field name a `fields {}` rename left unapplied is
+            // the same kind of root cause — a downstream validator (e.g.
+            // `ORB_S_ACCESS_POLICY_UNKNOWN_ENTITY_FIELD`) that independently
+            // notices the SAME field name is missing is re-reporting what
+            // `ORB_O_FIELD_RENAME_UNAPPLIED` already named, not an
+            // independent finding. `quoted_entity`'s matcher is generic over
+            // any quoted token, so no separate field-matching path is needed.
+            entities.extend(diag.field_rename_unapplied.iter().map(|(_, f)| f.clone()));
             Site {
                 orbital_index,
                 entities,

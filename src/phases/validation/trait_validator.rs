@@ -998,6 +998,7 @@ mod tests {
                     synonyms: None,
                     tier: None,
                     payload_schema: None,
+                    payload_entity: None,
                 },
                 EventDefinition {
                     id: None,
@@ -1007,6 +1008,7 @@ mod tests {
                     synonyms: None,
                     tier: None,
                     payload_schema: None,
+                    payload_entity: None,
                 },
             ]),
             transitions: vec![

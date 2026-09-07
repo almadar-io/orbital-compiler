@@ -60,6 +60,7 @@ fn declared_emit_with_payload(event: &str, fields: Vec<PayloadField>) -> EmitDef
         scope: Some(EventScope::Internal),
         payload_schema: Some(fields),
         event_id: None,
+        payload_entity: None,
     }
 }
 

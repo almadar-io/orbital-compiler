@@ -1203,6 +1203,7 @@ mod tests {
                 tier: None,
                 scope: Some(EventScope::External),
                 payload_schema: None,
+                payload_entity: None,
             }]),
             listens: None,
             state_machine: StateMachine {
@@ -1395,6 +1396,7 @@ mod tests {
                 tier: None,
                 scope: None,
                 payload_schema: None,
+                payload_entity: None,
             }]);
             def.config = None;
             def.state_machine.states = vec![orbital_core::schema::StateDefinition {

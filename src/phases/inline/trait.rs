@@ -6,8 +6,8 @@ use super::identity_normalize::rewrite_trait_embed_tokens;
 use super::rewrite::{
     apply_inline_config_defaults, mark_literal_list_in_place, record_config_provenance,
     rewrite_config_bindings, rewrite_entity_field_paths, rewrite_entity_ref_ids,
-    rewrite_identifiers, rewrite_payload_entity_refs, rewrite_trait_event_fields,
-    stale_entity_rebind_subs,
+    rewrite_entity_typed_config_values, rewrite_identifiers, rewrite_payload_entity_refs,
+    rewrite_trait_event_fields, stale_entity_rebind_subs,
 };
 use super::InlineError;
 use orbital_core::schema::{
@@ -97,6 +97,12 @@ pub(crate) fn apply_overrides_to_trait(
     // the atom's original id — same rule the orbital-import splice enforces
     // in `phases/inline/orbital.rs::rename_entities_in_trait`.
     rewrite_entity_ref_ids(trait_def, &entity_subs, entity_ids);
+    // G2 (`docs/Almadar_Compiler_Gaps.md` §82): a config knob declared
+    // `: entity` holds an entity-name VALUE the identifier walk below never
+    // reaches. Runs BEFORE step 3c snapshots `trait_def.config` defaults
+    // into `effective_config` — otherwise the `@config.<knob>` body
+    // substitution at step 6 would still bake in the pre-rebind name.
+    rewrite_entity_typed_config_values(trait_def, &entity_subs, entity_ids);
 
     // 3. Build the event substitution map directly from the caller args.
     //    Empty entries (or self-mapped no-ops) are pruned to keep the walker
@@ -2407,6 +2413,7 @@ mod entity_id_reader_tests {
                 synonyms: None,
                 tier: None,
                 payload_schema: Some(vec![payload_field(f)]),
+                payload_entity: None,
             }]
         });
         TraitDefinition {

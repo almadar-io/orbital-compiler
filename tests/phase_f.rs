@@ -51,6 +51,7 @@ fn emit_def(event: &str, fields: Vec<PayloadField>) -> EmitDefinition {
             Some(fields)
         },
         event_id: None,
+        payload_entity: None,
     }
 }
 
@@ -218,6 +219,30 @@ fn schema_with_two_emitters(
     a_fields: Vec<PayloadField>,
     b_fields: Vec<PayloadField>,
 ) -> OrbitalSchema {
+    schema_with_two_emitters_and_listener_source(
+        event,
+        a_fields,
+        b_fields,
+        ListenSource::Orbital {
+            orbital: "TestOrbital".to_string(),
+            trait_name: "EmitterA".to_string(),
+            orbital_id: None,
+            trait_id: None,
+        },
+    )
+}
+
+/// Same two-conflicting-emitters shape as [`schema_with_two_emitters`], with
+/// the `ListenerOrbital.Listener` trait's subscription source parameterized
+/// — lets the reachability tests below (gap #82 G6) exercise a `Trait`-kind
+/// pin and an `Any` wildcard against the identical emitter group, without
+/// three copies of this fixture.
+fn schema_with_two_emitters_and_listener_source(
+    event: &str,
+    a_fields: Vec<PayloadField>,
+    b_fields: Vec<PayloadField>,
+    listener_source: ListenSource,
+) -> OrbitalSchema {
     let mk_trait = |name: &str,
                     emits: Option<Vec<EmitDefinition>>,
                     listens: Option<Vec<ListenDefinition>>|
@@ -290,12 +315,7 @@ fn schema_with_two_emitters(
                 tier: None,
                 payload_mapping: None,
                 guard: None,
-                source: Some(ListenSource::Orbital {
-                    orbital: "TestOrbital".to_string(),
-                    trait_name: "EmitterA".to_string(),
-                    orbital_id: None,
-                    trait_id: None,
-                }),
+                source: Some(listener_source.clone()),
                 event_id: None,
                 triggers_id: None,
             }]),
@@ -395,6 +415,374 @@ fn f2_matching_emitters_pass() {
     assert!(
         !hit,
         "F.2: matching emitters should not surface CrossEmitterDeclaredPayloadMismatch. errors={:?}",
+        result.errors.iter().map(|e| &e.code).collect::<Vec<_>>()
+    );
+}
+
+// ----------------------------------------------------------------------
+// Gap #82 G6 — reachability precision (`is_cross_orbital_reachable`).
+// ----------------------------------------------------------------------
+
+/// (a) A `Trait`-pinned listener names a trait that is NOT one of the
+/// group's actual emitters (it lives in the listener's own orbital, which
+/// is neither `EmitterA` nor `EmitterB`'s home). Before the fix, an absent
+/// same-orbital match fell through to "assume reachable from anywhere in
+/// the schema" — the exact false positive gap #82 G6 named
+/// (`AssetLibraryOrbital.DocumentReviewDecision` pinned to
+/// `DocumentApprovalInbox`, a trait with no `emits[]`, was credited with
+/// `ApprovalRequestOrbital`'s unrelated `APPROVE` conflict). The runtime's
+/// `buildSourceMatcher` (`packages/almadar-runtime/src/identity/
+/// routing.ts`) never routes a `Trait`-pinned listen across orbitals at
+/// all, so this must never fire regardless of what the named trait does.
+#[test]
+fn f2_trait_pinned_listener_in_other_orbital_not_reachable() {
+    let schema = schema_with_two_emitters_and_listener_source(
+        "X",
+        vec![
+            payload_field("a", "string", true),
+            payload_field("b", "string", true),
+        ],
+        vec![payload_field("a", "string", true)],
+        ListenSource::Trait {
+            trait_name: "ConfigDrivenHandler".to_string(),
+            trait_id: None,
+        },
+    );
+    let result = run(&schema);
+    let hit = result
+        .errors
+        .iter()
+        .chain(result.warnings.iter())
+        .any(|e| matches!(e.code, ErrorCode::CrossEmitterDeclaredPayloadMismatch));
+    assert!(
+        !hit,
+        "G6(a): a Trait-pinned listener naming a trait that isn't one of the \
+         conflicting emitters must not make them reachable. errors={:?}",
+        result.errors.iter().map(|e| &e.code).collect::<Vec<_>>()
+    );
+}
+
+/// (b) The narrowing predicate must not go blind: an UNPINNED (`*`)
+/// listener genuinely can receive either emitter's shape through the same
+/// subscription, so a real conflict must still fire.
+#[test]
+fn f2_wildcard_listener_still_reachable_across_orbitals() {
+    let schema = schema_with_two_emitters_and_listener_source(
+        "X",
+        vec![
+            payload_field("a", "string", true),
+            payload_field("b", "string", true),
+        ],
+        vec![payload_field("a", "string", true)],
+        ListenSource::Any,
+    );
+    let result = run(&schema);
+    let hit = result
+        .errors
+        .iter()
+        .chain(result.warnings.iter())
+        .any(|e| matches!(e.code, ErrorCode::CrossEmitterDeclaredPayloadMismatch));
+    assert!(
+        hit,
+        "G6(b): a wildcard listener must still see a genuine cross-orbital \
+         payload conflict. errors={:?}",
+        result.errors.iter().map(|e| &e.code).collect::<Vec<_>>()
+    );
+}
+
+// ----------------------------------------------------------------------
+// Gap #82 G6 — render-emitter payload derivation (`render_emitter_payload`).
+// ----------------------------------------------------------------------
+
+/// A render-ui `["render-ui", "main", { type, action, actionPayload }]`
+/// effect — the shape a materialized `ButtonRender`-style embed carries
+/// (`packages/almadar-std/behaviors/lolo/ui/core/atoms/ui-button.lolo`:
+/// `emits { @config.action -> external {} }` pairs with `actionPayload :
+/// @payload @config.action`, registry `payloadFor: "action"`).
+fn button_action_payload_effect(event: &str, payload_key: &str, entity_field: &str) -> SExpression {
+    let mut node = HashMap::new();
+    node.insert("type".to_string(), s("button"));
+    node.insert("action".to_string(), s(event));
+    let mut payload = HashMap::new();
+    payload.insert(
+        payload_key.to_string(),
+        s(&format!("@entity.{}", entity_field)),
+    );
+    node.insert("actionPayload".to_string(), SExpression::Object(payload));
+    SExpression::Array(vec![s("render-ui"), s("main"), SExpression::Object(node)])
+}
+
+/// A trait whose only production of `event` is the rendered button above —
+/// its OWN `emits[]` entry is left empty, exactly like `ui-button`'s atom
+/// declaration (the event name is only known at the call site).
+fn render_button_trait(
+    name: &str,
+    event: &str,
+    payload_key: &str,
+    entity_field: &str,
+) -> TraitDefinition {
+    TraitDefinition {
+        effect_row: None,
+        type_params: None,
+        type_args: None,
+        name: name.to_string(),
+        entity_rebindable: None,
+        entity_contract: None,
+        category: None,
+        capabilities: vec![],
+        linked_entity: Some("Task".to_string()),
+        description: None,
+        state_machine: StateMachine {
+            states: vec![StateDefinition {
+                name: "idle".to_string(),
+                is_initial: Some(true),
+                is_terminal: None,
+                description: None,
+                time_bound_ms: None,
+            }],
+            events: Some(vec![]),
+            transitions: vec![TransitionDefinition {
+                event_id: None,
+                from: StringOrArray::Single("idle".to_string()),
+                to: "idle".to_string(),
+                event: "INIT".to_string(),
+                guard: None,
+                effects: Some(vec![button_action_payload_effect(
+                    event,
+                    payload_key,
+                    entity_field,
+                )]),
+            }],
+        },
+        emits: Some(vec![emit_def(event, vec![])]),
+        listens: None,
+        ticks: None,
+        config: None,
+        data_entities: None,
+        scope: None,
+        source_behavior: None,
+        source_entity_definition: None,
+        id: None,
+        linked_entity_id: None,
+        entity_ref_ids: None,
+        trait_embed_ids: None,
+    }
+}
+
+/// A plain declaring trait (no render, an ordinary `emits[]` entry) plus
+/// the render-only button trait above, both in `TestOrbital`, reached by a
+/// wildcard listener in a second orbital (same F.2.6 narrowing precondition
+/// `schema_with_two_emitters` uses).
+fn schema_with_render_action_payload(
+    event: &str,
+    declared_fields: Vec<PayloadField>,
+) -> OrbitalSchema {
+    let mk_plain = |name: &str, fields: Vec<PayloadField>| -> TraitDefinition {
+        TraitDefinition {
+            effect_row: None,
+            type_params: None,
+            type_args: None,
+            name: name.to_string(),
+            entity_rebindable: None,
+            entity_contract: None,
+            category: None,
+            capabilities: vec![],
+            linked_entity: Some("Task".to_string()),
+            description: None,
+            state_machine: StateMachine {
+                states: vec![StateDefinition {
+                    name: "idle".to_string(),
+                    is_initial: Some(true),
+                    is_terminal: None,
+                    description: None,
+                    time_bound_ms: None,
+                }],
+                events: Some(vec![]),
+                transitions: vec![TransitionDefinition {
+                    event_id: None,
+                    from: StringOrArray::Single("idle".to_string()),
+                    to: "idle".to_string(),
+                    event: "INIT".to_string(),
+                    guard: None,
+                    effects: None,
+                }],
+            },
+            emits: Some(vec![emit_def(event, fields)]),
+            listens: None,
+            ticks: None,
+            config: None,
+            data_entities: None,
+            scope: None,
+            source_behavior: None,
+            source_entity_definition: None,
+            id: None,
+            linked_entity_id: None,
+            entity_ref_ids: None,
+            trait_embed_ids: None,
+        }
+    };
+    let mk_listener_trait = |listens: Vec<ListenDefinition>| -> TraitDefinition {
+        TraitDefinition {
+            effect_row: None,
+            type_params: None,
+            type_args: None,
+            name: "Listener".to_string(),
+            entity_rebindable: None,
+            entity_contract: None,
+            category: None,
+            capabilities: vec![],
+            linked_entity: Some("Task".to_string()),
+            description: None,
+            state_machine: StateMachine {
+                states: vec![StateDefinition {
+                    name: "idle".to_string(),
+                    is_initial: Some(true),
+                    is_terminal: None,
+                    description: None,
+                    time_bound_ms: None,
+                }],
+                events: Some(vec![]),
+                transitions: vec![TransitionDefinition {
+                    event_id: None,
+                    from: StringOrArray::Single("idle".to_string()),
+                    to: "idle".to_string(),
+                    event: "INIT".to_string(),
+                    guard: None,
+                    effects: None,
+                }],
+            },
+            emits: None,
+            listens: Some(listens),
+            ticks: None,
+            config: None,
+            data_entities: None,
+            scope: None,
+            source_behavior: None,
+            source_entity_definition: None,
+            id: None,
+            linked_entity_id: None,
+            entity_ref_ids: None,
+            trait_embed_ids: None,
+        }
+    };
+
+    let listener_orbital = Orbital {
+        types: None,
+        name: "ListenerOrbital".to_string(),
+        uses: None,
+        expects: None,
+        theme: None,
+        services: None,
+        entity: EntityRef::Inline(task_entity()),
+        auxiliary_entities: None,
+        traits: vec![TraitReference::Inline(mk_listener_trait(vec![
+            ListenDefinition {
+                event: event.to_string(),
+                triggers: Some("INIT".to_string()),
+                scope: None,
+                description: None,
+                synonyms: None,
+                tier: None,
+                payload_mapping: None,
+                guard: None,
+                source: Some(ListenSource::Any),
+                event_id: None,
+                triggers_id: None,
+            },
+        ]))],
+        pages: None,
+        emits: None,
+        listens: None,
+        exposes: None,
+        domain_context: None,
+        design: None,
+        id: None,
+        reference: None,
+        config: None,
+    };
+    OrbitalSchema {
+        theme: None,
+        name: "TestApp".to_string(),
+        version: Some("0.1.0".to_string()),
+        description: None,
+        orbitals: vec![
+            Orbital {
+                types: None,
+                name: "TestOrbital".to_string(),
+                uses: None,
+                expects: None,
+                theme: None,
+                services: None,
+                entity: EntityRef::Inline(task_entity()),
+                auxiliary_entities: None,
+                traits: vec![
+                    TraitReference::Inline(mk_plain("DeclaredEmitter", declared_fields)),
+                    TraitReference::Inline(render_button_trait("RenderButton", event, "id", "id")),
+                ],
+                pages: None,
+                emits: None,
+                listens: None,
+                exposes: None,
+                domain_context: None,
+                design: None,
+                id: None,
+                reference: None,
+                config: None,
+            },
+            listener_orbital,
+        ],
+        metadata: None,
+        ledger: None,
+        schema_version: None,
+        config: None,
+    }
+}
+
+/// (c) `RenderButton`'s own `emits[]` entry for `APPROVE` is empty — like
+/// `ui-button`'s atom declaration — but its render-ui `actionPayload : {
+/// id: @entity.id }` sends `{ id }`, typed `string!` off `Task.id`. That
+/// matches `DeclaredEmitter`'s honestly-declared `APPROVE { id: string! }`
+/// exactly, so no mismatch should surface. Before the fix, the empty
+/// declared schema was compared literally and this fired
+/// `CrossEmitterDeclaredPayloadMismatch` (the exact false positive latent
+/// in `std-approval-request`, per gap #82 G6).
+#[test]
+fn f2_render_action_payload_matches_declared_no_mismatch() {
+    let schema =
+        schema_with_render_action_payload("APPROVE", vec![payload_field("id", "string", true)]);
+    let result = run(&schema);
+    let hit = result
+        .errors
+        .iter()
+        .chain(result.warnings.iter())
+        .any(|e| matches!(e.code, ErrorCode::CrossEmitterDeclaredPayloadMismatch));
+    assert!(
+        !hit,
+        "G6(c): a button's actionPayload-derived {{id}} must be recognised as \
+         matching the declared APPROVE {{id: string!}} shape. errors={:?}",
+        result.errors.iter().map(|e| &e.code).collect::<Vec<_>>()
+    );
+}
+
+/// Derivation must not blind the check to a REAL divergence: `Task` has no
+/// `title` field, so `RenderButton`'s `actionPayload: { id: @entity.id }`
+/// still resolves to `{ id: string! }` while `DeclaredEmitter` now declares
+/// an unrelated `{ label: string! }` — genuinely different shapes, and the
+/// mismatch must still fire.
+#[test]
+fn f2_render_action_payload_mismatch_still_detected() {
+    let schema =
+        schema_with_render_action_payload("APPROVE", vec![payload_field("label", "string", true)]);
+    let result = run(&schema);
+    let hit = result
+        .errors
+        .iter()
+        .chain(result.warnings.iter())
+        .any(|e| matches!(e.code, ErrorCode::CrossEmitterDeclaredPayloadMismatch));
+    assert!(
+        hit,
+        "G6: a genuine divergence between a render-derived payload and the \
+         declared one must still be reported. errors={:?}",
         result.errors.iter().map(|e| &e.code).collect::<Vec<_>>()
     );
 }

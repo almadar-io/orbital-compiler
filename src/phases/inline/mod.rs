@@ -56,7 +56,8 @@ pub use r#trait::TraitRefConfigDiagnostic;
 // Diagnostics collected while resolving `orbital X = Alias.orbitals.Y { … }`
 // references — re-exported so `phases::validation` (W4-R) can name them.
 use orbital::{
-    fold_declared_config_override, materialized_primary_entity, resolve_orbital_reference,
+    fold_declared_config_override, materialized_primary_entity, materialized_trait_subs,
+    resolve_orbital_reference, SiblingImportInfo,
 };
 pub use orbital::{OrbitalRefDiagnostic, UsesConfigDiagnostic};
 use rewrite::{apply_inline_config_defaults, trait_ref_name};
@@ -395,6 +396,18 @@ pub fn inline_schema_with_orbital_diagnostics(
         source_path,
     ));
 
+    // G1 (`docs/Almadar_Compiler_Gaps.md` §82): same order-free precompute,
+    // for listen-source rewriting instead of entity ids — built once, before
+    // any orbital in `schema` resolves, so a listen source naming ANY
+    // reference-form orbital of this schema resolves regardless of
+    // declaration order.
+    let listen_source_targets = precompute_reference_form_listen_targets(
+        &schema.orbitals,
+        &mut loader,
+        &mut chain,
+        source_path,
+    );
+
     // Process each orbital, recording the names the auto-pull loop added and
     // the config→knob provenance for substituted render-ui props.
     let mut pulled_by_orbital: Vec<(usize, Vec<String>)> = Vec::new();
@@ -419,6 +432,7 @@ pub fn inline_schema_with_orbital_diagnostics(
             diagnostics,
             schema_config.as_ref(),
             &consumer_entity_ids,
+            &listen_source_targets,
             orbital_ref_diagnostics,
             uses_config_diagnostics,
             Some(idx),
@@ -506,6 +520,16 @@ pub fn inline_schema_with_orbital_diagnostics(
     // reconcile the ledger; runs after the source-ledger merge so retired rows'
     // metadata is copyable onto the derived rows. No shared ids → no-op.
     event_id_hygiene::uniquify_instance_event_ids(schema);
+
+    // G5 (`docs/Almadar_Compiler_Gaps.md` §82): an orbital reference's
+    // `events { OLD: NEW }` rename changes every event KEY inside
+    // `resolve_orbital_reference`, which has no `schema.ledger` access (it
+    // operates on one `Orbital`) — so a renamed declaration's id keeps the
+    // ledger's PRE-rename `curName`, tripping `ORB_ID_NAME_MISMATCH`. Runs
+    // right after the sibling-instance id-hygiene pass above so both see a
+    // ledger-present, fully-inlined schema; a schema with no `events {}}`
+    // orbital reference is a no-op.
+    reconcile_orbital_ref_event_id_renames(schema, orbital_ref_diagnostics.as_slice());
 
     // An imported auxiliary entity never displaces a consumer's own entity.
     drop_unreferenced_colliding_auxiliaries(schema);
@@ -823,6 +847,57 @@ fn precompute_reference_form_primary_ids(
     out
 }
 
+/// G1 (`docs/Almadar_Compiler_Gaps.md` §82): every reference-form orbital
+/// among `orbitals`, keyed by (upstream alias, upstream orbital name),
+/// mapped to that import's local name + every kept trait's final
+/// name/derived id (`materialized_trait_subs`) — built ONCE, order-free,
+/// straight off each reference's UPSTREAM schema, the same shallow-load
+/// pattern `precompute_reference_form_primary_ids` already uses (same
+/// caching, same best-effort skip on an unresolvable reference — the REAL
+/// `resolve_orbital_reference` call moments later still surfaces the actual
+/// error for it). Consulted by `rewrite_listen_sources` so an `Orbital`-kind
+/// listen source naming ANY reference-form import of the SAME alias
+/// re-points at that import's local name/trait, whichever import — this one
+/// or a sibling — was declared first. Takes `&[Orbital]` (not `&OrbitalSchema`)
+/// so it can scope to either the TOP-LEVEL schema's own orbitals or one
+/// nested alias's own `inlined_orbitals` batch — each is its own "schema" of
+/// sibling imports for this purpose.
+fn precompute_reference_form_listen_targets(
+    orbitals: &[Orbital],
+    loader: &mut ExternalOrbitalLoader,
+    chain: &mut ImportChain,
+    source_path: Option<&Path>,
+) -> HashMap<(String, String), SiblingImportInfo> {
+    let mut out: HashMap<(String, String), SiblingImportInfo> = HashMap::new();
+    for orbital in orbitals {
+        let Some(reference) = orbital.reference.as_ref() else {
+            continue;
+        };
+        let Ok(ParsedReference::Orbital { alias, name }) = parse_reference(&reference.reference)
+        else {
+            continue;
+        };
+        let Some(use_decl) = orbital.uses.iter().flatten().find(|u| u.alias == alias) else {
+            continue;
+        };
+        let Ok(loaded) = loader.load(&use_decl.from, source_path, chain) else {
+            continue;
+        };
+        let Some(upstream) = loaded.schema.orbitals.iter().find(|o| o.name == name) else {
+            continue;
+        };
+        let trait_subs = materialized_trait_subs(upstream, reference, &orbital.name);
+        out.insert(
+            (alias, name),
+            SiblingImportInfo {
+                local_name: orbital.name.clone(),
+                trait_subs,
+            },
+        );
+    }
+    out
+}
+
 /// Inline all references in an orbital.
 ///
 /// `is_top_level` distinguishes the consumer-facing entry call (true) from
@@ -854,6 +929,13 @@ fn inline_orbital(
     // `entities {}` remap still resolves against the TOP-LEVEL consumer's
     // roster, since that is what "declares an entity for this name" means).
     consumer_entity_ids: &HashMap<String, String>,
+    // G1 (`docs/Almadar_Compiler_Gaps.md` §82): every reference-form orbital
+    // AMONG THIS CALL'S OWN SIBLINGS (the top-level `schema.orbitals`, or —
+    // for a recursive call loading an alias — that alias's own orbitals),
+    // keyed by (upstream alias, upstream orbital name). Recomputed fresh at
+    // each recursion depth (below) since a nested schema's own `uses`
+    // aliases are a different namespace than the caller's.
+    listen_source_targets: &HashMap<(String, String), SiblingImportInfo>,
     orbital_ref_diagnostics: &mut Vec<orbital::OrbitalRefDiagnostic>,
     uses_config_diagnostics: &mut Vec<orbital::UsesConfigDiagnostic>,
     // `.lolo` spans (Stage C): this orbital's index into the TOP-LEVEL
@@ -998,6 +1080,17 @@ fn inline_orbital(
             alias_schema_configs.insert(use_decl.alias.clone(), folded);
         }
 
+        // G1 (`docs/Almadar_Compiler_Gaps.md` §82): this loaded alias's OWN
+        // orbitals are a DIFFERENT `uses`-namespace than the caller's — a
+        // sibling-import listen source inside one of THEM resolves against
+        // THEIR OWN reference-form orbitals, never the caller's. Recomputed
+        // per alias load (cheap: `loader.load` inside it is a cache hit).
+        let nested_listen_source_targets = precompute_reference_form_listen_targets(
+            &inlined_orbitals,
+            loader,
+            chain,
+            Some(&loaded_source),
+        );
         for inlined_orbital in &mut inlined_orbitals {
             inline_orbital(
                 inlined_orbital,
@@ -1010,6 +1103,7 @@ fn inline_orbital(
                 config_diagnostics,
                 loaded_schema_config.as_ref(),
                 consumer_entity_ids,
+                &nested_listen_source_targets,
                 orbital_ref_diagnostics,
                 uses_config_diagnostics,
                 None,
@@ -1036,6 +1130,7 @@ fn inline_orbital(
             &ctx,
             &alias_schema_configs,
             consumer_entity_ids,
+            listen_source_targets,
             orbital_ref_diagnostics,
             orbital_index,
         )?;
@@ -1631,6 +1726,245 @@ fn collect_orbital_entity_ids(orbital: &Orbital) -> HashMap<String, String> {
         }
     }
     ids
+}
+
+// ============================================================================
+// Orbital-reference `events {}` id reconciliation (G5)
+// ============================================================================
+//
+// `resolve_orbital_reference` (`inline/orbital.rs`) renames every event KEY
+// an `events { OLD: NEW }` override touches, but it operates on one
+// `Orbital`, not the whole `OrbitalSchema` — it has no `schema.ledger` to
+// update. A renamed declaration's id is therefore left naming its PRE-rename
+// key in the ledger (copied in wholesale from the upstream behavior file at
+// load time), and the next dual-carry read trips `ORB_ID_NAME_MISMATCH`.
+
+/// One event declaration this pass found still naming a PRE-rename id —
+/// `orbital_name`/`trait_name` pin exactly which materialized trait it
+/// belongs to (so pass 2 below rewrites only that trait, never the whole
+/// schema), `old_id` is the upstream id, `new_key` is the event's current
+/// (already-renamed) name.
+struct EventIdRenameSite {
+    orbital_name: String,
+    trait_name: String,
+    old_id: String,
+    new_key: String,
+}
+
+/// G5 (`docs/Almadar_Compiler_Gaps.md` §82): re-derive the id of every event
+/// declaration an orbital reference's `events {}` rename actually renamed.
+///
+/// Whether that means minting a FRESH id or renaming the existing one IN
+/// PLACE depends on a whole-schema census, mirroring the sibling-pull
+/// rename above (`id_claimed`: first claim renames in place, every
+/// subsequent claim mints a copy) — inverted here into "how many DIFFERENT
+/// (orbital, trait) declarations still carry this id": exactly one (the
+/// trait being renamed, and nothing else in this schema) means the id is
+/// this schema's alone to rename, so the ledger entry is updated in place
+/// (no orphaned row, no `ORB_ID_LEDGER_ORPHAN`); more than one means some
+/// OTHER, untouched declaration still legitimately holds the OLD id under
+/// the OLD name, so only the renamed trait's occurrence is repointed at a
+/// freshly derived id, leaving the original entry intact for that other
+/// owner. A schema with no `events {}` orbital reference is a no-op.
+fn reconcile_orbital_ref_event_id_renames(
+    schema: &mut OrbitalSchema,
+    diagnostics: &[orbital::OrbitalRefDiagnostic],
+) {
+    let renamed: Vec<&orbital::OrbitalRefDiagnostic> = diagnostics
+        .iter()
+        .filter(|d| !d.event_subs.is_empty())
+        .collect();
+    if renamed.is_empty() {
+        return;
+    }
+    if schema.ledger.is_none() {
+        return;
+    }
+
+    // Pass 1 (read-only): every declaration site whose id still disagrees
+    // with the ledger's recorded name for one of THIS rename's new keys.
+    let mut sites: Vec<EventIdRenameSite> = Vec::new();
+    {
+        let ledger = schema.ledger.as_ref().expect("checked Some above");
+        for diag in &renamed {
+            let new_keys: HashSet<&str> = diag.event_subs.values().map(String::as_str).collect();
+            let Some(orbital) = schema.orbitals.iter().find(|o| o.name == diag.local_name) else {
+                continue;
+            };
+            for tr in &orbital.traits {
+                let TraitReference::Inline(td) = tr else {
+                    continue;
+                };
+                for ev in td.state_machine.events.iter().flatten() {
+                    let (Some(id), true) = (ev.id.as_ref(), new_keys.contains(ev.key.as_str()))
+                    else {
+                        continue;
+                    };
+                    let Some(entry) = ledger.entries.get(id) else {
+                        continue;
+                    };
+                    if entry.cur_name == ev.key {
+                        continue; // ledger already agrees — nothing to reconcile
+                    }
+                    sites.push(EventIdRenameSite {
+                        orbital_name: orbital.name.clone(),
+                        trait_name: td.name.clone(),
+                        old_id: id.clone(),
+                        new_key: ev.key.clone(),
+                    });
+                }
+            }
+        }
+    }
+    if sites.is_empty() {
+        return;
+    }
+
+    // Whole-schema owner census for just the candidate ids — how many
+    // DIFFERENT (orbital, trait) declarations carry each one, regardless of
+    // whether they were touched by a rename.
+    let candidate_ids: HashSet<&str> = sites.iter().map(|s| s.old_id.as_str()).collect();
+    let mut owners: HashMap<String, HashSet<(String, String)>> = HashMap::new();
+    for orbital in &schema.orbitals {
+        for tr in &orbital.traits {
+            let TraitReference::Inline(td) = tr else {
+                continue;
+            };
+            for ev in td.state_machine.events.iter().flatten() {
+                if let Some(id) = ev.id.as_ref() {
+                    if candidate_ids.contains(id.as_str()) {
+                        owners
+                            .entry(id.clone())
+                            .or_default()
+                            .insert((orbital.name.clone(), td.name.clone()));
+                    }
+                }
+            }
+        }
+    }
+
+    // Sole-owner ids rename their ledger entry in place; shared ids mint a
+    // fresh derived id, scoped to exactly the (orbital, trait) that needs it.
+    let mut rename_in_place: HashMap<String, String> = HashMap::new(); // old_id -> new_key
+    let mut derive_sites: Vec<(&EventIdRenameSite, String)> = Vec::new(); // (site, new_id)
+    let mut seen: HashSet<&str> = HashSet::new();
+    for site in &sites {
+        if owners.get(&site.old_id).map(|o| o.len()).unwrap_or(1) <= 1 {
+            rename_in_place.insert(site.old_id.clone(), site.new_key.clone());
+        } else if seen.insert(site.old_id.as_str()) {
+            derive_sites.push((
+                site,
+                orbital_core::identity::derive_id(&site.old_id, &site.new_key),
+            ));
+        }
+    }
+
+    // Pass 2 (write): swap the shared-id sites' declarations to their fresh
+    // id — the same field set `event_id_hygiene::uniquify_orbital` swaps for
+    // its own per-instance derivation (`stateMachine.events[].id`,
+    // `transitions[].eventId`, `emits[].eventId`,
+    // `listens[].eventId`/`triggersId`) — scoped to the ONE named trait so a
+    // same-id, still-unrenamed declaration elsewhere is never touched.
+    for (site, new_id) in &derive_sites {
+        let Some(orbital) = schema
+            .orbitals
+            .iter_mut()
+            .find(|o| o.name == site.orbital_name)
+        else {
+            continue;
+        };
+        for tr in orbital.traits.iter_mut() {
+            let TraitReference::Inline(td) = tr else {
+                continue;
+            };
+            if td.name != site.trait_name {
+                continue;
+            }
+            let subs: HashMap<&str, &str> = [(site.old_id.as_str(), new_id.as_str())].into();
+            for ev in td.state_machine.events.iter_mut().flatten() {
+                if let Some(id) = ev.id.as_mut() {
+                    if let Some(to) = subs.get(id.as_str()) {
+                        *id = to.to_string();
+                    }
+                }
+            }
+            for t in td.state_machine.transitions.iter_mut() {
+                if let Some(id) = t.event_id.as_mut() {
+                    if let Some(to) = subs.get(id.as_str()) {
+                        *id = to.to_string();
+                    }
+                }
+            }
+            for e in td.emits.iter_mut().flatten() {
+                if let Some(id) = e.event_id.as_mut() {
+                    if let Some(to) = subs.get(id.as_str()) {
+                        *id = to.to_string();
+                    }
+                }
+            }
+            for l in td.listens.iter_mut().flatten() {
+                if let Some(id) = l.event_id.as_mut() {
+                    if let Some(to) = subs.get(id.as_str()) {
+                        *id = to.to_string();
+                    }
+                }
+                if let Some(id) = l.triggers_id.as_mut() {
+                    if let Some(to) = subs.get(id.as_str()) {
+                        *id = to.to_string();
+                    }
+                }
+            }
+        }
+    }
+
+    // Pass 3: apply the ledger side of both branches. Each derive site's
+    // owning trait id is looked up FIRST (an immutable `schema.orbitals`
+    // borrow) so the mutable `schema.ledger` borrow right after never
+    // overlaps it.
+    let derive_parents: Vec<Option<String>> = derive_sites
+        .iter()
+        .map(|(site, _)| {
+            schema
+                .orbitals
+                .iter()
+                .find(|o| o.name == site.orbital_name)
+                .and_then(|o| {
+                    o.traits.iter().find_map(|tr| match tr {
+                        TraitReference::Inline(td) if td.name == site.trait_name => td.id.clone(),
+                        _ => None,
+                    })
+                })
+        })
+        .collect();
+
+    let ledger = schema.ledger.as_mut().expect("checked Some above");
+    let at = orbital_core::time_util::now_rfc3339();
+    for (old_id, new_key) in rename_in_place {
+        ledger.rename(&old_id, &new_key, &at);
+    }
+    for ((site, new_id), parent) in derive_sites.into_iter().zip(derive_parents) {
+        let Some(src) = ledger.entries.get(&site.old_id) else {
+            continue;
+        };
+        let mut renames = src.renames.clone();
+        renames.push(orbital_core::identity::RenameRecord {
+            from: src.cur_name.clone(),
+            to: site.new_key.clone(),
+            at: at.clone(),
+        });
+        ledger.entries.insert(
+            new_id.clone(),
+            orbital_core::identity::LedgerEntry {
+                id: new_id,
+                kind: src.kind,
+                baked_name: src.baked_name.clone(),
+                cur_name: site.new_key.clone(),
+                renames,
+                owner: src.owner,
+                parent,
+            },
+        );
+    }
 }
 
 // ============================================================================
@@ -3597,6 +3931,7 @@ mod tests {
                         synonyms: None,
                         tier: None,
                         payload_schema: None,
+                        payload_entity: None,
                     },
                     EventDefinition {
                         id: None,
@@ -3606,6 +3941,7 @@ mod tests {
                         synonyms: None,
                         tier: None,
                         payload_schema: None,
+                        payload_entity: None,
                     },
                 ]),
                 transitions: vec![
@@ -3702,6 +4038,7 @@ mod tests {
                     synonyms: None,
                     tier: None,
                     payload_schema: None,
+                    payload_entity: None,
                 }]),
                 transitions: vec![TransitionDefinition {
                     event_id: None,

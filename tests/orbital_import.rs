@@ -1115,3 +1115,978 @@ fn stage_b_sibling_mounts_on_the_remapped_page_through_the_real_loader() {
     });
     assert!(mounted, "{:?}", page.traits);
 }
+
+// ============================================================================
+// G4 (`Almadar_Compiler_Gaps.md` §82): a two-hop import (atom -> organism via
+// a plain trait reference -> top-level consumer via an orbital reference)
+// must re-derive an entity-shaped emit payload (`type X = Event <Entity>`,
+// `EmitDefinition.payload_entity`) from the MATERIALIZED entity — after the
+// top-level consumer's `fields{}` rename AND `extend{}` addition — not leave
+// it frozen at the leaf atom's own compile-time shape.
+// ============================================================================
+
+/// Leaf atom: one orbital, one entity (`Item`: `id`, `hourlyRate`), one
+/// trait (`ItemLog`) whose `ItemUpdated` emit is the bare `type X = Event
+/// Item` alias form — `payloadEntity: "Item"`, and a `payloadSchema` frozen
+/// at ITS OWN field list (exactly what `orbital-lolo`'s `bare_entity_alias_
+/// name` + `resolve_payload_type` produce for a standalone atom compile).
+const G4_ATOM: &str = r#"{
+  "name": "test-g4-atom",
+  "version": "1.0.0",
+  "orbitals": [
+    {
+      "name": "ItemAtomOrbital",
+      "id": "orb_G4ATOMORBITALID000000000",
+      "entity": {
+        "name": "Item",
+        "persistence": "persistent",
+        "fields": [
+          { "name": "id", "type": "string", "required": true },
+          { "name": "hourlyRate", "type": "number" }
+        ]
+      },
+      "traits": [
+        {
+          "name": "ItemLog",
+          "id": "trt_G4ATOMITEMLOGID00000000",
+          "linkedEntity": "Item",
+          "category": "interaction",
+          "emits": [
+            {
+              "event": "ItemUpdated",
+              "payloadEntity": "Item",
+              "payloadSchema": [
+                { "name": "id", "type": "string", "required": true },
+                { "name": "hourlyRate", "type": "number" }
+              ]
+            }
+          ],
+          "stateMachine": {
+            "states": [ { "name": "idle", "isInitial": true } ],
+            "transitions": []
+          }
+        }
+      ]
+    }
+  ]
+}"#;
+
+/// Middle organism: declares its OWN `Item` entity (same shape as the
+/// atom's) and composes `ItemLog` by a PLAIN trait reference (§8) with NO
+/// override at this hop — the exact `trait TimeEntryLog = TimeEntry.traits.
+/// TimeEntryLog {}` shape `std-time-tracking.lolo` uses. Stays an
+/// UNRESOLVED `TraitReference::Reference` in this file's own `.orb` (L1
+/// never splices a reference) — the real splice happens when a consumer's
+/// `inline_orbital` recursively loads and inlines this file, exactly as
+/// `resolve_orbital_reference`'s own doc describes.
+const G4_ORGANISM: &str = r#"{
+  "name": "test-g4-organism",
+  "version": "1.0.0",
+  "orbitals": [
+    {
+      "name": "ItemOrganismOrbital",
+      "id": "orb_G4ORGANISMORBITALID00000",
+      "uses": [ { "from": "./g4-atom.orb", "as": "Atom" } ],
+      "entity": {
+        "name": "Item",
+        "persistence": "persistent",
+        "fields": [
+          { "name": "id", "type": "string", "required": true },
+          { "name": "hourlyRate", "type": "number" }
+        ]
+      },
+      "traits": [
+        { "name": "ItemLog", "ref": "Atom.traits.ItemLog" }
+      ]
+    }
+  ]
+}"#;
+
+/// Top-level consumer: `orbital ConsumerOrbital = Organism.orbitals.
+/// ItemOrganismOrbital { fields{hourlyRate:billRate} extend{workspaceId} }`
+/// — the exact `project-friday.lolo` `TimeEntryOrbital` shape (§8b).
+const G4_CONSUMER: &str = r#"{
+  "name": "test-g4-consumer",
+  "version": "1.0.0",
+  "orbitals": [
+    {
+      "name": "ConsumerOrbital",
+      "id": "orb_G4CONSUMERORBITALID00000",
+      "uses": [ { "from": "./g4-organism.orb", "as": "Organism" } ],
+      "entity": "Organism.orbitals.ItemOrganismOrbital.entity",
+      "traits": [],
+      "reference": {
+        "ref": "Organism.orbitals.ItemOrganismOrbital",
+        "fields": { "hourlyRate": "billRate" },
+        "extend": [
+          { "name": "workspaceId", "type": "string", "default": "" }
+        ]
+      }
+    }
+  ]
+}"#;
+
+fn inline_g4_consumer() -> OrbitalSchema {
+    let dir = tempfile::TempDir::new().expect("temp dir");
+    std::fs::write(dir.path().join("g4-atom.orb"), G4_ATOM).expect("write atom");
+    std::fs::write(dir.path().join("g4-organism.orb"), G4_ORGANISM).expect("write organism");
+    let consumer_path = dir.path().join("g4-consumer.orb");
+    std::fs::write(&consumer_path, G4_CONSUMER).expect("write consumer");
+
+    let mut schema = parse_file(&consumer_path).expect("consumer parses");
+    inline_schema(&mut schema, &InlineConfig::default(), Some(&consumer_path))
+        .expect("two-hop orbital-import inline must succeed");
+    schema
+}
+
+#[test]
+fn two_hop_import_recomputes_entity_shaped_emit_payload_after_rename_and_extend() {
+    let schema = inline_g4_consumer();
+    let item_log = find_trait(&schema, 0, "ConsumerOrbitalItemLog");
+    let emit = item_log
+        .emits
+        .as_ref()
+        .expect("emits carried")
+        .iter()
+        .find(|e| e.event == "ItemUpdated")
+        .expect("ItemUpdated emit carried");
+
+    let names: Vec<&str> = emit
+        .payload_schema
+        .as_ref()
+        .expect("payloadSchema carried")
+        .iter()
+        .map(|f| f.name.as_str())
+        .collect();
+    assert_eq!(
+        names,
+        vec!["id", "billRate", "workspaceId"],
+        "the payload must mirror the MATERIALIZED entity — the renamed \
+         `billRate` and the extended `workspaceId` — not the atom's frozen \
+         'hourlyRate' shape: {names:?}"
+    );
+    assert_eq!(
+        emit.payload_entity.as_deref(),
+        Some("ConsumerOrbitalItem"),
+        "the marker itself must follow the primary entity's own \
+         unconditional prefix-rename (no explicit `entity` override in \
+         this reference, so 'Item' -> 'ConsumerOrbitalItem'), or the later \
+         lookup by name misses"
+    );
+
+    let entity_fields: Vec<&str> = match &schema.orbitals[0].entity {
+        EntityRef::Inline(def) => def
+            .fields
+            .iter()
+            .filter_map(|f| f.name.as_deref())
+            .collect(),
+        other => panic!("entity must be materialized inline, got {other:?}"),
+    };
+    assert_eq!(
+        names, entity_fields,
+        "the payload's field set must equal the materialized entity's own \
+         field set exactly, field for field"
+    );
+}
+
+/// G1 (`docs/Almadar_Compiler_Gaps.md` §82): cross-import listen sources.
+/// One upstream file, TWO orbitals of the SAME alias — `AlphaOrbital`'s
+/// `AlphaCreate` trait, and `BetaOrbital`'s `BetaListener` trait, which
+/// listens on `AlphaOrbital.AlphaCreate.CREATED` via the 3-part
+/// `Orbital.Trait.EVENT` form (mirrors `std-realtime-chat`'s
+/// `ChannelCreate` listening on `ChatMessageOrbital.ChatRoom.CREATE_CHANNEL`).
+/// A consumer that imports BOTH orbitals must re-point that source at
+/// whichever LOCAL name each import was given, regardless of which
+/// `orbital X = …` line comes first in the consumer file.
+const G1_UPSTREAM: &str = r#"{
+  "name": "test-g1-upstream",
+  "version": "1.0.0",
+  "orbitals": [
+    {
+      "name": "AlphaOrbital",
+      "id": "orb_G1ALPHAORBITALID000000000",
+      "entity": {
+        "name": "AlphaThing",
+        "persistence": "persistent",
+        "fields": [ { "name": "id", "type": "string", "required": true } ]
+      },
+      "traits": [
+        {
+          "name": "AlphaCreate",
+          "id": "trt_G1ALPHACREATEID000000000",
+          "linkedEntity": "AlphaThing",
+          "category": "interaction",
+          "emits": [ { "event": "CREATED" } ],
+          "stateMachine": {
+            "states": [ { "name": "idle", "isInitial": true } ],
+            "transitions": [ { "from": "idle", "to": "idle", "event": "CREATE", "effects": [ [ "emit", "CREATED" ] ] } ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "BetaOrbital",
+      "id": "orb_G1BETAORBITALID0000000000",
+      "entity": {
+        "name": "BetaThing",
+        "persistence": "persistent",
+        "fields": [ { "name": "id", "type": "string", "required": true } ]
+      },
+      "traits": [
+        {
+          "name": "BetaListener",
+          "id": "trt_G1BETALISTENERID00000000",
+          "linkedEntity": "BetaThing",
+          "category": "interaction",
+          "listens": [
+            {
+              "event": "SEEN",
+              "triggers": "REFRESH",
+              "source": { "kind": "orbital", "orbital": "AlphaOrbital", "trait": "AlphaCreate" }
+            }
+          ],
+          "stateMachine": {
+            "states": [ { "name": "idle", "isInitial": true } ],
+            "transitions": [ { "from": "idle", "to": "idle", "event": "REFRESH" } ]
+          }
+        }
+      ]
+    }
+  ]
+}"#;
+
+/// Both imports declared, `LocalAlpha` (the listen source's TARGET) FIRST —
+/// the order the old `orbital_rename`-only code happened to require nothing
+/// special for, since neither import benefited from the fix either way.
+const G1_CONSUMER_ALPHA_FIRST: &str = r#"{
+  "name": "test-g1-consumer-alpha-first",
+  "version": "1.0.0",
+  "orbitals": [
+    {
+      "name": "LocalAlpha",
+      "id": "orb_G1LOCALALPHAID0000000000",
+      "uses": [ { "from": "./g1-upstream.orb", "as": "Up" } ],
+      "entity": "Up.orbitals.AlphaOrbital.entity",
+      "traits": [],
+      "reference": { "ref": "Up.orbitals.AlphaOrbital" }
+    },
+    {
+      "name": "LocalBeta",
+      "id": "orb_G1LOCALBETAID00000000000",
+      "uses": [ { "from": "./g1-upstream.orb", "as": "Up" } ],
+      "entity": "Up.orbitals.BetaOrbital.entity",
+      "traits": [],
+      "reference": { "ref": "Up.orbitals.BetaOrbital" }
+    }
+  ]
+}"#;
+
+/// Same two imports, declaration order REVERSED — `LocalBeta` (whose trait
+/// carries the listen source) resolves FIRST, before `LocalAlpha` (the
+/// source's target) has resolved at all. Proves the fix is order-
+/// independent: the schema-wide precompute (`precompute_reference_form_
+/// listen_targets`) is built before EITHER orbital splices.
+const G1_CONSUMER_BETA_FIRST: &str = r#"{
+  "name": "test-g1-consumer-beta-first",
+  "version": "1.0.0",
+  "orbitals": [
+    {
+      "name": "LocalBeta",
+      "id": "orb_G1LOCALBETAID00000000000",
+      "uses": [ { "from": "./g1-upstream.orb", "as": "Up" } ],
+      "entity": "Up.orbitals.BetaOrbital.entity",
+      "traits": [],
+      "reference": { "ref": "Up.orbitals.BetaOrbital" }
+    },
+    {
+      "name": "LocalAlpha",
+      "id": "orb_G1LOCALALPHAID0000000000",
+      "uses": [ { "from": "./g1-upstream.orb", "as": "Up" } ],
+      "entity": "Up.orbitals.AlphaOrbital.entity",
+      "traits": [],
+      "reference": { "ref": "Up.orbitals.AlphaOrbital" }
+    }
+  ]
+}"#;
+
+fn inline_g1_consumer(consumer_json: &str) -> OrbitalSchema {
+    let dir = tempfile::TempDir::new().expect("temp dir");
+    std::fs::write(dir.path().join("g1-upstream.orb"), G1_UPSTREAM).expect("write upstream");
+    let consumer_path = dir.path().join("g1-consumer.orb");
+    std::fs::write(&consumer_path, consumer_json).expect("write consumer");
+
+    let mut schema = parse_file(&consumer_path).expect("consumer parses");
+    inline_schema(&mut schema, &InlineConfig::default(), Some(&consumer_path))
+        .expect("cross-import listen-source inline must succeed");
+    schema
+}
+
+/// Asserts `LocalBetaBetaListener`'s listen source resolves to
+/// `orbital: "LocalAlpha", trait: "LocalAlphaAlphaCreate"` WITH a `traitId`
+/// — same assertion for both declaration orders (`schema` locates
+/// `LocalBeta` at whichever orbital index it landed at).
+fn assert_beta_listener_resolves_to_local_alpha(schema: &OrbitalSchema) {
+    let beta_idx = schema
+        .orbitals
+        .iter()
+        .position(|o| o.name == "LocalBeta")
+        .expect("LocalBeta orbital present");
+    let listener = find_trait(schema, beta_idx, "LocalBetaBetaListener");
+    let listens = listener.listens.as_ref().expect("listens carried");
+    let source = listens[0].source.as_ref().expect("source");
+    match source {
+        ListenSource::Orbital {
+            orbital,
+            trait_name,
+            trait_id,
+            ..
+        } => {
+            assert_eq!(
+                orbital, "LocalAlpha",
+                "a cross-import source must re-point at the SIBLING import's \
+                 local orbital name, not the un-prefixed upstream name"
+            );
+            assert_eq!(
+                trait_name, "LocalAlphaAlphaCreate",
+                "and at that sibling's own prefixed trait name"
+            );
+            assert!(
+                trait_id.is_some(),
+                "the rewritten source must carry the target trait's derived id"
+            );
+        }
+        other => panic!("expected ListenSource::Orbital, got {other:?}"),
+    }
+}
+
+#[test]
+fn g1_cross_import_listen_source_resolves_alpha_declared_first() {
+    let schema = inline_g1_consumer(G1_CONSUMER_ALPHA_FIRST);
+    assert_beta_listener_resolves_to_local_alpha(&schema);
+}
+
+#[test]
+fn g1_cross_import_listen_source_resolves_order_independent_beta_declared_first() {
+    let schema = inline_g1_consumer(G1_CONSUMER_BETA_FIRST);
+    assert_beta_listener_resolves_to_local_alpha(&schema);
+}
+
+/// G2 (`docs/Almadar_Compiler_Gaps.md` §82): `entity <Name>` does not
+/// rewrite `entity`-typed config knob VALUES. Mirrors `std-hr-portal.lolo`'s
+/// real shape: `WidgetSync`'s `targetEntity : entity` knob's literal default
+/// names the SAME orbital's OWN primary entity ("Widget", exactly like
+/// `TimeOffCalendarSync.config.targetEntity` defaults to `TimeOff`,
+/// `TimeOffOrbital`'s own primary). `entity Gadget` on the reference clones
+/// the primary as `GadgetOrbitalWidget` — the config VALUE must follow.
+const G2_UPSTREAM: &str = r#"{
+  "name": "test-g2-upstream",
+  "version": "1.0.0",
+  "orbitals": [
+    {
+      "name": "SyncOrbital",
+      "id": "orb_G2SYNCORBITALID000000000",
+      "entity": {
+        "name": "Widget",
+        "persistence": "persistent",
+        "fields": [ { "name": "id", "type": "string", "required": true } ]
+      },
+      "traits": [
+        {
+          "name": "WidgetSync",
+          "id": "trt_G2WIDGETSYNCID0000000000",
+          "linkedEntity": "Widget",
+          "category": "integration",
+          "config": {
+            "targetEntity": { "type": "entity", "default": "Widget" }
+          },
+          "stateMachine": {
+            "states": [ { "name": "idle", "isInitial": true } ],
+            "transitions": [
+              { "from": "idle", "to": "idle", "event": "SYNC", "effects": [ [ "fetch", "@config.targetEntity" ] ] }
+            ]
+          }
+        }
+      ]
+    }
+  ]
+}"#;
+
+const G2_CONSUMER: &str = r#"{
+  "name": "test-g2-consumer",
+  "version": "1.0.0",
+  "orbitals": [
+    {
+      "name": "GadgetOrbital",
+      "id": "orb_G2GADGETORBITALID0000000",
+      "uses": [ { "from": "./g2-upstream.orb", "as": "Up" } ],
+      "entity": "Up.orbitals.SyncOrbital.entity",
+      "traits": [],
+      "reference": { "ref": "Up.orbitals.SyncOrbital", "entity": "Gadget" }
+    }
+  ]
+}"#;
+
+fn inline_g2_consumer() -> OrbitalSchema {
+    let dir = tempfile::TempDir::new().expect("temp dir");
+    std::fs::write(dir.path().join("g2-upstream.orb"), G2_UPSTREAM).expect("write upstream");
+    let consumer_path = dir.path().join("g2-consumer.orb");
+    std::fs::write(&consumer_path, G2_CONSUMER).expect("write consumer");
+
+    let mut schema = parse_file(&consumer_path).expect("consumer parses");
+    inline_schema(&mut schema, &InlineConfig::default(), Some(&consumer_path))
+        .expect("entity-typed config value inline must succeed");
+    schema
+}
+
+#[test]
+fn g2_entity_rebind_rewrites_entity_typed_config_knob_value() {
+    let schema = inline_g2_consumer();
+    let EntityRef::Inline(entity) = &schema.orbitals[0].entity else {
+        panic!("primary entity must be inline");
+    };
+    assert_eq!(entity.name, "Gadget", "explicit `entity Gadget` override");
+    let primary_id = entity
+        .id
+        .clone()
+        .expect("materialized primary has a derived id");
+
+    let sync = find_trait(&schema, 0, "GadgetOrbitalWidgetSync");
+    let config = sync.config.as_ref().expect("config carried");
+    let target_entity = config
+        .get("targetEntity")
+        .expect("targetEntity knob carried");
+    assert_eq!(
+        target_entity.default,
+        Some(orbital_core::schema::SExpression::String(
+            "Gadget".to_string()
+        )),
+        "an `entity`-typed knob's literal default must follow the SAME \
+         entity_subs rename every other entity reference goes through, not \
+         stay pinned to the pre-rename upstream name"
+    );
+    assert_eq!(
+        target_entity.ref_id.as_deref(),
+        Some(primary_id.as_str()),
+        "the V4-W5 dual-carry refId must be refreshed to the RENAMED \
+         entity's current id, never left pointing at the stale upstream id"
+    );
+}
+
+// ============================================================================
+// G3 (`docs/Almadar_Compiler_Gaps.md` §82): `fields {}` reaches every
+// structurally-recognized field-reference position, not just `@entity.<f>`.
+// ============================================================================
+
+/// One orbital (`DealOrbital`), entity `Deal { title, amount }` with a
+/// `read_policy` reading `(object/get @entity title)` (the access-policy
+/// shape G3 names), one trait `DealBoard` whose config carries every
+/// position the gap doc calls out: a bare `[string]` field list
+/// (`formFields`), a bare `string` field name (`searchField`), and an
+/// `@item.<f>` binding (`cardTitleBinding`) — the row-alias sigil widened
+/// alongside `@entity.`.
+const G3_UPSTREAM: &str = r#"{
+  "name": "test-g3-upstream",
+  "version": "1.0.0",
+  "orbitals": [
+    {
+      "name": "DealOrbital",
+      "id": "orb_G3DEALORBITALID000000000",
+      "entity": {
+        "name": "Deal",
+        "id": "ent_G3DEALENTITYID0000000000",
+        "persistence": "persistent",
+        "read_policy": ["=", ["object/get", "@entity", "title"], "@user.id"],
+        "fields": [
+          { "name": "id", "type": "string", "required": true },
+          { "name": "title", "type": "string" },
+          { "name": "amount", "type": "number" }
+        ]
+      },
+      "traits": [
+        {
+          "name": "DealBoard",
+          "id": "trt_G3DEALBOARDID00000000000",
+          "linkedEntity": "Deal",
+          "category": "interaction",
+          "config": {
+            "formFields": { "type": "[string]", "default": ["title", "amount"] },
+            "searchField": { "type": "string", "default": "title" },
+            "cardTitleBinding": { "type": "string", "default": "@item.title" }
+          },
+          "stateMachine": {
+            "states": [ { "name": "idle", "isInitial": true } ],
+            "transitions": [ { "from": "idle", "to": "idle", "event": "INIT" } ]
+          }
+        }
+      ]
+    }
+  ]
+}"#;
+
+const G3_CONSUMER: &str = r#"{
+  "name": "test-g3-consumer",
+  "version": "1.0.0",
+  "orbitals": [
+    {
+      "name": "LeadOrbital",
+      "id": "orb_G3LEADORBITALID000000000",
+      "uses": [ { "from": "./g3-upstream.orb", "as": "Up" } ],
+      "entity": "Up.orbitals.DealOrbital.entity",
+      "traits": [],
+      "reference": {
+        "ref": "Up.orbitals.DealOrbital",
+        "entity": "Lead",
+        "fields": { "title": "company", "amount": "value" }
+      }
+    }
+  ]
+}"#;
+
+fn inline_g3_consumer() -> OrbitalSchema {
+    let dir = tempfile::TempDir::new().expect("temp dir");
+    std::fs::write(dir.path().join("g3-upstream.orb"), G3_UPSTREAM).expect("write upstream");
+    let consumer_path = dir.path().join("g3-consumer.orb");
+    std::fs::write(&consumer_path, G3_CONSUMER).expect("write consumer");
+
+    let mut schema = parse_file(&consumer_path).expect("consumer parses");
+    inline_schema(&mut schema, &InlineConfig::default(), Some(&consumer_path))
+        .expect("field rename inline must succeed");
+    schema
+}
+
+/// The bug: before this fix, `rewrite_entity_field_paths` only rewrote
+/// `@entity.<f>` strings, so `formFields` (a bare `[string]` list),
+/// `searchField` (a bare `string`), `cardTitleBinding` (`@item.<f>`, not
+/// `@entity.<f>`), and the `read_policy`'s `(object/get @entity title)` all
+/// kept naming the pre-rename upstream field — silently, since nothing
+/// validated the mismatch. All four must now read `company`, never `title`.
+#[test]
+fn g3_fields_rename_reaches_bare_config_defaults_item_sigil_and_object_get_policy() {
+    let schema = inline_g3_consumer();
+    let EntityRef::Inline(entity) = &schema.orbitals[0].entity else {
+        panic!("primary entity must be inline");
+    };
+    assert_eq!(entity.name, "Lead");
+    assert!(
+        entity
+            .fields
+            .iter()
+            .any(|f| f.name.as_deref() == Some("company")),
+        "the renamed field must be named 'company' on the materialized entity, got {:?}",
+        entity
+            .fields
+            .iter()
+            .filter_map(|f| f.name.clone())
+            .collect::<Vec<_>>()
+    );
+    let read_policy = entity.read_policy.as_ref().expect("read_policy carried");
+    assert_eq!(
+        read_policy,
+        &orbital_core::schema::SExpression::Array(vec![
+            orbital_core::schema::SExpression::String("=".to_string()),
+            orbital_core::schema::SExpression::Array(vec![
+                orbital_core::schema::SExpression::String("object/get".to_string()),
+                orbital_core::schema::SExpression::String("@entity".to_string()),
+                orbital_core::schema::SExpression::String("company".to_string()),
+            ]),
+            orbital_core::schema::SExpression::String("@user.id".to_string()),
+        ]),
+        "`(object/get @entity title)` in the entity's OWN read_policy must \
+         follow the rename to `company`, not stay pinned to 'title'"
+    );
+
+    let board = find_trait(&schema, 0, "LeadOrbitalDealBoard");
+    let cfg = board.config.as_ref().expect("config carried");
+
+    let form_fields = cfg.get("formFields").expect("formFields knob carried");
+    assert_eq!(
+        form_fields.default,
+        Some(orbital_core::schema::SExpression::Array(vec![
+            orbital_core::schema::SExpression::String("company".to_string()),
+            orbital_core::schema::SExpression::String("value".to_string()),
+        ])),
+        "a bare `[string]` field-name list must be rewritten element-by-element"
+    );
+
+    let search_field = cfg.get("searchField").expect("searchField knob carried");
+    assert_eq!(
+        search_field.default,
+        Some(orbital_core::schema::SExpression::String(
+            "company".to_string()
+        )),
+        "a bare `string` field-name default must be rewritten"
+    );
+
+    let card_title_binding = cfg
+        .get("cardTitleBinding")
+        .expect("cardTitleBinding knob carried");
+    assert_eq!(
+        card_title_binding.default,
+        Some(orbital_core::schema::SExpression::String(
+            "@item.company".to_string()
+        )),
+        "`@item.<f>` must follow the SAME field rename `@entity.<f>` already did"
+    );
+}
+
+// ============================================================================
+// G5 (`docs/Almadar_Compiler_Gaps.md` §82): `events {}` reaches a SOURCED
+// listen's source-side `event` key, when the source trait is within this
+// same import, and re-derives the id it shares with the local declaration.
+// ============================================================================
+
+/// One orbital (`DocOrbital`), two traits: `Inbox` declares `emits {
+/// APPROVE }`; `Decision` declares a LOCAL `APPROVE` event (`stateMachine.
+/// events`, carrying the SHARED id `evt_G5APPROVEEVT0000000001`) and a
+/// `ListenSource::Trait` entry sourced from `Inbox.APPROVE`, mapped to the
+/// SAME local trigger. `events { APPROVE: ASSET_REVIEW_APPROVE }` on the
+/// reference must rename BOTH `Inbox`'s emit key AND `Decision`'s sourced
+/// listen's `event`/`triggers` keys, and re-derive the shared id so the
+/// ledger's `curName` (backfilled at `APPROVE` by `ensure_stamped`, since
+/// this fixture supplies no ledger of its own) stays truthful.
+const G5_UPSTREAM: &str = r#"{
+  "name": "test-g5-upstream",
+  "version": "1.0.0",
+  "ledger": {
+    "schemaVersion": 1,
+    "entries": {
+      "evt_G5APPROVEEVT0000000001": {
+        "id": "evt_G5APPROVEEVT0000000001",
+        "kind": "event",
+        "bakedName": "APPROVE",
+        "curName": "APPROVE",
+        "renames": [],
+        "owner": "workspace",
+        "parent": "trt_G5DECISIONID000000000"
+      },
+      "evt_G5INBOXEVT0000000002": {
+        "id": "evt_G5INBOXEVT0000000002",
+        "kind": "event",
+        "bakedName": "APPROVE",
+        "curName": "APPROVE",
+        "renames": [],
+        "owner": "workspace",
+        "parent": "trt_G5INBOXID0000000000000"
+      }
+    }
+  },
+  "orbitals": [
+    {
+      "name": "DocOrbital",
+      "id": "orb_G5DOCORBITALID000000000",
+      "entity": {
+        "name": "Document",
+        "id": "ent_G5DOCUMENTENTITYID00000",
+        "persistence": "persistent",
+        "fields": [ { "name": "id", "type": "string", "required": true } ]
+      },
+      "traits": [
+        {
+          "name": "Inbox",
+          "id": "trt_G5INBOXID0000000000000",
+          "linkedEntity": "Document",
+          "category": "interaction",
+          "emits": [ { "event": "APPROVE", "eventId": "evt_G5INBOXEVT0000000002", "scope": "internal" } ],
+          "stateMachine": {
+            "states": [ { "name": "idle", "isInitial": true } ],
+            "transitions": [ { "from": "idle", "to": "idle", "event": "INIT" } ]
+          }
+        },
+        {
+          "name": "Decision",
+          "id": "trt_G5DECISIONID000000000",
+          "linkedEntity": "Document",
+          "category": "interaction",
+          "stateMachine": {
+            "states": [ { "name": "idle", "isInitial": true } ],
+            "events": [ { "key": "APPROVE", "id": "evt_G5APPROVEEVT0000000001" } ],
+            "transitions": [
+              {
+                "from": "idle",
+                "to": "idle",
+                "event": "APPROVE",
+                "eventId": "evt_G5APPROVEEVT0000000001"
+              }
+            ]
+          },
+          "listens": [
+            {
+              "event": "APPROVE",
+              "eventId": "evt_G5APPROVEEVT0000000001",
+              "source": { "kind": "trait", "trait": "Inbox" },
+              "triggers": "APPROVE",
+              "triggersId": "evt_G5APPROVEEVT0000000001"
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}"#;
+
+const G5_CONSUMER: &str = r#"{
+  "name": "test-g5-consumer",
+  "version": "1.0.0",
+  "orbitals": [
+    {
+      "name": "AssetLibraryOrbital",
+      "id": "orb_G5ASSETLIBRARYID0000000",
+      "uses": [ { "from": "./g5-upstream.orb", "as": "Up" } ],
+      "entity": "Up.orbitals.DocOrbital.entity",
+      "traits": [],
+      "reference": {
+        "ref": "Up.orbitals.DocOrbital",
+        "events": { "APPROVE": "ASSET_REVIEW_APPROVE" }
+      }
+    }
+  ]
+}"#;
+
+fn inline_g5_consumer() -> OrbitalSchema {
+    let dir = tempfile::TempDir::new().expect("temp dir");
+    std::fs::write(dir.path().join("g5-upstream.orb"), G5_UPSTREAM).expect("write upstream");
+    let consumer_path = dir.path().join("g5-consumer.orb");
+    std::fs::write(&consumer_path, G5_CONSUMER).expect("write consumer");
+
+    let mut schema = parse_file(&consumer_path).expect("consumer parses");
+    inline_schema(&mut schema, &InlineConfig::default(), Some(&consumer_path))
+        .expect("event rename inline must succeed");
+    schema
+}
+
+/// The bug: before this fix, `events {}` renamed `Decision`'s LOCAL trigger
+/// key but left `Inbox`'s emit AND the sourced listen's `event` (source-side
+/// key) at `APPROVE`, and never re-derived the shared id — so the ledger's
+/// `curName` (backfilled `APPROVE` by `ensure_stamped`) disagreed with the
+/// renamed declaration, which is exactly the `ORB_ID_NAME_MISMATCH` shape
+/// `orb validate` caught on the full `g5-asset-events.lolo` repro.
+#[test]
+fn g5_events_rename_reaches_sourced_listen_and_rederives_the_shared_id() {
+    let schema = inline_g5_consumer();
+
+    let inbox = find_trait(&schema, 0, "AssetLibraryOrbitalInbox");
+    let emits = inbox.emits.as_ref().expect("emits carried");
+    assert_eq!(
+        emits[0].event, "ASSET_REVIEW_APPROVE",
+        "Inbox's OWN emit key must follow the orbital-scope events rename"
+    );
+
+    let decision = find_trait(&schema, 0, "AssetLibraryOrbitalDecision");
+    let listens = decision.listens.as_ref().expect("listens carried");
+    let listen = &listens[0];
+    assert_eq!(
+        listen.event, "ASSET_REVIEW_APPROVE",
+        "the SOURCED listen's source-side `event` key must follow the \
+         rename too — Inbox is within THIS import, so it shares the same \
+         renamed vocabulary, not an independent call site's own rename"
+    );
+    assert_eq!(
+        listen.triggers.as_deref(),
+        Some("ASSET_REVIEW_APPROVE"),
+        "the local trigger key must also be renamed (already worked pre-fix)"
+    );
+    assert_eq!(
+        listen.event_id, listen.triggers_id,
+        "the source-side and local-side ids must still agree post-rename"
+    );
+    let final_id = listen
+        .event_id
+        .clone()
+        .expect("event id carried after rename");
+    // This id has exactly ONE owner in the whole schema (`Decision`, and
+    // nothing else), so the sole-owner branch of `reconcile_orbital_ref_
+    // event_id_renames` renames the ledger entry IN PLACE rather than
+    // minting a fresh id (which would orphan the original row and trip
+    // `ORB_ID_LEDGER_ORPHAN` instead of fixing anything) — same id, updated
+    // `curName`.
+    assert_eq!(
+        final_id, "evt_G5APPROVEEVT0000000001",
+        "sole-owner case: the id itself must NOT change (only the ledger's \
+         curName does) — minting a fresh id here would orphan the original \
+         row with nothing left to explain it"
+    );
+
+    let ledger = schema.ledger.as_ref().expect("schema is stamped");
+    let entry = ledger
+        .entries
+        .get(&final_id)
+        .unwrap_or_else(|| panic!("ledger must carry a row for the id now in use: {final_id}"));
+    assert_eq!(
+        entry.cur_name, "ASSET_REVIEW_APPROVE",
+        "the ledger's curName for whichever id the schema now uses must \
+         agree with the renamed key — this is what makes ORB_ID_NAME_MISMATCH \
+         disappear"
+    );
+    assert!(
+        entry
+            .renames
+            .iter()
+            .any(|r| r.from == "APPROVE" && r.to == "ASSET_REVIEW_APPROVE"),
+        "the rename must be logged in the ledger's own history, got {:?}",
+        entry.renames
+    );
+
+    // The event declaration + its transition must also carry the new id.
+    let ev = decision
+        .state_machine
+        .events
+        .as_ref()
+        .expect("events carried")
+        .iter()
+        .find(|e| e.key == "ASSET_REVIEW_APPROVE")
+        .expect("renamed event declaration carried");
+    assert_eq!(ev.id.as_deref(), Some(final_id.as_str()));
+    let transition = decision
+        .state_machine
+        .transitions
+        .iter()
+        .find(|t| t.event == "ASSET_REVIEW_APPROVE")
+        .expect("renamed transition carried");
+    assert_eq!(transition.event_id.as_deref(), Some(final_id.as_str()));
+}
+
+// ============================================================================
+// G3 follow-up (`docs/Almadar_Compiler_Gaps.md` §82): a `fields {}` rename
+// must also reach a config-forward's DESTINATION, not just its declaring
+// trait — a JSX-hoisted inline render's `columns: @config.columns` forward
+// resolves to its embedder's declared literal AFTER this trait's own field
+// rewrite already ran, in the SAME per-trait loop iteration.
+// ============================================================================
+
+/// One orbital (`TimeEntryPanelOrbital`), two traits: `TimeEntryPanel`
+/// declares `columns : [ColumnSpec] = [{ field: hourlyRate, key: hourlyRate
+/// }]` and embeds `@trait.InlineTableViewRender` in a render effect;
+/// `InlineTableViewRender` (the JSX-hoisted sibling) declares its OWN
+/// `columns` knob with default `"@config.columns"` — a forward token that
+/// only resolves to the literal once `resolve_orbital_reference`'s
+/// config-forward step runs, AFTER field-rewriting has already visited
+/// `InlineTableViewRender` earlier in the same loop.
+const G3_HOIST_UPSTREAM: &str = r#"{
+  "name": "test-g3-hoist-upstream",
+  "version": "1.0.0",
+  "orbitals": [
+    {
+      "name": "TimeEntryPanelOrbital",
+      "id": "orb_G3HOISTORBITALID00000000",
+      "entity": {
+        "name": "TimeEntry",
+        "id": "ent_G3HOISTENTITYID000000000",
+        "persistence": "persistent",
+        "fields": [
+          { "name": "id", "type": "string", "required": true },
+          { "name": "hourlyRate", "type": "number" }
+        ]
+      },
+      "traits": [
+        {
+          "name": "TimeEntryPanel",
+          "id": "trt_G3HOISTPANELID00000000",
+          "linkedEntity": "TimeEntry",
+          "category": "interaction",
+          "config": {
+            "columns": {
+              "type": "[ColumnSpec]",
+              "default": [ { "field": "hourlyRate", "key": "hourlyRate", "header": "Rate" } ]
+            }
+          },
+          "stateMachine": {
+            "states": [ { "name": "idle", "isInitial": true } ],
+            "transitions": [
+              {
+                "from": "idle",
+                "to": "idle",
+                "event": "INIT",
+                "effects": [ [ "render-ui", "main", "@trait.InlineTableViewRender" ] ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "InlineTableViewRender",
+          "id": "trt_G3HOISTRENDERID0000000",
+          "linkedEntity": "TimeEntry",
+          "category": "interaction",
+          "config": {
+            "columns": { "type": "unknown", "default": "@config.columns" }
+          },
+          "stateMachine": {
+            "states": [ { "name": "idle", "isInitial": true } ],
+            "transitions": [ { "from": "idle", "to": "idle", "event": "INIT" } ]
+          }
+        }
+      ]
+    }
+  ]
+}"#;
+
+const G3_HOIST_CONSUMER: &str = r#"{
+  "name": "test-g3-hoist-consumer",
+  "version": "1.0.0",
+  "orbitals": [
+    {
+      "name": "TimeEntryOrbital",
+      "id": "orb_G3HOISTCONSUMERID000000",
+      "uses": [ { "from": "./g3-hoist-upstream.orb", "as": "Up" } ],
+      "entity": "Up.orbitals.TimeEntryPanelOrbital.entity",
+      "traits": [],
+      "reference": {
+        "ref": "Up.orbitals.TimeEntryPanelOrbital",
+        "entity": "TimeEntry",
+        "fields": { "hourlyRate": "billRate" }
+      }
+    }
+  ]
+}"#;
+
+fn inline_g3_hoist_consumer() -> OrbitalSchema {
+    let dir = tempfile::TempDir::new().expect("temp dir");
+    std::fs::write(dir.path().join("g3-hoist-upstream.orb"), G3_HOIST_UPSTREAM)
+        .expect("write upstream");
+    let consumer_path = dir.path().join("g3-hoist-consumer.orb");
+    std::fs::write(&consumer_path, G3_HOIST_CONSUMER).expect("write consumer");
+
+    let mut schema = parse_file(&consumer_path).expect("consumer parses");
+    inline_schema(&mut schema, &InlineConfig::default(), Some(&consumer_path))
+        .expect("hoisted-render field rename inline must succeed");
+    schema
+}
+
+/// The bug: the config-forward step that resolves `InlineTableViewRender`'s
+/// `columns: @config.columns` reads `TimeEntryPanel`'s declared default from
+/// `parent_configs` — a snapshot taken BEFORE the per-trait loop's field
+/// rewrite ran on ANY trait — so the forwarded literal still names
+/// `hourlyRate` even though `InlineTableViewRender` itself was already
+/// field-rewritten (to no effect, since its own default was just the
+/// `"@config.columns"` string at that point). Must now read `billRate` in
+/// both `field` and `key`.
+#[test]
+fn g3_field_rename_reaches_a_hoisted_renders_forwarded_columns() {
+    let schema = inline_g3_hoist_consumer();
+    let render = find_trait(&schema, 0, "TimeEntryOrbitalInlineTableViewRender");
+    let columns = render
+        .config
+        .as_ref()
+        .and_then(|cfg| cfg.get("columns"))
+        .and_then(|f| f.default.as_ref())
+        .expect("columns default carried (forwarded)");
+    let orbital_core::schema::SExpression::Array(items) = columns else {
+        panic!("columns default must be an array, got {columns:?}");
+    };
+    let orbital_core::schema::SExpression::Object(entry) = &items[0] else {
+        panic!("columns[0] must be an object, got {:?}", items[0]);
+    };
+    assert_eq!(
+        entry.get("field"),
+        Some(&orbital_core::schema::SExpression::String(
+            "billRate".to_string()
+        )),
+        "the forwarded columns[0].field must follow the rename, not stay pinned to 'hourlyRate'"
+    );
+    assert_eq!(
+        entry.get("key"),
+        Some(&orbital_core::schema::SExpression::String(
+            "billRate".to_string()
+        )),
+        "the forwarded columns[0].key must follow the rename, not stay pinned to 'hourlyRate'"
+    );
+}

@@ -503,6 +503,7 @@ mod tests {
                 entity: None,
             }]),
             event_id: None,
+            payload_entity: None,
         }
     }
 

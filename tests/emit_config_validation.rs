@@ -168,6 +168,7 @@ fn declared_emit(event: &str, external: bool) -> EmitDefinition {
         }),
         payload_schema: None,
         event_id: None,
+        payload_entity: None,
     }
 }
 

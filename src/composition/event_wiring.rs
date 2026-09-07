@@ -109,6 +109,7 @@ pub fn apply_event_wiring(
                     payload_schema: None,
                     event_id: None,
                     scope_overridden: None,
+                    payload_entity: None,
                 });
             }
         }

@@ -107,6 +107,9 @@ mod tests {
             page_unknown_path: Vec::new(),
             extend_collision,
             extend_unread,
+            field_rename_unapplied: Vec::new(),
+            event_subs: std::collections::HashMap::new(),
+            local_name: "Local".to_string(),
         }
     }
 

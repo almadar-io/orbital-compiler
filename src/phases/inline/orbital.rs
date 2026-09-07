@@ -22,8 +22,9 @@ use super::context::{parse_reference, InlineContext, ParsedReference};
 use super::identity_normalize::rewrite_trait_embed_tokens;
 use super::r#trait::forwarded_sibling_config_from;
 use super::rewrite::{
-    collect_entity_slots, fold_event_typed_members, rewrite_entity_field_paths,
-    rewrite_entity_ref_ids, rewrite_identifiers, rewrite_payload_entity_refs,
+    collect_entity_slots, collect_stale_field_name_literals, fold_event_typed_members,
+    rewrite_bare_field_name_config_default, rewrite_entity_field_paths, rewrite_entity_ref_ids,
+    rewrite_entity_typed_config_values, rewrite_identifiers, rewrite_payload_entity_refs,
     rewrite_role_literals, rewrite_trait_event_fields,
 };
 use super::InlineError;
@@ -81,6 +82,25 @@ pub struct OrbitalRefDiagnostic {
     /// entry keyed by `key`/`name`) forwards. C1-L-R (warning, rung 2):
     /// `ORB_O_EXTEND_FIELD_UNREAD`.
     pub extend_unread: Vec<String>,
+    /// G3 (`docs/Almadar_Compiler_Gaps.md` §82, rung 2): (knob/position
+    /// label, stale field name) — a `fields {}` rename left a config
+    /// default's bare or bare-list field-name value naming the pre-rename
+    /// upstream field (a struct-member position outside the `key`/`name`/
+    /// `field` set the rewrite already reaches). `ORB_O_FIELD_RENAME_UNAPPLIED`.
+    pub field_rename_unapplied: Vec<(String, String)>,
+    /// G5 (`docs/Almadar_Compiler_Gaps.md` §82): this reference's `events {
+    /// OLD: NEW }` map, carried out of `resolve_orbital_reference` (which has
+    /// no `schema.ledger` access — it operates on one `Orbital`, not the
+    /// whole schema) so a LATER, schema-level pass
+    /// (`reconcile_orbital_ref_event_id_renames` in `inline/mod.rs`) can
+    /// re-derive the id of every event declaration this rename actually
+    /// touched. Empty when the reference declares no `events {}`.
+    pub event_subs: HashMap<String, String>,
+    /// The materialized LOCAL orbital name this diagnostic's reference
+    /// spliced into — lets the schema-level pass above find `orbital` by
+    /// name (same by-name fallback `local_orbital_index` already uses when
+    /// there is no schema index to give).
+    pub local_name: String,
 }
 
 /// Diagnostic collected while resolving a `uses A from "…" { config { … } }`
@@ -192,6 +212,77 @@ pub(crate) fn materialized_primary_entity(
     Some((primary_final, primary_id))
 }
 
+/// One entry per reference-form orbital in a schema, built ONCE (before any
+/// splice runs) by `precompute_reference_form_listen_targets` — G1
+/// (`docs/Almadar_Compiler_Gaps.md` §82). Every value here is re-derived
+/// straight off the UPSTREAM schema (`materialized_trait_subs`, same
+/// derivation `resolve_orbital_reference`'s own step-4 trait loop uses), so
+/// it never depends on another orbital of this schema having already
+/// resolved — the map is safe to build order-independently and consult from
+/// any orbital's splice, whichever was declared first.
+#[derive(Debug, Clone, Default)]
+pub(crate) struct SiblingImportInfo {
+    pub local_name: String,
+    /// upstream (pre-prefix) trait name -> (final local trait name, final derived id)
+    pub trait_subs: HashMap<String, (String, String)>,
+}
+
+/// Every KEPT (post `omit`/`only`) upstream trait a reference-form orbital
+/// will bring in, keyed by its upstream declared name, mapped to its final
+/// prefixed name + derived id. Computed straight off the UPSTREAM schema
+/// (never off another orbital's own resolve output — trait declaration
+/// names/ids don't change through inline, only CLONES get fresh ids), so
+/// this is safe to call for every reference-form orbital in a schema up
+/// front, before any of them has actually spliced. Mirrors the trimming
+/// (`only`/`omit`) and id derivation `resolve_orbital_reference`'s own
+/// step-1/step-4 loops perform for the orbital it is CURRENTLY splicing;
+/// this is the same derivation exposed so the schema-wide precompute pass
+/// can compute it for every OTHER reference-form orbital too (G1, §82).
+pub(crate) fn materialized_trait_subs(
+    upstream: &Orbital,
+    obj: &OrbitalRefObject,
+    local_name: &str,
+) -> HashMap<String, (String, String)> {
+    let only_set: Option<HashSet<&str>> = obj
+        .only
+        .as_ref()
+        .map(|v| v.iter().map(String::as_str).collect());
+    let omit_set: HashSet<&str> = obj
+        .omit
+        .as_ref()
+        .map(|v| v.iter().map(String::as_str).collect())
+        .unwrap_or_default();
+    let mut out: HashMap<String, (String, String)> = HashMap::new();
+    for tr in &upstream.traits {
+        let (name, id) = match tr {
+            TraitReference::Inline(td) => (td.name.clone(), td.id.clone()),
+            TraitReference::Reference {
+                name: Some(name),
+                id,
+                ..
+            } => (name.clone(), id.clone()),
+            _ => continue,
+        };
+        let keep = match &only_set {
+            Some(set) => set.contains(name.as_str()),
+            None => !omit_set.contains(name.as_str()),
+        };
+        if !keep {
+            continue;
+        }
+        let final_name = format!("{local_name}{name}");
+        let final_id = derive_materialized_id(
+            id.as_deref(),
+            upstream.id.as_deref(),
+            &name,
+            local_name,
+            orbital_core::identity::IdKind::Trait,
+        );
+        out.insert(name, (final_name, final_id));
+    }
+    out
+}
+
 /// Resolve one reference-form `orbital`, splicing the imported orbital's
 /// whole closure into `orbital` in place. `orbital.reference` must already
 /// be cleared by the caller (`inline_orbital` does this via `Option::take`
@@ -224,6 +315,13 @@ pub(crate) fn resolve_orbital_reference(
     // {}` fold needs an id for whatever consumer entity it repoints a
     // relation at, and that entity is never one materialized by THIS call).
     consumer_entity_ids: &HashMap<String, String>,
+    // G1 (`docs/Almadar_Compiler_Gaps.md` §82): every reference-form orbital
+    // of THIS schema, keyed by (upstream alias, upstream orbital name),
+    // computed ONCE before any orbital resolves (order-independent — see
+    // `SiblingImportInfo`) — lets a listen source naming ANOTHER imported
+    // orbital of the same alias re-point at that import's local name/trait,
+    // not just the orbital currently being spliced.
+    listen_source_targets: &HashMap<(String, String), SiblingImportInfo>,
     diagnostics: &mut Vec<OrbitalRefDiagnostic>,
     // `.lolo` spans (Stage C): `Some(i)` for a TOP-LEVEL consumer orbital
     // (its index into `schema.orbitals`, matching the index `orbital-lolo`
@@ -739,12 +837,6 @@ pub(crate) fn resolve_orbital_reference(
             }
         }
     }
-    let orbital_rename: Option<(String, String)> = if upstream.name != local_name {
-        Some((upstream.name.clone(), local_name.clone()))
-    } else {
-        None
-    };
-
     // Snapshot every kept trait's declared config, keyed by its FINAL
     // (post-rename) name, for the step-6 embedder lookup below — a clone
     // taken before the loop starts iter_mut over `kept`, since the loop
@@ -785,9 +877,10 @@ pub(crate) fn resolve_orbital_reference(
             td,
             &subs,
             &id_by_name,
-            orbital_rename
-                .as_ref()
-                .map(|(from, to)| (from.as_str(), to.as_str())),
+            &upstream.name,
+            &local_name,
+            &alias,
+            listen_source_targets,
         );
         if !path_map.is_empty() {
             rewrite_trait_navigate_targets(td, &path_map);
@@ -866,12 +959,55 @@ pub(crate) fn resolve_orbital_reference(
                 cfg.insert(k, v);
             }
         }
+        // (E) G3 (`docs/Almadar_Compiler_Gaps.md` §82): a config-forward
+        // step just above can hand this trait a brand-new literal (e.g. a
+        // JSX-hoisted render's `columns: @config.columns` resolving to its
+        // embedder's declared array) that still names a PRE-rename field —
+        // this trait's own field rewrite already ran, earlier in this same
+        // loop iteration, before the forward existed. Same "moved past the
+        // forward" fix (D) already applies to page paths, applied here to
+        // field renames — see `rewrite_entity_fields_in_config`'s doc.
+        if !field_subs.is_empty() {
+            if let Some(cfg) = td.config.as_mut() {
+                rewrite_entity_fields_in_config(cfg, &field_subs);
+            }
+        }
         // (D) config-held page-path literals (e.g. an AppLayout's
         // `navItems[].href`) sit outside the navigate-effect surface above —
         // moved here, after the config forward, per (i) above.
         rewrite_trait_config_page_paths(td, &path_map);
         if let Some(events) = obj.events.as_ref() {
-            rename_events_in_trait(td, events);
+            rename_events_in_trait(td, events, &subs);
+        }
+    }
+
+    // G3 rung-2 (`docs/Almadar_Compiler_Gaps.md` §82): after the field
+    // rewrite above has run over every kept trait, confirm no config
+    // default still carries a bare literal equal to a PRE-rename field
+    // name — `rewrite_entity_field_paths`/`rewrite_bare_field_name_config_
+    // default` reach every position this crate can identify as a field
+    // reference (sigils, `object/get`, the `key`/`name`/`field` member
+    // set, and bare string/list defaults), but a struct member outside
+    // that set (a pattern-specific spelling this crate does not know) is
+    // invisible to the rewrite while still holding a genuine stale
+    // reference. `ORB_O_FIELD_RENAME_UNAPPLIED` turns that residue into a
+    // diagnostic instead of the silent no-op G3 found.
+    let mut field_rename_unapplied: Vec<(String, String)> = Vec::new();
+    if !field_subs.is_empty() {
+        for td in &kept {
+            let Some(cfg) = td.config.as_ref() else {
+                continue;
+            };
+            for (knob, f) in cfg.iter() {
+                let Some(default) = f.default.as_ref() else {
+                    continue;
+                };
+                let mut stale = HashSet::new();
+                collect_stale_field_name_literals(default, &field_subs, &mut stale);
+                for name in stale {
+                    field_rename_unapplied.push((format!("{}.config({knob})", td.name), name));
+                }
+            }
         }
     }
 
@@ -1187,6 +1323,8 @@ pub(crate) fn resolve_orbital_reference(
         || !page_unknown_path.is_empty()
         || !extend_collision.is_empty()
         || !extend_unread.is_empty()
+        || !field_rename_unapplied.is_empty()
+        || obj.events.as_ref().is_some_and(|e| !e.is_empty())
     {
         diagnostics.push(OrbitalRefDiagnostic {
             path: diag_path.clone(),
@@ -1201,6 +1339,9 @@ pub(crate) fn resolve_orbital_reference(
             page_unknown_path,
             extend_collision,
             extend_unread,
+            field_rename_unapplied,
+            event_subs: obj.events.clone().unwrap_or_default(),
+            local_name: local_name.clone(),
         });
     }
 
@@ -1356,6 +1497,50 @@ fn rename_entities_in_trait(
     }
     rewrite_payload_entity_refs(td, entity_subs);
     rewrite_entity_ref_ids(td, entity_subs, entity_ids);
+    // G2 (`docs/Almadar_Compiler_Gaps.md` §82): a config knob declared
+    // `: entity` (`std-calendar-sync`'s `targetEntity`) holds an entity-name
+    // VALUE, not a token the identifier walk above reaches.
+    rewrite_entity_typed_config_values(td, entity_subs, entity_ids);
+}
+
+/// Rewrite every config default in `cfg` through the field-rename map — the
+/// two-rewriter pair (`rewrite_entity_field_paths` +
+/// `rewrite_bare_field_name_config_default`) `rewrite_entity_fields_in_trait`
+/// applies to a trait's OWN declared config. Factored out so the SAME pass
+/// can ALSO run a second time, AFTER the per-trait loop's config-forward
+/// steps resolve a knob's `@config.<parent>` reference into a literal value
+/// (§6 of that loop, three call sites: embedder rung, multi-hop fallback,
+/// no-embedder fallback) — those steps read from `parent_configs`, a
+/// snapshot taken BEFORE this loop's own field rewrite ran (comment above
+/// `parent_configs`'s declaration), so a forward can hand a trait a
+/// brand-new literal that still names the PRE-rename field, invisible to
+/// this trait's OWN earlier rewrite pass (G3, `docs/
+/// Almadar_Compiler_Gaps.md` §82: a JSX-hoisted `InlineTableViewRender6`'s
+/// `columns: @config.columns` forward pulled in `[{field: hourlyRate, key:
+/// hourlyRate, …}]` from its embedder's declared default, verbatim,
+/// AFTER `InlineTableViewRender6` itself had already been field-rewritten —
+/// exactly the ordering `rewrite_trait_config_page_paths` was already
+/// moved past the forward to fix for page paths; this is that same fix for
+/// field renames). Idempotent — re-running it on already-correct config is
+/// a no-op — so calling it twice in the loop is safe.
+fn rewrite_entity_fields_in_config(
+    cfg: &mut HashMap<String, ConfigField>,
+    field_subs: &HashMap<String, String>,
+) {
+    if field_subs.is_empty() {
+        return;
+    }
+    for f in cfg.values_mut() {
+        if let Some(default) = f.default.as_mut() {
+            rewrite_entity_field_paths(default, field_subs);
+            // G3: the knob's OWN default value IS the field-name reference
+            // for a `string`/`[string]`-shaped knob (`searchField`/
+            // `formFields`-style) — see the function doc for why this
+            // dispatches on VALUE SHAPE, not the (post-override-fold, often
+            // `"unknown"`) declared type.
+            rewrite_bare_field_name_config_default(default, field_subs);
+        }
+    }
 }
 
 /// Apply an `OrbitalRefObject.fields` rename (`{ up: local }`) to every
@@ -1403,11 +1588,7 @@ fn rewrite_entity_fields_in_trait(td: &mut TraitDefinition, field_subs: &HashMap
         }
     }
     if let Some(cfg) = td.config.as_mut() {
-        for f in cfg.values_mut() {
-            if let Some(default) = f.default.as_mut() {
-                rewrite_entity_field_paths(default, field_subs);
-            }
-        }
+        rewrite_entity_fields_in_config(cfg, field_subs);
     }
     if let Some(contract) = td.entity_contract.as_mut() {
         for f in contract.requires.iter_mut() {
@@ -1752,18 +1933,31 @@ fn rename_source_entity_definition(
     rename_entity_refs_in_entity(src, entity_subs, entity_ids);
 }
 
-/// Point a materialized trait's `listens[].source` at its renamed name. `Trait`
-/// sources are looked up in the combined `subs` map; `Orbital`-kind sources
-/// (`Orbital.Trait.EVENT`) additionally need `orbital_rename` (`Some((from,
-/// to))` when the upstream orbital's own name differs from `local_name`) so a
-/// source that named the upstream orbital now names the LOCAL one — the one
-/// case sibling-pull's own listen rewrite never needed (a pulled sibling's
-/// owner is always the SAME orbital).
+/// Point a materialized trait's `listens[].source` at its renamed name.
+/// `Trait` sources are looked up in the combined `subs` map (same orbital).
+/// `Orbital`-kind sources (`Orbital.Trait.EVENT`) name a DIFFERENT orbital,
+/// two ways: (1) the SAME upstream orbital currently being spliced
+/// (`own_upstream_name` → `own_local_name`) — resolved directly through THIS
+/// call's own `subs`/`id_by_name`, exactly as before; (2) ANOTHER
+/// reference-form orbital of the same upstream `alias` also imported
+/// elsewhere in this schema (G1, `docs/Almadar_Compiler_Gaps.md` §82,
+/// order-independent) — resolved through the schema-wide
+/// `listen_source_targets` precompute. (1) is checked FIRST and is
+/// authoritative for `own_upstream_name`: two imports of the SAME upstream
+/// orbital under different local names each own their SELF case this way,
+/// so neither can clobber the other in the shared map (which, keyed only by
+/// (alias, upstream name), cannot hold two different local names for one
+/// key at once). A source naming an upstream orbital that is imported
+/// NOWHERE in this schema matches neither and is left exactly as-is, so
+/// `ORB_X_LISTEN_SOURCE_UNRESOLVED` still fires correctly for it (rung 2).
 fn rewrite_listen_sources(
     td: &mut TraitDefinition,
     subs: &HashMap<String, String>,
     id_by_name: &HashMap<String, String>,
-    orbital_rename: Option<(&str, &str)>,
+    own_upstream_name: &str,
+    own_local_name: &str,
+    alias: &str,
+    listen_source_targets: &HashMap<(String, String), SiblingImportInfo>,
 ) {
     let Some(listens) = td.listens.as_mut() else {
         return;
@@ -1787,21 +1981,35 @@ fn rewrite_listen_sources(
                 trait_id,
                 orbital_id,
             }) => {
-                if let Some((from, to)) = orbital_rename {
-                    if orbital.as_str() == from {
-                        let target = subs
-                            .get(trait_name.as_str())
-                            .cloned()
-                            .unwrap_or_else(|| trait_name.clone());
-                        *trait_id = id_by_name.get(&target).cloned();
-                        *trait_name = target;
-                        *orbital = to.to_string();
-                        // The old value named the UPSTREAM orbital; there is
-                        // no reliable local-orbital id to carry here, so
-                        // clear the dual-carry sibling (matches the JS twin,
-                        // which never emits `orbitalId` on this rewrite).
-                        *orbital_id = None;
+                if orbital.as_str() == own_upstream_name {
+                    let target = subs
+                        .get(trait_name.as_str())
+                        .cloned()
+                        .unwrap_or_else(|| trait_name.clone());
+                    *trait_id = id_by_name.get(&target).cloned();
+                    *trait_name = target;
+                    *orbital = own_local_name.to_string();
+                    // The old value named the UPSTREAM orbital; there is no
+                    // reliable local-orbital id to carry here, so clear the
+                    // dual-carry sibling (matches the JS twin, which never
+                    // emits `orbitalId` on this rewrite).
+                    *orbital_id = None;
+                } else if let Some(info) =
+                    listen_source_targets.get(&(alias.to_string(), orbital.clone()))
+                {
+                    match info.trait_subs.get(trait_name.as_str()) {
+                        Some((final_trait, final_id)) => {
+                            *trait_name = final_trait.clone();
+                            *trait_id = Some(final_id.clone());
+                        }
+                        // The target import exists but never kept a trait by
+                        // this name (e.g. `omit {}`'d) — no reliable id to
+                        // carry, so clear it, same as the self case above on
+                        // an unresolved trait name.
+                        None => *trait_id = None,
                     }
+                    *orbital = info.local_name.clone();
+                    *orbital_id = None;
                 }
             }
             _ => {}
@@ -1814,13 +2022,50 @@ fn rewrite_listen_sources(
 /// event-valued render-ui props (via `rewrite_identifiers`'s `event_subs`
 /// arm), the structured event-key fields (`stateMachine.events[*].key`,
 /// `transitions[*].event`, `emits[*].event`, `listens[*].event/triggers` —
-/// via `rewrite_trait_event_fields`), and a declared config knob typed
-/// `event` whose literal default names a renamed event (the JS twin's
+/// via `rewrite_trait_event_fields`), a declared config knob typed `event`
+/// whose literal default names a renamed event (the JS twin's
 /// `renameEventsInDeclaredConfig` main branch — its struct-member/array form
-/// is not replicated here, a documented gap since no W3-R test exercises it).
-fn rename_events_in_trait(td: &mut TraitDefinition, event_subs: &HashMap<String, String>) {
+/// is not replicated here, a documented gap since no W3-R test exercises it),
+/// and (G3, `docs/Almadar_Compiler_Gaps.md` §82) a SOURCED listen's `event`
+/// field (the upstream key a cross-trait/cross-orbital `listens` reads,
+/// distinct from `triggers`, the LOCAL key it fires) when the source trait
+/// is itself one of THIS import's kept traits — `event_subs` is scoped to
+/// one orbital reference, so within it every trait shares the SAME renamed
+/// vocabulary, unlike the ordinary (non-import) trait-ref path's
+/// `rewrite_trait_event_fields`, which deliberately leaves a sourced
+/// listen's `event` alone because there the source trait's rename is an
+/// INDEPENDENT call site's own `events {}` (reconciled instead via
+/// `event_renames_by_trait` in `inline_traits`). `kept_final_names` is
+/// `subs`'s value set (every kept trait's post-prefix name) — a listen
+/// sourced from a SIBLING trait (Stage B, never prefixed, never subject to
+/// this rename) is correctly excluded since its name can never collide with
+/// a `{local_name}{upstream_name}` value.
+fn rename_events_in_trait(
+    td: &mut TraitDefinition,
+    event_subs: &HashMap<String, String>,
+    subs: &HashMap<String, String>,
+) {
     if event_subs.is_empty() {
         return;
+    }
+    if let Some(listens) = td.listens.as_mut() {
+        let kept_final_names: HashSet<&str> = subs.values().map(String::as_str).collect();
+        for listen in listens.iter_mut() {
+            let from_this_import = match listen.source.as_ref() {
+                Some(ListenSource::Trait { trait_name, .. }) => {
+                    kept_final_names.contains(trait_name.as_str())
+                }
+                Some(ListenSource::Orbital { trait_name, .. }) => {
+                    kept_final_names.contains(trait_name.as_str())
+                }
+                Some(ListenSource::Any) | None => false,
+            };
+            if from_this_import {
+                if let Some(to) = event_subs.get(&listen.event) {
+                    listen.event = to.clone();
+                }
+            }
+        }
     }
     let no_entities: HashMap<String, String> = HashMap::new();
     for t in td.state_machine.transitions.iter_mut() {
@@ -2168,6 +2413,7 @@ mod tests {
             &ctx,
             &HashMap::new(),
             &HashMap::new(),
+            &HashMap::new(),
             &mut diagnostics,
             None,
         )
@@ -2205,6 +2451,7 @@ mod tests {
             &mut orbital,
             &obj,
             &ctx,
+            &HashMap::new(),
             &HashMap::new(),
             &HashMap::new(),
             &mut diagnostics,
@@ -2253,6 +2500,7 @@ mod tests {
             &mut orbital,
             &obj,
             &ctx,
+            &HashMap::new(),
             &HashMap::new(),
             &HashMap::new(),
             &mut diagnostics,
@@ -2325,6 +2573,7 @@ mod tests {
             &mut orbital,
             &obj,
             &ctx,
+            &HashMap::new(),
             &HashMap::new(),
             &HashMap::new(),
             &mut diagnostics,
@@ -2402,6 +2651,7 @@ mod tests {
             &ctx,
             &alias_schema_configs,
             &HashMap::new(),
+            &HashMap::new(),
             &mut diagnostics,
             None,
         )
@@ -2474,6 +2724,7 @@ mod tests {
             &ctx,
             &alias_schema_configs,
             &HashMap::new(),
+            &HashMap::new(),
             &mut diagnostics,
             None,
         )
@@ -2516,6 +2767,7 @@ mod tests {
             &ctx,
             &HashMap::new(),
             &HashMap::new(),
+            &HashMap::new(),
             &mut Vec::new(),
             None,
         )
@@ -2525,6 +2777,7 @@ mod tests {
             &mut second,
             &obj,
             &ctx,
+            &HashMap::new(),
             &HashMap::new(),
             &HashMap::new(),
             &mut Vec::new(),
@@ -2574,6 +2827,7 @@ mod tests {
             &mut orbital,
             &obj,
             &ctx,
+            &HashMap::new(),
             &HashMap::new(),
             &HashMap::new(),
             &mut Vec::new(),
@@ -2724,6 +2978,7 @@ mod tests {
             &ctx,
             &HashMap::new(),
             &HashMap::new(),
+            &HashMap::new(),
             &mut diagnostics,
             None,
         )
@@ -2803,6 +3058,7 @@ mod tests {
             &ctx,
             &HashMap::new(),
             &HashMap::new(),
+            &HashMap::new(),
             &mut diagnostics,
             None,
         )
@@ -2872,6 +3128,7 @@ mod tests {
             &ctx,
             &HashMap::new(),
             &HashMap::new(),
+            &HashMap::new(),
             &mut diagnostics,
             None,
         )
@@ -2922,6 +3179,7 @@ mod tests {
             &ctx,
             &HashMap::new(),
             &HashMap::new(),
+            &HashMap::new(),
             &mut Vec::new(),
             None,
         )
@@ -2931,6 +3189,7 @@ mod tests {
             &mut two,
             &obj,
             &ctx,
+            &HashMap::new(),
             &HashMap::new(),
             &HashMap::new(),
             &mut Vec::new(),
@@ -3004,6 +3263,7 @@ mod tests {
             &mut orbital,
             &obj,
             &ctx,
+            &HashMap::new(),
             &HashMap::new(),
             &HashMap::new(),
             &mut diagnostics,
@@ -3091,6 +3351,7 @@ mod tests {
             &mut orbital,
             &obj,
             &ctx,
+            &HashMap::new(),
             &HashMap::new(),
             &HashMap::new(),
             &mut diagnostics,
@@ -3181,6 +3442,7 @@ mod tests {
             &mut orbital,
             &obj,
             &ctx,
+            &HashMap::new(),
             &HashMap::new(),
             &HashMap::new(),
             &mut diagnostics,
@@ -3523,6 +3785,7 @@ mod tests {
             &ctx,
             &HashMap::new(),
             &consumer_ids,
+            &HashMap::new(),
             &mut diagnostics,
             None,
         )
@@ -3663,6 +3926,7 @@ mod tests {
             &ctx,
             &HashMap::new(),
             &consumer_ids,
+            &HashMap::new(),
             &mut diagnostics,
             None,
         )
@@ -3744,6 +4008,7 @@ mod tests {
             &ctx,
             &HashMap::new(),
             &HashMap::new(),
+            &HashMap::new(),
             &mut diagnostics,
             None,
         )
@@ -3789,6 +4054,7 @@ mod tests {
             &ctx,
             &HashMap::new(),
             &consumer_ids,
+            &HashMap::new(),
             &mut diagnostics,
             None,
         )
@@ -3823,6 +4089,7 @@ mod tests {
             &mut orbital,
             &obj,
             &ctx,
+            &HashMap::new(),
             &HashMap::new(),
             &HashMap::new(),
             &mut diagnostics,
@@ -3862,6 +4129,7 @@ mod tests {
             &mut orbital,
             &obj,
             &ctx,
+            &HashMap::new(),
             &HashMap::new(),
             &HashMap::new(),
             &mut diagnostics,
@@ -3921,6 +4189,7 @@ mod tests {
             &ctx,
             &HashMap::new(),
             &HashMap::new(),
+            &HashMap::new(),
             &mut diagnostics,
             None,
         )
@@ -3962,6 +4231,7 @@ mod tests {
             &mut orbital,
             &obj,
             &ctx,
+            &HashMap::new(),
             &HashMap::new(),
             &HashMap::new(),
             &mut diagnostics,
@@ -4010,6 +4280,7 @@ mod tests {
             &mut orbital,
             &obj,
             &ctx,
+            &HashMap::new(),
             &HashMap::new(),
             &HashMap::new(),
             &mut diagnostics,
@@ -4067,6 +4338,7 @@ mod tests {
             &mut orbital,
             &obj,
             &ctx,
+            &HashMap::new(),
             &HashMap::new(),
             &HashMap::new(),
             &mut diagnostics,
@@ -4168,6 +4440,7 @@ mod tests {
             &ctx,
             &HashMap::new(),
             &consumer_ids,
+            &HashMap::new(),
             &mut diagnostics,
             None,
         )
@@ -4257,6 +4530,7 @@ mod tests {
             &ctx,
             &HashMap::new(),
             &HashMap::new(),
+            &HashMap::new(),
             &mut diagnostics,
             None,
         )
@@ -4317,6 +4591,7 @@ mod tests {
             &mut orbital,
             &obj,
             &ctx,
+            &HashMap::new(),
             &HashMap::new(),
             &HashMap::new(),
             &mut diagnostics,
@@ -4408,6 +4683,7 @@ mod tests {
             &ctx,
             &HashMap::new(),
             &HashMap::new(),
+            &HashMap::new(),
             &mut diagnostics,
             None,
         )
@@ -4482,6 +4758,7 @@ mod tests {
             &ctx,
             &HashMap::new(),
             &HashMap::new(),
+            &HashMap::new(),
             &mut diagnostics,
             None,
         )
@@ -4519,6 +4796,7 @@ mod tests {
             &mut orbital,
             &obj,
             &ctx,
+            &HashMap::new(),
             &HashMap::new(),
             &HashMap::new(),
             &mut diagnostics,
@@ -4572,6 +4850,7 @@ mod tests {
             &ctx,
             &HashMap::new(),
             &HashMap::new(),
+            &HashMap::new(),
             &mut diagnostics,
             None,
         )
@@ -4620,6 +4899,7 @@ mod tests {
             &ctx,
             &HashMap::new(),
             &consumer_entity_ids,
+            &HashMap::new(),
             &mut diagnostics,
             None,
         )
