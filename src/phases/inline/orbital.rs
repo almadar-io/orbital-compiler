@@ -20,7 +20,7 @@
 use super::collect_sibling_trait_refs;
 use super::context::{parse_reference, InlineContext, ParsedReference};
 use super::identity_normalize::rewrite_trait_embed_tokens;
-use super::r#trait::forwarded_sibling_config_from;
+use super::r#trait::forwarded_sibling_config_from_tracked;
 use super::rewrite::{
     collect_entity_slots, collect_stale_field_name_literals, fold_event_typed_members,
     rewrite_bare_field_name_config_default, rewrite_entity_field_paths, rewrite_entity_ref_ids,
@@ -859,6 +859,13 @@ pub(crate) fn resolve_orbital_reference(
     // page-path literals first (the old order) missed every href sitting
     // behind an unresolved forward.
     for td in kept.iter_mut() {
+        // Keys whose config-forward resolution reached all the way out to
+        // `schema_config` (the CONSUMER's single app-level `config {}`,
+        // shared by every orbital import in the schema) — populated below,
+        // consumed by (D)'s page-path rewrite so it never touches one of
+        // these: that data isn't this trait's own, it's the consumer's
+        // outer, possibly multi-orbital structure passing through.
+        let mut schema_only_keys: HashSet<String> = HashSet::new();
         rewrite_trait_embed_tokens(td, &subs);
         rename_entities_in_trait(td, &subs, &entity_ids);
         // (B) the trait's own source-entity provenance copy must track the
@@ -899,13 +906,14 @@ pub(crate) fn resolve_orbital_reference(
                 let Some(parent_cfg) = parent_configs.get(embedder) else {
                     continue;
                 };
-                if let Some(delta) = forwarded_sibling_config_from(
+                if let Some(delta) = forwarded_sibling_config_from_tracked(
                     td.config.as_ref(),
                     &[parent_cfg],
                     folded_config.as_ref(),
                     None,
                     None,
                     schema_config,
+                    Some(&mut schema_only_keys),
                 ) {
                     let cfg = td.config.get_or_insert_with(HashMap::new);
                     for (k, v) in delta {
@@ -930,13 +938,14 @@ pub(crate) fn resolve_orbital_reference(
                 &parent_configs,
                 kept_len,
             );
-            if let Some(delta) = forwarded_sibling_config_from(
+            if let Some(delta) = forwarded_sibling_config_from_tracked(
                 td.config.as_ref(),
                 &chain,
                 folded_config.as_ref(),
                 None,
                 None,
                 schema_config,
+                Some(&mut schema_only_keys),
             ) {
                 let cfg = td.config.get_or_insert_with(HashMap::new);
                 for (k, v) in delta {
@@ -946,13 +955,14 @@ pub(crate) fn resolve_orbital_reference(
         }
         // No-embedder fallback (orbital/schema rungs only) — also catches
         // any knob no embedder above resolved.
-        if let Some(delta) = forwarded_sibling_config_from(
+        if let Some(delta) = forwarded_sibling_config_from_tracked(
             td.config.as_ref(),
             &[],
             folded_config.as_ref(),
             None,
             None,
             schema_config,
+            Some(&mut schema_only_keys),
         ) {
             let cfg = td.config.get_or_insert_with(HashMap::new);
             for (k, v) in delta {
@@ -975,7 +985,7 @@ pub(crate) fn resolve_orbital_reference(
         // (D) config-held page-path literals (e.g. an AppLayout's
         // `navItems[].href`) sit outside the navigate-effect surface above —
         // moved here, after the config forward, per (i) above.
-        rewrite_trait_config_page_paths(td, &path_map);
+        rewrite_trait_config_page_paths(td, &path_map, &schema_only_keys);
         if let Some(events) = obj.events.as_ref() {
             rename_events_in_trait(td, events, &subs);
         }
@@ -2265,13 +2275,33 @@ fn rewrite_config_page_paths(expr: &mut SExpression, path_map: &HashMap<String, 
 }
 
 /// Apply {@link rewrite_config_page_paths} across every declared config
-/// field's default value on one trait.
-fn rewrite_trait_config_page_paths(td: &mut TraitDefinition, path_map: &HashMap<String, String>) {
+/// field's default value on one trait — but skip a field named in
+/// `schema_only_keys`: its value didn't come from anywhere scoped to THIS
+/// import (an embedder, the imported orbital's own `config {}`, or a §B4-R5
+/// upstream rung), it fell all the way through to `schema_config` — the
+/// CONSUMER's single app-level `config {}`, shared by every orbital import
+/// in the schema. `std-notes.lolo`'s own literal `navItems` (the case this
+/// rewrite exists for) resolves from the orbital's own config and is never
+/// in this set, so it's still rewritten as before. Without the exclusion,
+/// e.g. `project-friday.lolo`'s single shared `navItems` reaching every
+/// AppLayout via `navItems: @config.navItems` got its WHOLE shared
+/// structure walked and exact-string-matched against just this one import's
+/// upstream path, so an unrelated sibling nav entry whose href happened to
+/// equal it (two different imports each naming a page `/pipeline`) silently
+/// got stomped too — a page-path collision, not a rename.
+fn rewrite_trait_config_page_paths(
+    td: &mut TraitDefinition,
+    path_map: &HashMap<String, String>,
+    schema_only_keys: &HashSet<String>,
+) {
     if path_map.is_empty() {
         return;
     }
     if let Some(cfg) = td.config.as_mut() {
-        for f in cfg.values_mut() {
+        for (key, f) in cfg.iter_mut() {
+            if schema_only_keys.contains(key) {
+                continue;
+            }
             if let Some(default) = f.default.as_mut() {
                 rewrite_config_page_paths(default, path_map);
             }

@@ -979,6 +979,40 @@ pub(super) fn forwarded_sibling_config_from(
     upstream_schema_config: Option<&HashMap<String, ConfigField>>,
     schema_config: Option<&HashMap<String, ConfigField>>,
 ) -> Option<HashMap<String, ConfigField>> {
+    forwarded_sibling_config_from_tracked(
+        declared,
+        embedder_chain,
+        orbital_config,
+        upstream_orbital_config,
+        upstream_schema_config,
+        schema_config,
+        None,
+    )
+}
+
+/// {@link forwarded_sibling_config_from}, with an optional out-set of the
+/// resolved keys whose value came ONLY from the outermost `schema_config`
+/// rung — the CONSUMER's single app-level `config {}`, shared by every
+/// orbital import in the schema, as opposed to `embedder_chain`/
+/// `orbital_config`/`upstream_*`, each scoped to the one import/trait doing
+/// the resolving. Used by the orbital-import splice
+/// (`rewrite_trait_config_page_paths`, Gap (D)) to tell "this trait's own
+/// literal page-path data, safe to remap onto this import's local paths"
+/// (any other rung) apart from "the consumer's own unrelated, possibly
+/// multi-orbital data that happened to reach this trait via a bare
+/// `@config.<knob>` forward" (schema_config) — rewriting the latter by
+/// literal string match risks stomping an unrelated sibling's href that
+/// coincidentally equals this import's upstream path.
+#[allow(clippy::too_many_arguments)]
+pub(super) fn forwarded_sibling_config_from_tracked(
+    declared: Option<&HashMap<String, ConfigField>>,
+    embedder_chain: &[&HashMap<String, ConfigField>],
+    orbital_config: Option<&HashMap<String, ConfigField>>,
+    upstream_orbital_config: Option<&HashMap<String, ConfigField>>,
+    upstream_schema_config: Option<&HashMap<String, ConfigField>>,
+    schema_config: Option<&HashMap<String, ConfigField>>,
+    mut schema_only_keys: Option<&mut HashSet<String>>,
+) -> Option<HashMap<String, ConfigField>> {
     let declared = declared?;
     let mut out: HashMap<String, ConfigField> = HashMap::new();
     for (key, field) in declared.iter() {
@@ -1027,7 +1061,11 @@ pub(super) fn forwarded_sibling_config_from(
                 .and_then(|c| c.get(&current_key))
                 .and_then(|f| f.default.as_ref());
         }
-        if value.is_none_or(is_still_forward) {
+        // Every nearer rung (embedder/orbital/upstream) came up empty or
+        // self-forwarding — whatever the schema_config rung supplies next is
+        // ONLY reachable through it.
+        let reaches_schema_config_rung = value.is_none_or(is_still_forward);
+        if reaches_schema_config_rung {
             value = schema_config
                 .and_then(|c| c.get(&current_key))
                 .and_then(|f| f.default.as_ref());
@@ -1038,6 +1076,11 @@ pub(super) fn forwarded_sibling_config_from(
         // Still a forward at the outermost rung — nothing left to resolve.
         if is_still_forward(value) {
             continue;
+        }
+        if reaches_schema_config_rung {
+            if let Some(set) = schema_only_keys.as_deref_mut() {
+                set.insert(key.clone());
+            }
         }
         let mut forwarded = field.clone();
         forwarded.default = Some(value.clone());
