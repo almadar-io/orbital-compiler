@@ -294,6 +294,7 @@ pub(crate) fn materialized_trait_subs(
 /// orbital `ctx` holds is already fully inlined (`inline_orbital` recurses
 /// into every loaded import before it's stashed), so a nested orbital-import
 /// upstream resolves for free.
+#[allow(clippy::too_many_arguments)]
 pub(crate) fn resolve_orbital_reference(
     orbital: &mut Orbital,
     obj: &OrbitalRefObject,
@@ -322,6 +323,17 @@ pub(crate) fn resolve_orbital_reference(
     // orbital of the same alias re-point at that import's local name/trait,
     // not just the orbital currently being spliced.
     listen_source_targets: &HashMap<(String, String), SiblingImportInfo>,
+    // §86 (`docs/Almadar_Compiler_Gaps.md`): the CONSUMER'S OWN top-level
+    // `schema.config` (`inline_orbital`'s `schema_config` parameter at this
+    // call site) — the last-hop rung `forward_consumer_app_knobs` folds
+    // AFTER step 3's alias-rung fold, so a folded knob whose default is
+    // literally the token `@config.<consumerKnob>` (a `uses Alias { config:
+    // { k: @config.j } }` call-site override) resolves to the consumer's
+    // OWN declared default before the no-embedder fallback, instead of
+    // surviving into codegen as the raw unresolved token string. Distinct
+    // from `alias_schema_configs` above (the ALIAS's own file-level config,
+    // never the consumer's) — see the (A) fix note on that parameter.
+    consumer_schema_config: Option<&HashMap<String, ConfigField>>,
     diagnostics: &mut Vec<OrbitalRefDiagnostic>,
     // `.lolo` spans (Stage C): `Some(i)` for a TOP-LEVEL consumer orbital
     // (its index into `schema.orbitals`, matching the index `orbital-lolo`
@@ -454,8 +466,16 @@ pub(crate) fn resolve_orbital_reference(
             }
         }
     }
-    let folded_config: Option<HashMap<String, ConfigField>> =
+    let mut folded_config: Option<HashMap<String, ConfigField>> =
         fold_declared_config_override(declared_config.as_ref(), obj.config.as_ref());
+    // §86 last hop: a folded knob whose default is still the bare token
+    // `@config.<consumerKnob>` resolves against the CONSUMER's own top-level
+    // declared default, before anything downstream falls back to treating
+    // the raw token as a literal (`validate_dangling_config_refs` judges
+    // whatever is left unresolved).
+    if let Some(folded) = folded_config.as_mut() {
+        forward_consumer_app_knobs(folded, consumer_schema_config);
+    }
 
     // 4. Ids: every cloned node (trait AND entity) gets a FRESH derived id
     // rooted in its own source id when it has one, else a deterministic
@@ -2444,6 +2464,7 @@ mod tests {
             &HashMap::new(),
             &HashMap::new(),
             &HashMap::new(),
+            None,
             &mut diagnostics,
             None,
         )
@@ -2484,6 +2505,7 @@ mod tests {
             &HashMap::new(),
             &HashMap::new(),
             &HashMap::new(),
+            None,
             &mut diagnostics,
             None,
         )
@@ -2533,6 +2555,7 @@ mod tests {
             &HashMap::new(),
             &HashMap::new(),
             &HashMap::new(),
+            None,
             &mut diagnostics,
             None,
         )
@@ -2606,6 +2629,7 @@ mod tests {
             &HashMap::new(),
             &HashMap::new(),
             &HashMap::new(),
+            None,
             &mut diagnostics,
             None,
         )
@@ -2682,6 +2706,7 @@ mod tests {
             &alias_schema_configs,
             &HashMap::new(),
             &HashMap::new(),
+            None,
             &mut diagnostics,
             None,
         )
@@ -2755,6 +2780,7 @@ mod tests {
             &alias_schema_configs,
             &HashMap::new(),
             &HashMap::new(),
+            None,
             &mut diagnostics,
             None,
         )
@@ -2798,6 +2824,7 @@ mod tests {
             &HashMap::new(),
             &HashMap::new(),
             &HashMap::new(),
+            None,
             &mut Vec::new(),
             None,
         )
@@ -2810,6 +2837,7 @@ mod tests {
             &HashMap::new(),
             &HashMap::new(),
             &HashMap::new(),
+            None,
             &mut Vec::new(),
             None,
         )
@@ -2860,6 +2888,7 @@ mod tests {
             &HashMap::new(),
             &HashMap::new(),
             &HashMap::new(),
+            None,
             &mut Vec::new(),
             None,
         )
@@ -3009,6 +3038,7 @@ mod tests {
             &HashMap::new(),
             &HashMap::new(),
             &HashMap::new(),
+            None,
             &mut diagnostics,
             None,
         )
@@ -3089,6 +3119,7 @@ mod tests {
             &HashMap::new(),
             &HashMap::new(),
             &HashMap::new(),
+            None,
             &mut diagnostics,
             None,
         )
@@ -3159,6 +3190,7 @@ mod tests {
             &HashMap::new(),
             &HashMap::new(),
             &HashMap::new(),
+            None,
             &mut diagnostics,
             None,
         )
@@ -3210,6 +3242,7 @@ mod tests {
             &HashMap::new(),
             &HashMap::new(),
             &HashMap::new(),
+            None,
             &mut Vec::new(),
             None,
         )
@@ -3222,6 +3255,7 @@ mod tests {
             &HashMap::new(),
             &HashMap::new(),
             &HashMap::new(),
+            None,
             &mut Vec::new(),
             None,
         )
@@ -3296,6 +3330,7 @@ mod tests {
             &HashMap::new(),
             &HashMap::new(),
             &HashMap::new(),
+            None,
             &mut diagnostics,
             None,
         )
@@ -3384,6 +3419,7 @@ mod tests {
             &HashMap::new(),
             &HashMap::new(),
             &HashMap::new(),
+            None,
             &mut diagnostics,
             None,
         )
@@ -3475,6 +3511,7 @@ mod tests {
             &HashMap::new(),
             &HashMap::new(),
             &HashMap::new(),
+            None,
             &mut diagnostics,
             None,
         )
@@ -3816,6 +3853,7 @@ mod tests {
             &HashMap::new(),
             &consumer_ids,
             &HashMap::new(),
+            None,
             &mut diagnostics,
             None,
         )
@@ -3901,6 +3939,101 @@ mod tests {
         );
     }
 
+    /// §86 (`docs/Almadar_Compiler_Gaps.md`): `forward_consumer_app_knobs` was only
+    /// exercised by the unit test above — never wired into `resolve_orbital_reference`
+    /// itself. Reproduces `TaskOrbital.calendarSyncEnabled`
+    /// (`std-project-manager.lolo`): the upstream orbital declares the knob, the
+    /// `uses Alias { config: { calendarSyncEnabled: @config.calendarSyncEnabled } }`
+    /// call-site override forwards the CONSUMER's own top-level app knob token, and a
+    /// kept trait's OWN `calendarSyncEnabled: @config.calendarSyncEnabled` config
+    /// default resolves through the no-embedder fallback — the exact spot a
+    /// composed trait's GUARD (`(= @config.calendarSyncEnabled true)`) reads its
+    /// config default from. Before the fix `orbital.config` (and every trait
+    /// forwarding from it) kept the raw `"@config.calendarSyncEnabled"` string —
+    /// the literal text a `tsc` error surfaced verbatim in the emitted guard.
+    #[test]
+    fn uses_config_override_wires_consumer_app_knob_into_resolved_trait_config() {
+        let mut upstream = upstream_orbital(Some(json!({
+            "calendarSyncEnabled": { "type": "boolean", "default": false }
+        })));
+        if let TraitReference::Inline(td) = &mut upstream.traits[0] {
+            td.config = Some(std::collections::HashMap::from([(
+                "calendarSyncEnabled".to_string(),
+                serde_json::from_value::<ConfigField>(json!({
+                    "type": "boolean", "default": "@config.calendarSyncEnabled"
+                }))
+                .unwrap(),
+            )]));
+        }
+        let mut ctx = InlineContext::new();
+        ctx.add_alias("Up", &upstream);
+
+        let consumer_schema_config: HashMap<String, ConfigField> = HashMap::from([(
+            "calendarSyncEnabled".to_string(),
+            serde_json::from_value::<ConfigField>(json!({ "type": "boolean", "default": true }))
+                .unwrap(),
+        )]);
+
+        let mut orbital = consumer_orbital("Local");
+        let obj = OrbitalRefObject {
+            reference: "Up.orbitals.UpOrbital".to_string(),
+            ref_id: None,
+            entity: None,
+            fields: None,
+            pages: None,
+            omit: None,
+            only: None,
+            config: Some(HashMap::from([(
+                "calendarSyncEnabled".to_string(),
+                serde_json::from_value::<ConfigField>(json!({
+                    "type": "boolean", "default": "@config.calendarSyncEnabled"
+                }))
+                .unwrap(),
+            )])),
+            events: None,
+            roles: None,
+            entities: None,
+            mounts: None,
+            extend: None,
+        };
+        let mut diagnostics = Vec::new();
+        resolve_orbital_reference(
+            &mut orbital,
+            &obj,
+            &ctx,
+            &HashMap::new(),
+            &HashMap::new(),
+            &HashMap::new(),
+            Some(&consumer_schema_config),
+            &mut diagnostics,
+            None,
+        )
+        .expect("resolves");
+
+        assert_eq!(
+            orbital
+                .config
+                .as_ref()
+                .and_then(|c| c.get("calendarSyncEnabled"))
+                .and_then(|f| f.default.clone()),
+            Some(SExpression::Bool(true)),
+            "the orbital-rung fold must resolve the consumer app-knob token to its literal"
+        );
+        let a = kept_trait(&orbital, "LocalA");
+        let guard_default = a
+            .config
+            .as_ref()
+            .and_then(|c| c.get("calendarSyncEnabled"))
+            .and_then(|f| f.default.clone());
+        assert_eq!(
+            guard_default,
+            Some(SExpression::Bool(true)),
+            "a kept trait's own config (what a guard's `@config.calendarSyncEnabled` \
+             reads through the no-embedder fallback) must carry the resolved literal, \
+             not the raw '@config.calendarSyncEnabled' token"
+        );
+    }
+
     #[test]
     fn extend_fields_appends_scalar_and_relation_and_writes_fixture() {
         let ctx = stage_b_ctx();
@@ -3957,6 +4090,7 @@ mod tests {
             &HashMap::new(),
             &consumer_ids,
             &HashMap::new(),
+            None,
             &mut diagnostics,
             None,
         )
@@ -4039,6 +4173,7 @@ mod tests {
             &HashMap::new(),
             &HashMap::new(),
             &HashMap::new(),
+            None,
             &mut diagnostics,
             None,
         )
@@ -4085,6 +4220,7 @@ mod tests {
             &HashMap::new(),
             &consumer_ids,
             &HashMap::new(),
+            None,
             &mut diagnostics,
             None,
         )
@@ -4122,6 +4258,7 @@ mod tests {
             &HashMap::new(),
             &HashMap::new(),
             &HashMap::new(),
+            None,
             &mut diagnostics,
             None,
         )
@@ -4162,6 +4299,7 @@ mod tests {
             &HashMap::new(),
             &HashMap::new(),
             &HashMap::new(),
+            None,
             &mut diagnostics,
             None,
         )
@@ -4220,6 +4358,7 @@ mod tests {
             &HashMap::new(),
             &HashMap::new(),
             &HashMap::new(),
+            None,
             &mut diagnostics,
             None,
         )
@@ -4264,6 +4403,7 @@ mod tests {
             &HashMap::new(),
             &HashMap::new(),
             &HashMap::new(),
+            None,
             &mut diagnostics,
             None,
         )
@@ -4313,6 +4453,7 @@ mod tests {
             &HashMap::new(),
             &HashMap::new(),
             &HashMap::new(),
+            None,
             &mut diagnostics,
             None,
         )
@@ -4371,6 +4512,7 @@ mod tests {
             &HashMap::new(),
             &HashMap::new(),
             &HashMap::new(),
+            None,
             &mut diagnostics,
             None,
         )
@@ -4471,6 +4613,7 @@ mod tests {
             &HashMap::new(),
             &consumer_ids,
             &HashMap::new(),
+            None,
             &mut diagnostics,
             None,
         )
@@ -4561,6 +4704,7 @@ mod tests {
             &HashMap::new(),
             &HashMap::new(),
             &HashMap::new(),
+            None,
             &mut diagnostics,
             None,
         )
@@ -4624,6 +4768,7 @@ mod tests {
             &HashMap::new(),
             &HashMap::new(),
             &HashMap::new(),
+            None,
             &mut diagnostics,
             None,
         )
@@ -4714,6 +4859,7 @@ mod tests {
             &HashMap::new(),
             &HashMap::new(),
             &HashMap::new(),
+            None,
             &mut diagnostics,
             None,
         )
@@ -4789,6 +4935,7 @@ mod tests {
             &HashMap::new(),
             &HashMap::new(),
             &HashMap::new(),
+            None,
             &mut diagnostics,
             None,
         )
@@ -4829,6 +4976,7 @@ mod tests {
             &HashMap::new(),
             &HashMap::new(),
             &HashMap::new(),
+            None,
             &mut diagnostics,
             None,
         )
@@ -4881,6 +5029,7 @@ mod tests {
             &HashMap::new(),
             &HashMap::new(),
             &HashMap::new(),
+            None,
             &mut diagnostics,
             None,
         )
@@ -4930,6 +5079,7 @@ mod tests {
             &HashMap::new(),
             &consumer_entity_ids,
             &HashMap::new(),
+            None,
             &mut diagnostics,
             None,
         )

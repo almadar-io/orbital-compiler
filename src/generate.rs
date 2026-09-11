@@ -197,15 +197,23 @@ where
     let generated_dir = output_dir.join(shell.generated_dir());
     std::fs::create_dir_all(&generated_dir)?;
 
+    // §94 (`docs/Almadar_Compiler_Gaps.md`): a source-level trait/organism a
+    // recompile no longer emits used to leave its LAST compile's file behind
+    // forever — nothing in this loop ever deletes anything. Read the PREVIOUS
+    // compile's manifest before writing (`None` on first compile / no
+    // manifest / an unparsable one — never destructive on that path), then
+    // prune whatever it lists that this compile did not reproduce. Scoped to
+    // exactly what THIS loop writes: `generate_from_file`'s `schema.orb` /
+    // `resolved.orb`, `orbital-cli`'s `.env` merge, and the lowered `.orb`
+    // (`orbital-cli/src/commands/compile.rs`) are written by other call
+    // sites entirely and never touched here.
+    let previous_manifest = read_orb_manifest(output_dir);
+
     for file in &output.files {
         // Workspace-relative paths (e.g. packages/shared/...) are written
         // relative to the output root; all other generated paths live under
         // the shell's generated_dir.
-        let file_path = if file.path.starts_with("packages/") {
-            output_dir.join(&file.path)
-        } else {
-            generated_dir.join(&file.path)
-        };
+        let file_path = resolve_manifest_path(output_dir, &generated_dir, &file.path);
 
         // Ensure parent directory exists
         if let Some(parent) = file_path.parent() {
@@ -219,6 +227,24 @@ where
         }
     }
 
+    let new_manifest: std::collections::BTreeSet<String> =
+        output.files.iter().map(|f| f.path.clone()).collect();
+    if let Some(previous) = previous_manifest {
+        for stale in previous.difference(&new_manifest) {
+            let stale_path = resolve_manifest_path(output_dir, &generated_dir, stale);
+            if stale_path.exists() {
+                std::fs::remove_file(&stale_path)?;
+                if options.verbose {
+                    eprintln!("  Pruned stale: {stale}");
+                }
+                if let Some(parent) = stale_path.parent() {
+                    prune_empty_dirs(parent, output_dir);
+                }
+            }
+        }
+    }
+    write_orb_manifest(output_dir, &new_manifest)?;
+
     if options.verbose {
         eprintln!(
             "Generated {} files to {}",
@@ -228,6 +254,69 @@ where
     }
 
     Ok(output)
+}
+
+/// The manifest file name `generate_from_oir` reads/writes at `output_dir`,
+/// listing every logical `GeneratedFile::path` written by its OWN write loop
+/// (never `.env`/lowered-`.orb`/`schema.orb`/`resolved.orb`, written by other
+/// call sites).
+const ORB_MANIFEST_FILE: &str = ".orb-manifest.json";
+
+/// A `packages/`-relative path is written under `output_dir`; every other
+/// generated path is written under the shell's `generated_dir` — the ONE
+/// resolution rule the write loop and the stale-prune pass both use, so a
+/// manifest entry always resolves to the exact file it named.
+fn resolve_manifest_path(output_dir: &Path, generated_dir: &Path, logical_path: &str) -> std::path::PathBuf {
+    if logical_path.starts_with("packages/") {
+        output_dir.join(logical_path)
+    } else {
+        generated_dir.join(logical_path)
+    }
+}
+
+/// The previous compile's manifest, if `output_dir` has one and it parses —
+/// `None` on first compile, a missing file, or anything unparsable, so a
+/// corrupt/foreign manifest is never destructive (no prune runs at all
+/// rather than guessing at a malformed list).
+fn read_orb_manifest(output_dir: &Path) -> Option<std::collections::BTreeSet<String>> {
+    let content = std::fs::read_to_string(output_dir.join(ORB_MANIFEST_FILE)).ok()?;
+    serde_json::from_str(&content).ok()
+}
+
+/// Persist this compile's manifest for the NEXT compile's prune pass.
+fn write_orb_manifest(
+    output_dir: &Path,
+    manifest: &std::collections::BTreeSet<String>,
+) -> std::io::Result<()> {
+    let json = serde_json::to_string_pretty(manifest)?;
+    std::fs::write(output_dir.join(ORB_MANIFEST_FILE), json)
+}
+
+/// Remove `dir` and every now-empty ancestor up to (but never including)
+/// `stop_at`, bottom-up — a stale file's directory (and that directory's own
+/// now-empty parent, …) left behind by a dropped trait/organism. Stops the
+/// instant a directory is missing, not a directory, non-empty, or `stop_at`
+/// itself; never touches `stop_at` or anything above it.
+fn prune_empty_dirs(dir: &Path, stop_at: &Path) {
+    let mut current = dir;
+    loop {
+        if current == stop_at || !current.starts_with(stop_at) {
+            return;
+        }
+        let Ok(mut entries) = std::fs::read_dir(current) else {
+            return;
+        };
+        if entries.next().is_some() {
+            return;
+        }
+        if std::fs::remove_dir(current).is_err() {
+            return;
+        }
+        let Some(parent) = current.parent() else {
+            return;
+        };
+        current = parent;
+    }
 }
 
 /// Registry of backends
@@ -264,11 +353,141 @@ impl Default for BackendRegistry {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::shell::BaseShell;
+    use orbital_core::ir::OirModule;
 
     #[test]
     fn test_generated_file() {
         let file = GeneratedFile::new("entities/task.ts", "export interface Task {}");
         assert_eq!(file.path, "entities/task.ts");
         assert_eq!(file.content, "export interface Task {}");
+    }
+
+    /// A backend whose file set is controlled by the test, standing in for
+    /// "organism A stayed, organism B was dropped from the source between
+    /// two compiles".
+    struct FixtureBackend {
+        include_b: bool,
+    }
+
+    impl Backend for FixtureBackend {
+        fn generate(&self, _module: &OirModule) -> GeneratedOutput {
+            let mut files = vec![
+                GeneratedFile::new("a.ts", "export const a = 1;"),
+                GeneratedFile::new("packages/server/x.ts", "export const x = 1;"),
+            ];
+            if self.include_b {
+                files.push(GeneratedFile::new("nested/b.ts", "export const b = 1;"));
+            }
+            GeneratedOutput { files, warnings: vec![] }
+        }
+        fn name(&self) -> &'static str {
+            "fixture"
+        }
+    }
+
+    fn fixture_shell(generated_dir: &'static str) -> BaseShell {
+        BaseShell::new(
+            "fixture",
+            "fixture shell",
+            &[],
+            std::path::PathBuf::new(),
+            generated_dir,
+            "",
+            "",
+            "",
+        )
+    }
+
+    /// §94: recompiling without `nested/b.ts` must delete it (and prune the
+    /// now-empty `nested/` directory), the manifest must list exactly the two
+    /// survivors, and a sibling `.env` the test plants (standing in for the
+    /// CLI's own `.env` merge — never touched by this loop) must survive
+    /// untouched.
+    #[test]
+    fn recompile_prunes_stale_output_and_leaves_unlisted_files_alone() {
+        let tmp = tempfile::tempdir().expect("tempdir");
+        let output_dir = tmp.path();
+        let shell = fixture_shell("generated");
+        let module = OirModule::new("Test", "0.1.0");
+        let options = GenerateOptions {
+            copy_template: false,
+            clean: false,
+            ..Default::default()
+        };
+
+        // A sibling `.env` this loop must never see, let alone delete.
+        std::fs::write(output_dir.join(".env"), "VITE_API_URL=http://localhost\n").unwrap();
+
+        // First compile: A + B + packages/server/x.ts.
+        let backend_with_b = FixtureBackend { include_b: true };
+        generate_from_oir(&module, output_dir, &shell, &backend_with_b, &options)
+            .expect("first compile");
+        assert!(output_dir.join("generated/a.ts").exists());
+        assert!(output_dir.join("generated/nested/b.ts").exists());
+        assert!(output_dir.join("packages/server/x.ts").exists());
+
+        // Second compile: B dropped from the source.
+        let backend_without_b = FixtureBackend { include_b: false };
+        generate_from_oir(&module, output_dir, &shell, &backend_without_b, &options)
+            .expect("second compile");
+
+        assert!(output_dir.join("generated/a.ts").exists(), "A survives");
+        assert!(
+            output_dir.join("packages/server/x.ts").exists(),
+            "packages/-relative survivor stays"
+        );
+        assert!(
+            !output_dir.join("generated/nested/b.ts").exists(),
+            "B must be pruned once the compile no longer produces it"
+        );
+        assert!(
+            !output_dir.join("generated/nested").exists(),
+            "B's now-empty directory must be pruned bottom-up"
+        );
+        assert!(
+            output_dir.join("generated").exists(),
+            "pruning must stop at output_dir/generated, never remove it"
+        );
+
+        let manifest: std::collections::BTreeSet<String> = serde_json::from_str(
+            &std::fs::read_to_string(output_dir.join(ORB_MANIFEST_FILE)).unwrap(),
+        )
+        .unwrap();
+        assert_eq!(
+            manifest,
+            std::collections::BTreeSet::from([
+                "a.ts".to_string(),
+                "packages/server/x.ts".to_string(),
+            ]),
+            "the manifest must list exactly what THIS compile produced"
+        );
+
+        assert_eq!(
+            std::fs::read_to_string(output_dir.join(".env")).unwrap(),
+            "VITE_API_URL=http://localhost\n",
+            "an unlisted sibling file (the CLI's own .env merge) must never be touched"
+        );
+    }
+
+    /// §94: a first compile (no manifest yet) must never attempt a prune —
+    /// nothing to diff against, so nothing is deleted.
+    #[test]
+    fn first_compile_with_no_manifest_prunes_nothing() {
+        let tmp = tempfile::tempdir().expect("tempdir");
+        let output_dir = tmp.path();
+        let shell = fixture_shell("generated");
+        let module = OirModule::new("Test", "0.1.0");
+        let options = GenerateOptions {
+            copy_template: false,
+            clean: false,
+            ..Default::default()
+        };
+
+        let backend = FixtureBackend { include_b: true };
+        generate_from_oir(&module, output_dir, &shell, &backend, &options).expect("compiles");
+        assert!(output_dir.join("generated/a.ts").exists());
+        assert!(output_dir.join("generated/nested/b.ts").exists());
+        assert!(output_dir.join(ORB_MANIFEST_FILE).exists());
     }
 }

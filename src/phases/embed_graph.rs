@@ -147,6 +147,20 @@ impl EmbedGraph {
             .map(|(k, v)| (k.as_str(), v.as_slice()))
     }
 
+    /// The trait that embeds `trait_name` via a bare `@trait.<trait_name>`
+    /// reference — the first-recorded referrer, matching `embedder_chain`'s
+    /// own first-referrer-per-hop rule. `None` for a trait nothing embeds
+    /// (a standalone top-level trait). Feeds `OirTrait.host_trait`
+    /// (`phases/resolve.rs`) — the compiled path's bus-key qualification
+    /// needs the trait NAME, not its declared-values map, so this is a
+    /// distinct accessor from `embedder_chain` rather than a wrapper over it.
+    pub(crate) fn direct_host(&self, trait_name: &str) -> Option<&str> {
+        self.referrers
+            .get(trait_name)
+            .and_then(|v| v.first())
+            .map(|s| s.as_str())
+    }
+
     /// Innermost-first chain of ancestor declared-values maps for
     /// `trait_name`: its first-recorded direct referrer, then that
     /// referrer's own first referrer, and so on out to whichever trait has
@@ -321,5 +335,23 @@ mod tests {
     fn unknown_trait_name_yields_empty_chain() {
         let graph = EmbedGraph::build(&timeline_shaped_traits());
         assert!(graph.embedder_chain("NeverHeardOfIt").is_empty());
+    }
+
+    /// Feeds `OirTrait.host_trait` (`phases/resolve.rs`) — the compiled
+    /// path's bus-key qualification needs the embedder's NAME directly,
+    /// not its declared-values map.
+    #[test]
+    fn direct_host_returns_the_immediate_embedder_name() {
+        let graph = EmbedGraph::build(&timeline_shaped_traits());
+        assert_eq!(graph.direct_host("Stack8"), Some("Feed"));
+        assert_eq!(graph.direct_host("Stack5"), Some("Stack8"));
+        assert_eq!(graph.direct_host("Typography4"), Some("Stack5"));
+    }
+
+    #[test]
+    fn direct_host_is_none_for_a_standalone_trait() {
+        let graph = EmbedGraph::build(&timeline_shaped_traits());
+        assert_eq!(graph.direct_host("Feed"), None);
+        assert_eq!(graph.direct_host("NeverHeardOfIt"), None);
     }
 }

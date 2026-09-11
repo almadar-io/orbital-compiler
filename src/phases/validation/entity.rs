@@ -88,6 +88,27 @@ pub fn validate_all_entities(schema: &OrbitalSchema, ctx: &mut ValidationContext
             }
         }
     }
+
+    // Trait-owned `data_entities` get the same shared/persistence-mode check
+    // as the primary entity (L1 parity: `check_shared_entity_has_persistence_mode`
+    // runs for both in `orbital-lolo`).
+    for (trait_def, trait_path) in super::inline_traits(schema) {
+        for (i, data_entity) in trait_def.data_entities.iter().flatten().enumerate() {
+            if data_entity.shared && data_entity.persistence.is_none() {
+                ctx.add_error(
+                    ValidationError::error(
+                        ErrorCode::SchemaSharedWithoutPersistenceMode,
+                        format!("{}.dataEntities[{}].persistence", trait_path, i),
+                        format!(
+                            "Entity '{}' is [shared] but declares no persistence mode — nothing about a shared entity may be inferred.",
+                            data_entity.name
+                        ),
+                    )
+                    .with_suggestion("Add an explicit `persistent: <collection>` or `runtime` persistence tag alongside `[shared]`."),
+                );
+            }
+        }
+    }
 }
 
 /// Validate a single entity definition
@@ -180,6 +201,24 @@ pub fn validate_entity(
                 .with_suggestion("Add a 'collection' property for database storage"),
             );
         }
+    }
+
+    // L2 twin of orbital-lolo's `check_shared_entity_has_persistence_mode`
+    // (ORB_S_SHARED_WITHOUT_PERSISTENCE_MODE): nothing about a `[shared]`
+    // entity may be inferred. Runs here, pre-inline, while `persistence` is
+    // still the author's raw `Option` — before any downstream defaulting.
+    if entity.shared && entity.persistence.is_none() {
+        result.add_error(
+            ValidationError::error(
+                ErrorCode::SchemaSharedWithoutPersistenceMode,
+                format!("{}.persistence", path),
+                format!(
+                    "Entity '{}' is [shared] but declares no persistence mode — nothing about a shared entity may be inferred.",
+                    entity.name
+                ),
+            )
+            .with_suggestion("Add an explicit `persistent: <collection>` or `runtime` persistence tag alongside `[shared]`."),
+        );
     }
 
     result
@@ -531,5 +570,32 @@ mod tests {
             .errors
             .iter()
             .any(|e| e.code == ErrorCode::EntityMissingCollection));
+    }
+
+    #[test]
+    fn test_shared_entity_without_persistence_mode_errors() {
+        let mut entity = create_valid_entity();
+        entity.shared = true;
+        entity.persistence = None;
+
+        let result = validate_entity(&entity, "test", &HashSet::new(), true);
+        assert!(!result.is_valid());
+        assert!(result
+            .errors
+            .iter()
+            .any(|e| e.code == ErrorCode::SchemaSharedWithoutPersistenceMode));
+    }
+
+    #[test]
+    fn test_shared_entity_with_explicit_persistence_mode_passes() {
+        let mut entity = create_valid_entity();
+        entity.shared = true;
+        entity.persistence = Some(Persistence::Runtime);
+
+        let result = validate_entity(&entity, "test", &HashSet::new(), true);
+        assert!(!result
+            .errors
+            .iter()
+            .any(|e| e.code == ErrorCode::SchemaSharedWithoutPersistenceMode));
     }
 }

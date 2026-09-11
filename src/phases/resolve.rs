@@ -14,6 +14,7 @@ use orbital_core::schema::{
     PageDefinition, PageRef, SExpression, SectionDefinition, ServiceRef, StringOrArray, ThemeRef,
     TraitDefinition, TraitReference, TransitionDefinition,
 };
+use crate::phases::embed_graph::EmbedGraph;
 use std::cell::RefCell;
 use std::collections::{BTreeMap, HashMap, HashSet};
 use thiserror::Error;
@@ -228,10 +229,19 @@ impl<'a> Resolver<'a> {
         // qualification can't disambiguate same-named traits across
         // orbitals.
         for orbital in &self.schema.orbitals {
+            // Same embed graph `@config.<knob>` forwarding uses
+            // (`inline/trait.rs`, `forwarded_sibling_config_from`) — one
+            // walk, so "who embeds whom" can't disagree between the two
+            // consumers. Built per-orbital since `@trait.X` references
+            // never cross an orbital boundary.
+            let embed_graph = EmbedGraph::build(&orbital.traits);
             for trait_ref in &orbital.traits {
                 if let TraitReference::Inline(trait_def) = trait_ref {
                     let mut resolved = self.resolve_trait(trait_def)?;
                     resolved.orbital_name = orbital.name.clone();
+                    resolved.host_trait = embed_graph
+                        .direct_host(&trait_def.name)
+                        .map(|s| s.to_string());
                     module.traits.push(resolved);
                 }
             }
@@ -618,6 +628,8 @@ impl<'a> Resolver<'a> {
             OirField::optional(&field_name, field_type)
         };
 
+        oir_field.intrinsic = field.intrinsic.unwrap_or(false);
+
         // Add enum values
         oir_field.enum_values = field.values.clone();
 
@@ -942,6 +954,7 @@ impl<'a> Resolver<'a> {
         oir_trait.entity_ref_ids = trait_def.entity_ref_ids.clone();
         oir_trait.trait_embed_ids = trait_def.trait_embed_ids.clone();
         oir_trait.source = OirTraitSource::Schema;
+        oir_trait.local = trait_def.local;
 
         if let Some(category) = &trait_def.category {
             oir_trait.category = Some(format!("{:?}", category).to_lowercase());
@@ -1047,9 +1060,7 @@ impl<'a> Resolver<'a> {
         let mut slots_used: std::collections::HashSet<String> = std::collections::HashSet::new();
         for trans in &oir_trait.transitions {
             for effect in &trans.effects {
-                if let Some(slot) = self.extract_slot_from_effect(effect) {
-                    slots_used.insert(slot);
-                }
+                Self::collect_slots_from_effect(effect, &mut slots_used);
             }
         }
         oir_trait.slots_used = slots_used.into_iter().collect();
@@ -2277,14 +2288,16 @@ impl<'a> Resolver<'a> {
         Ok(OirExpr::effect(OirEffect::render_ui(slot, pattern)))
     }
 
-    fn resolve_notify_effect(&self, args: &[SExpression]) -> Result<OirExpr, ResolveError> {
-        if args.is_empty() {
-            return Err(ResolveError::InvalidSExpr(
-                "notify requires message".to_string(),
-            ));
-        }
-        let message = self.resolve_sexpr(&args[0])?;
-        Ok(OirExpr::effect(OirEffect::notify(message)))
+    /// `notify` is `.lolo`-only sugar for `render-ui toast` (owner ruling
+    /// 2026-09-11), desugared away at lowering — the `.orb` IR never carries
+    /// a `notify` effect kind. Validation (`ORB_EFF_NOTIFY_RETIRED`) is the
+    /// gate that should have already caught this; this arm only exists so a
+    /// stale tuple that somehow reaches resolve fails cleanly instead of
+    /// panicking the effect parser.
+    fn resolve_notify_effect(&self, _args: &[SExpression]) -> Result<OirExpr, ResolveError> {
+        Err(ResolveError::InvalidSExpr(
+            "notify is retired sugar for render-ui toast — re-emit the .lolo".to_string(),
+        ))
     }
 
     fn resolve_log_effect(&self, args: &[SExpression]) -> Result<OirExpr, ResolveError> {
@@ -2670,13 +2683,37 @@ impl<'a> Resolver<'a> {
         }
     }
 
-    /// Extract slot name from a render-ui effect (stored as OirExpr::Effect)
-    fn extract_slot_from_effect(&self, effect: &OirExpr) -> Option<String> {
-        // Effects are wrapped in OirExpr::Effect { effect: OirEffect }
-        if let Some(OirEffect::RenderUi { slot, .. }) = effect.as_effect() {
-            return Some(slot.clone());
+    /// Collect every slot a render-ui effect reaches, including branches of
+    /// an `(if …)` — a config-driven switch (`std-board`'s boardLook,
+    /// `std-browse`'s browseLook) still targets a real slot from EITHER
+    /// arm. A top-level-only check here (this used to return at most one
+    /// `Option<String>` and never looked inside `OirExpr::Conditional`)
+    /// under-reports `OirTrait.slots_used` for any trait whose render-ui is
+    /// entirely conditional — `slots_used` gates whether the TS backend
+    /// even imports/mounts `ModalSlot`/`DrawerSlot`/`ToastSlot` on the page
+    /// (backend/pages.rs), so a trait whose only `modal`/`drawer` render-ui
+    /// sits behind a config switch got NO portal host on the page at all:
+    /// the trait's own view computes the right JSX, but it has nowhere to
+    /// portal into, so nothing visibly happens (C-SLOTS-USED-CONDITIONAL-
+    /// BLIND — plausible root cause of "modal doesn't open" reports on any
+    /// look-switched trait).
+    fn collect_slots_from_effect(effect: &OirExpr, out: &mut std::collections::HashSet<String>) {
+        match effect {
+            OirExpr::Effect { effect } => {
+                if let OirEffect::RenderUi { slot, .. } = effect.as_ref() {
+                    out.insert(slot.clone());
+                }
+            }
+            OirExpr::Conditional {
+                then_branch,
+                else_branch,
+                ..
+            } => {
+                Self::collect_slots_from_effect(then_branch, out);
+                Self::collect_slots_from_effect(else_branch, out);
+            }
+            _ => {}
         }
-        None
     }
 }
 
@@ -2790,6 +2827,7 @@ fn payload_field_to_oir_type(
         let fields: Vec<OirField> = props
             .iter()
             .map(|p| OirField {
+                intrinsic: false,
                 name: p.name.clone(),
                 field_type: payload_field_to_oir_type(p, ctx),
                 description: p.description.clone(),
@@ -2899,6 +2937,7 @@ fn lookup_named_type_shape(name: &str, ctx: &NamedTypeCtx) -> Option<OirType> {
         let fields: Vec<OirField> = payload_fields
             .iter()
             .map(|p| OirField {
+                intrinsic: false,
                 name: p.name.clone(),
                 field_type: payload_field_to_oir_type(p, ctx),
                 description: p.description.clone(),
@@ -2995,6 +3034,48 @@ fn parse_payload_field_type(field_type: &str) -> OirType {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// `OirTrait.slots_used` gates whether the TS backend even imports and
+    /// mounts `ModalSlot`/`DrawerSlot`/`ToastSlot` on the page
+    /// (backend/pages.rs) — a trait whose ENTIRE modal render-ui sits
+    /// behind a config switch (`(if @config.look (render-ui modal A) (render-
+    /// ui modal B))`) used to report zero slots, so the page never mounted a
+    /// portal host for it: the trait's own view computes the right JSX with
+    /// nowhere to portal into, and clicking whatever opens the modal
+    /// silently does nothing (C-SLOTS-USED-CONDITIONAL-BLIND).
+    #[test]
+    fn collect_slots_from_effect_reaches_a_render_ui_nested_inside_a_conditional() {
+        let effect = OirExpr::Conditional {
+            condition: Box::new(OirExpr::BinaryOp {
+                op: OirBinaryOp::Eq,
+                left: Box::new(OirExpr::Binding {
+                    binding: OirBinding::new(OirBindingRoot::Config, vec!["look".to_string()]),
+                }),
+                right: Box::new(OirExpr::String {
+                    value: "compact".to_string(),
+                }),
+            }),
+            then_branch: Box::new(OirExpr::Effect {
+                effect: Box::new(OirEffect::RenderUi {
+                    slot: "modal".to_string(),
+                    pattern: OirPattern::new("form-section"),
+                }),
+            }),
+            else_branch: Box::new(OirExpr::Effect {
+                effect: Box::new(OirEffect::RenderUi {
+                    slot: "modal".to_string(),
+                    pattern: OirPattern::new("form-section-wide"),
+                }),
+            }),
+        };
+
+        let mut slots = std::collections::HashSet::new();
+        Resolver::collect_slots_from_effect(&effect, &mut slots);
+        assert!(
+            slots.contains("modal"),
+            "a render-ui nested inside a conditional must still register its slot, got: {slots:?}"
+        );
+    }
 
     /// A schema with no orbitals — every named-type test that doesn't
     /// exercise Gap A's `orbital.types` lookup itself uses this, so
@@ -3955,5 +4036,75 @@ mod tests {
         let round_tripped = lowered.to_sexpression().expect("has a guard form");
         let json = serde_json::to_string(&round_tripped.to_canonical_json()).expect("serializes");
         assert_eq!(json, r#"["and",["and",true,true],false]"#);
+    }
+
+    /// `FieldDefinition.intrinsic` (schema) must survive `resolve_field` into
+    /// `OirField.intrinsic` — it is the ONLY frame allow-list downstream
+    /// (`OirEntity::frame_fields`), so a dropped flag would silently make an
+    /// intrinsic field look like ordinary persisted data to every later phase.
+    #[test]
+    fn resolve_field_carries_intrinsic_true() {
+        let schema = empty_schema();
+        let resolver = Resolver::new(&schema);
+        let field: orbital_core::schema::FieldDefinition = serde_json::from_value(serde_json::json!({
+            "name": "currentStepIndex",
+            "type": "number",
+            "intrinsic": true
+        }))
+        .expect("valid field definition");
+        let oir_field = resolver.resolve_field(&field).expect("resolves");
+        assert!(oir_field.intrinsic, "intrinsic must survive resolve_field");
+    }
+
+    #[test]
+    fn resolve_field_defaults_intrinsic_false_when_absent() {
+        let schema = empty_schema();
+        let resolver = Resolver::new(&schema);
+        let field: orbital_core::schema::FieldDefinition = serde_json::from_value(serde_json::json!({
+            "name": "title",
+            "type": "string"
+        }))
+        .expect("valid field definition");
+        let oir_field = resolver.resolve_field(&field).expect("resolves");
+        assert!(!oir_field.intrinsic);
+    }
+
+    /// `TraitDefinition.local` must survive `resolve_trait` into
+    /// `OirTrait.local` — `OirTrait::dispatch_mode` reads it directly, so a
+    /// dropped flag would silently flip a client-only trait back to
+    /// server-gated dispatch.
+    #[test]
+    fn resolve_trait_carries_local_true() {
+        let schema = empty_schema();
+        let resolver = Resolver::new(&schema);
+        let trait_def: orbital_core::schema::TraitDefinition =
+            serde_json::from_value(serde_json::json!({
+                "name": "DraftEditor",
+                "local": true,
+                "stateMachine": {
+                    "states": [{"name": "idle", "isInitial": true}],
+                    "transitions": []
+                }
+            }))
+            .expect("valid trait definition");
+        let oir_trait = resolver.resolve_trait(&trait_def).expect("resolves");
+        assert!(oir_trait.local, "local must survive resolve_trait");
+    }
+
+    #[test]
+    fn resolve_trait_defaults_local_false_when_absent() {
+        let schema = empty_schema();
+        let resolver = Resolver::new(&schema);
+        let trait_def: orbital_core::schema::TraitDefinition =
+            serde_json::from_value(serde_json::json!({
+                "name": "ServerTrait",
+                "stateMachine": {
+                    "states": [{"name": "idle", "isInitial": true}],
+                    "transitions": []
+                }
+            }))
+            .expect("valid trait definition");
+        let oir_trait = resolver.resolve_trait(&trait_def).expect("resolves");
+        assert!(!oir_trait.local);
     }
 }

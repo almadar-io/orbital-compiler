@@ -2,7 +2,7 @@
 //!
 //! Source: packages/almadar-core/src/patterns/patterns-registry.json
 //!
-//! Last synced: 2026-09-08
+//! Last synced: 2026-09-10
 //! To regenerate: npx tsx tools/almadar-pattern-sync/index.ts
 //!
 //! DO NOT EDIT MANUALLY - changes will be overwritten on next sync.
@@ -218,6 +218,7 @@ pub static PATTERN_TYPES: LazyLock<HashSet<&'static str>> = LazyLock::new(|| {
         "draw-mesh",
         "draw-shape",
         "draw-shape-layer",
+        "draw-skinned-mesh",
         "draw-sprite",
         "draw-sprite-layer",
         "draw-text",
@@ -544,6 +545,7 @@ pub static PATTERN_TO_CATEGORY: LazyLock<HashMap<&'static str, &'static str>> =
             ("draw-mesh", "game"),
             ("draw-shape", "game"),
             ("draw-shape-layer", "game"),
+            ("draw-skinned-mesh", "game"),
             ("draw-sprite", "game"),
             ("draw-sprite-layer", "game"),
             ("draw-text", "game"),
@@ -699,6 +701,7 @@ pub static PATTERN_REQUIRED_PROPS: LazyLock<HashMap<&'static str, Vec<&'static s
             ("draw-mesh", vec!["type", "shape", "position"]),
             ("draw-shape", vec!["type", "shape", "position"]),
             ("draw-shape-layer", vec!["type", "items"]),
+            ("draw-skinned-mesh", vec!["type", "position", "asset", "bones"]),
             ("draw-sprite", vec!["type", "position", "asset"]),
             ("draw-sprite-layer", vec!["type", "items"]),
             ("draw-text", vec!["type", "text", "position", "color"]),
@@ -2021,6 +2024,26 @@ pub static PATTERN_PROPS_SCHEMA: LazyLock<HashMap<&'static str, HashSet<&'static
                 .collect(),
             ),
             ("draw-shape-layer", ["id", "items", "type"].into_iter().collect()),
+            (
+                "draw-skinned-mesh",
+                [
+                    "asset",
+                    "bones",
+                    "clip",
+                    "frame",
+                    "ghost",
+                    "id",
+                    "mesh",
+                    "meshUrl",
+                    "opacity",
+                    "pose",
+                    "position",
+                    "type",
+                    "weightsOverlay",
+                ]
+                .into_iter()
+                .collect(),
+            ),
             (
                 "draw-sprite",
                 [
@@ -6125,6 +6148,26 @@ pub static PATTERN_PROP_TYPES: LazyLock<HashMap<&'static str, HashMap<&'static s
             ),
             ("draw-shape-layer", [("id", &["string"] as &[&str]), ("type", &["string"] as &[&str]), ("items", &["array"] as &[&str])].into_iter().collect()),
             (
+                "draw-skinned-mesh",
+                [
+                    ("id", &["string"] as &[&str]),
+                    ("type", &["string"] as &[&str]),
+                    ("position", &["object"] as &[&str]),
+                    ("asset", &["object"] as &[&str]),
+                    ("mesh", &["object"] as &[&str]),
+                    ("meshUrl", &["string"] as &[&str]),
+                    ("bones", &["array"] as &[&str]),
+                    ("pose", &["object"] as &[&str]),
+                    ("clip", &["object"] as &[&str]),
+                    ("frame", &["number"] as &[&str]),
+                    ("opacity", &["number"] as &[&str]),
+                    ("weightsOverlay", &["boolean"] as &[&str]),
+                    ("ghost", &["object"] as &[&str]),
+                ]
+                .into_iter()
+                .collect(),
+            ),
+            (
                 "draw-sprite",
                 [
                     ("id", &["string"] as &[&str]),
@@ -9594,6 +9637,7 @@ pub static PATTERN_PROP_ENUM_VALUES: LazyLock<HashMap<&'static str, HashMap<&'st
                 .collect(),
             ),
             ("draw-shape-layer", [("type", &["draw-shape-layer"] as &[&str])].into_iter().collect()),
+            ("draw-skinned-mesh", [("type", &["draw-skinned-mesh"] as &[&str])].into_iter().collect()),
             ("draw-sprite", [("type", &["draw-sprite"] as &[&str]), ("anchor", &["top-left", "ground", "center"] as &[&str])].into_iter().collect()),
             ("draw-sprite-layer", [("type", &["draw-sprite-layer"] as &[&str])].into_iter().collect()),
             (

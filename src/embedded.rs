@@ -913,7 +913,7 @@ pub fn factory_signatures_json_io() -> &'static str {
 // Values are gzip bytes (build.rs → $OUT_DIR/baked-gz/…), inflated lazily by
 // `get_std_behavior_content` — the baked corpus is ~31MB raw, ~2MB gzipped.
 pub static EMBEDDED_STD_BEHAVIORS: phf::Map<&'static str, &'static [u8]> = phf::phf_map! {
-    // === Atoms (636) ===
+    // === Atoms (637) ===
     "std/behaviors/dnd-combat" => include_bytes!(concat!(env!("OUT_DIR"), "/baked-gz/io/dnd/atoms/dnd-combat.orb.gz")),
     "std/behaviors/dnd-dice" => include_bytes!(concat!(env!("OUT_DIR"), "/baked-gz/io/dnd/atoms/dnd-dice.orb.gz")),
     "std/behaviors/dnd-dungeon-gen" => include_bytes!(concat!(env!("OUT_DIR"), "/baked-gz/io/dnd/atoms/dnd-dungeon-gen.orb.gz")),
@@ -1469,6 +1469,7 @@ pub static EMBEDDED_STD_BEHAVIORS: phf::Map<&'static str, &'static [u8]> = phf::
     "std/behaviors/ui-draw-mesh" => include_bytes!(concat!(env!("OUT_DIR"), "/baked-gz/std/ui/game/atoms/ui-draw-mesh.orb.gz")),
     "std/behaviors/ui-draw-shape" => include_bytes!(concat!(env!("OUT_DIR"), "/baked-gz/std/ui/game/atoms/ui-draw-shape.orb.gz")),
     "std/behaviors/ui-draw-shape-layer" => include_bytes!(concat!(env!("OUT_DIR"), "/baked-gz/std/ui/game/atoms/ui-draw-shape-layer.orb.gz")),
+    "std/behaviors/ui-draw-skinned-mesh" => include_bytes!(concat!(env!("OUT_DIR"), "/baked-gz/std/ui/game/atoms/ui-draw-skinned-mesh.orb.gz")),
     "std/behaviors/ui-draw-sprite" => include_bytes!(concat!(env!("OUT_DIR"), "/baked-gz/std/ui/game/atoms/ui-draw-sprite.orb.gz")),
     "std/behaviors/ui-draw-sprite-layer" => include_bytes!(concat!(env!("OUT_DIR"), "/baked-gz/std/ui/game/atoms/ui-draw-sprite-layer.orb.gz")),
     "std/behaviors/ui-draw-text" => include_bytes!(concat!(env!("OUT_DIR"), "/baked-gz/std/ui/game/atoms/ui-draw-text.orb.gz")),

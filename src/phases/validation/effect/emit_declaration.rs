@@ -309,7 +309,13 @@ pub(crate) fn validate_effect(
                         ));
                     }
                     "persist" => {
-                        result.merge(validate_persist(arr, path, known_entities, declared_emits));
+                        result.merge(validate_persist(
+                            arr,
+                            path,
+                            known_entities,
+                            entity_definitions,
+                            declared_emits,
+                        ));
                     }
                     "ref" => {
                         result.merge(validate_ref(arr, path, declared_emits));
@@ -322,6 +328,20 @@ pub(crate) fn validate_effect(
                     }
                     "navigate" => {
                         result.merge(validate_navigate(arr, path, page_init_payloads));
+                    }
+                    "notify" => {
+                        // `notify` is `.lolo`-only sugar for `render-ui toast`
+                        // (owner ruling 2026-09-11), desugared at lowering — a
+                        // tuple reaching L2 is a hand-authored `.orb` or a
+                        // registry not yet re-emitted. Recognised, not crashed
+                        // on, so this reads as a real diagnostic.
+                        result.add_error(
+                            ValidationError::error(
+                                ErrorCode::EffectNotifyRetired,
+                                path,
+                                "`notify` is sugar for `render-ui toast { type: alert … }` — re-emit the `.lolo`",
+                            ),
+                        );
                     }
                     "send-server" => {
                         result.merge(validate_send_server(arr, path));

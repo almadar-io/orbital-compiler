@@ -251,6 +251,30 @@ fn ui_event_prop_names() -> &'static std::collections::HashSet<String> {
     })
 }
 
+/// Fold-aware sibling of `SExpression::conditional_leaf_values`, scoped to
+/// THIS consumer: a `["if", cond, then, else?]` whose `cond` provably never
+/// fires (`SExpression::is_statically_false`) contributes no leaf from its
+/// dead `then` branch. `conditional_leaf_values` itself stays all-branches —
+/// its other callers (renames, descriptor rewrites) need every branch's
+/// contribution even when dead, so this does not touch that shared method.
+fn fold_aware_event_prop_leaves(value: &SExpression) -> Vec<&SExpression> {
+    if let SExpression::Array(arr) = value {
+        if matches!(arr.first().and_then(|e| e.as_str()), Some("if")) && arr.len() >= 3 {
+            let condition = &arr[1];
+            let mut leaves = if condition.is_statically_false() {
+                vec![]
+            } else {
+                fold_aware_event_prop_leaves(&arr[2])
+            };
+            if let Some(else_branch) = arr.get(3) {
+                leaves.extend(fold_aware_event_prop_leaves(else_branch));
+            }
+            return leaves;
+        }
+    }
+    vec![value]
+}
+
 /// Recursively walk an SExpression collecting every event-name string
 /// fired by:
 ///
@@ -303,8 +327,31 @@ pub(crate) fn collect_fired_events_recursive(
                     }
                 }
             }
-            for item in arr {
-                collect_fired_events_recursive(trait_name, item, fired);
+            // Fold-aware descent: `["if", cond, then, else?]` whose `cond`
+            // provably never fires (`SExpression::is_statically_false` —
+            // the SAME folding `slot.rs`'s guard filter already applies,
+            // not a second one) contributes no emitters from its `then`
+            // branch. A `Button action={SAVE}` sitting behind
+            // `(if @config.knob ...)` on a call site that left the knob at
+            // its `""`/`false`/unset default can never render, so counting
+            // it as an emitter would make the very branch that is dead
+            // suppress the `ORB_EMIT_DECLARED_BUT_UNFIRED` finding that
+            // should catch it.
+            let is_conditional =
+                matches!(arr.first().and_then(|e| e.as_str()), Some("if")) && arr.len() >= 3;
+            if is_conditional {
+                let condition = &arr[1];
+                if !condition.is_statically_false() {
+                    collect_fired_events_recursive(trait_name, &arr[2], fired);
+                }
+                if let Some(else_branch) = arr.get(3) {
+                    collect_fired_events_recursive(trait_name, else_branch, fired);
+                }
+                collect_fired_events_recursive(trait_name, condition, fired);
+            } else {
+                for item in arr {
+                    collect_fired_events_recursive(trait_name, item, fired);
+                }
             }
         }
         SExpression::Object(obj) => {
@@ -316,9 +363,13 @@ pub(crate) fn collect_fired_events_recursive(
             let event_keys = ui_event_prop_names();
             for (key, value) in obj.iter() {
                 if event_keys.contains(key) {
-                    // A conditional value contributes every branch's leaf —
-                    // only one renders at a time, but each is a live emitter.
-                    for leaf in value.conditional_leaf_values() {
+                    // A conditional value contributes every branch's leaf
+                    // that can actually render — a branch whose condition
+                    // provably never fires contributes none (fold-aware
+                    // sibling of `conditional_leaf_values`; that one stays
+                    // all-branches for its OTHER callers — renames and
+                    // descriptor rewrites need every branch even when dead).
+                    for leaf in fold_aware_event_prop_leaves(value) {
                         if let SExpression::String(s) = leaf {
                             // Skip bindings (`@entity.X`, `@payload.Y`) —
                             // those resolve at runtime to event-name
@@ -401,6 +452,7 @@ mod tests {
 
     fn bare_trait(name: &str) -> TraitDefinition {
         TraitDefinition {
+            local: false,
             effect_row: None,
             type_params: None,
             type_args: None,
@@ -537,5 +589,74 @@ mod tests {
             fired.contains_any_trait("EDIT"),
             "file-scope query must see EDIT fired by the sibling renderer"
         );
+    }
+
+    // ---- Rule 5: fold-aware emitter counting -------------------------------
+
+    fn s(v: &str) -> SExpression {
+        SExpression::String(v.to_string())
+    }
+
+    #[test]
+    fn dead_if_branch_emit_is_not_counted_as_fired() {
+        // (if "" (emit "DEAD") (emit "LIVE")) — the condition is a
+        // string-typed config knob's `""` default, provably falsy.
+        let tree = SExpression::Array(vec![
+            s("if"),
+            s(""),
+            SExpression::Array(vec![s("emit"), s("DEAD")]),
+            SExpression::Array(vec![s("emit"), s("LIVE")]),
+        ]);
+        let mut fired = FiredEvents::default();
+        collect_fired_events_recursive("T", &tree, &mut fired);
+        assert!(
+            !fired.by_effect.contains(&("T".to_string(), "DEAD".to_string())),
+            "an emit behind a provably-false condition must not count as fired: {:?}",
+            fired.by_effect
+        );
+        assert!(
+            fired.by_effect.contains(&("T".to_string(), "LIVE".to_string())),
+            "the always-taken else branch must still count as fired: {:?}",
+            fired.by_effect
+        );
+    }
+
+    #[test]
+    fn undecidable_if_condition_still_counts_both_branches() {
+        // (if @config.knob (emit "A") (emit "B")) — a binding condition is
+        // undecidable, so both branches must still count (no regression on
+        // the pre-existing "only one renders but each is a live emitter"
+        // treatment for the general case).
+        let tree = SExpression::Array(vec![
+            s("if"),
+            s("@config.knob"),
+            SExpression::Array(vec![s("emit"), s("A")]),
+            SExpression::Array(vec![s("emit"), s("B")]),
+        ]);
+        let mut fired = FiredEvents::default();
+        collect_fired_events_recursive("T", &tree, &mut fired);
+        assert!(fired.by_effect.contains(&("T".to_string(), "A".to_string())));
+        assert!(fired.by_effect.contains(&("T".to_string(), "B".to_string())));
+    }
+
+    #[test]
+    fn fold_aware_event_prop_leaves_skips_false_branch() {
+        let value = SExpression::Array(vec![s("if"), s(""), s("SAVE"), s("CANCEL")]);
+        let leaves = fold_aware_event_prop_leaves(&value);
+        assert_eq!(leaves, vec![&s("CANCEL")]);
+    }
+
+    #[test]
+    fn fold_aware_event_prop_leaves_keeps_both_when_undecidable() {
+        let value = SExpression::Array(vec![s("if"), s("@config.knob"), s("SAVE"), s("CANCEL")]);
+        let leaves = fold_aware_event_prop_leaves(&value);
+        assert_eq!(leaves, vec![&s("SAVE"), &s("CANCEL")]);
+    }
+
+    #[test]
+    fn fold_aware_event_prop_leaves_returns_self_for_non_conditional() {
+        let value = s("SAVE");
+        let leaves = fold_aware_event_prop_leaves(&value);
+        assert_eq!(leaves, vec![&value]);
     }
 }

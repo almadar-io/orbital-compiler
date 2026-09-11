@@ -174,6 +174,29 @@ pub enum ErrorCode {
     /// forward, `@entity.*`, payload ref) satisfies the requirement — only
     /// a fully missing key fires. The atom's own page binding is exempt.
     TraitConfigMissingRequiredKey,
+    /// A `local` trait's transitions contain a server-bound effect
+    /// (`fetch`/`persist`/`call-service`/`ref`/`deref`/`swap`/`watch`/
+    /// `atomic`/`fetch-stream`), or a guard reading `@user.*`. `local`
+    /// declares client-only dispatch (`OirTrait::dispatch_mode`) — a trait
+    /// that actually touches the server or reads viewer identity is
+    /// mis-tagged; its transitions would never await the round trip they
+    /// depend on. Wave 2. Error severity.
+    TraitLocalTouchesServer,
+    /// `local` on a trait whose linked entity is neither `[shared]` nor
+    /// `[runtime]`. `local` is only legal on an entity multiple traits
+    /// co-mutate client-side (`[shared]`) or one that is never persisted at
+    /// all (`[runtime]`) — on an ordinary persistent entity it would silently
+    /// hide server-gated writes behind client-only dispatch. Wave 2. Error
+    /// severity.
+    TraitLocalOnNonSharedPersistent,
+    /// A transition guard reads `@user.*` while the trait's
+    /// `OirTrait::dispatch_mode()` is `RuntimeOptimistic` or
+    /// `HybridClientOnly` — evaluated client-side only. An identity check
+    /// that never reaches the server is not an authorization boundary: the
+    /// client can construct any `@user` value it likes. Wave 2. Warning
+    /// severity (the guard may still be a legitimate UX precondition; it is
+    /// never a security boundary).
+    AuthGuardClientOnly,
 
     // =========================================================================
     // Page Errors (ORB_P_*)
@@ -377,6 +400,11 @@ pub enum ErrorCode {
     EffectSlotConflict,
     /// Unknown effect type
     EffectUnknownType,
+    /// `notify` is sugar for `render-ui toast { type: alert, … }`, desugared
+    /// at `.lolo` lowering (owner ruling 2026-09-11) — the `.orb` IR never
+    /// carries a `notify` effect kind. A `notify` tuple reaching L2 means a
+    /// hand-authored `.orb` or a registry not yet re-emitted.
+    EffectNotifyRetired,
     /// Navigate effect missing required payload for target page
     EffectNavigateMissingPayload,
     /// Navigate effect references a path that doesn't resolve to any
@@ -635,6 +663,14 @@ pub enum ErrorCode {
     /// `BindingEntityFieldNeverSet` cannot see it. An unbound `id` resolves
     /// empty and the runtime refuses the write outright.
     BindingPersistRowIdNeverSet,
+    /// `persist create E { ... }` with an explicit data literal whose key set
+    /// lacks a field that `E.@create` compares (e.g. `@create sender ==
+    /// @user.id` and the literal has no `sender`). The access policy will
+    /// never be satisfied by a row this transition itself creates — every
+    /// future `@update`/`@delete`/`@read` gated on that field locks the
+    /// creator out of their own row. A bare `persist create @entity` (whole
+    /// frame) is not a hit. Wave 2. Error severity.
+    PersistCreateMissingPolicyField,
     /// `@trait` binding with no trait name — bare `@trait` is not resolvable.
     BindingTraitMissingName,
     /// `@trait.X` trait name doesn't match the `PascalCase` identifier pattern.
@@ -681,6 +717,35 @@ pub enum ErrorCode {
     /// etc.). Repeated per-tick LLM/agent calls can pile up faster than they
     /// resolve. Error severity.
     TickAsyncEffect,
+    /// An explicit `persist create`/`persist update` data LITERAL (an
+    /// `OirExpr::Object`, never a bare whole-frame `@entity`) names an
+    /// `@intrinsic` field of the target entity. Intrinsic fields are
+    /// trait-owned view-state/machinery (`OirEntity::frame_fields`'s ONLY
+    /// allow-list) — never a persisted column — so writing one into the
+    /// database is a category error the author almost certainly meant as a
+    /// domain field. Wave 2. Error severity.
+    EntityIntrinsicFieldPersisted,
+    /// An `@intrinsic` field is used as an AUTHORIZATION input: it appears
+    /// in an access policy (`@create`/`@read`/`@update`/`@delete`), or in a
+    /// transition guard that also reads `@user.*`/role/identity AND the
+    /// transition performs `persist`/`call-service`. Intrinsic fields are
+    /// trait-computed view-state the runtime never seeds or persists — using
+    /// one to gate a mutation means the gate is trivially bypassable (the
+    /// caller controls the "intrinsic" value directly). A plain precondition
+    /// guard with no identity comparison is not a hit. Wave 2. Error
+    /// severity.
+    GuardOnFrameFieldAuthorizes,
+    /// `(set @entity.<f> ...)` writes a non-`@intrinsic` column of a
+    /// `[persistent]` entity in a transition with no row binding (no
+    /// `id`/`?row`-bearing event payload, no `entityId` in scope) AND the
+    /// owning trait never runs `persist create`/`persist update` on that
+    /// entity anywhere — so the write can never land: it is not framed to
+    /// an identified row, and nothing ever persists it. A draft form that
+    /// sets columns across several transitions before a final `persist
+    /// create` is legitimate (the write eventually lands); this only fires
+    /// when the trait has no landing transition at all. Wave 2. Error
+    /// severity.
+    SetColumnWithoutRow,
 
     // =========================================================================
     // Closed Circuit Errors (CIRCUIT_*)
@@ -827,6 +892,14 @@ pub enum ErrorCode {
     /// the imported behavior's app-level `config {}` (`OrbitalSchema.config`,
     /// `Almadar_Orbital_Import.md` §4.5) does not declare.
     UsesConfigUnknownKey,
+    /// L2 twin of `orbital-lolo`'s `LowerError::SharedEntityWithoutPersistenceMode`
+    /// (`ORB_S_SHARED_WITHOUT_PERSISTENCE_MODE`): `EntityDefinition.shared &&
+    /// persistence.is_none()` on the input schema. Nothing about a `[shared]`
+    /// entity may be inferred — it must say `persistent: <collection>` or
+    /// `runtime` explicitly. Catches a `.orb` mutated directly (factory
+    /// edits, agent rewrites) that bypasses the `.lolo` parse path. Runs
+    /// before any persistence defaulting. Wave 2. Error severity.
+    SchemaSharedWithoutPersistenceMode,
 
     // =========================================================================
     // Identity Errors (ORB_ID_*) — Rabit V4 Phase 3 dual-carry id integrity
@@ -916,6 +989,9 @@ impl ErrorCode {
             ErrorCode::EventRenameUnknownKey => "ORB_T_EVENT_RENAME_UNKNOWN_KEY",
             ErrorCode::TraitConfigUnknownCallSiteKey => "ORB_T_CONFIG_UNKNOWN_CALL_SITE_KEY",
             ErrorCode::TraitConfigMissingRequiredKey => "ORB_T_CONFIG_MISSING_REQUIRED_KEY",
+            ErrorCode::TraitLocalTouchesServer => "ORB_T_LOCAL_TRAIT_TOUCHES_SERVER",
+            ErrorCode::TraitLocalOnNonSharedPersistent => "ORB_T_LOCAL_ON_NON_SHARED_PERSISTENT",
+            ErrorCode::AuthGuardClientOnly => "ORB_AUTH_GUARD_CLIENT_ONLY",
 
             // Page
             ErrorCode::PageMissingName => "ORB_P_MISSING_NAME",
@@ -985,6 +1061,7 @@ impl ErrorCode {
             ErrorCode::EffectFetchInvalidInclude => "ORB_EFF_FETCH_INVALID_INCLUDE",
             ErrorCode::EffectSlotConflict => "ORB_EFF_SLOT_CONFLICT",
             ErrorCode::EffectUnknownType => "ORB_EFF_UNKNOWN_TYPE",
+            ErrorCode::EffectNotifyRetired => "ORB_EFF_NOTIFY_RETIRED",
             ErrorCode::EffectNavigateMissingPayload => "ORB_EFF_NAVIGATE_MISSING_PAYLOAD",
             ErrorCode::EffectNavigateTargetUnreachable => "ORB_EFF_NAVIGATE_TARGET_UNREACHABLE",
             ErrorCode::EmitDeclaredButUnfired => "ORB_EMIT_DECLARED_BUT_UNFIRED",
@@ -1065,6 +1142,7 @@ impl ErrorCode {
             ErrorCode::BindingEntityFieldNotFound => "ORB_BINDING_ENTITY_FIELD_NOT_FOUND",
             ErrorCode::BindingEntityFieldNeverSet => "ORB_BINDING_ENTITY_FIELD_NEVER_SET",
             ErrorCode::BindingPersistRowIdNeverSet => "ORB_BINDING_PERSIST_ROW_ID_NEVER_SET",
+            ErrorCode::PersistCreateMissingPolicyField => "ORB_PERSIST_CREATE_MISSING_POLICY_FIELD",
             ErrorCode::BindingTraitMissingName => "ORB_BINDING_TRAIT_MISSING_NAME",
             ErrorCode::BindingTraitInvalidFormat => "ORB_BINDING_TRAIT_INVALID_FORMAT",
             ErrorCode::BindingTraitUnknown => "ORB_BINDING_TRAIT_UNKNOWN",
@@ -1079,6 +1157,9 @@ impl ErrorCode {
             ErrorCode::SharedEntityRenderAuthority => "ORB_SHARED_ENTITY_RENDER_AUTHORITY",
             ErrorCode::TickRequiresRuntime => "ORB_TICK_REQUIRES_RUNTIME",
             ErrorCode::TickAsyncEffect => "ORB_TICK_ASYNC_EFFECT",
+            ErrorCode::EntityIntrinsicFieldPersisted => "ORB_ENTITY_INTRINSIC_FIELD_PERSISTED",
+            ErrorCode::GuardOnFrameFieldAuthorizes => "ORB_GUARD_ON_FRAME_FIELD_AUTHORIZES",
+            ErrorCode::SetColumnWithoutRow => "ORB_SET_COLUMN_WITHOUT_ROW",
 
             // Closed Circuit
             ErrorCode::CircuitOrphanEvent => "CIRCUIT_ORPHAN_EVENT",
@@ -1134,6 +1215,9 @@ impl ErrorCode {
             ErrorCode::SchemaExpectedFieldTypeMismatch => "ORB_S_EXPECTED_FIELD_TYPE_MISMATCH",
             ErrorCode::SchemaExpectationFieldUndeclared => "ORB_S_EXPECTATION_FIELD_UNDECLARED",
             ErrorCode::UsesConfigUnknownKey => "ORB_U_CONFIG_UNKNOWN_KEY",
+            ErrorCode::SchemaSharedWithoutPersistenceMode => {
+                "ORB_S_SHARED_WITHOUT_PERSISTENCE_MODE"
+            }
 
             // Identity
             ErrorCode::OrbIdUnknownRef => "ORB_ID_UNKNOWN_REF",
@@ -1196,9 +1280,13 @@ impl ErrorCode {
             | ErrorCode::TraitConfigUnknownCallSiteKey
             | ErrorCode::TraitConfigMissingRequiredKey
             | ErrorCode::UnresolvedTypeParam
+            | ErrorCode::TraitLocalTouchesServer
+            | ErrorCode::TraitLocalOnNonSharedPersistent
             // A generic type in a declaration position — a TYPE-system rejection
             // since the burndown reached zero (2026-09-01).
             | ErrorCode::GenericTypeDeprecated => "trait",
+
+            ErrorCode::AuthGuardClientOnly => "dispatch",
 
             ErrorCode::PageMissingName
             | ErrorCode::PageMissingPath
@@ -1256,6 +1344,7 @@ impl ErrorCode {
             | ErrorCode::EffectCallServiceUnknownParam
             | ErrorCode::EffectCallServiceMissingParam
             | ErrorCode::EffectCallServiceParamType
+            | ErrorCode::EffectNotifyRetired
             | ErrorCode::EffectSetInvalidBinding
             | ErrorCode::EffectSetPayloadNotAllowed
             | ErrorCode::EffectFetchInvalidEntity
@@ -1337,13 +1426,17 @@ impl ErrorCode {
             | ErrorCode::BindingTraitSelfReference
             | ErrorCode::BindingTraitCycle
             | ErrorCode::BindingTraitInvalidPosition
-            | ErrorCode::BindingTraitOutsideRenderUi => "binding",
+            | ErrorCode::BindingTraitOutsideRenderUi
+            | ErrorCode::PersistCreateMissingPolicyField => "binding",
 
             ErrorCode::EntitySplitMutation
             | ErrorCode::SharedEntityFieldConflict
             | ErrorCode::SharedEntityRenderAuthority
             | ErrorCode::TickRequiresRuntime
-            | ErrorCode::TickAsyncEffect => "entity_mutation",
+            | ErrorCode::TickAsyncEffect
+            | ErrorCode::EntityIntrinsicFieldPersisted
+            | ErrorCode::GuardOnFrameFieldAuthorizes
+            | ErrorCode::SetColumnWithoutRow => "entity_mutation",
 
             ErrorCode::CircuitOrphanEvent
             | ErrorCode::CircuitDuplicateEvent
@@ -1388,7 +1481,8 @@ impl ErrorCode {
             | ErrorCode::SchemaExpectedFieldNotProvided
             | ErrorCode::SchemaExpectedFieldTypeMismatch
             | ErrorCode::SchemaExpectationFieldUndeclared
-            | ErrorCode::UsesConfigUnknownKey => "schema",
+            | ErrorCode::UsesConfigUnknownKey
+            | ErrorCode::SchemaSharedWithoutPersistenceMode => "schema",
 
             ErrorCode::OrbIdUnknownRef
             | ErrorCode::OrbIdNameMismatch

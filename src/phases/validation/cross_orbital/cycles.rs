@@ -212,6 +212,7 @@ mod tests {
         listen_scope: Option<EventScope>,
     ) -> TraitReference {
         TraitReference::Inline(TraitDefinition {
+            local: false,
             effect_row: None,
             type_params: None,
             type_args: None,

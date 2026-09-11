@@ -549,6 +549,7 @@ mod tests {
 
     fn create_trait_with_render_ui(name: &str, slot: &str) -> TraitDefinition {
         TraitDefinition {
+            local: false,
             effect_row: None,
             type_params: None,
             type_args: None,
@@ -728,6 +729,7 @@ mod tests {
         });
 
         TraitDefinition {
+            local: false,
             effect_row: None,
             type_params: None,
             type_args: None,
@@ -965,6 +967,7 @@ mod tests {
             ],
         };
         let trait_orphan = TraitDefinition {
+            local: false,
             effect_row: None,
             type_params: None,
             type_args: None,

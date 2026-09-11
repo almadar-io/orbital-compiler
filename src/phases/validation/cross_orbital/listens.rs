@@ -174,6 +174,7 @@ mod tests {
 
     fn bare_trait(name: &str) -> TraitDefinition {
         TraitDefinition {
+            local: false,
             effect_row: None,
             type_params: None,
             type_args: None,

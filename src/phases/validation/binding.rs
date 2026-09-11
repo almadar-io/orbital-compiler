@@ -2606,6 +2606,7 @@ mod tests {
             })
             .collect();
         orbital_core::schema::TraitDefinition {
+            local: false,
             effect_row: None,
             type_params: None,
             type_args: None,
@@ -2967,6 +2968,7 @@ mod tests {
                 StateDefinition, StateMachine, StringOrArray, TransitionDefinition,
             };
             orbital_core::schema::TraitDefinition {
+                local: false,
                 effect_row: None,
                 type_params: None,
                 type_args: None,

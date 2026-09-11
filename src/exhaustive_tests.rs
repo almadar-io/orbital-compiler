@@ -1049,8 +1049,10 @@ mod tests {
             emits: vec![],
             data_entities: vec![],
             slots_used: vec![],
+            host_trait: None,
             declared_config_schema: None,
             declared_config_defaults: None,
+            local: false,
         }
     }
 

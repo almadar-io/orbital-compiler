@@ -29,6 +29,7 @@ fn make_trait_with_transition(
         entity_contract: None,
         category: None,
         capabilities: vec![],
+        local: false,
         linked_entity: Some("Task".to_string()),
         description: None,
         state_machine: StateMachine {

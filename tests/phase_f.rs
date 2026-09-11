@@ -120,6 +120,7 @@ fn schema_for_f1(strict_target_event: &str) -> OrbitalSchema {
         entity_contract: None,
         category: None,
         capabilities: vec![],
+        local: false,
         linked_entity: Some("Task".to_string()),
         description: None,
         state_machine: StateMachine {
@@ -256,6 +257,7 @@ fn schema_with_two_emitters_and_listener_source(
             entity_contract: None,
             category: None,
             capabilities: vec![],
+            local: false,
             linked_entity: Some("Task".to_string()),
             description: None,
             state_machine: StateMachine {
@@ -530,6 +532,7 @@ fn render_button_trait(
         entity_contract: None,
         category: None,
         capabilities: vec![],
+        local: false,
         linked_entity: Some("Task".to_string()),
         description: None,
         state_machine: StateMachine {
@@ -587,6 +590,7 @@ fn schema_with_render_action_payload(
             entity_contract: None,
             category: None,
             capabilities: vec![],
+            local: false,
             linked_entity: Some("Task".to_string()),
             description: None,
             state_machine: StateMachine {
@@ -631,6 +635,7 @@ fn schema_with_render_action_payload(
             entity_contract: None,
             category: None,
             capabilities: vec![],
+            local: false,
             linked_entity: Some("Task".to_string()),
             description: None,
             state_machine: StateMachine {

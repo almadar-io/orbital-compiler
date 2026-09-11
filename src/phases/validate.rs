@@ -799,6 +799,7 @@ mod tests {
         transitions: Vec<TransitionDefinition>,
     ) -> TraitDefinition {
         TraitDefinition {
+            local: false,
             effect_row: None,
             type_params: None,
             type_args: None,

@@ -742,6 +742,7 @@ mod tests {
     fn test_external_listen_not_reported_as_orphan() {
         let mut schema = create_minimal_schema();
         schema.orbitals[0].traits = vec![TraitReference::Inline(TraitDefinition {
+            local: false,
             effect_row: None,
             type_params: None,
             type_args: None,
@@ -803,6 +804,7 @@ mod tests {
     fn test_internal_listen_still_reports_orphan() {
         let mut schema = create_minimal_schema();
         schema.orbitals[0].traits = vec![TraitReference::Inline(TraitDefinition {
+            local: false,
             effect_row: None,
             type_params: None,
             type_args: None,
@@ -863,6 +865,7 @@ mod tests {
 
     fn bare_trait(name: &str) -> TraitDefinition {
         TraitDefinition {
+            local: false,
             effect_row: None,
             type_params: None,
             type_args: None,
@@ -1183,6 +1186,7 @@ mod tests {
 
     fn externally_emitting_trait(name: &str, event: &str, imported: bool) -> TraitReference {
         TraitReference::Inline(TraitDefinition {
+            local: false,
             effect_row: None,
             type_params: None,
             type_args: None,

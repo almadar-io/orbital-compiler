@@ -2460,6 +2460,7 @@ mod entity_id_reader_tests {
             }]
         });
         TraitDefinition {
+            local: false,
             effect_row: None,
             type_params: None,
             type_args: None,
@@ -2539,6 +2540,7 @@ mod entity_id_reader_tests {
     /// caller so the two scenarios (renamed vs not) can be expressed.
     fn trait_with_entity_token(token: &str) -> TraitDefinition {
         TraitDefinition {
+            local: false,
             effect_row: None,
             type_params: None,
             type_args: None,

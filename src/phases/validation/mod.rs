@@ -571,6 +571,10 @@ pub fn validate_comprehensive_full(
     // `shared`/`persistence` flags are visible.
     entity_mutation::validate_all_entity_mutations(schema, &mut ctx);
     entity_mutation::validate_all_tick_guards(schema, &mut ctx);
+    entity_mutation::validate_all_local_trait_dispatch(schema, &mut ctx);
+    entity_mutation::validate_all_set_column_without_row(schema, &mut ctx);
+    entity_mutation::validate_all_guard_frame_field_authorization(schema, &mut ctx);
+    entity_mutation::validate_all_auth_guard_client_only(schema, &mut ctx);
 
     // Phase 12: Closed circuit validation
     closed_circuit::validate_all_circuits(schema, &mut ctx);

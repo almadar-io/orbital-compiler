@@ -204,6 +204,7 @@ mod tests {
         listens: Option<Vec<ListenDefinition>>,
     ) -> TraitReference {
         TraitReference::Inline(TraitDefinition {
+            local: false,
             effect_row: None,
             type_params: None,
             type_args: None,

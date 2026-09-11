@@ -1564,7 +1564,27 @@ fn resolve_payload_entity_schema(
     let Some(entity) = entities_by_name.get(name) else {
         return false;
     };
-    *payload_schema = Some(entity_fields_to_payload_fields(entity));
+    // A row payload is row-BEARING, not a complete row: the re-derived list
+    // takes its names and types from the entity as it stands now, but a
+    // field is required only if the contract already required it (the
+    // emitting atom's own entity — a host's merged `name!` is not something a
+    // `persist create` on this trait ever supplies). `@intrinsic` fields
+    // never reach a stored row, so they never appear on one.
+    let previous_required: HashMap<String, Option<bool>> = payload_schema
+        .as_ref()
+        .map(|schema| schema.iter().map(|f| (f.name.clone(), f.required)).collect())
+        .unwrap_or_default();
+    let fields: Vec<PayloadField> = entity
+        .fields
+        .iter()
+        .filter(|f| f.intrinsic != Some(true))
+        .map(|f| {
+            let mut field = super::sigil_types::payload_field_of(f);
+            field.required = previous_required.get(&field.name).copied().flatten();
+            field
+        })
+        .collect();
+    *payload_schema = Some(fields);
     true
 }
 
@@ -2723,6 +2743,45 @@ mod payload_entity_marker_tests {
     /// sentinels` must re-derive the schema from `entities_by_name["Item"]`
     /// — the entity as it stands AFTER those overrides — not leave the
     /// frozen list in place.
+    /// §97: a persist-success row payload re-derived on a rebound host keeps
+    /// the ATOM's required set — the host's merged `name!` is not required
+    /// (the atom's create never supplies it) — and drops `@intrinsic` fields.
+    #[test]
+    fn payload_entity_marker_keeps_atom_required_flags_and_drops_intrinsic_fields() {
+        let mut td = trait_with_emit(
+            "PostCreated",
+            Some("Message"),
+            json!([
+                { "name": "id", "type": "string", "required": true },
+                { "name": "content", "type": "string", "required": true }
+            ]),
+        );
+        let message: orbital_core::schema::EntityDefinition = serde_json::from_value(json!({
+            "name": "Message",
+            "persistence": "persistent",
+            "fields": [
+                { "name": "id", "type": "string", "required": true },
+                { "name": "content", "type": "string", "required": true },
+                { "name": "name", "type": "string", "required": true },
+                { "name": "draft", "type": "string", "intrinsic": true }
+            ]
+        }))
+        .expect("entity fixture deserializes");
+        let mut entities = HashMap::new();
+        entities.insert("Message".to_string(), message.clone());
+        resolve_type_param_sentinels(&mut td, None, &entities, &BTreeMap::new());
+        let fields: Vec<PayloadField> = td.emits.as_ref().expect("emits carried")[0]
+            .payload_schema
+            .clone()
+            .expect("payloadSchema carried");
+        let by_name: HashMap<&str, &PayloadField> =
+            fields.iter().map(|f| (f.name.as_str(), f)).collect();
+        assert_eq!(by_name["id"].required, Some(true));
+        assert_eq!(by_name["content"].required, Some(true));
+        assert_eq!(by_name["name"].required, None, "host-merged required must not leak into the row payload");
+        assert!(!by_name.contains_key("draft"), "@intrinsic fields never appear on a row payload");
+    }
+
     #[test]
     fn payload_entity_marker_recomputes_schema_from_the_entitys_current_fields() {
         let mut td = trait_with_emit(

@@ -83,6 +83,7 @@ fn schema_with_effects(
         entity_contract: None,
         category: None,
         capabilities: vec![],
+        local: false,
         linked_entity: Some("Patient".to_string()),
         description: None,
         state_machine: StateMachine {

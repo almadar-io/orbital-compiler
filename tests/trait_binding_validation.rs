@@ -61,6 +61,7 @@ fn trait_with_trait_binding_in_children(trait_name: &str, binding: &str) -> Trai
         entity_contract: None,
         category: None,
         capabilities: vec![],
+        local: false,
         linked_entity: Some("Item".to_string()),
         description: None,
         state_machine: StateMachine {
@@ -325,6 +326,7 @@ fn trait_with_binding_outside_render(effect_kind: &str, binding: &str) -> TraitD
         entity_contract: None,
         category: None,
         capabilities: vec![],
+        local: false,
         linked_entity: Some("Item".to_string()),
         description: None,
         state_machine: StateMachine {

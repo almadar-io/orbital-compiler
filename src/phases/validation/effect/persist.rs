@@ -2,14 +2,15 @@
 
 use super::super::{ErrorCode, ValidationError, ValidationResult};
 use super::{extract_emit_object_ref, validate_emit_config, DeclaredEmit};
-use orbital_core::schema::SExpression;
-use std::collections::HashSet;
+use orbital_core::schema::{EntityDefinition, SExpression};
+use std::collections::{HashMap, HashSet};
 
 /// Validate persist effect (array form)
 pub(crate) fn validate_persist(
     arr: &[SExpression],
     path: &str,
     known_entities: &HashSet<String>,
+    entity_definitions: &HashMap<String, EntityDefinition>,
     declared_emits: Option<&[DeclaredEmit]>,
 ) -> ValidationResult {
     let mut result = ValidationResult::new();
@@ -58,6 +59,91 @@ pub(crate) fn validate_persist(
         }
     }
 
+    // Wave 2 rules 1 & 3 — only when the data argument is an explicit Object
+    // LITERAL (a bare whole-frame `@entity`/`@payload` binding is not a hit
+    // for either rule: it carries no key set to inspect).
+    let op = if entity_index == 2 {
+        match &arr[1] {
+            SExpression::String(o) => Some(o.as_str()),
+            _ => None,
+        }
+    } else {
+        None
+    };
+    let entity_name = match arr.get(entity_index) {
+        Some(SExpression::String(name)) => Some(name.as_str()),
+        _ => None,
+    };
+    if let (Some(entity_name), Some(SExpression::Object(data_fields))) =
+        (entity_name, arr.get(entity_index + 1))
+    {
+        if let Some(entity_def) = entity_definitions.get(entity_name) {
+            // Rule 1 (ORB_ENTITY_INTRINSIC_FIELD_PERSISTED): the literal names
+            // an `@intrinsic` field of the target entity.
+            let mut intrinsic_hits: Vec<&String> = data_fields
+                .keys()
+                .filter(|key| {
+                    entity_def.fields.iter().any(|f| {
+                        f.name.as_deref() == Some(key.as_str()) && f.intrinsic == Some(true)
+                    })
+                })
+                .collect();
+            intrinsic_hits.sort();
+            for field in intrinsic_hits {
+                result.add_error(
+                    ValidationError::error(
+                        ErrorCode::EntityIntrinsicFieldPersisted,
+                        path,
+                        format!(
+                            "persist {} '{}' data literal names '{}', an @intrinsic field — intrinsic fields are trait-owned view-state, never a persisted column",
+                            op.unwrap_or("create"), entity_name, field
+                        ),
+                    )
+                    .with_suggestion(format!(
+                        "Remove '{}' from the persist data literal, or drop @intrinsic from the field if it is really meant to be stored",
+                        field
+                    )),
+                );
+            }
+
+            // Rule 3 (ORB_PERSIST_CREATE_MISSING_POLICY_FIELD): only on
+            // `create`, and only when `@create` compares a field the literal
+            // doesn't supply.
+            if op == Some("create") {
+                if let Some(create_policy) = &entity_def.create_policy {
+                    let mut referenced: HashMap<String, String> = HashMap::new();
+                    let mut set_fields: HashSet<String> = HashSet::new();
+                    create_policy.collect_entity_field_refs(
+                        &mut referenced,
+                        &mut set_fields,
+                        "CREATE",
+                    );
+                    let mut missing: Vec<&String> = referenced
+                        .keys()
+                        .filter(|field| !data_fields.contains_key(field.as_str()))
+                        .collect();
+                    missing.sort();
+                    for field in missing {
+                        result.add_error(
+                            ValidationError::error(
+                                ErrorCode::PersistCreateMissingPolicyField,
+                                path,
+                                format!(
+                                    "persist create '{}' data literal has no '{}', but '{}'.@create compares that field — a row created here will never satisfy its own access policy",
+                                    entity_name, field, entity_name
+                                ),
+                            )
+                            .with_suggestion(format!(
+                                "Add '{}' to the persist data literal so the created row satisfies its own @create policy",
+                                field
+                            )),
+                        );
+                    }
+                }
+            }
+        }
+    }
+
     // Trailing options object containing `emit:` is detected by the resolver
     // only when it actually has an `emit` key — match that here to avoid
     // treating an inline data payload as an options bag.
@@ -75,4 +161,188 @@ pub(crate) fn validate_persist(
     }
 
     result
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::json;
+
+    fn message_entity(create_policy: Option<serde_json::Value>) -> EntityDefinition {
+        serde_json::from_value(json!({
+            "name": "Message",
+            "collection": "messages",
+            "persistence": "persistent",
+            "fields": [
+                { "name": "id", "type": "string" },
+                { "name": "sender", "type": "string" },
+                { "name": "text", "type": "string" },
+                { "name": "isEditing", "type": "boolean", "intrinsic": true }
+            ],
+            "create_policy": create_policy,
+        }))
+        .expect("valid entity definition")
+    }
+
+    fn persist_create_arr(entity: &str, fields: Vec<(&str, SExpression)>) -> Vec<SExpression> {
+        let mut obj = std::collections::HashMap::new();
+        for (k, v) in fields {
+            obj.insert(k.to_string(), v);
+        }
+        vec![
+            SExpression::String("persist".to_string()),
+            SExpression::String("create".to_string()),
+            SExpression::String(entity.to_string()),
+            SExpression::Object(obj),
+        ]
+    }
+
+    #[test]
+    fn intrinsic_field_in_persist_literal_errors() {
+        let arr = persist_create_arr(
+            "Message",
+            vec![
+                ("sender", SExpression::String("@user.id".to_string())),
+                ("text", SExpression::String("@payload.text".to_string())),
+                ("isEditing", SExpression::Bool(true)),
+            ],
+        );
+        let mut defs = HashMap::new();
+        defs.insert("Message".to_string(), message_entity(None));
+        let known = ["Message".to_string()].into_iter().collect();
+        let result = validate_persist(&arr, "test", &known, &defs, None);
+        assert!(
+            result
+                .errors
+                .iter()
+                .any(|e| e.code == ErrorCode::EntityIntrinsicFieldPersisted),
+            "Expected EntityIntrinsicFieldPersisted error: {:?}",
+            result.errors
+        );
+    }
+
+    #[test]
+    fn no_intrinsic_field_in_literal_passes() {
+        let arr = persist_create_arr(
+            "Message",
+            vec![
+                ("sender", SExpression::String("@user.id".to_string())),
+                ("text", SExpression::String("@payload.text".to_string())),
+            ],
+        );
+        let mut defs = HashMap::new();
+        defs.insert("Message".to_string(), message_entity(None));
+        let known = ["Message".to_string()].into_iter().collect();
+        let result = validate_persist(&arr, "test", &known, &defs, None);
+        assert!(
+            !result
+                .all_issues()
+                .any(|e| e.code == ErrorCode::EntityIntrinsicFieldPersisted),
+            "No intrinsic field in the literal must pass: {:?}",
+            result.errors
+        );
+    }
+
+    #[test]
+    fn bare_whole_frame_persist_is_not_a_hit_for_intrinsic_rule() {
+        let arr = vec![
+            SExpression::String("persist".to_string()),
+            SExpression::String("create".to_string()),
+            SExpression::String("Message".to_string()),
+            SExpression::String("@entity".to_string()),
+        ];
+        let mut defs = HashMap::new();
+        defs.insert("Message".to_string(), message_entity(None));
+        let known = ["Message".to_string()].into_iter().collect();
+        let result = validate_persist(&arr, "test", &known, &defs, None);
+        assert!(
+            result.errors.is_empty(),
+            "A bare whole-frame persist must not trip either Wave 2 rule: {:?}",
+            result.errors
+        );
+    }
+
+    #[test]
+    fn persist_create_missing_policy_field_errors() {
+        // @create sender == @user.id
+        let create_policy = json!(["==", "@entity.sender", "@user.id"]);
+        let arr = persist_create_arr(
+            "Message",
+            vec![("text", SExpression::String("@payload.text".to_string()))],
+        );
+        let mut defs = HashMap::new();
+        defs.insert("Message".to_string(), message_entity(Some(create_policy)));
+        let known = ["Message".to_string()].into_iter().collect();
+        let result = validate_persist(&arr, "test", &known, &defs, None);
+        assert!(
+            result
+                .errors
+                .iter()
+                .any(|e| e.code == ErrorCode::PersistCreateMissingPolicyField),
+            "Expected PersistCreateMissingPolicyField error: {:?}",
+            result.errors
+        );
+    }
+
+    #[test]
+    fn persist_create_with_policy_field_present_passes() {
+        let create_policy = json!(["==", "@entity.sender", "@user.id"]);
+        let arr = persist_create_arr(
+            "Message",
+            vec![
+                ("sender", SExpression::String("@user.id".to_string())),
+                ("text", SExpression::String("@payload.text".to_string())),
+            ],
+        );
+        let mut defs = HashMap::new();
+        defs.insert("Message".to_string(), message_entity(Some(create_policy)));
+        let known = ["Message".to_string()].into_iter().collect();
+        let result = validate_persist(&arr, "test", &known, &defs, None);
+        assert!(
+            !result
+                .all_issues()
+                .any(|e| e.code == ErrorCode::PersistCreateMissingPolicyField),
+            "Policy field present in the literal must pass: {:?}",
+            result.errors
+        );
+    }
+
+    #[test]
+    fn bare_whole_frame_persist_create_is_not_a_hit_for_policy_rule() {
+        let create_policy = json!(["==", "@entity.sender", "@user.id"]);
+        let arr = vec![
+            SExpression::String("persist".to_string()),
+            SExpression::String("create".to_string()),
+            SExpression::String("Message".to_string()),
+            SExpression::String("@entity".to_string()),
+        ];
+        let mut defs = HashMap::new();
+        defs.insert("Message".to_string(), message_entity(Some(create_policy)));
+        let known = ["Message".to_string()].into_iter().collect();
+        let result = validate_persist(&arr, "test", &known, &defs, None);
+        assert!(
+            result.errors.is_empty(),
+            "A bare whole-frame persist create must not trip the policy-field rule: {:?}",
+            result.errors
+        );
+    }
+
+    #[test]
+    fn persist_update_is_exempt_from_the_policy_field_rule() {
+        let create_policy = json!(["==", "@entity.sender", "@user.id"]);
+        let arr = persist_create_arr("Message", vec![]);
+        let mut update_arr = arr.clone();
+        update_arr[1] = SExpression::String("update".to_string());
+        let mut defs = HashMap::new();
+        defs.insert("Message".to_string(), message_entity(Some(create_policy)));
+        let known = ["Message".to_string()].into_iter().collect();
+        let result = validate_persist(&update_arr, "test", &known, &defs, None);
+        assert!(
+            !result
+                .all_issues()
+                .any(|e| e.code == ErrorCode::PersistCreateMissingPolicyField),
+            "persist update must never trigger the create-only policy rule: {:?}",
+            result.errors
+        );
+    }
 }

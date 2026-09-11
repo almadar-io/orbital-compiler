@@ -14,10 +14,10 @@
 //! `[shared]` traits fighting over one field or double-rendering.
 
 use super::render_ui::is_render_ui_effect;
-use super::{ErrorCode, ValidationContext, ValidationError, ValidationResult};
+use super::{ErrorCode, Severity, ValidationContext, ValidationError, ValidationResult};
 use orbital_core::schema::{
-    EntityDefinition, Orbital, OrbitalSchema, PageRef, Persistence, SExpression, StringOrNumber,
-    TraitDefinition, TraitReference,
+    EntityDefinition, ListenSource, Orbital, OrbitalSchema, PageRef, Persistence, SExpression,
+    StringOrNumber, TraitDefinition, TraitReference,
 };
 use std::collections::{HashMap, HashSet};
 
@@ -90,16 +90,23 @@ pub(super) fn collect_entity_mutators<'a>(
 /// JSX wrapper forwarding `@entity.*` counts as part of its host authority's
 /// render output, while a genuinely independent (unreferenced) second reader
 /// still counts as its own authority.
-fn collect_render_ui_readers(traits: &[&TraitDefinition]) -> HashMap<String, HashSet<String>> {
-    // Direct readers: (trait name, linked entity) pairs whose render-ui
-    // effects read @entity.*.
-    let mut direct: Vec<(String, String)> = Vec::new();
+/// entity name → slot name → trait roots that render-ui-read the entity
+/// into that slot. Per-(entity, slot) rather than per-entity: two traits
+/// bound to one `[shared]` entity may each own a DIFFERENT render slot
+/// without contention — `SharedEntityRenderAuthority` only fires when two
+/// distinct traits render the SAME entity into the SAME slot.
+fn collect_render_ui_readers(
+    traits: &[&TraitDefinition],
+) -> HashMap<String, HashMap<String, HashSet<String>>> {
+    // Direct readers: (trait name, linked entity, slot) triples whose
+    // render-ui effects read @entity.*.
+    let mut direct: Vec<(String, String, String)> = Vec::new();
     // Reverse render-reference graph: target trait name → trait names whose
     // render-ui trees reference it via `@trait.<target>`.
     let mut referenced_by: HashMap<String, HashSet<String>> = HashMap::new();
 
     for trait_def in traits {
-        let mut reads_entity = false;
+        let mut read_slots: HashSet<String> = HashSet::new();
         let mut refs: HashSet<String> = HashSet::new();
         for transition in &trait_def.state_machine.transitions {
             if let Some(effects) = &transition.effects {
@@ -108,7 +115,9 @@ fn collect_render_ui_readers(traits: &[&TraitDefinition]) -> HashMap<String, Has
                         continue;
                     }
                     if render_ui_effect_reads_entity(effect) {
-                        reads_entity = true;
+                        if let Some(slot) = super::render_ui::extract_slot(effect) {
+                            read_slots.insert(slot);
+                        }
                     }
                     crate::phases::inline::collect_sibling_trait_refs(effect, &mut refs);
                 }
@@ -121,7 +130,9 @@ fn collect_render_ui_readers(traits: &[&TraitDefinition]) -> HashMap<String, Has
                         continue;
                     }
                     if render_ui_effect_reads_entity(effect) {
-                        reads_entity = true;
+                        if let Some(slot) = super::render_ui::extract_slot(effect) {
+                            read_slots.insert(slot);
+                        }
                     }
                     crate::phases::inline::collect_sibling_trait_refs(effect, &mut refs);
                 }
@@ -138,17 +149,24 @@ fn collect_render_ui_readers(traits: &[&TraitDefinition]) -> HashMap<String, Has
             }
         }
 
-        if reads_entity {
+        if !read_slots.is_empty() {
             if let Some(linked) = &trait_def.linked_entity {
-                direct.push((trait_def.name.clone(), linked.clone()));
+                for slot in read_slots {
+                    direct.push((trait_def.name.clone(), linked.clone(), slot));
+                }
             }
         }
     }
 
-    let mut readers: HashMap<String, HashSet<String>> = HashMap::new();
-    for (name, linked) in direct {
+    let mut readers: HashMap<String, HashMap<String, HashSet<String>>> = HashMap::new();
+    for (name, linked, slot) in direct {
         for root in resolve_render_roots(&name, &referenced_by) {
-            readers.entry(linked.clone()).or_default().insert(root);
+            readers
+                .entry(linked.clone())
+                .or_default()
+                .entry(slot.clone())
+                .or_default()
+                .insert(root);
         }
     }
 
@@ -450,24 +468,32 @@ fn validate_orbital_entity_mutations(
         if entity_def.shared {
             // SharedEntityRenderAuthority — mirrors SlotContention's
             // aggregate-then-flag shape (slot.rs:112): exactly one render
-            // authority is allowed per shared entity.
-            if let Some(entity_renderers) = renderers.get(entity_name) {
-                if entity_renderers.len() > 1 {
-                    let mut names: Vec<String> = entity_renderers.iter().cloned().collect();
-                    names.sort();
-                    result.add_error(
-                        ValidationError::error(
-                            ErrorCode::SharedEntityRenderAuthority,
-                            path.as_str(),
-                            format!(
-                                "Shared entity '{}' is render-ui-read by {} traits: {:?} — exactly one render authority is allowed per shared entity",
-                                entity_name, names.len(), names
+            // authority is allowed per (entity, slot). Two traits bound to
+            // one shared entity may each own a DIFFERENT slot without a
+            // finding — only the SAME slot contended by ≥2 distinct traits
+            // is a real double-render.
+            if let Some(slots) = renderers.get(entity_name) {
+                let mut slot_names: Vec<&String> = slots.keys().collect();
+                slot_names.sort();
+                for slot in slot_names {
+                    let entity_renderers = &slots[slot];
+                    if entity_renderers.len() > 1 {
+                        let mut names: Vec<String> = entity_renderers.iter().cloned().collect();
+                        names.sort();
+                        result.add_error(
+                            ValidationError::error(
+                                ErrorCode::SharedEntityRenderAuthority,
+                                path.as_str(),
+                                format!(
+                                    "Shared entity '{}' is render-ui-read into slot '{}' by {} traits: {:?} — exactly one render authority is allowed per (entity, slot)",
+                                    entity_name, slot, names.len(), names
+                                ),
+                            )
+                            .with_suggestion(
+                                "Keep a single trait's render-ui reading this shared entity into this slot; route the others through it, or give them a different slot",
                             ),
-                        )
-                        .with_suggestion(
-                            "Keep a single trait's render-ui reading this shared entity; route the others through it",
-                        ),
-                    );
+                        );
+                    }
                 }
             }
 
@@ -662,12 +688,861 @@ fn find_async_operator_call(expr: &SExpression) -> Option<&str> {
     }
 }
 
+// ============================================================================
+// C. Local trait dispatch contract (Wave 2)
+// ============================================================================
+
+/// Effect operators that never fire client-only — a `local` trait carrying
+/// one of these is mis-tagged, since `local` (`OirTrait::dispatch_mode`)
+/// declares its transitions never await a server round trip.
+const SERVER_BOUND_OPERATORS: &[&str] = &[
+    "fetch",
+    "persist",
+    "call-service",
+    "ref",
+    "deref",
+    "swap!",
+    "watch",
+    "atomic",
+    "fetch-stream",
+];
+
+/// True when `expr`'s tree contains a call to any operator in
+/// `SERVER_BOUND_OPERATORS`, at any depth (recurses through control-flow
+/// wrappers like `if`/`do`/`let` the same way `find_async_operator_call`
+/// does for the tick backstop).
+fn contains_server_bound_effect(expr: &SExpression) -> bool {
+    expr_calls_any_operator(expr, SERVER_BOUND_OPERATORS)
+}
+
+/// Effect operators that reach a server-owned resource — the subset of
+/// `SERVER_BOUND_OPERATORS` Rule 2b gates a mutation-authorization finding
+/// on (a guard that reads an `@intrinsic` field AND `@user.*` is only a
+/// SECURITY concern when the transition it guards actually writes).
+const MUTATING_SERVER_OPERATORS: &[&str] = &["persist", "call-service"];
+
+/// True when `expr`'s tree contains a call to any operator in `ops`, at any
+/// depth (recurses through control-flow wrappers the same way
+/// `find_async_operator_call` does for the tick backstop). Single walker
+/// shared by every "does this effect touch operator X" check in this module.
+fn expr_calls_any_operator(expr: &SExpression, ops: &[&str]) -> bool {
+    match expr {
+        SExpression::Array(arr) => {
+            if let Some(SExpression::String(op)) = arr.first() {
+                if ops.contains(&op.as_str()) {
+                    return true;
+                }
+            }
+            arr.iter().any(|item| expr_calls_any_operator(item, ops))
+        }
+        SExpression::Object(obj) => obj.values().any(|v| expr_calls_any_operator(v, ops)),
+        _ => false,
+    }
+}
+
+/// True when `expr`'s tree reads `@user` or `@user.<field>`, in either the
+/// bare dotted-string form or the `(object/get @user "field")` call form —
+/// the two spellings `entity_access.rs`'s `check_owner_field_identity_typed`
+/// already reasons about for the same binding root.
+fn references_user_binding(expr: &SExpression) -> bool {
+    match expr {
+        SExpression::String(s) => s == "@user" || s.starts_with("@user."),
+        SExpression::Array(arr) => {
+            if arr.len() >= 2 {
+                if let (SExpression::String(op), SExpression::String(root)) = (&arr[0], &arr[1]) {
+                    if op == "object/get" && root == "@user" {
+                        return true;
+                    }
+                }
+            }
+            arr.iter().any(references_user_binding)
+        }
+        SExpression::Object(obj) => obj.values().any(references_user_binding),
+        _ => false,
+    }
+}
+
+/// The first `@intrinsic` field of `entity_def` that `expr`'s tree reads via
+/// `@entity.<field>` (dotted) or `(object/get @entity "field")` — the two
+/// spellings `entity_access.rs`'s owner-field extraction already handles for
+/// the same binding root.
+fn guard_references_intrinsic_field<'a>(
+    expr: &SExpression,
+    entity_def: &'a EntityDefinition,
+) -> Option<&'a str> {
+    let intrinsic_named = |field: &str| {
+        entity_def
+            .fields
+            .iter()
+            .find(|f| f.name.as_deref() == Some(field) && f.intrinsic == Some(true))
+            .and_then(|f| f.name.as_deref())
+    };
+    match expr {
+        SExpression::String(s) => {
+            let field = s.strip_prefix("@entity.")?;
+            let field = field.split(['.', '[']).next().unwrap_or(field);
+            intrinsic_named(field)
+        }
+        SExpression::Array(arr) => {
+            if let (Some(SExpression::String(op)), Some(SExpression::String(root)), Some(SExpression::String(field))) =
+                (arr.first(), arr.get(1), arr.get(2))
+            {
+                if op == "object/get" && root == "@entity" {
+                    if let Some(hit) = intrinsic_named(field) {
+                        return Some(hit);
+                    }
+                }
+            }
+            arr.iter()
+                .find_map(|item| guard_references_intrinsic_field(item, entity_def))
+        }
+        SExpression::Object(obj) => obj
+            .values()
+            .find_map(|v| guard_references_intrinsic_field(v, entity_def)),
+        _ => None,
+    }
+}
+
+/// Run `ORB_GUARD_ON_FRAME_FIELD_AUTHORIZES` (guard half — the access-policy
+/// half lives in `entity_access.rs`'s `check_entity_field`) for every orbital
+/// in the schema.
+pub fn validate_all_guard_frame_field_authorization(
+    schema: &OrbitalSchema,
+    ctx: &mut ValidationContext,
+) {
+    for (trait_def, path) in super::inline_traits(schema) {
+        let result =
+            validate_trait_guard_frame_field_authorization(trait_def, &path, &ctx.entity_definitions);
+        ctx.merge(result);
+    }
+}
+
+/// Per-trait guard-authorization check, factored out so it can run against a
+/// hand-built `TraitDefinition` fixture without a full `OrbitalSchema`.
+fn validate_trait_guard_frame_field_authorization(
+    trait_def: &TraitDefinition,
+    path: &str,
+    entity_definitions: &HashMap<String, EntityDefinition>,
+) -> ValidationResult {
+    let mut result = ValidationResult::new();
+    let Some(linked) = &trait_def.linked_entity else {
+        return result;
+    };
+    let Some(entity_def) = entity_definitions.get(linked) else {
+        return result;
+    };
+    for (i, transition) in trait_def.state_machine.transitions.iter().enumerate() {
+        let Some(guard) = &transition.guard else {
+            continue;
+        };
+        // A plain precondition guard (no identity comparison) is not
+        // authorization — e.g. `ChatComposer.SEND`'s `activeChannel != ""`.
+        if !references_user_binding(guard) {
+            continue;
+        }
+        let Some(intrinsic_field) = guard_references_intrinsic_field(guard, entity_def) else {
+            continue;
+        };
+        let gates_a_mutation = transition
+            .effects
+            .as_ref()
+            .map(|effects| {
+                effects
+                    .iter()
+                    .any(|e| expr_calls_any_operator(e, MUTATING_SERVER_OPERATORS))
+            })
+            .unwrap_or(false);
+        if !gates_a_mutation {
+            continue;
+        }
+        result.add_error(
+            ValidationError::error(
+                ErrorCode::GuardOnFrameFieldAuthorizes,
+                format!("{}.stateMachine.transitions[{}].guard", path, i),
+                format!(
+                    "trait {:?} transition '{}' guards a persist/call-service effect on @intrinsic field '{}' alongside @user — intrinsic fields are trait-owned view-state the runtime never seeds or persists, so this authorization check is trivially bypassable",
+                    trait_def.name, transition.event, intrinsic_field
+                ),
+            )
+            .with_suggestion(format!(
+                "Base this guard on a real persisted field of entity {:?}, not the @intrinsic field {:?}",
+                linked, intrinsic_field
+            )),
+        );
+    }
+    result
+}
+
+/// The pre-resolve schema-shape twin of `OirTrait::dispatch_mode`'s
+/// client-only test (`RuntimeOptimistic | HybridClientOnly`). Validation runs
+/// before `resolve`, so no `OirTrait` exists yet to call the real method on;
+/// this replicates its exact three-way lookup (`[runtime]` entity →
+/// optimistic, `local` trait → hybrid client-only, else server-gated) over
+/// the schema types `resolve_trait`/`resolve_field` read it from — same pure
+/// lookup, same inputs, one level earlier in the pipeline.
+fn schema_dispatch_is_client_only(
+    trait_def: &TraitDefinition,
+    entity_definitions: &HashMap<String, EntityDefinition>,
+) -> bool {
+    let entity_is_runtime = trait_def
+        .linked_entity
+        .as_ref()
+        .and_then(|e| entity_definitions.get(e))
+        .map(|e| matches!(e.persistence, Some(Persistence::Runtime)))
+        .unwrap_or(false);
+    entity_is_runtime || trait_def.local
+}
+
+/// Run `ORB_AUTH_GUARD_CLIENT_ONLY` for every orbital in the schema.
+pub fn validate_all_auth_guard_client_only(schema: &OrbitalSchema, ctx: &mut ValidationContext) {
+    for (trait_def, path) in super::inline_traits(schema) {
+        let result =
+            validate_trait_auth_guard_client_only(trait_def, &path, &ctx.entity_definitions);
+        ctx.merge(result);
+    }
+}
+
+/// Per-trait `ORB_AUTH_GUARD_CLIENT_ONLY` check, factored out so it can run
+/// against a hand-built `TraitDefinition` fixture without a full
+/// `OrbitalSchema`.
+fn validate_trait_auth_guard_client_only(
+    trait_def: &TraitDefinition,
+    path: &str,
+    entity_definitions: &HashMap<String, EntityDefinition>,
+) -> ValidationResult {
+    let mut result = ValidationResult::new();
+    if !schema_dispatch_is_client_only(trait_def, entity_definitions) {
+        return result;
+    }
+    for (i, transition) in trait_def.state_machine.transitions.iter().enumerate() {
+        let Some(guard) = &transition.guard else {
+            continue;
+        };
+        if !references_user_binding(guard) {
+            continue;
+        }
+        // A client-only transition with no server-touching effect has no server
+        // state to protect: the guard is a UX precondition, not a finding.
+        let has_server_effect = transition
+            .effects
+            .as_deref()
+            .unwrap_or(&[])
+            .iter()
+            .any(contains_server_bound_effect);
+        if !has_server_effect {
+            continue;
+        }
+        let message = format!(
+            "trait {:?} transition '{}' guards on @user, but this trait's dispatch is client-only ({}) — the client state machine advances optimistically before the server evaluates this guard; the effects stay server-gated, the UI transition does not, since the client can construct any @user value it likes",
+            trait_def.name,
+            transition.event,
+            if trait_def.local { "local" } else { "[runtime] entity" }
+        );
+        result.add_error(ValidationError {
+            code: ErrorCode::AuthGuardClientOnly,
+            message,
+            path: format!("{}.stateMachine.transitions[{}].guard", path, i),
+            severity: Severity::Warning,
+            suggestion: Some(
+                "If this guard is meant as an authorization boundary, move the mutation to a server-gated (non-local, non-[runtime]) trait; otherwise treat it as a UX precondition only.".to_string(),
+            ),
+            valid_values: None,
+            expected_shape: None,
+            fix_guidance: None,
+        });
+    }
+    result
+}
+
+/// Run the `local` trait dispatch-contract pair
+/// (`ORB_T_LOCAL_TRAIT_TOUCHES_SERVER` / `ORB_T_LOCAL_ON_NON_SHARED_PERSISTENT`)
+/// for every orbital in the schema.
+pub fn validate_all_local_trait_dispatch(schema: &OrbitalSchema, ctx: &mut ValidationContext) {
+    for (trait_def, path) in super::inline_traits(schema) {
+        let result = validate_trait_local_dispatch(trait_def, &path, &ctx.entity_definitions);
+        ctx.merge(result);
+    }
+}
+
+/// Per-trait `local` dispatch-contract check, factored out so it can run
+/// against a hand-built `TraitDefinition` fixture without a full
+/// `OrbitalSchema` (mirrors `validate_trait_tick_guards`'s shape).
+fn validate_trait_local_dispatch(
+    trait_def: &TraitDefinition,
+    path: &str,
+    entity_definitions: &HashMap<String, EntityDefinition>,
+) -> ValidationResult {
+    let mut result = ValidationResult::new();
+    if !trait_def.local {
+        return result;
+    }
+
+    // ORB_T_LOCAL_ON_NON_SHARED_PERSISTENT — `local` is only legal on an
+    // entity multiple traits co-mutate client-side (`[shared]`) or one that
+    // is never persisted at all (`[runtime]`).
+    if let Some(linked) = &trait_def.linked_entity {
+        if let Some(entity_def) = entity_definitions.get(linked) {
+            let is_runtime = matches!(entity_def.persistence, Some(Persistence::Runtime));
+            if !entity_def.shared && !is_runtime {
+                result.add_error(
+                    ValidationError::error(
+                        ErrorCode::TraitLocalOnNonSharedPersistent,
+                        path,
+                        format!(
+                            "trait {:?} is [local] but its linked entity {:?} is neither [shared] nor [runtime] — local dispatch would silently hide server-gated writes behind client-only optimism",
+                            trait_def.name, linked
+                        ),
+                    )
+                    .with_suggestion(format!(
+                        "Add [shared] or a `runtime` persistence tag to entity {:?}, or drop [local] from trait {:?}",
+                        linked, trait_def.name
+                    )),
+                );
+            }
+        }
+    }
+
+    // ORB_T_LOCAL_TRAIT_TOUCHES_SERVER — a local trait's transitions must
+    // never touch the server or read viewer identity.
+    for (i, transition) in trait_def.state_machine.transitions.iter().enumerate() {
+        if let Some(guard) = &transition.guard {
+            if references_user_binding(guard) {
+                result.add_error(
+                    ValidationError::error(
+                        ErrorCode::TraitLocalTouchesServer,
+                        format!("{}.stateMachine.transitions[{}].guard", path, i),
+                        format!(
+                            "trait {:?} is [local] but transition '{}' guards on @user — a local trait's transitions never await a server round trip, so a viewer-identity read here is either unreachable or a false authorization boundary",
+                            trait_def.name, transition.event
+                        ),
+                    )
+                    .with_suggestion(
+                        "Drop [local] from this trait, or remove the @user read from the guard",
+                    ),
+                );
+            }
+        }
+        if let Some(effects) = &transition.effects {
+            for (j, effect) in effects.iter().enumerate() {
+                if contains_server_bound_effect(effect) {
+                    result.add_error(
+                        ValidationError::error(
+                            ErrorCode::TraitLocalTouchesServer,
+                            format!("{}.stateMachine.transitions[{}].effects[{}]", path, i, j),
+                            format!(
+                                "trait {:?} is [local] but transition '{}' runs a server-bound effect — a local trait's transitions never await a server round trip",
+                                trait_def.name, transition.event
+                            ),
+                        )
+                        .with_suggestion(
+                            "Drop [local] from this trait, or move the server-bound effect to a non-local trait",
+                        ),
+                    );
+                }
+            }
+        }
+    }
+    if let Some(ticks) = &trait_def.ticks {
+        for (i, tick) in ticks.iter().enumerate() {
+            for (j, effect) in tick.effects.iter().enumerate() {
+                if contains_server_bound_effect(effect) {
+                    result.add_error(
+                        ValidationError::error(
+                            ErrorCode::TraitLocalTouchesServer,
+                            format!("{}.ticks[{}].effects[{}]", path, i, j),
+                            format!(
+                                "trait {:?} is [local] but tick '{}' runs a server-bound effect — a local trait's transitions never await a server round trip",
+                                trait_def.name, tick.name
+                            ),
+                        )
+                        .with_suggestion(
+                            "Drop [local] from this trait, or move the server-bound effect to a non-local trait",
+                        ),
+                    );
+                }
+            }
+        }
+    }
+
+    result
+}
+
+// ============================================================================
+// D. Set-column-without-row backstop (Wave 2 rule 9)
+// ============================================================================
+
+/// True when `expr`'s tree contains a `(persist create|update <entity_name> ...)`
+/// call targeting `entity_name` specifically — any data-literal shape, not just
+/// the whole-row form `expr_persists_whole_row` (binding.rs) looks for.
+fn expr_persists_entity_create_or_update(expr: &SExpression, entity_name: &str) -> bool {
+    match expr {
+        SExpression::Array(items) => {
+            let hit = matches!(items.first(), Some(SExpression::String(op)) if op == "persist")
+                && matches!(items.get(1), Some(SExpression::String(action)) if action == "create" || action == "update")
+                && matches!(items.get(2), Some(SExpression::String(name)) if name == entity_name);
+            hit || items
+                .iter()
+                .any(|item| expr_persists_entity_create_or_update(item, entity_name))
+        }
+        SExpression::Object(obj) => obj
+            .values()
+            .any(|v| expr_persists_entity_create_or_update(v, entity_name)),
+        _ => false,
+    }
+}
+
+/// If `expr` contains `(persist create|update <entity_name> @payload.<var>...)`
+/// — the whole-payload-forward persist shape — returns `<var>`, the top-level
+/// payload field the persistor writes verbatim. `None` for a persist built
+/// from an object literal or a different entity (those keep the strict
+/// same-trait requirement).
+fn persist_whole_payload_var(expr: &SExpression, entity_name: &str) -> Option<String> {
+    match expr {
+        SExpression::Array(items) => {
+            let is_persist_call = matches!(items.first(), Some(SExpression::String(op)) if op == "persist")
+                && matches!(items.get(1), Some(SExpression::String(action)) if action == "create" || action == "update")
+                && matches!(items.get(2), Some(SExpression::String(name)) if name == entity_name);
+            if is_persist_call {
+                if let Some(SExpression::String(s)) = items.get(3) {
+                    if let Some(rest) = s.strip_prefix("@payload.") {
+                        let var = rest.split('.').next().unwrap_or(rest);
+                        if !var.is_empty() {
+                            return Some(var.to_string());
+                        }
+                    }
+                }
+            }
+            items
+                .iter()
+                .find_map(|item| persist_whole_payload_var(item, entity_name))
+        }
+        SExpression::Object(obj) => obj
+            .values()
+            .find_map(|v| persist_whole_payload_var(v, entity_name)),
+        _ => None,
+    }
+}
+
+/// Cross-trait co-mutator lookup for the **restate-persistor** idiom: trait
+/// `source_trait`'s event `event` fires, a `listens { source_trait.event ->
+/// trigger }` restate route in a sibling persistor trait forwards the SAME
+/// payload object into `trigger`, and that arm runs `(persist update
+/// entity_name @payload.<var> ...)` against the whole payload. When found,
+/// returns `<var>` — any `(set @entity.<field> @payload.<var>.<field>)` in
+/// `source_trait`'s `event` transition is drawn from the exact object the
+/// sibling persists, so the write lands even though it's in a different
+/// trait than the persist call (`std-vendor-onboarding`'s `VendorPersistor`
+/// is the canonical shape: `VendorOnboard.NEXT_STEP -> DO_UPDATE`, `DO_UPDATE`
+/// runs `persist update Vendor ?data`). Distinct from the `[shared]`
+/// co-mutator exemption above (which requires a shared entity instance) —
+/// this one is payload-provenance, not instance-sharing, so it applies to
+/// ordinary (non-shared) persistent entities too.
+fn restate_persistor_payload_var(
+    sibling_traits: &[&TraitDefinition],
+    source_trait: &str,
+    event: &str,
+    entity_name: &str,
+) -> Option<String> {
+    for sibling in sibling_traits {
+        if sibling.name == source_trait {
+            continue;
+        }
+        let Some(listens) = &sibling.listens else {
+            continue;
+        };
+        for listen in listens {
+            let source_matches = match &listen.source {
+                Some(ListenSource::Trait { trait_name, .. }) => trait_name == source_trait,
+                Some(ListenSource::Orbital { trait_name, .. }) => trait_name == source_trait,
+                _ => false,
+            };
+            if !source_matches || listen.event != event {
+                continue;
+            }
+            let trigger_event = listen.triggers.as_deref().unwrap_or(&listen.event);
+            for transition in &sibling.state_machine.transitions {
+                if transition.event != trigger_event {
+                    continue;
+                }
+                let Some(effects) = &transition.effects else {
+                    continue;
+                };
+                if let Some(var) = effects
+                    .iter()
+                    .find_map(|e| persist_whole_payload_var(e, entity_name))
+                {
+                    return Some(var);
+                }
+            }
+        }
+    }
+    None
+}
+
+/// True when `effects` sets `@entity.<field>` from `@payload.<var>` or
+/// `@payload.<var>.<anything>` — the exact shape `restate_persistor_payload_var`
+/// proves lands in a sibling's persist call.
+fn set_field_from_payload_var(effects: &[SExpression], field: &str, var: &str) -> bool {
+    fn walk(expr: &SExpression, target: &str, prefix: &str) -> bool {
+        match expr {
+            SExpression::Array(items) => {
+                if items.len() >= 3 {
+                    if let (SExpression::String(op), SExpression::String(dest)) =
+                        (&items[0], &items[1])
+                    {
+                        if op == "set" && dest == target {
+                            return matches!(&items[2], SExpression::String(val) if val == prefix || val.starts_with(&format!("{prefix}.")));
+                        }
+                    }
+                }
+                items.iter().any(|i| walk(i, target, prefix))
+            }
+            SExpression::Object(obj) => obj.values().any(|v| walk(v, target, prefix)),
+            _ => false,
+        }
+    }
+    let target = format!("@entity.{field}");
+    let prefix = format!("@payload.{var}");
+    effects.iter().any(|e| walk(e, &target, &prefix))
+}
+
+/// True when `effects` contains a `fetch`/`ref`/`fetch-stream` effect whose
+/// `filter` config key reads `@entity.<field>` — the "scope this read to my
+/// own row" idiom (`filter: ["=", (object/get @entity studentId), @user.id]`,
+/// 20 files in the corpus). A field set purely to build a read's own scoping
+/// filter is consumed as a query parameter in the SAME transition it's set
+/// in — a real, intentional use, just never one that reaches a persisted
+/// row, and the field is routinely genuine access-control data (still read
+/// in `@read`/`@create`/… directives elsewhere) rather than trait-local
+/// scratch, so `@intrinsic` is the wrong label for it (verified: tripped
+/// `ORB_GUARD_ON_FRAME_FIELD_AUTHORIZES` when tried on `std-lms`'s
+/// `Progress.studentId`).
+fn field_scopes_a_read_filter(effects: &[SExpression], field: &str) -> bool {
+    fn expr_reads_field(expr: &SExpression, target_dotted: &str, field: &str) -> bool {
+        match expr {
+            SExpression::String(s) => s == target_dotted,
+            SExpression::Array(items) => {
+                if items.len() == 3 {
+                    if let (
+                        SExpression::String(op),
+                        SExpression::String(obj),
+                        SExpression::String(key),
+                    ) = (&items[0], &items[1], &items[2])
+                    {
+                        if op == "object/get" && obj == "@entity" && key == field {
+                            return true;
+                        }
+                    }
+                }
+                items
+                    .iter()
+                    .any(|i| expr_reads_field(i, target_dotted, field))
+            }
+            SExpression::Object(obj) => obj
+                .values()
+                .any(|v| expr_reads_field(v, target_dotted, field)),
+            _ => false,
+        }
+    }
+    fn find_filtered_read(expr: &SExpression, target_dotted: &str, field: &str) -> bool {
+        match expr {
+            SExpression::Array(items) => {
+                let is_read_call = matches!(
+                    items.first(),
+                    Some(SExpression::String(op)) if op == "fetch" || op == "ref" || op == "fetch-stream"
+                );
+                if is_read_call {
+                    if let Some(SExpression::Object(cfg)) = items.get(2) {
+                        if let Some(filter_expr) = cfg.get("filter") {
+                            if expr_reads_field(filter_expr, target_dotted, field) {
+                                return true;
+                            }
+                        }
+                    }
+                }
+                items
+                    .iter()
+                    .any(|i| find_filtered_read(i, target_dotted, field))
+            }
+            SExpression::Object(obj) => obj
+                .values()
+                .any(|v| find_filtered_read(v, target_dotted, field)),
+            _ => false,
+        }
+    }
+    let target_dotted = format!("@entity.{field}");
+    effects
+        .iter()
+        .any(|e| find_filtered_read(e, &target_dotted, field))
+}
+
+/// True when `trait_def` runs `persist create`/`persist update` against
+/// `entity_name` anywhere (any transition's effects, or a tick) — the
+/// "the write lands eventually" exemption: a draft form that sets columns
+/// across several transitions before a final `persist create` is legitimate.
+fn trait_lands_a_write(trait_def: &TraitDefinition, entity_name: &str) -> bool {
+    for transition in &trait_def.state_machine.transitions {
+        if let Some(effects) = &transition.effects {
+            if effects
+                .iter()
+                .any(|e| expr_persists_entity_create_or_update(e, entity_name))
+            {
+                return true;
+            }
+        }
+    }
+    if let Some(ticks) = &trait_def.ticks {
+        for tick in ticks {
+            if tick
+                .effects
+                .iter()
+                .any(|e| expr_persists_entity_create_or_update(e, entity_name))
+            {
+                return true;
+            }
+        }
+    }
+    false
+}
+
+/// Run `ORB_SET_COLUMN_WITHOUT_ROW` for every orbital in the schema.
+///
+/// Per-orbital (not the flat `inline_traits` iterator) because a `[shared]`
+/// entity's "does the write land" question is answered at the CO-MUTATOR
+/// GROUP's scope, not one trait's — several traits share one instance, and
+/// the trait that actually calls `persist create`/`update` is routinely a
+/// dedicated persistor sibling (`ChatMessagePersistor` in std-realtime-chat:
+/// `ChatMessageAttachment` sets `@entity.attachment` on the shared frame,
+/// `ChatComposer.SAVE` forwards it, `ChatMessagePersistor` is the one that
+/// creates the row). A non-shared entity gets an ISOLATED per-trait copy, so
+/// a sibling's persist call can never see this trait's write — there the
+/// same-trait requirement stays exact.
+pub fn validate_all_set_column_without_row(schema: &OrbitalSchema, ctx: &mut ValidationContext) {
+    for (orbital_index, orbital) in schema.orbitals.iter().enumerate() {
+        let inline_traits: Vec<&TraitDefinition> = orbital
+            .traits
+            .iter()
+            .filter_map(|t| match t {
+                TraitReference::Inline(def) => Some(def),
+                TraitReference::Reference { .. } => None,
+            })
+            .collect();
+        let mut orbital_persisted_entities: HashSet<&str> = HashSet::new();
+        for trait_def in &inline_traits {
+            if let Some(linked) = &trait_def.linked_entity {
+                if trait_lands_a_write(trait_def, linked) {
+                    orbital_persisted_entities.insert(linked.as_str());
+                }
+            }
+        }
+        for (i, trait_ref) in orbital.traits.iter().enumerate() {
+            let TraitReference::Inline(trait_def) = trait_ref else {
+                continue;
+            };
+            let path = super::trait_path(orbital_index, &orbital.name, i, trait_ref);
+            let result = validate_trait_set_column_without_row(
+                trait_def,
+                &path,
+                &ctx.entity_definitions,
+                &orbital_persisted_entities,
+                &inline_traits,
+            );
+            ctx.merge(result);
+        }
+    }
+}
+
+/// The entity name `event`'s payload was stamped with as a WHOLE-ROW mirror —
+/// `PayloadField.entity`, set by lowering for `data : Note` / `data : [Note]`
+/// (the array form stamps the element entity), which flattens the field's
+/// `field_type` to `"object"`/`"[object]"` rather than leaving the entity
+/// name in it. `per_event_payload`'s flat `field_type` string alone can't see
+/// this — it's the reason `event_has_row_payload` below needs both checks:
+/// the unresolved `@entity` sentinel / concrete-name string AND this stamp.
+fn event_payload_row_entity<'a>(trait_def: &'a TraitDefinition, event: &str) -> Option<&'a str> {
+    if let Some(emits) = &trait_def.emits {
+        for emit in emits {
+            if emit.event == event {
+                if let Some(schema) = &emit.payload_schema {
+                    if let Some(e) = schema.iter().find_map(|f| f.entity.as_deref()) {
+                        return Some(e);
+                    }
+                }
+            }
+        }
+    }
+    if let Some(events) = &trait_def.state_machine.events {
+        for ev in events {
+            if ev.key == event {
+                if let Some(schema) = &ev.payload_schema {
+                    if let Some(e) = schema.iter().find_map(|f| f.entity.as_deref()) {
+                        return Some(e);
+                    }
+                }
+            }
+        }
+    }
+    None
+}
+
+/// Per-trait `ORB_SET_COLUMN_WITHOUT_ROW` check, factored out so it can run
+/// against a hand-built `TraitDefinition` fixture without a full
+/// `OrbitalSchema`. `orbital_persisted_entities` names every entity that
+/// gets a `persist create`/`update` from ANY inline trait in the same
+/// orbital — the co-mutator-group exemption for `[shared]` entities.
+/// `sibling_traits` is every inline trait in the same orbital (this trait
+/// included), consulted for the restate-persistor exemption
+/// (`restate_persistor_payload_var`) — a non-shared entity's own
+/// co-mutator-group idiom, keyed by payload provenance instead of instance
+/// sharing.
+fn validate_trait_set_column_without_row(
+    trait_def: &TraitDefinition,
+    path: &str,
+    entity_definitions: &HashMap<String, EntityDefinition>,
+    orbital_persisted_entities: &HashSet<&str>,
+    sibling_traits: &[&TraitDefinition],
+) -> ValidationResult {
+    let mut result = ValidationResult::new();
+    let Some(linked) = &trait_def.linked_entity else {
+        return result;
+    };
+    let Some(entity_def) = entity_definitions.get(linked) else {
+        return result;
+    };
+    // Only a `[persistent]` entity has a "row" to land in at all.
+    if !matches!(entity_def.persistence, None | Some(Persistence::Persistent)) {
+        return result;
+    }
+    // The write lands eventually — a draft form spanning several transitions
+    // before a final `persist create`/`update` is legitimate. For a
+    // `[shared]` entity, "eventually" includes a sibling trait's persist
+    // call against the same shared instance.
+    let lands_a_write = trait_lands_a_write(trait_def, linked)
+        || (entity_def.shared && orbital_persisted_entities.contains(linked.as_str()));
+    if lands_a_write {
+        return result;
+    }
+
+    // Trait-wide "entityId in scope" — the same signal
+    // `validate_entity_fields_have_setters` (binding.rs) uses to decide a row
+    // is bound: `(set @entity.id ...)` anywhere in the trait.
+    let mut referenced_all: HashMap<String, String> = HashMap::new();
+    let mut set_all: HashSet<String> = HashSet::new();
+    for transition in &trait_def.state_machine.transitions {
+        if let Some(guard) = &transition.guard {
+            guard.collect_entity_field_refs(&mut referenced_all, &mut set_all, &transition.event);
+        }
+        if let Some(effects) = &transition.effects {
+            for effect in effects {
+                effect.collect_entity_field_refs(&mut referenced_all, &mut set_all, &transition.event);
+            }
+        }
+    }
+    if let Some(ticks) = &trait_def.ticks {
+        for tick in ticks {
+            for effect in &tick.effects {
+                effect.collect_entity_field_refs(&mut referenced_all, &mut set_all, "TICK");
+            }
+        }
+    }
+    if set_all.contains("id") {
+        // `@entity.id` is bound somewhere in this trait — a row is in scope.
+        return result;
+    }
+
+    let per_event_payload = super::effect::collect_per_event_payload_field_types(trait_def);
+
+    for (i, transition) in trait_def.state_machine.transitions.iter().enumerate() {
+        // A payload field declared `@entity` carries the WHOLE fetched row
+        // (the fetch-success-callback shape: `XxxLoaded { data : @entity! }`)
+        // — that transition unambiguously knows which row it's mirroring
+        // fields FROM, even though the field name isn't literally "id"/
+        // "row". Without this, every read-only "fetch by id, then (set
+        // @entity.field ?data.field) to feed render-ui" detail-view trait —
+        // the most common shape in the corpus — false-positives as a
+        // scratch write that never lands.
+        // A directly-authored organism (as opposed to a generic library atom)
+        // already knows its concrete entity name at author time, so its
+        // fetch-success payload reads e.g. `data : Graph` / `data : [Graph]`
+        // instead of the unresolved `@entity` / `[@entity]` sentinel — the
+        // exact same "whole row" shape, just already resolved. Recognizing
+        // only the sentinel form false-positived every directly-authored
+        // fetch-then-mirror trait in the corpus (std-kflow's `GraphView`,
+        // `LessonView`, `StoryView`, … all declare `data : <EntityName>`).
+        let whole_row_array = format!("[{linked}]");
+        let event_has_row_payload = per_event_payload
+            .get(&transition.event)
+            .map(|fields| {
+                fields.contains_key("id")
+                    || fields.contains_key("row")
+                    || fields
+                        .values()
+                        .any(|ty| ty == "@entity" || ty == linked || ty == &whole_row_array)
+            })
+            .unwrap_or(false)
+            || event_payload_row_entity(trait_def, &transition.event) == Some(linked.as_str());
+        if event_has_row_payload {
+            continue;
+        }
+        let Some(effects) = &transition.effects else {
+            continue;
+        };
+        let mut local_referenced: HashMap<String, String> = HashMap::new();
+        let mut local_set: HashSet<String> = HashSet::new();
+        for effect in effects {
+            effect.collect_entity_field_refs(&mut local_referenced, &mut local_set, &transition.event);
+        }
+        let mut fields: Vec<&String> = local_set.iter().filter(|f| f.as_str() != "id").collect();
+        fields.sort();
+        let restate_var = restate_persistor_payload_var(
+            sibling_traits,
+            &trait_def.name,
+            &transition.event,
+            linked,
+        );
+        for field in fields {
+            let is_intrinsic = entity_def
+                .fields
+                .iter()
+                .any(|f| f.name.as_deref() == Some(field.as_str()) && f.intrinsic == Some(true));
+            if is_intrinsic {
+                continue;
+            }
+            if let Some(var) = &restate_var {
+                if set_field_from_payload_var(effects, field, var) {
+                    continue;
+                }
+            }
+            if field_scopes_a_read_filter(effects, field) {
+                continue;
+            }
+            result.add_error(
+                ValidationError::error(
+                    ErrorCode::SetColumnWithoutRow,
+                    format!("{}.stateMachine.transitions[{}]", path, i),
+                    format!(
+                        "trait {:?} sets '@entity.{}' on event {:?} with no row in scope (no id/row-bearing event payload, no @entity.id bound anywhere in the trait), and never runs persist create/update on {:?} anywhere — this write can never land",
+                        trait_def.name, field, transition.event, linked
+                    ),
+                )
+                .with_suggestion(format!(
+                    "Run (persist create {} ...) or (persist update {} ...) somewhere in this trait, bind a row (set @entity.id ...) before this transition, or declare '{}' @intrinsic if it is trait-local scratch state",
+                    linked, linked, field
+                )),
+            );
+        }
+    }
+
+    result
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use orbital_core::schema::{
-        EntityRef, FieldDefinition, FieldType, PageDefinition, StateDefinition, StateMachine,
-        StringOrArray, TickDefinition, TransitionDefinition,
+        EmitDefinition, EntityRef, FieldDefinition, FieldType, ListenDefinition, PageDefinition,
+        PayloadField, StateDefinition, StateMachine, StringOrArray, TickDefinition,
+        TransitionDefinition,
     };
 
     fn s(v: &str) -> SExpression {
@@ -735,6 +1610,7 @@ mod tests {
         effects: Vec<SExpression>,
     ) -> TraitDefinition {
         TraitDefinition {
+            local: false,
             effect_row: None,
             type_params: None,
             type_args: None,
@@ -776,6 +1652,33 @@ mod tests {
             entity_ref_ids: None,
             trait_embed_ids: None,
         }
+    }
+
+    /// Like `trait_with_init_effects` but `local: true` and with a caller-supplied
+    /// guard on the INIT transition — the fixture Rule 8's tests build on.
+    fn local_trait_with_guard(
+        name: &str,
+        linked_entity: &str,
+        guard: Option<SExpression>,
+        effects: Vec<SExpression>,
+    ) -> TraitDefinition {
+        let mut t = trait_with_init_effects(name, linked_entity, effects);
+        t.local = true;
+        t.state_machine.transitions[0].guard = guard;
+        t
+    }
+
+    /// Like `local_trait_with_guard` but `local: false` — the fixture Rule 2b
+    /// and Rule 4's `[runtime]`-entity cases build on.
+    fn trait_with_guard(
+        name: &str,
+        linked_entity: &str,
+        guard: Option<SExpression>,
+        effects: Vec<SExpression>,
+    ) -> TraitDefinition {
+        let mut t = trait_with_init_effects(name, linked_entity, effects);
+        t.state_machine.transitions[0].guard = guard;
+        t
     }
 
     fn trait_with_tick(
@@ -1252,6 +2155,40 @@ mod tests {
         );
     }
 
+    fn render_ui_reading_slot(field: &str, slot: &str) -> SExpression {
+        arr(vec![
+            s("render-ui"),
+            s(slot),
+            SExpression::Object({
+                let mut m = std::collections::HashMap::new();
+                m.insert("val".to_string(), s(&format!("@entity.{}", field)));
+                m
+            }),
+        ])
+    }
+
+    #[test]
+    fn shared_entity_render_authority_per_slot_different_slots_pass() {
+        // Two traits bound to one [shared] entity, each owning a DIFFERENT
+        // render slot — Rule 6 refinement: no contention when the slots
+        // differ, even though both read the same shared entity.
+        let t1 = trait_with_init_effects("Reader1", "Pool", vec![render_ui_reading_slot("hp", "main")]);
+        let t2 =
+            trait_with_init_effects("Reader2", "Pool", vec![render_ui_reading_slot("hp", "sidebar")]);
+        let traits = vec![&t1, &t2];
+        let mut defs = HashMap::new();
+        defs.insert("Pool".to_string(), entity("Pool", true, None));
+        let result =
+            validate_orbital_entity_mutations(&traits, "orbitals[0]", &defs, &HashMap::new());
+        assert!(
+            !result
+                .all_issues()
+                .any(|e| e.code == ErrorCode::SharedEntityRenderAuthority),
+            "Different render slots on a shared entity must not contend: {:?}",
+            result.errors
+        );
+    }
+
     /// A render-ui effect that reads `@entity.<field>` AND references the
     /// given sibling traits via `@trait.<name>` children — the shape a host
     /// authority trait has after inline JSX wrappers are hoisted.
@@ -1481,6 +2418,749 @@ mod tests {
                 .all_issues()
                 .any(|e| e.code == ErrorCode::TickAsyncEffect),
             "Cron tick must be exempt from TickAsyncEffect: {:?}",
+            result.warnings
+        );
+    }
+
+    // ---- C: local trait dispatch contract ----------------------------------
+
+    #[test]
+    fn local_trait_touches_server_via_persist_errors() {
+        let persist_effect = arr(vec![
+            s("persist"),
+            s("create"),
+            s("Message"),
+            SExpression::Object(std::collections::HashMap::new()),
+        ]);
+        let t = local_trait_with_guard("ChatComposer", "Message", None, vec![persist_effect]);
+        let mut defs = HashMap::new();
+        defs.insert("Message".to_string(), entity("Message", true, Some(Persistence::Persistent)));
+        let result = validate_trait_local_dispatch(&t, "test", &defs);
+        assert!(
+            result
+                .errors
+                .iter()
+                .any(|e| e.code == ErrorCode::TraitLocalTouchesServer),
+            "Expected TraitLocalTouchesServer error: {:?}",
+            result.errors
+        );
+    }
+
+    #[test]
+    fn local_trait_guard_on_user_errors() {
+        let guard = arr(vec![s("=="), s("@user.id"), s("@entity.ownerId")]);
+        let t = local_trait_with_guard("Composer", "Message", Some(guard), vec![]);
+        let mut defs = HashMap::new();
+        defs.insert("Message".to_string(), entity("Message", true, Some(Persistence::Persistent)));
+        let result = validate_trait_local_dispatch(&t, "test", &defs);
+        assert!(
+            result
+                .errors
+                .iter()
+                .any(|e| e.code == ErrorCode::TraitLocalTouchesServer),
+            "Expected TraitLocalTouchesServer error for @user guard: {:?}",
+            result.errors
+        );
+    }
+
+    #[test]
+    fn local_trait_with_no_server_effects_and_no_user_guard_passes() {
+        let plain_guard = arr(vec![s("!="), s("@entity.activeChannel"), s("")]);
+        let t = local_trait_with_guard(
+            "ChatComposer",
+            "Message",
+            Some(plain_guard),
+            vec![set_effect("draft")],
+        );
+        let mut defs = HashMap::new();
+        defs.insert("Message".to_string(), entity("Message", true, Some(Persistence::Persistent)));
+        let result = validate_trait_local_dispatch(&t, "test", &defs);
+        assert!(
+            !result
+                .all_issues()
+                .any(|e| e.code == ErrorCode::TraitLocalTouchesServer),
+            "A plain precondition guard + client-only effect must pass: {:?}",
+            result.errors
+        );
+    }
+
+    #[test]
+    fn local_trait_on_non_shared_persistent_entity_errors() {
+        let t = local_trait_with_guard("Composer", "Message", None, vec![set_effect("draft")]);
+        let mut defs = HashMap::new();
+        defs.insert(
+            "Message".to_string(),
+            entity("Message", false, Some(Persistence::Persistent)),
+        );
+        let result = validate_trait_local_dispatch(&t, "test", &defs);
+        assert!(
+            result
+                .errors
+                .iter()
+                .any(|e| e.code == ErrorCode::TraitLocalOnNonSharedPersistent),
+            "Expected TraitLocalOnNonSharedPersistent error: {:?}",
+            result.errors
+        );
+    }
+
+    #[test]
+    fn local_trait_on_shared_entity_passes_the_shape_check() {
+        let t = local_trait_with_guard("Composer", "Message", None, vec![set_effect("draft")]);
+        let mut defs = HashMap::new();
+        defs.insert("Message".to_string(), entity("Message", true, Some(Persistence::Persistent)));
+        let result = validate_trait_local_dispatch(&t, "test", &defs);
+        assert!(
+            !result
+                .all_issues()
+                .any(|e| e.code == ErrorCode::TraitLocalOnNonSharedPersistent),
+            "[shared] entity must satisfy the local-trait shape check: {:?}",
+            result.errors
+        );
+    }
+
+    #[test]
+    fn local_trait_on_runtime_entity_passes_the_shape_check() {
+        let t = local_trait_with_guard("Composer", "Widget", None, vec![set_effect("draft")]);
+        let mut defs = HashMap::new();
+        defs.insert(
+            "Widget".to_string(),
+            entity("Widget", false, Some(Persistence::Runtime)),
+        );
+        let result = validate_trait_local_dispatch(&t, "test", &defs);
+        assert!(
+            !result
+                .all_issues()
+                .any(|e| e.code == ErrorCode::TraitLocalOnNonSharedPersistent),
+            "[runtime] entity must satisfy the local-trait shape check: {:?}",
+            result.errors
+        );
+    }
+
+    #[test]
+    fn non_local_trait_is_exempt_from_both_checks() {
+        let persist_effect = arr(vec![
+            s("persist"),
+            s("create"),
+            s("Message"),
+            SExpression::Object(std::collections::HashMap::new()),
+        ]);
+        let t = trait_with_init_effects("Composer", "Message", vec![persist_effect]);
+        let mut defs = HashMap::new();
+        defs.insert(
+            "Message".to_string(),
+            entity("Message", false, Some(Persistence::Persistent)),
+        );
+        let result = validate_trait_local_dispatch(&t, "test", &defs);
+        assert!(
+            result.errors.is_empty(),
+            "A non-local trait must be exempt from both Rule 8 checks: {:?}",
+            result.errors
+        );
+    }
+
+    // ---- D: set-column-without-row backstop --------------------------------
+
+    fn entity_with_intrinsic_field(name: &str, intrinsic_field: &str) -> EntityDefinition {
+        let mut e = entity(name, false, Some(Persistence::Persistent));
+        e.fields.push(FieldDefinition {
+            name: Some(intrinsic_field.to_string()),
+            field_type: FieldType::Boolean,
+            required: None,
+            primary_key: None,
+            unique: None,
+            relation: None,
+            items: None,
+            values: None,
+            default: None,
+            properties: None,
+            intrinsic: Some(true),
+            description: None,
+            synonyms: None,
+        });
+        e
+    }
+
+    fn persist_create_effect(entity_name: &str) -> SExpression {
+        arr(vec![
+            s("persist"),
+            s("create"),
+            s(entity_name),
+            SExpression::Object(std::collections::HashMap::new()),
+        ])
+    }
+
+    #[test]
+    fn set_column_without_row_and_no_persist_errors() {
+        let t = trait_with_init_effects("DraftScratch", "Note", vec![set_effect("title")]);
+        let mut defs = HashMap::new();
+        defs.insert("Note".to_string(), entity("Note", false, Some(Persistence::Persistent)));
+        let result = validate_trait_set_column_without_row(&t, "test", &defs, &HashSet::new(), &[]);
+        assert!(
+            result
+                .errors
+                .iter()
+                .any(|e| e.code == ErrorCode::SetColumnWithoutRow),
+            "Expected SetColumnWithoutRow error: {:?}",
+            result.errors
+        );
+    }
+
+    #[test]
+    fn set_column_from_fetch_success_typed_by_concrete_entity_name_passes() {
+        // std-kflow's `GraphView` shape: a directly-authored organism, not a
+        // generic library atom, so its fetch-success payload is typed by the
+        // CONCRETE entity name (`data : Note`) rather than the unresolved
+        // `@entity` sentinel a rebindable atom still carries. Same "whole
+        // row" meaning, already resolved.
+        let mut t = trait_with_init_effects(
+            "NoteView",
+            "Note",
+            vec![arr(vec![
+                s("set"),
+                s("@entity.title"),
+                s("@payload.data.title"),
+            ])],
+        );
+        t.state_machine.transitions[0].event = "NoteLoaded".to_string();
+        t.emits = Some(vec![EmitDefinition {
+            event: "NoteLoaded".to_string(),
+            event_id: None,
+            description: None,
+            synonyms: None,
+            tier: None,
+            scope: None,
+            payload_schema: Some(vec![PayloadField {
+                name: "data".to_string(),
+                field_type: "Note".to_string(),
+                required: None,
+                description: None,
+                properties: None,
+                type_when: None,
+                entity: None,
+            }]),
+            definer_knob: None,
+            scope_overridden: None,
+            payload_entity: None,
+        }]);
+        let mut defs = HashMap::new();
+        defs.insert("Note".to_string(), entity("Note", false, Some(Persistence::Persistent)));
+        let result = validate_trait_set_column_without_row(&t, "test", &defs, &HashSet::new(), &[]);
+        assert!(
+            result.errors.is_empty(),
+            "A field mirrored from a fetch-success payload typed by the trait's own concrete entity name must not trip SetColumnWithoutRow: {:?}",
+            result.errors
+        );
+    }
+
+    #[test]
+    fn set_column_from_fetch_success_stamped_object_entity_passes() {
+        // The shape lowering ACTUALLY produces for `data : Note` — std-kflow's
+        // real `GraphLoaded { data: Graph }`: the field flattens to
+        // `field_type: "object"` with the entity identity moved to the
+        // separate `PayloadField.entity` stamp, not left in `field_type`.
+        // `event_payload_row_entity` (not the flat `per_event_payload` map)
+        // is what has to see this.
+        let mut t = trait_with_init_effects(
+            "NoteView",
+            "Note",
+            vec![arr(vec![
+                s("set"),
+                s("@entity.title"),
+                s("@payload.data.title"),
+            ])],
+        );
+        t.state_machine.transitions[0].event = "NoteLoaded".to_string();
+        t.emits = Some(vec![EmitDefinition {
+            event: "NoteLoaded".to_string(),
+            event_id: None,
+            description: None,
+            synonyms: None,
+            tier: None,
+            scope: None,
+            payload_schema: Some(vec![PayloadField {
+                name: "data".to_string(),
+                field_type: "object".to_string(),
+                required: None,
+                description: None,
+                properties: Some(vec![PayloadField {
+                    name: "title".to_string(),
+                    field_type: "string".to_string(),
+                    required: None,
+                    description: None,
+                    properties: None,
+                    type_when: None,
+                    entity: None,
+                }]),
+                type_when: None,
+                entity: Some("Note".to_string()),
+            }]),
+            definer_knob: None,
+            scope_overridden: None,
+            payload_entity: None,
+        }]);
+        let mut defs = HashMap::new();
+        defs.insert("Note".to_string(), entity("Note", false, Some(Persistence::Persistent)));
+        let result = validate_trait_set_column_without_row(&t, "test", &defs, &HashSet::new(), &[]);
+        assert!(
+            result.errors.is_empty(),
+            "A field mirrored from a fetch-success payload stamped with the trait's own entity must not trip SetColumnWithoutRow: {:?}",
+            result.errors
+        );
+    }
+
+    #[test]
+    fn set_column_with_eventual_persist_create_passes() {
+        let t = trait_with_init_effects(
+            "DraftForm",
+            "Note",
+            vec![set_effect("title"), persist_create_effect("Note")],
+        );
+        let mut defs = HashMap::new();
+        defs.insert("Note".to_string(), entity("Note", false, Some(Persistence::Persistent)));
+        let result = validate_trait_set_column_without_row(&t, "test", &defs, &HashSet::new(), &[]);
+        assert!(
+            result.errors.is_empty(),
+            "A draft form that eventually persists must not trip SetColumnWithoutRow: {:?}",
+            result.errors
+        );
+    }
+
+    #[test]
+    fn set_column_on_shared_entity_persisted_by_a_sibling_trait_passes() {
+        // ChatMessageAttachment's shape: sets a column on a [shared] entity
+        // with NO persist call of its own; a sibling trait (the persistor)
+        // is the one that creates the row against the same shared instance.
+        let t = trait_with_init_effects("Attacher", "Message", vec![set_effect("attachment")]);
+        let mut defs = HashMap::new();
+        defs.insert("Message".to_string(), entity("Message", true, Some(Persistence::Persistent)));
+        let orbital_persisted: HashSet<&str> = ["Message"].into_iter().collect();
+        let result =
+            validate_trait_set_column_without_row(&t, "test", &defs, &orbital_persisted, &[]);
+        assert!(
+            result.errors.is_empty(),
+            "A shared entity persisted by ANY trait in the orbital must exempt every co-mutator: {:?}",
+            result.errors
+        );
+    }
+
+    #[test]
+    fn set_column_on_non_shared_entity_ignores_sibling_persist() {
+        // The isolation contract: a NON-shared entity gets a per-trait copy,
+        // so a sibling's persist call can never see this trait's write — the
+        // orbital-wide exemption must not apply here.
+        let t = trait_with_init_effects("Attacher", "Note", vec![set_effect("title")]);
+        let mut defs = HashMap::new();
+        defs.insert("Note".to_string(), entity("Note", false, Some(Persistence::Persistent)));
+        let orbital_persisted: HashSet<&str> = ["Note"].into_iter().collect();
+        let result =
+            validate_trait_set_column_without_row(&t, "test", &defs, &orbital_persisted, &[]);
+        assert!(
+            result
+                .errors
+                .iter()
+                .any(|e| e.code == ErrorCode::SetColumnWithoutRow),
+            "A non-shared entity must not be exempted by a sibling's persist call: {:?}",
+            result.errors
+        );
+    }
+
+    /// `(set @entity.<field> @payload.<var>.<field>)` — the exact shape
+    /// `restate_persistor_payload_var`/`set_field_from_payload_var` recognize.
+    fn set_from_payload_effect(field: &str, var: &str, sub_field: &str) -> SExpression {
+        arr(vec![
+            s("set"),
+            s(&format!("@entity.{field}")),
+            s(&format!("@payload.{var}.{sub_field}")),
+        ])
+    }
+
+    fn persist_whole_payload_effect(entity_name: &str, var: &str) -> SExpression {
+        arr(vec![
+            s("persist"),
+            s("update"),
+            s(entity_name),
+            s(&format!("@payload.{var}")),
+            SExpression::Object(std::collections::HashMap::new()),
+        ])
+    }
+
+    fn restate_listen(source_trait: &str, event: &str, triggers: &str) -> ListenDefinition {
+        ListenDefinition {
+            event: event.to_string(),
+            event_id: None,
+            triggers: Some(triggers.to_string()),
+            triggers_id: None,
+            scope: None,
+            description: None,
+            synonyms: None,
+            tier: None,
+            payload_mapping: None,
+            guard: None,
+            source: Some(ListenSource::Trait {
+                trait_name: source_trait.to_string(),
+                trait_id: None,
+            }),
+        }
+    }
+
+    #[test]
+    fn set_column_landed_by_restate_persistor_sibling_passes() {
+        // std-vendor-onboarding's shape: VendorOnboard.NEXT_STEP sets
+        // @entity.businessName from @payload.data.businessName with NO
+        // persist of its own; the restate route `VendorOnboard.NEXT_STEP ->
+        // DO_UPDATE` forwards the SAME event's payload to VendorPersistor,
+        // whose DO_UPDATE arm runs `persist update Vendor @payload.data`.
+        // Note is deliberately NON-shared — this exemption is payload
+        // provenance, not instance sharing.
+        let mut source = trait_with_init_effects(
+            "VendorOnboard",
+            "Note",
+            vec![set_from_payload_effect("title", "data", "title")],
+        );
+        source.state_machine.transitions[0].event = "NEXT_STEP".to_string();
+
+        let mut persistor = trait_with_init_effects(
+            "VendorPersistor",
+            "Note",
+            vec![persist_whole_payload_effect("Note", "data")],
+        );
+        persistor.state_machine.transitions[0].event = "DO_UPDATE".to_string();
+        persistor.listens = Some(vec![restate_listen("VendorOnboard", "NEXT_STEP", "DO_UPDATE")]);
+
+        let mut defs = HashMap::new();
+        defs.insert("Note".to_string(), entity("Note", false, Some(Persistence::Persistent)));
+        let siblings: Vec<&TraitDefinition> = vec![&source, &persistor];
+        let result =
+            validate_trait_set_column_without_row(&source, "test", &defs, &HashSet::new(), &siblings);
+        assert!(
+            result.errors.is_empty(),
+            "A write drawn from the exact payload a restate-routed sibling persists must land: {:?}",
+            result.errors
+        );
+    }
+
+    #[test]
+    fn set_column_not_from_the_persisted_payload_var_still_errors() {
+        // Same restate wiring, but this field's value comes from a
+        // DIFFERENT payload key (`@payload.submittedAt`, not
+        // `@payload.data.*`) — the sibling's `persist update Note
+        // @payload.data` never carries it, so it must still error (this is
+        // std-vendor-onboarding's real `submittedAt` gap, not a false
+        // positive).
+        let mut source = trait_with_init_effects(
+            "VendorOnboard",
+            "Note",
+            vec![arr(vec![
+                s("set"),
+                s("@entity.submittedAt"),
+                s("@payload.submittedAt"),
+            ])],
+        );
+        source.state_machine.transitions[0].event = "SUBMIT".to_string();
+
+        let mut persistor = trait_with_init_effects(
+            "VendorPersistor",
+            "Note",
+            vec![persist_whole_payload_effect("Note", "data")],
+        );
+        persistor.state_machine.transitions[0].event = "DO_SUBMIT".to_string();
+        persistor.listens = Some(vec![restate_listen("VendorOnboard", "SUBMIT", "DO_SUBMIT")]);
+
+        let mut defs = HashMap::new();
+        defs.insert("Note".to_string(), entity("Note", false, Some(Persistence::Persistent)));
+        let siblings: Vec<&TraitDefinition> = vec![&source, &persistor];
+        let result =
+            validate_trait_set_column_without_row(&source, "test", &defs, &HashSet::new(), &siblings);
+        assert!(
+            result
+                .errors
+                .iter()
+                .any(|e| e.code == ErrorCode::SetColumnWithoutRow),
+            "A field drawn from a payload key the sibling's persist never touches must still error: {:?}",
+            result.errors
+        );
+    }
+
+    #[test]
+    fn set_column_scoping_a_fetch_filter_passes() {
+        // std-lms's `MyProgressDisplay` shape: `(set @entity.studentId
+        // @user.id)` then `(fetch Progress { filter: ["=", (object/get
+        // @entity studentId), @user.id] })` — the field exists purely to
+        // scope this trait's OWN read to the caller's row, never to land in
+        // a persisted write.
+        let filter_expr = arr(vec![
+            s("="),
+            arr(vec![s("object/get"), s("@entity"), s("studentId")]),
+            s("@user.id"),
+        ]);
+        let fetch_effect = arr(vec![
+            s("fetch"),
+            s("Progress"),
+            SExpression::Object(HashMap::from([("filter".to_string(), filter_expr)])),
+        ]);
+        let t = trait_with_init_effects(
+            "MyProgressDisplay",
+            "Progress",
+            vec![
+                arr(vec![s("set"), s("@entity.studentId"), s("@user.id")]),
+                fetch_effect,
+            ],
+        );
+        let mut defs = HashMap::new();
+        defs.insert(
+            "Progress".to_string(),
+            entity("Progress", false, Some(Persistence::Persistent)),
+        );
+        let result = validate_trait_set_column_without_row(&t, "test", &defs, &HashSet::new(), &[]);
+        assert!(
+            result.errors.is_empty(),
+            "A field set only to scope this transition's own fetch filter must not trip SetColumnWithoutRow: {:?}",
+            result.errors
+        );
+    }
+
+    #[test]
+    fn set_column_read_elsewhere_but_not_in_a_fetch_filter_still_errors() {
+        // Same field reference shape, but the read is a plain guard, not a
+        // fetch's `filter:` key — must NOT be exempted by the read-filter
+        // check (only an actual scoped read counts).
+        let t = trait_with_init_effects(
+            "Reader",
+            "Progress",
+            vec![
+                arr(vec![s("set"), s("@entity.studentId"), s("@user.id")]),
+                arr(vec![
+                    s("notify"),
+                    s("info"),
+                    arr(vec![s("object/get"), s("@entity"), s("studentId")]),
+                ]),
+            ],
+        );
+        let mut defs = HashMap::new();
+        defs.insert(
+            "Progress".to_string(),
+            entity("Progress", false, Some(Persistence::Persistent)),
+        );
+        let result = validate_trait_set_column_without_row(&t, "test", &defs, &HashSet::new(), &[]);
+        assert!(
+            result
+                .errors
+                .iter()
+                .any(|e| e.code == ErrorCode::SetColumnWithoutRow),
+            "A field merely read outside a fetch filter must still error: {:?}",
+            result.errors
+        );
+    }
+
+    #[test]
+    fn set_column_with_entity_id_bound_passes() {
+        let t = trait_with_init_effects(
+            "EditForm",
+            "Note",
+            vec![set_effect("id"), set_effect("title")],
+        );
+        let mut defs = HashMap::new();
+        defs.insert("Note".to_string(), entity("Note", false, Some(Persistence::Persistent)));
+        let result = validate_trait_set_column_without_row(&t, "test", &defs, &HashSet::new(), &[]);
+        assert!(
+            result.errors.is_empty(),
+            "A trait binding @entity.id has a row in scope and must not trip the rule: {:?}",
+            result.errors
+        );
+    }
+
+    #[test]
+    fn set_column_on_intrinsic_field_passes() {
+        let t = trait_with_init_effects("Widget", "Note", vec![set_effect("isEditing")]);
+        let mut defs = HashMap::new();
+        defs.insert("Note".to_string(), entity_with_intrinsic_field("Note", "isEditing"));
+        let result = validate_trait_set_column_without_row(&t, "test", &defs, &HashSet::new(), &[]);
+        assert!(
+            result.errors.is_empty(),
+            "An @intrinsic field must never trip SetColumnWithoutRow: {:?}",
+            result.errors
+        );
+    }
+
+    #[test]
+    fn set_column_on_runtime_entity_is_exempt() {
+        let t = trait_with_init_effects("Widget", "Cursor", vec![set_effect("x")]);
+        let mut defs = HashMap::new();
+        defs.insert("Cursor".to_string(), entity("Cursor", false, Some(Persistence::Runtime)));
+        let result = validate_trait_set_column_without_row(&t, "test", &defs, &HashSet::new(), &[]);
+        assert!(
+            result.errors.is_empty(),
+            "A [runtime] entity has no row to land in and must be exempt: {:?}",
+            result.errors
+        );
+    }
+
+    // ---- Rule 2b: guard-authorization on an @intrinsic field ---------------
+
+    #[test]
+    fn guard_on_intrinsic_field_alongside_user_gating_persist_errors() {
+        let guard = arr(vec![
+            s("and"),
+            arr(vec![s("=="), s("@entity.isEditing"), SExpression::Bool(true)]),
+            arr(vec![s("=="), s("@user.id"), s("@entity.ownerId")]),
+        ]);
+        let persist_effect = arr(vec![
+            s("persist"),
+            s("update"),
+            s("Note"),
+            s("@entity"),
+        ]);
+        let t = trait_with_guard("NoteEditor", "Note", Some(guard), vec![persist_effect]);
+        let mut defs = HashMap::new();
+        defs.insert("Note".to_string(), entity_with_intrinsic_field("Note", "isEditing"));
+        let result = validate_trait_guard_frame_field_authorization(&t, "test", &defs);
+        assert!(
+            result
+                .errors
+                .iter()
+                .any(|e| e.code == ErrorCode::GuardOnFrameFieldAuthorizes),
+            "Expected GuardOnFrameFieldAuthorizes error: {:?}",
+            result.errors
+        );
+    }
+
+    #[test]
+    fn guard_on_intrinsic_field_without_user_is_not_authorization() {
+        // A plain precondition guard with no identity comparison — like
+        // ChatComposer.SEND's `activeChannel != ""` — is not a hit.
+        let guard = arr(vec![s("=="), s("@entity.isEditing"), SExpression::Bool(true)]);
+        let persist_effect = arr(vec![s("persist"), s("update"), s("Note"), s("@entity")]);
+        let t = trait_with_guard("NoteEditor", "Note", Some(guard), vec![persist_effect]);
+        let mut defs = HashMap::new();
+        defs.insert("Note".to_string(), entity_with_intrinsic_field("Note", "isEditing"));
+        let result = validate_trait_guard_frame_field_authorization(&t, "test", &defs);
+        assert!(
+            result.errors.is_empty(),
+            "A plain precondition guard must not be flagged as authorization: {:?}",
+            result.errors
+        );
+    }
+
+    #[test]
+    fn guard_on_intrinsic_field_with_user_but_no_mutation_is_not_a_hit() {
+        let guard = arr(vec![
+            s("and"),
+            arr(vec![s("=="), s("@entity.isEditing"), SExpression::Bool(true)]),
+            arr(vec![s("=="), s("@user.id"), s("@entity.ownerId")]),
+        ]);
+        let t = trait_with_guard("NoteViewer", "Note", Some(guard), vec![set_effect("title")]);
+        let mut defs = HashMap::new();
+        defs.insert("Note".to_string(), entity_with_intrinsic_field("Note", "isEditing"));
+        let result = validate_trait_guard_frame_field_authorization(&t, "test", &defs);
+        assert!(
+            result.errors.is_empty(),
+            "No persist/call-service in the transition means no authorization is at stake: {:?}",
+            result.errors
+        );
+    }
+
+    // ---- Rule 4: ORB_AUTH_GUARD_CLIENT_ONLY ---------------------------------
+
+    #[test]
+    fn user_guard_on_local_trait_without_server_effect_does_not_warn() {
+        let guard = arr(vec![s("=="), s("@user.id"), s("@entity.ownerId")]);
+        let t = local_trait_with_guard("Composer", "Message", Some(guard), vec![set_effect("draft")]);
+        let mut defs = HashMap::new();
+        defs.insert("Message".to_string(), entity("Message", true, Some(Persistence::Persistent)));
+        let result = validate_trait_auth_guard_client_only(&t, "t", &defs);
+        assert!(
+            result.warnings.iter().all(|e| e.code != ErrorCode::AuthGuardClientOnly),
+            "A local trait with no server-touching effect has nothing to protect: {:?}",
+            result.warnings
+        );
+    }
+
+    #[test]
+    fn user_guard_on_runtime_entity_trait_without_server_effect_does_not_warn() {
+        let guard = arr(vec![s("=="), s("@user.id"), s("@entity.ownerId")]);
+        let t = trait_with_guard("Cursor", "Cursor", Some(guard), vec![set_effect("x")]);
+        let mut defs = HashMap::new();
+        defs.insert("Cursor".to_string(), entity("Cursor", false, Some(Persistence::Runtime)));
+        let result = validate_trait_auth_guard_client_only(&t, "t", &defs);
+        assert!(
+            result.warnings.iter().all(|e| e.code != ErrorCode::AuthGuardClientOnly),
+            "A [runtime]-bound trait with no server-touching effect has nothing to protect: {:?}",
+            result.warnings
+        );
+    }
+
+    #[test]
+    fn user_guard_on_local_trait_with_server_effect_warns_optimistic_advance() {
+        // A local trait CAN carry a server-bound effect (Rule 8's own
+        // `local_trait_touches_server_via_persist_errors` fixture proves
+        // that shape is possible, just separately flagged) — when it does,
+        // Rule 4's message must describe the OPTIMISTIC-advance shape, not
+        // claim the guard is inert, since the effect really is server-gated.
+        let guard = arr(vec![s("=="), s("@user.id"), s("@entity.ownerId")]);
+        let persist_effect = arr(vec![
+            s("persist"),
+            s("update"),
+            s("Message"),
+            SExpression::Object(std::collections::HashMap::new()),
+        ]);
+        let t = local_trait_with_guard("Composer", "Message", Some(guard), vec![persist_effect]);
+        let mut defs = HashMap::new();
+        defs.insert("Message".to_string(), entity("Message", true, Some(Persistence::Persistent)));
+        let result = validate_trait_auth_guard_client_only(&t, "test", &defs);
+        let hit = result
+            .warnings
+            .iter()
+            .find(|e| e.code == ErrorCode::AuthGuardClientOnly);
+        assert!(hit.is_some(), "Expected AuthGuardClientOnly warning: {:?}", result.warnings);
+        assert!(
+            hit.unwrap().message.contains("advances optimistically")
+                && hit.unwrap().message.contains("effects stay server-gated"),
+            "A transition with a real server-touching effect must get the optimistic-advance message: {:?}",
+            hit
+        );
+    }
+
+    #[test]
+    fn user_guard_on_runtime_entity_trait_with_nested_server_effect_warns_optimistic_advance() {
+        // The server-bound effect is nested inside `do`/`if`, matching
+        // `contains_server_bound_effect`'s own recursive-wrapper contract —
+        // must still pick the optimistic-advance message, not the inert one.
+        let guard = arr(vec![s("=="), s("@user.id"), s("@entity.ownerId")]);
+        let nested_fetch = arr(vec![
+            s("do"),
+            arr(vec![
+                s("fetch"),
+                s("Cursor"),
+                SExpression::Object(std::collections::HashMap::new()),
+            ]),
+        ]);
+        let t = trait_with_guard("Cursor", "Cursor", Some(guard), vec![nested_fetch]);
+        let mut defs = HashMap::new();
+        defs.insert("Cursor".to_string(), entity("Cursor", false, Some(Persistence::Runtime)));
+        let result = validate_trait_auth_guard_client_only(&t, "test", &defs);
+        let hit = result
+            .warnings
+            .iter()
+            .find(|e| e.code == ErrorCode::AuthGuardClientOnly);
+        assert!(hit.is_some(), "Expected AuthGuardClientOnly warning: {:?}", result.warnings);
+        assert!(
+            hit.unwrap().message.contains("advances optimistically")
+                && hit.unwrap().message.contains("effects stay server-gated"),
+            "A nested server-touching effect must still get the optimistic-advance message: {:?}",
+            hit
+        );
+    }
+
+    #[test]
+    fn user_guard_on_server_gated_trait_does_not_warn() {
+        let guard = arr(vec![s("=="), s("@user.id"), s("@entity.ownerId")]);
+        let t = trait_with_guard("Composer", "Message", Some(guard), vec![set_effect("draft")]);
+        let mut defs = HashMap::new();
+        defs.insert("Message".to_string(), entity("Message", true, Some(Persistence::Persistent)));
+        let result = validate_trait_auth_guard_client_only(&t, "test", &defs);
+        assert!(
+            result.warnings.is_empty(),
+            "A server-gated (non-local, non-runtime) trait must not warn: {:?}",
             result.warnings
         );
     }

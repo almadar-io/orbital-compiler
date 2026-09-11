@@ -1131,6 +1131,7 @@ fn inline_orbital(
             &alias_schema_configs,
             consumer_entity_ids,
             listen_source_targets,
+            schema_config,
             orbital_ref_diagnostics,
             orbital_index,
         )?;
@@ -2472,6 +2473,7 @@ mod tests {
     fn make_trait(name: &str) -> TraitDefinition {
         use orbital_core::schema::StateMachine;
         TraitDefinition {
+            local: false,
             effect_row: None,
             type_params: None,
             type_args: None,
@@ -3902,6 +3904,7 @@ mod tests {
             EventDefinition, StateDefinition, StateMachine, StringOrArray, TransitionDefinition,
         };
         let mut trait_def = TraitDefinition {
+            local: false,
             effect_row: None,
             type_params: None,
             type_args: None,
@@ -4010,6 +4013,7 @@ mod tests {
             EventDefinition, StateDefinition, StateMachine, StringOrArray, TransitionDefinition,
         };
         let mut trait_def = TraitDefinition {
+            local: false,
             effect_row: None,
             type_params: None,
             type_args: None,
@@ -4275,6 +4279,7 @@ mod tests {
         use orbital_core::schema::{StateMachine, StringOrArray, TransitionDefinition};
 
         let mut trait_def = TraitDefinition {
+            local: false,
             effect_row: None,
             type_params: None,
             type_args: None,

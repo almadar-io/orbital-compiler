@@ -6,6 +6,7 @@
 //! - Scoped packages (@name/...)
 
 use orbital_core::schema::OrbitalSchema;
+use std::cell::RefCell;
 use std::collections::hash_map::Entry;
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
@@ -273,11 +274,13 @@ impl Default for LoaderCache {
 // Behavior-package registry resolution
 // ============================================================================
 
-/// Recursively search `root` for a behavior named `name` (file `<name>.orb`).
-/// Returns the first match (registry trees are flat by name; collisions across
-/// topics/layers are not expected). Pure function — no mutation, no caching.
-pub fn resolve_behavior_in_registry(name: &str, root: &Path) -> Option<PathBuf> {
-    let target = format!("{}.orb", name);
+/// Walk `root` once and index every `<name>.orb` under it by behavior name
+/// (registry trees are flat by name; on a collision the first entry seen
+/// wins). The entry's own `file_type` decides recursion, so the walk costs
+/// one `opendir` per directory and no `stat` per file; only a symlink pays a
+/// `stat` to learn what it points at. Pure function — no mutation, no caching.
+pub fn index_registry(root: &Path) -> HashMap<String, PathBuf> {
+    let mut index = HashMap::new();
     let mut stack = vec![root.to_path_buf()];
     while let Some(dir) = stack.pop() {
         let Ok(entries) = std::fs::read_dir(&dir) else {
@@ -285,18 +288,29 @@ pub fn resolve_behavior_in_registry(name: &str, root: &Path) -> Option<PathBuf> 
         };
         for entry in entries.flatten() {
             let path = entry.path();
-            if path.is_dir() {
+            let is_dir = match entry.file_type() {
+                Ok(ft) if ft.is_symlink() => path.is_dir(),
+                Ok(ft) => ft.is_dir(),
+                Err(_) => continue,
+            };
+            if is_dir {
                 stack.push(path);
-            } else if path
-                .file_name()
-                .map(|f| f == target.as_str())
-                .unwrap_or(false)
-            {
-                return Some(path);
+            } else if path.extension().map(|e| e == "orb").unwrap_or(false) {
+                if let Some(stem) = path.file_stem().and_then(|s| s.to_str()) {
+                    index.entry(stem.to_string()).or_insert(path);
+                }
             }
         }
     }
-    None
+    index
+}
+
+/// Recursively search `root` for a behavior named `name` (file `<name>.orb`).
+/// One full walk per call — `ExternalOrbitalLoader` keeps a per-root index
+/// instead, so it walks each root once per compile rather than once per
+/// import hop.
+pub fn resolve_behavior_in_registry(name: &str, root: &Path) -> Option<PathBuf> {
+    index_registry(root).remove(name)
 }
 
 /// Resolve a bare `<package>/<behavior-name>` import against configured
@@ -404,6 +418,11 @@ pub struct ExternalOrbitalLoader {
     /// `LoaderCache` is keyed by filesystem-canonicalized paths, which is
     /// meaningless for in-memory embedded content.
     embedded_cache: HashMap<String, LoadedSchema>,
+    /// Behavior name → `.orb` path per registry root, built by one walk of the
+    /// root on its first lookup. Registry trees hold ~1.2k files; walking them
+    /// on every `uses` hop made a project-friday resolve spend >80% of its
+    /// wall time in `stat`/`getdirentries` (Compiler_Gaps §106).
+    registry_index: RefCell<HashMap<PathBuf, HashMap<String, PathBuf>>>,
 }
 
 impl ExternalOrbitalLoader {
@@ -412,7 +431,26 @@ impl ExternalOrbitalLoader {
             config,
             cache: LoaderCache::new(),
             embedded_cache: HashMap::new(),
+            registry_index: RefCell::new(HashMap::new()),
         }
+    }
+
+    /// `<name>.orb` under `root`, through the per-root index.
+    fn registry_lookup(&self, name: &str, root: &Path) -> Option<PathBuf> {
+        let mut indexes = self.registry_index.borrow_mut();
+        let index = match indexes.entry(root.to_path_buf()) {
+            Entry::Occupied(e) => e.into_mut(),
+            Entry::Vacant(e) => e.insert(index_registry(root)),
+        };
+        index.get(name).cloned()
+    }
+
+    /// A bare `<package>/<behavior-name>` import resolved against the
+    /// configured `behaviors_registry_roots` through the per-root index.
+    fn registry_lookup_scoped(&self, import_path: &str) -> Option<PathBuf> {
+        let (pkg, name) = import_path.split_once('/')?;
+        let root = self.config.behaviors_registry_roots.get(pkg)?;
+        self.registry_lookup(name, root)
     }
 
     /// Load a schema from an import path
@@ -449,7 +487,7 @@ impl ExternalOrbitalLoader {
                 .config
                 .behaviors_registry_roots
                 .values()
-                .find_map(|root| resolve_behavior_in_registry(behavior_name, root));
+                .find_map(|root| self.registry_lookup(behavior_name, root));
             if let Some(absolute_path) = dev_hit {
                 if let Some(error) = chain.push(&absolute_path) {
                     return Err(LoaderError::CircularImport(error));
@@ -557,9 +595,7 @@ impl ExternalOrbitalLoader {
             && !import_path.starts_with('@')
             && !import_path.starts_with("std/")
         {
-            if let Some(found) =
-                resolve_behavior_in_registries(import_path, &self.config.behaviors_registry_roots)
-            {
+            if let Some(found) = self.registry_lookup_scoped(import_path) {
                 return Ok(found);
             }
         }
@@ -587,12 +623,13 @@ impl ExternalOrbitalLoader {
                         .unwrap_or(b)
                 };
                 let canonical = format!("std/behaviors/{basename}");
-                let known_canonically =
-                    canonical != import_path
-                        && (crate::embedded::get_std_behavior_content(&canonical).is_some()
-                            || self.config.behaviors_registry_roots.values().any(|root| {
-                                resolve_behavior_in_registry(basename, root).is_some()
-                            }));
+                let known_canonically = canonical != import_path
+                    && (crate::embedded::get_std_behavior_content(&canonical).is_some()
+                        || self
+                            .config
+                            .behaviors_registry_roots
+                            .values()
+                            .any(|root| self.registry_lookup(basename, root).is_some()));
                 if known_canonically {
                     return Err(LoaderError::StdImportNotCanonical {
                         given: import_path.to_string(),
@@ -733,6 +770,7 @@ impl ExternalOrbitalLoader {
     pub fn clear_cache(&mut self) {
         self.cache.clear();
         self.embedded_cache.clear();
+        self.registry_index.borrow_mut().clear();
     }
 
     /// Get cache size
@@ -970,6 +1008,64 @@ mod tests {
             result.unwrap_err(),
             LoaderError::InvalidPrimitiveImport(_)
         ));
+    }
+
+    fn tempdir_registry() -> tempfile::TempDir {
+        let dir = tempfile::tempdir().unwrap();
+        let nested = dir.path().join("app/organisms");
+        std::fs::create_dir_all(&nested).unwrap();
+        std::fs::create_dir_all(dir.path().join("ui/core/atoms")).unwrap();
+        std::fs::write(nested.join("std-realtime-chat.orb"), "{}").unwrap();
+        std::fs::write(dir.path().join("ui/core/atoms/std-modal.orb"), "{}").unwrap();
+        std::fs::write(dir.path().join("ui/core/atoms/notes.md"), "").unwrap();
+        dir
+    }
+
+    #[test]
+    fn index_registry_maps_every_nested_orb_by_stem() {
+        let dir = tempdir_registry();
+        let index = index_registry(dir.path());
+        assert_eq!(index.len(), 2);
+        assert!(index["std-realtime-chat"].ends_with("app/organisms/std-realtime-chat.orb"));
+        assert!(index["std-modal"].ends_with("ui/core/atoms/std-modal.orb"));
+        assert_eq!(
+            resolve_behavior_in_registry("std-modal", dir.path()),
+            Some(index["std-modal"].clone())
+        );
+        assert_eq!(resolve_behavior_in_registry("notes", dir.path()), None);
+    }
+
+    #[test]
+    fn loader_walks_each_registry_root_once_per_lookup_series() {
+        let dir = tempdir_registry();
+        let mut roots = HashMap::new();
+        roots.insert("almadar-behaviors".to_string(), dir.path().to_path_buf());
+        let config = LoaderConfig {
+            base_path: fixtures_dir(),
+            dev_workspace: true,
+            behaviors_registry_roots: roots,
+            ..Default::default()
+        };
+        let loader = ExternalOrbitalLoader::new(config);
+
+        let first = loader
+            .resolve_path("almadar-behaviors/std-modal", None)
+            .unwrap();
+        assert!(first.ends_with("ui/core/atoms/std-modal.orb"));
+        // A file written after the index was built is invisible to this
+        // loader — one walk per root per compile, same freshness as a
+        // process that read the directory once.
+        std::fs::write(dir.path().join("ui/core/atoms/std-late.orb"), "{}").unwrap();
+        assert_eq!(
+            loader.registry_lookup_scoped("almadar-behaviors/std-late"),
+            None
+        );
+        assert_eq!(loader.registry_index.borrow().len(), 1);
+        let second = loader
+            .resolve_path("almadar-behaviors/std-realtime-chat", None)
+            .unwrap();
+        assert!(second.ends_with("app/organisms/std-realtime-chat.orb"));
+        assert_eq!(loader.registry_index.borrow()[dir.path()].len(), 2);
     }
 
     #[test]

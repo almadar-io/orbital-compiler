@@ -1048,6 +1048,7 @@ mod tests {
 
     fn create_valid_trait() -> TraitDefinition {
         TraitDefinition {
+            local: false,
             effect_row: None,
             type_params: None,
             type_args: None,

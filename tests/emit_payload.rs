@@ -103,6 +103,7 @@ fn schema_with_emit(emit: SExpression, declared: EmitDefinition) -> OrbitalSchem
         entity_contract: None,
         category: None,
         capabilities: vec![],
+        local: false,
         linked_entity: Some("Task".to_string()),
         description: None,
         state_machine: StateMachine {

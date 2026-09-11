@@ -519,7 +519,28 @@ fn check_entity_field(
     owner: &EntityDefinition,
     result: &mut ValidationResult,
 ) {
-    if field_on(owner, field).is_some() {
+    if let Some(f) = field_on(owner, field) {
+        // Rule 2a (ORB_GUARD_ON_FRAME_FIELD_AUTHORIZES): an `@intrinsic`
+        // field used as an access-policy input. Intrinsic fields are
+        // trait-computed view-state the runtime never seeds or persists —
+        // gating a mutation on one means the caller controls the "gate"
+        // value directly.
+        if f.intrinsic == Some(true) {
+            result.add_error(
+                ValidationError::error(
+                    ErrorCode::GuardOnFrameFieldAuthorizes,
+                    path,
+                    format!(
+                        "`{}` reads `{}`, an @intrinsic field of entity `{}` — intrinsic fields are trait-owned view-state, never seeded or persisted by the runtime, so using one as an access-policy input is a bypassable gate.",
+                        path, binding_repr, owner.name
+                    ),
+                )
+                .with_suggestion(format!(
+                    "Base this access directive on a real persisted field of `{}`, not the @intrinsic field `{}`.",
+                    owner.name, field
+                )),
+            );
+        }
         return;
     }
     let mut declared: Vec<&str> = owner
@@ -545,4 +566,71 @@ fn check_entity_field(
             declared.join(", ")
         )),
     );
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::json;
+
+    fn note_entity() -> EntityDefinition {
+        serde_json::from_value(json!({
+            "name": "Note",
+            "collection": "notes",
+            "persistence": "persistent",
+            "fields": [
+                { "name": "id", "type": "string" },
+                { "name": "ownerId", "type": "string" },
+                { "name": "isEditing", "type": "boolean", "intrinsic": true }
+            ],
+        }))
+        .expect("valid entity definition")
+    }
+
+    #[test]
+    fn intrinsic_field_in_access_policy_errors() {
+        let entity = note_entity();
+        let mut result = ValidationResult::new();
+        check_entity_field("isEditing", "@entity.isEditing", "Note.@update", &entity, &mut result);
+        assert!(
+            result
+                .errors
+                .iter()
+                .any(|e| e.code == ErrorCode::GuardOnFrameFieldAuthorizes),
+            "Expected GuardOnFrameFieldAuthorizes error: {:?}",
+            result.errors
+        );
+    }
+
+    #[test]
+    fn persisted_field_in_access_policy_passes() {
+        let entity = note_entity();
+        let mut result = ValidationResult::new();
+        check_entity_field("ownerId", "@entity.ownerId", "Note.@update", &entity, &mut result);
+        assert!(
+            !result
+                .all_issues()
+                .any(|e| e.code == ErrorCode::GuardOnFrameFieldAuthorizes),
+            "A real persisted field must not trip the intrinsic-authorization rule: {:?}",
+            result.errors
+        );
+    }
+
+    #[test]
+    fn unknown_field_in_access_policy_is_unaffected_by_the_intrinsic_rule() {
+        let entity = note_entity();
+        let mut result = ValidationResult::new();
+        check_entity_field("bogus", "@entity.bogus", "Note.@update", &entity, &mut result);
+        assert!(
+            !result
+                .all_issues()
+                .any(|e| e.code == ErrorCode::GuardOnFrameFieldAuthorizes),
+            "An unknown field trips SchemaAccessPolicyUnknownEntityField, not the intrinsic rule: {:?}",
+            result.errors
+        );
+        assert!(result
+            .errors
+            .iter()
+            .any(|e| e.code == ErrorCode::SchemaAccessPolicyUnknownEntityField));
+    }
 }

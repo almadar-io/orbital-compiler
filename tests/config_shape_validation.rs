@@ -135,6 +135,7 @@ fn schema_with_config(config: HashMap<String, ConfigField>) -> OrbitalSchema {
         entity_contract: None,
         category: None,
         capabilities: vec![],
+        local: false,
         linked_entity: Some("Dashboard".to_string()),
         description: None,
         state_machine: StateMachine {
