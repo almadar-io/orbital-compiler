@@ -27,36 +27,71 @@ use super::config_type::declared_config_keys;
 use super::error::{ErrorCode, ValidationError};
 use super::ValidationResult;
 
-/// True when `field.default` or `field.forwarded_from` is the exact
-/// forwarding literal `"@config.<knob>"`.
-fn forwards_knob(field: &ConfigField, knob: &str) -> bool {
-    let target_matches = |s: &str| s.strip_prefix("@config.") == Some(knob);
-    matches!(&field.default, Some(SExpression::String(s)) if target_matches(s))
-        || field.forwarded_from.as_deref().is_some_and(target_matches)
+/// Knob name a `@config.<knob>` token names — `None` for anything else,
+/// including a dotted `@config.<knob>.<path>` (a sibling's own forward, not
+/// a declaration of `<knob>`).
+fn forwarded_knob(token: &str) -> Option<&str> {
+    token
+        .strip_prefix("@config.")
+        .filter(|knob| !knob.is_empty() && !knob.contains('.'))
 }
 
-/// True when SOME trait anywhere in the schema forwards `knob`.
-fn is_forwarded_anywhere(schema: &OrbitalSchema, knob: &str) -> bool {
-    schema.orbitals.iter().any(|orbital| {
-        orbital.traits.iter().any(|tr| {
+fn field_forward_tokens(field: &ConfigField) -> impl Iterator<Item = &str> {
+    let default = match field.default.as_ref() {
+        Some(SExpression::String(s)) => Some(s.as_str()),
+        _ => None,
+    };
+    default.into_iter().chain(field.forwarded_from.as_deref())
+}
+
+/// Every knob some trait publishes: the knobs traits forward directly, closed
+/// over orbital-level knobs whose `forwarded_from` chains further out — an
+/// imported orbital's knob that the consumer folded from its own app knob
+/// (`forward_consumer_app_knobs`, `inline/orbital.rs`) publishes that app
+/// knob through whichever trait forwards the orbital knob.
+fn published_knobs(schema: &OrbitalSchema) -> HashSet<String> {
+    let mut published: HashSet<String> = HashSet::new();
+    for orbital in &schema.orbitals {
+        for tr in &orbital.traits {
             let TraitReference::Inline(td) = tr else {
-                return false;
+                continue;
             };
-            td.config
-                .as_ref()
-                .is_some_and(|cfg| cfg.values().any(|field| forwards_knob(field, knob)))
-        })
-    })
+            for field in td.config.iter().flat_map(|c| c.values()) {
+                for knob in field_forward_tokens(field).filter_map(forwarded_knob) {
+                    published.insert(knob.to_string());
+                }
+            }
+        }
+    }
+    loop {
+        let mut grew = false;
+        for orbital in &schema.orbitals {
+            for (name, field) in orbital.config.iter().flat_map(|c| c.iter()) {
+                if !published.contains(name) {
+                    continue;
+                }
+                if let Some(root) = field.forwarded_from.as_deref().and_then(forwarded_knob) {
+                    if !published.contains(root) {
+                        published.insert(root.to_string());
+                        grew = true;
+                    }
+                }
+            }
+        }
+        if !grew {
+            return published;
+        }
+    }
 }
 
 fn check_knob(
-    schema: &OrbitalSchema,
+    published: &HashSet<String>,
     knob: &str,
     path: String,
     scope_desc: &str,
     result: &mut ValidationResult,
 ) {
-    if !is_forwarded_anywhere(schema, knob) {
+    if !published.contains(knob) {
         result.add_error(
             ValidationError::error(
                 ErrorCode::OrbitalConfigDeadKnob,
@@ -80,6 +115,7 @@ fn check_knob(
 /// knobs per orbital.
 pub fn validate_orbital_config_forwarding(schema: &OrbitalSchema) -> ValidationResult {
     let mut result = ValidationResult::new();
+    let published = published_knobs(schema);
 
     let app_keys: HashSet<&str> = schema
         .config
@@ -89,7 +125,7 @@ pub fn validate_orbital_config_forwarding(schema: &OrbitalSchema) -> ValidationR
         .collect();
     for knob in &app_keys {
         check_knob(
-            schema,
+            &published,
             knob,
             format!("config({knob})"),
             "app-level",
@@ -103,7 +139,7 @@ pub fn validate_orbital_config_forwarding(schema: &OrbitalSchema) -> ValidationR
             .filter(|k| !app_keys.contains(k))
         {
             check_knob(
-                schema,
+                &published,
                 knob,
                 format!("orbitals[{} ({})].config({})", i, orbital.name, knob),
                 "orbital",

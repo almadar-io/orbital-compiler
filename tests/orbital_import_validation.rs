@@ -730,6 +730,45 @@ fn app_level_forwarded_knob_does_not_fire_dead_knob() {
 }
 
 #[test]
+fn app_knob_forwarded_through_an_imported_orbital_knob_does_not_fire_dead_knob() {
+    // §107: the consumer folded its app knob into the imported orbital's knob
+    // (`forwarded_from` on the ORBITAL field) and a trait forwards THAT knob —
+    // the app knob is published through the chain, never dead.
+    let schema = schema_with(
+        Some(json!({ "googleCalendarId": { "type": "string", "default": "" } })),
+        Some(
+            json!({ "calendarId": { "type": "string", "default": "", "forwardedFrom": "@config.googleCalendarId" } }),
+        ),
+        Some(
+            json!({ "calendarId": { "type": "string", "default": "", "forwardedFrom": "@config.calendarId" } }),
+        ),
+    );
+    assert!(
+        !codes(&schema).contains(&DEAD_KNOB.to_string()),
+        "'googleCalendarId' reaches WidgetView through the orbital knob 'calendarId' — must not fire {DEAD_KNOB}"
+    );
+}
+
+#[test]
+fn app_knob_chained_to_an_orbital_knob_no_trait_forwards_fires_dead_knob_twice() {
+    let schema = schema_with(
+        Some(json!({ "googleCalendarId": { "type": "string", "default": "" } })),
+        Some(
+            json!({ "calendarId": { "type": "string", "default": "", "forwardedFrom": "@config.googleCalendarId" } }),
+        ),
+        None,
+    );
+    assert_eq!(
+        codes(&schema)
+            .iter()
+            .filter(|c| c.as_str() == DEAD_KNOB)
+            .count(),
+        2,
+        "a chain nobody forwards leaves BOTH knobs dead"
+    );
+}
+
+#[test]
 fn orbital_level_unforwarded_knob_fires_dead_knob() {
     let schema = schema_with(
         None,
