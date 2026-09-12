@@ -2,7 +2,7 @@
 //!
 //! Source: packages/almadar-core/src/patterns/patterns-registry.json
 //!
-//! Last synced: 2026-09-10
+//! Last synced: 2026-09-12
 //! To regenerate: npx tsx tools/almadar-pattern-sync/index.ts
 //!
 //! DO NOT EDIT MANUALLY - changes will be overwritten on next sync.
@@ -2030,6 +2030,7 @@ pub static PATTERN_PROPS_SCHEMA: LazyLock<HashMap<&'static str, HashSet<&'static
                     "asset",
                     "bones",
                     "clip",
+                    "clipName",
                     "frame",
                     "ghost",
                     "id",
@@ -6159,6 +6160,7 @@ pub static PATTERN_PROP_TYPES: LazyLock<HashMap<&'static str, HashMap<&'static s
                     ("bones", &["array"] as &[&str]),
                     ("pose", &["object"] as &[&str]),
                     ("clip", &["object"] as &[&str]),
+                    ("clipName", &["string"] as &[&str]),
                     ("frame", &["number"] as &[&str]),
                     ("opacity", &["number"] as &[&str]),
                     ("weightsOverlay", &["boolean"] as &[&str]),

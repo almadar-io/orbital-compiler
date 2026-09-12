@@ -3241,6 +3241,7 @@ mod tests {
     /// real registry shape that the cart molecule consumes.
     fn make_modal_entity_def() -> EntityDefinition {
         let make_field = |n: &str, t: FieldType| FieldDefinition {
+            merged_from: None,
             name: Some(n.to_string()),
             field_type: t,
             required: None,
@@ -3320,6 +3321,7 @@ mod tests {
     /// `fields` array.
     fn make_extra_field(name: &str, ft: FieldType) -> FieldDefinition {
         FieldDefinition {
+            merged_from: None,
             name: Some(name.to_string()),
             field_type: ft,
             required: None,
@@ -4713,6 +4715,7 @@ mod tests {
     /// Helper to build a FieldDefinition with just a name and type.
     fn make_field(name: &str, ft: orbital_core::schema::FieldType) -> FieldDefinition {
         FieldDefinition {
+            merged_from: None,
             name: Some(name.to_string()),
             field_type: ft,
             required: None,
@@ -5082,6 +5085,77 @@ mod tests {
             rel.entity_id.as_deref(),
             Some("ent_IMPORTED_THREADPOST"),
             "the imported source entity's id must not survive the retarget"
+        );
+    }
+
+    #[test]
+    fn merge_entity_fields_stamps_merged_from_on_added_fields_only() {
+        // Host `ChatMessage { content! }` rebinds std-browse's `BrowseItem
+        // { name! }` onto it (explicit rebind: intrinsic_only = false, the
+        // long-standing full-field-set merge). The merged `name` field must
+        // carry `merged_from == Some("BrowseItem")` — its `required: true`
+        // is BrowseItem's own write contract, never ChatMessage's — while
+        // `content`, authored by the host itself, must carry `merged_from
+        // == None` even though it was already present before the merge ran.
+        use orbital_core::schema::FieldType;
+
+        let mut content_field = make_field("content", FieldType::String);
+        content_field.required = Some(true);
+        let mut caller = EntityDefinition {
+            shared: false,
+            identity: false,
+            read_policy: None,
+            create_policy: None,
+            update_policy: None,
+            delete_policy: None,
+            access_waivers: None,
+            name: "ChatMessage".to_string(),
+            collection: None,
+            persistence: None,
+            fields: vec![content_field],
+            instances: None,
+            id: None,
+        };
+
+        let mut name_field = make_field("name", FieldType::String);
+        name_field.required = Some(true);
+        let imported = EntityDefinition {
+            shared: false,
+            identity: false,
+            read_policy: None,
+            create_policy: None,
+            update_policy: None,
+            delete_policy: None,
+            access_waivers: None,
+            name: "BrowseItem".to_string(),
+            collection: None,
+            persistence: None,
+            fields: vec![name_field],
+            instances: None,
+            id: None,
+        };
+
+        merge_imported_entity_fields(&mut caller, &imported, false, &HashSet::new());
+
+        let content = caller
+            .fields
+            .iter()
+            .find(|f| f.name.as_deref() == Some("content"))
+            .expect("host-authored content field must survive the merge");
+        assert_eq!(
+            content.merged_from, None,
+            "a host-declared field must never carry merged_from"
+        );
+
+        let name = caller
+            .fields
+            .iter()
+            .find(|f| f.name.as_deref() == Some("name"))
+            .expect("imported name field must be merged onto the host");
+        assert_eq!(
+            name.merged_from,
+            Some("BrowseItem".to_string()),
+            "a field ADDED by the rebind merge must carry the imported entity's name"
         );
     }
 

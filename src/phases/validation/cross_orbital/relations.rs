@@ -221,6 +221,7 @@ mod tests {
         // Point Task.patient at Patient — should resolve cleanly.
         if let EntityRef::Inline(task) = &mut schema.orbitals[0].entity {
             task.fields.push(FieldDefinition {
+                merged_from: None,
                 name: Some("patient".to_string()),
                 field_type: FieldType::Relation,
                 required: None,
@@ -261,6 +262,7 @@ mod tests {
         let mut schema = create_minimal_schema();
         if let EntityRef::Inline(task) = &mut schema.orbitals[0].entity {
             task.fields.push(FieldDefinition {
+                merged_from: None,
                 name: Some("patient".to_string()),
                 field_type: FieldType::Relation,
                 required: None,
@@ -306,6 +308,7 @@ mod tests {
         let mut schema = create_minimal_schema();
         if let EntityRef::Inline(task) = &mut schema.orbitals[0].entity {
             task.fields.push(FieldDefinition {
+                merged_from: None,
                 name: Some("patientList".to_string()),
                 field_type: FieldType::Array,
                 required: None,
@@ -315,6 +318,7 @@ mod tests {
                 values: None,
                 relation: None,
                 items: Some(Box::new(FieldDefinition {
+                    merged_from: None,
                     name: None,
                     field_type: FieldType::Relation,
                     required: None,

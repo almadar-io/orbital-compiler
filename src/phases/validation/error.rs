@@ -515,6 +515,18 @@ pub enum ErrorCode {
     /// Composing trait's override map touches an event declared `scope: 'internal'`.
     /// Error severity. See COMP-7 in docs/Almadar_Agent_Behaviors_Plan.md.
     InternalEventExposed,
+    /// A `fetch`'s `filter` compares a LITERAL `(object/get @entity <field>)`
+    /// against a value, but no `persist create`/`update` anywhere in the
+    /// schema (own trait, sibling trait, or a `persistent:`-collection-mate
+    /// entity) ever supplies that field — the filter can never match a real
+    /// row. Cross-orbital because the persistor routinely lives in a sibling
+    /// orbital (the modal + persistor idiom). `[identity]`-roster entities
+    /// and `@intrinsic` fields are exempt; a declared default only exempts
+    /// the field when it folds, under the trait's resolved config, to the
+    /// SAME literal the filter's comparand folds to — an undecidable
+    /// (payload/entity/user-bound) comparand stays silent rather than
+    /// guessing. Ported from `filter-field-never-written`. Error severity.
+    FilterFieldNeverWritten,
     /// A `type: 'relation'` field's `relation.entity` does not resolve to any
     /// entity declared in the same schema. Error severity; the entity-scope
     /// validator also emits `ORB_E_INVALID_RELATION` for the same condition.
@@ -525,6 +537,13 @@ pub enum ErrorCode {
     /// linked entity. Error severity. See Phase 3.2/3.3 in
     /// docs/Almadar_Agent_Behaviors_Plan.md.
     UnresolvedPatternFieldRef,
+    /// A `listens { Src.EVENT -> TRIGGER }` route's TRIGGER declares a
+    /// required leaf payload field the route never produces: no `with { }`
+    /// mapping supplies it, and (pass-through, no mapping) the source
+    /// trait's declared `emits { EVENT { ... } }` contract never declares it
+    /// at the same dotted path either. The consumer's transition reads
+    /// `?payload.<field>` as `undefined` at runtime.
+    ListenRouteStarvesRequiredField,
 
     // =========================================================================
     // Binding Errors (ORB_BINDING_*)
@@ -768,6 +787,68 @@ pub enum ErrorCode {
     CircuitModalExitIncomplete,
     /// Render-ui handler fires event with no matching transition from the rendering state
     CircuitDeadHandler,
+    /// A rendered affordance's event-bearing prop (`action`, `itemActions[].event`,
+    /// `submitEvent`, `onChange`, …) targets a lifecycle event
+    /// (`orbital_core::events::BUS_EXCLUDED_EVENTS`). The bus never
+    /// re-delivers `INIT`/`LOAD`/`$MOUNT`, so the control is dead on click.
+    RenderActionLifecycleEvent,
+    /// A transition's effects (`fetch`/`persist`/`call-service`) declare an
+    /// `emit.failure` event, but no arm at the destination state (`from ===
+    /// to || from === '*'`) handles it — the async result contract's failure
+    /// half is a live wire terminating in nothing. Ported from the JS wiring
+    /// lint's `failure-arm-missing` (client-bound traits only). Error severity.
+    CircuitFailureArmMissing,
+    /// The failure-handling arm found for [`CircuitFailureArmMissing`]'s
+    /// contract exists but paints nothing (no `render-ui <slot> <non-null>`
+    /// anywhere in its effects, including through `if`/`do`) — the failure is
+    /// caught but never shown to the user. Ported from `failure-arm-renders-
+    /// nothing`. Error severity.
+    CircuitFailureArmRendersNothing,
+    /// A transition renders a non-self-overlaying pattern into an overlay
+    /// slot (`modal`/`drawer`/`overlay`), but the destination state has no
+    /// `CLOSE`/`CANCEL` arm — the generic portal shell's own dismiss control
+    /// (X / Escape / overlay-click) fires an event nothing handles. Ported
+    /// from `modal-shell-close-deaf`. Error severity.
+    CircuitModalShellCloseDeaf,
+    /// A transition renders a SELF-overlaying pattern (`slideOver: true`
+    /// anywhere in the payload tree) into an overlay slot — the generic
+    /// portal shell wraps it too, producing two stacked overlay chromes.
+    /// Ported from `self-overlay-inside-modal-shell`. Error severity.
+    CircuitSelfOverlayInShell,
+    /// A transition's own effects list contains a top-level `(emit <event>)`
+    /// naming a lifecycle event (`orbital_core::events::BUS_EXCLUDED_EVENTS`)
+    /// — the bus never re-delivers it, so this half of the closed circuit is
+    /// written but can never run. Sibling production site to
+    /// [`RenderActionLifecycleEvent`](ErrorCode::RenderActionLifecycleEvent)
+    /// (an explicit effect instead of a rendered affordance prop). Ported
+    /// from the JS wiring lint's `dead-lifecycle-emit`. Error severity.
+    CircuitLifecycleEmitUndelivered,
+    /// An inline trait owns a non-empty `stateMachine.transitions` but is
+    /// absent from `client_bound_traits(orbital)` — no page declares it and
+    /// no page's `@trait.X` embed closure reaches it, so the client never
+    /// mounts a state machine for it and it can never handle an event in the
+    /// shipped app. Ported from the JS wiring lint's
+    /// `client-unbound-state-machine`. Error severity.
+    CircuitClientUnboundStateMachine,
+    /// A transition moves `from -> to` (not a self-transition) with NO
+    /// effects at all, out of a `from` state some OTHER arm already painted
+    /// into a main slot (`orbital_core::slots::MAIN_SLOTS`) — the machine
+    /// leaves that state but the screen keeps its old paint standing, so
+    /// every affordance routed here is dead. Client-bound gated (an unbound
+    /// trait's arms never run in the shipped client at all). Ported from the
+    /// JS wiring lint's `dead-bodiless-action`. Error severity.
+    CircuitDeadBodilessAction,
+    /// A state-CHANGING transition (`from != to`) whose `fetch`/`persist`
+    /// effects declare async-result events (`collect_async_result_events`:
+    /// EVERY value of the `emit` map, recursing through `if`/`do`) that the
+    /// destination state's own arms (`from === to-state || from === "*"`)
+    /// don't handle — the requester departs before it can hear its own
+    /// operation's result, so the cascade lands on a machine deaf to it and
+    /// wedges. NOT client-bound gated (the JS predicate has none here,
+    /// unlike its `failure-arm-missing` sibling). Ported from the JS wiring
+    /// lint's `async-result-deaf-target` (warning there; error here per the
+    /// 0/0 ruling). Error severity.
+    CircuitAsyncResultDeafTarget,
 
     // =========================================================================
     // Icon Errors (ORB_UI_ICON_*)
@@ -1103,9 +1184,11 @@ impl ErrorCode {
             ErrorCode::CrossOrbitalPayloadMismatch => "ORB_X_PAYLOAD_MISMATCH",
             ErrorCode::CrossOrbitalListenSourceUnresolved => "ORB_X_LISTEN_SOURCE_UNRESOLVED",
             ErrorCode::ListenTriggerUnmatched => "ORB_X_LISTEN_TRIGGER_UNMATCHED",
+            ErrorCode::FilterFieldNeverWritten => "ORB_X_FILTER_FIELD_NEVER_WRITTEN",
             ErrorCode::InternalEventExposed => "ORB_X_INTERNAL_EVENT_EXPOSED",
             ErrorCode::UnresolvedRelationTarget => "ORB_X_UNRESOLVED_RELATION_TARGET",
             ErrorCode::UnresolvedPatternFieldRef => "ORB_X_UNRESOLVED_PATTERN_FIELD_REF",
+            ErrorCode::ListenRouteStarvesRequiredField => "ORB_LISTEN_ROUTE_STARVES_REQUIRED_FIELD",
 
             // Binding
             ErrorCode::BindingInvalidFormat => "ORB_BINDING_INVALID_FORMAT",
@@ -1171,6 +1254,15 @@ impl ErrorCode {
             ErrorCode::CircuitNoOverlayExit => "CIRCUIT_NO_OVERLAY_EXIT",
             ErrorCode::CircuitModalExitIncomplete => "CIRCUIT_MODAL_EXIT_INCOMPLETE",
             ErrorCode::CircuitDeadHandler => "CIRCUIT_DEAD_HANDLER",
+            ErrorCode::RenderActionLifecycleEvent => "ORB_RENDER_ACTION_LIFECYCLE_EVENT",
+            ErrorCode::CircuitFailureArmMissing => "ORB_CIRCUIT_FAILURE_ARM_MISSING",
+            ErrorCode::CircuitFailureArmRendersNothing => "ORB_CIRCUIT_FAILURE_ARM_RENDERS_NOTHING",
+            ErrorCode::CircuitModalShellCloseDeaf => "ORB_CIRCUIT_MODAL_SHELL_CLOSE_DEAF",
+            ErrorCode::CircuitSelfOverlayInShell => "ORB_CIRCUIT_SELF_OVERLAY_IN_SHELL",
+            ErrorCode::CircuitLifecycleEmitUndelivered => "ORB_CIRCUIT_LIFECYCLE_EMIT_UNDELIVERED",
+            ErrorCode::CircuitClientUnboundStateMachine => "ORB_CIRCUIT_CLIENT_UNBOUND_STATE_MACHINE",
+            ErrorCode::CircuitDeadBodilessAction => "ORB_CIRCUIT_DEAD_BODILESS_ACTION",
+            ErrorCode::CircuitAsyncResultDeafTarget => "ORB_CIRCUIT_ASYNC_RESULT_DEAF_TARGET",
 
             // Icon
             ErrorCode::IconInvalidFormat => "ORB_UI_ICON_INVALID_FORMAT",
@@ -1396,7 +1488,9 @@ impl ErrorCode {
             | ErrorCode::InternalEventExposed
             | ErrorCode::UnresolvedRelationTarget
             | ErrorCode::UnresolvedPatternFieldRef
-            | ErrorCode::CrossEmitterDeclaredPayloadMismatch => "cross",
+            | ErrorCode::ListenRouteStarvesRequiredField
+            | ErrorCode::CrossEmitterDeclaredPayloadMismatch
+            | ErrorCode::FilterFieldNeverWritten => "cross",
 
             ErrorCode::BindingInvalidFormat
             | ErrorCode::BindingUnknownRoot
@@ -1446,7 +1540,16 @@ impl ErrorCode {
             | ErrorCode::CircuitActionComponentMismatch
             | ErrorCode::CircuitNoOverlayExit
             | ErrorCode::CircuitModalExitIncomplete
-            | ErrorCode::CircuitDeadHandler => "circuit",
+            | ErrorCode::CircuitDeadHandler
+            | ErrorCode::RenderActionLifecycleEvent
+            | ErrorCode::CircuitFailureArmMissing
+            | ErrorCode::CircuitFailureArmRendersNothing
+            | ErrorCode::CircuitModalShellCloseDeaf
+            | ErrorCode::CircuitSelfOverlayInShell
+            | ErrorCode::CircuitLifecycleEmitUndelivered
+            | ErrorCode::CircuitClientUnboundStateMachine
+            | ErrorCode::CircuitDeadBodilessAction
+            | ErrorCode::CircuitAsyncResultDeafTarget => "circuit",
 
             ErrorCode::IconInvalidFormat | ErrorCode::IconEmpty | ErrorCode::IconNotFound => "icon",
 

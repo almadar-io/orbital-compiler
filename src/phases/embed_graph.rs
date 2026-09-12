@@ -31,7 +31,7 @@
 //! its own yet — every transition's guard + effects and every tick's guard +
 //! effects.
 
-use orbital_core::schema::{ConfigField, SExpression, TraitReference};
+use orbital_core::schema::{ConfigField, Orbital, PageRef, SExpression, TraitReference};
 use std::collections::{HashMap, HashSet};
 
 /// Collect every `@trait.<Name>` token appearing anywhere inside `expr`.
@@ -194,6 +194,107 @@ impl EmbedGraph {
         }
         chain
     }
+
+    /// Forward index: trait name -> the trait names it embeds directly via
+    /// `@trait.X` — the inverse of `referrers` (child -> parents), built
+    /// once in O(n). Feeds `client_bound_traits`'s page-seeded reachability
+    /// walk below.
+    fn embedded_children(&self) -> HashMap<&str, HashSet<&str>> {
+        let mut forward: HashMap<&str, HashSet<&str>> = HashMap::new();
+        for (child, parents) in self.referrers_iter() {
+            for parent in parents {
+                forward.entry(parent.as_str()).or_default().insert(child);
+            }
+        }
+        forward
+    }
+}
+
+/// Client-bound traits: every trait a page declares directly, plus the
+/// transitive `@trait.X` embed closure reached from those seeds — the exact
+/// set the client mounts a state machine for. Mirrors
+/// `@almadar/core/embedded-trait-config.ts`'s `clientBoundTraits` (seeded
+/// from `PageTraitRef.ref`, walked over `collectTraitEmbedAdjacency`).
+///
+/// Seeds come only from INLINE pages (`PageRef::Inline`) — an imported page
+/// reference carries no trait list to read here, matching the JS's
+/// `inlinePages` filter. A page-declared trait entry contributes its own
+/// `name` (an `Inline` page trait) or its `reference` (a `Reference` page
+/// trait, the common post-inline shape — `TraitReference::Reference.reference`
+/// serializes as `"ref"`, `PageTraitRef.ref` in the TS type).
+pub(crate) fn client_bound_traits(orbital: &Orbital) -> HashSet<String> {
+    let graph = EmbedGraph::build(&orbital.traits);
+    let forward = graph.embedded_children();
+
+    let mut bound: HashSet<String> = HashSet::new();
+    let mut queue: Vec<String> = Vec::new();
+    for page_ref in orbital.pages.iter().flatten() {
+        let PageRef::Inline(page) = page_ref else {
+            continue;
+        };
+        for trait_ref in page.traits.iter().flatten() {
+            let seed = match trait_ref {
+                TraitReference::Inline(td) => Some(td.name.clone()),
+                TraitReference::Reference {
+                    reference: Some(r), ..
+                } => Some(r.clone()),
+                _ => None,
+            };
+            if let Some(name) = seed {
+                if bound.insert(name.clone()) {
+                    queue.push(name);
+                }
+            }
+        }
+    }
+    while let Some(current) = queue.pop() {
+        for child in forward.get(current.as_str()).into_iter().flatten() {
+            if bound.insert(child.to_string()) {
+                queue.push(child.to_string());
+            }
+        }
+    }
+    bound
+}
+
+/// Pages that declare, directly in their own page-level trait list, one of
+/// `trait_name`'s own `@trait.X` embedded children. Feeds the suggestion text
+/// for `ORB_CIRCUIT_CLIENT_UNBOUND_STATE_MACHINE` only — a courtesy, not part
+/// of the unbound predicate itself. Mirrors the JS wiring lint's
+/// `client-unbound-state-machine` `childPages` computation exactly
+/// (`wiring-lint.ts:850-862`: `pages.filter(page => page.traits.some(pt =>
+/// adjacency.get(name).has(pt.ref)))`) — a page that already mounts a child
+/// `trait_name` itself embeds is the natural place to also add `trait_name`.
+pub(crate) fn pages_embedding_children_of(orbital: &Orbital, trait_name: &str) -> Vec<String> {
+    let graph = EmbedGraph::build(&orbital.traits);
+    let forward = graph.embedded_children();
+    let Some(children) = forward.get(trait_name) else {
+        return Vec::new();
+    };
+    if children.is_empty() {
+        return Vec::new();
+    }
+
+    let mut pages = Vec::new();
+    for page_ref in orbital.pages.iter().flatten() {
+        let PageRef::Inline(page) = page_ref else {
+            continue;
+        };
+        let declares_a_child = page.traits.iter().flatten().any(|trait_ref| {
+            let name = match trait_ref {
+                TraitReference::Inline(td) => Some(td.name.as_str()),
+                TraitReference::Reference {
+                    reference: Some(r), ..
+                } => Some(r.as_str()),
+                _ => None,
+            };
+            name.is_some_and(|n| children.contains(n))
+        });
+        if declares_a_child {
+            pages.push(page.path.clone());
+        }
+    }
+    pages
 }
 
 #[cfg(test)]
@@ -353,5 +454,108 @@ mod tests {
         let graph = EmbedGraph::build(&timeline_shaped_traits());
         assert_eq!(graph.direct_host("Feed"), None);
         assert_eq!(graph.direct_host("NeverHeardOfIt"), None);
+    }
+
+    // --- client_bound_traits ---
+
+    fn orbital_with_pages(traits: Vec<TraitReference>, pages_json: serde_json::Value) -> Orbital {
+        use orbital_core::schema::EntityRef;
+        let pages: Vec<PageRef> =
+            serde_json::from_value(pages_json).expect("pages fixture deserializes");
+        Orbital {
+            types: None,
+            name: "TestOrbital".to_string(),
+            uses: None,
+            expects: None,
+            theme: None,
+            services: None,
+            entity: EntityRef::Reference("Item".to_string()),
+            auxiliary_entities: None,
+            traits,
+            pages: Some(pages),
+            emits: None,
+            listens: None,
+            exposes: None,
+            domain_context: None,
+            design: None,
+            id: None,
+            reference: None,
+            config: None,
+        }
+    }
+
+    /// Seed = the page's own `traits[].ref`; walk = the embed adjacency
+    /// (`timeline_shaped_traits`'s Feed -> Stack8 -> Stack5 -> Typography4
+    /// chain). A trait nothing on the page reaches, directly or
+    /// transitively, is NOT bound even though it lives in the same orbital.
+    #[test]
+    fn client_bound_traits_seeds_from_page_and_walks_embed_adjacency() {
+        let mut traits = timeline_shaped_traits();
+        traits.push(inline_trait("Loose", json!({}), json!([])));
+        let orbital = orbital_with_pages(
+            traits,
+            json!([{ "name": "Home", "path": "/", "traits": [ { "ref": "Feed" } ] }]),
+        );
+        let bound = client_bound_traits(&orbital);
+        let expected: HashSet<String> = ["Feed", "Stack8", "Stack5", "Typography4"]
+            .into_iter()
+            .map(String::from)
+            .collect();
+        assert_eq!(bound, expected);
+        assert!(
+            !bound.contains("Loose"),
+            "a trait no page reaches and nothing embeds must not be client-bound"
+        );
+    }
+
+    #[test]
+    fn client_bound_traits_empty_when_page_declares_none() {
+        let orbital =
+            orbital_with_pages(timeline_shaped_traits(), json!([{ "name": "Home", "path": "/" }]));
+        assert!(client_bound_traits(&orbital).is_empty());
+    }
+
+    /// An imported page reference (`PageRef::Reference`/`Object`, no inline
+    /// trait list to read) contributes nothing — mirrors the JS's
+    /// `inlinePages` filter.
+    #[test]
+    fn client_bound_traits_ignores_imported_page_refs() {
+        let orbital = orbital_with_pages(timeline_shaped_traits(), json!(["Alias.pages.Home"]));
+        assert!(client_bound_traits(&orbital).is_empty());
+    }
+
+    // --- pages_embedding_children_of ---
+
+    /// `Feed` embeds `Stack8` (its child). A page declaring `Stack8` directly
+    /// (without `Feed`) is exactly the courtesy-suggestion shape.
+    #[test]
+    fn pages_embedding_children_of_finds_a_page_declaring_a_direct_child() {
+        let orbital = orbital_with_pages(
+            timeline_shaped_traits(),
+            json!([{ "name": "Home", "path": "/home", "traits": [ { "ref": "Stack8" } ] }]),
+        );
+        assert_eq!(
+            pages_embedding_children_of(&orbital, "Feed"),
+            vec!["/home".to_string()]
+        );
+    }
+
+    #[test]
+    fn pages_embedding_children_of_empty_for_a_leaf_trait() {
+        // Typography4 embeds nothing — it has no children to be found on any page.
+        let orbital = orbital_with_pages(
+            timeline_shaped_traits(),
+            json!([{ "name": "Home", "path": "/home", "traits": [ { "ref": "Stack8" } ] }]),
+        );
+        assert!(pages_embedding_children_of(&orbital, "Typography4").is_empty());
+    }
+
+    #[test]
+    fn pages_embedding_children_of_empty_when_no_page_declares_a_child() {
+        let orbital = orbital_with_pages(
+            timeline_shaped_traits(),
+            json!([{ "name": "Home", "path": "/home", "traits": [ { "ref": "Feed" } ] }]),
+        );
+        assert!(pages_embedding_children_of(&orbital, "Feed").is_empty());
     }
 }

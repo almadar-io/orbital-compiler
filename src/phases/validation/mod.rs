@@ -36,6 +36,7 @@
 //! }
 //! ```
 
+pub(crate) mod async_results;
 pub mod binding;
 pub mod canonical_operators;
 pub mod closed_circuit;

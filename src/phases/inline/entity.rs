@@ -112,6 +112,12 @@ pub(crate) fn merge_imported_entity_fields(
             if !existing_names.contains(fname) {
                 let mut f = field.clone();
                 rewrite_self_relation_target(&mut f, old_name, &new_name, new_id.as_deref());
+                // Provenance: this field was ADDED to the host from the
+                // imported entity, never authored by the host itself — its
+                // `required: true` is the imported atom's own write contract,
+                // never the host's `persist create` obligation. See
+                // `required_create_field_names`.
+                f.merged_from = Some(imported_entity.name.clone());
                 caller_entity.fields.push(f);
             }
         }

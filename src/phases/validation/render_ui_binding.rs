@@ -644,6 +644,7 @@ mod tests {
                 persistence: None,
                 instances: None,
                 fields: vec![FieldDefinition {
+                    merged_from: None,
                     name: Some("title".to_string()),
                     field_type: FieldType::String,
                     required: Some(true),
@@ -718,6 +719,7 @@ mod tests {
                 persistence: None,
                 instances: None,
                 fields: vec![FieldDefinition {
+                    merged_from: None,
                     name: Some("loyaltyPoints".to_string()),
                     field_type: FieldType::Number,
                     required: Some(true),

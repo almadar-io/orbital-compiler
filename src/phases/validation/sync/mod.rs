@@ -8,6 +8,11 @@
 //! DO NOT EDIT MANUALLY - This file is auto-generated.
 
 pub mod action_affinity;
+// Hand-written (not pattern-sync generated, unlike its siblings above/below):
+// content-grade classification over the same registry data `patterns.rs`
+// exposes. See its own header for why it lives here rather than in
+// `patterns.rs` itself.
+pub mod content;
 pub mod icons;
 pub mod patterns;
 pub mod services;
@@ -18,6 +23,7 @@ pub use action_affinity::{
     is_list_action, is_list_pattern, ACTION_AFFINITY, FORM_ACTIONS, FORM_PATTERNS,
     INTERACTIVE_PATTERNS, LIST_ACTIONS, LIST_PATTERNS,
 };
+pub use content::{is_content_body_pattern, is_content_body_pattern_type, is_main_slot_render_ui};
 pub use icons::{
     find_similar_icons, is_common_icon, kebab_to_pascal, normalize_icon_name, COMMON_LUCIDE_ICONS,
 };

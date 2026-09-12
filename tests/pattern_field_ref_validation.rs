@@ -45,6 +45,7 @@ fn make_entity_with_fields(name: &str, field_names: &[&str]) -> EntityDefinition
         fields: field_names
             .iter()
             .map(|fname| FieldDefinition {
+                merged_from: None,
                 name: Some((*fname).to_string()),
                 field_type: FieldType::String,
                 required: None,

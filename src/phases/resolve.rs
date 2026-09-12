@@ -629,6 +629,7 @@ impl<'a> Resolver<'a> {
         };
 
         oir_field.intrinsic = field.intrinsic.unwrap_or(false);
+        oir_field.merged_from = field.merged_from.clone();
 
         // Add enum values
         oir_field.enum_values = field.values.clone();
@@ -2827,6 +2828,7 @@ fn payload_field_to_oir_type(
         let fields: Vec<OirField> = props
             .iter()
             .map(|p| OirField {
+                merged_from: None,
                 intrinsic: false,
                 name: p.name.clone(),
                 field_type: payload_field_to_oir_type(p, ctx),
@@ -2937,6 +2939,7 @@ fn lookup_named_type_shape(name: &str, ctx: &NamedTypeCtx) -> Option<OirType> {
         let fields: Vec<OirField> = payload_fields
             .iter()
             .map(|p| OirField {
+                merged_from: None,
                 intrinsic: false,
                 name: p.name.clone(),
                 field_type: payload_field_to_oir_type(p, ctx),

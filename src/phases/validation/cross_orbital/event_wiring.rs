@@ -549,6 +549,102 @@ pub(crate) fn collect_effect_produced_events(trait_def: &TraitDefinition) -> Has
     out
 }
 
+/// Failure-only counterpart to [`collect_effect_produced_events`]: every
+/// `emit.failure` string on a `fetch`/`persist`/`call-service` node anywhere
+/// in `effects`, including nested inside `if`/`do` — the async-result
+/// contract's failure half, isolated for the closed-circuit arm-completeness
+/// checks (`ORB_CIRCUIT_FAILURE_ARM_*`). Mirrors `effect-emits.ts`'s
+/// `collectFailureEvents` EXACTLY, including its operator allowlist: an
+/// `emit.failure` on any OTHER op (e.g. `llm/generate`, `os-watch`) is not
+/// this contract and must stay uncredited, or a headless/agent atom with no
+/// UI of its own over-fires on every state-only failure arm (measured: a
+/// generic "any node with an emit key" walk hit 121 files vs. the JS tool's
+/// 0 on the same corpus sample). Declared data only: reads the effect
+/// tuple's own operator name + `emit: {failure: X}` map, no name/text
+/// matching beyond that fixed 3-operator allowlist.
+pub(crate) fn collect_failure_events(
+    effects: &[orbital_core::schema::SExpression],
+) -> HashSet<String> {
+    use orbital_core::schema::SExpression;
+    fn walk(expr: &SExpression, out: &mut HashSet<String>) {
+        let SExpression::Array(items) = expr else {
+            return;
+        };
+        if let Some(SExpression::String(op)) = items.first() {
+            if op == "fetch" || op == "persist" || op == "call-service" {
+                for item in items {
+                    if let SExpression::Object(map) = item {
+                        if let Some(SExpression::Object(emit_map)) = map.get("emit") {
+                            if let Some(SExpression::String(ev)) = emit_map.get("failure") {
+                                if !ev.is_empty() {
+                                    out.insert(ev.clone());
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        for item in items {
+            walk(item, out);
+        }
+    }
+    let mut out = HashSet::new();
+    for effect in effects {
+        walk(effect, &mut out);
+    }
+    out
+}
+
+/// Collect EVERY value of the `emit` map (not `failure` alone, and not
+/// success/failure by name) of every `fetch`/`persist` effect in one
+/// transition's effect list, recursing through `if`/`do`. Sibling of
+/// [`collect_failure_events`] for `async-result-deaf-target`, which needs
+/// the destination state to hear the WHOLE result contract a request can
+/// produce, not just its failure half. Two deliberate divergences from
+/// `collect_failure_events`, both mirroring the JS wiring lint's own
+/// `collectAsyncResultEvents` (`effect-emits.ts`) rather than reusing its
+/// `collectFailureEvents` (`wiring-lint.ts`): narrower op scope (`fetch`/
+/// `persist` only — no `call-service`, a real asymmetry in the JS source,
+/// not a bug this port silently fixes) and wider emit-key scope (every
+/// key in the `emit` object, since a target state must hear success too,
+/// not only failure).
+pub(crate) fn collect_async_result_events(
+    effects: &[orbital_core::schema::SExpression],
+) -> HashSet<String> {
+    use orbital_core::schema::SExpression;
+    fn walk(expr: &SExpression, out: &mut HashSet<String>) {
+        let SExpression::Array(items) = expr else {
+            return;
+        };
+        if let Some(SExpression::String(op)) = items.first() {
+            if op == "fetch" || op == "persist" {
+                for item in items {
+                    if let SExpression::Object(map) = item {
+                        if let Some(SExpression::Object(emit_map)) = map.get("emit") {
+                            for v in emit_map.values() {
+                                if let SExpression::String(ev) = v {
+                                    if !ev.is_empty() {
+                                        out.insert(ev.clone());
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        for item in items {
+            walk(item, out);
+        }
+    }
+    let mut out = HashSet::new();
+    for effect in effects {
+        walk(effect, &mut out);
+    }
+    out
+}
+
 /// Extract event name from an emit effect
 /// True when at least one transition with the given event can propagate
 /// — i.e., its effects include an `(emit ...)` op or a `fetch` /
@@ -1238,6 +1334,7 @@ mod tests {
                         required: None,
                         ref_id: None,
                         forwarded_from: None,
+                        payload_for: None,
                     },
                 )]
                 .into_iter()
@@ -1623,5 +1720,62 @@ mod tests {
             (1, 0),
             "atom-declared external without a call-site forward keeps reporting"
         );
+    }
+}
+
+/// Unit tests for the [`collect_async_result_events`]
+/// collector family (siblings of [`collect_failure_events`]) — kept in their
+/// own module rather than inside `mod tests` above so this file's two
+/// concurrently-edited test surfaces don't collide.
+#[cfg(test)]
+mod async_result_collector_tests {
+    use super::*;
+    use orbital_core::schema::SExpression;
+
+    fn effect_with_emit(op: &str, emit: &[(&str, &str)]) -> SExpression {
+        let mut emit_map = HashMap::new();
+        for (k, v) in emit {
+            emit_map.insert((*k).to_string(), SExpression::String((*v).to_string()));
+        }
+        let mut options = HashMap::new();
+        options.insert("emit".to_string(), SExpression::Object(emit_map));
+        SExpression::Array(vec![
+            SExpression::String(op.to_string()),
+            SExpression::String("Item".to_string()),
+            SExpression::Object(options),
+        ])
+    }
+
+    #[test]
+    fn async_result_events_credits_every_emit_key_for_fetch_and_persist() {
+        let effects = vec![
+            effect_with_emit("fetch", &[("success", "Loaded"), ("failure", "LoadFailed")]),
+            effect_with_emit("persist", &[("success", "Saved")]),
+        ];
+        let got = collect_async_result_events(&effects);
+        assert_eq!(
+            got,
+            HashSet::from([
+                "Loaded".to_string(),
+                "LoadFailed".to_string(),
+                "Saved".to_string()
+            ])
+        );
+    }
+
+    /// `call-service` is deliberately OUT of scope (a real JS asymmetry vs.
+    /// `collect_failure_events`, not a bug this port fixes); a `fetch`
+    /// nested inside `if` is still credited.
+    #[test]
+    fn async_result_events_excludes_call_service_and_descends_through_if() {
+        let call_service = effect_with_emit("call-service", &[("success", "ShouldNotCount")]);
+        let wrapped_fetch = SExpression::Array(vec![
+            SExpression::String("if".to_string()),
+            SExpression::Bool(true),
+            SExpression::Array(vec![effect_with_emit("fetch", &[("success", "Nested")])]),
+            SExpression::Array(vec![]),
+        ]);
+        let got = collect_async_result_events(&[call_service, wrapped_fetch]);
+        assert_eq!(got, HashSet::from(["Nested".to_string()]));
     }
 }

@@ -24,6 +24,7 @@ fn metric_spec_items() -> FieldDefinition {
     props.insert(
         "label".to_string(),
         FieldDefinition {
+            merged_from: None,
             name: Some("label".to_string()),
             field_type: FieldType::String,
             required: Some(true),
@@ -42,6 +43,7 @@ fn metric_spec_items() -> FieldDefinition {
     props.insert(
         "value".to_string(),
         FieldDefinition {
+            merged_from: None,
             name: Some("value".to_string()),
             field_type: FieldType::Number,
             required: None,
@@ -60,6 +62,7 @@ fn metric_spec_items() -> FieldDefinition {
     props.insert(
         "format".to_string(),
         FieldDefinition {
+            merged_from: None,
             name: Some("format".to_string()),
             field_type: FieldType::String,
             required: None,
@@ -80,6 +83,7 @@ fn metric_spec_items() -> FieldDefinition {
         },
     );
     FieldDefinition {
+        merged_from: None,
         name: None,
         field_type: FieldType::Object,
         required: None,
@@ -109,6 +113,7 @@ fn schema_with_config(config: HashMap<String, ConfigField>) -> OrbitalSchema {
         collection: Some("dashboards".to_string()),
         persistence: None,
         fields: vec![FieldDefinition {
+            merged_from: None,
             name: Some("id".to_string()),
             field_type: FieldType::String,
             required: Some(true),
@@ -242,6 +247,7 @@ fn good_array_of_metricspec_passes() {
             required: None,
             ref_id: None,
             forwarded_from: None,
+            payload_for: None,
         },
     );
     let schema = schema_with_config(config);
@@ -275,6 +281,7 @@ fn string_value_where_number_expected_fails() {
             required: None,
             ref_id: None,
             forwarded_from: None,
+            payload_for: None,
         },
     );
     let schema = schema_with_config(config);
@@ -302,6 +309,7 @@ fn bare_string_in_array_of_objects_fails() {
         format_props.insert(
             (*name).to_string(),
             FieldDefinition {
+                merged_from: None,
                 name: Some((*name).to_string()),
                 field_type: FieldType::String,
                 required: Some(true),
@@ -319,6 +327,7 @@ fn bare_string_in_array_of_objects_fails() {
         );
     }
     let format_items = FieldDefinition {
+        merged_from: None,
         name: None,
         field_type: FieldType::Object,
         required: None,
@@ -352,6 +361,7 @@ fn bare_string_in_array_of_objects_fails() {
             required: None,
             ref_id: None,
             forwarded_from: None,
+            payload_for: None,
         },
     );
     let schema = schema_with_config(config);
@@ -385,6 +395,7 @@ fn missing_required_field_fails() {
             required: None,
             ref_id: None,
             forwarded_from: None,
+            payload_for: None,
         },
     );
     let schema = schema_with_config(config);
@@ -427,6 +438,7 @@ fn enum_value_outside_allowed_set_fails() {
             required: None,
             ref_id: None,
             forwarded_from: None,
+            payload_for: None,
         },
     );
     let schema = schema_with_config(config);
@@ -469,6 +481,7 @@ fn binding_strings_pass_the_check() {
             required: None,
             ref_id: None,
             forwarded_from: None,
+            payload_for: None,
         },
     );
     let schema = schema_with_config(config);
@@ -513,6 +526,7 @@ fn computed_sexpr_call_for_array_items_defers() {
             required: None,
             ref_id: None,
             forwarded_from: None,
+            payload_for: None,
         },
     );
     let schema = schema_with_config(config);
@@ -558,6 +572,7 @@ fn computed_sexpr_call_nested_in_object_property_defers() {
             required: None,
             ref_id: None,
             forwarded_from: None,
+            payload_for: None,
         },
     );
     let schema = schema_with_config(config);
@@ -580,6 +595,7 @@ fn literal_wrong_shape_still_errors_alongside_computed_defer() {
     format_props.insert(
         "id".to_string(),
         FieldDefinition {
+            merged_from: None,
             name: Some("id".to_string()),
             field_type: FieldType::String,
             required: Some(true),
@@ -596,6 +612,7 @@ fn literal_wrong_shape_still_errors_alongside_computed_defer() {
         },
     );
     let format_items = FieldDefinition {
+        merged_from: None,
         name: None,
         field_type: FieldType::Object,
         required: None,
@@ -628,6 +645,7 @@ fn literal_wrong_shape_still_errors_alongside_computed_defer() {
             required: None,
             ref_id: None,
             forwarded_from: None,
+            payload_for: None,
         },
     );
     let schema = schema_with_config(config);
@@ -658,6 +676,7 @@ fn array_typed_slot_with_scalar_default_fails() {
             required: None,
             ref_id: None,
             forwarded_from: None,
+            payload_for: None,
         },
     );
     let schema = schema_with_config(config);
@@ -691,6 +710,7 @@ fn number_on_a_name_carrying_scalar_tag_fails() {
                 required: None,
                 ref_id: None,
                 forwarded_from: None,
+            payload_for: None,
             },
         );
         let schema = schema_with_config(config);
@@ -725,6 +745,7 @@ fn string_and_null_on_a_name_carrying_scalar_tag_pass() {
                 required: None,
                 ref_id: None,
                 forwarded_from: None,
+            payload_for: None,
             },
         );
         let schema = schema_with_config(config);
@@ -756,6 +777,7 @@ fn non_number_on_int_or_float_fails() {
                 required: None,
                 ref_id: None,
                 forwarded_from: None,
+            payload_for: None,
             },
         );
         let schema = schema_with_config(config);
@@ -771,6 +793,7 @@ fn non_number_on_int_or_float_fails() {
 
 fn string_value_field() -> FieldDefinition {
     FieldDefinition {
+        merged_from: None,
         name: None,
         field_type: FieldType::String,
         required: None,
@@ -804,6 +827,7 @@ fn map_knob(default: SExpression) -> OrbitalSchema {
             required: None,
             ref_id: None,
             forwarded_from: None,
+            payload_for: None,
         },
     );
     schema_with_config(config)
@@ -884,6 +908,7 @@ fn an_array_type_merely_starting_with_map_is_not_treated_as_a_map() {
             required: None,
             ref_id: None,
             forwarded_from: None,
+            payload_for: None,
         },
     );
     let schema = schema_with_config(config);
@@ -908,6 +933,7 @@ fn scalar_knob(default: SExpression) -> OrbitalSchema {
             required: None,
             ref_id: None,
             forwarded_from: None,
+            payload_for: None,
         },
     );
     schema_with_config(config)
@@ -959,6 +985,7 @@ fn map_of_scalar_accepts_mixed_primitive_values_but_not_nesting() {
 
     let mut config = HashMap::new();
     let value_schema = FieldDefinition {
+        merged_from: None,
         name: None,
         field_type: FieldType::Scalar,
         required: None,
@@ -988,6 +1015,7 @@ fn map_of_scalar_accepts_mixed_primitive_values_but_not_nesting() {
             required: None,
             ref_id: None,
             forwarded_from: None,
+            payload_for: None,
         },
     );
     let schema = schema_with_config(config);
@@ -1016,6 +1044,7 @@ fn map_of_scalar_accepts_mixed_primitive_values_but_not_nesting() {
             required: None,
             ref_id: None,
             forwarded_from: None,
+            payload_for: None,
         },
     );
     let schema2 = schema_with_config(config2);

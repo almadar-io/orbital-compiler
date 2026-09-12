@@ -77,6 +77,7 @@ fn schema_with_emit(emit: SExpression, declared: EmitDefinition) -> OrbitalSchem
         collection: Some("tasks".to_string()),
         persistence: None,
         fields: vec![FieldDefinition {
+            merged_from: None,
             name: Some("id".to_string()),
             field_type: FieldType::String,
             required: Some(true),

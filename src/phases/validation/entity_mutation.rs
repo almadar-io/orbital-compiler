@@ -1566,6 +1566,7 @@ mod tests {
             persistence,
             instances: None,
             fields: vec![FieldDefinition {
+                merged_from: None,
                 name: Some("value".to_string()),
                 field_type: FieldType::Number,
                 required: None,
@@ -2563,6 +2564,7 @@ mod tests {
     fn entity_with_intrinsic_field(name: &str, intrinsic_field: &str) -> EntityDefinition {
         let mut e = entity(name, false, Some(Persistence::Persistent));
         e.fields.push(FieldDefinition {
+            merged_from: None,
             name: Some(intrinsic_field.to_string()),
             field_type: FieldType::Boolean,
             required: None,

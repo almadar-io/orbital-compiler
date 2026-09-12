@@ -92,6 +92,7 @@ fn field_type_of(name: &str) -> FieldType {
 
 fn field_of(p: &PayloadField) -> FieldDefinition {
     FieldDefinition {
+        merged_from: None,
         name: Some(p.name.clone()),
         field_type: field_type_of(&p.field_type),
         required: p.required,
@@ -214,6 +215,16 @@ pub(crate) fn resolve_sigil_types(schema: &mut OrbitalSchema) {
                 let Some(sigil) = parse_sigil(&field.field_type) else {
                     continue;
                 };
+                // Capture the definer-knob name BEFORE `sigil` is consumed
+                // below — `ORB_LISTEN_ROUTE_STARVES_REQUIRED_FIELD` matches a
+                // source emit's `definer_knob` against this field's
+                // `payload_for` to find the emit's real payload companion
+                // once `field_type` below has overwritten the `@payload(K)`
+                // sentinel that used to carry this link.
+                let payload_for_knob = match &sigil {
+                    Sigil::EventPayload(knob) => Some((*knob).to_string()),
+                    _ => None,
+                };
                 // An arm that cannot resolve leaves the sentinel in place; the
                 // config-position walk in `type_param_sweep` is the single
                 // owner of the diagnostic, so reporting here too would
@@ -252,6 +263,9 @@ pub(crate) fn resolve_sigil_types(schema: &mut OrbitalSchema) {
                     // a config field regardless of `properties`.
                     field.field_type = type_name;
                     field.properties = Some(keyed(fields));
+                    if let Some(knob) = payload_for_knob {
+                        field.payload_for = Some(knob);
+                    }
                 }
             }
         }

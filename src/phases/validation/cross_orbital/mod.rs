@@ -9,6 +9,8 @@ use orbital_core::schema::{OrbitalSchema, TraitDefinition, TraitReference};
 mod cycles;
 mod entity;
 mod event_wiring;
+mod filter_field_written;
+mod listen_starvation;
 mod listen_trigger;
 mod listens;
 mod payload;
@@ -18,9 +20,12 @@ mod scope;
 pub(crate) use cycles::validate_circular_dependencies;
 pub(crate) use entity::validate_entity_uniqueness;
 pub(crate) use event_wiring::{
-    collect_effect_produced_events, extract_emit_event, transition_can_propagate,
+    collect_async_result_events, collect_effect_produced_events, collect_failure_events,
+    extract_emit_event, transition_can_propagate,
     validate_event_wiring,
 };
+pub(crate) use filter_field_written::validate_filter_field_never_written;
+pub(crate) use listen_starvation::validate_listen_route_starves_required_field;
 pub(crate) use listen_trigger::validate_listen_triggers;
 pub(crate) use listens::validate_listens_integrity;
 pub(crate) use payload::validate_external_emit_payloads;
@@ -100,6 +105,17 @@ pub fn validate_cross_orbital(schema: &OrbitalSchema, ctx: &mut ValidationContex
     // orbitals sharing the bare identifier `EDIT` is the expected
     // consequence of CRUD being a uniform vocabulary, not a smell.
     result.merge(validate_listens_integrity(schema));
+
+    // A resolved `listens` route (trait-sourced) whose trigger declares a
+    // required leaf payload field the route can never actually supply —
+    // neither an explicit `with{}` mapping nor (pass-through) the source's
+    // declared emit contract produces it. Error severity.
+    result.merge(validate_listen_route_starves_required_field(schema));
+
+    // Ported wiring-lint kind (sub-wave L1): a fetch filtered on a field no
+    // persist anywhere ever writes can never match a real row. Error
+    // severity, client-bound traits only.
+    result.merge(validate_filter_field_never_written(schema));
 
     // Validate orbital names
     for (i, orbital) in schema.orbitals.iter().enumerate() {

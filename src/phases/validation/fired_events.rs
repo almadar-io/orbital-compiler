@@ -223,7 +223,9 @@ fn sexpr_has_dynamic_event_binding(
     }
 }
 
-fn ui_event_prop_names() -> &'static std::collections::HashSet<String> {
+// Shared with `closed_circuit`'s `ORB_RENDER_ACTION_LIFECYCLE_EVENT` check —
+// same registry-driven vocabulary, not a second hand-rolled list.
+pub(crate) fn ui_event_prop_names() -> &'static std::collections::HashSet<String> {
     use std::collections::HashSet;
     use std::sync::OnceLock;
     static EVENT_PROP_NAMES: OnceLock<HashSet<String>> = OnceLock::new();
