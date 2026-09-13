@@ -1735,6 +1735,7 @@ pub static PATTERN_PROPS_SCHEMA: LazyLock<HashMap<&'static str, HashSet<&'static
                     "minCardWidth",
                     "pageSize",
                     "positionEvent",
+                    "relationsData",
                     "renderItem",
                     "reorderEvent",
                     "scrollX",
@@ -1774,6 +1775,7 @@ pub static PATTERN_PROPS_SCHEMA: LazyLock<HashMap<&'static str, HashSet<&'static
                     "maxInlineActions",
                     "pageSize",
                     "positionEvent",
+                    "relationsData",
                     "renderItem",
                     "reorderEvent",
                     "reorderable",
@@ -2224,6 +2226,7 @@ pub static PATTERN_PROPS_SCHEMA: LazyLock<HashMap<&'static str, HashSet<&'static
                     "look",
                     "page",
                     "pageSize",
+                    "relationsData",
                     "rowActions",
                     "searchPlaceholder",
                     "searchValue",
@@ -4268,6 +4271,7 @@ pub static PATTERN_PROPS_SCHEMA: LazyLock<HashMap<&'static str, HashSet<&'static
                     "maxInlineActions",
                     "pageSize",
                     "positionEvent",
+                    "relationsData",
                     "renderItem",
                     "reorderEvent",
                     "selectEvent",
@@ -5769,6 +5773,7 @@ pub static PATTERN_PROP_TYPES: LazyLock<HashMap<&'static str, HashMap<&'static s
                     ("renderItem", &["function"] as &[&str]),
                     ("pageSize", &["number"] as &[&str]),
                     ("look", &["string"] as &[&str]),
+                    ("relationsData", &["object"] as &[&str]),
                 ]
                 .into_iter()
                 .collect(),
@@ -5815,6 +5820,7 @@ pub static PATTERN_PROP_TYPES: LazyLock<HashMap<&'static str, HashMap<&'static s
                     ("sortBy", &["string"] as &[&str]),
                     ("sortDirection", &["string"] as &[&str]),
                     ("look", &["string"] as &[&str]),
+                    ("relationsData", &["object"] as &[&str]),
                 ]
                 .into_iter()
                 .collect(),
@@ -6382,6 +6388,7 @@ pub static PATTERN_PROP_TYPES: LazyLock<HashMap<&'static str, HashMap<&'static s
                     ("headerActions", &["node"] as &[&str]),
                     ("showTotal", &["boolean"] as &[&str]),
                     ("look", &["string"] as &[&str]),
+                    ("relationsData", &["object"] as &[&str]),
                 ]
                 .into_iter()
                 .collect(),
@@ -8932,6 +8939,7 @@ pub static PATTERN_PROP_TYPES: LazyLock<HashMap<&'static str, HashMap<&'static s
                     ("children", &["function"] as &[&str]),
                     ("renderItem", &["function"] as &[&str]),
                     ("look", &["string"] as &[&str]),
+                    ("relationsData", &["object"] as &[&str]),
                 ]
                 .into_iter()
                 .collect(),

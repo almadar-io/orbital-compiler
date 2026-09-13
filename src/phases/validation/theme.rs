@@ -6,7 +6,7 @@
 use super::error::{ErrorCode, ValidationError, ValidationResult};
 use super::ValidationContext;
 use crate::embedded::builtin_theme_names;
-use orbital_core::schema::{OrbitalSchema, ThemeDefinition, ThemeRef};
+use orbital_core::schema::{OrbitalSchema, SExpression, ThemeDefinition, ThemeRef, TraitReference};
 use regex::Regex;
 use std::collections::HashSet;
 use std::sync::LazyLock;
@@ -36,6 +36,92 @@ pub fn validate_all_themes(schema: &OrbitalSchema, ctx: &mut ValidationContext) 
             ctx.merge(result);
         }
     }
+    ctx.merge(validate_theme_pin_matches_app(schema));
+}
+
+/// The schema's app-level `theme "<key>"` declaration, if any — a bare
+/// reference string, or an inline theme's own `name`. `None` (empty string
+/// included) means the app declares no app-level theme, in which case there
+/// is nothing to contradict.
+fn app_theme_key(schema: &OrbitalSchema) -> Option<&str> {
+    match schema.theme.as_ref()? {
+        ThemeRef::Reference(s) if !s.is_empty() => Some(s.as_str()),
+        ThemeRef::Inline(def) if !def.name.is_empty() => Some(def.name.as_str()),
+        _ => None,
+    }
+}
+
+/// A trait config's `theme` default, when it is a LITERAL, NON-EMPTY pin
+/// that is not a binding. `""` (an empty knob default) and any `@…` binding
+/// are unpinned — an orbital riding the ambient default via `@currentTheme`
+/// must stay silent, which is what stops the JS `app-theme-divergent`'s
+/// 47-hit false positive (an empty string counted as a pin).
+fn theme_pin_of(default: Option<&SExpression>) -> Option<&str> {
+    match default? {
+        SExpression::String(s) if !s.is_empty() && !s.starts_with('@') => Some(s.as_str()),
+        _ => None,
+    }
+}
+
+/// A trait pins `config.theme` to a literal that contradicts the schema's
+/// app-level `theme` declaration.
+///
+/// App-level branch only (JS `app-theme-divergent`, L1116-1133): with an
+/// app-level theme declared, an unpinned orbital inherits it through
+/// `@currentTheme`, so only a pin that CONTRADICTS the app value is drift.
+/// The JS dominant-vote branch (no app-level theme: flag whichever orbital
+/// doesn't match the plurality pin) is a heuristic over which theme "wins" —
+/// not ported; retired per owner ruling. JS twin: the app-level half of
+/// `app-theme-divergent` in `wiring-lint.ts`.
+fn validate_theme_pin_matches_app(schema: &OrbitalSchema) -> ValidationResult {
+    let mut result = ValidationResult::new();
+    let Some(app_theme) = app_theme_key(schema) else {
+        return result;
+    };
+    for (oi, orbital) in schema.orbitals.iter().enumerate() {
+        let mut pinned: Vec<&str> = Vec::new();
+        for trait_ref in &orbital.traits {
+            let config = match trait_ref {
+                TraitReference::Inline(td) => td.config.as_ref(),
+                TraitReference::Reference { config, .. } => config.as_ref(),
+            };
+            let Some(pin) = config
+                .and_then(|c| c.get("theme"))
+                .and_then(|f| theme_pin_of(f.default.as_ref()))
+            else {
+                continue;
+            };
+            if !pinned.contains(&pin) {
+                pinned.push(pin);
+            }
+        }
+        let mut divergent: Vec<&str> = pinned.into_iter().filter(|t| *t != app_theme).collect();
+        if divergent.is_empty() {
+            continue;
+        }
+        divergent.sort_unstable();
+        let quoted = divergent
+            .iter()
+            .map(|t| format!("\"{}\"", t))
+            .collect::<Vec<_>>()
+            .join(", ");
+        result.add_error(
+            ValidationError::error(
+                ErrorCode::ThemePinContradictsApp,
+                format!("orbitals[{} ({})].theme", oi, orbital.name),
+                format!(
+                    "{} pins theme {} while the app declares \"{}\" at the app level",
+                    orbital.name, quoted, app_theme
+                ),
+            )
+            .with_suggestion(
+                "remove the config pin so the orbital inherits the app theme via @currentTheme \
+                 — or, for a deliberate per-orbital override, declare it as the orbital's own \
+                 `theme \"<key>\"`",
+            ),
+        );
+    }
+    result
 }
 
 /// Validate a theme reference (inline or reference string).
@@ -320,5 +406,117 @@ mod tests {
 
         let result = validate_theme_definition(&theme, "test");
         assert!(!result.is_valid());
+    }
+}
+
+#[cfg(test)]
+mod theme_pin_contradicts_app_tests {
+    use super::*;
+
+    fn schema_from_json(json: &str) -> OrbitalSchema {
+        serde_json::from_str(json).expect("fixture parses")
+    }
+
+    fn findings(json: &str) -> Vec<ValidationError> {
+        validate_theme_pin_matches_app(&schema_from_json(json)).errors
+    }
+
+    /// An unpinned orbital (empty config on its layout ref-trait) rides the
+    /// app theme via `@currentTheme` — clean. A pin that matches the app
+    /// theme is clean too.
+    const UNPINNED_ORBITALS_ARE_CLEAN: &str = r#"{
+      "name": "fixture", "version": "1.0.0", "theme": "linear-clean-light",
+      "orbitals": [
+        {
+          "name": "TaskOrbital",
+          "entity": { "name": "W", "fields": [] },
+          "traits": [{ "ref": "std-app-layout#AppLayout", "name": "TaskLayout",
+            "config": { "theme": { "type": "string", "default": "linear-clean-light" } } }]
+        },
+        {
+          "name": "RosterOrbital",
+          "entity": { "name": "V", "fields": [] },
+          "traits": [{ "ref": "std-app-layout#AppLayout", "name": "RosterLayout" }]
+        }
+      ]
+    }"#;
+
+    const CONTRADICTING_PIN: &str = r#"{
+      "name": "fixture", "version": "1.0.0", "theme": "linear-clean-light",
+      "orbitals": [
+        {
+          "name": "TaskOrbital",
+          "entity": { "name": "W", "fields": [] },
+          "traits": [{ "ref": "std-app-layout#AppLayout", "name": "TaskLayout" }]
+        },
+        {
+          "name": "OddOrbital",
+          "entity": { "name": "V", "fields": [] },
+          "traits": [{ "ref": "std-app-layout#AppLayout", "name": "OddLayout",
+            "config": { "theme": { "type": "string", "default": "terminal-dark" } } }]
+        }
+      ]
+    }"#;
+
+    /// `""` is an unset knob default, not a pin — the JS false positive this
+    /// port fixes (47 corpus hits were exactly this shape).
+    const EMPTY_STRING_PIN_IS_UNPINNED: &str = r#"{
+      "name": "fixture", "version": "1.0.0", "theme": "linear-clean-light",
+      "orbitals": [{
+        "name": "OddOrbital",
+        "entity": { "name": "V", "fields": [] },
+        "traits": [{ "ref": "std-app-layout#AppLayout", "name": "OddLayout",
+          "config": { "theme": { "type": "string", "default": "" } } }]
+      }]
+    }"#;
+
+    /// A `@currentTheme`-shaped binding is a live read, not a literal pin.
+    const BINDING_PIN_IS_UNPINNED: &str = r#"{
+      "name": "fixture", "version": "1.0.0", "theme": "linear-clean-light",
+      "orbitals": [{
+        "name": "OddOrbital",
+        "entity": { "name": "V", "fields": [] },
+        "traits": [{ "ref": "std-app-layout#AppLayout", "name": "OddLayout",
+          "config": { "theme": { "type": "string", "default": "@currentTheme" } } }]
+      }]
+    }"#;
+
+    #[test]
+    fn unpinned_and_matching_orbitals_are_clean_when_app_declares_a_theme() {
+        assert!(findings(UNPINNED_ORBITALS_ARE_CLEAN).is_empty());
+    }
+
+    #[test]
+    fn flags_a_config_pin_contradicting_the_app_theme() {
+        let errors = findings(CONTRADICTING_PIN);
+        assert_eq!(errors.len(), 1);
+        assert_eq!(errors[0].code, ErrorCode::ThemePinContradictsApp);
+        assert!(errors[0].message.contains("OddOrbital"));
+        assert!(errors[0].message.contains("terminal-dark"));
+        assert!(errors[0].message.contains("linear-clean-light"));
+    }
+
+    #[test]
+    fn an_empty_string_pin_is_unpinned_not_divergent() {
+        assert!(findings(EMPTY_STRING_PIN_IS_UNPINNED).is_empty());
+    }
+
+    #[test]
+    fn a_binding_pin_is_unpinned_not_divergent() {
+        assert!(findings(BINDING_PIN_IS_UNPINNED).is_empty());
+    }
+
+    #[test]
+    fn no_app_level_theme_declared_is_silent() {
+        let schema = schema_from_json(r#"{
+          "name": "fixture", "version": "1.0.0",
+          "orbitals": [{
+            "name": "OddOrbital",
+            "entity": { "name": "V", "fields": [] },
+            "traits": [{ "ref": "std-app-layout#AppLayout", "name": "OddLayout",
+              "config": { "theme": { "type": "string", "default": "terminal-dark" } } }]
+          }]
+        }"#);
+        assert!(validate_theme_pin_matches_app(&schema).errors.is_empty());
     }
 }

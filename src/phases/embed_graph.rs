@@ -62,11 +62,25 @@ fn collect_trait_tokens(expr: &SExpression, out: &mut HashSet<String>) {
     }
 }
 
+/// Forward adjacency view shared by both `EmbedGraph` accessors below: trait
+/// name -> the trait names it embeds. Borrowed from one `EmbedGraph`, so both
+/// the full (config + state machine) and config-only views share this shape.
+pub(crate) type EmbedAdjacency<'a> = HashMap<&'a str, HashSet<&'a str>>;
+
 pub(crate) struct EmbedGraph {
     /// child trait name -> the names of every trait whose declared values
     /// reference it via `@trait.<child>`, in FIRST-SEEN order (the traits
     /// slice's own order) — `embedder_chain` takes the first entry per hop.
     referrers: HashMap<String, Vec<String>>,
+    /// Config-only sibling of `referrers`: `@trait.X` tokens found ONLY in a
+    /// trait's declared CONFIG values, never its state machine — the JS
+    /// `collectTraitConfigRefAdjacency` "content channel" view (a page's
+    /// shell designating its body through a config slot) as opposed to
+    /// `referrers`' full `collectTraitEmbedAdjacency` view ("containment" —
+    /// a trait rendered as part of another's tree). Same token walker
+    /// (`collect_trait_tokens`) as `referrers`, filled from the config-only
+    /// pass in `build` before the state-machine scan runs.
+    config_referrers: HashMap<String, Vec<String>>,
     /// trait name -> its own declared values (see module doc for what
     /// "declared" means per entry kind).
     declared: HashMap<String, HashMap<String, ConfigField>>,
@@ -76,6 +90,7 @@ impl EmbedGraph {
     pub(crate) fn build(traits: &[TraitReference]) -> Self {
         let mut declared: HashMap<String, HashMap<String, ConfigField>> = HashMap::new();
         let mut referrers: HashMap<String, Vec<String>> = HashMap::new();
+        let mut config_referrers: HashMap<String, Vec<String>> = HashMap::new();
 
         for trait_ref in traits {
             let (name, config): (&str, HashMap<String, ConfigField>) = match trait_ref {
@@ -97,6 +112,9 @@ impl EmbedGraph {
                     collect_trait_tokens(default, &mut children);
                 }
             }
+            // Config-only snapshot, before the state-machine scan below adds
+            // to `children` — this is the exact set `config_referrers` records.
+            let config_children = children.clone();
             if let TraitReference::Inline(td) = trait_ref {
                 for transition in &td.state_machine.transitions {
                     if let Some(guard) = transition.guard.as_ref() {
@@ -115,6 +133,14 @@ impl EmbedGraph {
                     }
                 }
             }
+            for child in &config_children {
+                if child != name {
+                    config_referrers
+                        .entry(child.clone())
+                        .or_default()
+                        .push(name.to_string());
+                }
+            }
             for child in children {
                 if child != name {
                     referrers.entry(child).or_default().push(name.to_string());
@@ -125,6 +151,7 @@ impl EmbedGraph {
 
         Self {
             referrers,
+            config_referrers,
             declared,
         }
     }
@@ -198,10 +225,30 @@ impl EmbedGraph {
     /// Forward index: trait name -> the trait names it embeds directly via
     /// `@trait.X` — the inverse of `referrers` (child -> parents), built
     /// once in O(n). Feeds `client_bound_traits`'s page-seeded reachability
-    /// walk below.
-    fn embedded_children(&self) -> HashMap<&str, HashSet<&str>> {
-        let mut forward: HashMap<&str, HashSet<&str>> = HashMap::new();
+    /// walk below, and the page-content-owner model's "containment" relation
+    /// (`page_content_owner::reduce_to_owners`'s `embed_adjacency`).
+    pub(crate) fn embedded_children(&self) -> EmbedAdjacency<'_> {
+        let mut forward: EmbedAdjacency<'_> = HashMap::new();
         for (child, parents) in self.referrers_iter() {
+            for parent in parents {
+                forward.entry(parent.as_str()).or_default().insert(child);
+            }
+        }
+        forward
+    }
+
+    /// Config-only sibling of `embedded_children`: trait name -> the trait
+    /// names it embeds via `@trait.X` tokens in DECLARED CONFIG ONLY (not
+    /// state machine) — mirrors `@almadar/core`'s `collectTraitConfigRefAdjacency`.
+    /// The page-content-owner model's "designation"/"content channel"
+    /// relation (`page_content_owner::reduce_to_owners`'s `channel_adjacency`).
+    pub(crate) fn config_embedded_children(&self) -> EmbedAdjacency<'_> {
+        let mut forward: EmbedAdjacency<'_> = HashMap::new();
+        for (child, parents) in self
+            .config_referrers
+            .iter()
+            .map(|(k, v)| (k.as_str(), v.as_slice()))
+        {
             for parent in parents {
                 forward.entry(parent.as_str()).or_default().insert(child);
             }
@@ -454,6 +501,46 @@ mod tests {
         let graph = EmbedGraph::build(&timeline_shaped_traits());
         assert_eq!(graph.direct_host("Feed"), None);
         assert_eq!(graph.direct_host("NeverHeardOfIt"), None);
+    }
+
+    // --- config_embedded_children ---
+
+    /// `timeline_shaped_traits`: Feed -> Stack8 is a STATE-MACHINE edge (a
+    /// render-ui effect's `children`), never a config default — it must be
+    /// absent from the config-only view even though it's present in the full
+    /// `embedded_children` view. Stack8 -> Stack5 and Stack5 -> Typography4
+    /// ARE config-default edges (each `Reference`'s own `children` default),
+    /// so both views agree there.
+    #[test]
+    fn config_embedded_children_excludes_state_machine_only_edges() {
+        let graph = EmbedGraph::build(&timeline_shaped_traits());
+        let config_forward = graph.config_embedded_children();
+        let full_forward = graph.embedded_children();
+
+        assert!(
+            !config_forward.contains_key("Feed"),
+            "Feed embeds Stack8 only via a render-ui effect, not config — config-only view must not see it"
+        );
+        assert!(
+            full_forward.get("Feed").is_some_and(|c| c.contains("Stack8")),
+            "the full view must still see Feed -> Stack8"
+        );
+
+        let stack8_children = config_forward.get("Stack8").expect("Stack8 has a config-default child");
+        assert!(stack8_children.contains("Stack5"));
+        let stack5_children = config_forward.get("Stack5").expect("Stack5 has a config-default child");
+        assert!(stack5_children.contains("Typography4"));
+    }
+
+    #[test]
+    fn config_embedded_children_empty_when_no_trait_declares_a_config_forward() {
+        let traits = vec![inline_trait(
+            "Solo",
+            json!({}),
+            json!([["render-ui", "main", { "children": ["@trait.Chrome"] }]]),
+        )];
+        let graph = EmbedGraph::build(&traits);
+        assert!(graph.config_embedded_children().is_empty());
     }
 
     // --- client_bound_traits ---

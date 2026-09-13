@@ -269,6 +269,23 @@ pub enum ErrorCode {
     PageInvalidTraitRef,
     /// Invalid view type
     PageInvalidViewType,
+    /// A declared inline page is not the target of any `navigate` effect,
+    /// any literal `href` value, and is not the root page or a
+    /// parameterized page — nothing in the schema can ever route a viewer
+    /// to it. Ported from the JS wiring lint's `page-absent-from-nav`,
+    /// generalised: no navItems-array opt-in gate, and scalar `href` values
+    /// count (not only object-array entries).
+    PageUnreachable,
+    /// A page's content owner (`page_content_owner`'s `channel`/`ambiguous`)
+    /// leaves a SECOND page-declared, inline, content-main-writing trait
+    /// unclaimed: not an owner itself, not embedded by any client-bound
+    /// trait, and not kin to the owner through either the config-channel or
+    /// embed-containment relation (`reduce_to_owners({owner, this}).len() ==
+    /// 1` would mean related, not a rival). Two content bodies stacking into
+    /// one page's `main`. Ported from the JS wiring lint's
+    /// `unclaimed-main-writer` (warning there; error here per the owner's Q3
+    /// ruling).
+    PageSecondContentBody,
 
     // =========================================================================
     // Slot Errors (ORB_SLOT_*)
@@ -504,6 +521,18 @@ pub enum ErrorCode {
     /// after `use`-imports inline so atoms/molecules pulled into an orbital
     /// can't accidentally introduce dangling listens.
     CrossOrbitalListenSourceUnresolved,
+    /// A `listens { S.E -> TRIGGER }` route whose source trait S DOES
+    /// declare event E in its `emits[]` contract, but nothing in the schema
+    /// currently produces E live — no effect emit, no rendered `action:`/
+    /// event prop, no structured `itemActions` entry, and no trait embedded
+    /// (directly or transitively) inside S produces it either. The contract
+    /// permits it; a config override (an itemActions/browseItemActions
+    /// narrowed at this call site, say) removed the only producer, so the
+    /// route is a live wire with nothing behind it — fires whatever the
+    /// emit's declared `scope` is (`external` included: a cross-orbital
+    /// broadcast still needs a live broadcaster). Ported from the JS wiring
+    /// lint's `listener-affordance-removed-by-config`.
+    CrossOrbitalListenSourceNeverProduces,
     /// A `listens { Src.EVENT -> TRIGGER }` entry names an internal TRIGGER
     /// that no transition in the SAME trait reacts to. The bus would deliver
     /// the event but the state machine has no handler — the wire silently
@@ -709,6 +738,14 @@ pub enum ErrorCode {
     /// references are render-time composition primitives and have no meaning
     /// in data/effects/control flow.
     BindingTraitOutsideRenderUi,
+    /// A render-ui payload embeds `@config.<knob>` (as a child or inside a
+    /// `children` entry) where `<knob>` is a `trait`-typed config field whose
+    /// resolved value is `none` (unbound), and the render-ui is not guarded
+    /// by an `(if @config.<knob> ...)` wrapping it in the same effect list.
+    /// An unbound trait knob's embed renders nothing — the closed-circuit
+    /// rule that no wire may terminate in nothing (owner ruling 2026-09-13:
+    /// a `trait`-typed config knob may be `none`).
+    RenderUnboundTraitKnobEmbedded,
 
     // =========================================================================
     // Entity Mutation / Tick Errors (ORB_ENTITY_*, ORB_TICK_*)
@@ -849,6 +886,22 @@ pub enum ErrorCode {
     /// lint's `async-result-deaf-target` (warning there; error here per the
     /// 0/0 ruling). Error severity.
     CircuitAsyncResultDeafTarget,
+    /// The trait that OWNS a page's content region (`page_content_owner`'s
+    /// `channel`/`sole-writer`) has a user-triggered arm that repaints its
+    /// own main-slot body with something offering no way on: no content-body
+    /// pattern, no registry event-kind prop bound to a live (non-lifecycle)
+    /// event or an unresolved binding, and no `@trait.X` embed. "User-
+    /// triggered" means the event is reachable from a rendered affordance or
+    /// a `listens` route, transitively, minus async-result and lifecycle
+    /// events. Exempt: an arm running its own `fetch`/`persist` (its result
+    /// arm repaints); a non-self-transition escaping to a state with another
+    /// producible, non-lifecycle arm. Ported from the JS wiring lint's
+    /// `viewer-stranded`, predicate revised 2026-09-12 per the F31 live
+    /// probe (`play_scene` on `ui-minigolf-board`/`std-chem-titration`): the
+    /// JS's labelled-control test and `@`/`?` sigil branch were both
+    /// heuristics and are dropped — a registry event-kind prop is the only
+    /// test. Error severity.
+    CircuitViewerStranded,
 
     // =========================================================================
     // Icon Errors (ORB_UI_ICON_*)
@@ -934,6 +987,30 @@ pub enum ErrorCode {
     /// `customerEmail` trap: a policy that silently denies everyone while
     /// looking correct.
     SchemaOwnerFieldNotIdentityTyped,
+    /// An entity declares ≥1 owner column (a declared relation to the
+    /// `[identity]` entity, via `owner_fields_from_schema` — never by field
+    /// name) but no `read_policy` and no stated `access_waivers.read`
+    /// reason. An undeclared policy is ALLOW-ALL, not deny-all, so every
+    /// viewer reads every row. L3 port of JS `unscoped-owned-entity`.
+    EntityOwnerColumnUnscoped,
+    /// A trait's `config.groupByField` + `config.columns[].key` bucket rows
+    /// of the linked entity by strict key equality, but the field's declared
+    /// enum allows a value no column key names — those rows match no column
+    /// and silently disappear. L3 port of JS `groupby-enum-column-gap`.
+    RenderGroupbyEnumColumnGap,
+    /// A trait embedded via `@trait.X` by ≥2 referrers that itself declares
+    /// an `@config.<key>` forward. One declaration serves one embedder (its
+    /// forwards chain to the first referrer only), so the second embedder's
+    /// call-site config never takes effect. L3 port of JS
+    /// `embedded-sibling-single-referrer`.
+    EmbedConfigForwardMultiReferrer,
+    /// A trait pins `config.theme` to a non-empty literal that isn't a
+    /// binding (`@…`) and doesn't match the schema's app-level `theme`
+    /// declaration. `""` and bindings are unpinned — an orbital riding the
+    /// ambient default is silent. L3 port of the app-level branch of JS
+    /// `app-theme-divergent`; the dominant-vote branch is a name/plurality
+    /// heuristic and is retired, not ported.
+    ThemePinContradictsApp,
     /// An access directive reads a binding root other than `@entity`/`@user` —
     /// the directive has no call site, so `@payload`/`@config`/`@state` are
     /// not meaningful there.
@@ -1097,6 +1174,8 @@ impl ErrorCode {
             ErrorCode::PageSectionsForbidden => "ORB_P_SECTIONS_FORBIDDEN",
             ErrorCode::PageInvalidTraitRef => "ORB_P_INVALID_TRAIT_REF",
             ErrorCode::PageInvalidViewType => "ORB_P_INVALID_VIEW_TYPE",
+            ErrorCode::PageUnreachable => "ORB_PAGE_UNREACHABLE",
+            ErrorCode::PageSecondContentBody => "ORB_PAGE_SECOND_CONTENT_BODY",
 
             // Slot
             ErrorCode::SlotMainNotCovered => "ORB_SLOT_MAIN_NOT_COVERED",
@@ -1183,6 +1262,7 @@ impl ErrorCode {
             ErrorCode::CrossOrbitalMissingName => "ORB_X_MISSING_ORBITAL_NAME",
             ErrorCode::CrossOrbitalPayloadMismatch => "ORB_X_PAYLOAD_MISMATCH",
             ErrorCode::CrossOrbitalListenSourceUnresolved => "ORB_X_LISTEN_SOURCE_UNRESOLVED",
+            ErrorCode::CrossOrbitalListenSourceNeverProduces => "ORB_X_LISTEN_SOURCE_NEVER_PRODUCES",
             ErrorCode::ListenTriggerUnmatched => "ORB_X_LISTEN_TRIGGER_UNMATCHED",
             ErrorCode::FilterFieldNeverWritten => "ORB_X_FILTER_FIELD_NEVER_WRITTEN",
             ErrorCode::InternalEventExposed => "ORB_X_INTERNAL_EVENT_EXPOSED",
@@ -1233,6 +1313,7 @@ impl ErrorCode {
             ErrorCode::BindingTraitCycle => "ORB_BINDING_TRAIT_CYCLE",
             ErrorCode::BindingTraitInvalidPosition => "ORB_BINDING_TRAIT_INVALID_POSITION",
             ErrorCode::BindingTraitOutsideRenderUi => "ORB_BINDING_TRAIT_OUTSIDE_RENDER_UI",
+            ErrorCode::RenderUnboundTraitKnobEmbedded => "ORB_RENDER_UNBOUND_TRAIT_KNOB_EMBEDDED",
 
             // Entity Mutation / Tick
             ErrorCode::EntitySplitMutation => "ORB_ENTITY_SPLIT_MUTATION",
@@ -1263,6 +1344,7 @@ impl ErrorCode {
             ErrorCode::CircuitClientUnboundStateMachine => "ORB_CIRCUIT_CLIENT_UNBOUND_STATE_MACHINE",
             ErrorCode::CircuitDeadBodilessAction => "ORB_CIRCUIT_DEAD_BODILESS_ACTION",
             ErrorCode::CircuitAsyncResultDeafTarget => "ORB_CIRCUIT_ASYNC_RESULT_DEAF_TARGET",
+            ErrorCode::CircuitViewerStranded => "ORB_CIRCUIT_VIEWER_STRANDED",
 
             // Icon
             ErrorCode::IconInvalidFormat => "ORB_UI_ICON_INVALID_FORMAT",
@@ -1296,6 +1378,10 @@ impl ErrorCode {
                 "ORB_S_ACCESS_POLICY_UNKNOWN_ENTITY_FIELD"
             }
             ErrorCode::SchemaOwnerFieldNotIdentityTyped => "ORB_S_OWNER_FIELD_NOT_IDENTITY_TYPED",
+            ErrorCode::EntityOwnerColumnUnscoped => "ORB_ENTITY_OWNER_COLUMN_UNSCOPED",
+            ErrorCode::RenderGroupbyEnumColumnGap => "ORB_RENDER_GROUPBY_ENUM_COLUMN_GAP",
+            ErrorCode::EmbedConfigForwardMultiReferrer => "ORB_EMBED_CONFIG_FORWARD_MULTI_REFERRER",
+            ErrorCode::ThemePinContradictsApp => "ORB_THEME_PIN_CONTRADICTS_APP",
             ErrorCode::SchemaAccessPolicyInvalidBinding => "ORB_S_ACCESS_POLICY_INVALID_BINDING",
             ErrorCode::SchemaAccessPolicyRequiresIdentity => {
                 "ORB_S_ACCESS_POLICY_REQUIRES_IDENTITY"
@@ -1401,7 +1487,9 @@ impl ErrorCode {
             | ErrorCode::OrbitalRefFieldRenameUnapplied
             | ErrorCode::PageSectionsForbidden
             | ErrorCode::PageInvalidTraitRef
-            | ErrorCode::PageInvalidViewType => "page",
+            | ErrorCode::PageInvalidViewType
+            | ErrorCode::PageUnreachable
+            | ErrorCode::PageSecondContentBody => "page",
 
             ErrorCode::SlotMainNotCovered
             | ErrorCode::SlotContention
@@ -1427,7 +1515,8 @@ impl ErrorCode {
             | ErrorCode::RenderUIElementShapeMismatch
             | ErrorCode::RenderUIEventBindingPayloadMismatch
             | ErrorCode::EntityPropContract
-            | ErrorCode::RenderUIEventLiteralStale => "render_ui",
+            | ErrorCode::RenderUIEventLiteralStale
+            | ErrorCode::RenderUnboundTraitKnobEmbedded => "render_ui",
 
             ErrorCode::EffectCallServiceMissingService
             | ErrorCode::EffectCallServiceUnknownService
@@ -1484,6 +1573,7 @@ impl ErrorCode {
             | ErrorCode::CrossOrbitalMissingName
             | ErrorCode::CrossOrbitalPayloadMismatch
             | ErrorCode::CrossOrbitalListenSourceUnresolved
+            | ErrorCode::CrossOrbitalListenSourceNeverProduces
             | ErrorCode::ListenTriggerUnmatched
             | ErrorCode::InternalEventExposed
             | ErrorCode::UnresolvedRelationTarget
@@ -1549,7 +1639,8 @@ impl ErrorCode {
             | ErrorCode::CircuitLifecycleEmitUndelivered
             | ErrorCode::CircuitClientUnboundStateMachine
             | ErrorCode::CircuitDeadBodilessAction
-            | ErrorCode::CircuitAsyncResultDeafTarget => "circuit",
+            | ErrorCode::CircuitAsyncResultDeafTarget
+            | ErrorCode::CircuitViewerStranded => "circuit",
 
             ErrorCode::IconInvalidFormat | ErrorCode::IconEmpty | ErrorCode::IconNotFound => "icon",
 
@@ -1598,6 +1689,11 @@ impl ErrorCode {
             | ErrorCode::UnknownTheme
             | ErrorCode::MissingField
             | ErrorCode::DuplicateEntity => "generic",
+
+            ErrorCode::EntityOwnerColumnUnscoped => "entity",
+            ErrorCode::RenderGroupbyEnumColumnGap => "render_ui",
+            ErrorCode::EmbedConfigForwardMultiReferrer => "cross",
+            ErrorCode::ThemePinContradictsApp => "schema",
         }
     }
 }

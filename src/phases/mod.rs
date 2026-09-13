@@ -22,6 +22,7 @@ pub mod cross_file_ids;
 pub(crate) mod embed_graph;
 pub mod enrich;
 pub mod inline;
+pub mod page_content_owner;
 pub mod parse;
 pub mod resolve;
 pub mod sexpr_json;

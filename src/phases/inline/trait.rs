@@ -4,10 +4,10 @@
 use super::context::{parse_reference, InlineContext, ParsedReference};
 use super::identity_normalize::rewrite_trait_embed_tokens;
 use super::rewrite::{
-    apply_inline_config_defaults, mark_literal_list_in_place, record_config_provenance,
-    rewrite_config_bindings, rewrite_entity_field_paths, rewrite_entity_ref_ids,
-    rewrite_entity_typed_config_values, rewrite_identifiers, rewrite_payload_entity_refs,
-    rewrite_trait_event_fields, stale_entity_rebind_subs,
+    apply_inline_config_defaults, coerce_trait_knob_conditions, mark_literal_list_in_place,
+    record_config_provenance, rewrite_config_bindings, rewrite_entity_field_paths,
+    rewrite_entity_ref_ids, rewrite_entity_typed_config_values, rewrite_identifiers,
+    rewrite_payload_entity_refs, rewrite_trait_event_fields, stale_entity_rebind_subs,
 };
 use super::InlineError;
 use orbital_core::schema::{
@@ -15,6 +15,25 @@ use orbital_core::schema::{
     SExpression, SourceBehaviorMetadata, TraitDefinition, TraitReference,
 };
 use std::collections::{HashMap, HashSet};
+
+/// A call-site `config { <traitKnob>: none }` override is plain-wiring
+/// (`type_expr = Primitive("unknown")`, `orbital-lolo/src/lower/trait.rs`'s
+/// `is_plain_wiring` branch) — L1 has no visibility into the wrapped atom's
+/// declared field type, so the bare identifier `none` lowers to the literal
+/// string `"none"` like any other identifier there. This is the first point
+/// the ATOM's declared `field_type` is known (`base_field_type`, read off
+/// the trait's own pre-override `config` map), so it is the right place to
+/// canonicalize that string to `Null` — the language's single "unbound"
+/// representation for a `trait`-typed knob (owner ruling 2026-09-13). A
+/// declaration-form override (`config { k : trait = none }`) is already
+/// normalized at L1 (`canonicalize_unbound_trait_default`), so this only
+/// ever fires for the plain-wiring shape.
+fn canonicalize_unbound_trait_override(base_field_type: &str, value: SExpression) -> SExpression {
+    match &value {
+        SExpression::String(s) if base_field_type == "trait" && s == "none" => SExpression::Null,
+        _ => value,
+    }
+}
 
 #[allow(clippy::too_many_arguments)]
 pub(crate) fn apply_overrides_to_trait(
@@ -182,7 +201,16 @@ pub(crate) fn apply_overrides_to_trait(
     if let Some(cfg) = config {
         for (k, cf) in cfg.iter() {
             if let Some(v) = cf.default.as_ref() {
-                effective_config.insert(k.clone(), v.clone());
+                let base_field_type = trait_def
+                    .config
+                    .as_ref()
+                    .and_then(|d| d.get(k))
+                    .map(|f| f.field_type.as_str())
+                    .unwrap_or("");
+                effective_config.insert(
+                    k.clone(),
+                    canonicalize_unbound_trait_override(base_field_type, v.clone()),
+                );
             }
         }
     }
@@ -338,7 +366,10 @@ pub(crate) fn apply_overrides_to_trait(
             for (k, cf) in cfg.iter() {
                 if let Some(field) = declared.get_mut(k) {
                     if let Some(v) = cf.default.as_ref() {
-                        field.default = Some(v.clone());
+                        field.default = Some(canonicalize_unbound_trait_override(
+                            &field.field_type,
+                            v.clone(),
+                        ));
                         field.forwarded_from = cf.forwarded_from.clone();
                     }
                     if cf.label.is_some() {
@@ -486,6 +517,29 @@ pub(crate) fn apply_overrides_to_trait(
         // capture value is retained on the child's declared config-field default
         // above, where the call site reads it). Baking it into the child body
         // would (mis)evaluate it in the child's own INIT scope.
+        //
+        // A `trait`-typed knob's condition-of-`(if|when @config.<knob> ...)`
+        // slot is resolved to a plain `Bool` (is it bound?) BEFORE the
+        // general substitution below bakes the raw `@trait.<Name>`/`Null`
+        // value into every OTHER position — correctly, e.g. a render-ui
+        // children entry, which is exactly what lets the compiled
+        // TypeScript backend keep baking a bound knob into a static
+        // `<TraitFrame>`-equivalent import. See
+        // `coerce_trait_knob_conditions`'s doc comment for the full
+        // rationale (a raw `@trait.X` string landing in a guard condition
+        // is rejected by `ORB_BINDING_TRAIT_OUTSIDE_RENDER_UI` — a
+        // render-only primitive has no boolean truth value).
+        let trait_knobs: HashSet<String> = trait_def
+            .config
+            .as_ref()
+            .map(|c| {
+                c.iter()
+                    .filter(|(_, f)| f.field_type == "trait")
+                    .map(|(k, _)| k.clone())
+                    .collect()
+            })
+            .unwrap_or_default();
+        coerce_trait_knob_conditions(trait_def, &trait_knobs, &effective_config);
         let subst_config: HashMap<String, SExpression> = effective_config
             .iter()
             .filter(|(_, v)| !orbital_core::schema::contains_callsite_payload(v))
@@ -3097,6 +3151,117 @@ mod forwarded_sibling_config_tests {
         assert!(
             resolved.is_none(),
             "a pure cycle resolves nothing: {resolved:?}"
+        );
+    }
+}
+
+/// A `trait`-typed knob's call-site override written as plain wiring
+/// (`config { uiTrait: none }`) has no static type at L1 — the override's raw
+/// `ConfigField` carries `field_type: "unknown"`. `apply_overrides_to_trait`
+/// is the first point that knows the WRAPPED atom's declared `field_type`
+/// ("trait"), so it must canonicalize the override's literal string `"none"`
+/// to `Null` — the language's single "unbound" representation — both in the
+/// `effective_config` map (drives body substitution) and in the folded
+/// `trait_def.config[k].default` (what the trait-typed-default validator and
+/// the unbound-embed check read post-inline).
+#[cfg(test)]
+mod unbound_trait_knob_override_tests {
+    use super::*;
+
+    fn config_field(field_type: &str, default: serde_json::Value) -> ConfigField {
+        serde_json::from_value(serde_json::json!({ "type": field_type, "default": default }))
+            .expect("config field deserializes")
+    }
+
+    fn trait_with_config(name: &str, config: HashMap<String, ConfigField>) -> TraitDefinition {
+        serde_json::from_value(serde_json::json!({
+            "name": name,
+            "linkedEntity": "Item",
+            "category": "interaction",
+            "config": config,
+            "stateMachine": { "states": [ { "name": "idle", "isInitial": true } ], "transitions": [] }
+        }))
+        .expect("trait deserializes")
+    }
+
+    /// A declared `uiTrait : trait = @trait.DefaultForm` atom, composed with
+    /// a plain-wiring call-site override `uiTrait: none` (L1 lowers the bare
+    /// identifier to the string `"none"`, since it can't see the atom's own
+    /// field type at that call site) — post-inline, the folded
+    /// `trait_def.config["uiTrait"].default` must be `Null`, not the literal
+    /// string `"none"`.
+    #[test]
+    fn plain_wiring_none_override_canonicalizes_to_null() {
+        let mut td = trait_with_config(
+            "Body",
+            HashMap::from([(
+                "uiTrait".to_string(),
+                config_field("trait", serde_json::json!("@trait.DefaultForm")),
+            )]),
+        );
+        let overrides = HashMap::from([(
+            "uiTrait".to_string(),
+            config_field("unknown", serde_json::json!("none")),
+        )]);
+        let mut recorder = Vec::new();
+        apply_overrides_to_trait(
+            &mut td,
+            None,
+            &HashMap::new(),
+            Some(&overrides),
+            None,
+            None,
+            None,
+            false,
+            &mut recorder,
+        );
+
+        assert_eq!(
+            td.config
+                .as_ref()
+                .and_then(|c| c.get("uiTrait"))
+                .and_then(|f| f.default.as_ref()),
+            Some(&SExpression::Null),
+            "a plain-wiring `none` override of a trait-typed knob must fold to Null"
+        );
+    }
+
+    /// A non-trait knob's plain-wiring override of the literal string
+    /// `"none"` is an ordinary string value — `field_type != "trait"` must
+    /// leave it untouched (no heuristic on the text "none" itself).
+    #[test]
+    fn plain_wiring_none_override_on_non_trait_knob_is_untouched() {
+        let mut td = trait_with_config(
+            "Body",
+            HashMap::from([(
+                "mode".to_string(),
+                config_field("string", serde_json::json!("edit")),
+            )]),
+        );
+        let overrides = HashMap::from([(
+            "mode".to_string(),
+            config_field("unknown", serde_json::json!("none")),
+        )]);
+        let mut recorder = Vec::new();
+        apply_overrides_to_trait(
+            &mut td,
+            None,
+            &HashMap::new(),
+            Some(&overrides),
+            None,
+            None,
+            None,
+            false,
+            &mut recorder,
+        );
+
+        assert_eq!(
+            td.config
+                .as_ref()
+                .and_then(|c| c.get("mode"))
+                .and_then(|f| f.default.as_ref()),
+            Some(&SExpression::String("none".to_string())),
+            "a string-typed knob's literal \"none\" override is an ordinary value, not the unbound sentinel"
         );
     }
 }

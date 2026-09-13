@@ -960,7 +960,11 @@ pub(crate) fn apply_inline_config_defaults(
         return;
     };
     let mut effective_config: HashMap<String, SExpression> = HashMap::new();
+    let mut trait_knobs: HashSet<String> = HashSet::new();
     for (k, field) in declared.iter() {
+        if field.field_type == "trait" {
+            trait_knobs.insert(k.clone());
+        }
         if let Some(default) = field.default.as_ref() {
             let mut v = default.clone();
             mark_literal_list_in_place(&mut v, &field.field_type);
@@ -970,6 +974,14 @@ pub(crate) fn apply_inline_config_defaults(
     if effective_config.is_empty() {
         return;
     }
+    // A `trait`-typed knob's raw value (a `@trait.<Name>` embed token, or
+    // `Null` for the unbound `none` sentinel) has no meaning as a runtime
+    // boolean, so resolve the CONDITION slot of every `(if|when
+    // @config.<knob> ...)` to whether the knob is bound BEFORE the general
+    // substitution below bakes the raw value into every other position
+    // (correctly — e.g. a render-ui children entry). See
+    // `coerce_trait_knob_conditions`'s doc comment for the full rationale.
+    coerce_trait_knob_conditions(trait_def, &trait_knobs, &effective_config);
     let cfg = &effective_config;
     record_config_provenance(trait_def, cfg, recorder);
     for transition in trait_def.state_machine.transitions.iter_mut() {
@@ -995,6 +1007,83 @@ pub(crate) fn apply_inline_config_defaults(
     // Standalone atom (no call site): `@config.<knob>` emit-name refs
     // resolve to the declared defaults collected above (Option B).
     super::r#trait::resolve_config_ref_emit_names(trait_def, cfg);
+}
+
+/// A `trait`-typed config knob's raw value is a render-only composition
+/// token — a `@trait.<Name>` embed string, or `Null` for the unbound `none`
+/// sentinel (owner ruling 2026-09-13) — never a runtime boolean. But the
+/// generic `@config.<knob>` substitution below (`rewrite_config_bindings`) is
+/// a blind, position-agnostic text walk: baking the raw value into a
+/// `(if @config.<knob> ...)` guard condition would land a bare `@trait.X`
+/// string (or a bare `Null`, itself not a `boolean`-typed literal per the
+/// `if` operator's declared param type) directly in a boolean slot, which
+/// `ORB_BINDING_TRAIT_OUTSIDE_RENDER_UI` correctly rejects — a render-only
+/// primitive has no truth value.
+///
+/// This pass runs FIRST and resolves ONLY the condition slot of every
+/// `(if|when @config.<knob> ...)` node — for each `<knob>` in `trait_knobs`
+/// — to a literal `Bool`: `true` when the knob's `effective_config` value is
+/// a bound `@trait.<Name>` string, `false` when it is `Null` (or otherwise
+/// unresolved). Every OTHER occurrence of `@config.<knob>` (e.g. a
+/// render-ui `children` entry) is untouched here and flows through the
+/// normal substitution afterward exactly as before — which is what lets the
+/// compiled TypeScript backend keep baking a bound knob into a static
+/// `<TraitFrame>`-equivalent import (`codegen/pattern/registry.rs`'s
+/// `child_to_jsx`) and the interpreted path keep resolving it via
+/// `@almadar/ui`'s `trait-binding-resolver.ts`.
+pub(crate) fn coerce_trait_knob_conditions(
+    trait_def: &mut TraitDefinition,
+    trait_knobs: &HashSet<String>,
+    effective_config: &HashMap<String, SExpression>,
+) {
+    if trait_knobs.is_empty() {
+        return;
+    }
+    fn is_bound(value: Option<&SExpression>) -> bool {
+        matches!(value, Some(SExpression::String(_)))
+    }
+    fn walk(expr: &mut SExpression, trait_knobs: &HashSet<String>, effective_config: &HashMap<String, SExpression>) {
+        let SExpression::Array(arr) = expr else {
+            return;
+        };
+        if arr.len() >= 2 {
+            if let Some(SExpression::String(op)) = arr.first() {
+                if op == "if" || op == "when" {
+                    if let SExpression::String(cond) = &arr[1] {
+                        if let Some(knob) = cond.strip_prefix("@config.") {
+                            if trait_knobs.contains(knob) {
+                                let bound = is_bound(effective_config.get(knob));
+                                arr[1] = SExpression::Bool(bound);
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        for item in arr.iter_mut() {
+            walk(item, trait_knobs, effective_config);
+        }
+    }
+    for transition in trait_def.state_machine.transitions.iter_mut() {
+        if let Some(guard) = transition.guard.as_mut() {
+            walk(guard, trait_knobs, effective_config);
+        }
+        if let Some(effects) = transition.effects.as_mut() {
+            for effect in effects.iter_mut() {
+                walk(effect, trait_knobs, effective_config);
+            }
+        }
+    }
+    if let Some(ticks) = trait_def.ticks.as_mut() {
+        for tick in ticks.iter_mut() {
+            if let Some(guard) = tick.guard.as_mut() {
+                walk(guard, trait_knobs, effective_config);
+            }
+            for effect in tick.effects.iter_mut() {
+                walk(effect, trait_knobs, effective_config);
+            }
+        }
+    }
 }
 
 /// Phase 3.A: Substitute `@config.<param>` binding strings with concrete

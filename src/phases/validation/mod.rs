@@ -579,6 +579,9 @@ pub fn validate_comprehensive_full(
 
     // Phase 12: Closed circuit validation
     closed_circuit::validate_all_circuits(schema, &mut ctx);
+    // ORB_CIRCUIT_VIEWER_STRANDED + ORB_PAGE_SECOND_CONTENT_BODY: page-level
+    // (not per-trait) checks sharing one page-content-owner computation.
+    closed_circuit::validate_page_content_ownership(schema, &mut ctx);
 
     // Phase 13: Icon validation
     icon::validate_all_icons(schema, &mut ctx);

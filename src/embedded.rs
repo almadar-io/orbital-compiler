@@ -631,8 +631,13 @@ pub struct EmbeddedPatternProp {
     /// `"event"` (legacy, EventKey alias), `"event-ref"` (declarative
     /// bus-emit prop, sourced from `EventEmit<P>`), `"event-listen"`
     /// (`EventListen<P>` mirror), `"event-list"` (array prop whose elements
-    /// carry an event-name field), `"callback"` (React callback prop bound
-    /// to an event name at the schema-author site).
+    /// carry an event-name field), `"event-map"` (dynamic-key object prop
+    /// whose VALUES — not the prop itself — are declared event keys, e.g. a
+    /// d-pad's direction→event map or a canvas's keycode→event map; the
+    /// Record/index-signature value type resolved to `EventKey`),
+    /// `"callback"` (React callback prop bound to an event name at the
+    /// schema-author site — NEVER set for a render-prop that returns a
+    /// value, see `renderCallback` below).
     #[serde(default)]
     pub kind: Option<String>,
     /// Optional marker for ARRAY props whose string elements are field names

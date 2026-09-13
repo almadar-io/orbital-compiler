@@ -20,9 +20,11 @@
 //! and rendered row actions.
 //!
 //! Everything here is source-tagged against the pattern/operator registries —
-//! `kind: "event" | "event-ref" | "event-listen" | "callback"` props and
-//! `kind: "event-list"` inner fields, written by pattern-sync because a
-//! component author typed the prop that way. No name heuristics.
+//! `kind: "event" | "event-ref" | "event-listen" | "callback"` props,
+//! `kind: "event-list"` inner fields, and `kind: "event-map"` object VALUES
+//! (a d-pad's direction→event map, a canvas's keycode→event map), written by
+//! pattern-sync because a component author typed the prop that way. No name
+//! heuristics.
 
 use orbital_core::events::is_bus_excluded_event;
 use orbital_core::schema::{OrbitalSchema, SExpression, TraitDefinition, TraitReference};
@@ -253,6 +255,31 @@ pub(crate) fn ui_event_prop_names() -> &'static std::collections::HashSet<String
     })
 }
 
+/// Prop names carrying `kind: "event-map"` — a dynamic-key object whose
+/// VALUES (not the prop's own value) are declared event keys, e.g. a d-pad's
+/// direction→event map (`control-grid.directionEvents`) or a canvas's
+/// keycode→event map (`canvas.keyMap`). Kept separate from
+/// `ui_event_prop_names()`: that flat set assumes the prop's OWN value is (a
+/// conditional tree of) event-name strings, whereas an event-map's value is
+/// an object whose VALUES need the same treatment — a different shape of
+/// walk, not just a different set of names.
+fn event_map_prop_names() -> &'static std::collections::HashSet<String> {
+    use std::collections::HashSet;
+    use std::sync::OnceLock;
+    static EVENT_MAP_PROP_NAMES: OnceLock<HashSet<String>> = OnceLock::new();
+    EVENT_MAP_PROP_NAMES.get_or_init(|| {
+        let mut names: HashSet<String> = HashSet::new();
+        for pattern in patterns().values() {
+            for (prop_name, prop) in &pattern.props_schema {
+                if prop.kind.as_deref() == Some("event-map") {
+                    names.insert(prop_name.clone());
+                }
+            }
+        }
+        names
+    })
+}
+
 /// Fold-aware sibling of `SExpression::conditional_leaf_values`, scoped to
 /// THIS consumer: a `["if", cond, then, else?]` whose `cond` provably never
 /// fires (`SExpression::is_statically_false`) contributes no leaf from its
@@ -386,6 +413,26 @@ pub(crate) fn collect_fired_events_recursive(
                             // warning that would have found it.
                             if !s.starts_with('@') && !is_bus_excluded_event(s) {
                                 fired.by_control.insert((trait_name.to_string(), s.clone()));
+                            }
+                        }
+                    }
+                }
+                // `event-map` props (`control-grid.directionEvents`,
+                // `canvas.keyMap`): the prop's own value is an OBJECT whose
+                // VALUES — not the prop's value itself — are event names. A
+                // whole-map binding (`directionEvents: "@config.…"`) is
+                // skipped, same as any other unresolvable binding.
+                if event_map_prop_names().contains(key) {
+                    if let SExpression::Object(map_values) = value {
+                        for map_value in map_values.values() {
+                            for leaf in fold_aware_event_prop_leaves(map_value) {
+                                if let SExpression::String(s) = leaf {
+                                    if !s.starts_with('@') && !is_bus_excluded_event(s) {
+                                        fired
+                                            .by_control
+                                            .insert((trait_name.to_string(), s.clone()));
+                                    }
+                                }
                             }
                         }
                     }
@@ -660,5 +707,63 @@ mod tests {
         let value = s("SAVE");
         let leaves = fold_aware_event_prop_leaves(&value);
         assert_eq!(leaves, vec![&value]);
+    }
+
+    // ---- `kind: "event-map"` — a d-pad/canvas direction/key→event object --
+
+    #[test]
+    fn event_map_values_count_as_by_control_producers() {
+        // { type: "control-grid", directionEvents: { left: "STEER_LEFT", right: "STEER_RIGHT" } }
+        let node = SExpression::Object(
+            [
+                ("type".to_string(), s("control-grid")),
+                (
+                    "directionEvents".to_string(),
+                    SExpression::Object(
+                        [
+                            ("left".to_string(), s("STEER_LEFT")),
+                            ("right".to_string(), s("STEER_RIGHT")),
+                        ]
+                        .into_iter()
+                        .collect(),
+                    ),
+                ),
+            ]
+            .into_iter()
+            .collect(),
+        );
+        let mut fired = FiredEvents::default();
+        collect_fired_events_recursive("T", &node, &mut fired);
+        assert!(
+            fired
+                .by_control
+                .contains(&("T".to_string(), "STEER_LEFT".to_string())),
+            "{:?}",
+            fired.by_control
+        );
+        assert!(
+            fired
+                .by_control
+                .contains(&("T".to_string(), "STEER_RIGHT".to_string())),
+            "{:?}",
+            fired.by_control
+        );
+    }
+
+    #[test]
+    fn event_map_binding_to_the_whole_object_is_skipped_not_crashed() {
+        // directionEvents: "@config.directionEvents" — a whole-map binding,
+        // not itself an object of literal event names; unresolvable, skipped.
+        let node = SExpression::Object(
+            [
+                ("type".to_string(), s("control-grid")),
+                ("directionEvents".to_string(), s("@config.directionEvents")),
+            ]
+            .into_iter()
+            .collect(),
+        );
+        let mut fired = FiredEvents::default();
+        collect_fired_events_recursive("T", &node, &mut fired);
+        assert!(fired.by_control.is_empty(), "{:?}", fired.by_control);
     }
 }

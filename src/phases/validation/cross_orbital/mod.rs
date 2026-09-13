@@ -27,7 +27,7 @@ pub(crate) use event_wiring::{
 pub(crate) use filter_field_written::validate_filter_field_never_written;
 pub(crate) use listen_starvation::validate_listen_route_starves_required_field;
 pub(crate) use listen_trigger::validate_listen_triggers;
-pub(crate) use listens::validate_listens_integrity;
+pub(crate) use listens::{validate_listen_source_never_produces, validate_listens_integrity};
 pub(crate) use payload::validate_external_emit_payloads;
 pub(crate) use relations::validate_relation_targets;
 pub(crate) use scope::validate_scope_boundary;
@@ -105,6 +105,11 @@ pub fn validate_cross_orbital(schema: &OrbitalSchema, ctx: &mut ValidationContex
     // orbitals sharing the bare identifier `EDIT` is the expected
     // consequence of CRUD being a uniform vocabulary, not a smell.
     result.merge(validate_listens_integrity(schema));
+
+    // Second half of the listens-source resolution: the CONTRACT resolves
+    // (declared in `emits[]`) but nothing live currently backs it. Error
+    // severity, whatever the emit's declared scope.
+    result.merge(validate_listen_source_never_produces(schema));
 
     // A resolved `listens` route (trait-sourced) whose trigger declares a
     // required leaf payload field the route can never actually supply —

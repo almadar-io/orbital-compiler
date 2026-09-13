@@ -16,8 +16,9 @@
 //! Ported from `builder/packages/shared/src/orbitals/validation/closed-circuit.ts`.
 
 use super::async_results::validate_async_result_deaf_target;
-use super::cross_orbital::collect_failure_events;
-use super::fired_events::ui_event_prop_names;
+use super::cross_orbital::{collect_async_result_events, collect_failure_events};
+use super::fired_events::{collect_schema_fired_events, ui_event_prop_names, FiredEvents};
+use super::sync::content::is_content_body_pattern_type;
 use super::sync::patterns::get_prop_types;
 use super::sync::{
     get_invalid_actions_for_component, get_valid_actions_for_component,
@@ -25,12 +26,15 @@ use super::sync::{
     is_list_action, is_list_pattern,
 };
 use super::{ErrorCode, ValidationContext, ValidationError, ValidationResult};
-use crate::phases::embed_graph::{client_bound_traits, pages_embedding_children_of};
+use crate::phases::embed_graph::{client_bound_traits, pages_embedding_children_of, EmbedGraph};
+use crate::phases::page_content_owner::{
+    is_content_main_writer, reduce_to_owners, resolve_page_content_owner, PageContentOwner,
+};
 use crate::phases::sexpr_json::sexpr_obj_to_json_map;
 use orbital_core::events::is_bus_excluded_event;
 use orbital_core::schema::{
-    json_conditional_leaf_values, Orbital, OrbitalSchema, SExpression, StateMachine,
-    StringOrArray, TraitDefinition, TraitReference, TransitionDefinition,
+    json_conditional_leaf_values, ConfigField, Orbital, OrbitalSchema, PageDefinition, PageRef,
+    SExpression, StateMachine, StringOrArray, TraitDefinition, TraitReference, TransitionDefinition,
 };
 use orbital_core::slots::SELF_OVERLAY_PATTERN_TYPES;
 use std::collections::{HashMap, HashSet};
@@ -1780,6 +1784,785 @@ fn validate_dead_bodiless_actions(state_machine: &StateMachine, path: &str) -> V
     result
 }
 
+/// `ORB_CIRCUIT_VIEWER_STRANDED` + `ORB_PAGE_SECOND_CONTENT_BODY`: both read
+/// the SAME per-page content-owner fact (`page_content_owner::resolve_page_content_owner`),
+/// computed ONCE per page here and shared between the two checks — never two
+/// owner-model calls for one page. Ported from the JS wiring lint's
+/// `viewer-stranded` and `unclaimed-main-writer`.
+pub fn validate_page_content_ownership(schema: &OrbitalSchema, ctx: &mut ValidationContext) {
+    let fired = collect_schema_fired_events(schema);
+
+    for (i, orbital) in schema.orbitals.iter().enumerate() {
+        let Some(pages) = orbital.pages.as_ref() else {
+            continue;
+        };
+        if pages.is_empty() {
+            continue;
+        }
+
+        let graph = EmbedGraph::build(&orbital.traits);
+        let channel_adjacency = graph.config_embedded_children();
+        let embed_adjacency = graph.embedded_children();
+
+        let traits_by_name: HashMap<&str, &TraitDefinition> = orbital
+            .traits
+            .iter()
+            .filter_map(|t| match t {
+                TraitReference::Inline(td) => Some((td.name.as_str(), td)),
+                _ => None,
+            })
+            .collect();
+        let trait_index_by_name: HashMap<&str, usize> = orbital
+            .traits
+            .iter()
+            .enumerate()
+            .filter_map(|(j, t)| match t {
+                TraitReference::Inline(td) => Some((td.name.as_str(), j)),
+                _ => None,
+            })
+            .collect();
+
+        let async_results = orbital_async_result_events(&traits_by_name);
+        let affordance_events = affordance_events_of(&traits_by_name, &fired, &async_results);
+        let all_producible = all_producible_events_of(&traits_by_name, &fired, &async_results);
+
+        let client_bound = client_bound_traits(orbital);
+        // Every target embedded (full config+state-machine graph) by a
+        // source the client actually mounts — a second page-declared writer
+        // reached this way is already claimed, not stray. Computed once per
+        // orbital, mirrors the JS `claimedByBound`.
+        let claimed_by_bound: HashSet<&str> = embed_adjacency
+            .iter()
+            .filter(|(source, _)| client_bound.contains(**source))
+            .flat_map(|(_, targets)| targets.iter().copied())
+            .collect();
+
+        for (page_index, page_ref) in pages.iter().enumerate() {
+            let PageRef::Inline(page) = page_ref else {
+                continue;
+            };
+            let owner =
+                resolve_page_content_owner(page, &traits_by_name, &channel_adjacency, &embed_adjacency);
+
+            if let PageContentOwner::Channel(name) | PageContentOwner::SoleWriter(name) = &owner {
+                if let (Some(trait_def), Some(&j)) =
+                    (traits_by_name.get(name.as_str()), trait_index_by_name.get(name.as_str()))
+                {
+                    validate_viewer_stranded_for_owner(
+                        i,
+                        orbital,
+                        j,
+                        trait_def,
+                        &affordance_events,
+                        &all_producible,
+                        &traits_by_name,
+                        ctx,
+                    );
+                }
+            }
+
+            if matches!(owner, PageContentOwner::Channel(_) | PageContentOwner::Ambiguous(_)) {
+                validate_second_content_body(
+                    i,
+                    page_index,
+                    page,
+                    &owner,
+                    &traits_by_name,
+                    &channel_adjacency,
+                    &embed_adjacency,
+                    &claimed_by_bound,
+                    ctx,
+                );
+            }
+        }
+    }
+}
+
+/// Async-result events (`fetch`/`persist` `emit:{success,failure,...}`
+/// values) produced anywhere in this orbital — excluded from the
+/// affordance-event set (an async result is a "response", never a
+/// user-triggered affordance) but still counted toward `all_producible` (a
+/// fetch's own success event is a valid exit from a loading screen).
+fn orbital_async_result_events(traits: &HashMap<&str, &TraitDefinition>) -> HashSet<String> {
+    let mut out = HashSet::new();
+    for td in traits.values() {
+        for transition in &td.state_machine.transitions {
+            if let Some(effects) = transition.effects.as_deref() {
+                out.extend(collect_async_result_events(effects));
+            }
+        }
+        for tick in td.ticks.iter().flatten() {
+            out.extend(collect_async_result_events(&tick.effects));
+        }
+    }
+    out
+}
+
+fn admit_event(event: &str, out: &mut HashSet<String>, async_results: &HashSet<String>) {
+    if event.is_empty() || async_results.contains(event) || is_bus_excluded_event(event) {
+        return;
+    }
+    out.insert(event.to_string());
+}
+
+/// "User-triggered" event set for `viewer-stranded`: every event any trait
+/// in this orbital can produce (`FiredEvents` control/effect producers plus
+/// its declared `emits[]` contract) or listens for, closed transitively over
+/// `listens` routes (a route's `triggers` becomes reachable once its source
+/// `event` is), minus async-result and lifecycle events.
+fn affordance_events_of(
+    traits: &HashMap<&str, &TraitDefinition>,
+    fired: &FiredEvents,
+    async_results: &HashSet<String>,
+) -> HashSet<String> {
+    let mut out: HashSet<String> = HashSet::new();
+    for (name, td) in traits {
+        for (t, e) in fired.by_control.iter().chain(fired.by_effect.iter()) {
+            if t.as_str() == *name {
+                admit_event(e, &mut out, async_results);
+            }
+        }
+        for emit_def in td.emits.iter().flatten() {
+            admit_event(&emit_def.event, &mut out, async_results);
+        }
+        for listen in td.listens.iter().flatten() {
+            admit_event(&listen.event, &mut out, async_results);
+        }
+    }
+    // Transitive closure: a route's `triggers` joins the set once its source
+    // `event` is already in it — up to 8 passes, matching the JS fixpoint cap.
+    for _ in 0..8 {
+        let before = out.len();
+        for td in traits.values() {
+            for listen in td.listens.iter().flatten() {
+                if out.contains(&listen.event) {
+                    if let Some(triggers) = &listen.triggers {
+                        out.insert(triggers.clone());
+                    }
+                }
+            }
+        }
+        if out.len() == before {
+            break;
+        }
+    }
+    out
+}
+
+/// Superset of `affordance_events_of` used ONLY for the arm-exemption
+/// "escapes to a state with another producible arm" test — includes
+/// async-result events (a fetch's own success event is a valid exit),
+/// unlike the affordance set itself.
+fn all_producible_events_of(
+    traits: &HashMap<&str, &TraitDefinition>,
+    fired: &FiredEvents,
+    async_results: &HashSet<String>,
+) -> HashSet<String> {
+    let mut out: HashSet<String> = async_results.clone();
+    for (name, td) in traits {
+        for (t, e) in fired.by_control.iter().chain(fired.by_effect.iter()) {
+            if t.as_str() == *name {
+                out.insert(e.clone());
+            }
+        }
+        for emit_def in td.emits.iter().flatten() {
+            out.insert(emit_def.event.clone());
+        }
+        for listen in td.listens.iter().flatten() {
+            if let Some(triggers) = &listen.triggers {
+                out.insert(triggers.clone());
+            }
+        }
+    }
+    out
+}
+
+/// True when `from` (a transition's `from`, single or list) contains `state`.
+fn from_contains(from: &StringOrArray, state: &str) -> bool {
+    match from {
+        StringOrArray::Single(s) => s == state,
+        StringOrArray::Multiple(list) => list.iter().any(|s| s == state),
+    }
+}
+
+/// The general, registry-derived "way on" test the F31 live-probe
+/// (`ui-minigolf-board` PUTT_UP, `std-chem-titration` DOSE_ADDED) forced onto
+/// `ORB_CIRCUIT_VIEWER_STRANDED`'s predicate: NO label test (a missing
+/// required label is `ORB_RUI` required-prop territory, not this check's),
+/// NO `@`/`?` sigil distinction (a heuristic, dropped). A main-slot body
+/// offers a way on iff it contains ANY of:
+///   (a) a content-body pattern type (registry entity-kind prop);
+///   (b) a registry event-kind prop DECLARED ON THIS NODE'S OWN PATTERN TYPE
+///       (`event`/`event-ref`/`event-list`/`event-listen`/`callback`/
+///       `event-map`, via `pattern_node_has_live_event_outlet` — scoped per
+///       type, never a flat cross-pattern set) bound to a non-lifecycle
+///       literal OR any binding (a binding is unknown = way on, never
+///       presumed dead);
+///   (c) an `@trait.X` embed WHOSE OWN main-slot render bodies (across every
+///       transition and tick, same predicate, recursively) offer a way on —
+///       corrected 2026-09-12 per the vendor-onboarding worked example: a
+///       JSX-hoisted LEAF embed (`UiIcon.traits.IconRender`,
+///       `UiTypography.traits.TypographyRender`) resolves to a real trait
+///       whose body is icon/typography-only, so it must NOT short-circuit to
+///       "way on" just for existing. Only a reference `traits` cannot
+///       resolve at all (no Inline entry) is unknown = way on. `visiting`
+///       cycle-guards by trait name (insert on entry, remove on exit — a
+///       true cycle gets no credit at the repeated name; a diamond shape,
+///       same trait reached twice via different paths with no cycle, is
+///       still evaluated fully each time it's off the stack).
+///   (d) a `@entity.<field>`/`@config.<knob>` string binding whose SAME-ARM
+///       source (`scope`, built by [`RenderScope::for_effects`]) resolves to
+///       a literal node tree — recurses on that tree instead of stopping
+///       dead at the binding string. No same-arm literal source = unknown =
+///       way on. `visiting_fields` cycle-guards by field name the same way
+///       `visiting` does by trait name.
+fn body_offers_way_on(
+    node: &SExpression,
+    traits: &HashMap<&str, &TraitDefinition>,
+    scope: &RenderScope,
+    visiting: &mut HashSet<String>,
+    visiting_fields: &mut HashSet<String>,
+) -> bool {
+    match node {
+        SExpression::String(s) => {
+            if let Some(rest) = s.strip_prefix("@trait.") {
+                let end = rest.find(['.', '[']).unwrap_or(rest.len());
+                let name = &rest[..end];
+                return !name.is_empty() && trait_offers_way_on(name, traits, visiting);
+            }
+            if let Some(rest) = s.strip_prefix("@entity.") {
+                let end = rest.find(['.', '[']).unwrap_or(rest.len());
+                let field = &rest[..end];
+                if field.is_empty() {
+                    return false;
+                }
+                return scope.entity_field_way_on(field, traits, visiting, visiting_fields);
+            }
+            if let Some(rest) = s.strip_prefix("@config.") {
+                let end = rest.find(['.', '[']).unwrap_or(rest.len());
+                let knob = &rest[..end];
+                if knob.is_empty() {
+                    return false;
+                }
+                return scope.config_knob_way_on(knob, traits, visiting, visiting_fields);
+            }
+            false
+        }
+        SExpression::Array(items) => items
+            .iter()
+            .any(|i| body_offers_way_on(i, traits, scope, visiting, visiting_fields)),
+        SExpression::Object(map) => {
+            let pattern_type = match map.get("type") {
+                Some(SExpression::String(t)) => Some(t.as_str()),
+                _ => None,
+            };
+            if let Some(t) = pattern_type {
+                if is_content_body_pattern_type(t) {
+                    return true;
+                }
+                if pattern_node_has_live_event_outlet(t, map) {
+                    return true;
+                }
+            }
+            map.values()
+                .any(|v| body_offers_way_on(v, traits, scope, visiting, visiting_fields))
+        }
+        _ => false,
+    }
+}
+
+/// Same-arm resolution context for `@entity.<field>`/`@config.<knob>`
+/// bindings hit while walking a render-ui body: an arm may compute its
+/// interactive tree earlier in the SAME transition (`(set @entity.x
+/// [...])`) then paint it via `(render-ui main { children: @entity.x })` —
+/// `body_offers_way_on` must see through that binding, not stop dead at the
+/// string.
+struct RenderScope<'a> {
+    /// Field name -> literal-tree candidates from the LAST `(set
+    /// @entity.<field> <value>)` (found anywhere in the arm's effects, incl.
+    /// nested in `let`/`do`/`if`) whose value resolves to a literal tree. An
+    /// `if`-valued set contributes BOTH branches (union, not a single pick) —
+    /// leniently, the same direction every other unknown in this predicate
+    /// leans. A set whose value does not resolve to a literal tree is simply
+    /// skipped, never clearing an earlier resolved candidate.
+    entity_fields: HashMap<String, Vec<SExpression>>,
+    config: Option<&'a HashMap<String, ConfigField>>,
+}
+
+impl<'a> RenderScope<'a> {
+    fn for_effects(effects: &[SExpression], trait_def: &'a TraitDefinition) -> Self {
+        RenderScope {
+            entity_fields: collect_entity_field_literal_candidates(effects),
+            config: trait_def.config.as_ref(),
+        }
+    }
+
+    fn entity_field_way_on(
+        &self,
+        field: &str,
+        traits: &HashMap<&str, &TraitDefinition>,
+        visiting: &mut HashSet<String>,
+        visiting_fields: &mut HashSet<String>,
+    ) -> bool {
+        let Some(candidates) = self.entity_fields.get(field) else {
+            return true; // no same-arm literal source: unknown = way on
+        };
+        if !visiting_fields.insert(field.to_string()) {
+            return false; // a field's own literal candidate re-references it: no credit
+        }
+        let hit = candidates
+            .iter()
+            .any(|c| body_offers_way_on(c, traits, self, visiting, visiting_fields));
+        visiting_fields.remove(field);
+        hit
+    }
+
+    fn config_knob_way_on(
+        &self,
+        knob: &str,
+        traits: &HashMap<&str, &TraitDefinition>,
+        visiting: &mut HashSet<String>,
+        visiting_fields: &mut HashSet<String>,
+    ) -> bool {
+        let default = self.config.and_then(|c| c.get(knob)).and_then(|f| f.default.as_ref());
+        match default {
+            Some(value) if is_pattern_node_tree_shape(value) => {
+                body_offers_way_on(value, traits, self, visiting, visiting_fields)
+            }
+            _ => true, // no literal config-forward default: unknown = way on
+        }
+    }
+}
+
+/// True when `expr` is a rendered pattern node (an object carrying `type`)
+/// or an array whose every element is, recursively, such a node — the
+/// literal-tree shape a `set`'s value must have to substitute for a
+/// same-arm `@entity.<field>`/`@config.<knob>` binding. An empty array is
+/// vacuously a (childless) literal tree.
+fn is_pattern_node_tree_shape(expr: &SExpression) -> bool {
+    match expr {
+        SExpression::Object(map) => map.contains_key("type"),
+        SExpression::Array(items) => items.iter().all(is_pattern_node_tree_shape),
+        _ => false,
+    }
+}
+
+/// Resolves a `set`'s value expression to its literal-tree candidates,
+/// recursing through the value-position `let`/`do`/`if` wrappers exactly
+/// like the effect-position ones `RUNTIME`'s `exec_effect_expr` (`kernel.rs`)
+/// evaluates: `do`/`let`'s body is its last expression, `if` is BOTH
+/// branches (union — we don't know which fires). A bare `@name` resolves
+/// through `lets` (the flattened local-variable scope collected alongside);
+/// anything else (a call to `array/map`, `object/get`, `str/concat`, …) is
+/// opaque — `None`, not a false literal.
+fn resolve_value_literal_candidates(
+    expr: &SExpression,
+    lets: &HashMap<String, SExpression>,
+    depth: u32,
+) -> Option<Vec<SExpression>> {
+    if depth > 32 {
+        return None;
+    }
+    match expr {
+        SExpression::Object(map) if map.contains_key("type") => Some(vec![expr.clone()]),
+        SExpression::String(s) => {
+            let name = s.strip_prefix('@')?;
+            if name.contains(['.', '[']) {
+                return None; // a field/index path, not a bare local variable
+            }
+            resolve_value_literal_candidates(lets.get(name)?, lets, depth + 1)
+        }
+        SExpression::Array(items) => match items.first() {
+            Some(SExpression::String(op)) if op == "if" => {
+                let mut out = Vec::new();
+                if let Some(t) = items.get(2) {
+                    out.extend(resolve_value_literal_candidates(t, lets, depth + 1).unwrap_or_default());
+                }
+                if let Some(e) = items.get(3) {
+                    out.extend(resolve_value_literal_candidates(e, lets, depth + 1).unwrap_or_default());
+                }
+                if out.is_empty() {
+                    None
+                } else {
+                    Some(out)
+                }
+            }
+            Some(SExpression::String(op)) if op == "do" => {
+                resolve_value_literal_candidates(items.last()?, lets, depth + 1)
+            }
+            Some(SExpression::String(op)) if op == "let" => {
+                let mut scope = lets.clone();
+                if let Some(SExpression::Array(bindings)) = items.get(1) {
+                    for binding in bindings {
+                        if let SExpression::Array(pair) = binding {
+                            if let (Some(SExpression::String(name)), Some(value)) =
+                                (pair.first(), pair.get(1))
+                            {
+                                scope.insert(name.clone(), value.clone());
+                            }
+                        }
+                    }
+                }
+                resolve_value_literal_candidates(items.iter().skip(2).next_back()?, &scope, depth + 1)
+            }
+            _ if is_pattern_node_tree_shape(expr) => Some(vec![expr.clone()]),
+            _ => None,
+        },
+        _ => None,
+    }
+}
+
+/// Collects, in program order, a flattened local-variable scope (every
+/// `let` binding found anywhere in `effects`, later occurrences winning —
+/// the same blind-descent shape `collect_lifecycle_emits` uses to find
+/// `emit` calls regardless of `let`/`do`/`if` nesting) plus the literal-tree
+/// candidates of the LAST `(set @entity.<field> <value>)` per field whose
+/// value resolves (via `resolve_value_literal_candidates`, using that flat
+/// scope). A `set` whose value does not resolve is skipped, not recorded —
+/// it never clears a field's earlier resolved candidate.
+fn collect_entity_field_literal_candidates(effects: &[SExpression]) -> HashMap<String, Vec<SExpression>> {
+    fn walk(
+        expr: &SExpression,
+        lets: &mut HashMap<String, SExpression>,
+        fields: &mut HashMap<String, Vec<SExpression>>,
+    ) {
+        let SExpression::Array(items) = expr else {
+            return;
+        };
+        if let Some(SExpression::String(op)) = items.first() {
+            if op == "let" {
+                if let Some(SExpression::Array(bindings)) = items.get(1) {
+                    for binding in bindings {
+                        if let SExpression::Array(pair) = binding {
+                            if let (Some(SExpression::String(name)), Some(value)) =
+                                (pair.first(), pair.get(1))
+                            {
+                                lets.insert(name.clone(), value.clone());
+                            }
+                        }
+                    }
+                }
+            } else if op == "set" {
+                if let (Some(SExpression::String(target)), Some(value)) = (items.get(1), items.get(2)) {
+                    if let Some(field) = target.strip_prefix("@entity.") {
+                        if !field.contains(['.', '[']) {
+                            if let Some(candidates) = resolve_value_literal_candidates(value, lets, 0) {
+                                fields.insert(field.to_string(), candidates);
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        for item in items {
+            walk(item, lets, fields);
+        }
+    }
+
+    let mut lets = HashMap::new();
+    let mut fields = HashMap::new();
+    for effect in effects {
+        walk(effect, &mut lets, &mut fields);
+    }
+    fields
+}
+
+/// True when `map` (a rendered pattern instance of type `pattern_type`)
+/// declares a registry event-kind prop (`event`/`event-ref`/`event-listen`/
+/// `callback`/`event-map`, or `event-list`'s inner `eventField`) whose bound
+/// value is live — a non-lifecycle literal, or any binding (unknown = way
+/// on).
+///
+/// Scoped to `pattern_type`'s OWN `propsSchema` — never a flat cross-pattern
+/// set, as defense in depth against a per-pattern `children`/`renderItem`
+/// COLLISION: checking a bare prop KEY against a schema-wide set (as
+/// `fired_events::ui_event_prop_names()` does, correctly, for ITS OWN
+/// different purpose — harvesting fired event names anywhere in a tree
+/// without needing a node's own type) would treat every OTHER pattern's
+/// unrelated nested-render-tree `children` prop (`stack`, `box`, …) as an
+/// event outlet too, the moment ANY pattern tags its own `children`
+/// `kind: "callback"` — the vendor-onboarding regression test below
+/// reproduces exactly this shape of collision. (`data-grid`/`data-list`/
+/// `table-view`/`calendar-grid`/`carousel`'s `children`/`renderItem` render
+/// props themselves carry NO kind at all as of 2026-09-12 — a render-prop
+/// that RETURNS a value is never a bus event outlet — but the scoping stays:
+/// it is correct on its own terms, not merely a workaround for that one
+/// mis-tag.) Mirrors `@almadar/core`'s per-type `eventKeyPropsOf`, widened to
+/// also check `event-list`'s actual `eventField` (not every value in the
+/// descriptor — only the field the registry names) per the F31 predicate's
+/// inclusion of `event-list`.
+fn pattern_node_has_live_event_outlet(
+    pattern_type: &str,
+    map: &HashMap<String, SExpression>,
+) -> bool {
+    let Some(entry) = crate::embedded::get_pattern(pattern_type) else {
+        return false;
+    };
+    for (prop_name, prop) in &entry.props_schema {
+        let Some(kind) = prop.kind.as_deref() else {
+            continue;
+        };
+        match kind {
+            // `event-map` (a dynamic-key object whose VALUES — not the prop
+            // itself — are declared event keys: a d-pad's direction→event map
+            // `control-grid.directionEvents`, a canvas's keycode→event map
+            // `canvas.keyMap`) rides the same `event_prop_value_is_live` call
+            // as the scalar kinds: that helper already recurses through an
+            // Object's values, so a literal map is live iff any VALUE is, and
+            // a whole-map binding (`directionEvents: "@config.directionEvents"`)
+            // is unknown = way on, same as any other event-kind prop.
+            "event" | "event-ref" | "event-listen" | "callback" | "event-map" => {
+                if let Some(value) = map.get(prop_name.as_str()) {
+                    if event_prop_value_is_live(value) {
+                        return true;
+                    }
+                }
+            }
+            "event-list" => {
+                let Some(SExpression::Array(items)) = map.get(prop_name.as_str()) else {
+                    continue;
+                };
+                let field = prop.event_field.as_deref().unwrap_or("event");
+                for item in items {
+                    let SExpression::Object(descriptor) = item else {
+                        continue;
+                    };
+                    if let Some(value) = descriptor.get(field) {
+                        if event_prop_value_is_live(value) {
+                            return true;
+                        }
+                    }
+                }
+            }
+            _ => {}
+        }
+    }
+    false
+}
+
+/// True when `name` resolves to an Inline trait whose own main-slot render
+/// bodies (every transition's and every tick's effects — `initialEffects`
+/// has no representation in the compiled schema, see `page_content_owner`'s
+/// same finding) offer a way on. An unresolvable name (no Inline entry in
+/// this orbital's `traits`) is unknown, not empty — counts as way on.
+fn trait_offers_way_on(
+    name: &str,
+    traits: &HashMap<&str, &TraitDefinition>,
+    visiting: &mut HashSet<String>,
+) -> bool {
+    let Some(trait_def) = traits.get(name) else {
+        return true; // unresolved reference: unknown, never presumed dead
+    };
+    if !visiting.insert(name.to_string()) {
+        return false; // already on the call stack — a cycle, no credit here
+    }
+    let mut found = false;
+    // Kept as effect LISTS (one per transition/tick), not flattened across
+    // arms, so `RenderScope::for_effects` only ever sees same-arm effects
+    // when resolving an `@entity.<field>`/`@config.<knob>` binding below.
+    let effect_lists = trait_def
+        .state_machine
+        .transitions
+        .iter()
+        .filter_map(|t| t.effects.as_deref())
+        .chain(trait_def.ticks.iter().flatten().map(|t| t.effects.as_slice()));
+    'arms: for effects in effect_lists {
+        for (idx, effect) in effects.iter().enumerate() {
+            if !is_main_slot_render_ui(effect) {
+                continue;
+            }
+            let SExpression::Array(arr) = effect else {
+                continue;
+            };
+            let Some(body) = arr.get(2) else { continue };
+            if matches!(body, SExpression::Null) {
+                continue; // a deliberate clear
+            }
+            // Only effects BEFORE this render-ui, in program order — a
+            // `set` appearing after it hasn't run yet and must not count.
+            let scope = RenderScope::for_effects(&effects[..idx], trait_def);
+            if body_offers_way_on(body, traits, &scope, visiting, &mut HashSet::new()) {
+                found = true;
+                break 'arms;
+            }
+        }
+    }
+    visiting.remove(name);
+    found
+}
+
+/// A registry event-kind prop's value is "live" when it is a binding
+/// (unknown at static-analysis time = way on) or a non-empty, non-lifecycle
+/// literal. Recurses through wrapper shapes (`event-list` descriptor arrays,
+/// `if`-conditional value trees) generically — leniently: a leaf reachable
+/// only through a provably-dead `if` branch still counts, which only ADDS
+/// way-on credit (favors fewer false-positive strand findings, the same
+/// direction the F31 probe corrected).
+fn event_prop_value_is_live(value: &SExpression) -> bool {
+    match value {
+        SExpression::String(s) => s.starts_with('@') || (!s.is_empty() && !is_bus_excluded_event(s)),
+        SExpression::Array(items) => items.iter().any(event_prop_value_is_live),
+        SExpression::Object(map) => map.values().any(event_prop_value_is_live),
+        _ => false,
+    }
+}
+
+/// `ORB_CIRCUIT_VIEWER_STRANDED` for one page's content owner.
+#[allow(clippy::too_many_arguments)]
+fn validate_viewer_stranded_for_owner(
+    orbital_index: usize,
+    orbital: &Orbital,
+    trait_index: usize,
+    trait_def: &TraitDefinition,
+    affordance_events: &HashSet<String>,
+    all_producible: &HashSet<String>,
+    traits: &HashMap<&str, &TraitDefinition>,
+    ctx: &mut ValidationContext,
+) {
+    let path = super::trait_path(
+        orbital_index,
+        &orbital.name,
+        trait_index,
+        &orbital.traits[trait_index],
+    );
+    let mut seen: HashSet<String> = HashSet::new();
+
+    for (ti, arm) in trait_def.state_machine.transitions.iter().enumerate() {
+        let event = &arm.event;
+        if is_bus_excluded_event(event) {
+            continue;
+        }
+        if !affordance_events.contains(event) || seen.contains(event) {
+            continue;
+        }
+
+        let effects = arm.effects.as_deref().unwrap_or(&[]);
+        // The arm's own fetch/persist exempts it — a transient screen whose
+        // result arm repaints.
+        let runs_its_own_fetch_or_persist = effects.iter().any(|e| {
+            matches!(e, SExpression::Array(items)
+                if matches!(items.first(), Some(SExpression::String(op)) if op == "fetch" || op == "persist"))
+        });
+        if runs_its_own_fetch_or_persist {
+            continue;
+        }
+
+        // A self-transition gets no credit; a departure to a state with
+        // another non-lifecycle, producible arm is not a strand either.
+        let leaves_the_state = !matches!(&arm.from, StringOrArray::Single(s) if s == &arm.to);
+        if leaves_the_state {
+            let escapes = trait_def.state_machine.transitions.iter().any(|other| {
+                from_contains(&other.from, &arm.to)
+                    && &other.event != event
+                    && !is_bus_excluded_event(&other.event)
+                    && all_producible.contains(&other.event)
+            });
+            if escapes {
+                continue;
+            }
+        }
+
+        for (idx, effect) in effects.iter().enumerate() {
+            if !is_main_slot_render_ui(effect) {
+                continue;
+            }
+            let SExpression::Array(arr) = effect else {
+                continue;
+            };
+            let Some(body) = arr.get(2) else { continue };
+            if matches!(body, SExpression::Null) {
+                continue; // a deliberate clear
+            }
+            // Only effects BEFORE this render-ui, in program order — a
+            // `set` appearing after it hasn't run yet and must not count.
+            let scope = RenderScope::for_effects(&effects[..idx], trait_def);
+            if body_offers_way_on(body, traits, &scope, &mut HashSet::new(), &mut HashSet::new()) {
+                continue;
+            }
+            seen.insert(event.clone());
+            ctx.add_error(
+                ValidationError::error(
+                    ErrorCode::CircuitViewerStranded,
+                    format!("{}.stateMachine.transitions[{}]", path, ti),
+                    format!(
+                        "'{}' owns this page's content region, and '{}' repaints it with a body that carries no data surface, no wired control and no sibling embed — the screen the viewer came from is gone and there is nothing to click",
+                        trait_def.name, event
+                    ),
+                )
+                .with_suggestion(
+                    "render this OVER the page instead of replacing it: move the body into a dedicated overlay trait writing only 'modal' (a modal-close arm rendered from the trait that owns 'main' is rejected by CIRCUIT_MODAL_EXIT_INCOMPLETE, which is why it needs its own trait), or give the arm a wired control back to the state it came from".to_string(),
+                ),
+            );
+            break;
+        }
+    }
+}
+
+/// `ORB_PAGE_SECOND_CONTENT_BODY` for one page whose owner is `channel` or
+/// `ambiguous` — a page-declared, inline, content-main-writing trait that is
+/// not the owner, not embedded by any client-bound trait, and not kin to the
+/// owner through either adjacency.
+#[allow(clippy::too_many_arguments)]
+fn validate_second_content_body(
+    orbital_index: usize,
+    page_index: usize,
+    page: &PageDefinition,
+    owner: &PageContentOwner,
+    traits_by_name: &HashMap<&str, &TraitDefinition>,
+    channel_adjacency: &crate::phases::embed_graph::EmbedAdjacency<'_>,
+    embed_adjacency: &crate::phases::embed_graph::EmbedAdjacency<'_>,
+    claimed_by_bound: &HashSet<&str>,
+    ctx: &mut ValidationContext,
+) {
+    let owner_names: Vec<String> = match owner {
+        PageContentOwner::Channel(n) => vec![n.clone()],
+        PageContentOwner::Ambiguous(names) => names.clone(),
+        _ => return,
+    };
+
+    for trait_ref in page.traits.iter().flatten() {
+        let name = match trait_ref {
+            TraitReference::Inline(td) => td.name.as_str(),
+            TraitReference::Reference {
+                reference, name, ..
+            } => name.as_deref().or(reference.as_deref()).unwrap_or(""),
+        };
+        if name.is_empty() || owner_names.iter().any(|o| o == name) {
+            continue;
+        }
+        if claimed_by_bound.contains(name) {
+            continue;
+        }
+        let Some(trait_def) = traits_by_name.get(name) else {
+            continue;
+        };
+        if !is_content_main_writer(trait_def) {
+            continue;
+        }
+        let related_to_owner = owner_names.iter().any(|owner_name| {
+            let candidates = [owner_name.clone(), name.to_string()];
+            reduce_to_owners(&candidates, channel_adjacency, embed_adjacency).len() == 1
+        });
+        if related_to_owner {
+            continue;
+        }
+        ctx.add_error(
+            ValidationError::error(
+                ErrorCode::PageSecondContentBody,
+                format!("orbitals[{}].pages[{}]", orbital_index, page_index),
+                format!(
+                    "page \"{}\": {} renders a content body into slot 'main' while {} already owns this page's content — a second, stacked UI if this is not a deliberate dedicated-feature page",
+                    page.path, name, owner_names.join(" / ")
+                ),
+            )
+            .with_suggestion(format!(
+                "embed <trait.{}> in the composer's render or a config slot (contentTrait/idleContent), or remove {} from the page decl if it only hosts dialogs/logic",
+                name, name
+            )),
+        );
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -2843,5 +3626,578 @@ mod tests {
             "{:?}",
             result.errors
         );
+    }
+
+    // --- ORB_CIRCUIT_VIEWER_STRANDED / ORB_PAGE_SECOND_CONTENT_BODY ---
+
+    fn schema_of(orbital: Orbital) -> OrbitalSchema {
+        OrbitalSchema {
+            theme: None,
+            name: "TestApp".to_string(),
+            version: Some("1.0.0".to_string()),
+            description: None,
+            config: None,
+            orbitals: vec![orbital],
+            metadata: None,
+            schema_version: None,
+            ledger: None,
+        }
+    }
+
+    /// A sole-content-writing owner trait whose only user-triggered arm
+    /// (`STRAND`) repaints `main` with `body`. `STRAND` is admitted into the
+    /// affordance set via a sibling `Trigger` trait's rendered `action`
+    /// prop, matching how the JS's `affordanceEvents` is seeded from a
+    /// rendered control anywhere in the orbital, not necessarily the owner's
+    /// own arm.
+    fn owner_and_trigger(body: serde_json::Value) -> Vec<serde_json::Value> {
+        vec![
+            serde_json::json!({
+                "name": "Owner",
+                "linkedEntity": "Item",
+                "category": "interaction",
+                "stateMachine": {
+                    "states": [{ "name": "browsing", "isInitial": true }],
+                    "transitions": [
+                        { "from": "browsing", "to": "browsing", "event": "INIT",
+                          "effects": [["render-ui", "main", { "type": "data-grid", "entity": "?data" }]] },
+                        { "from": "browsing", "to": "browsing", "event": "STRAND",
+                          "effects": [["render-ui", "main", body]] }
+                    ]
+                }
+            }),
+            serde_json::json!({
+                "name": "Trigger",
+                "linkedEntity": "Item",
+                "category": "interaction",
+                "stateMachine": {
+                    "states": [{ "name": "idle", "isInitial": true }],
+                    "transitions": [
+                        { "from": "idle", "to": "idle", "event": "INIT",
+                          "effects": [["render-ui", "aux", { "type": "button", "action": "STRAND" }]] }
+                    ]
+                }
+            }),
+        ]
+    }
+
+    /// `owner_and_trigger`, plus extra Inline trait definitions in the same
+    /// orbital — for embedding a real, resolvable leaf trait from the
+    /// owner's STRAND body.
+    fn owner_and_trigger_with(body: serde_json::Value, extra: Vec<serde_json::Value>) -> Vec<serde_json::Value> {
+        let mut traits = owner_and_trigger(body);
+        traits.extend(extra);
+        traits
+    }
+
+    fn page_with(traits: &[&str]) -> serde_json::Value {
+        serde_json::json!([{
+            "name": "Home", "path": "/home",
+            "traits": traits.iter().map(|t| serde_json::json!({ "ref": t })).collect::<Vec<_>>()
+        }])
+    }
+
+    fn viewer_stranded_hits(orbital: Orbital) -> Vec<ValidationError> {
+        let schema = schema_of(orbital);
+        let mut ctx = ValidationContext::new();
+        validate_page_content_ownership(&schema, &mut ctx);
+        ctx.result
+            .errors
+            .into_iter()
+            .filter(|e| e.code == ErrorCode::CircuitViewerStranded)
+            .collect()
+    }
+
+    #[test]
+    fn viewer_stranded_fires_on_a_body_with_no_data_surface_no_control_no_embed() {
+        let orbital = orbital_json(
+            owner_and_trigger(serde_json::json!({ "type": "typography", "content": "Loading…" })),
+            page_with(&["Owner", "Trigger"]),
+        );
+        let hits = viewer_stranded_hits(orbital);
+        assert_eq!(hits.len(), 1, "{:?}", hits);
+        assert!(hits[0].message.contains("Owner"));
+    }
+
+    #[test]
+    fn viewer_stranded_silent_when_the_body_is_a_content_body_pattern() {
+        let orbital = orbital_json(
+            owner_and_trigger(serde_json::json!({ "type": "data-grid", "entity": "?data" })),
+            page_with(&["Owner", "Trigger"]),
+        );
+        assert!(viewer_stranded_hits(orbital).is_empty());
+    }
+
+    /// F31 predicate revision: a LABELLESS button wired to a live,
+    /// non-lifecycle event via a registry event-kind prop IS a way on now —
+    /// the JS's labelled-control test is gone.
+    #[test]
+    fn viewer_stranded_silent_when_the_body_has_a_labelless_wired_control() {
+        let orbital = orbital_json(
+            owner_and_trigger(serde_json::json!({ "type": "button", "action": "GO_BACK" })),
+            page_with(&["Owner", "Trigger"]),
+        );
+        assert!(viewer_stranded_hits(orbital).is_empty());
+    }
+
+    /// `kind: "event-map"` (2026-09-12): a d-pad/canvas control whose ONLY
+    /// affordance is a direction/key→event object (`control-grid.
+    /// directionEvents`) is a live way on — the mis-registered gap that read
+    /// `ui-winter-ski-board`'s STEER_LEFT/STEER_RIGHT as a dead end even
+    /// though the rendered control-grid dispatches them.
+    #[test]
+    fn viewer_stranded_silent_when_the_body_has_a_live_event_map_control() {
+        let orbital = orbital_json(
+            owner_and_trigger(serde_json::json!({
+                "type": "control-grid",
+                "kind": "dpad",
+                "directionEvents": { "left": "STEER_LEFT", "right": "STEER_RIGHT" }
+            })),
+            page_with(&["Owner", "Trigger"]),
+        );
+        assert!(viewer_stranded_hits(orbital).is_empty());
+    }
+
+    #[test]
+    fn viewer_stranded_fires_when_the_event_map_prop_is_absent() {
+        // A control-grid rendered as pure decoration (no directionEvents at
+        // all) offers no way on — the event-map kind only credits a NODE
+        // that actually carries the prop.
+        let orbital = orbital_json(
+            owner_and_trigger(serde_json::json!({ "type": "control-grid", "kind": "dpad" })),
+            page_with(&["Owner", "Trigger"]),
+        );
+        assert_eq!(viewer_stranded_hits(orbital).len(), 1);
+    }
+
+    #[test]
+    fn viewer_stranded_silent_when_the_body_embeds_an_unresolvable_trait() {
+        // "Anything" has no Inline entry anywhere in this orbital — an
+        // unresolvable reference is unknown, never presumed dead.
+        let orbital = orbital_json(
+            owner_and_trigger(serde_json::json!({ "type": "stack", "children": ["@trait.Anything"] })),
+            page_with(&["Owner", "Trigger"]),
+        );
+        assert!(viewer_stranded_hits(orbital).is_empty());
+    }
+
+    /// F31 correction (vendor-onboarding worked example): a JSX-hoisted LEAF
+    /// embed resolves to a real trait whose own body is icon/typography-only
+    /// — no content-body pattern, no event-kind prop, no further embed — so
+    /// the embed must NOT short-circuit to "way on" just for existing.
+    #[test]
+    fn viewer_stranded_fires_when_the_embedded_trait_is_a_leaf_with_no_way_on() {
+        let leaf = serde_json::json!({
+            "name": "LeafIcon",
+            "linkedEntity": "Item",
+            "category": "interaction",
+            "stateMachine": {
+                "states": [{ "name": "idle", "isInitial": true }],
+                "transitions": [
+                    { "from": "idle", "to": "idle", "event": "INIT",
+                      "effects": [["render-ui", "main", { "type": "icon", "name": "check-circle" }]] }
+                ]
+            }
+        });
+        let orbital = orbital_json(
+            owner_and_trigger_with(
+                serde_json::json!({ "type": "stack", "children": ["@trait.LeafIcon"] }),
+                vec![leaf],
+            ),
+            page_with(&["Owner", "Trigger"]),
+        );
+        let hits = viewer_stranded_hits(orbital);
+        assert_eq!(hits.len(), 1, "{:?}", hits);
+    }
+
+    /// The recursive half of the same correction: an embed of a trait whose
+    /// OWN body has a wired control (a registry event-kind prop bound to a
+    /// live event) IS a way on — the recursion finds it one level down.
+    #[test]
+    fn viewer_stranded_silent_when_the_embedded_trait_has_its_own_wired_control() {
+        let leaf = serde_json::json!({
+            "name": "LeafButton",
+            "linkedEntity": "Item",
+            "category": "interaction",
+            "stateMachine": {
+                "states": [{ "name": "idle", "isInitial": true }],
+                "transitions": [
+                    { "from": "idle", "to": "idle", "event": "INIT",
+                      "effects": [["render-ui", "main", { "type": "button", "action": "GO_BACK" }]] }
+                ]
+            }
+        });
+        let orbital = orbital_json(
+            owner_and_trigger_with(
+                serde_json::json!({ "type": "stack", "children": ["@trait.LeafButton"] }),
+                vec![leaf],
+            ),
+            page_with(&["Owner", "Trigger"]),
+        );
+        assert!(viewer_stranded_hits(orbital).is_empty());
+    }
+
+    #[test]
+    fn viewer_stranded_silent_when_the_body_is_null_a_deliberate_clear() {
+        let orbital = orbital_json(
+            owner_and_trigger(serde_json::Value::Null),
+            page_with(&["Owner", "Trigger"]),
+        );
+        assert!(viewer_stranded_hits(orbital).is_empty());
+    }
+
+    #[test]
+    fn viewer_stranded_silent_when_the_arm_runs_its_own_fetch() {
+        let traits = vec![
+            serde_json::json!({
+                "name": "Owner",
+                "linkedEntity": "Item",
+                "category": "interaction",
+                "stateMachine": {
+                    "states": [{ "name": "browsing", "isInitial": true }],
+                    "transitions": [
+                        { "from": "browsing", "to": "browsing", "event": "INIT",
+                          "effects": [["render-ui", "main", { "type": "data-grid", "entity": "?data" }]] },
+                        { "from": "browsing", "to": "browsing", "event": "STRAND",
+                          "effects": [
+                            ["fetch", { "entity": "Item", "emit": { "success": "ItemLoaded" } }],
+                            ["render-ui", "main", { "type": "typography", "content": "Loading…" }]
+                          ] }
+                    ]
+                }
+            }),
+            serde_json::json!({
+                "name": "Trigger",
+                "linkedEntity": "Item",
+                "category": "interaction",
+                "stateMachine": {
+                    "states": [{ "name": "idle", "isInitial": true }],
+                    "transitions": [
+                        { "from": "idle", "to": "idle", "event": "INIT",
+                          "effects": [["render-ui", "aux", { "type": "button", "action": "STRAND" }]] }
+                    ]
+                }
+            }),
+        ];
+        let orbital = orbital_json(traits, page_with(&["Owner", "Trigger"]));
+        assert!(viewer_stranded_hits(orbital).is_empty());
+    }
+
+    #[test]
+    fn viewer_stranded_silent_when_the_arm_escapes_to_a_state_with_another_producible_arm() {
+        let traits = vec![
+            serde_json::json!({
+                "name": "Owner",
+                "linkedEntity": "Item",
+                "category": "interaction",
+                "stateMachine": {
+                    "states": [
+                        { "name": "browsing", "isInitial": true },
+                        { "name": "waiting" }
+                    ],
+                    "transitions": [
+                        { "from": "browsing", "to": "browsing", "event": "INIT",
+                          "effects": [["render-ui", "main", { "type": "data-grid", "entity": "?data" }]] },
+                        { "from": "browsing", "to": "waiting", "event": "STRAND",
+                          "effects": [["render-ui", "main", { "type": "typography", "content": "Starting…" }]] },
+                        { "from": "waiting", "to": "browsing", "event": "STARTED",
+                          "effects": [["render-ui", "main", { "type": "data-grid", "entity": "?data" }]] }
+                    ]
+                },
+                "listens": [{ "event": "Sibling.STARTED_BROADCAST", "triggers": "STARTED" }]
+            }),
+            serde_json::json!({
+                "name": "Trigger",
+                "linkedEntity": "Item",
+                "category": "interaction",
+                "stateMachine": {
+                    "states": [{ "name": "idle", "isInitial": true }],
+                    "transitions": [
+                        { "from": "idle", "to": "idle", "event": "INIT",
+                          "effects": [["render-ui", "aux", { "type": "button", "action": "STRAND" }]] }
+                    ]
+                }
+            }),
+            serde_json::json!({
+                "name": "Sibling",
+                "linkedEntity": "Item",
+                "category": "interaction",
+                "stateMachine": {
+                    "states": [{ "name": "idle", "isInitial": true }],
+                    "transitions": [
+                        { "from": "idle", "to": "idle", "event": "INIT",
+                          "effects": [["emit", "STARTED_BROADCAST"]] }
+                    ]
+                }
+            }),
+        ];
+        let orbital = orbital_json(traits, page_with(&["Owner", "Trigger", "Sibling"]));
+        assert!(viewer_stranded_hits(orbital).is_empty());
+    }
+
+    /// `owner_and_trigger`, but the STRAND arm's full effects list is
+    /// caller-supplied — for the same-arm `@entity.<field>` substitution
+    /// tests below, where STRAND needs a `set` before its `render-ui`.
+    fn owner_and_trigger_with_strand_effects(effects: serde_json::Value) -> Vec<serde_json::Value> {
+        vec![
+            serde_json::json!({
+                "name": "Owner",
+                "linkedEntity": "Item",
+                "category": "interaction",
+                "stateMachine": {
+                    "states": [{ "name": "browsing", "isInitial": true }],
+                    "transitions": [
+                        { "from": "browsing", "to": "browsing", "event": "INIT",
+                          "effects": [["render-ui", "main", { "type": "data-grid", "entity": "?data" }]] },
+                        { "from": "browsing", "to": "browsing", "event": "STRAND", "effects": effects }
+                    ]
+                }
+            }),
+            serde_json::json!({
+                "name": "Trigger",
+                "linkedEntity": "Item",
+                "category": "interaction",
+                "stateMachine": {
+                    "states": [{ "name": "idle", "isInitial": true }],
+                    "transitions": [
+                        { "from": "idle", "to": "idle", "event": "INIT",
+                          "effects": [["render-ui", "aux", { "type": "button", "action": "STRAND" }]] }
+                    ]
+                }
+            }),
+        ]
+    }
+
+    /// (a) The arm sets `renderChildren` to a literal tree with a wired
+    /// button earlier in the SAME transition, then paints it via a binding
+    /// — `std-logic-truthtable`'s exact shape. No strand: the substituted
+    /// tree offers a way on.
+    #[test]
+    fn viewer_stranded_silent_when_a_same_arm_set_binds_a_wired_literal() {
+        let effects = serde_json::json!([
+            ["set", "@entity.renderChildren", [{ "type": "button", "action": "GO_BACK" }]],
+            ["render-ui", "main", { "type": "box", "children": "@entity.renderChildren" }]
+        ]);
+        let orbital = orbital_json(
+            owner_and_trigger_with_strand_effects(effects),
+            page_with(&["Owner", "Trigger"]),
+        );
+        assert!(viewer_stranded_hits(orbital).is_empty());
+    }
+
+    /// (b) Same shape, but the substituted literal carries only typography
+    /// — no data surface, no control, no embed. A real strand.
+    #[test]
+    fn viewer_stranded_fires_when_a_same_arm_set_binds_a_dead_literal() {
+        let effects = serde_json::json!([
+            ["set", "@entity.renderChildren", [{ "type": "typography", "content": "Loading…" }]],
+            ["render-ui", "main", { "type": "box", "children": "@entity.renderChildren" }]
+        ]);
+        let orbital = orbital_json(
+            owner_and_trigger_with_strand_effects(effects),
+            page_with(&["Owner", "Trigger"]),
+        );
+        let hits = viewer_stranded_hits(orbital);
+        assert_eq!(hits.len(), 1, "{:?}", hits);
+    }
+
+    /// (c) No same-transition `set` for the bound field at all — unknown,
+    /// never presumed dead.
+    #[test]
+    fn viewer_stranded_silent_when_the_bound_field_has_no_same_arm_set() {
+        let effects = serde_json::json!([
+            ["render-ui", "main", { "type": "box", "children": "@entity.renderChildren" }]
+        ]);
+        let orbital = orbital_json(
+            owner_and_trigger_with_strand_effects(effects),
+            page_with(&["Owner", "Trigger"]),
+        );
+        assert!(viewer_stranded_hits(orbital).is_empty());
+    }
+
+    /// (d) The `set` sits nested inside `let`/`do`/`if` (`std-learn-classify`'s
+    /// shape, minus the local-let-variable indirection) — still resolves.
+    #[test]
+    fn viewer_stranded_silent_when_the_set_is_nested_in_let_do_if() {
+        let effects = serde_json::json!([
+            ["let", [["x", 1]],
+                ["do",
+                    ["if", true,
+                        ["set", "@entity.renderChildren", [{ "type": "button", "action": "GO_BACK" }]],
+                        null
+                    ]
+                ]
+            ],
+            ["render-ui", "main", { "type": "box", "children": "@entity.renderChildren" }]
+        ]);
+        let orbital = orbital_json(
+            owner_and_trigger_with_strand_effects(effects),
+            page_with(&["Owner", "Trigger"]),
+        );
+        assert!(viewer_stranded_hits(orbital).is_empty());
+    }
+
+    /// (e) A `set` AFTER the `render-ui` hasn't run yet by the time the
+    /// body paints — it must not count, even though its literal is dead
+    /// (which would otherwise wrongly flip an unknown into a false strand).
+    #[test]
+    fn viewer_stranded_silent_when_the_set_comes_after_the_render_ui() {
+        let effects = serde_json::json!([
+            ["render-ui", "main", { "type": "box", "children": "@entity.renderChildren" }],
+            ["set", "@entity.renderChildren", [{ "type": "typography", "content": "Loading…" }]]
+        ]);
+        let orbital = orbital_json(
+            owner_and_trigger_with_strand_effects(effects),
+            page_with(&["Owner", "Trigger"]),
+        );
+        assert!(viewer_stranded_hits(orbital).is_empty());
+    }
+
+    /// Local-let-variable indirection: the `set`'s value is `(if cond A B)`
+    /// where A/B are themselves `let`-bound names (`std-learn-classify`'s
+    /// actual shape — `roundView` set to `(if @entity.roundComplete
+    /// @summaryView @itemView)`). Both branches resolve through the flat
+    /// local scope; either offering a way on is enough.
+    #[test]
+    fn viewer_stranded_silent_when_the_if_branches_are_let_bound_locals() {
+        let effects = serde_json::json!([
+            ["let", [
+                ["summaryView", [{ "type": "typography", "content": "done" }]],
+                ["itemView", [{ "type": "button", "action": "GO_BACK" }]]
+            ],
+                ["do", ["set", "@entity.renderChildren", ["if", "@entity.roundComplete", "@summaryView", "@itemView"]]]
+            ],
+            ["render-ui", "main", { "type": "box", "children": "@entity.renderChildren" }]
+        ]);
+        let orbital = orbital_json(
+            owner_and_trigger_with_strand_effects(effects),
+            page_with(&["Owner", "Trigger"]),
+        );
+        assert!(viewer_stranded_hits(orbital).is_empty());
+    }
+
+    /// Both `if` branches (local-let-bound) are dead — still a strand.
+    #[test]
+    fn viewer_stranded_fires_when_both_if_branches_are_dead_let_bound_locals() {
+        let effects = serde_json::json!([
+            ["let", [
+                ["summaryView", [{ "type": "typography", "content": "done" }]],
+                ["itemView", [{ "type": "typography", "content": "loading" }]]
+            ],
+                ["do", ["set", "@entity.renderChildren", ["if", "@entity.roundComplete", "@summaryView", "@itemView"]]]
+            ],
+            ["render-ui", "main", { "type": "box", "children": "@entity.renderChildren" }]
+        ]);
+        let orbital = orbital_json(
+            owner_and_trigger_with_strand_effects(effects),
+            page_with(&["Owner", "Trigger"]),
+        );
+        let hits = viewer_stranded_hits(orbital);
+        assert_eq!(hits.len(), 1, "{:?}", hits);
+    }
+
+    fn second_content_body_hits(orbital: Orbital) -> Vec<ValidationError> {
+        let schema = schema_of(orbital);
+        let mut ctx = ValidationContext::new();
+        validate_page_content_ownership(&schema, &mut ctx);
+        ctx.result
+            .errors
+            .into_iter()
+            .filter(|e| e.code == ErrorCode::PageSecondContentBody)
+            .collect()
+    }
+
+    /// A shell channels its body to `Catalog` via `contentTrait`; a SECOND,
+    /// unrelated page-declared trait (`Stray`) also paints content into
+    /// `main` — the two-content-bodies-on-one-page defect.
+    #[test]
+    fn second_content_body_fires_when_an_unrelated_writer_shares_the_page() {
+        let shell = serde_json::json!({
+            "name": "Shell",
+            "linkedEntity": "Item",
+            "category": "interaction",
+            "config": { "contentTrait": { "type": "trait", "default": "@trait.Catalog" } },
+            "stateMachine": {
+                "states": [{ "name": "idle", "isInitial": true }],
+                "transitions": [{ "from": "idle", "to": "idle", "event": "INIT", "effects": [["render-ui", "modal", null]] }]
+            }
+        });
+        let catalog = serde_json::json!({
+            "name": "Catalog", "linkedEntity": "Item", "category": "interaction",
+            "stateMachine": {
+                "states": [{ "name": "browsing", "isInitial": true }],
+                "transitions": [{ "from": "browsing", "to": "browsing", "event": "INIT",
+                    "effects": [["render-ui", "main", { "type": "data-grid", "entity": "?data" }]] }]
+            }
+        });
+        let stray = serde_json::json!({
+            "name": "Stray", "linkedEntity": "Item", "category": "interaction",
+            "stateMachine": {
+                "states": [{ "name": "browsing", "isInitial": true }],
+                "transitions": [{ "from": "browsing", "to": "browsing", "event": "INIT",
+                    "effects": [["render-ui", "main", { "type": "data-grid", "entity": "?data" }]] }]
+            }
+        });
+        let orbital = orbital_json(
+            vec![shell, catalog, stray],
+            page_with(&["Shell", "Catalog", "Stray"]),
+        );
+        let hits = second_content_body_hits(orbital);
+        assert_eq!(hits.len(), 1, "{:?}", hits);
+        assert!(hits[0].message.contains("Stray"));
+    }
+
+    /// `Stray` IS embedded by the owner via `@trait.Stray` in render effects
+    /// (containment) — related to the owner, not a rival.
+    #[test]
+    fn second_content_body_silent_when_the_second_writer_is_embedded_by_the_owner() {
+        let shell = serde_json::json!({
+            "name": "Shell",
+            "linkedEntity": "Item",
+            "category": "interaction",
+            "config": { "contentTrait": { "type": "trait", "default": "@trait.Catalog" } },
+            "stateMachine": {
+                "states": [{ "name": "idle", "isInitial": true }],
+                "transitions": [{ "from": "idle", "to": "idle", "event": "INIT", "effects": [["render-ui", "modal", null]] }]
+            }
+        });
+        let catalog = serde_json::json!({
+            "name": "Catalog", "linkedEntity": "Item", "category": "interaction",
+            "stateMachine": {
+                "states": [{ "name": "browsing", "isInitial": true }],
+                "transitions": [{ "from": "browsing", "to": "browsing", "event": "INIT",
+                    "effects": [["render-ui", "main", { "type": "stack", "children": ["@trait.Stray"] }]] }]
+            }
+        });
+        let stray = serde_json::json!({
+            "name": "Stray", "linkedEntity": "Item", "category": "interaction",
+            "stateMachine": {
+                "states": [{ "name": "browsing", "isInitial": true }],
+                "transitions": [{ "from": "browsing", "to": "browsing", "event": "INIT",
+                    "effects": [["render-ui", "main", { "type": "data-grid", "entity": "?data" }]] }]
+            }
+        });
+        let orbital = orbital_json(
+            vec![shell, catalog, stray],
+            page_with(&["Shell", "Catalog", "Stray"]),
+        );
+        assert!(second_content_body_hits(orbital).is_empty());
+    }
+
+    /// A `sole-writer` owner (no channel, exactly one writer) means there is
+    /// at most one content body on the page BY CONSTRUCTION — the check
+    /// never even looks for a second one.
+    #[test]
+    fn second_content_body_silent_for_a_sole_writer_owner() {
+        let catalog = serde_json::json!({
+            "name": "Catalog", "linkedEntity": "Item", "category": "interaction",
+            "stateMachine": {
+                "states": [{ "name": "browsing", "isInitial": true }],
+                "transitions": [{ "from": "browsing", "to": "browsing", "event": "INIT",
+                    "effects": [["render-ui", "main", { "type": "data-grid", "entity": "?data" }]] }]
+            }
+        });
+        let orbital = orbital_json(vec![catalog], page_with(&["Catalog"]));
+        assert!(second_content_body_hits(orbital).is_empty());
     }
 }

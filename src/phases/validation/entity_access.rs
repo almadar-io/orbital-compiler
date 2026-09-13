@@ -107,9 +107,89 @@ fn validate_collection_policy_agreement(schema: &OrbitalSchema, result: &mut Val
     }
 }
 
+/// Owner columns — declared relations to the `[identity]` entity, never
+/// derived from a field name — with no scoping policy declared.
+///
+/// An entity that declares ≥1 owner column and neither a `read_policy` nor a
+/// stated `access_waivers.read` reason is allow-all for every row: an
+/// undeclared policy permits everyone, it does not deny everyone. Reuses
+/// `orbital_core::runtime::owner_fields_from_schema` — the same derivation
+/// the runtime seeder uses to know which columns to stamp with the viewer
+/// id, so this check and the seeder can never disagree about what an owner
+/// column is. JS twin: `unscoped-owned-entity` in `wiring-lint.ts`.
+fn validate_owner_columns_scoped(schema: &OrbitalSchema, result: &mut ValidationResult) {
+    let owner_fields = orbital_core::runtime::owner_fields_from_schema(schema);
+    if owner_fields.is_empty() {
+        return;
+    }
+    // `owner_fields_from_schema` lower-cases the entity half of each pair
+    // (its own consumer, the seeder, keys by that); match entity defs the
+    // same way rather than re-deriving the pairing.
+    let mut owners_by_entity_lower: std::collections::HashMap<String, Vec<String>> =
+        std::collections::HashMap::new();
+    for (entity_lower, field) in owner_fields {
+        owners_by_entity_lower
+            .entry(entity_lower)
+            .or_default()
+            .push(field);
+    }
+
+    for orbital in &schema.orbitals {
+        for er in
+            std::iter::once(&orbital.entity).chain(orbital.auxiliary_entities.iter().flatten())
+        {
+            let EntityRef::Inline(def) = er else {
+                continue;
+            };
+            let Some(owners) = owners_by_entity_lower.get(&def.name.to_lowercase()) else {
+                continue;
+            };
+            if owners.is_empty() || def.read_policy.is_some() {
+                continue;
+            }
+            // `@read none "<reason>"` — the author declared the omission and
+            // said why. Treat it as answered: a lint that keeps flagging
+            // correct code is one agents learn to scroll past.
+            if def
+                .access_waivers
+                .as_ref()
+                .is_some_and(|w| w.read.is_some())
+            {
+                continue;
+            }
+            let columns = owners
+                .iter()
+                .map(|f| format!("`{}`", f))
+                .collect::<Vec<_>>()
+                .join(", ");
+            result.add_error(
+                ValidationError::error(
+                    ErrorCode::EntityOwnerColumnUnscoped,
+                    format!("{}.@read", def.name),
+                    format!(
+                        "{} declares owner column(s) {} pointing at the [identity] entity, but \
+                         no @read directive — and an undeclared policy is ALLOW-ALL, not \
+                         deny-all, so every viewer reads every row",
+                        def.name, columns
+                    ),
+                )
+                .with_suggestion(format!(
+                    "declare @read on {} scoping rows to the viewer, e.g. @read [\"=\", \
+                     (object/get @entity {}), @user.id] — or, when visibility genuinely depends \
+                     on a DIFFERENT entity (a membership/enrolment join a per-row predicate \
+                     cannot express), omit @read and state that reason in a comment on the \
+                     entity, citing R-ENTITY-ACCESS-NO-COLLECTION-AGGREGATE-BINDING",
+                    def.name, owners[0]
+                )),
+            );
+        }
+    }
+}
+
 pub fn validate_entity_access(schema: &OrbitalSchema, ctx: &mut ValidationContext) {
     let mut result = ValidationResult::new();
     validate_collection_policy_agreement(schema, &mut result);
+    validate_owner_columns_scoped(schema, &mut result);
     let declared_identity = identity_entities(schema).into_iter().next();
     let default_identity = default_identity_shape();
 
@@ -632,5 +712,145 @@ mod tests {
             .errors
             .iter()
             .any(|e| e.code == ErrorCode::SchemaAccessPolicyUnknownEntityField));
+    }
+}
+
+#[cfg(test)]
+mod owner_columns_scoped_tests {
+    use super::*;
+    use serde_json::json;
+
+    /// An app whose `Ticket.assignee` points at the `[identity]` `Person`.
+    fn app_with_owner_column(read_policy: Option<serde_json::Value>) -> OrbitalSchema {
+        let mut ticket_entity = json!({
+            "name": "Ticket",
+            "persistence": "persistent",
+            "collection": "tickets",
+            "fields": [
+                { "name": "id", "type": "string" },
+                { "name": "assignee", "type": "relation", "relation": { "entity": "Person" } }
+            ],
+        });
+        if let Some(policy) = read_policy {
+            ticket_entity["read_policy"] = policy;
+        }
+        serde_json::from_value(json!({
+            "name": "fixture",
+            "orbitals": [
+                { "name": "TicketOrbital", "entity": ticket_entity, "traits": [] },
+                {
+                    "name": "PersonOrbital",
+                    "entity": {
+                        "name": "Person",
+                        "identity": true,
+                        "persistence": "persistent",
+                        "collection": "people",
+                        "fields": [{ "name": "id", "type": "string" }],
+                    },
+                    "traits": [],
+                },
+            ],
+        }))
+        .expect("valid schema fixture")
+    }
+
+    fn findings(schema: &OrbitalSchema) -> ValidationResult {
+        let mut result = ValidationResult::new();
+        validate_owner_columns_scoped(schema, &mut result);
+        result
+    }
+
+    #[test]
+    fn flags_owner_column_with_no_read_policy() {
+        let schema = app_with_owner_column(None);
+        let result = findings(&schema);
+        assert_eq!(result.errors.len(), 1);
+        assert_eq!(result.errors[0].code, ErrorCode::EntityOwnerColumnUnscoped);
+        assert!(result.errors[0].message.contains("assignee"));
+    }
+
+    #[test]
+    fn silent_once_read_is_declared() {
+        let schema = app_with_owner_column(Some(json!(["=", "@entity.assignee", "@user.id"])));
+        assert!(findings(&schema).errors.is_empty());
+    }
+
+    #[test]
+    fn silent_for_an_app_declaring_no_identity_entity_at_all() {
+        let schema: OrbitalSchema = serde_json::from_value(json!({
+            "name": "fixture",
+            "orbitals": [{
+                "name": "TicketOrbital",
+                "entity": {
+                    "name": "Ticket",
+                    "persistence": "persistent",
+                    "collection": "tickets",
+                    "fields": [{ "name": "assignee", "type": "relation", "relation": { "entity": "Person" } }],
+                },
+                "traits": [],
+            }],
+        }))
+        .expect("valid schema fixture");
+        assert!(findings(&schema).errors.is_empty());
+    }
+
+    #[test]
+    fn does_not_guess_from_a_field_name_a_bare_string_owner_is_invisible() {
+        let mut schema = app_with_owner_column(None);
+        if let EntityRef::Inline(def) = &mut schema.orbitals[0].entity {
+            def.fields = vec![serde_json::from_value(
+                json!({ "name": "assignee", "type": "string" }),
+            )
+            .expect("valid field")];
+        }
+        assert!(findings(&schema).errors.is_empty());
+    }
+
+    fn app_with_waiver(waiver: Option<serde_json::Value>) -> OrbitalSchema {
+        let mut reply_entity = json!({
+            "name": "TicketReply",
+            "persistence": "persistent",
+            "collection": "ticketreplies",
+            "fields": [{ "name": "authorId", "type": "relation", "relation": { "entity": "Person" } }],
+        });
+        if let Some(w) = waiver {
+            reply_entity["access_waivers"] = w;
+        }
+        serde_json::from_value(json!({
+            "name": "fixture",
+            "orbitals": [
+                { "name": "ReplyOrbital", "entity": reply_entity, "traits": [] },
+                {
+                    "name": "PersonOrbital",
+                    "entity": {
+                        "name": "Person",
+                        "identity": true,
+                        "persistence": "persistent",
+                        "collection": "people",
+                        "fields": [{ "name": "id", "type": "string" }],
+                    },
+                    "traits": [],
+                },
+            ],
+        }))
+        .expect("valid schema fixture")
+    }
+
+    #[test]
+    fn flags_the_omission_when_nothing_declares_it() {
+        let schema = app_with_waiver(None);
+        assert_eq!(findings(&schema).errors.len(), 1);
+    }
+
+    #[test]
+    fn goes_quiet_once_read_none_reason_declares_it() {
+        let schema = app_with_waiver(Some(json!({ "read": "visibility follows the Ticket" })));
+        assert!(findings(&schema).errors.is_empty());
+    }
+
+    #[test]
+    fn a_waiver_on_a_different_operation_does_not_silence_read() {
+        let schema = app_with_waiver(Some(json!({ "delete": "moderation only" })));
+        assert_eq!(findings(&schema).errors.len(), 1);
     }
 }

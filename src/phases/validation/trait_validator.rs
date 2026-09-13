@@ -400,9 +400,13 @@ pub fn validate_trait_definition(
     }
 
     // Validate `trait`-typed config field defaults — must be `@trait.<TraitName>`
-    // strings. Catches malformed defaults at the field declaration so authors
-    // get a precise error rather than a downstream `ORB_RUI_INVALID_PATTERN`
-    // failure when the config flows into render-ui children.
+    // strings, or `Null` (the reserved "unbound" value — owner ruling
+    // 2026-09-13: a `trait`-typed config knob may be `none`, which lowers to
+    // `Null`; see `canonicalize_unbound_trait_default`/
+    // `canonicalize_unbound_trait_override`). Catches malformed defaults at
+    // the field declaration so authors get a precise error rather than a
+    // downstream `ORB_RUI_INVALID_PATTERN` failure when the config flows
+    // into render-ui children.
     if let Some(config) = &trait_def.config {
         for (field_name, cf) in config.iter() {
             if cf.field_type != "trait" {
@@ -410,6 +414,7 @@ pub fn validate_trait_definition(
             }
             let Some(default) = &cf.default else { continue };
             match default {
+                SExpression::Null => {}
                 SExpression::String(s) => {
                     if !is_trait_ref_string(s) {
                         result.add_error(
@@ -417,12 +422,12 @@ pub fn validate_trait_definition(
                                 ErrorCode::BindingTraitInvalidFormat,
                                 format!("{}.config.{}.default", path, field_name),
                                 format!(
-                                    "trait-typed config field '{}' has invalid default '{}' — must be `@trait.<TraitName>`",
+                                    "trait-typed config field '{}' has invalid default '{}' — must be `@trait.<TraitName>` or `none`",
                                     field_name, s
                                 ),
                             )
                             .with_suggestion(
-                                "Set the default to a `@trait.PascalCaseName` reference, or remove the default and require the consumer to override.",
+                                "Set the default to a `@trait.PascalCaseName` reference, to `none` (unbound), or remove the default and require the consumer to override.",
                             ),
                         );
                     }
@@ -433,12 +438,160 @@ pub fn validate_trait_definition(
                             ErrorCode::BindingTraitInvalidFormat,
                             format!("{}.config.{}.default", path, field_name),
                             format!(
-                                "trait-typed config field '{}' default must be a string `@trait.<TraitName>` reference",
+                                "trait-typed config field '{}' default must be a string `@trait.<TraitName>` reference, or `none`",
                                 field_name
                             ),
                         ),
                     );
                 }
+            }
+        }
+    }
+
+    result.merge(validate_unbound_trait_knob_embeds(trait_def, path));
+
+    result
+}
+
+/// `ORB_RENDER_UNBOUND_TRAIT_KNOB_EMBEDDED`: a render-ui payload embeds
+/// `@config.<knob>` (as a child, or inside a `children` entry) where `<knob>`
+/// is a `trait`-typed config field whose resolved value at this call site is
+/// `none` (`Null` — see `canonicalize_unbound_trait_default`), unless the
+/// render sits in the THEN-branch of a `(if @config.<knob> ...)` guard in the
+/// same effect list — structurally: the condition is exactly that knob's own
+/// binding string, `@config.<knob>`. An unguarded embed of an unbound trait
+/// renders nothing (a dangling `@config.<knob>` string reaches the render
+/// substrate, per the closed-circuit rule that no wire may terminate in
+/// nothing) — the fix is the same `(if @config.<knob> (render-ui ...))`
+/// wrap `tools/almadar-pattern-sync/src/commands/lolo-service.ts` generates.
+fn validate_unbound_trait_knob_embeds(trait_def: &TraitDefinition, path: &str) -> ValidationResult {
+    let mut result = ValidationResult::new();
+
+    let unbound_knobs: HashSet<&str> = trait_def
+        .config
+        .as_ref()
+        .map(|config| {
+            config
+                .iter()
+                .filter(|(_, cf)| cf.field_type == "trait" && matches!(cf.default, Some(SExpression::Null)))
+                .map(|(name, _)| name.as_str())
+                .collect()
+        })
+        .unwrap_or_default();
+    if unbound_knobs.is_empty() {
+        return result;
+    }
+
+    fn walk(
+        expr: &SExpression,
+        unbound_knobs: &HashSet<&str>,
+        effect_path: &str,
+        result: &mut ValidationResult,
+    ) {
+        let SExpression::Array(arr) = expr else {
+            return;
+        };
+        // The sanctioned guard shape: `["if", "@config.<knob>", then, else?]`
+        // where `<knob>` is one of this trait's unbound-eligible knobs. The
+        // then-branch is exempt for THAT knob (still walked, so an unrelated
+        // knob embedded inside it is still caught); the else-branch (if any)
+        // is walked normally, same as any other node.
+        if let [SExpression::String(op), SExpression::String(cond), then_branch, rest @ ..] =
+            arr.as_slice()
+        {
+            if op == "if" {
+                if let Some(knob) = cond.strip_prefix("@config.") {
+                    if unbound_knobs.contains(knob) {
+                        // Exempt ONLY this knob for the then-branch — an
+                        // unrelated unbound knob embedded inside it must
+                        // still be caught.
+                        let mut exempt = unbound_knobs.clone();
+                        exempt.remove(knob);
+                        walk(then_branch, &exempt, effect_path, result);
+                        if let Some(else_branch) = rest.first() {
+                            walk(else_branch, unbound_knobs, effect_path, result);
+                        }
+                        return;
+                    }
+                }
+            }
+        }
+        if is_render_ui_effect(expr) {
+            for item in arr {
+                check_render_payload_for_unbound_embeds(item, unbound_knobs, effect_path, result);
+            }
+            return;
+        }
+        for item in arr {
+            walk(item, unbound_knobs, effect_path, result);
+        }
+    }
+
+    /// Once inside a render-ui effect's own subtree (not gated by the
+    /// sanctioned `if` guard above), any `@config.<knob>` string for an
+    /// unbound-eligible knob is a dangling embed — flag it and keep
+    /// descending so multiple embeds in one payload are all reported.
+    fn check_render_payload_for_unbound_embeds(
+        expr: &SExpression,
+        unbound_knobs: &HashSet<&str>,
+        effect_path: &str,
+        result: &mut ValidationResult,
+    ) {
+        match expr {
+            SExpression::String(s) => {
+                if let Some(knob) = s.strip_prefix("@config.") {
+                    if unbound_knobs.contains(knob) {
+                        result.add_error(
+                            ValidationError::error(
+                                ErrorCode::RenderUnboundTraitKnobEmbedded,
+                                effect_path,
+                                format!(
+                                    "render-ui embeds '@config.{}', a trait-typed knob whose \
+                                     resolved value is `none` (unbound) — an unguarded embed \
+                                     renders nothing",
+                                    knob
+                                ),
+                            )
+                            .with_suggestion(format!(
+                                "Wrap this render-ui in `(if @config.{} (render-ui ...))` so the \
+                                 unbound case renders nothing instead of a dangling embed",
+                                knob
+                            )),
+                        );
+                    }
+                }
+            }
+            SExpression::Array(arr) => {
+                for item in arr {
+                    check_render_payload_for_unbound_embeds(item, unbound_knobs, effect_path, result);
+                }
+            }
+            SExpression::Object(obj) => {
+                for (_, v) in obj {
+                    check_render_payload_for_unbound_embeds(v, unbound_knobs, effect_path, result);
+                }
+            }
+            _ => {}
+        }
+    }
+
+    for (i, transition) in trait_def.state_machine.transitions.iter().enumerate() {
+        let Some(effects) = &transition.effects else {
+            continue;
+        };
+        for (j, effect) in effects.iter().enumerate() {
+            let effect_path = format!(
+                "{}.stateMachine.transitions[{}].effects[{}]",
+                path, i, j
+            );
+            walk(effect, &unbound_knobs, &effect_path, &mut result);
+        }
+    }
+    if let Some(ticks) = &trait_def.ticks {
+        for (i, tick) in ticks.iter().enumerate() {
+            for (j, effect) in tick.effects.iter().enumerate() {
+                let effect_path = format!("{}.ticks[{}].effects[{}]", path, i, j);
+                walk(effect, &unbound_knobs, &effect_path, &mut result);
             }
         }
     }
@@ -1085,6 +1238,120 @@ mod tests {
             "Unexpected errors: {:?}",
             result.errors
         );
+    }
+
+    // =========================================================================
+    // `trait`-typed config knob `none` (owner ruling 2026-09-13)
+    // =========================================================================
+    mod unbound_trait_knob {
+        use super::*;
+        use orbital_core::schema::ConfigField;
+
+        fn s(v: &str) -> SExpression {
+            SExpression::String(v.to_string())
+        }
+
+        fn obj(pairs: &[(&str, SExpression)]) -> SExpression {
+            SExpression::Object(pairs.iter().map(|(k, v)| (k.to_string(), v.clone())).collect())
+        }
+
+        fn trait_typed_config_field(default: SExpression) -> ConfigField {
+            let mut f: ConfigField = serde_json::from_value(serde_json::json!({ "type": "trait" }))
+                .expect("config field fixture");
+            f.default = Some(default);
+            f
+        }
+
+        fn uitrait_render_effect() -> SExpression {
+            SExpression::Array(vec![
+                s("render-ui"),
+                s("main"),
+                obj(&[
+                    ("type", s("stack")),
+                    ("children", SExpression::Array(vec![s("@config.uiTrait")])),
+                ]),
+            ])
+        }
+
+        /// Adds a `SHOW -> idle` transition whose sole effect is `render_effect`
+        /// to `create_valid_trait()`'s state machine, and sets its `config` to
+        /// a single `uiTrait : trait` knob with the given default.
+        fn trait_with_uitrait(default: SExpression, render_effect: SExpression) -> TraitDefinition {
+            let mut trait_def = create_valid_trait();
+            // Replace the fixture's INIT render-ui effect (transitions[0], the
+            // idle->idle self-transition `create_valid_state_machine` already
+            // declares) rather than adding a new event, so no extra
+            // `stateMachine.events` entry is needed.
+            trait_def.state_machine.transitions[0].effects = Some(vec![render_effect]);
+            trait_def.config = Some(HashMap::from([(
+                "uiTrait".to_string(),
+                trait_typed_config_field(default),
+            )]));
+            trait_def
+        }
+
+        fn has_code(result: &ValidationResult, code: ErrorCode) -> bool {
+            result.errors.iter().any(|e| e.code == code)
+        }
+
+        /// `uiTrait : trait = none` (`Null`) is a legal default — the
+        /// trait-typed-default check (`ORB_BINDING_TRAIT_INVALID_FORMAT`) must
+        /// not fire on it.
+        #[test]
+        fn null_default_is_a_valid_trait_typed_default() {
+            let trait_def = trait_with_uitrait(SExpression::Null, uitrait_render_effect());
+            let result = validate_trait_definition(&trait_def, "test", &HashSet::new());
+            assert!(
+                !has_code(&result, ErrorCode::BindingTraitInvalidFormat),
+                "Null must be accepted as the unbound sentinel: {:?}",
+                result.errors
+            );
+        }
+
+        /// An unbound (`none`/`Null`) trait knob embedded in a render-ui with
+        /// no `(if @config.uiTrait ...)` guard renders nothing — must error.
+        #[test]
+        fn unguarded_embed_of_unbound_knob_errors() {
+            let trait_def = trait_with_uitrait(SExpression::Null, uitrait_render_effect());
+            let result = validate_trait_definition(&trait_def, "test", &HashSet::new());
+            assert!(
+                has_code(&result, ErrorCode::RenderUnboundTraitKnobEmbedded),
+                "an unguarded embed of an unbound trait knob must error: {:?}",
+                result.errors
+            );
+        }
+
+        /// The same embed, wrapped in `(if @config.uiTrait (render-ui ...))`
+        /// in the same effect list, is the sanctioned guard — silent.
+        #[test]
+        fn guarded_embed_of_unbound_knob_is_silent() {
+            let guarded = SExpression::Array(vec![
+                s("if"),
+                s("@config.uiTrait"),
+                uitrait_render_effect(),
+            ]);
+            let trait_def = trait_with_uitrait(SExpression::Null, guarded);
+            let result = validate_trait_definition(&trait_def, "test", &HashSet::new());
+            assert!(
+                !has_code(&result, ErrorCode::RenderUnboundTraitKnobEmbedded),
+                "a guarded embed must not error: {:?}",
+                result.errors
+            );
+        }
+
+        /// A BOUND trait knob (`@trait.DefaultForm`, never `none`) embedded
+        /// with no guard is the ordinary, pre-existing shape — never flagged
+        /// by the new rule regardless of guard.
+        #[test]
+        fn bound_knob_embed_is_never_flagged() {
+            let trait_def = trait_with_uitrait(s("@trait.DefaultForm"), uitrait_render_effect());
+            let result = validate_trait_definition(&trait_def, "test", &HashSet::new());
+            assert!(
+                !has_code(&result, ErrorCode::RenderUnboundTraitKnobEmbedded),
+                "a bound knob's embed must never be flagged: {:?}",
+                result.errors
+            );
+        }
     }
 
     #[test]

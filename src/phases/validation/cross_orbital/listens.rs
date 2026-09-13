@@ -1,5 +1,7 @@
+use crate::phases::embed_graph::EmbedGraph;
+use crate::phases::validation::fired_events::{collect_schema_fired_events, FiredEvents};
 use crate::phases::validation::{ErrorCode, ValidationError, ValidationResult};
-use orbital_core::schema::{ListenSource, OrbitalSchema, TraitReference};
+use orbital_core::schema::{ListenSource, Orbital, OrbitalSchema, TraitReference};
 use std::collections::{HashMap, HashSet};
 
 /// Listens-integrity backstop (error).
@@ -109,6 +111,161 @@ pub(crate) fn validate_listens_integrity(schema: &OrbitalSchema) -> ValidationRe
                         .with_suggestion(suggestion),
                     );
                 }
+            }
+        }
+    }
+
+    result
+}
+
+/// Innermost-first chain of ancestor trait NAMES for `trait_name`, walking
+/// `EmbedGraph::direct_host` up to the root — the same shape as the JS
+/// wiring lint's `embedHostChain` (`click-wiring-audit.ts`), cycle-guarded
+/// defensively even though the graph should be acyclic by construction.
+fn embed_host_name_chain(embed: &EmbedGraph, trait_name: &str) -> Vec<String> {
+    let mut chain = Vec::new();
+    let mut seen: HashSet<String> = HashSet::from([trait_name.to_string()]);
+    let mut current = trait_name.to_string();
+    while let Some(host) = embed.direct_host(&current) {
+        if !seen.insert(host.to_string()) {
+            break;
+        }
+        chain.push(host.to_string());
+        current = host.to_string();
+    }
+    chain
+}
+
+/// True when some OTHER trait in `orbital`, embedded (directly or
+/// transitively) inside `source_trait`, itself has a live producer for
+/// `event` — the JS `traitOrEmbedHostProduces` credit: an embedded child's
+/// chrome fires under its embedder's scope (a JSX-hoisted inline button
+/// lowers to a child trait carrying the real `action:` prop; the host's own
+/// tree only holds the opaque `@trait.Child` reference).
+fn embedded_child_produces(
+    orbital: &Orbital,
+    source_trait: &str,
+    event: &str,
+    fired: &FiredEvents,
+) -> bool {
+    let embed = EmbedGraph::build(&orbital.traits);
+    for trait_ref in &orbital.traits {
+        let TraitReference::Inline(td) = trait_ref else {
+            continue;
+        };
+        if td.name == source_trait {
+            continue;
+        }
+        if embed_host_name_chain(&embed, &td.name)
+            .iter()
+            .any(|host| host == source_trait)
+            && fired.contains_for_trait(&td.name, event)
+        {
+            return true;
+        }
+    }
+    false
+}
+
+/// `ORB_X_LISTEN_SOURCE_NEVER_PRODUCES` — convergence of the JS wiring
+/// lint's `listener-affordance-removed-by-config` into the listens-source
+/// resolution above. `validate_listens_integrity`'s `resolved` gate folds a
+/// trait's declared `emits[]` contract in UNCONDITIONALLY, regardless of
+/// whether anything live still backs it — so a route whose source trait
+/// declares the event but has since had its only producer configured away
+/// (an `itemActions`/`browseItemActions` narrowed at this call site) passes
+/// that check clean. This is the second half: even when the CONTRACT
+/// resolves the route, is there still a LIVE producer (an effect emit, a
+/// rendered `action:`/event prop, a structured `itemActions` entry, or an
+/// embedded child's own producer up the source's embed chain)? Fires
+/// whatever the emit's declared `scope` is — an `external` (cross-orbital
+/// broadcast) declaration still needs a live broadcaster to back a route
+/// that depends on it; `ORB_EMIT_DECLARED_BUT_UNFIRED`'s external exemption
+/// (an unproduced declaration NOBODY routes is a latent offer) is untouched
+/// — this check only fires when a `listens` route actually depends on it.
+pub(crate) fn validate_listen_source_never_produces(schema: &OrbitalSchema) -> ValidationResult {
+    let mut result = ValidationResult::new();
+    let fired = collect_schema_fired_events(schema);
+
+    let mut orbitals_by_name: HashMap<&str, &Orbital> = HashMap::new();
+    for orbital in &schema.orbitals {
+        orbitals_by_name.insert(orbital.name.as_str(), orbital);
+    }
+
+    for orbital in &schema.orbitals {
+        for trait_ref in &orbital.traits {
+            let TraitReference::Inline(td) = trait_ref else {
+                continue;
+            };
+            let Some(listens) = &td.listens else {
+                continue;
+            };
+            for listen in listens {
+                let (source_orbital_name, source_trait_name) = match &listen.source {
+                    Some(ListenSource::Trait { trait_name, .. }) => {
+                        (orbital.name.clone(), trait_name.clone())
+                    }
+                    Some(ListenSource::Orbital {
+                        orbital: o,
+                        trait_name,
+                        ..
+                    }) => (o.clone(), trait_name.clone()),
+                    Some(ListenSource::Any) | None => continue,
+                };
+                let Some(source_orbital) = orbitals_by_name.get(source_orbital_name.as_str())
+                else {
+                    continue; // unresolved cross-schema source: not this check's finding
+                };
+                let source_td = source_orbital.traits.iter().find_map(|t| match t {
+                    TraitReference::Inline(td) if td.name == source_trait_name => Some(td),
+                    _ => None,
+                });
+                let Some(source_td) = source_td else {
+                    continue; // dangling trait ref: ORB_X_LISTEN_SOURCE_UNRESOLVED owns it
+                };
+                // Gate on the CONTRACT (declared in `emits[]`) exactly as
+                // the JS check did (`emitsContractHasEvent`) — a route whose
+                // source never even declares the event is a different
+                // defect (ORB_X_LISTEN_SOURCE_UNRESOLVED, above), not this
+                // one, and gating this way means the two checks never fire
+                // twice on the same route.
+                let declared = source_td
+                    .emits
+                    .as_ref()
+                    .is_some_and(|emits| emits.iter().any(|e| e.event == listen.event));
+                if !declared {
+                    continue;
+                }
+                if fired.contains_for_trait(&source_trait_name, &listen.event) {
+                    continue;
+                }
+                if embedded_child_produces(
+                    source_orbital,
+                    &source_trait_name,
+                    &listen.event,
+                    &fired,
+                ) {
+                    continue;
+                }
+
+                result.add_error(
+                    ValidationError::error(
+                        ErrorCode::CrossOrbitalListenSourceNeverProduces,
+                        format!("orbitals.{}.traits.{}.listens", orbital.name, td.name),
+                        format!(
+                            "listens route {}.{} -> {}: {}'s emits contract declares {}, but no live effect, rendered affordance, or config item action at this call site produces it — a config override (e.g. itemActions/browseItemActions narrowed) likely removed the only producer",
+                            source_trait_name,
+                            listen.event,
+                            listen.triggers.clone().unwrap_or_default(),
+                            source_trait_name,
+                            listen.event
+                        ),
+                    )
+                    .with_suggestion(format!(
+                        "restore {} to {}'s active affordance config, or drop the {} route if the removal is intentional",
+                        listen.event, source_trait_name, td.name
+                    )),
+                );
             }
         }
     }
@@ -296,5 +453,171 @@ mod tests {
             "listen on the conditional's else-branch-only event must resolve; got {:?}",
             result.errors
         );
+    }
+
+    // ------------------------------------------------------------------
+    // Shard C: `ORB_X_LISTEN_SOURCE_NEVER_PRODUCES` — convergence of the JS
+    // wiring lint's `listener-affordance-removed-by-config`. Cases 1-2
+    // mirror the JS suite's two tests exactly; the last two are the new
+    // coverage the merge requires (the `external`-scope ruling, and the
+    // embedded-child producer credit).
+    // ------------------------------------------------------------------
+
+    fn schema_for_never_produces(traits: serde_json::Value) -> OrbitalSchema {
+        serde_json::from_value(serde_json::json!({
+            "name": "test-listen-never-produces",
+            "version": "1.0.0",
+            "orbitals": [
+                {
+                    "name": "O",
+                    "entity": {
+                        "name": "Row",
+                        "persistence": "persistent",
+                        "fields": [ { "name": "id", "type": "string", "required": true } ]
+                    },
+                    "traits": traits,
+                    "pages": []
+                }
+            ]
+        }))
+        .expect("never-produces fixture must deserialize")
+    }
+
+    fn never_produces_errors(schema: &OrbitalSchema) -> Vec<ValidationError> {
+        validate_listen_source_never_produces(schema)
+            .errors
+            .into_iter()
+            .filter(|e| e.code == ErrorCode::CrossOrbitalListenSourceNeverProduces)
+            .collect()
+    }
+
+    #[test]
+    fn fires_when_a_config_override_silenced_the_only_live_producer() {
+        let schema = schema_for_never_produces(serde_json::json!([
+            {
+                "name": "Browse",
+                "linkedEntity": "Row",
+                "category": "interaction",
+                "emits": [ { "event": "EDIT_ROW", "scope": "internal" } ],
+                "config": { "itemActions": { "type": "array", "default": [ { "event": "VIEW", "label": "View" } ] } },
+                "stateMachine": { "states": [], "events": [], "transitions": [
+                    { "from": "browsing", "to": "browsing", "event": "INIT", "effects": [] }
+                ] }
+            },
+            {
+                "name": "EditModal",
+                "linkedEntity": "Row",
+                "category": "interaction",
+                "listens": [ { "event": "EDIT_ROW", "triggers": "OPEN_EDIT", "source": { "kind": "trait", "trait": "Browse" } } ],
+                "stateMachine": { "states": [], "events": [], "transitions": [
+                    { "from": "idle", "to": "open", "event": "OPEN_EDIT", "effects": [] }
+                ] }
+            }
+        ]));
+        let errors = never_produces_errors(&schema);
+        assert_eq!(errors.len(), 1, "{:?}", errors);
+        assert!(errors[0].message.contains("EDIT_ROW"), "{:?}", errors);
+    }
+
+    #[test]
+    fn silent_once_itemactions_restores_the_event_as_a_live_producer() {
+        let schema = schema_for_never_produces(serde_json::json!([
+            {
+                "name": "Browse",
+                "linkedEntity": "Row",
+                "category": "interaction",
+                "emits": [ { "event": "EDIT_ROW", "scope": "internal" } ],
+                "config": { "itemActions": { "type": "array", "default": [
+                    { "event": "VIEW", "label": "View" },
+                    { "event": "EDIT_ROW", "label": "Edit" }
+                ] } },
+                "stateMachine": { "states": [], "events": [], "transitions": [
+                    { "from": "browsing", "to": "browsing", "event": "INIT", "effects": [] }
+                ] }
+            },
+            {
+                "name": "EditModal",
+                "linkedEntity": "Row",
+                "category": "interaction",
+                "listens": [ { "event": "EDIT_ROW", "triggers": "OPEN_EDIT", "source": { "kind": "trait", "trait": "Browse" } } ],
+                "stateMachine": { "states": [], "events": [], "transitions": [
+                    { "from": "idle", "to": "open", "event": "OPEN_EDIT", "effects": [] }
+                ] }
+            }
+        ]));
+        assert!(never_produces_errors(&schema).is_empty());
+    }
+
+    #[test]
+    fn fires_on_an_external_scoped_declared_but_unproduced_event_with_a_route_on_it() {
+        // `ORB_EMIT_DECLARED_BUT_UNFIRED`'s `external` exemption (an
+        // unproduced declaration nobody ROUTES is a latent offer) is
+        // deliberately untouched by this check — but a `listens` route DOES
+        // depend on it here, so it fires regardless of scope (LOLO.md
+        // §1163: external is a cross-orbital broadcast, still needs a live
+        // broadcaster).
+        let schema = schema_for_never_produces(serde_json::json!([
+            {
+                "name": "Publisher",
+                "linkedEntity": "Row",
+                "category": "interaction",
+                "emits": [ { "event": "ROW_CHANGED", "scope": "external" } ],
+                "stateMachine": { "states": [], "events": [], "transitions": [
+                    { "from": "idle", "to": "idle", "event": "INIT", "effects": [] }
+                ] }
+            },
+            {
+                "name": "Subscriber",
+                "linkedEntity": "Row",
+                "category": "interaction",
+                "listens": [ { "event": "ROW_CHANGED", "triggers": "REFRESH", "source": { "kind": "trait", "trait": "Publisher" } } ],
+                "stateMachine": { "states": [], "events": [], "transitions": [
+                    { "from": "idle", "to": "idle", "event": "REFRESH", "effects": [] }
+                ] }
+            }
+        ]));
+        let errors = never_produces_errors(&schema);
+        assert_eq!(errors.len(), 1, "{:?}", errors);
+        assert!(errors[0].message.contains("ROW_CHANGED"), "{:?}", errors);
+    }
+
+    #[test]
+    fn silent_when_an_embedded_child_produces_the_event_up_the_host_chain() {
+        // `Host` declares `ROW_ACTION` in its emits contract and embeds
+        // `Child` via `@trait.Child` in its own config default; `Host` has
+        // no live producer of its own, but `Child`'s rendered button DOES
+        // fire it — the JS `traitOrEmbedHostProduces` credit.
+        let schema = schema_for_never_produces(serde_json::json!([
+            {
+                "name": "Host",
+                "linkedEntity": "Row",
+                "category": "interaction",
+                "emits": [ { "event": "ROW_ACTION", "scope": "internal" } ],
+                "config": { "body": { "type": "string", "default": "@trait.Child" } },
+                "stateMachine": { "states": [], "events": [], "transitions": [
+                    { "from": "idle", "to": "idle", "event": "INIT", "effects": [] }
+                ] }
+            },
+            {
+                "name": "Child",
+                "linkedEntity": "Row",
+                "category": "interaction",
+                "stateMachine": { "states": [], "events": [], "transitions": [
+                    { "from": "idle", "to": "idle", "event": "INIT", "effects": [
+                        ["render-ui", "main", { "type": "button", "action": "ROW_ACTION", "label": "Go" } ]
+                    ] }
+                ] }
+            },
+            {
+                "name": "Watcher",
+                "linkedEntity": "Row",
+                "category": "interaction",
+                "listens": [ { "event": "ROW_ACTION", "triggers": "ROW_ACTED", "source": { "kind": "trait", "trait": "Host" } } ],
+                "stateMachine": { "states": [], "events": [], "transitions": [
+                    { "from": "idle", "to": "idle", "event": "ROW_ACTED", "effects": [] }
+                ] }
+            }
+        ]));
+        assert!(never_produces_errors(&schema).is_empty());
     }
 }
