@@ -918,7 +918,7 @@ pub fn factory_signatures_json_io() -> &'static str {
 // Values are gzip bytes (build.rs → $OUT_DIR/baked-gz/…), inflated lazily by
 // `get_std_behavior_content` — the baked corpus is ~31MB raw, ~2MB gzipped.
 pub static EMBEDDED_STD_BEHAVIORS: phf::Map<&'static str, &'static [u8]> = phf::phf_map! {
-    // === Atoms (637) ===
+    // === Atoms (641) ===
     "std/behaviors/dnd-combat" => include_bytes!(concat!(env!("OUT_DIR"), "/baked-gz/io/dnd/atoms/dnd-combat.orb.gz")),
     "std/behaviors/dnd-dice" => include_bytes!(concat!(env!("OUT_DIR"), "/baked-gz/io/dnd/atoms/dnd-dice.orb.gz")),
     "std/behaviors/dnd-dungeon-gen" => include_bytes!(concat!(env!("OUT_DIR"), "/baked-gz/io/dnd/atoms/dnd-dungeon-gen.orb.gz")),
@@ -1074,6 +1074,7 @@ pub static EMBEDDED_STD_BEHAVIORS: phf::Map<&'static str, &'static [u8]> = phf::
     "std/behaviors/std-dashboard-grid-embedded" => include_bytes!(concat!(env!("OUT_DIR"), "/baked-gz/std/ui/core/atoms/std-dashboard-grid-embedded.orb.gz")),
     "std/behaviors/std-data-collector" => include_bytes!(concat!(env!("OUT_DIR"), "/baked-gz/std/ml/atoms/std-data-collector.orb.gz")),
     "std/behaviors/std-data-erasure" => include_bytes!(concat!(env!("OUT_DIR"), "/baked-gz/std/infra/atoms/std-data-erasure.orb.gz")),
+    "std/behaviors/std-data-import" => include_bytes!(concat!(env!("OUT_DIR"), "/baked-gz/std/infra/atoms/std-data-import.orb.gz")),
     "std/behaviors/std-date-range" => include_bytes!(concat!(env!("OUT_DIR"), "/baked-gz/std/ui/core/atoms/std-date-range.orb.gz")),
     "std/behaviors/std-detail-layout" => include_bytes!(concat!(env!("OUT_DIR"), "/baked-gz/std/ui/core/atoms/std-detail-layout.orb.gz")),
     "std/behaviors/std-device-fleet" => include_bytes!(concat!(env!("OUT_DIR"), "/baked-gz/io/app/atoms/std-device-fleet.orb.gz")),
@@ -1119,6 +1120,7 @@ pub static EMBEDDED_STD_BEHAVIORS: phf::Map<&'static str, &'static [u8]> = phf::
     "std/behaviors/std-geo-urban" => include_bytes!(concat!(env!("OUT_DIR"), "/baked-gz/io/learning/atoms/std-geo-urban.orb.gz")),
     "std/behaviors/std-geo-vonthunen" => include_bytes!(concat!(env!("OUT_DIR"), "/baked-gz/io/learning/atoms/std-geo-vonthunen.orb.gz")),
     "std/behaviors/std-geosearch" => include_bytes!(concat!(env!("OUT_DIR"), "/baked-gz/std/ui/core/atoms/std-geosearch.orb.gz")),
+    "std/behaviors/std-global-search" => include_bytes!(concat!(env!("OUT_DIR"), "/baked-gz/std/infra/atoms/std-global-search.orb.gz")),
     "std/behaviors/std-gold" => include_bytes!(concat!(env!("OUT_DIR"), "/baked-gz/std/ui/game/atoms/std-gold.orb.gz")),
     "std/behaviors/std-graph-builder" => include_bytes!(concat!(env!("OUT_DIR"), "/baked-gz/std/ml/atoms/std-graph-builder.orb.gz")),
     "std/behaviors/std-graphs" => include_bytes!(concat!(env!("OUT_DIR"), "/baked-gz/std/ui/core/atoms/std-graphs.orb.gz")),
@@ -1240,6 +1242,7 @@ pub static EMBEDDED_STD_BEHAVIORS: phf::Map<&'static str, &'static [u8]> = phf::
     "std/behaviors/std-note" => include_bytes!(concat!(env!("OUT_DIR"), "/baked-gz/io/app/atoms/std-note.orb.gz")),
     "std/behaviors/std-notification-center" => include_bytes!(concat!(env!("OUT_DIR"), "/baked-gz/std/infra/atoms/std-notification-center.orb.gz")),
     "std/behaviors/std-notification-panel" => include_bytes!(concat!(env!("OUT_DIR"), "/baked-gz/std/ui/core/atoms/std-notification-panel.orb.gz")),
+    "std/behaviors/std-notification-preferences" => include_bytes!(concat!(env!("OUT_DIR"), "/baked-gz/std/infra/atoms/std-notification-preferences.orb.gz")),
     "std/behaviors/std-notify-on-event" => include_bytes!(concat!(env!("OUT_DIR"), "/baked-gz/std/infra/atoms/std-notify-on-event.orb.gz")),
     "std/behaviors/std-nps-survey" => include_bytes!(concat!(env!("OUT_DIR"), "/baked-gz/io/app/atoms/std-nps-survey.orb.gz")),
     "std/behaviors/std-objective-flow" => include_bytes!(concat!(env!("OUT_DIR"), "/baked-gz/std/ui/game/atoms/std-objective-flow.orb.gz")),
@@ -1251,6 +1254,7 @@ pub static EMBEDDED_STD_BEHAVIORS: phf::Map<&'static str, &'static [u8]> = phf::
     "std/behaviors/std-patient" => include_bytes!(concat!(env!("OUT_DIR"), "/baked-gz/io/app/atoms/std-patient.orb.gz")),
     "std/behaviors/std-patrol-hazard" => include_bytes!(concat!(env!("OUT_DIR"), "/baked-gz/std/ui/game/atoms/std-patrol-hazard.orb.gz")),
     "std/behaviors/std-payout-ledger" => include_bytes!(concat!(env!("OUT_DIR"), "/baked-gz/io/app/atoms/std-payout-ledger.orb.gz")),
+    "std/behaviors/std-permission-matrix" => include_bytes!(concat!(env!("OUT_DIR"), "/baked-gz/std/infra/atoms/std-permission-matrix.orb.gz")),
     "std/behaviors/std-physics-circular" => include_bytes!(concat!(env!("OUT_DIR"), "/baked-gz/io/learning/atoms/std-physics-circular.orb.gz")),
     "std/behaviors/std-physics-collision" => include_bytes!(concat!(env!("OUT_DIR"), "/baked-gz/io/learning/atoms/std-physics-collision.orb.gz")),
     "std/behaviors/std-physics-diagram" => include_bytes!(concat!(env!("OUT_DIR"), "/baked-gz/io/learning/atoms/std-physics-diagram.orb.gz")),
@@ -1668,7 +1672,7 @@ pub static EMBEDDED_STD_BEHAVIORS: phf::Map<&'static str, &'static [u8]> = phf::
     "std/behaviors/ui-wizard-container" => include_bytes!(concat!(env!("OUT_DIR"), "/baked-gz/std/ui/core/molecules/ui-wizard-container.orb.gz")),
     "std/behaviors/ui-wizard-navigation" => include_bytes!(concat!(env!("OUT_DIR"), "/baked-gz/std/ui/core/molecules/ui-wizard-navigation.orb.gz")),
     "std/behaviors/ui-wizard-progress" => include_bytes!(concat!(env!("OUT_DIR"), "/baked-gz/std/ui/core/molecules/ui-wizard-progress.orb.gz")),
-    // === Organisms (316) ===
+    // === Organisms (318) ===
     "std/behaviors/dnd-character-hud" => include_bytes!(concat!(env!("OUT_DIR"), "/baked-gz/io/dnd/organisms/dnd-character-hud.orb.gz")),
     "std/behaviors/dnd-dungeon-board" => include_bytes!(concat!(env!("OUT_DIR"), "/baked-gz/io/dnd/organisms/dnd-dungeon-board.orb.gz")),
     "std/behaviors/dnd-dungeon-delver" => include_bytes!(concat!(env!("OUT_DIR"), "/baked-gz/io/dnd/organisms/dnd-dungeon-delver.orb.gz")),
@@ -1726,6 +1730,7 @@ pub static EMBEDDED_STD_BEHAVIORS: phf::Map<&'static str, &'static [u8]> = phf::
     "std/behaviors/std-breakout" => include_bytes!(concat!(env!("OUT_DIR"), "/baked-gz/io/game/organisms/std-breakout.orb.gz")),
     "std/behaviors/std-builder" => include_bytes!(concat!(env!("OUT_DIR"), "/baked-gz/io/app/organisms/std-builder.orb.gz")),
     "std/behaviors/std-campaign-landing" => include_bytes!(concat!(env!("OUT_DIR"), "/baked-gz/io/marketing/organisms/std-campaign-landing.orb.gz")),
+    "std/behaviors/std-capacity-planner" => include_bytes!(concat!(env!("OUT_DIR"), "/baked-gz/io/app/organisms/std-capacity-planner.orb.gz")),
     "std/behaviors/std-careers-site" => include_bytes!(concat!(env!("OUT_DIR"), "/baked-gz/io/marketing/organisms/std-careers-site.orb.gz")),
     "std/behaviors/std-cicd-pipeline" => include_bytes!(concat!(env!("OUT_DIR"), "/baked-gz/io/app/organisms/std-cicd-pipeline.orb.gz")),
     "std/behaviors/std-cicd-status" => include_bytes!(concat!(env!("OUT_DIR"), "/baked-gz/io/marketing/organisms/std-cicd-status.orb.gz")),
@@ -1752,6 +1757,7 @@ pub static EMBEDDED_STD_BEHAVIORS: phf::Map<&'static str, &'static [u8]> = phf::
     "std/behaviors/std-evade" => include_bytes!(concat!(env!("OUT_DIR"), "/baked-gz/io/game/organisms/std-evade.orb.gz")),
     "std/behaviors/std-event-site" => include_bytes!(concat!(env!("OUT_DIR"), "/baked-gz/io/marketing/organisms/std-event-site.orb.gz")),
     "std/behaviors/std-event-ticketing" => include_bytes!(concat!(env!("OUT_DIR"), "/baked-gz/io/app/organisms/std-event-ticketing.orb.gz")),
+    "std/behaviors/std-executive-dashboard" => include_bytes!(concat!(env!("OUT_DIR"), "/baked-gz/io/app/organisms/std-executive-dashboard.orb.gz")),
     "std/behaviors/std-field-service" => include_bytes!(concat!(env!("OUT_DIR"), "/baked-gz/io/app/organisms/std-field-service.orb.gz")),
     "std/behaviors/std-finance-portal" => include_bytes!(concat!(env!("OUT_DIR"), "/baked-gz/io/marketing/organisms/std-finance-portal.orb.gz")),
     "std/behaviors/std-finance-tracker" => include_bytes!(concat!(env!("OUT_DIR"), "/baked-gz/io/app/organisms/std-finance-tracker.orb.gz")),

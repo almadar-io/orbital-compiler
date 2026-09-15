@@ -305,11 +305,18 @@ pub(crate) fn payload_field_of(f: &FieldDefinition) -> PayloadField {
         // A map's value shape rides in the tag above, not in properties.
         FieldType::Object if f.items.is_some() => None,
         FieldType::Object | FieldType::Union => f.properties.as_ref().and_then(|m| {
-            // `values` fixes the variant order for a union; a struct has none,
-            // so fall back to the map's own (BTree-stable) iteration order.
+            // `values` fixes the variant order for a union; a struct has none.
+            // `m` is a `std::collections::HashMap` — its iteration order is
+            // randomized per process (Rust's default hasher), NOT stable —
+            // so the struct fallback sorts by name for a deterministic field
+            // order across separate resolves of the same input.
             let ordered: Vec<&String> = match (&f.field_type, &f.values) {
                 (FieldType::Union, Some(names)) => names.iter().collect(),
-                _ => m.keys().collect(),
+                _ => {
+                    let mut keys: Vec<&String> = m.keys().collect();
+                    keys.sort();
+                    keys
+                }
             };
             let v: Vec<PayloadField> = ordered
                 .into_iter()
