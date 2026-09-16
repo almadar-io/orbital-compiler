@@ -2,7 +2,7 @@
 //!
 //! Source: packages/almadar-core/src/patterns/patterns-registry.json
 //!
-//! Last synced: 2026-09-12
+//! Last synced: 2026-09-16
 //! To regenerate: npx tsx tools/almadar-pattern-sync/index.ts
 //!
 //! DO NOT EDIT MANUALLY - changes will be overwritten on next sync.
@@ -51,6 +51,7 @@ pub static PATTERN_TYPES: LazyLock<HashSet<&'static str>> = LazyLock::new(|| {
         "floating-action-button",
         "floating-toolbar",
         "form-actions",
+        "gantt",
         "geometric-pattern",
         "gradient-divider",
         "graph-view",
@@ -378,6 +379,7 @@ pub static PATTERN_TO_CATEGORY: LazyLock<HashMap<&'static str, &'static str>> =
             ("floating-action-button", "component"),
             ("floating-toolbar", "component"),
             ("form-actions", "component"),
+            ("gantt", "component"),
             ("geometric-pattern", "component"),
             ("gradient-divider", "component"),
             ("graph-view", "component"),
@@ -2553,6 +2555,29 @@ pub static PATTERN_PROPS_SCHEMA: LazyLock<HashMap<&'static str, HashSet<&'static
                     "hudBackgroundAsset",
                     "overlay",
                     "showTopBar",
+                ]
+                .into_iter()
+                .collect(),
+            ),
+            (
+                "gantt",
+                [
+                    "barClickEvent",
+                    "className",
+                    "dayWidth",
+                    "durationField",
+                    "endField",
+                    "error",
+                    "groupField",
+                    "isLoading",
+                    "links",
+                    "rangeEnd",
+                    "rangeStart",
+                    "showToday",
+                    "startField",
+                    "statusField",
+                    "tasks",
+                    "titleField",
                 ]
                 .into_iter()
                 .collect(),
@@ -6828,6 +6853,29 @@ pub static PATTERN_PROP_TYPES: LazyLock<HashMap<&'static str, HashMap<&'static s
                     ("hudBackgroundAsset", &["object"] as &[&str]),
                     ("fontFamily", &["string"] as &[&str]),
                     ("data-theme", &["string"] as &[&str]),
+                ]
+                .into_iter()
+                .collect(),
+            ),
+            (
+                "gantt",
+                [
+                    ("tasks", &["object", "array"] as &[&str]),
+                    ("links", &["array"] as &[&str]),
+                    ("titleField", &["string"] as &[&str]),
+                    ("startField", &["string"] as &[&str]),
+                    ("endField", &["string"] as &[&str]),
+                    ("durationField", &["string"] as &[&str]),
+                    ("statusField", &["string"] as &[&str]),
+                    ("groupField", &["string"] as &[&str]),
+                    ("rangeStart", &["string", "date"] as &[&str]),
+                    ("rangeEnd", &["string", "date"] as &[&str]),
+                    ("showToday", &["boolean"] as &[&str]),
+                    ("dayWidth", &["number"] as &[&str]),
+                    ("barClickEvent", &["string"] as &[&str]),
+                    ("className", &["string"] as &[&str]),
+                    ("isLoading", &["boolean"] as &[&str]),
+                    ("error", &["object"] as &[&str]),
                 ]
                 .into_iter()
                 .collect(),

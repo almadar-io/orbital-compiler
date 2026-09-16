@@ -1,6 +1,6 @@
 // Auto-generated from @almadar/std canonical-operators.json by @almadar-io/almadar-pattern-sync.
 // DO NOT EDIT MANUALLY.
-// Total operators targeting Rust: 237
+// Total operators targeting Rust: 239
 
 /// Operator metadata derived from the canonical @almadar/std registry.
 #[derive(Debug, Clone)]
@@ -941,6 +941,26 @@ pub static CANONICAL_OPERATORS: &[OperatorMeta] = &[
         description: "Conditional expression (ternary). Return type is union of branch types.",
         has_side_effects: false,
         return_semantics: Some("branch-union"),
+    },
+    OperatorMeta {
+        name: "json/parse",
+        category: "std-json",
+        min_arity: 1,
+        max_arity: Some(1),
+        return_type: "any",
+        description: "Parse a JSON string into a value; invalid JSON or non-string input returns null (never throws)",
+        has_side_effects: false,
+        return_semantics: None,
+    },
+    OperatorMeta {
+        name: "json/stringify",
+        category: "std-json",
+        min_arity: 1,
+        max_arity: Some(1),
+        return_type: "string",
+        description: "Serialize any value to a JSON string",
+        has_side_effects: false,
+        return_semantics: None,
     },
     OperatorMeta {
         name: "let",
@@ -2419,7 +2439,7 @@ mod tests {
 
     #[test]
     fn test_canonical_operators_count() {
-        assert_eq!(CANONICAL_OPERATORS.len(), 237);
+        assert_eq!(CANONICAL_OPERATORS.len(), 239);
     }
 
     #[test]
