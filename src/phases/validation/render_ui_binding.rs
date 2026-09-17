@@ -644,6 +644,7 @@ mod tests {
                 persistence: None,
                 instances: None,
                 fields: vec![FieldDefinition {
+                    mock: None,
                     merged_from: None,
                     name: Some("title".to_string()),
                     field_type: FieldType::String,
@@ -719,6 +720,7 @@ mod tests {
                 persistence: None,
                 instances: None,
                 fields: vec![FieldDefinition {
+                    mock: None,
                     merged_from: None,
                     name: Some("loyaltyPoints".to_string()),
                     field_type: FieldType::Number,

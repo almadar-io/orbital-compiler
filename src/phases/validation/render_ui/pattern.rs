@@ -1076,6 +1076,7 @@ mod entity_prop_contract_tests {
             fields: field_names
                 .iter()
                 .map(|fname| FieldDefinition {
+                    mock: None,
                     merged_from: None,
                     name: Some(fname.to_string()),
                     field_type: FieldType::String,

@@ -510,6 +510,7 @@ mod tests {
 
     fn field(name: &str, default: Option<SExpression>) -> FieldDefinition {
         FieldDefinition {
+            mock: None,
             name: Some(name.to_string()),
             field_type: FieldType::String,
             required: None,

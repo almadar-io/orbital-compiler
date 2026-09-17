@@ -1435,6 +1435,7 @@ mod tests {
             fields: fields
                 .iter()
                 .map(|f| FieldDefinition {
+                    mock: None,
                     merged_from: None,
                     name: Some(f.to_string()),
                     field_type: FieldType::String,

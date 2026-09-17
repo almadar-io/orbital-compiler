@@ -917,6 +917,7 @@ mod tests {
                 persistence: None,
                 fields: vec![
                     FieldDefinition {
+                        mock: None,
                         merged_from: None,
                         name: Some("id".to_string()),
                         field_type: FieldType::String,
@@ -933,6 +934,7 @@ mod tests {
                         synonyms: None,
                     },
                     FieldDefinition {
+                        mock: None,
                         merged_from: None,
                         name: Some("companyId".to_string()),
                         field_type: FieldType::Relation,
@@ -1031,6 +1033,7 @@ mod tests {
                 persistence: None,
                 fields: vec![
                     FieldDefinition {
+                        mock: None,
                         merged_from: None,
                         name: Some("id".to_string()),
                         field_type: FieldType::String,
@@ -1047,6 +1050,7 @@ mod tests {
                         synonyms: None,
                     },
                     FieldDefinition {
+                        mock: None,
                         merged_from: None,
                         name: Some("companyId".to_string()),
                         field_type: FieldType::Relation,

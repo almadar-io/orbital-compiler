@@ -92,6 +92,7 @@ fn field_type_of(name: &str) -> FieldType {
 
 fn field_of(p: &PayloadField) -> FieldDefinition {
     FieldDefinition {
+        mock: None,
         merged_from: None,
         name: Some(p.name.clone()),
         field_type: field_type_of(&p.field_type),

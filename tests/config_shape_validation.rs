@@ -24,6 +24,7 @@ fn metric_spec_items() -> FieldDefinition {
     props.insert(
         "label".to_string(),
         FieldDefinition {
+            mock: None,
             merged_from: None,
             name: Some("label".to_string()),
             field_type: FieldType::String,
@@ -43,6 +44,7 @@ fn metric_spec_items() -> FieldDefinition {
     props.insert(
         "value".to_string(),
         FieldDefinition {
+            mock: None,
             merged_from: None,
             name: Some("value".to_string()),
             field_type: FieldType::Number,
@@ -62,6 +64,7 @@ fn metric_spec_items() -> FieldDefinition {
     props.insert(
         "format".to_string(),
         FieldDefinition {
+            mock: None,
             merged_from: None,
             name: Some("format".to_string()),
             field_type: FieldType::String,
@@ -83,6 +86,7 @@ fn metric_spec_items() -> FieldDefinition {
         },
     );
     FieldDefinition {
+        mock: None,
         merged_from: None,
         name: None,
         field_type: FieldType::Object,
@@ -113,6 +117,7 @@ fn schema_with_config(config: HashMap<String, ConfigField>) -> OrbitalSchema {
         collection: Some("dashboards".to_string()),
         persistence: None,
         fields: vec![FieldDefinition {
+            mock: None,
             merged_from: None,
             name: Some("id".to_string()),
             field_type: FieldType::String,
@@ -309,6 +314,7 @@ fn bare_string_in_array_of_objects_fails() {
         format_props.insert(
             (*name).to_string(),
             FieldDefinition {
+                mock: None,
                 merged_from: None,
                 name: Some((*name).to_string()),
                 field_type: FieldType::String,
@@ -327,6 +333,7 @@ fn bare_string_in_array_of_objects_fails() {
         );
     }
     let format_items = FieldDefinition {
+        mock: None,
         merged_from: None,
         name: None,
         field_type: FieldType::Object,
@@ -595,6 +602,7 @@ fn literal_wrong_shape_still_errors_alongside_computed_defer() {
     format_props.insert(
         "id".to_string(),
         FieldDefinition {
+            mock: None,
             merged_from: None,
             name: Some("id".to_string()),
             field_type: FieldType::String,
@@ -612,6 +620,7 @@ fn literal_wrong_shape_still_errors_alongside_computed_defer() {
         },
     );
     let format_items = FieldDefinition {
+        mock: None,
         merged_from: None,
         name: None,
         field_type: FieldType::Object,
@@ -793,6 +802,7 @@ fn non_number_on_int_or_float_fails() {
 
 fn string_value_field() -> FieldDefinition {
     FieldDefinition {
+        mock: None,
         merged_from: None,
         name: None,
         field_type: FieldType::String,
@@ -985,6 +995,7 @@ fn map_of_scalar_accepts_mixed_primitive_values_but_not_nesting() {
 
     let mut config = HashMap::new();
     let value_schema = FieldDefinition {
+        mock: None,
         merged_from: None,
         name: None,
         field_type: FieldType::Scalar,

@@ -184,6 +184,7 @@ mod tests {
 
     fn entity_field(field_type: FieldType) -> FieldDefinition {
         FieldDefinition {
+            mock: None,
             merged_from: None,
             name: None,
             field_type,

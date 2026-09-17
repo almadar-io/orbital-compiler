@@ -2360,6 +2360,7 @@ mod tests {
             name: "Task".to_string(),
             fields: vec![
                 FieldDefinition {
+                    mock: None,
                     merged_from: None,
                     name: Some("title".to_string()),
                     field_type: FieldType::String,
@@ -2376,6 +2377,7 @@ mod tests {
                     synonyms: None,
                 },
                 FieldDefinition {
+                    mock: None,
                     merged_from: None,
                     name: Some("status".to_string()),
                     field_type: FieldType::String,
@@ -2437,6 +2439,7 @@ mod tests {
             access_waivers: None,
             name: "Task".to_string(),
             fields: vec![FieldDefinition {
+                mock: None,
                 merged_from: None,
                 name: Some("title".to_string()),
                 field_type: FieldType::String,
@@ -2481,6 +2484,7 @@ mod tests {
             access_waivers: None,
             name: "User".to_string(),
             fields: vec![FieldDefinition {
+                mock: None,
                 merged_from: None,
                 name: Some("email".to_string()),
                 field_type: FieldType::String,

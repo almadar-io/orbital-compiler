@@ -957,6 +957,7 @@ fn check_config_default_shape(
             // synthesized here since a `ConfigField` isn't a `FieldDefinition`
             // (they're structurally parallel but distinct wire types).
             let root_struct = FieldDefinition {
+                mock: None,
                 merged_from: None,
                 name: None,
                 field_type: FieldType::Object,
@@ -2868,6 +2869,7 @@ mod recursive_type_literal_tests {
     /// properties: None }`.
     fn menu_item_config_field() -> ConfigField {
         let back_ref = FieldDefinition {
+            mock: None,
             merged_from: None,
             name: Some("subMenu".to_string()),
             field_type: FieldType::Union,
@@ -2884,6 +2886,7 @@ mod recursive_type_literal_tests {
             synonyms: None,
         };
         let sub_menu_array = FieldDefinition {
+            mock: None,
             merged_from: None,
             name: Some("subMenu".to_string()),
             field_type: FieldType::Array,
@@ -2900,6 +2903,7 @@ mod recursive_type_literal_tests {
             synonyms: None,
         };
         let label = FieldDefinition {
+            mock: None,
             merged_from: None,
             name: Some("label".to_string()),
             field_type: FieldType::String,
@@ -2919,6 +2923,7 @@ mod recursive_type_literal_tests {
         props.insert("label".to_string(), label);
         props.insert("subMenu".to_string(), sub_menu_array);
         let menu_item = FieldDefinition {
+            mock: None,
             merged_from: None,
             name: None,
             field_type: FieldType::Object,

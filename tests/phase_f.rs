@@ -68,6 +68,7 @@ fn task_entity() -> EntityDefinition {
         collection: Some("tasks".to_string()),
         persistence: None,
         fields: vec![FieldDefinition {
+            mock: None,
             merged_from: None,
             name: Some("id".to_string()),
             field_type: FieldType::String,
@@ -811,6 +812,7 @@ fn schema_with_default(field: FieldDefinition) -> OrbitalSchema {
         persistence: None,
         fields: vec![
             FieldDefinition {
+                mock: None,
                 merged_from: None,
                 name: Some("id".to_string()),
                 field_type: FieldType::String,
@@ -866,6 +868,7 @@ fn schema_with_default(field: FieldDefinition) -> OrbitalSchema {
 #[test]
 fn f3_default_outside_values_errors() {
     let field = FieldDefinition {
+        mock: None,
         merged_from: None,
         name: Some("status".to_string()),
         field_type: FieldType::String,
@@ -897,6 +900,7 @@ fn f3_default_outside_values_errors() {
 #[test]
 fn f3_default_inside_values_passes() {
     let field = FieldDefinition {
+        mock: None,
         merged_from: None,
         name: Some("status".to_string()),
         field_type: FieldType::String,
@@ -929,6 +933,7 @@ fn f3_default_inside_values_passes() {
 fn f3_no_values_passes() {
     // A field with a default but no values list is fine.
     let field = FieldDefinition {
+        mock: None,
         merged_from: None,
         name: Some("status".to_string()),
         field_type: FieldType::String,

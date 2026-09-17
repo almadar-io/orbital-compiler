@@ -3241,6 +3241,7 @@ mod tests {
     /// real registry shape that the cart molecule consumes.
     fn make_modal_entity_def() -> EntityDefinition {
         let make_field = |n: &str, t: FieldType| FieldDefinition {
+            mock: None,
             merged_from: None,
             name: Some(n.to_string()),
             field_type: t,
@@ -3321,6 +3322,7 @@ mod tests {
     /// `fields` array.
     fn make_extra_field(name: &str, ft: FieldType) -> FieldDefinition {
         FieldDefinition {
+            mock: None,
             merged_from: None,
             name: Some(name.to_string()),
             field_type: ft,
@@ -4715,6 +4717,7 @@ mod tests {
     /// Helper to build a FieldDefinition with just a name and type.
     fn make_field(name: &str, ft: orbital_core::schema::FieldType) -> FieldDefinition {
         FieldDefinition {
+            mock: None,
             merged_from: None,
             name: Some(name.to_string()),
             field_type: ft,

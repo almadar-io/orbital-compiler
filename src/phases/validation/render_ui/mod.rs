@@ -935,6 +935,7 @@ mod tests {
                 access_waivers: None,
                 name: "Company".to_string(),
                 fields: vec![FieldDefinition {
+                    mock: None,
                     merged_from: None,
                     name: Some("name".to_string()),
                     field_type: FieldType::String,
@@ -971,6 +972,7 @@ mod tests {
                 name: "Inspection".to_string(),
                 fields: vec![
                     FieldDefinition {
+                        mock: None,
                         merged_from: None,
                         name: Some("title".to_string()),
                         field_type: FieldType::String,
@@ -987,6 +989,7 @@ mod tests {
                         synonyms: None,
                     },
                     FieldDefinition {
+                        mock: None,
                         merged_from: None,
                         name: Some("companyId".to_string()),
                         field_type: FieldType::Relation,
@@ -1072,6 +1075,7 @@ mod tests {
                 access_waivers: None,
                 name: "Inspection".to_string(),
                 fields: vec![FieldDefinition {
+                    mock: None,
                     merged_from: None,
                     name: Some("title".to_string()),
                     field_type: FieldType::String,

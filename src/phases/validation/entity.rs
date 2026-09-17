@@ -425,6 +425,7 @@ mod tests {
             collection: Some("tasks".to_string()),
             persistence: Some(Persistence::Persistent),
             fields: vec![FieldDefinition {
+                mock: None,
                 merged_from: None,
                 name: Some("title".to_string()),
                 field_type: FieldType::String,
@@ -447,6 +448,7 @@ mod tests {
 
     fn create_field(name: &str, field_type: FieldType) -> FieldDefinition {
         FieldDefinition {
+            mock: None,
             merged_from: None,
             name: Some(name.to_string()),
             field_type,

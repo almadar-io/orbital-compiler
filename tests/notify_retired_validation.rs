@@ -24,6 +24,7 @@ fn schema_with_effects(effects: Vec<SExpression>) -> OrbitalSchema {
         collection: Some("toasts".to_string()),
         persistence: None,
         fields: vec![FieldDefinition {
+            mock: None,
             merged_from: None,
             name: Some("id".to_string()),
             field_type: FieldType::String,
