@@ -22,6 +22,7 @@ pub mod cross_file_ids;
 pub(crate) mod embed_graph;
 pub mod enrich;
 pub mod inline;
+pub mod nominalize;
 pub mod page_content_owner;
 pub mod parse;
 pub mod resolve;
@@ -88,6 +89,12 @@ pub struct CompilerOptions {
     pub inline: InlineConfig,
     /// Compose configuration
     pub compose: ComposeConfig,
+    /// Run the Phase-3D nominalization pass post-Resolve: replace every
+    /// anonymous `OirType::Struct`/`Union` with a `TypeRef` registered in
+    /// `OirModule::named_types`. Default OFF — every shell's `type_ref`
+    /// readiness landed in the same change set, but the owner flips the
+    /// default only after reviewing the TS before/after diff.
+    pub nominalize: bool,
     /// Verbose output
     pub verbose: bool,
 }
@@ -113,6 +120,12 @@ impl CompilerOptions {
     /// release install`) only needs to run for `cascade --publish`.
     pub fn from_env() -> Self {
         let mut opts = Self::default();
+        // `ORBITAL_NOMINALIZE=1` opts into the Phase-3D nominalization pass
+        // independent of dev mode — it changes codegen output for every
+        // shell, so it is never implied by ALMADAR_DEV.
+        opts.nominalize = std::env::var("ORBITAL_NOMINALIZE")
+            .map(|v| v == "1" || v == "true")
+            .unwrap_or(false);
         // Dev mode is ON when:
         //   - ALMADAR_DEV is set to a truthy value, OR
         //   - ALMADAR_ROOT is set AND the workspace registry dirs exist under
@@ -316,7 +329,26 @@ fn compile_schema_with_path(
     if options.verbose {
         eprintln!("  Phase 5: Resolving...");
     }
-    let oir = resolve_to_oir(&schema)?;
+    let mut oir = resolve_to_oir(&schema)?;
+
+    // Phase 5b (opt-in): nominalize anonymous struct/union shapes into
+    // `named_types` + `TypeRef`s — post-Resolve, pre-codegen, so every
+    // backend sees the same table.
+    if options.nominalize {
+        if options.verbose {
+            eprintln!("  Phase 5b: Nominalizing...");
+        }
+        let stats = nominalize::nominalize_module(&mut oir);
+        if options.verbose {
+            eprintln!(
+                "    registered={}, reused_existing={}, reused_dedup={}, skipped_collisions={}",
+                stats.registered,
+                stats.reused_existing,
+                stats.reused_dedup,
+                stats.skipped_collisions
+            );
+        }
+    }
 
     if options.verbose {
         eprintln!("  Compilation complete!");
