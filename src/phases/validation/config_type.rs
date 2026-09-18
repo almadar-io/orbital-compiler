@@ -13,8 +13,9 @@
 use std::collections::{HashMap, HashSet};
 
 use orbital_core::schema::{
-    config_ref_event_knob, definer_knobs_for_trait, ConfigField, EntityDefinition, FieldDefinition,
-    FieldType, Orbital, OrbitalSchema, PayloadField, SExpression, TraitDefinition, TraitReference,
+    config_ref_event_knob, definer_knobs_for_trait, Cardinality, ConfigField, EntityDefinition,
+    FieldDefinition, FieldType, Orbital, OrbitalSchema, PayloadField, SExpression, TraitDefinition,
+    TraitReference,
 };
 use orbital_core::type_compat::set_value_type_compatible;
 
@@ -862,6 +863,7 @@ fn check_config_default_shape(
                     &format!("{}.{}", path, key),
                     orbital_events,
                     &ancestors,
+                    false,
                 ));
             }
             for e in probe.errors {
@@ -902,6 +904,7 @@ fn check_config_default_shape(
                     &elem_path,
                     orbital_events,
                     &ancestors,
+                    false,
                 ));
             }
         }
@@ -974,6 +977,7 @@ fn check_config_default_shape(
                         &format!("{}.{}", path, key),
                         orbital_events,
                         &ancestors,
+                        false,
                     ));
                 }
             }
@@ -1045,12 +1049,20 @@ fn root_ancestor_map<'a>(
 /// string is the only wire-format position a struct alias's OWN name
 /// survives to); a back-reference to any other name still falls back to
 /// "nothing to check", never panics.
+/// `skip_required_members`: entity defaults are an INITIAL state, not a
+/// complete value — `!` on a struct/alias member is enforced at PERSIST
+/// time (lifecycle ruling), so the entity adapter (`entity.rs`) passes
+/// `true` to skip the "required member missing on object literal" check
+/// below while still checking every member's KIND. Trait config keeps the
+/// full literal (`false`) — a config default has no later persist step to
+/// defer completeness to.
 pub(crate) fn check_field_def_shape(
     schema: &FieldDefinition,
     value: &SExpression,
     path: &str,
     orbital_events: &HashSet<String>,
     ancestors: &HashMap<String, &FieldDefinition>,
+    skip_required_members: bool,
 ) -> ValidationResult {
     let mut result = ValidationResult::new();
     // Same computed-value deferral as the top-level default: a per-element
@@ -1076,7 +1088,14 @@ pub(crate) fn check_field_def_shape(
                 let Some(ancestor) = names.first().and_then(|n| ancestors.get(n)) else {
                     return result;
                 };
-                return check_field_def_shape(ancestor, value, path, orbital_events, ancestors);
+                return check_field_def_shape(
+                    ancestor,
+                    value,
+                    path,
+                    orbital_events,
+                    ancestors,
+                    skip_required_members,
+                );
             };
             let SExpression::Object(map) = value else {
                 result.add_error(ValidationError::error(
@@ -1097,6 +1116,7 @@ pub(crate) fn check_field_def_shape(
                         path,
                         orbital_events,
                         ancestors,
+                        skip_required_members,
                     ));
                     // A union variant is a CLOSED shape — that is the whole
                     // point of discriminating. Elsewhere an undeclared key is
@@ -1163,6 +1183,7 @@ pub(crate) fn check_field_def_shape(
                         &elem_path,
                         orbital_events,
                         ancestors,
+                        skip_required_members,
                     ));
                 }
             }
@@ -1207,9 +1228,10 @@ pub(crate) fn check_field_def_shape(
                                 &prop_path,
                                 orbital_events,
                                 ancestors,
+                                skip_required_members,
                             ));
                         }
-                        None if prop_schema.required.unwrap_or(false) => {
+                        None if !skip_required_members && prop_schema.required.unwrap_or(false) => {
                             result.add_error(ValidationError::error(
                                 ErrorCode::TraitConfigShapeMismatch,
                                 &prop_path,
@@ -1311,6 +1333,91 @@ pub(crate) fn check_field_def_shape(
                 }
                 return result;
             }
+            // A relation field's default is never a stored row — that shape
+            // belongs to `Map string scalar` (see `std-record-detail.lolo`'s
+            // `loadedRow`). Cardinality-aware per the field's OWN relation
+            // metadata (`schema.relation.cardinality` — the `RelationDefinition`
+            // the validator sees, `orbital-core/src/schema/types.rs`), never
+            // inferred from the type spelling: a to-many relation
+            // (`positionedNodes : [TableNode] = []`, cardinality `many` /
+            // `one-to-many` / `many-to-many`) stores an ARRAY of id strings,
+            // so `check_primitive_shape`'s single-tag interface can't express
+            // it — every OTHER cardinality (`one`, `many-to-one`, or
+            // unspecified) keeps the single id-string-or-null shape.
+            if schema.field_type == FieldType::Relation {
+                let is_many = matches!(
+                    schema
+                        .relation
+                        .as_ref()
+                        .and_then(|r| r.cardinality.as_ref()),
+                    Some(Cardinality::Many)
+                        | Some(Cardinality::OneToMany)
+                        | Some(Cardinality::ManyToMany)
+                );
+                if !is_many {
+                    result.merge(check_primitive_shape("relation", value, path));
+                    return result;
+                }
+                match value {
+                    // Absent is handled by the caller (no `default` to check
+                    // at all); null is legal here too, gated the same way
+                    // the entity adapter gates every optional field's null
+                    // default — a REQUIRED to-many relation defaulting to
+                    // null still errors.
+                    SExpression::Null => {
+                        if schema.required.unwrap_or(false) {
+                            result.add_error(ValidationError::error(
+                                ErrorCode::TraitConfigShapeMismatch,
+                                path,
+                                "expected an array of relation ids, got null on a required field",
+                            ));
+                        }
+                    }
+                    SExpression::Array(items) => {
+                        for (i, item) in items.iter().enumerate() {
+                            if is_deferred_computed(item) {
+                                continue;
+                            }
+                            if let SExpression::String(s) = item {
+                                if s.starts_with('@') {
+                                    continue;
+                                }
+                            }
+                            if !matches!(item, SExpression::String(_)) {
+                                result.add_error(
+                                    ValidationError::error(
+                                        ErrorCode::TraitConfigShapeMismatch,
+                                        &format!("{path}[{i}]"),
+                                        format!(
+                                            "expected a relation id string, got {}",
+                                            sexpr_kind(item)
+                                        ),
+                                    )
+                                    .with_suggestion(
+                                        "a to-many relation's default holds an array of id strings, never rows — store rows in a `Map string scalar` field",
+                                    ),
+                                );
+                            }
+                        }
+                    }
+                    _ => {
+                        result.add_error(
+                            ValidationError::error(
+                                ErrorCode::TraitConfigShapeMismatch,
+                                path,
+                                format!(
+                                    "expected an array of relation ids, got {}",
+                                    sexpr_kind(value)
+                                ),
+                            )
+                            .with_suggestion(
+                                "a to-many relation's default is absent, null, or an array of id strings",
+                            ),
+                        );
+                    }
+                }
+                return result;
+            }
             let type_tag = match schema.field_type {
                 FieldType::String => "string",
                 FieldType::Number => "number",
@@ -1323,11 +1430,6 @@ pub(crate) fn check_field_def_shape(
                 // per-value walk would fall into the opaque catch-all and the
                 // replacement for `json` would be as unchecked as `json`.
                 FieldType::Scalar => "scalar",
-                // A relation field's default is never a stored row — that
-                // shape belongs to `Map string scalar` (see
-                // `std-record-detail.lolo`'s `loadedRow`); only an id
-                // string or absence is legal.
-                FieldType::Relation => "relation",
                 _ => return result, // Other field types are opaque to the leaf check.
             };
             result.merge(check_primitive_shape(type_tag, value, path));
@@ -3039,6 +3141,100 @@ mod recursive_type_literal_tests {
         assert!(
             !result.errors.is_empty(),
             "a required field missing three levels deep must be caught, not silently skipped"
+        );
+    }
+}
+
+/// `skip_required_members`: trait config keeps the strict (`false`) mode,
+/// the entity adapter (`entity.rs`) uses the lenient (`true`) mode — a
+/// struct/alias member's `!` is enforced at PERSIST time for an entity
+/// default (lifecycle ruling), never at config-default time.
+#[cfg(test)]
+mod skip_required_members_tests {
+    use super::*;
+
+    /// `type Alias = { id : string!, kind : string! }` — a struct alias
+    /// with two required members, mirroring `std-migration-job.lolo`'s
+    /// `ImportSourceOption`.
+    fn alias_with_required_members() -> FieldDefinition {
+        let required_string = |name: &str| FieldDefinition {
+            mock: None,
+            merged_from: None,
+            name: Some(name.to_string()),
+            field_type: FieldType::String,
+            required: Some(true),
+            primary_key: None,
+            unique: None,
+            default: None,
+            values: None,
+            relation: None,
+            items: None,
+            properties: None,
+            intrinsic: None,
+            description: None,
+            synonyms: None,
+        };
+        let mut props = HashMap::new();
+        props.insert("id".to_string(), required_string("id"));
+        props.insert("kind".to_string(), required_string("kind"));
+        FieldDefinition {
+            mock: None,
+            merged_from: None,
+            name: Some("source".to_string()),
+            field_type: FieldType::Object,
+            required: None,
+            primary_key: None,
+            unique: None,
+            default: None,
+            values: None,
+            relation: None,
+            items: None,
+            properties: Some(props),
+            intrinsic: None,
+            description: None,
+            synonyms: None,
+        }
+    }
+
+    /// `source : Alias = {}` — trait config keeps the strict literal: a
+    /// config default has no later persist step to defer completeness to.
+    #[test]
+    fn strict_mode_rejects_incomplete_object_literal() {
+        let schema = alias_with_required_members();
+        let empty = SExpression::Object(HashMap::new());
+        let result = check_field_def_shape(
+            &schema,
+            &empty,
+            "t.config.source",
+            &HashSet::new(),
+            &HashMap::new(),
+            false,
+        );
+        assert!(
+            !result.errors.is_empty(),
+            "trait config must still enforce required-member completeness"
+        );
+    }
+
+    /// The same `source : Alias = {}` shape, checked the way the entity
+    /// adapter calls it: an entity default is an initial state, not a
+    /// complete value, so `!` on a struct member is not enforced here.
+    #[test]
+    fn lenient_mode_accepts_incomplete_object_literal_for_entity_defaults() {
+        let schema = alias_with_required_members();
+        let empty = SExpression::Object(HashMap::new());
+        let result = check_field_def_shape(
+            &schema,
+            &empty,
+            "orbitals[0].entity.fields[1].default",
+            &HashSet::new(),
+            &HashMap::new(),
+            true,
+        );
+        assert!(
+            result.errors.is_empty(),
+            "an entity default must not enforce struct-member completeness: {:?}",
+            result.errors
         );
     }
 }

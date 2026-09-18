@@ -32,9 +32,24 @@ static RESERVED_COMPONENT_NAMES: LazyLock<HashSet<String>> = LazyLock::new(|| {
 pub fn validate_all_entities(schema: &OrbitalSchema, ctx: &mut ValidationContext) {
     let check_naming = ctx.schema_language.should_check_ascii_naming();
     for (i, orbital) in schema.orbitals.iter().enumerate() {
-        let path = format!("orbitals[{}].entity", i);
-        // Only validate inline entities, not references (references are validated during resolution)
+        // The primary entity AND every auxiliary entity (multi-entity
+        // orbitals, e.g. a relation target declared inline alongside the
+        // trait-bound entity) get the SAME per-entity validation — every
+        // entity-field rule, not only the primary's. An auxiliary entity was
+        // previously invisible to this whole function (`orbital.entity` was
+        // the only thing walked), so every entity-field rule was blind to
+        // it, not just this one.
+        let mut entities: Vec<(&EntityDefinition, String)> = Vec::new();
         if let Some(entity) = orbital.entity.as_inline() {
+            entities.push((entity, format!("orbitals[{}].entity", i)));
+        }
+        for (j, aux) in orbital.auxiliary_entities.iter().flatten().enumerate() {
+            if let Some(entity) = aux.as_inline() {
+                entities.push((entity, format!("orbitals[{}].auxiliaryEntities[{}]", i, j)));
+            }
+        }
+
+        for (entity, path) in entities {
             let result = validate_entity(entity, &path, &ctx.entity_names, check_naming);
             ctx.merge(result);
 
@@ -333,13 +348,28 @@ pub fn validate_field(
     if let Some(default) = &field.default {
         let enum_string_case = field.values.is_some()
             && matches!(default, orbital_core::schema::SExpression::String(_));
-        if !enum_string_case {
+        // A non-`!` field is an OPTIONAL position, and `null` is a legal
+        // initial value there for every type — the same rule
+        // `render_default`'s `(OirType::Optional { .. }, OirValue::Null)`
+        // arm codegens (`orbital-core/src/ir/literal.rs`). An entity default
+        // is an INITIAL state, not a complete value, so this is not "every
+        // type accepts null", only "an optional field's default may be
+        // absent" — a required field with a null default still goes through
+        // the shape check below.
+        let null_on_optional = !field.required.unwrap_or(false)
+            && matches!(default, orbital_core::schema::SExpression::Null);
+        if !enum_string_case && !null_on_optional {
+            // `skip_required_members: true` — a struct/alias member's `!`
+            // is enforced at PERSIST time (lifecycle ruling), not on an
+            // entity default; the KIND of every present member is still
+            // checked. Trait config keeps the strict (`false`) mode.
             let shape = super::config_type::check_field_def_shape(
                 field,
                 default,
                 &format!("{}.default", path),
                 &HashSet::new(),
                 &HashMap::new(),
+                true,
             );
             result.add_errors(shape.errors.into_iter().map(|mut err| {
                 err.code = ErrorCode::EntityDefaultTypeMismatch;
@@ -451,7 +481,7 @@ fn field_type_to_string(field_type: &FieldType) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use orbital_core::schema::{RelationDefinition, SExpression};
+    use orbital_core::schema::{Cardinality, RelationDefinition, SExpression};
 
     fn create_valid_entity() -> EntityDefinition {
         EntityDefinition {
@@ -680,6 +710,120 @@ mod tests {
         );
     }
 
+    fn many_relation_field(name: &str, default: SExpression) -> FieldDefinition {
+        let mut field = create_field(name, FieldType::Relation);
+        field.relation = Some(RelationDefinition {
+            entity: "Task".to_string(),
+            cardinality: Some(Cardinality::Many),
+            entity_id: None,
+        });
+        field.default = Some(default);
+        field
+    }
+
+    #[test]
+    fn test_entity_default_many_relation_empty_array_accepted() {
+        let mut entity = create_valid_entity();
+        entity
+            .fields
+            .push(many_relation_field("children", SExpression::Array(vec![])));
+
+        let known_entities: HashSet<String> = ["Task".to_string()].into_iter().collect();
+        let result = validate_entity(&entity, "test", &known_entities, true);
+        assert!(
+            !result
+                .errors
+                .iter()
+                .any(|e| e.code == ErrorCode::EntityDefaultTypeMismatch),
+            "Errors: {:?}",
+            result.errors
+        );
+    }
+
+    #[test]
+    fn test_entity_default_many_relation_id_array_accepted() {
+        let mut entity = create_valid_entity();
+        entity.fields.push(many_relation_field(
+            "children",
+            SExpression::Array(vec![SExpression::String("task-1".to_string())]),
+        ));
+
+        let known_entities: HashSet<String> = ["Task".to_string()].into_iter().collect();
+        let result = validate_entity(&entity, "test", &known_entities, true);
+        assert!(
+            !result
+                .errors
+                .iter()
+                .any(|e| e.code == ErrorCode::EntityDefaultTypeMismatch),
+            "Errors: {:?}",
+            result.errors
+        );
+    }
+
+    #[test]
+    fn test_entity_default_many_relation_row_in_array_rejected() {
+        // "a row in an id slot" — an object element where only id strings
+        // belong, the array-cardinality twin of `seedRow : Note = {}`.
+        let mut entity = create_valid_entity();
+        entity.fields.push(many_relation_field(
+            "children",
+            SExpression::Array(vec![SExpression::Object(HashMap::new())]),
+        ));
+
+        let result = validate_entity(&entity, "test", &HashSet::new(), true);
+        assert!(
+            result
+                .errors
+                .iter()
+                .any(|e| e.code == ErrorCode::EntityDefaultTypeMismatch),
+            "Errors: {:?}",
+            result.errors
+        );
+    }
+
+    #[test]
+    fn test_entity_default_many_relation_bare_object_rejected() {
+        let mut entity = create_valid_entity();
+        entity.fields.push(many_relation_field(
+            "children",
+            SExpression::Object(HashMap::new()),
+        ));
+
+        let result = validate_entity(&entity, "test", &HashSet::new(), true);
+        assert!(
+            result
+                .errors
+                .iter()
+                .any(|e| e.code == ErrorCode::EntityDefaultTypeMismatch),
+            "Errors: {:?}",
+            result.errors
+        );
+    }
+
+    #[test]
+    fn test_entity_default_one_relation_array_rejected() {
+        let mut entity = create_valid_entity();
+        let mut field = create_field("owner", FieldType::Relation);
+        field.relation = Some(RelationDefinition {
+            entity: "Task".to_string(),
+            cardinality: Some(Cardinality::One),
+            entity_id: None,
+        });
+        field.default = Some(SExpression::Array(vec![]));
+        entity.fields.push(field);
+
+        let known_entities: HashSet<String> = ["Task".to_string()].into_iter().collect();
+        let result = validate_entity(&entity, "test", &known_entities, true);
+        assert!(
+            result
+                .errors
+                .iter()
+                .any(|e| e.code == ErrorCode::EntityDefaultTypeMismatch),
+            "Errors: {:?}",
+            result.errors
+        );
+    }
+
     #[test]
     fn test_entity_default_number_string_mismatch_rejected() {
         let mut entity = create_valid_entity();
@@ -744,6 +888,97 @@ mod tests {
         let mut field = create_field("status", FieldType::Enum);
         field.values = Some(vec!["open".to_string(), "closed".to_string()]);
         field.default = Some(SExpression::String("archived".to_string()));
+        entity.fields.push(field);
+
+        let result = validate_entity(&entity, "test", &HashSet::new(), true);
+        assert!(
+            !result
+                .errors
+                .iter()
+                .any(|e| e.code == ErrorCode::EntityDefaultTypeMismatch),
+            "Errors: {:?}",
+            result.errors
+        );
+    }
+
+    #[test]
+    fn test_entity_default_null_on_optional_field_of_any_type_accepted() {
+        // `render_default`'s `(OirType::Optional, OirValue::Null)` arm
+        // (`orbital-core/src/ir/literal.rs`) accepts null for every inner
+        // type; a non-`!` entity field must not re-reject it — for a
+        // relation field or a struct-typed field alike.
+        let mut entity = create_valid_entity();
+
+        let mut relation_field = create_field("owner", FieldType::Relation);
+        relation_field.relation = Some(RelationDefinition {
+            entity: "Task".to_string(),
+            cardinality: None,
+            entity_id: None,
+        });
+        relation_field.default = Some(SExpression::Null);
+        entity.fields.push(relation_field);
+
+        let mut label_prop = create_field("label", FieldType::String);
+        label_prop.required = Some(true);
+        let mut props = HashMap::new();
+        props.insert("label".to_string(), label_prop);
+        let mut object_field = create_field("meta", FieldType::Object);
+        object_field.properties = Some(props);
+        object_field.default = Some(SExpression::Null);
+        entity.fields.push(object_field);
+
+        let known_entities: HashSet<String> = ["Task".to_string()].into_iter().collect();
+        let result = validate_entity(&entity, "test", &known_entities, true);
+        assert!(
+            !result
+                .errors
+                .iter()
+                .any(|e| e.code == ErrorCode::EntityDefaultTypeMismatch),
+            "Errors: {:?}",
+            result.errors
+        );
+    }
+
+    #[test]
+    fn test_entity_default_null_on_required_field_still_checked() {
+        let mut entity = create_valid_entity();
+        let mut field = create_field("count", FieldType::Number);
+        field.required = Some(true);
+        field.default = Some(SExpression::Null);
+        entity.fields.push(field);
+
+        let result = validate_entity(&entity, "test", &HashSet::new(), true);
+        assert!(
+            result
+                .errors
+                .iter()
+                .any(|e| e.code == ErrorCode::EntityDefaultTypeMismatch),
+            "Errors: {:?}",
+            result.errors
+        );
+    }
+
+    #[test]
+    fn test_entity_default_incomplete_struct_literal_accepted_required_members_deferred_to_persist()
+    {
+        // `!` on a struct/alias member is enforced at PERSIST time
+        // (lifecycle ruling), not on an entity default — `source : Alias =
+        // {}` is legal here even though `Alias` declares required members;
+        // only each PRESENT member's kind is checked (config_type.rs's
+        // `skip_required_members_tests` proves trait config keeps the
+        // strict check).
+        let mut entity = create_valid_entity();
+        let mut id_prop = create_field("id", FieldType::String);
+        id_prop.required = Some(true);
+        let mut kind_prop = create_field("kind", FieldType::String);
+        kind_prop.required = Some(true);
+        let mut props = HashMap::new();
+        props.insert("id".to_string(), id_prop);
+        props.insert("kind".to_string(), kind_prop);
+
+        let mut field = create_field("source", FieldType::Object);
+        field.properties = Some(props);
+        field.default = Some(SExpression::Object(HashMap::new()));
         entity.fields.push(field);
 
         let result = validate_entity(&entity, "test", &HashSet::new(), true);
