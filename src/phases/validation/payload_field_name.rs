@@ -7,6 +7,9 @@
 //! defense-in-depth for the lowering pass that flattens nested payload names.
 //!
 //! Severity is hard error: an un-emittable field name is a typing bug.
+//!
+//! Also checks (same walker): a field typed the bare `"array"` string with
+//! no declared element type (`ORB_X_UNTYPED_ARRAY`).
 
 use orbital_core::schema::{OrbitalSchema, PayloadField, TraitReference};
 
@@ -60,6 +63,13 @@ fn check_fields(fields: &[PayloadField], where_: &str, ctx: &mut ValidationConte
                 ),
             );
         }
+        // `properties`/`entity` alongside bare `"array"` already declares the element type.
+        if field.field_type == "array" && field.properties.is_none() && field.entity.is_none() {
+            ctx.add_error(super::error::untyped_array_field(
+                &format!("{}.{}", where_, field.name),
+                &field.name,
+            ));
+        }
         if let Some(nested) = &field.properties {
             let nested_where = format!("{}.{}", where_, field.name);
             check_fields(nested, &nested_where, ctx);
@@ -83,7 +93,48 @@ fn is_valid_ts_identifier(s: &str) -> bool {
 
 #[cfg(test)]
 mod tests {
-    use super::is_valid_ts_identifier;
+    use super::{check_fields, is_valid_ts_identifier, ErrorCode, ValidationContext};
+    use orbital_core::schema::PayloadField;
+
+    fn payload_field(name: &str, field_type: &str) -> PayloadField {
+        PayloadField {
+            name: name.to_string(),
+            field_type: field_type.to_string(),
+            required: None,
+            description: None,
+            properties: None,
+            type_when: None,
+            entity: None,
+        }
+    }
+
+    #[test]
+    fn untyped_array_field_errors_typed_array_field_does_not() {
+        let mut array_of_objects = payload_field("attachments", "array");
+        array_of_objects.properties = Some(vec![payload_field("url", "string")]);
+
+        let fields = vec![
+            payload_field("photos", "array"),
+            payload_field("tags", "[string]"),
+            array_of_objects,
+        ];
+        let mut ctx = ValidationContext::new();
+        check_fields(&fields, "Trait.emits(UPLOAD)", &mut ctx);
+
+        let untyped_array_errors: Vec<_> = ctx
+            .result
+            .errors
+            .iter()
+            .filter(|e| e.code == ErrorCode::UntypedArrayField)
+            .collect();
+        assert_eq!(
+            untyped_array_errors.len(),
+            1,
+            "Errors: {:?}",
+            ctx.result.errors
+        );
+        assert!(untyped_array_errors[0].path.ends_with(".photos"));
+    }
 
     #[test]
     fn accepts_plain_identifiers() {

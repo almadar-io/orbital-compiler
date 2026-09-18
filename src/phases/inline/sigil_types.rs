@@ -336,6 +336,12 @@ pub(crate) fn payload_field_of(f: &FieldDefinition) -> PayloadField {
 
     let tag = match (&f.field_type, &props) {
         (FieldType::Array, Some(_)) => "[object]".to_string(),
+        // A primitive-element array: carry the item's own tag instead of
+        // falling back to the bare, untyped `array` string.
+        (FieldType::Array, None) => match f.items.as_deref() {
+            Some(item) => format!("[{}]", payload_field_of(item).field_type),
+            None => tag,
+        },
         _ => tag,
     };
 

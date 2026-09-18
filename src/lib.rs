@@ -53,4 +53,3 @@ pub use phases::{
     validate_comprehensive_with_patterns, CompileResult, CompilerError, CompilerOptions,
     ComposeConfig, ComprehensiveValidationResult, CrossFileIdError, ExtraPatterns, SchemaLanguage,
 };
-pub use shell::{BaseShell, Shell, ShellRegistry};

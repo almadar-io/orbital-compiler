@@ -1045,7 +1045,7 @@ fn root_ancestor_map<'a>(
 /// string is the only wire-format position a struct alias's OWN name
 /// survives to); a back-reference to any other name still falls back to
 /// "nothing to check", never panics.
-fn check_field_def_shape(
+pub(crate) fn check_field_def_shape(
     schema: &FieldDefinition,
     value: &SExpression,
     path: &str,
@@ -1241,6 +1241,24 @@ fn check_field_def_shape(
                         );
                         return result;
                     }
+                } else if !matches!(value, SExpression::Null) {
+                    // Every enum member is a string; a number/boolean/array/
+                    // object default can't be one no matter what it holds.
+                    // Null stays legal — an unset optional knob, same as the
+                    // `icon`/`slot`/`pattern` primitive tags below.
+                    result.add_error(
+                        ValidationError::error(
+                            ErrorCode::TraitConfigShapeMismatch,
+                            path,
+                            format!(
+                                "expected a string member of [{}], got {}",
+                                values.join(", "),
+                                sexpr_kind(value)
+                            ),
+                        )
+                        .with_valid_values(values.clone()),
+                    );
+                    return result;
                 }
             }
             // Phase B (SCAN-EVENT-KNOB-2): an `event`-typed struct member
@@ -1305,6 +1323,11 @@ fn check_field_def_shape(
                 // per-value walk would fall into the opaque catch-all and the
                 // replacement for `json` would be as unchecked as `json`.
                 FieldType::Scalar => "scalar",
+                // A relation field's default is never a stored row — that
+                // shape belongs to `Map string scalar` (see
+                // `std-record-detail.lolo`'s `loadedRow`); only an id
+                // string or absence is legal.
+                FieldType::Relation => "relation",
                 _ => return result, // Other field types are opaque to the leaf check.
             };
             result.merge(check_primitive_shape(type_tag, value, path));
@@ -1385,7 +1408,25 @@ fn select_union_variant<'a>(
     }
 }
 
-fn check_primitive_shape(type_tag: &str, value: &SExpression, path: &str) -> ValidationResult {
+/// The value-kind tag `check_primitive_shape` and the enum-membership check
+/// both report a mismatch against — one definition so the two callers can't
+/// drift on what a "got X" means.
+fn sexpr_kind(value: &SExpression) -> &'static str {
+    match value {
+        SExpression::String(_) => "string",
+        SExpression::Number(_) => "number",
+        SExpression::Bool(_) => "boolean",
+        SExpression::Array(_) => "array",
+        SExpression::Object(_) => "object",
+        SExpression::Null => "null",
+    }
+}
+
+pub(crate) fn check_primitive_shape(
+    type_tag: &str,
+    value: &SExpression,
+    path: &str,
+) -> ValidationResult {
     let mut result = ValidationResult::new();
     if let SExpression::String(s) = value {
         if s.starts_with('@') {
@@ -1395,14 +1436,7 @@ fn check_primitive_shape(type_tag: &str, value: &SExpression, path: &str) -> Val
     if is_deferred_computed(value) {
         return result;
     }
-    let actual = match value {
-        SExpression::String(_) => "string",
-        SExpression::Number(_) => "number",
-        SExpression::Bool(_) => "boolean",
-        SExpression::Array(_) => "array",
-        SExpression::Object(_) => "object",
-        SExpression::Null => "null",
-    };
+    let actual = sexpr_kind(value);
     let ok = match type_tag {
         "string" => actual == "string",
         "number" => actual == "number",
@@ -1425,6 +1459,9 @@ fn check_primitive_shape(type_tag: &str, value: &SExpression, path: &str) -> Val
         // is the bulk of that hole. Null stays permitted — an explicitly unset
         // optional knob is legal, and only L1 ever rejected it.
         "icon" | "slot" | "pattern" | "component" => actual == "string" || actual == "null",
+        // An id string, or absent — never a stored row/object. `seedRow :
+        // Note = {}` is exactly the shape this rejects.
+        "relation" => actual == "string" || actual == "null",
         "date" | "datetime" | "timestamp" => actual == "string" || actual == "number",
         _ => true, // Unknown type tags pass — covered by other validators.
     };

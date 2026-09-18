@@ -180,14 +180,17 @@ where
         .flat_map(|file| {
             file.content
                 .lines()
-                .filter(|line| line.contains(orbital_core::UNSUPPORTED_OPERATOR_MARKER))
+                .filter(|line| {
+                    line.contains(orbital_core::UNSUPPORTED_OPERATOR_MARKER)
+                        || line.contains(orbital_core::ir::LITERAL_TYPE_MISMATCH_MARKER)
+                })
                 .map(move |line| format!("{} — {}", file.path, line.trim()))
         })
         .collect();
     if !unsupported.is_empty() {
         return Err(GenerateError::Backend(format!(
-            "backend emitted {} unsupported-operator marker(s); the shell has no real \
-             implementation for these operators:\n  {}",
+            "backend emitted {} codegen marker(s) (unsupported operator / default literal \
+             not renderable at its declared type):\n  {}",
             unsupported.len(),
             unsupported.join("\n  ")
         )));

@@ -680,66 +680,8 @@ impl<'a> Resolver<'a> {
         Ok(oir_field)
     }
 
-    fn resolve_field_type(
-        &self,
-        field_type: &FieldType,
-        relation: Option<&orbital_core::schema::RelationDefinition>,
-    ) -> Result<OirType, ResolveError> {
-        match field_type {
-            FieldType::String => Ok(OirType::String),
-            FieldType::Number => Ok(OirType::Number),
-            FieldType::Boolean => Ok(OirType::Boolean),
-            FieldType::Date => Ok(OirType::Date),
-            FieldType::Datetime | FieldType::Timestamp => Ok(OirType::DateTime),
-            FieldType::Email => Ok(OirType::Email),
-            FieldType::Url => Ok(OirType::Url),
-            FieldType::Phone => Ok(OirType::Phone),
-            FieldType::Uuid => Ok(OirType::Uuid),
-            FieldType::Image => Ok(OirType::Image),
-            FieldType::Money => Ok(OirType::Money),
-            FieldType::File => Ok(OirType::File),
-            FieldType::Array => Ok(OirType::array(OirType::Json)), // Nested type would need items
-            FieldType::Object => Ok(OirType::Json),
-            FieldType::Enum => Ok(OirType::enum_type("Enum")),
-            FieldType::Relation => {
-                if let Some(rel) = relation {
-                    Ok(OirType::reference(&rel.entity))
-                } else {
-                    Err(ResolveError::InvalidType(
-                        "Relation type requires relation definition".to_string(),
-                    ))
-                }
-            }
-            // `trait`-typed config fields hold `@trait.X` references. The OIR
-            // preserves the type tag so the codegen emits the branded
-            // `TraitFieldRef` TS type and substitutes `@trait.X` values with
-            // embedded trait UI at render time.
-            FieldType::Trait => Ok(OirType::Trait),
-            // `slot` and `pattern` are validated at compile time but resolve to
-            // strings in OIR — the runtime doesn't need the type tag. `event`
-            // (Phase B struct-field carrier) is likewise a plain string at the
-            // OIR/runtime boundary — the type tag exists for `.lolo`/validator
-            // discipline only, same posture as the scalar config-knob `event`
-            // type (`resolve_config_ref_event_name`).
-            FieldType::Slot | FieldType::Pattern | FieldType::Event => Ok(OirType::String),
-            // Renderable content keeps its tag so codegen emits the canonical
-            // pattern-tree type instead of a shapeless record.
-            FieldType::Node => Ok(OirType::Node),
-            // Closed primitive union — keeps its own tag so codegen emits
-            // `string | number | boolean | null` rather than a shapeless record.
-            FieldType::Scalar => Ok(OirType::Scalar),
-            // Variant shapes live in `properties`; without them this is a
-            // by-name recursive back-reference, which resolves to Json rather
-            // than expanding forever.
-            FieldType::Union => Ok(OirType::Json),
-        }
-    }
-
-    /// Like `resolve_field_type` but reads `field.items` and `field.properties`
-    /// so arrays-of-structs and inline objects keep their shape in OIR
-    /// (`OirType::Struct { fields }`). Used during entity-field resolution
-    /// — the legacy `resolve_field_type` is retained for callers that only
-    /// have a `FieldType` enum.
+    /// Reads `field.items`/`field.properties` so arrays-of-structs and inline
+    /// objects keep their shape in OIR (`OirType::Struct { fields }`).
     fn resolve_field_shape(&self, field: &FieldDefinition) -> Result<OirType, ResolveError> {
         match &field.field_type {
             // Tagged union: `values` holds the variant names in DECLARATION
@@ -776,6 +718,9 @@ impl<'a> Resolver<'a> {
                 }
                 Ok(OirType::Union { variants })
             }
+            // Recurses via `self` (not the free `field_shape`): an item that
+            // is Object-with-`properties` or a Union back-reference needs
+            // `&self` to fully expand.
             FieldType::Array => {
                 let inner = if let Some(items) = &field.items {
                     self.resolve_field_shape(items)?
@@ -816,7 +761,13 @@ impl<'a> Resolver<'a> {
                     Ok(OirType::Json)
                 }
             }
-            other => self.resolve_field_type(other, field.relation.as_ref()),
+            FieldType::Relation => match &field.relation {
+                Some(rel) => Ok(OirType::reference(&rel.entity)),
+                None => Err(ResolveError::InvalidType(
+                    "Relation type requires relation definition".to_string(),
+                )),
+            },
+            _ => Ok(orbital_core::field_shape(field)),
         }
     }
 

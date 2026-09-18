@@ -8,7 +8,7 @@ use orbital_core::schema::{
     EntityDefinition, FieldDefinition, FieldType, OrbitalSchema, Persistence,
 };
 use regex::Regex;
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::sync::LazyLock;
 
 /// Regex for valid field names (camelCase)
@@ -320,6 +320,39 @@ pub fn validate_field(
         }
     }
 
+    // An entity field's `default` must be structurally compatible with its
+    // declared type — a relation field defaulting to a whole row (`seedRow
+    // : Note = {}`, the defect this rule exists to catch — the right shape
+    // is a `Map string scalar` field like `loadedRow`) instead of an id/
+    // absent, a number/boolean default on a string field, etc. Reuses the
+    // one shape-vs-type walk (`check_field_def_shape`, `config_type.rs`)
+    // rather than a second checker for the same question. The string-vs-
+    // declared-enum-membership case is skipped here: `validate_literal_defaults`
+    // (`literal_default.rs`) already reports it as `LiteralUnionDefaultMismatch`
+    // — one diagnostic per defect, not two.
+    if let Some(default) = &field.default {
+        let enum_string_case = field.values.is_some()
+            && matches!(default, orbital_core::schema::SExpression::String(_));
+        if !enum_string_case {
+            let shape = super::config_type::check_field_def_shape(
+                field,
+                default,
+                &format!("{}.default", path),
+                &HashSet::new(),
+                &HashMap::new(),
+            );
+            result.add_errors(shape.errors.into_iter().map(|mut err| {
+                err.code = ErrorCode::EntityDefaultTypeMismatch;
+                if field.field_type == FieldType::Relation {
+                    err = err.with_suggestion(
+                        "a relation field's default is absent, null, or an id string; store a row in a `Map string scalar` field",
+                    );
+                }
+                err
+            }));
+        }
+    }
+
     // Validate enum fields have values
     if field.field_type == FieldType::Enum {
         if let Some(values) = &field.values {
@@ -343,6 +376,14 @@ pub fn validate_field(
                 .with_suggestion("Add values: [\"option1\", \"option2\"] for enum fields"),
             );
         }
+    }
+
+    if field.field_type == FieldType::Array && field.items.is_none() {
+        let field_label = field.name.as_deref().unwrap_or("<unnamed>");
+        result.add_error(super::error::untyped_array_field(
+            &format!("{}.items", path),
+            field_label,
+        ));
     }
 
     // Validate relation fields reference existing entities
@@ -410,7 +451,7 @@ fn field_type_to_string(field_type: &FieldType) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use orbital_core::schema::RelationDefinition;
+    use orbital_core::schema::{RelationDefinition, SExpression};
 
     fn create_valid_entity() -> EntityDefinition {
         EntityDefinition {
@@ -526,6 +567,24 @@ mod tests {
     }
 
     #[test]
+    fn test_entity_untyped_array_field_errors_typed_array_field_does_not() {
+        let mut entity = create_valid_entity();
+        entity.fields.push(create_field("attachments", FieldType::Array));
+        let mut typed_array = create_field("tags", FieldType::Array);
+        typed_array.items = Some(Box::new(create_field("", FieldType::String)));
+        entity.fields.push(typed_array);
+
+        let result = validate_entity(&entity, "test", &HashSet::new(), true);
+        let untyped_array_errors: Vec<_> = result
+            .errors
+            .iter()
+            .filter(|e| e.code == ErrorCode::UntypedArrayField)
+            .collect();
+        assert_eq!(untyped_array_errors.len(), 1, "Errors: {:?}", result.errors);
+        assert!(untyped_array_errors[0].path.ends_with(".fields[1].items"));
+    }
+
+    #[test]
     fn test_entity_invalid_relation() {
         let mut entity = create_valid_entity();
         let mut field = create_field("owner", FieldType::Relation);
@@ -561,6 +620,141 @@ mod tests {
             .collect();
         let result = validate_entity(&entity, "test", &known_entities, true);
         assert!(result.is_valid());
+    }
+
+    #[test]
+    fn test_entity_default_relation_holds_object_rejected() {
+        // The defect this rule exists to catch: `seedRow : Note = {}` — a
+        // whole row where only an id/absent belongs.
+        let mut entity = create_valid_entity();
+        let mut field = create_field("seedRow", FieldType::Relation);
+        field.relation = Some(RelationDefinition {
+            entity: "Task".to_string(),
+            cardinality: None,
+            entity_id: None,
+        });
+        field.default = Some(SExpression::Object(HashMap::new()));
+        entity.fields.push(field);
+
+        let known_entities: HashSet<String> = ["Task".to_string()].into_iter().collect();
+        let result = validate_entity(&entity, "test", &known_entities, true);
+        assert!(
+            result
+                .errors
+                .iter()
+                .any(|e| e.code == ErrorCode::EntityDefaultTypeMismatch),
+            "Errors: {:?}",
+            result.errors
+        );
+    }
+
+    #[test]
+    fn test_entity_default_relation_id_string_or_absent_accepted() {
+        let mut entity = create_valid_entity();
+        let mut id_default = create_field("owner", FieldType::Relation);
+        id_default.relation = Some(RelationDefinition {
+            entity: "Task".to_string(),
+            cardinality: None,
+            entity_id: None,
+        });
+        id_default.default = Some(SExpression::String("task-1".to_string()));
+        entity.fields.push(id_default);
+
+        let mut no_default = create_field("assignee", FieldType::Relation);
+        no_default.relation = Some(RelationDefinition {
+            entity: "Task".to_string(),
+            cardinality: None,
+            entity_id: None,
+        });
+        entity.fields.push(no_default);
+
+        let known_entities: HashSet<String> = ["Task".to_string()].into_iter().collect();
+        let result = validate_entity(&entity, "test", &known_entities, true);
+        assert!(
+            !result
+                .errors
+                .iter()
+                .any(|e| e.code == ErrorCode::EntityDefaultTypeMismatch),
+            "Errors: {:?}",
+            result.errors
+        );
+    }
+
+    #[test]
+    fn test_entity_default_number_string_mismatch_rejected() {
+        let mut entity = create_valid_entity();
+        let mut field = create_field("count", FieldType::Number);
+        field.default = Some(SExpression::String("not-a-number".to_string()));
+        entity.fields.push(field);
+
+        let result = validate_entity(&entity, "test", &HashSet::new(), true);
+        assert!(
+            result
+                .errors
+                .iter()
+                .any(|e| e.code == ErrorCode::EntityDefaultTypeMismatch),
+            "Errors: {:?}",
+            result.errors
+        );
+    }
+
+    #[test]
+    fn test_entity_default_boolean_number_mismatch_rejected() {
+        let mut entity = create_valid_entity();
+        let mut field = create_field("active", FieldType::Boolean);
+        field.default = Some(SExpression::Number(1.0));
+        entity.fields.push(field);
+
+        let result = validate_entity(&entity, "test", &HashSet::new(), true);
+        assert!(
+            result
+                .errors
+                .iter()
+                .any(|e| e.code == ErrorCode::EntityDefaultTypeMismatch),
+            "Errors: {:?}",
+            result.errors
+        );
+    }
+
+    #[test]
+    fn test_entity_default_enum_non_string_rejected() {
+        let mut entity = create_valid_entity();
+        let mut field = create_field("status", FieldType::Enum);
+        field.values = Some(vec!["open".to_string(), "closed".to_string()]);
+        field.default = Some(SExpression::Number(1.0));
+        entity.fields.push(field);
+
+        let result = validate_entity(&entity, "test", &HashSet::new(), true);
+        assert!(
+            result
+                .errors
+                .iter()
+                .any(|e| e.code == ErrorCode::EntityDefaultTypeMismatch),
+            "Errors: {:?}",
+            result.errors
+        );
+    }
+
+    #[test]
+    fn test_entity_default_enum_unknown_string_member_not_double_reported() {
+        // `literal_default.rs`'s `LiteralUnionDefaultMismatch` owns this
+        // case (a string default naming no declared enum member); the
+        // adapter here must skip it, not report a second diagnostic.
+        let mut entity = create_valid_entity();
+        let mut field = create_field("status", FieldType::Enum);
+        field.values = Some(vec!["open".to_string(), "closed".to_string()]);
+        field.default = Some(SExpression::String("archived".to_string()));
+        entity.fields.push(field);
+
+        let result = validate_entity(&entity, "test", &HashSet::new(), true);
+        assert!(
+            !result
+                .errors
+                .iter()
+                .any(|e| e.code == ErrorCode::EntityDefaultTypeMismatch),
+            "Errors: {:?}",
+            result.errors
+        );
     }
 
     #[test]

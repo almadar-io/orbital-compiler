@@ -160,7 +160,7 @@ pub(crate) fn validate_set_value_type(
     };
     let entity_ty = &entity_meta.field_type;
 
-    if !orbital_core::set_value_type_compatible(entity_ty, payload_ty) {
+    if !orbital_core::oir_type_accepts_kind(&entity_meta.shape, payload_ty) {
         result.add_error(
             ValidationError::error(
                 ErrorCode::SetValueTypeMismatch,
@@ -373,7 +373,7 @@ pub(crate) fn validate_set_return_type(
     };
     if let Some(inferred) = expr_return_incompatible(
         &arr[2],
-        &meta.field_type,
+        &meta.shape,
         entity_field_types,
         payload_field_types,
     ) {
@@ -418,7 +418,7 @@ pub(crate) fn validate_set_return_type(
 /// Infer an array-form value expression's result type — through the canonical
 /// `infer_oir_expr_type` derivation, resolving `@entity.<f>` / `@payload.<f>`
 /// bindings via the field-type maps — and return `Some(inferred)` when the
-/// inferred kind is INCOMPATIBLE with `declared_field`, else `None`. The single
+/// inferred kind is INCOMPATIBLE with `declared`, else `None`. The single
 /// shared derivation behind BOTH the `(set @entity.X <expr>)` and the
 /// `(emit EVT { field: <expr> })` return-type backstops, so the two can't drift.
 /// **Never false-positives**: a non-array value (scalar/binding — covered by the
@@ -426,7 +426,7 @@ pub(crate) fn validate_set_return_type(
 /// type all yield `None`.
 pub(crate) fn expr_return_incompatible(
     value: &SExpression,
-    declared_field: &str,
+    declared: &orbital_core::ir::OirType,
     entity_field_types: &HashMap<String, EntityFieldMeta>,
     payload_field_types: &HashMap<String, String>,
 ) -> Option<orbital_core::ir::OirType> {
@@ -441,12 +441,7 @@ pub(crate) fn expr_return_incompatible(
         payload: payload_field_types,
     };
     let inferred = crate::type_infer::infer_oir_expr_type(&oir_value, &ctx);
-    if std::env::var("ORB_DEBUG_SET_INFER").is_ok() {
-        eprintln!(
-            "SET_INFER declared={declared_field} inferred={inferred:?} value={value:?}"
-        );
-    }
-    if orbital_core::oir_type_satisfies_field(&inferred, declared_field) {
+    if orbital_core::oir_type_satisfies(&inferred, declared) {
         None
     } else {
         Some(inferred)
@@ -473,46 +468,14 @@ impl crate::type_infer::TypeCtx for ExprReturnCtx<'_> {
             return None;
         }
         let field = &binding.path[0];
-        let kind = match binding.root {
-            OirBindingRoot::Entity => self.entity.get(field).map(|m| m.field_type.as_str())?,
-            OirBindingRoot::Payload => self.payload.get(field).map(|s| s.as_str())?,
-            _ => return None,
-        };
-        Some(compat_kind_to_oir(kind))
-    }
-}
-
-/// Map a lowercase `FieldType` / payload kind string to the `OirType` the
-/// inferencer reasons over. Object-ish / unknowable kinds collapse to `Json` so
-/// compat stays conservative. A structural `[T]` spelling maps to `Array<T>`
-/// (mirroring `parse_compat_type`'s bracket arm) so a binding read through an
-/// entity/payload array field carries its element type into inference — the
-/// erased `Array<Json>` would falsely reject a concrete `Array<String>` result
-/// assigned back into a `[string]` field.
-fn compat_kind_to_oir(kind: &str) -> orbital_core::ir::OirType {
-    use orbital_core::ir::OirType;
-    if kind.starts_with('[') && kind.ends_with(']') && kind.len() > 1 {
-        let inner = match &kind[1..kind.len() - 1] {
-            "string" => OirType::String,
-            "number" | "float" => OirType::Number,
-            "int" | "integer" => OirType::Integer,
-            "boolean" => OirType::Boolean,
-            _ => OirType::Json,
-        };
-        return OirType::Array {
-            inner: Box::new(inner),
-        };
-    }
-    match kind {
-        "string" => OirType::String,
-        "number" | "integer" => OirType::Number,
-        "boolean" => OirType::Boolean,
-        "date" => OirType::Date,
-        "datetime" | "timestamp" => OirType::DateTime,
-        "array" => OirType::Array {
-            inner: Box::new(OirType::Json),
-        },
-        _ => OirType::Json,
+        match binding.root {
+            OirBindingRoot::Entity => self.entity.get(field).map(|m| m.shape.clone()),
+            OirBindingRoot::Payload => self
+                .payload
+                .get(field)
+                .map(|kind| orbital_core::compat_kind_oir(kind)),
+            _ => None,
+        }
     }
 }
 
@@ -545,34 +508,23 @@ fn payload_field_ref(value: &SExpression) -> Option<&str> {
 }
 
 /// Per-field metadata the set-effect checks need: the field's declared type
-/// (lowercase primitive string, for the type-compat check) and its declared
-/// enum members (`values: [...]`, empty when the field is not an enum — for the
-/// membership check). Both ride in one map so the entity is walked once and the
-/// `validate_effect` signature stays a single entity-field argument.
+/// (lowercase primitive string, for message text and the produced-shape
+/// dialect) and its declared enum members (`values: [...]`, empty when the
+/// field is not an enum — for the membership check). Both ride in one map so
+/// the entity is walked once and the `validate_effect` signature stays a
+/// single entity-field argument.
 ///
-/// `field_type` is STRUCTURAL for arrays whose `items` declare a primitive
-/// element kind: `[string]` instead of the erased `array`, so the structural
-/// array arm of `sub` compares element types against the payload side's
-/// declared `[string]` instead of rejecting `Array<String> → Array<Json>`.
-/// Dialects that only speak the flat tag (the produced-shape comparison)
-/// read [`EntityFieldMeta::flat_kind`].
+/// `field_type` is the FLAT `field_type_str` tag (`"array"`, `"relation"`,
+/// …) — message text and the `== "relation"` / `== "union"` branches read
+/// it. `shape` is the structural `OirType` (`orbital_core::field_shape`,
+/// recursing into `items`) — every actual type-compat comparison reads it,
+/// so an array element type compares structurally instead of by the erased
+/// `"array"` tag.
 pub(crate) struct EntityFieldMeta {
     pub field_type: String,
+    pub shape: orbital_core::ir::OirType,
     pub enum_values: Vec<String>,
     pub required: bool,
-}
-
-impl EntityFieldMeta {
-    /// The erased kind tag: a structural `[T]` spelling reports as `array`.
-    /// Used only by the produced-shape dialect, which compares coarse
-    /// `field_type_str` tags (`produced_type_accepts`'s `"array"` arm).
-    pub(crate) fn flat_kind(&self) -> &str {
-        if self.field_type.starts_with('[') && self.field_type.ends_with(']') {
-            "array"
-        } else {
-            self.field_type.as_str()
-        }
-    }
 }
 
 /// Build the `{ fieldName -> EntityFieldMeta }` map for an entity definition.
@@ -588,7 +540,8 @@ pub(crate) fn entity_field_type_map(entity: &EntityDefinition) -> HashMap<String
                 (
                     name,
                     EntityFieldMeta {
-                        field_type: field_type_str_structural(f),
+                        field_type: field_type_str(&f.field_type).to_string(),
+                        shape: orbital_core::field_shape(f),
                         enum_values: f.values.clone().unwrap_or_default(),
                         required: f.required.unwrap_or(false),
                     },
@@ -630,29 +583,6 @@ fn field_type_str(ft: &FieldType) -> &'static str {
     }
 }
 
-/// The comparison spelling for an entity field: the flat kind tag, except an
-/// `array` field whose declared `items` carry a primitive element kind the
-/// compat vocabulary understands (`string`/`number`/`boolean`) — that keeps
-/// the `[T]` item-preserving spelling (`parse_compat_type`'s bracket arm), so
-/// the structural array arm of `sub` compares ELEMENT types rather than the
-/// erased `Array<Json>`. Elements of any other shape (objects, named structs,
-/// nested arrays) fall back to the flat `array` tag — no structural claim the
-/// erased-kind alphabet can't express.
-fn field_type_str_structural(f: &orbital_core::schema::FieldDefinition) -> String {
-    if let FieldType::Array = f.field_type {
-        if let Some(items) = &f.items {
-            let inner = match field_type_str(&items.field_type) {
-                "string" => "string",
-                "number" => "number",
-                "boolean" => "boolean",
-                _ => return "array".to_string(),
-            };
-            return format!("[{inner}]");
-        }
-    }
-    field_type_str(&f.field_type).to_string()
-}
-
 /// Validate set effect (object form)
 pub(crate) fn validate_set_object(target: &SExpression, path: &str) -> ValidationResult {
     let mut result = ValidationResult::new();
@@ -691,6 +621,7 @@ mod enum_tests {
             "status".to_string(),
             EntityFieldMeta {
                 field_type: "string".into(),
+                shape: orbital_core::compat_kind_oir("string"),
                 enum_values: vec!["open".into(), "closed".into(), "pending".into()],
                 required: false,
             },
@@ -730,6 +661,7 @@ mod enum_tests {
             "title".to_string(),
             EntityFieldMeta {
                 field_type: "string".into(),
+                shape: orbital_core::compat_kind_oir("string"),
                 enum_values: vec![],
                 required: false,
             },
@@ -757,6 +689,7 @@ mod enum_tests {
             "subMenu".to_string(),
             EntityFieldMeta {
                 field_type: "union".into(),
+                shape: orbital_core::ir::OirType::Json,
                 enum_values: vec!["MenuItem".into()],
                 required: false,
             },
@@ -770,60 +703,6 @@ mod enum_tests {
 }
 
 #[cfg(test)]
-mod probe_tests {
-    use super::*;
-
-    fn meta_map(name: &str, ty: &str) -> HashMap<String, EntityFieldMeta> {
-        let mut m = HashMap::new();
-        m.insert(
-            name.to_string(),
-            EntityFieldMeta {
-                field_type: ty.into(),
-                enum_values: vec![],
-                required: false,
-            },
-        );
-        m
-    }
-
-    fn set(field: &str, value: SExpression) -> Vec<SExpression> {
-        vec![
-            SExpression::String("set".into()),
-            SExpression::String(format!("@entity.{field}")),
-            value,
-        ]
-    }
-
-    #[test]
-    fn probe_binding_literal_array() {
-        let arr = set(
-            "queue",
-            SExpression::Array(vec![SExpression::String("@config.seedId".into())]),
-        );
-        let r = validate_set_return_type(&arr, "p", &meta_map("queue", "[number]"), &HashMap::new());
-        eprintln!("binding-literal errors: {:?}", r.errors);
-    }
-
-    #[test]
-    fn probe_filter_identity() {
-        let arr = set(
-            "monsterQueue",
-            SExpression::Array(vec![
-                SExpression::String("array/filter".into()),
-                SExpression::String("@entity.initiative".into()),
-                SExpression::Array(vec![
-                    SExpression::String("fn".into()),
-                    SExpression::String("iid".into()),
-                    SExpression::Bool(true),
-                ]),
-            ]),
-        );
-        let r = validate_set_return_type(&arr, "p", &meta_map("monsterQueue", "[string]"), &HashMap::new());
-        eprintln!("filter errors: {:?}", r.errors);
-    }
-}
-
-#[cfg(test)]
 mod return_type_tests {
     use super::*;
 
@@ -833,6 +712,7 @@ mod return_type_tests {
             name.to_string(),
             EntityFieldMeta {
                 field_type: ty.into(),
+                shape: orbital_core::compat_kind_oir(ty),
                 enum_values: vec![],
                 required: false,
             },
@@ -894,6 +774,29 @@ mod return_type_tests {
                 .is_empty()
         );
     }
+
+    #[test]
+    fn binding_type_array_field_infers_element_type() {
+        // `@entity.tags : [string]` must resolve to a real `Array<String>` —
+        // not the erased `Array<Json>` — so a return-type comparison against
+        // it sees the element type, not just "it's an array".
+        use crate::type_infer::TypeCtx;
+        use orbital_core::ir::{OirBinding, OirBindingRoot, OirType};
+
+        let entity = field("tags", "[string]");
+        let payload = HashMap::new();
+        let ctx = ExprReturnCtx {
+            entity: &entity,
+            payload: &payload,
+        };
+        let binding = OirBinding::new(OirBindingRoot::Entity, vec!["tags".to_string()]);
+        assert_eq!(
+            ctx.binding_type(&binding),
+            Some(OirType::Array {
+                inner: Box::new(OirType::String)
+            })
+        );
+    }
 }
 
 #[cfg(test)]
@@ -906,6 +809,7 @@ mod required_field_from_optional_knob_tests {
             "value".to_string(),
             EntityFieldMeta {
                 field_type: ty.into(),
+                shape: orbital_core::compat_kind_oir(ty),
                 enum_values: vec![],
                 required,
             },

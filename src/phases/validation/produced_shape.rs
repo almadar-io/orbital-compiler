@@ -150,14 +150,14 @@ fn object_payload_fields(
 /// `resolve_payload_type` performs for a bare `type X = Event EntityName`
 /// alias, so both sides of the comparison speak one alphabet. The produced
 /// side of `produced_type_accepts` speaks the COARSE `field_type_str` tag
-/// dialect (`"array"`, `"relation"`), so a structural `[T]` entity-field
-/// spelling is flattened back via `flat_kind`.
+/// dialect (`"array"`, `"relation"`) — `EntityFieldMeta::field_type` already
+/// is that flat tag.
 fn entity_payload_fields(entity: &EntityDefinition) -> Vec<PayloadField> {
     let mut out: Vec<PayloadField> = entity_field_type_map(entity)
         .into_iter()
         .map(|(name, meta)| PayloadField {
             name,
-            field_type: meta.flat_kind().to_string(),
+            field_type: meta.field_type,
             required: None,
             description: None,
             properties: None,

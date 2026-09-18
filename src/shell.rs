@@ -383,20 +383,6 @@ pub fn typescript_shell_hono(shells_dir: &Path) -> BaseShell {
     )
 }
 
-/// Create an Android shell configuration
-pub fn android_shell(shells_dir: &Path) -> BaseShell {
-    BaseShell::new(
-        "android",
-        "Android with Kotlin and Jetpack Compose",
-        &["kt"],
-        shells_dir.join("android-shell"),
-        "app/src/main/kotlin/com/orbital/app/generated",
-        "gradle build",
-        "gradle run",
-        "gradle test",
-    )
-}
-
 /// Create a Python shell configuration.
 /// Searches multiple locations: shells_dir/python-shell, then
 /// orbital-rust/templates/python-shell from repo root (for monorepo dev
@@ -441,28 +427,12 @@ pub fn rust_shell(shells_dir: &Path) -> BaseShell {
     )
 }
 
-/// Create an iOS shell configuration
-pub fn ios_shell(shells_dir: &Path) -> BaseShell {
-    BaseShell::new(
-        "ios",
-        "Native iOS application with SwiftUI",
-        &["swift"],
-        shells_dir.join("ios-shell"),
-        "Sources/OrbitalApp/Generated",
-        "./orb-build.sh",
-        "./orb-build.sh --dev",
-        "xcodebuild test",
-    )
-}
-
-/// Create a registry with all default shells
+/// Registry of the `BaseShell` targets; Android and iOS live in their own crates.
 pub fn create_default_registry(shells_dir: &Path) -> ShellRegistry {
     let mut registry = ShellRegistry::new();
     registry.register(Box::new(typescript_shell(shells_dir)));
-    registry.register(Box::new(android_shell(shells_dir)));
     registry.register(Box::new(python_shell(shells_dir)));
     registry.register(Box::new(rust_shell(shells_dir)));
-    registry.register(Box::new(ios_shell(shells_dir)));
     registry
 }
 

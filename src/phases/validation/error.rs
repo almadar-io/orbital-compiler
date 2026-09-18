@@ -51,6 +51,14 @@ pub enum ErrorCode {
     /// Phase F.3: an entity field declares `values: [...]` (literal-union)
     /// AND `default: <X>`, but X is not one of the declared values. Error.
     LiteralUnionDefaultMismatch,
+    /// An entity field's `default` is structurally incompatible with its
+    /// declared type — a relation field defaulting to a whole row (`seedRow
+    /// : Note = {}`) instead of an id/absent, a number/boolean default on a
+    /// string/enum field, etc. Rung-2 prevention: `check_field_def_shape`
+    /// (`config_type.rs`) owns the one shape-vs-type check, reused here for
+    /// entity defaults. Skips the string-vs-enum-membership case, which
+    /// `LiteralUnionDefaultMismatch` already reports.
+    EntityDefaultTypeMismatch,
 
     // =========================================================================
     // Trait Errors (ORB_T_*)
@@ -646,6 +654,8 @@ pub enum ErrorCode {
     /// TS. Validate-layer defense-in-depth for the lowering pass that
     /// flattens nested payload field names. Error severity.
     PayloadFieldNameInvalid,
+    /// An array field (entity or payload-schema) declares no element type.
+    UntypedArrayField,
     /// A render-ui pattern prop typed `EntityWith<K>` declares required entity
     /// fields (`requiredFields` in the registry), but the bound entity does not
     /// provide them and no remap/field-map supplies them. The component would
@@ -1114,6 +1124,7 @@ impl ErrorCode {
             ErrorCode::EntityEmptyEnumValues => "ORB_E_EMPTY_ENUM_VALUES",
             ErrorCode::EntitySemanticValueInvalid => "ORB_E_SEMANTIC_VALUE_INVALID",
             ErrorCode::LiteralUnionDefaultMismatch => "ORB_E_LITERAL_UNION_DEFAULT_MISMATCH",
+            ErrorCode::EntityDefaultTypeMismatch => "ORB_E_DEFAULT_TYPE_MISMATCH",
 
             // Trait
             ErrorCode::TraitUndefined => "ORB_T_UNDEFINED_TRAIT",
@@ -1293,6 +1304,7 @@ impl ErrorCode {
             ErrorCode::EmitPayloadExtraField => "ORB_EMIT_PAYLOAD_EXTRA_FIELD",
             ErrorCode::EmitPayloadFieldTypeMismatch => "ORB_EMIT_PAYLOAD_FIELD_TYPE_MISMATCH",
             ErrorCode::PayloadFieldNameInvalid => "ORB_X_PAYLOAD_FIELD_NAME",
+            ErrorCode::UntypedArrayField => "ORB_X_UNTYPED_ARRAY",
             ErrorCode::EntityPropContract => "ORB_X_ENTITY_PROP_CONTRACT",
             ErrorCode::EmitSuccessPayloadReturnMismatch => {
                 "ORB_EMIT_SUCCESS_PAYLOAD_RETURN_MISMATCH"
@@ -1426,7 +1438,9 @@ impl ErrorCode {
             | ErrorCode::EntityEmptyEnumValues
             | ErrorCode::EntitySemanticValueInvalid
             | ErrorCode::EntityNameShadowsTraitUnion
-            | ErrorCode::LiteralUnionDefaultMismatch => "entity",
+            | ErrorCode::LiteralUnionDefaultMismatch
+            | ErrorCode::EntityDefaultTypeMismatch
+            | ErrorCode::UntypedArrayField => "entity",
 
             ErrorCode::TraitUndefined
             | ErrorCode::TraitInvalidFormat
@@ -1769,6 +1783,22 @@ pub fn out_of_scope_collection_local(code: ErrorCode, path: &str, root: &str) ->
          `(array/map <collection> { … })` is not recognised there, so its body is not \
          treated as a lambda and @item never comes into scope. Both a raw `type:` object \
          and a JSX element are valid as <node>.",
+    )
+}
+
+/// The one `ORB_X_UNTYPED_ARRAY` diagnostic, shared by the entity-field and
+/// payload-field checks so the wording can't drift between them.
+pub fn untyped_array_field(path: &str, field_name: &str) -> ValidationError {
+    ValidationError::error(
+        ErrorCode::UntypedArrayField,
+        path,
+        format!(
+            "Field '{}' is typed `array` but its element type is undeclared.",
+            field_name
+        ),
+    )
+    .with_suggestion(
+        "Declare the element type as `[T]` (e.g. `[string]`) instead of the bare `array`.",
     )
 }
 

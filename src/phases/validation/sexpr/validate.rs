@@ -2,7 +2,7 @@
 
 use super::arity::get_arity_rule;
 use super::binding::validate_binding;
-use super::operators::{is_known_operator, EFFECT_OPERATORS};
+use super::operators::{has_namespace_hit, is_known_operator, EFFECT_OPERATORS};
 use crate::phases::validation::{ErrorCode, ValidationContext, ValidationError, ValidationResult};
 use orbital_core::schema::{
     EntityRef, FieldDefinition, OrbitalSchema, SExpression, TraitDefinition,
@@ -141,6 +141,22 @@ pub fn validate_trait_sexprs(
     result
 }
 
+/// Whether any of `args` is itself an obvious nested call (an array headed
+/// by a string that is a known operator or namespaced) — see the
+/// bare-namespace-hit branch of `is_sexpr_call`'s doc above. A genuine call
+/// built from a namespace-dropped operator (`(join (array/map …) ", ")`)
+/// carries real argument depth; a literal enum-options list of plain
+/// identifiers (`(email sms push mixed)`) never does.
+fn has_nested_call_arg(args: &[SExpression]) -> bool {
+    args.iter().any(|a| match a {
+        SExpression::Array(inner) => matches!(
+            inner.first(),
+            Some(SExpression::String(h)) if is_known_operator(h) || h.contains('/')
+        ),
+        _ => false,
+    })
+}
+
 /// Validate a single S-expression
 pub fn validate_sexpr(
     expr: &SExpression,
@@ -172,7 +188,34 @@ pub(crate) fn validate_sexpr_with_locals(
                 // an ambiguous alias, R-EVAL-CONCAT-PATH-DIVERGENCE), but still forced
                 // through the call path so it hits the unknown-operator error below
                 // instead of silently passing as a literal data array.
-                is_known_operator(first) || first.contains('/') || first == "concat"
+                //
+                // A BARE (non-namespaced) head that exactly matches a real
+                // operator's basename under some OTHER namespace (e.g. "join"
+                // vs. the canonical "str/join") is forced through the call
+                // path too — L-26 (`Almadar_LOLO_Gaps.md`): before this, a
+                // dropped/misremembered namespace prefix on a bare operator
+                // name matched none of the conditions above, so the whole
+                // expression silently passed as "literal array data" and the
+                // interpreter's own unknown-operator fallback let the raw
+                // operator NAME leak into the evaluated result — 0
+                // errors/0 warnings on a call that could never do what it
+                // was written to do.
+                //
+                // Gated on `has_nested_call_arg`, not just "more than one
+                // element": a full corpus sweep (1234 registries) surfaced a
+                // real false positive with only the element-count gate —
+                // `std-marketing-campaign.lolo`'s `options: (email sms push
+                // mixed)`, a genuine literal enum-options list whose head
+                // "email" happens to collide with `validate/email`'s
+                // basename. A real call built from a namespace-dropped
+                // operator almost always carries a NESTED call as one of its
+                // arguments (`(join (array/map …) ", ")`); a bare
+                // parenthesized list of plain identifiers, this language's
+                // established way to write literal enum data, never does.
+                is_known_operator(first)
+                    || first.contains('/')
+                    || first == "concat"
+                    || (has_namespace_hit(first) && has_nested_call_arg(&arr[1..]))
             } else {
                 // Non-string first element (array, object, etc) - treat as data
                 false
@@ -290,7 +333,9 @@ pub(crate) fn validate_sexpr_with_locals(
                                 "Replace 'concat' with 'str/concat' or 'array/concat'",
                             ),
                         );
-                    } else if !is_known_operator(operator) && operator.contains('/') {
+                    } else if !is_known_operator(operator)
+                        && (operator.contains('/') || has_namespace_hit(operator))
+                    {
                         let suggestion = super::operators::suggest_operator(operator)
                             .unwrap_or_else(|| {
                                 "Use a known operator or ensure custom operator is registered"
@@ -562,6 +607,101 @@ mod tests {
             .find(|e| e.code == ErrorCode::SExprInvalidOperator)
             .expect("expected an SExprInvalidOperator error for bare concat");
         assert!(err.message.contains("str/concat") && err.message.contains("array/concat"));
+    }
+
+    #[test]
+    fn l26_bare_namespace_hit_operator_is_rejected() {
+        // L-26 (Almadar_LOLO_Gaps.md): a dropped/misremembered namespace
+        // prefix on an otherwise-real operator with NO legacy bare alias
+        // ("camelCase" instead of the canonical "str/camelCase" — unlike
+        // "join"/"str/join", which the compiler already treats as
+        // interchangeable via CORE_OPERATORS) used to match none of
+        // is_sexpr_call's conditions and silently pass as literal array
+        // data — 0 errors on a call that could never work. Carries a nested
+        // `str/upper` call as its argument, the real-call signal
+        // `has_nested_call_arg` requires (see the false-positive regression
+        // below for why a bare element-count gate alone isn't safe).
+        let expr = SExpression::Array(vec![
+            SExpression::String("camelCase".to_string()),
+            SExpression::Array(vec![
+                SExpression::String("str/upper".to_string()),
+                SExpression::String("hello world".to_string()),
+            ]),
+        ]);
+        let result = validate_sexpr(&expr, "test", SExprContext::Effect, &HashSet::new());
+        assert!(!result.is_valid());
+        let err = result
+            .errors
+            .iter()
+            .find(|e| e.code == ErrorCode::SExprInvalidOperator)
+            .expect("expected an SExprInvalidOperator error for bare 'camelCase'");
+        assert!(err.message.contains("camelCase"));
+        assert!(
+            err.suggestion.as_deref().unwrap_or("").contains("str/camelCase"),
+            "suggestion should point at the real operator: {:?}",
+            err.suggestion
+        );
+    }
+
+    #[test]
+    fn l26_single_element_literal_array_matching_an_operator_basename_stays_data() {
+        // A lone-element literal array (an asset-manifest-style data tag,
+        // e.g. `["static"]`) whose sole value happens to coincide with some
+        // operator's basename must NOT be swept into the call path.
+        let expr = SExpression::Array(vec![SExpression::String("camelCase".to_string())]);
+        let result = validate_sexpr(&expr, "test", SExprContext::Effect, &HashSet::new());
+        assert!(
+            !result.errors.iter().any(|e| e.code == ErrorCode::SExprInvalidOperator),
+            "a single-element array must be treated as literal data, not a call attempt"
+        );
+    }
+
+    #[test]
+    fn l26_literal_enum_options_list_stays_data_not_a_call() {
+        // Real false positive from a full 1234-file corpus sweep of an
+        // earlier draft of this fix (element-count gate only, no nested-call
+        // requirement): `std-marketing-campaign.lolo`'s
+        // `options: (email sms push mixed)` — a genuine literal
+        // enum-options list (the `channel` field's declared union type,
+        // `"email" | "sms" | "push" | "mixed"`) whose head "email" happens
+        // to exactly match `validate/email`'s basename. Multiple plain-
+        // string siblings, no nested call anywhere — must stay data.
+        let expr = SExpression::Array(vec![
+            SExpression::String("email".to_string()),
+            SExpression::String("sms".to_string()),
+            SExpression::String("push".to_string()),
+            SExpression::String("mixed".to_string()),
+        ]);
+        let result = validate_sexpr(&expr, "test", SExprContext::Effect, &HashSet::new());
+        assert!(
+            !result.errors.iter().any(|e| e.code == ErrorCode::SExprInvalidOperator),
+            "a literal enum-options list of plain identifiers must stay data, not become a call"
+        );
+    }
+
+    #[test]
+    fn l26_join_is_a_known_legacy_alias_not_flagged() {
+        // "join" is DELIBERATELY in CORE_OPERATORS as a legacy bare alias
+        // for "str/join" (matching orbital-core's own evaluator dispatch,
+        // `"join" | "str/join" => K::JoinOp`) — confirming the validator
+        // does NOT (and should not) flag it, unlike a genuinely unknown bare
+        // name such as "camelCase" above. The actual project-friday bug this
+        // program found was that `@almadar/evaluator` (the INTERPRETED
+        // path) had no such alias at all — fixed separately in
+        // `packages/almadar-evaluator/SExpressionEvaluator.ts`, not here.
+        let expr = SExpression::Array(vec![
+            SExpression::String("join".to_string()),
+            SExpression::Array(vec![
+                SExpression::String("a".to_string()),
+                SExpression::String("b".to_string()),
+            ]),
+            SExpression::String(", ".to_string()),
+        ]);
+        let result = validate_sexpr(&expr, "test", SExprContext::Effect, &HashSet::new());
+        assert!(
+            !result.errors.iter().any(|e| e.code == ErrorCode::SExprInvalidOperator),
+            "'join' is a known legacy alias and must not be flagged"
+        );
     }
 
     #[test]

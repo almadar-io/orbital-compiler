@@ -350,15 +350,34 @@ pub(crate) fn edit_distance(a: &str, b: &str) -> usize {
     prev[b.len()]
 }
 
+/// Exact-basename cross-namespace hits for an unknown name (`join` →
+/// `["str/join"]`, `array/floor` → `["math/floor"]`). Unlike edit-distance
+/// fuzzing, this is a precise signal: a bare name that exactly matches a REAL
+/// operator's basename under some namespace is not coincidental — genuine
+/// literal data essentially never collides with a real operator's exact
+/// spelling. Shared by `suggest_operator` (the did-you-mean message) and
+/// `validate.rs`'s call-vs-data classification (a bare unnamespaced head with
+/// a namespace hit is treated as an attempted call, not literal data).
+pub(crate) fn namespace_hits(unknown: &str) -> Vec<&'static str> {
+    let basename = unknown.rsplit('/').next().unwrap_or(unknown);
+    let mut hits: Vec<&str> = known_operator_names()
+        .filter(|k| k.contains('/') && k.rsplit('/').next() == Some(basename))
+        .collect();
+    hits.sort_unstable();
+    hits.dedup();
+    hits
+}
+
+/// Whether `unknown` exactly matches some real operator's basename under a
+/// different (or missing) namespace — see `namespace_hits`.
+pub(crate) fn has_namespace_hit(unknown: &str) -> bool {
+    !namespace_hits(unknown).is_empty()
+}
+
 /// Did-you-mean for an unknown operator: exact basename in another namespace
 /// first (`array/floor` → `math/floor`), then closest names by edit distance.
 pub(crate) fn suggest_operator(unknown: &str) -> Option<String> {
-    let basename = unknown.rsplit('/').next().unwrap_or(unknown);
-    let mut namespace_hits: Vec<&str> = known_operator_names()
-        .filter(|k| k.contains('/') && k.rsplit('/').next() == Some(basename))
-        .collect();
-    namespace_hits.sort_unstable();
-    namespace_hits.dedup();
+    let namespace_hits = namespace_hits(unknown);
     if !namespace_hits.is_empty() {
         let list = namespace_hits
             .iter()
@@ -378,4 +397,16 @@ pub(crate) fn suggest_operator(unknown: &str) -> Option<String> {
         }
     }
     best.map(|(_, k)| format!("did you mean '{k}'?"))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn has_namespace_hit_matches_exact_basename_across_namespaces() {
+        assert!(has_namespace_hit("join"), "expected 'join' to hit 'str/join'");
+        assert!(has_namespace_hit("camelCase"), "expected 'camelCase' to hit 'str/camelCase'");
+        assert!(!has_namespace_hit("totally-not-an-operator"));
+    }
 }

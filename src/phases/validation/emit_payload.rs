@@ -295,7 +295,7 @@ fn validate_emit_literal(
                         }
                     } else if let Some(inferred) = expr_return_incompatible(
                         value,
-                        expected,
+                        &orbital_core::compat_kind_oir(expected),
                         entity_field_types,
                         payload_field_types,
                     ) {
