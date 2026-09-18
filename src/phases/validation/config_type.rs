@@ -351,19 +351,10 @@ fn check_reference_binding_type(
     // `field.field_type` only when no site is found — e.g. the value flows
     // into a non-render-ui effect, or the pattern-prop position doesn't
     // carry it verbatim.
-    // `node` is renderable content, and every scalar renders: React paints a
-    // number or a boolean as text just as happily as a string. `type_compat`'s
-    // vocabulary has no widening arm for that (unlike its `date` family), so a
-    // perfectly good `content: @entity.count` reads as number-vs-node — 67
-    // findings in one sweep, none of them defects. The right home for this is a
-    // `node` arm in type_compat.rs, which is outside this file; until then do
-    // not manufacture a finding the author cannot act on.
-    let target_is_node = field.field_type == "node"
-        || knob_prop_type_union(bctx.trait_def, value_str)
-            .is_some_and(|types| types.iter().all(|t| t == "node"));
-    if target_is_node && matches!(actual, "string" | "number" | "boolean") {
-        return result;
-    }
+    // `node` accepts any scalar (React paints a number or boolean as text
+    // just as happily as a string) — that widening now lives in the Node arm
+    // of orbital-core's `sub` relation (Phase 4.1), so no file-local
+    // special case is needed here.
     let compatible = if let Some(types) = knob_prop_type_union(bctx.trait_def, value_str) {
         types.iter().any(|t| match config_declared_kind(t) {
             Some(d) => set_value_type_compatible(d, actual),

@@ -534,26 +534,14 @@ fn emit_event_for_key(args: &[SExpression], key: &str) -> Option<String> {
     })
 }
 
-/// Lenient primitive compatibility check. `any` matches anything; `date` /
-/// `datetime` / `timestamp` are acceptable as strings at literal time.
+/// Lenient primitive compatibility — delegated to orbital-core's canonical
+/// `set_value_type_compatible` (the `sub`/`Coercion` relation), which is a
+/// strict superset of this check's historical arms (equal kinds, raw
+/// `Map<...>` tags vs object literals, `any`, the date family vs
+/// string/number, entity/relation vs object/string). The fork was deduped in
+/// Phase 4.1; the differential harness pins zero baseline movement.
 fn primitive_types_compatible(declared: &str, actual: &str) -> bool {
-    if declared == actual {
-        return true;
-    }
-    // A `Map K V` payload field IS an object literal at emit time — the tag
-    // spells the key/value types, but the value's literal kind is still
-    // `object`. Without this a fully-typed map is reported as a mismatch
-    // against the very value it was declared to describe.
-    if declared.starts_with("Map<") {
-        return actual == "object";
-    }
-    match declared {
-        "any" => true,
-        "date" | "datetime" | "timestamp" => actual == "string" || actual == "number",
-        // Entity / relation fields accept object literals at emit time.
-        "entity" | "relation" => actual == "object" || actual == "string",
-        _ => false,
-    }
+    orbital_core::set_value_type_compatible(declared, actual)
 }
 
 #[cfg(test)]
