@@ -5,6 +5,19 @@ use super::{extract_emit_object_ref, validate_emit_config, DeclaredEmit};
 use orbital_core::schema::{EntityDefinition, SExpression};
 use std::collections::{HashMap, HashSet};
 
+/// Position of the entity-name literal in a `persist` call array: 2 for the
+/// 4-element form (`["persist", "create"|"update"|"delete", "Entity", data]`),
+/// 1 for the legacy 3-element form (`["persist", "Entity", data]`). Shared
+/// with the compiler's field-usage collector (`phases/inline/entity.rs`) so
+/// both readers agree on where the entity name and data literal sit — no
+/// second copy of this positional rule.
+pub(crate) fn persist_entity_index(arr: &[SExpression]) -> usize {
+    match arr.get(1) {
+        Some(SExpression::String(op)) if op == "create" || op == "update" || op == "delete" => 2,
+        _ => 1,
+    }
+}
+
 /// Validate persist effect (array form)
 pub(crate) fn validate_persist(
     arr: &[SExpression],
@@ -33,15 +46,7 @@ pub(crate) fn validate_persist(
     // Determine entity position based on format
     // If arr[1] is an operation (create/update/delete), entity is at arr[2]
     // Otherwise, entity is at arr[1] (legacy format)
-    let entity_index = if let SExpression::String(op) = &arr[1] {
-        if op == "create" || op == "update" || op == "delete" {
-            2 // 4-element format: ["persist", "op", "Entity", data]
-        } else {
-            1 // 3-element format: ["persist", "Entity", data]
-        }
-    } else {
-        1
-    };
+    let entity_index = persist_entity_index(arr);
 
     // Check entity name
     if arr.len() > entity_index {

@@ -1772,7 +1772,10 @@ fn collect_and_validate_trait_bindings(
     }
 }
 
-/// Validate a single `@trait.X[.slot]` binding string.
+/// Validate a single `@trait.X` binding string. A `.slot` suffix
+/// (`@trait.X.slot`) is rejected below (`parts.len() > 2`) — cross-slot
+/// pulling was dropped by design (`docs/Almadar_Std_Gaps.md` §3.8); the
+/// grammar is single-segment only.
 fn validate_trait_binding(
     binding: &str,
     path: &str,
@@ -1788,7 +1791,7 @@ fn validate_trait_binding(
                 path,
                 format!("Invalid @trait binding format: '{}'", binding),
             )
-            .with_suggestion("Use @trait.<PascalCaseTraitName>[.<slot>]"),
+            .with_suggestion("Use @trait.<PascalCaseTraitName> — a .slot suffix is not supported"),
         );
         return result;
     }

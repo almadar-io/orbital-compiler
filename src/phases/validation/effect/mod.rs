@@ -24,10 +24,13 @@ pub(crate) use emit::{extract_emit_object_ref, validate_emit, validate_emit_conf
 pub(crate) use emit_declaration::{
     collect_declared_emits, validate_effect, validate_emit_against_declaration,
 };
-pub(crate) use fetch::{validate_fetch, validate_fetch_object};
+pub(crate) use fetch::{
+    parse_fetch_include_literals, resolve_fetch_include_field, validate_fetch,
+    validate_fetch_object,
+};
 pub(crate) use navigate::{validate_navigate, validate_send_server};
 pub(crate) use os_watch::validate_os_watch;
-pub(crate) use persist::validate_persist;
+pub(crate) use persist::{persist_entity_index, validate_persist};
 pub(crate) use r#ref::validate_ref;
 pub(crate) use set::{
     entity_field_type_map, expr_return_incompatible, validate_set, validate_set_enum_value,

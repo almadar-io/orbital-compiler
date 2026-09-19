@@ -2,7 +2,13 @@
 
 use super::context::{parse_reference, InlineContext, ParsedReference};
 use super::InlineError;
-use orbital_core::schema::{EntityDefinition, EntityRef, EntityRefExtends, FieldDefinition};
+use crate::phases::validation::effect::{
+    parse_fetch_include_literals, persist_entity_index, resolve_fetch_include_field,
+};
+use orbital_core::schema::{
+    EntityDefinition, EntityRef, EntityRefExtends, FieldDefinition, SExpression, TraitDefinition,
+    TraitReference,
+};
 use std::collections::HashSet;
 
 /// Apply override fields from an `EntityRefExtends` to a resolved
@@ -66,21 +72,35 @@ fn apply_overrides_to_entity(entity_def: &mut EntityDefinition, extends: &Entity
 /// type/default of a shared field like `id`). Anonymous fields (those
 /// with `name: None`) from the import are skipped — there is no key to
 /// dedup on and they could silently duplicate structure.
+///
+/// On an explicit rebind (`intrinsic_only == false`) a field only carries
+/// when it's also in `referenced_fields` —
+/// R-ENTITY-FIELD-UNION-ACROSS-SAME-NAMED-ENTITY: the composed trait's own
+/// field usage decides what merges onto a differently-named host entity,
+/// never the imported entity's whole field list (see
+/// `collect_trait_referenced_entity_fields`). The no-rebind
+/// `intrinsic_only` path is unaffected — `referenced_fields` is ignored
+/// there, matching its existing "all intrinsic fields carry" contract.
 pub(crate) fn merge_imported_entity_fields(
     caller_entity: &mut EntityDefinition,
     imported_entity: &EntityDefinition,
     // When true, carry ONLY fields marked `intrinsic` (machinery/view-state the
     // imported trait computes itself). Used for the no-rebind same-name
     // composition path (depth-propagation fix) where blindly merging every
-    // imported DATA field would mask a genuinely-missing field. When false the
-    // full imported field set is merged (the long-standing explicit-rebind
-    // behavior — unchanged for unmarked fields).
+    // imported DATA field would mask a genuinely-missing field. When false,
+    // the imported field set is narrowed to `referenced_fields` instead (the
+    // explicit-rebind behavior).
     intrinsic_only: bool,
     // Required DATA fields (the trait's `entity_contract.requires`). These are
     // never auto-merged: a required DATA read must be satisfied by the target
     // (present or remapped), so merging it from the source would silently mask a
     // missing field and defeat ORB_T_REBIND_MISSING_FIELDS.
     required_data: &HashSet<String>,
+    // Field names the composed trait (or a hoisted synthetic child of it)
+    // actually reads, writes, fetch-includes, or persists — see
+    // `collect_trait_referenced_entity_fields`. Only consulted when
+    // `!intrinsic_only`; ignored on the no-rebind path.
+    referenced_fields: &HashSet<String>,
 ) {
     let existing_names: HashSet<String> = caller_entity
         .fields
@@ -109,6 +129,11 @@ pub(crate) fn merge_imported_entity_fields(
             if required_data.contains(fname) && field.intrinsic != Some(true) {
                 continue;
             }
+            // Explicit rebind: the composed trait's own field usage gates
+            // the merge (R-ENTITY-FIELD-UNION-ACROSS-SAME-NAMED-ENTITY).
+            if !intrinsic_only && !referenced_fields.contains(fname) {
+                continue;
+            }
             if !existing_names.contains(fname) {
                 let mut f = field.clone();
                 rewrite_self_relation_target(&mut f, old_name, &new_name, new_id.as_deref());
@@ -120,6 +145,153 @@ pub(crate) fn merge_imported_entity_fields(
                 f.merged_from = Some(imported_entity.name.clone());
                 caller_entity.fields.push(f);
             }
+        }
+    }
+}
+
+/// Every field of `imported_entity` that `trait_def` — or a hoisted
+/// synthetic render child of it, recursively — actually reads, writes,
+/// fetch-includes, or persists (R-ENTITY-FIELD-UNION-ACROSS-SAME-NAMED-ENTITY,
+/// `docs/Almadar_Runtime_Gaps.md`). Four sources, unioned:
+///
+/// 1. `@entity.<field>` reads/writes across guards, transition effects, tick
+///    effects, and config defaults — `TraitDefinition::referenced_entity_field_names`
+///    (the canonical `orbital-core` walker; render-ui is itself an effect so
+///    it's covered by the same pass, no separate scan needed).
+/// 2. `fetch <imported_entity.name> { include: [...] }` relation names,
+///    resolved the way `validate_fetch_include` resolves them
+///    (`resolve_fetch_include_field` — the one matcher, reused not copied).
+/// 3. `persist create/update <imported_entity.name> { ... }` data-literal
+///    keys, read at the same array position `validate_persist` reads them
+///    (`persist_entity_index`).
+/// 4. The same three sets for every hoisted synthetic render child. Hoisting
+///    happens in the lolo parser and the parent link isn't stored on the
+///    resolved schema, so children are rediscovered structurally: walk
+///    `trait_def`'s body for `@trait.<Sibling>` embeds
+///    (`sibling_trait_refs_of`, the single owner of that walk) and recurse
+///    into every sibling name that resolves to a real trait inside the same
+///    imported behavior (`ctx.get_trait`) — a name that doesn't resolve
+///    there isn't one of its children. `visited` guards a self-referential
+///    embed cycle.
+///
+/// `entity_contract.requires` fields count as referenced by definition (a
+/// required read is a read) even though `merge_imported_entity_fields`
+/// separately excludes them from ever being auto-merged.
+pub(crate) fn collect_trait_referenced_entity_fields(
+    trait_def: &TraitDefinition,
+    imported_entity: &EntityDefinition,
+    alias: &str,
+    ctx: &InlineContext,
+    visited: &mut HashSet<String>,
+) -> HashSet<String> {
+    let mut fields = trait_def.referenced_entity_field_names();
+    collect_fetch_persist_entity_fields(trait_def, imported_entity, &mut fields);
+    if let Some(contract) = &trait_def.entity_contract {
+        fields.extend(contract.requires.iter().cloned());
+    }
+
+    for sibling in super::sibling_trait_refs_of(trait_def) {
+        if !visited.insert(sibling.clone()) {
+            continue;
+        }
+        if let Ok(TraitReference::Inline(child_def)) = ctx.get_trait(alias, &sibling) {
+            fields.extend(collect_trait_referenced_entity_fields(
+                &child_def,
+                imported_entity,
+                alias,
+                ctx,
+                visited,
+            ));
+        }
+    }
+    fields
+}
+
+/// Walk every guard/effect in `trait_def`'s transitions, ticks, and
+/// config-field defaults looking for `fetch`/`persist` calls that name
+/// `entity_def` — parts 2+3 of `collect_trait_referenced_entity_fields`.
+/// Scoped to `entity_def.name`: a trait that fetches or persists some OTHER
+/// entity says nothing about which of THIS entity's fields it uses.
+fn collect_fetch_persist_entity_fields(
+    trait_def: &TraitDefinition,
+    entity_def: &EntityDefinition,
+    out: &mut HashSet<String>,
+) {
+    for transition in &trait_def.state_machine.transitions {
+        if let Some(guard) = &transition.guard {
+            collect_fetch_persist_fields(guard, entity_def, out);
+        }
+        if let Some(effects) = &transition.effects {
+            for effect in effects {
+                collect_fetch_persist_fields(effect, entity_def, out);
+            }
+        }
+    }
+    if let Some(ticks) = &trait_def.ticks {
+        for tick in ticks {
+            if let Some(guard) = &tick.guard {
+                collect_fetch_persist_fields(guard, entity_def, out);
+            }
+            for effect in &tick.effects {
+                collect_fetch_persist_fields(effect, entity_def, out);
+            }
+        }
+    }
+    if let Some(config) = &trait_def.config {
+        for field in config.values() {
+            if let Some(default) = &field.default {
+                collect_fetch_persist_fields(default, entity_def, out);
+            }
+        }
+    }
+}
+
+/// Leaf-level `fetch`/`persist` matcher, recursing through arrays/objects so
+/// a call nested inside e.g. an `onSuccess` effect tree is still found.
+fn collect_fetch_persist_fields(
+    expr: &SExpression,
+    entity_def: &EntityDefinition,
+    out: &mut HashSet<String>,
+) {
+    if let SExpression::Array(arr) = expr {
+        match arr.first() {
+            Some(SExpression::String(op)) if op == "fetch" => {
+                if let Some(SExpression::String(entity_name)) = arr.get(1) {
+                    if entity_name == &entity_def.name {
+                        if let Some(SExpression::Object(opts)) = arr.get(2) {
+                            if let Some(include_expr) = opts.get("include") {
+                                if let Some(literals) = parse_fetch_include_literals(include_expr) {
+                                    for literal in &literals {
+                                        if let Some(field_name) =
+                                            resolve_fetch_include_field(entity_def, literal)
+                                        {
+                                            out.insert(field_name);
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            Some(SExpression::String(op)) if op == "persist" => {
+                let entity_index = persist_entity_index(arr);
+                if let Some(SExpression::String(entity_name)) = arr.get(entity_index) {
+                    if entity_name == &entity_def.name {
+                        if let Some(SExpression::Object(data_fields)) = arr.get(entity_index + 1) {
+                            out.extend(data_fields.keys().cloned());
+                        }
+                    }
+                }
+            }
+            _ => {}
+        }
+        for item in arr {
+            collect_fetch_persist_fields(item, entity_def, out);
+        }
+    } else if let SExpression::Object(obj) = expr {
+        for value in obj.values() {
+            collect_fetch_persist_fields(value, entity_def, out);
         }
     }
 }

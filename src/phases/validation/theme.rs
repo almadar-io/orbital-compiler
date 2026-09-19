@@ -357,6 +357,7 @@ mod tests {
         let theme = ThemeDefinition {
             name: "ocean".to_string(),
             tokens: ThemeTokens {
+                color: None,
                 colors: Some(
                     [("primary".to_string(), "#0ea5e9".to_string())]
                         .into_iter()
@@ -376,6 +377,7 @@ mod tests {
                 iconography: None,
                 elevation: None,
                 geometry: None,
+                illustration: None,
             },
             variants: None,
         };
@@ -389,6 +391,7 @@ mod tests {
         let theme = ThemeDefinition {
             name: "".to_string(),
             tokens: ThemeTokens {
+                color: None,
                 colors: None,
                 radii: None,
                 spacing: None,
@@ -400,6 +403,7 @@ mod tests {
                 iconography: None,
                 elevation: None,
                 geometry: None,
+                illustration: None,
             },
             variants: None,
         };

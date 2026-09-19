@@ -39,7 +39,7 @@ use identity_normalize::rewrite_trait_embed_tokens;
 // `#[cfg(test)] mod tests { use super::*; }` block — keep resolving every helper
 // under its original unqualified name after the split into submodules.
 use context::{parse_reference, InlineContext, ParsedReference};
-use entity::{inline_entity, merge_imported_entity_fields};
+use entity::{collect_trait_referenced_entity_fields, inline_entity, merge_imported_entity_fields};
 use page::inline_pages;
 use r#trait::inline_traits;
 // Re-exported at the `inline` namespace so validation passes (e.g.
@@ -47,7 +47,7 @@ use r#trait::inline_traits;
 // `crate::phases::inline::collect_sibling_trait_refs`. The fn lives in the
 // private `r#trait` submodule as `pub(crate)`; without this re-export the path
 // is E0425 (latent — surfaces whenever orbital-compiler recompiles).
-pub(crate) use r#trait::collect_sibling_trait_refs;
+pub(crate) use r#trait::{collect_sibling_trait_refs, sibling_trait_refs_of};
 // Re-exported so `phases::validation::trait_ref_config` (and
 // `inline_schema_with_config_diagnostics`'s public signature above) can name
 // the type as `crate::phases::inline::TraitRefConfigDiagnostic` without
@@ -76,7 +76,7 @@ use crate::loader::{
 };
 use orbital_core::schema::{
     ConfigField, ConfigProvenanceRecord, EntityDefinition, EntityRef, ExpectDeclaration, Orbital,
-    OrbitalSchema, PayloadField, SchemaMetadata, ThemeRef, TraitReference,
+    OrbitalSchema, PayloadField, SchemaMetadata, ThemeRef, TraitDefinition, TraitReference,
 };
 use std::collections::{BTreeMap, HashMap, HashSet};
 use std::path::Path;
@@ -87,7 +87,7 @@ use thiserror::Error;
 #[cfg(test)]
 use orbital_core::schema::{
     EntityRefExtends, FieldDefinition, PageRef, SExpression, ServiceDefinition, ServiceRef,
-    ServiceRefObject, TraitDefinition,
+    ServiceRefObject,
 };
 
 // ============================================================================
@@ -963,6 +963,28 @@ fn inline_orbital(
             if is_top_level {
                 for trait_ref in orbital.traits.iter_mut() {
                     if let TraitReference::Inline(trait_def) = trait_ref {
+                        // §157 `config-knobs`, §12 three-level chain: an
+                        // uncomposed orbital (no `uses[]`) still has traits
+                        // whose OWN declared config defaults may forward to
+                        // this orbital's (or the app's) `config {}`
+                        // (`label: string = @config.title`) — resolve those
+                        // BEFORE folding the trait's effective config into its
+                        // transitions/ticks below, the same fix the `uses[]`
+                        // path applies via `inline_traits`'s top-level `Inline`
+                        // arm (`phases/inline/trait.rs`).
+                        if let Some(resolved) = r#trait::forwarded_sibling_config_from(
+                            trait_def.config.as_ref(),
+                            &[],
+                            orbital.config.as_ref(),
+                            None,
+                            None,
+                            schema_config,
+                        ) {
+                            let cfg = trait_def.config.get_or_insert_with(HashMap::new);
+                            for (key, field) in resolved {
+                                cfg.insert(key, field);
+                            }
+                        }
                         apply_inline_config_defaults(trait_def, recorder);
                     }
                 }
@@ -1181,6 +1203,7 @@ fn inline_orbital(
             imported: EntityDefinition,
             intrinsic_only: bool,
             required_data: HashSet<String>,
+            referenced_fields: HashSet<String>,
         }
         let mut merged_aliases: HashSet<(String, String)> = HashSet::new();
         let mut pending: Vec<PendingMerge> = Vec::new();
@@ -1215,22 +1238,47 @@ fn inline_orbital(
                             // would mask a genuinely-missing field. Skip those so
                             // ORB_T_REBIND_MISSING_FIELDS can fire. Intrinsic +
                             // provided fields still carry.
-                            let resolved_trait = ref_id
+                            let resolved_trait_def: Option<TraitDefinition> = ref_id
                                 .as_deref()
                                 .and_then(|rid| ctx.get_trait_by_ref_id(&alias, rid))
-                                .or_else(|| ctx.get_trait(&alias, &name).ok());
-                            let required_data = resolved_trait
+                                .or_else(|| ctx.get_trait(&alias, &name).ok())
                                 .and_then(|tr| match tr {
-                                    TraitReference::Inline(td) => td.entity_contract,
+                                    TraitReference::Inline(td) => Some(td),
                                     _ => None,
-                                })
-                                .map(|c| c.requires.into_iter().collect::<HashSet<String>>())
+                                });
+                            let required_data = resolved_trait_def
+                                .as_ref()
+                                .and_then(|td| td.entity_contract.as_ref())
+                                .map(|c| c.requires.iter().cloned().collect::<HashSet<String>>())
                                 .unwrap_or_default();
+                            // R-ENTITY-FIELD-UNION-ACROSS-SAME-NAMED-ENTITY: on
+                            // an explicit rebind, only the fields the composed
+                            // trait (or its hoisted children) actually uses
+                            // merge onto the differently-named host entity.
+                            // The no-rebind intrinsic_only path is untouched —
+                            // it never consults this set.
+                            let referenced_fields = if !intrinsic_only {
+                                resolved_trait_def
+                                    .as_ref()
+                                    .map(|td| {
+                                        collect_trait_referenced_entity_fields(
+                                            td,
+                                            &imported_entity,
+                                            &alias,
+                                            &ctx,
+                                            &mut HashSet::new(),
+                                        )
+                                    })
+                                    .unwrap_or_default()
+                            } else {
+                                HashSet::new()
+                            };
                             pending.push(PendingMerge {
                                 target: linked_entity.clone(),
                                 imported: imported_entity,
                                 intrinsic_only,
                                 required_data,
+                                referenced_fields,
                             });
                         }
                     }
@@ -1260,6 +1308,7 @@ fn inline_orbital(
                     &pm.imported,
                     pm.intrinsic_only,
                     &pm.required_data,
+                    &pm.referenced_fields,
                 ),
                 None => {
                     if let EntityRef::Inline(ref mut caller_entity) = orbital.entity {
@@ -1268,6 +1317,7 @@ fn inline_orbital(
                             &pm.imported,
                             pm.intrinsic_only,
                             &pm.required_data,
+                            &pm.referenced_fields,
                         );
                     }
                 }
@@ -4788,7 +4838,14 @@ mod tests {
             id: None,
         };
 
-        merge_imported_entity_fields(&mut caller, &imported, false, &HashSet::new());
+        // Not testing the field-usage narrowing here — assert this test's
+        // own referenced set so the collision/addition mechanics still get
+        // exercised the same way they did before the gate existed.
+        let referenced: HashSet<String> = ["id", "name", "pendingId"]
+            .into_iter()
+            .map(String::from)
+            .collect();
+        merge_imported_entity_fields(&mut caller, &imported, false, &HashSet::new(), &referenced);
 
         let names = field_names(&caller);
         assert_eq!(names, vec!["id", "price", "name", "pendingId"]);
@@ -4839,7 +4896,11 @@ mod tests {
             id: None,
         };
 
-        merge_imported_entity_fields(&mut caller, &imported, false, &HashSet::new());
+        let referenced: HashSet<String> = ["description", "status"]
+            .into_iter()
+            .map(String::from)
+            .collect();
+        merge_imported_entity_fields(&mut caller, &imported, false, &HashSet::new(), &referenced);
 
         let names = field_names(&caller);
         assert_eq!(names, vec!["id", "title", "description", "status"]);
@@ -4896,7 +4957,20 @@ mod tests {
             id: None,
         };
 
-        merge_imported_entity_fields(&mut caller, &imported, false, &HashSet::new());
+        // Every imported field is treated as referenced — this test is about
+        // the name-collision short-circuit, not the usage gate.
+        let referenced: HashSet<String> = [
+            "id",
+            "name",
+            "description",
+            "status",
+            "createdAt",
+            "pendingId",
+        ]
+        .into_iter()
+        .map(String::from)
+        .collect();
+        merge_imported_entity_fields(&mut caller, &imported, false, &HashSet::new(), &referenced);
 
         let names = field_names(&caller);
         assert_eq!(
@@ -4973,9 +5047,27 @@ mod tests {
         };
 
         // First import adds name, status.
-        merge_imported_entity_fields(&mut caller, &import_browse, false, &HashSet::new());
+        let browse_referenced: HashSet<String> =
+            ["name", "status"].into_iter().map(String::from).collect();
+        merge_imported_entity_fields(
+            &mut caller,
+            &import_browse,
+            false,
+            &HashSet::new(),
+            &browse_referenced,
+        );
         // Second import adds pendingId, description (id already present).
-        merge_imported_entity_fields(&mut caller, &import_modal, false, &HashSet::new());
+        let modal_referenced: HashSet<String> = ["pendingId", "description"]
+            .into_iter()
+            .map(String::from)
+            .collect();
+        merge_imported_entity_fields(
+            &mut caller,
+            &import_modal,
+            false,
+            &HashSet::new(),
+            &modal_referenced,
+        );
 
         let names = field_names(&caller);
         assert_eq!(
@@ -5063,7 +5155,8 @@ mod tests {
             id: Some("ent_IMPORTED_THREADPOST".to_string()),
         };
 
-        merge_imported_entity_fields(&mut caller, &imported, false, &HashSet::new());
+        let referenced: HashSet<String> = ["replies"].into_iter().map(String::from).collect();
+        merge_imported_entity_fields(&mut caller, &imported, false, &HashSet::new(), &referenced);
 
         let merged = caller
             .fields
@@ -5138,7 +5231,8 @@ mod tests {
             id: None,
         };
 
-        merge_imported_entity_fields(&mut caller, &imported, false, &HashSet::new());
+        let referenced: HashSet<String> = ["name"].into_iter().map(String::from).collect();
+        merge_imported_entity_fields(&mut caller, &imported, false, &HashSet::new(), &referenced);
 
         let content = caller
             .fields

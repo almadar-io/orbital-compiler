@@ -1204,7 +1204,7 @@ pub(crate) fn collect_sibling_trait_refs(expr: &SExpression, out: &mut HashSet<S
 /// callers predate the orbital-import program; the auto-pulled render
 /// siblings it discovers, e.g. std-browse's `MasterListView`/`DataGrid1`/
 /// `DenseTableView` look variants, were already unordered before Stage A/B.)
-fn sibling_trait_refs_of(trait_def: &TraitDefinition) -> Vec<String> {
+pub(crate) fn sibling_trait_refs_of(trait_def: &TraitDefinition) -> Vec<String> {
     let mut out = HashSet::new();
     for transition in &trait_def.state_machine.transitions {
         if let Some(guard) = transition.guard.as_ref() {
@@ -1479,6 +1479,34 @@ pub(crate) fn inline_traits(
                 // pull, both defer=false) then folds it to the effective value.
                 let mut td = trait_def.clone();
                 if !ctx.defer_config_subst {
+                    // §157 `config-knobs`, §12 three-level chain: a top-level
+                    // inline trait (declared directly in the orbital, not
+                    // pulled via `uses`) has no embedder, so its OWN declared
+                    // config defaults that are themselves a whole-string
+                    // `@config.<knob>` forward (`label: string = @config.title`)
+                    // are never chased by the sibling-pull machinery below —
+                    // resolve them here, one rung out, against THIS orbital's
+                    // (then the app's) config, the same two outer rungs a
+                    // pulled sibling's forward already falls through to.
+                    // Collapsed fields get `forwarded_from` stamped (same
+                    // provenance contract `ORB_O_CONFIG_DEAD_KNOB` reads) and
+                    // land in `td.config` BEFORE `apply_inline_config_defaults`
+                    // folds every `@config.<knob>` occurrence in this trait's
+                    // own transitions/ticks, so a render-ui prop referencing
+                    // the knob bakes the resolved value, not the forward token.
+                    if let Some(resolved) = forwarded_sibling_config_from(
+                        td.config.as_ref(),
+                        &[],
+                        orbital_config,
+                        None,
+                        None,
+                        schema_config,
+                    ) {
+                        let cfg = td.config.get_or_insert_with(HashMap::new);
+                        for (key, field) in resolved {
+                            cfg.insert(key, field);
+                        }
+                    }
                     apply_inline_config_defaults(&mut td, recorder);
                 }
                 result.push(TraitReference::Inline(td));
@@ -3151,6 +3179,58 @@ mod forwarded_sibling_config_tests {
         assert!(
             resolved.is_none(),
             "a pure cycle resolves nothing: {resolved:?}"
+        );
+    }
+
+    /// §157 `config-knobs`, §12 three-level chain: a TOP-LEVEL trait (no
+    /// embedder — the shape `inline/mod.rs`'s no-`uses[]` branch and
+    /// `inline_traits`'s top-level `Inline` arm both resolve before folding a
+    /// trait's own effective config) falls through an EMPTY embedder_chain
+    /// straight to `orbital_config`, then `schema_config` when the orbital
+    /// itself doesn't declare the knob either.
+    #[test]
+    fn config_forward_resolves_orbital_and_app_rungs() {
+        let sibling = trait_with_config(
+            "WidgetView",
+            config_map(&[("label", serde_json::json!("@config.title"))]),
+        );
+        let orbital_config = config_map(&[("title", serde_json::json!("Widgets"))]);
+
+        let resolved = forwarded_sibling_config_from(
+            sibling.config.as_ref(),
+            &[],
+            Some(&orbital_config),
+            None,
+            None,
+            None,
+        )
+        .expect("label must resolve against the orbital's own config rung");
+        assert_eq!(
+            resolved.get("label").and_then(|f| f.default.as_ref()),
+            Some(&SExpression::String("Widgets".to_string())),
+        );
+        assert_eq!(
+            resolved.get("label").and_then(|f| f.forwarded_from.as_deref()),
+            Some("@config.title"),
+            "the collapsed field must record its provenance"
+        );
+
+        // The orbital doesn't declare the knob at all — falls through one
+        // more rung, to the app-level schema config.
+        let empty_orbital_config: HashMap<String, ConfigField> = HashMap::new();
+        let schema_config = config_map(&[("title", serde_json::json!("App Widgets"))]);
+        let resolved_via_app = forwarded_sibling_config_from(
+            sibling.config.as_ref(),
+            &[],
+            Some(&empty_orbital_config),
+            None,
+            None,
+            Some(&schema_config),
+        )
+        .expect("label must fall through to the app-level schema config rung");
+        assert_eq!(
+            resolved_via_app.get("label").and_then(|f| f.default.as_ref()),
+            Some(&SExpression::String("App Widgets".to_string())),
         );
     }
 }

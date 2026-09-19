@@ -265,12 +265,34 @@ where
 /// call sites).
 const ORB_MANIFEST_FILE: &str = ".orb-manifest.json";
 
-/// A `packages/`-relative path is written under `output_dir`; every other
-/// generated path is written under the shell's `generated_dir` — the ONE
-/// resolution rule the write loop and the stale-prune pass both use, so a
-/// manifest entry always resolves to the exact file it named.
+/// A generated path prefixed with one of these is "workspace-relative" —
+/// already rooted at a template-declared location outside the shell's own
+/// `generated_dir` tree (a sibling package root, or a native test target's
+/// own `sources:`/source-set root declared in `project.yml`/`build.gradle.kts`)
+/// — and is written directly under `output_dir` instead of nested under
+/// `generated_dir`. `packages/` is the original TS/mobile multi-package
+/// case (`orbital-shell-typescript`/`orbital-shell-mobile`); `Sources/` and
+/// `app/src/test/` are the iOS/Android native test-target cases (Program C
+/// wave C4 — `Sources/OrbitalAppTests/PatternSnapshotTests.swift`,
+/// `app/src/test/kotlin/generated/PatternSnapshotTests.kt`); `app/src/main/assets/`
+/// is the Android *main* module's asset root (Program B wave B6 —
+/// `app/src/main/assets/resolved_schema.json`, the in-app kernel's bundled
+/// resolved schema, mirroring iOS's `Sources/OrbitalApp/Resources/`) — added
+/// because neither shell's `generated_dir` (`Sources/OrbitalApp/Generated`,
+/// `app/src/main/kotlin/generated`) covers a sibling resource/test source
+/// root. No existing `GeneratedFile::path` in any shell started with any of
+/// these before their own addition (each backend otherwise emits bare
+/// relative names under its own `generated_dir`), so each is purely additive.
+const WORKSPACE_RELATIVE_PREFIXES: &[&str] =
+    &["packages/", "Sources/", "app/src/test/", "app/src/main/assets/"];
+
+/// A workspace-relative path (see `WORKSPACE_RELATIVE_PREFIXES`) is written
+/// relative to the output root; every other generated path is written under
+/// the shell's `generated_dir` — the ONE resolution rule the write loop and
+/// the stale-prune pass both use, so a manifest entry always resolves to the
+/// exact file it named.
 fn resolve_manifest_path(output_dir: &Path, generated_dir: &Path, logical_path: &str) -> std::path::PathBuf {
-    if logical_path.starts_with("packages/") {
+    if WORKSPACE_RELATIVE_PREFIXES.iter().any(|prefix| logical_path.starts_with(prefix)) {
         output_dir.join(logical_path)
     } else {
         generated_dir.join(logical_path)

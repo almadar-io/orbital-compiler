@@ -5,7 +5,10 @@
 //! entity, leaving `relation.entity` pointing at the now-nonexistent imported
 //! entity → ORB_E_INVALID_RELATION / ORB_X_UNRESOLVED_RELATION_TARGET. The
 //! auto-merge now rewrites self-references (and nested object-property ones) to
-//! the caller entity.
+//! the caller entity. The atom's trait reads `@entity.replies` in its
+//! render-ui so the field counts as referenced under the
+//! R-ENTITY-FIELD-UNION-ACROSS-SAME-NAMED-ENTITY usage gate — an unreferenced
+//! field no longer merges at all, self-relation or not.
 
 use orbital_compiler::phases::inline::{inline_schema, InlineConfig};
 use orbital_compiler::phases::parse::parse_file;
@@ -32,8 +35,15 @@ const ATOM: &str = r#"{
           "category": "interaction",
           "stateMachine": {
             "states": [ { "name": "idle", "isInitial": true } ],
-            "events": [],
-            "transitions": []
+            "events": [ { "key": "LOAD" } ],
+            "transitions": [
+              {
+                "from": "idle",
+                "to": "idle",
+                "event": "LOAD",
+                "effects": [ ["render-ui", "main", { "type": "list", "items": "@entity.replies" }] ]
+              }
+            ]
           }
         }
       ]
