@@ -269,7 +269,13 @@ fn rebind_to_primary_in_multi_entity_orbital_unchanged() {
 }
 
 #[test]
-fn rebind_to_unknown_target_falls_back_to_primary() {
+fn rebind_to_unknown_target_merges_nowhere_not_the_primary() {
+    // §52 fallback retired: "Ghost" names no entity anywhere in the schema
+    // (not NoteOrbital's own primary/aux, not `base.orb`'s), so the merge has
+    // no landing site and the retired primary-entity fallback no longer
+    // applies — `viewState` must not appear on the primary (or anywhere
+    // else). `ORB_T_REBIND_TARGET_UNRESOLVED` is the validator's job, tested
+    // in `orbital-compiler`'s `trait_validator` unit tests, not here.
     let dir = tempfile::TempDir::new().expect("temp");
     std::fs::write(dir.path().join("base.orb"), BASE).expect("write base");
     let consumer = dir.path().join("consumer.orb");
@@ -278,9 +284,17 @@ fn rebind_to_unknown_target_falls_back_to_primary() {
     let schema = inline(&consumer);
     let primary_fields = field_names(&schema.orbitals[0].entity);
     assert!(
-        primary_fields.contains(&"viewState".to_string()),
-        "unknown target falls back to today's primary merge, got {primary_fields:?}"
+        !primary_fields.contains(&"viewState".to_string()),
+        "an unresolvable rebind target must not fall back onto the primary, got {primary_fields:?}"
     );
+    for aux in schema.orbitals[0].auxiliary_entities.iter().flatten() {
+        if let EntityRef::Inline(def) = aux {
+            assert_ne!(
+                def.name, "Ghost",
+                "an unresolvable target name must never itself materialize as an entity"
+            );
+        }
+    }
 }
 
 #[test]

@@ -574,6 +574,144 @@ fn validate_orbital_entity_mutations(
 }
 
 // ============================================================================
+// C. Merged-field usage (ORB_E_MERGED_FIELD_UNREFERENCED)
+// ============================================================================
+
+/// Run the merged-field usage check once per entity in the schema.
+/// Post-inline: for each entity field carrying `mergedFrom` (added by the
+/// rebind-merge auto-merge, `merge_imported_entity_fields`), error if no
+/// trait ANYWHERE IN THE SCHEMA that binds to this entity references it —
+/// same field-usage definition the §52 travel-copy filter narrows a
+/// traveled auxiliary's merged fields to
+/// (`phases::inline::trait_referenced_fields_of_entity`, shared, not
+/// reimplemented here). The merge already excludes unreferenced fields when
+/// it runs; this catches drift when a later edit removes the trait/effect
+/// that used to justify a merge that already landed.
+///
+/// Schema-wide, never per-orbital: a Gap #22 cross-orbital rebind (e.g.
+/// `RouteHitRecorder -> AnalyticsRecord` authored inside `RouteOrbital`,
+/// rebinding to an entity a DIFFERENT orbital, `AnalyticsOrbital`, owns and
+/// merged the field onto) means the orbital that composes the trait
+/// justifying a merge and the orbital that OWNS the entity's declaration can
+/// differ. Scoping "referenced" to one orbital's own trait list (as this
+/// used to) sees only that orbital's side of the rebind and false-positives
+/// on every entity shared that way — confirmed corpus case:
+/// `std-api-gateway`'s `AnalyticsRecord.searchTerm` (merged by
+/// `AnalyticsGlobalSearch` in `AnalyticsOrbital`) reported unreferenced from
+/// `RouteOrbital`'s pass, which never composes that trait at all.
+///
+/// Cross-entity, not just cross-orbital: a trait bound to entity A can still
+/// reference entity B's fields via a `fetch`/`persist B {...}` call or a
+/// render-ui node's literal `entity: "B"` binding — confirmed corpus case:
+/// `std-wiki-page`'s `WikiRevisionCapture -> WikiPage` does
+/// `(persist create WikiPageRevision {...})`, referencing `WikiPageRevision`
+/// fields from a trait linked to a DIFFERENT entity. `@entity.<field>`
+/// (part 1) is excluded from the cross-entity pass — it unambiguously names
+/// the trait's OWN linked entity, never another.
+pub fn validate_all_merged_field_usage(schema: &OrbitalSchema, ctx: &mut ValidationContext) {
+    // Only entities carrying a merged field need a "referenced" set at all —
+    // the cross-entity pass below is O(traits) per such entity, so this
+    // keeps it cheap on schemas with many entities but few rebinds.
+    let merged_entity_names: HashSet<&str> = ctx
+        .entity_definitions
+        .values()
+        .filter(|e| e.fields.iter().any(|f| f.merged_from.is_some()))
+        .map(|e| e.name.as_str())
+        .collect();
+
+    // Union, per entity name, of what every trait IN THE WHOLE SCHEMA
+    // reads/writes/fetch-includes/persists/render-contracts against it —
+    // regardless of which orbital composes the trait, and regardless of
+    // whether the trait is LINKED to that entity (own-entity: parts 1-4;
+    // cross-entity: parts 2-4, `@entity.<field>` excluded).
+    let mut referenced_by_entity: HashMap<&str, HashSet<String>> = HashMap::new();
+    for orbital in &schema.orbitals {
+        for trait_ref in &orbital.traits {
+            let TraitReference::Inline(t) = trait_ref else {
+                continue;
+            };
+            if let Some(linked) = t.linked_entity.as_deref() {
+                if let Some(entity_def) = ctx.entity_definitions.get(linked) {
+                    referenced_by_entity.entry(linked).or_default().extend(
+                        crate::phases::inline::trait_referenced_fields_of_entity(
+                            t, entity_def, true,
+                        ),
+                    );
+                }
+            }
+            for &name in &merged_entity_names {
+                if Some(name) == t.linked_entity.as_deref() {
+                    continue; // already covered above (parts 1-4)
+                }
+                let Some(entity_def) = ctx.entity_definitions.get(name) else {
+                    continue;
+                };
+                referenced_by_entity.entry(name).or_default().extend(
+                    crate::phases::inline::trait_referenced_fields_of_entity(t, entity_def, false),
+                );
+            }
+        }
+    }
+
+    // One check per (owning orbital, entity) pair — the entity's PRIMARY or
+    // auxiliary declaration site, never per orbital that merely rebinds a
+    // trait to its name, so a cross-orbital rebind is checked exactly once.
+    let mut result = ValidationResult::new();
+    for (i, orbital) in schema.orbitals.iter().enumerate() {
+        let orbital_path = format!("orbitals[{}]", i);
+        let mut owned_names: Vec<&str> = Vec::new();
+        if let Some(entity) = orbital.entity.as_inline() {
+            owned_names.push(entity.name.as_str());
+        }
+        for aux in orbital.auxiliary_entities.iter().flatten() {
+            if let Some(aux_entity) = aux.as_inline() {
+                owned_names.push(aux_entity.name.as_str());
+            }
+        }
+        owned_names.sort_unstable();
+        owned_names.dedup();
+
+        for entity_name in owned_names {
+            let Some(entity_def) = ctx.entity_definitions.get(entity_name) else {
+                continue;
+            };
+            let mut merged_fields: Vec<&orbital_core::schema::FieldDefinition> = entity_def
+                .fields
+                .iter()
+                .filter(|f| f.merged_from.is_some() && f.name.is_some())
+                .collect();
+            if merged_fields.is_empty() {
+                continue;
+            }
+            merged_fields.sort_by(|a, b| a.name.cmp(&b.name));
+
+            let referenced = referenced_by_entity.get(entity_name);
+            for field in merged_fields {
+                let fname = field.name.as_deref().unwrap_or_default();
+                if referenced.is_some_and(|r| r.contains(fname)) {
+                    continue;
+                }
+                let path = format!("{}.entity[{}].fields.{}", orbital_path, entity_name, fname);
+                result.add_error(
+                    ValidationError::error(
+                        ErrorCode::EntityMergedFieldUnreferenced,
+                        path.as_str(),
+                        format!(
+                            "Entity '{}' field '{}' was merged from '{}' but no trait of this orbital reads, writes, fetch-includes, or persists it",
+                            entity_name,
+                            fname,
+                            field.merged_from.as_deref().unwrap_or("?")
+                        ),
+                    )
+                    .with_suggestion("Compose a trait that uses it, or drop the rebind"),
+                );
+            }
+        }
+    }
+    ctx.merge(result);
+}
+
+// ============================================================================
 // A. Non-`Cron` tick backstop
 // ============================================================================
 
@@ -1601,6 +1739,19 @@ mod tests {
             SExpression::Object({
                 let mut m = std::collections::HashMap::new();
                 m.insert("val".to_string(), s(&format!("@entity.{}", field)));
+                m
+            }),
+        ])
+    }
+
+    fn persist_create(entity_name: &str, field: &str) -> SExpression {
+        arr(vec![
+            s("persist"),
+            s("create"),
+            s(entity_name),
+            SExpression::Object({
+                let mut m = std::collections::HashMap::new();
+                m.insert(field.to_string(), SExpression::Number(1.into()));
                 m
             }),
         ])
@@ -3166,6 +3317,236 @@ mod tests {
             result.warnings.is_empty(),
             "A server-gated (non-local, non-runtime) trait must not warn: {:?}",
             result.warnings
+        );
+    }
+
+    // ------------------------------------------------------------------
+    // C. Merged-field usage (ORB_E_MERGED_FIELD_UNREFERENCED)
+    // ------------------------------------------------------------------
+
+    fn merged_field(name: &str, source: &str) -> FieldDefinition {
+        FieldDefinition {
+            mock: None,
+            merged_from: Some(source.to_string()),
+            name: Some(name.to_string()),
+            field_type: FieldType::String,
+            required: None,
+            primary_key: None,
+            unique: None,
+            relation: None,
+            items: None,
+            values: None,
+            default: None,
+            properties: None,
+            intrinsic: None,
+            description: None,
+            synonyms: None,
+        }
+    }
+
+    fn orbital_with_entity_and_traits(
+        entity_def: EntityDefinition,
+        traits: Vec<TraitDefinition>,
+    ) -> Orbital {
+        Orbital {
+            name: "TestOrbital".to_string(),
+            id: None,
+            uses: None,
+            expects: None,
+            theme: None,
+            services: None,
+            entity: EntityRef::Inline(entity_def),
+            auxiliary_entities: None,
+            traits: traits.into_iter().map(TraitReference::Inline).collect(),
+            pages: None,
+            emits: None,
+            listens: None,
+            exposes: None,
+            domain_context: None,
+            design: None,
+            types: None,
+            reference: None,
+            config: None,
+        }
+    }
+
+    fn schema_of(orbitals: Vec<Orbital>) -> OrbitalSchema {
+        OrbitalSchema {
+            theme: None,
+            name: "TestApp".to_string(),
+            version: Some("1.0.0".to_string()),
+            description: None,
+            config: None,
+            orbitals,
+            metadata: None,
+            schema_version: None,
+            ledger: None,
+        }
+    }
+
+    fn ctx_with_entity(entity_def: &EntityDefinition) -> ValidationContext {
+        let mut ctx = ValidationContext::new();
+        ctx.entity_definitions
+            .insert(entity_def.name.clone(), entity_def.clone());
+        ctx
+    }
+
+    #[test]
+    fn merged_field_referenced_by_a_trait_passes() {
+        let mut ticket = entity("Ticket", false, Some(Persistence::Persistent));
+        ticket.fields.push(merged_field("replies", "ThreadPost"));
+        let t =
+            trait_with_init_effects("TicketThread", "Ticket", vec![render_ui_reading("replies")]);
+        let mut ctx = ctx_with_entity(&ticket);
+        let schema = schema_of(vec![orbital_with_entity_and_traits(ticket, vec![t])]);
+
+        validate_all_merged_field_usage(&schema, &mut ctx);
+        assert!(
+            ctx.result.errors.is_empty(),
+            "a merged field the trait's own render-ui reads must not fire: {:?}",
+            ctx.result.errors
+        );
+    }
+
+    #[test]
+    fn merged_field_never_referenced_fails() {
+        let mut ticket = entity("Ticket", false, Some(Persistence::Persistent));
+        ticket.fields.push(merged_field("voteCount", "ThreadPost"));
+        // The trait only touches its own `value` field — never `voteCount`.
+        let t = trait_with_init_effects("TicketPanel", "Ticket", vec![set_effect("value")]);
+        let mut ctx = ctx_with_entity(&ticket);
+        let schema = schema_of(vec![orbital_with_entity_and_traits(ticket, vec![t])]);
+
+        validate_all_merged_field_usage(&schema, &mut ctx);
+        let hit = ctx
+            .result
+            .errors
+            .iter()
+            .find(|e| e.code == ErrorCode::EntityMergedFieldUnreferenced);
+        assert!(
+            hit.is_some(),
+            "an unreferenced merged field must fire ORB_E_MERGED_FIELD_UNREFERENCED: {:?}",
+            ctx.result.errors
+        );
+        assert!(
+            hit.unwrap().message.contains("voteCount")
+                && hit.unwrap().message.contains("ThreadPost"),
+            "message must name the field and its mergedFrom source: {:?}",
+            hit
+        );
+    }
+
+    /// The Gap #22 cross-orbital case: `RouteOrbital` composes a trait that
+    /// REBINDS onto `AnalyticsRecord` (an entity `AnalyticsOrbital` owns)
+    /// without itself referencing the merged field, while the trait that
+    /// justifies the merge (`AnalyticsGlobalSearch`) lives in the OTHER
+    /// orbital. Scoping "referenced" to one orbital's own traits false-
+    /// positives here; schema-wide unioning must not.
+    #[test]
+    fn merged_field_referenced_from_a_different_orbital_passes() {
+        let mut analytics = entity("AnalyticsRecord", false, Some(Persistence::Persistent));
+        analytics
+            .fields
+            .push(merged_field("searchTerm", "AppSearchTarget"));
+        let searcher = trait_with_init_effects(
+            "AnalyticsGlobalSearch",
+            "AnalyticsRecord",
+            vec![render_ui_reading("searchTerm")],
+        );
+        let analytics_orbital = orbital_with_entity_and_traits(analytics.clone(), vec![searcher]);
+
+        let route_entity = entity("Route", false, Some(Persistence::Persistent));
+        let route_hit_recorder = trait_with_init_effects(
+            "RouteHitRecorder",
+            "AnalyticsRecord",
+            vec![set_effect("method")],
+        );
+        let route_orbital = orbital_with_entity_and_traits(route_entity, vec![route_hit_recorder]);
+
+        let mut ctx = ctx_with_entity(&analytics);
+        let schema = schema_of(vec![route_orbital, analytics_orbital]);
+
+        validate_all_merged_field_usage(&schema, &mut ctx);
+        assert!(
+            ctx.result.errors.is_empty(),
+            "a field referenced by a trait in a DIFFERENT orbital sharing the entity name must not fire: {:?}",
+            ctx.result.errors
+        );
+    }
+
+    /// Cross-entity, not just cross-orbital: a trait LINKED to entity A
+    /// (`WikiRevisionCapture -> WikiPage` in the real corpus case) can still
+    /// reference entity B's fields via `(persist create B {...})` — the
+    /// merge and the validator must both count that as a reference to B's
+    /// field, even though the trait's OWN `@entity.<field>` reads never
+    /// name B (they'd be reads of A).
+    #[test]
+    fn merged_field_referenced_via_cross_entity_persist_passes() {
+        let mut revision = entity("WikiPageRevision", false, Some(Persistence::Persistent));
+        revision.fields.push(merged_field("scopeKey", "Revision"));
+        let page_entity = entity("WikiPage", false, Some(Persistence::Persistent));
+        let capture = trait_with_init_effects(
+            "WikiRevisionCapture",
+            "WikiPage",
+            vec![persist_create("WikiPageRevision", "scopeKey")],
+        );
+        // `WikiPageRevision` isn't this orbital's primary entity, so register
+        // it as an auxiliary — same shape Gap #22 surfaces in the real corpus.
+        let mut orbital = orbital_with_entity_and_traits(page_entity, vec![capture]);
+        orbital.auxiliary_entities = Some(vec![EntityRef::Inline(revision.clone())]);
+
+        let mut ctx = ValidationContext::new();
+        ctx.entity_definitions.insert(
+            "WikiPage".to_string(),
+            entity("WikiPage", false, Some(Persistence::Persistent)),
+        );
+        ctx.entity_definitions
+            .insert("WikiPageRevision".to_string(), revision);
+        let schema = schema_of(vec![orbital]);
+
+        validate_all_merged_field_usage(&schema, &mut ctx);
+        assert!(
+            ctx.result.errors.is_empty(),
+            "a field referenced via a cross-entity persist from a trait linked to a DIFFERENT entity must not fire: {:?}",
+            ctx.result.errors
+        );
+    }
+
+    /// FAIL (control): the same shape, but the persist's data literal never
+    /// names the merged field — it must still fire.
+    #[test]
+    fn merged_field_not_referenced_via_cross_entity_persist_fails() {
+        let mut revision = entity("WikiPageRevision", false, Some(Persistence::Persistent));
+        revision.fields.push(merged_field("scopeKey", "Revision"));
+        let page_entity = entity("WikiPage", false, Some(Persistence::Persistent));
+        // Persists a DIFFERENT field — never mentions `scopeKey`.
+        let capture = trait_with_init_effects(
+            "WikiRevisionCapture",
+            "WikiPage",
+            vec![persist_create("WikiPageRevision", "summary")],
+        );
+        let mut orbital = orbital_with_entity_and_traits(page_entity, vec![capture]);
+        orbital.auxiliary_entities = Some(vec![EntityRef::Inline(revision.clone())]);
+
+        let mut ctx = ValidationContext::new();
+        ctx.entity_definitions.insert(
+            "WikiPage".to_string(),
+            entity("WikiPage", false, Some(Persistence::Persistent)),
+        );
+        ctx.entity_definitions
+            .insert("WikiPageRevision".to_string(), revision);
+        let schema = schema_of(vec![orbital]);
+
+        validate_all_merged_field_usage(&schema, &mut ctx);
+        let hit = ctx
+            .result
+            .errors
+            .iter()
+            .find(|e| e.code == ErrorCode::EntityMergedFieldUnreferenced);
+        assert!(
+            hit.is_some(),
+            "an unreferenced merged field must still fire even when the trait touches the SAME entity for a different field: {:?}",
+            ctx.result.errors
         );
     }
 }

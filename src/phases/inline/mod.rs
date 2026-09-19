@@ -39,7 +39,16 @@ use identity_normalize::rewrite_trait_embed_tokens;
 // `#[cfg(test)] mod tests { use super::*; }` block — keep resolving every helper
 // under its original unqualified name after the split into submodules.
 use context::{parse_reference, InlineContext, ParsedReference};
-use entity::{collect_trait_referenced_entity_fields, inline_entity, merge_imported_entity_fields};
+use entity::{
+    collect_trait_referenced_entity_fields, inline_entity, merge_imported_entity_fields,
+    merge_into_named_entity, trait_referenced_fields_of_entity_recursive,
+};
+// Re-exported (not just used here) so `phases::validation::entity_mutation`'s
+// post-inline ORB_E_MERGED_FIELD_UNREFERENCED rule shares the SAME
+// own-entity-vs-cross-entity field-usage primitive the §52 travel-copy
+// filter gates a traveled auxiliary's merged fields on — one definition,
+// not two.
+pub(crate) use entity::trait_referenced_fields_of_entity;
 use page::inline_pages;
 use r#trait::inline_traits;
 // Re-exported at the `inline` namespace so validation passes (e.g.
@@ -418,6 +427,10 @@ pub fn inline_schema_with_orbital_diagnostics(
     // ORB_X_LISTEN_SOURCE_UNRESOLVED findings across the rest of the file.
     // Inline everything that resolves, then report the first real failure.
     let mut first_error: Option<InlineError> = None;
+    // §52: rebind-merge targets no orbital could resolve locally, retried
+    // schema-wide once every orbital below has finished inlining — see
+    // `DeferredMerge`.
+    let mut deferred_merges: Vec<DeferredMerge> = Vec::new();
     for (idx, orbital) in schema.orbitals.iter_mut().enumerate() {
         let mut pulled: Vec<String> = Vec::new();
         let mut provenance: Vec<ConfigProvenanceRecord> = Vec::new();
@@ -436,6 +449,7 @@ pub fn inline_schema_with_orbital_diagnostics(
             orbital_ref_diagnostics,
             uses_config_diagnostics,
             Some(idx),
+            &mut deferred_merges,
         ) {
             if first_error.is_none() {
                 first_error = Some(e);
@@ -503,6 +517,23 @@ pub fn inline_schema_with_orbital_diagnostics(
     }
     if let Some(e) = first_error {
         return Err(e);
+    }
+
+    // §52 schema-wide retry: every orbital has now inlined (every Gap #22
+    // no-rebind auxiliary registered, every primary entity declared), so a
+    // merge target unresolved LOCALLY may resolve here — a later no-rebind
+    // import in the same orbital, or a sibling orbital's own entity. A
+    // target still unresolved after this is left unmerged; there is no
+    // further fallback, and `ORB_T_REBIND_TARGET_UNRESOLVED` reports it.
+    for dm in deferred_merges {
+        merge_into_named_entity(
+            &mut schema.orbitals,
+            &dm.target,
+            &dm.imported,
+            dm.intrinsic_only,
+            &dm.required_data,
+            &dm.referenced_fields,
+        );
     }
 
     uniquify_cross_orbital_pulled_siblings(schema, &pulled_by_orbital);
@@ -898,6 +929,28 @@ fn precompute_reference_form_listen_targets(
     out
 }
 
+/// A §52 rebind-merge whose target didn't resolve within its own orbital —
+/// no local auxiliary by that name yet, and not the orbital's own primary
+/// (`merge_into_named_entity` tried the single-orbital slice and came back
+/// empty). Held until `inline_schema_with_orbital_diagnostics` has finished
+/// inlining EVERY orbital (so every Gap #22 no-rebind auxiliary is
+/// registered and every sibling orbital's primary entity exists), then
+/// retried once, schema-wide, via the SAME `merge_into_named_entity`. Covers
+/// both known misplacement shapes with one mechanism: a target registered
+/// only by a LATER no-rebind import in this same orbital (ordering), and a
+/// target that is a SIBLING orbital's primary or auxiliary entity
+/// (cross-orbital). A target that still resolves nowhere after the
+/// schema-wide retry is simply never merged — `ORB_T_REBIND_TARGET_UNRESOLVED`
+/// (`validation::trait_validator::validate_entity_rebind`) reports it; there
+/// is no fallback landing site left.
+struct DeferredMerge {
+    target: String,
+    imported: EntityDefinition,
+    intrinsic_only: bool,
+    required_data: HashSet<String>,
+    referenced_fields: HashSet<String>,
+}
+
 /// Inline all references in an orbital.
 ///
 /// `is_top_level` distinguishes the consumer-facing entry call (true) from
@@ -946,6 +999,12 @@ fn inline_orbital(
     // never resolved before either). See `resolve_orbital_reference`'s own
     // `orbital_index` doc.
     orbital_index: Option<usize>,
+    // §52 rebind-merge landing sites this call couldn't resolve locally —
+    // shared across every `inline_orbital` call (top-level AND recursive
+    // alias loads) in this `inline_schema` run, so the schema-level retry
+    // after every orbital has inlined sees ALL of them, not just the
+    // top-level orbital's own. See `DeferredMerge`.
+    deferred_merges: &mut Vec<DeferredMerge>,
 ) -> Result<(), InlineError> {
     // Skip the import-loading + reference-substitution machinery when
     // the orbital has no `uses[]` declarations (e.g. an atom compiled
@@ -1129,6 +1188,7 @@ fn inline_orbital(
                 orbital_ref_diagnostics,
                 uses_config_diagnostics,
                 None,
+                deferred_merges,
             )?;
         }
 
@@ -1205,7 +1265,13 @@ fn inline_orbital(
             required_data: HashSet<String>,
             referenced_fields: HashSet<String>,
         }
-        let mut merged_aliases: HashSet<(String, String)> = HashSet::new();
+        // Keyed on (alias, name, rebind target) — NOT (alias, name) alone.
+        // The same imported trait rebound to two DIFFERENT targets in one
+        // orbital (e.g. `Modal.traits.ModalRecordModal` composed once
+        // `-> Listing` and again `-> ModQueueItem`) is two distinct merges,
+        // each with its own destination; collapsing them by (alias, name)
+        // silently dropped every rebind after the first one encountered.
+        let mut merged_aliases: HashSet<(String, String, Option<String>)> = HashSet::new();
         let mut pending: Vec<PendingMerge> = Vec::new();
 
         for trait_ref in &orbital.traits {
@@ -1213,6 +1279,7 @@ fn inline_orbital(
                 reference: Some(ref ref_str),
                 linked_entity,
                 ref_id,
+                fields: field_renames,
                 ..
             } = trait_ref
             {
@@ -1231,7 +1298,13 @@ fn inline_orbital(
                             // them; a missing DATA field surfaces as an error.
                             None => (imported_entity.name == caller_entity_name, true),
                         };
-                        if carries_fields && merged_aliases.insert((alias.clone(), name.clone())) {
+                        if carries_fields
+                            && merged_aliases.insert((
+                                alias.clone(),
+                                name.clone(),
+                                linked_entity.clone(),
+                            ))
+                        {
                             // A required DATA field (in the trait's
                             // `entity_contract.requires`) must be satisfied by
                             // the target, NOT auto-merged from the source — that
@@ -1257,7 +1330,7 @@ fn inline_orbital(
                             // merge onto the differently-named host entity.
                             // The no-rebind intrinsic_only path is untouched —
                             // it never consults this set.
-                            let referenced_fields = if !intrinsic_only {
+                            let mut referenced_fields = if !intrinsic_only {
                                 resolved_trait_def
                                     .as_ref()
                                     .map(|td| {
@@ -1273,6 +1346,26 @@ fn inline_orbital(
                             } else {
                                 HashSet::new()
                             };
+                            // A call-site `fields { <old>: <new> }` rename
+                            // rewrites every `@entity.<old>` read in the
+                            // resolved trait to `@entity.<new>` before this
+                            // trait's body is inlined (`apply_overrides_to_trait`
+                            // / `rewrite_entity_field_paths`, `trait.rs`) — so
+                            // `<old>` never survives into the final trait
+                            // body. `collect_trait_referenced_entity_fields`
+                            // above walked the PRE-rename body and still
+                            // reports `<old>` as referenced; without this,
+                            // `<old>` merges onto the target as a live field
+                            // that nothing will ever read post-rename
+                            // (`<new>` is expected to already exist on the
+                            // rebind target — that's the point of renaming),
+                            // tripping ORB_E_MERGED_FIELD_UNREFERENCED on a
+                            // field the merge itself made dead.
+                            if let Some(renames) = field_renames {
+                                for old_name in renames.keys() {
+                                    referenced_fields.remove(old_name);
+                                }
+                            }
                             pending.push(PendingMerge {
                                 target: linked_entity.clone(),
                                 imported: imported_entity,
@@ -1287,29 +1380,9 @@ fn inline_orbital(
         }
 
         for pm in pending {
-            // Exactly one destination per merge — never both.
-            let aux_target = pm
-                .target
-                .as_deref()
-                .filter(|t| *t != caller_entity_name)
-                .and_then(|t| {
-                    orbital
-                        .auxiliary_entities
-                        .iter_mut()
-                        .flatten()
-                        .find_map(|r| match r {
-                            EntityRef::Inline(e) if e.name == t => Some(e),
-                            _ => None,
-                        })
-                });
-            match aux_target {
-                Some(aux_entity) => merge_imported_entity_fields(
-                    aux_entity,
-                    &pm.imported,
-                    pm.intrinsic_only,
-                    &pm.required_data,
-                    &pm.referenced_fields,
-                ),
+            match pm.target {
+                // No explicit rebind: case (b) always lands on the caller's
+                // own primary entity — there is no name to resolve.
                 None => {
                     if let EntityRef::Inline(ref mut caller_entity) = orbital.entity {
                         merge_imported_entity_fields(
@@ -1319,6 +1392,32 @@ fn inline_orbital(
                             &pm.required_data,
                             &pm.referenced_fields,
                         );
+                    }
+                }
+                // Explicit rebind: try this orbital alone first (covers the
+                // caller's own primary and any auxiliary ALREADY registered
+                // — e.g. by an earlier no-rebind import in this same
+                // orbital). If that fails, defer for the schema-wide retry
+                // — a LATER no-rebind import in this orbital, or a sibling
+                // orbital's entity, may still resolve it once every orbital
+                // has inlined.
+                Some(target) => {
+                    let resolved = merge_into_named_entity(
+                        std::slice::from_mut(orbital),
+                        &target,
+                        &pm.imported,
+                        pm.intrinsic_only,
+                        &pm.required_data,
+                        &pm.referenced_fields,
+                    );
+                    if !resolved {
+                        deferred_merges.push(DeferredMerge {
+                            target,
+                            imported: pm.imported,
+                            intrinsic_only: pm.intrinsic_only,
+                            required_data: pm.required_data,
+                            referenced_fields: pm.referenced_fields,
+                        });
                     }
                 }
             }
@@ -1351,41 +1450,143 @@ fn inline_orbital(
                 seen_aux_names.insert(e.name.clone());
             }
         }
-        let mut aux_collected: Vec<EntityDefinition> = Vec::new();
+        // The imported orbital's OWN auxiliary entities travel ONLY when
+        // the composed trait — or one of its hoisted inline children —
+        // still references that entity after THIS call site's rebind is
+        // applied: as the trait's effective bound entity (the rebind target
+        // when there is one, else its natural binding — the no-rebind case
+        // below), as a fetch/persist target name anywhere in the trait or a
+        // hoisted child's body (e.g. std-calendar-sync's pull-upsert into
+        // CalendarEvent, still covered), or as a hoisted child's OWN
+        // `linkedEntity` binding. Retired 2026-09-19: this used to travel
+        // the WHOLE source aux list unconditionally, which is how an atom's
+        // pre-rebind entity (std-wiki-page's `WikiPageRevision`,
+        // `WikiHistory`'s OWN binding before std-wiki rebinds it to
+        // `WikiRevision`) rode along as a phantom, unreferenced copy no
+        // trait of the consumer ever touches.
+        //
+        // A traveled copy keeps its declared (non-`mergedFrom`) fields plus
+        // every `mergedFrom` field ANY importing trait ref in THIS orbital
+        // references on it — `trait_referenced_fields_of_entity_recursive`,
+        // the SAME primitive `ORB_E_MERGED_FIELD_UNREFERENCED` checks the
+        // final schema with. `seen_aux_names` gives the copy one shared
+        // entry per name, so the referenced set is UNIONED across every
+        // trait ref that travels it (pass 1) before it is filtered and
+        // pushed once (pass 2) — never per trait ref, or the first one
+        // processed would decide the copy's fate for every other importer.
+        struct TravelCandidate {
+            entity: EntityDefinition,
+            referenced: HashSet<String>,
+        }
+        let mut travel_by_name: HashMap<String, TravelCandidate> = HashMap::new();
         for trait_ref in &orbital.traits {
             if let TraitReference::Reference {
                 reference: Some(ref ref_str),
                 linked_entity,
                 ref_id,
+                fields: field_renames,
                 ..
             } = trait_ref
             {
                 if let Ok(ParsedReference::Trait { alias, name }) = parse_reference(ref_str) {
-                    if linked_entity.is_none() {
-                        if let Some(imported_entity) =
-                            ctx.get_bound_entity_for_trait_orbital(&alias, &name, ref_id.as_deref())
-                        {
-                            if seen_aux_names.insert(imported_entity.name.clone()) {
-                                aux_collected.push(imported_entity);
+                    let natural_bound_entity =
+                        ctx.get_bound_entity_for_trait_orbital(&alias, &name, ref_id.as_deref());
+                    let effective_bound_name: Option<String> = linked_entity
+                        .clone()
+                        .or_else(|| natural_bound_entity.as_ref().map(|e| e.name.clone()));
+                    let resolved_trait_def: Option<TraitDefinition> = ref_id
+                        .as_deref()
+                        .and_then(|rid| ctx.get_trait_by_ref_id(&alias, rid))
+                        .or_else(|| ctx.get_trait(&alias, &name).ok())
+                        .and_then(|tr| match tr {
+                            TraitReference::Inline(td) => Some(td),
+                            _ => None,
+                        });
+
+                    let mut union_reference =
+                        |entity: EntityDefinition, mut referenced: HashSet<String>| {
+                            if let Some(renames) = field_renames {
+                                for old_name in renames.keys() {
+                                    referenced.remove(old_name);
+                                }
                             }
+                            travel_by_name
+                                .entry(entity.name.clone())
+                                .or_insert_with(|| TravelCandidate {
+                                    entity,
+                                    referenced: HashSet::new(),
+                                })
+                                .referenced
+                                .extend(referenced);
+                        };
+
+                    if linked_entity.is_none() {
+                        if let Some(imported_entity) = natural_bound_entity.clone() {
+                            let referenced = resolved_trait_def
+                                .as_ref()
+                                .map(|td| {
+                                    trait_referenced_fields_of_entity_recursive(
+                                        td,
+                                        &imported_entity,
+                                        true,
+                                        &alias,
+                                        &ctx,
+                                        &mut HashSet::new(),
+                                    )
+                                    .1
+                                })
+                                .unwrap_or_default();
+                            union_reference(imported_entity, referenced);
                         }
                     }
-                    // The imported orbital's OWN auxiliary entities must travel
-                    // too (rebind or not): a multi-entity atom's trait body
-                    // fetches/persists its sibling entities by name (e.g.
-                    // std-calendar-sync's pull-upsert into CalendarEvent), and
-                    // without them the composed schema strands every such
-                    // effect — top-level ones fail validation, nested ones
-                    // fail at runtime (the I-8 nested-effect blind spot).
                     for aux_entity in
                         ctx.get_aux_entities_for_trait_orbital(&alias, &name, ref_id.as_deref())
                     {
-                        if seen_aux_names.insert(aux_entity.name.clone()) {
-                            aux_collected.push(aux_entity);
+                        let is_own_entity =
+                            effective_bound_name.as_deref() == Some(aux_entity.name.as_str());
+                        let travel_result = resolved_trait_def.as_ref().map(|td| {
+                            trait_referenced_fields_of_entity_recursive(
+                                td,
+                                &aux_entity,
+                                is_own_entity,
+                                &alias,
+                                &ctx,
+                                &mut HashSet::new(),
+                            )
+                        });
+                        let travels = travel_result.as_ref().is_some_and(|(refd, _)| *refd)
+                            // Couldn't resolve the trait body to check —
+                            // conservative: keep the pre-existing "always
+                            // travels" safety property rather than risk
+                            // stranding an effect this can't analyze.
+                            || resolved_trait_def.is_none();
+                        if travels {
+                            let referenced = travel_result.map(|(_, f)| f).unwrap_or_default();
+                            union_reference(aux_entity, referenced);
                         }
                     }
                 }
             }
+        }
+
+        let mut travel_names: Vec<String> = travel_by_name.keys().cloned().collect();
+        travel_names.sort_unstable();
+        let mut aux_collected: Vec<EntityDefinition> = Vec::new();
+        for name in travel_names {
+            if !seen_aux_names.insert(name.clone()) {
+                continue;
+            }
+            let candidate = travel_by_name
+                .remove(&name)
+                .expect("just collected its key");
+            let mut entity = candidate.entity;
+            entity.fields.retain(|f| {
+                f.merged_from.is_none()
+                    || f.name
+                        .as_deref()
+                        .is_some_and(|n| candidate.referenced.contains(n))
+            });
+            aux_collected.push(entity);
         }
         if !aux_collected.is_empty() {
             let existing = orbital.auxiliary_entities.take().unwrap_or_default();
@@ -5360,5 +5561,1136 @@ mod tests {
         assert!(ctx
             .get_entity_for_trait_orbital("Import", "NoSuchTrait", None)
             .is_none());
+    }
+
+    // ------------------------------------------------------------------
+    // PendingMerge — call-site `fields { <old>: <new> }` rename must not
+    // resurrect the renamed-away OLD field name (riya-level-sine.lolo's
+    // `SinePickup = Pickup.traits.Pickup -> RiyaSineState { fields { pickups:
+    // stars } }` corpus case, ORB_E_MERGED_FIELD_UNREFERENCED).
+    // ------------------------------------------------------------------
+
+    /// Writes a minimal imported atom — one entity `PickupData` with fields
+    /// `id`/`pickups`, one trait `Pickup` bound to it whose only transition
+    /// writes `@entity.pickups` — to `<dir>/pickup.orb` so `inline_schema`'s
+    /// real `ExternalOrbitalLoader` can load it via a genuine `uses`. This
+    /// exercises the actual `PendingMerge` code path (not just
+    /// `merge_imported_entity_fields` in isolation), since the bug lived in
+    /// what `referenced_fields` the pending-merge loop hands that fn.
+    fn write_pickup_atom(dir: &std::path::Path) {
+        let pickup_orb = r#"{
+            "name": "PickupModule",
+            "version": "1.0.0",
+            "orbitals": [
+                {
+                    "name": "PickupOrbital",
+                    "entity": {
+                        "name": "PickupData",
+                        "fields": [
+                            { "name": "id", "type": "string" },
+                            { "name": "pickups", "type": "string" }
+                        ]
+                    },
+                    "traits": [
+                        {
+                            "name": "Pickup",
+                            "linkedEntity": "PickupData",
+                            "stateMachine": {
+                                "states": [ { "name": "active", "isInitial": true } ],
+                                "events": [],
+                                "transitions": [
+                                    {
+                                        "from": "active",
+                                        "to": "active",
+                                        "event": "INIT",
+                                        "effects": [ ["set", "@entity.pickups", "seed"] ]
+                                    }
+                                ]
+                            }
+                        }
+                    ]
+                }
+            ],
+            "ledger": { "schemaVersion": 1, "entries": {} }
+        }"#;
+        std::fs::write(dir.join("pickup.orb"), pickup_orb).expect("write pickup.orb");
+    }
+
+    /// Builds the consumer schema: one orbital with primary entity
+    /// `HostEntity` (`id`, `stars`), composing `Pickup.traits.Pickup ->
+    /// HostEntity` with an optional call-site `fields` rename.
+    fn pickup_consumer_schema(field_rename: Option<HashMap<String, String>>) -> OrbitalSchema {
+        let host_entity = EntityDefinition {
+            shared: false,
+            identity: false,
+            read_policy: None,
+            create_policy: None,
+            update_policy: None,
+            delete_policy: None,
+            access_waivers: None,
+            name: "HostEntity".to_string(),
+            collection: None,
+            persistence: None,
+            fields: vec![
+                make_field("id", FieldType::String),
+                make_field("stars", FieldType::String),
+            ],
+            instances: None,
+            id: None,
+        };
+        let trait_ref = TraitReference::Reference {
+            type_args: None,
+            id: None,
+            reference: Some("Pickup.traits.Pickup".to_string()),
+            ref_id: None,
+            name: None,
+            linked_entity: Some("HostEntity".to_string()),
+            linked_entity_id: None,
+            config: None,
+            events: None,
+            event_ids: None,
+            fields: field_rename,
+            listens: None,
+            emits_scope: None,
+        };
+        let consumer_orbital = Orbital {
+            types: None,
+            name: "ConsumerOrbital".to_string(),
+            id: None,
+            uses: Some(vec![orbital_core::schema::UseDeclaration {
+                from: "./pickup.orb".to_string(),
+                alias: "Pickup".to_string(),
+                config: None,
+            }]),
+            expects: None,
+            theme: None,
+            services: None,
+            entity: EntityRef::Inline(host_entity),
+            auxiliary_entities: None,
+            traits: vec![trait_ref],
+            pages: None,
+            emits: None,
+            listens: None,
+            exposes: None,
+            domain_context: None,
+            design: None,
+            reference: None,
+            config: None,
+        };
+        OrbitalSchema {
+            theme: None,
+            name: "ConsumerModule".to_string(),
+            version: None,
+            description: None,
+            orbitals: vec![consumer_orbital],
+            metadata: None,
+            ledger: None,
+            schema_version: None,
+            config: None,
+        }
+    }
+
+    #[test]
+    fn pending_merge_drops_field_renamed_away_by_call_site_override() {
+        // PASS: `fields { pickups: stars }` rewrites every `@entity.pickups`
+        // read in Pickup's body to `@entity.stars` BEFORE the trait is
+        // inlined (`apply_overrides_to_trait` / `rewrite_entity_field_paths`,
+        // trait.rs). `stars` already exists on HostEntity, so nothing should
+        // merge — merging `pickups` anyway would add a field the (renamed)
+        // final trait body can never reference, tripping
+        // ORB_E_MERGED_FIELD_UNREFERENCED on a field the merge itself made
+        // dead.
+        let dir = tempfile::tempdir().expect("tempdir");
+        write_pickup_atom(dir.path());
+
+        let mut rename = HashMap::new();
+        rename.insert("pickups".to_string(), "stars".to_string());
+        let mut schema = pickup_consumer_schema(Some(rename));
+
+        let config = InlineConfig {
+            loader_config: LoaderConfig {
+                base_path: dir.path().to_path_buf(),
+                ..Default::default()
+            },
+            skip_inline: false,
+        };
+        inline_schema(&mut schema, &config, None).expect("inline must succeed");
+
+        let EntityRef::Inline(entity) = &schema.orbitals[0].entity else {
+            panic!("expected inline entity post-merge");
+        };
+        assert!(
+            !field_names(entity).contains(&"pickups".to_string()),
+            "renamed-away field must not merge back in under its OLD name; fields: {:?}",
+            field_names(entity)
+        );
+    }
+
+    #[test]
+    fn pending_merge_still_merges_referenced_field_without_rename_override() {
+        // Contrast/guard-rail: with NO `fields` override, `pickups` is
+        // genuinely referenced by Pickup's body and HostEntity has no field
+        // of that name — the field must still merge (the exclusion above is
+        // scoped to renamed keys only, not a blanket suppression).
+        let dir = tempfile::tempdir().expect("tempdir");
+        write_pickup_atom(dir.path());
+
+        let mut schema = pickup_consumer_schema(None);
+
+        let config = InlineConfig {
+            loader_config: LoaderConfig {
+                base_path: dir.path().to_path_buf(),
+                ..Default::default()
+            },
+            skip_inline: false,
+        };
+        inline_schema(&mut schema, &config, None).expect("inline must succeed");
+
+        let EntityRef::Inline(entity) = &schema.orbitals[0].entity else {
+            panic!("expected inline entity post-merge");
+        };
+        let merged = entity
+            .fields
+            .iter()
+            .find(|f| f.name.as_deref() == Some("pickups"))
+            .expect("pickups must merge when there is no rename override");
+        assert_eq!(merged.merged_from.as_deref(), Some("PickupData"));
+    }
+
+    // ------------------------------------------------------------------
+    // §52 rebind-merge landing site — retiring the primary-entity fallback.
+    // ------------------------------------------------------------------
+
+    /// Writes an imported package with ONE orbital declaring a primary
+    /// entity `ExtraFields` (`id`, `note`) and an author-declared auxiliary
+    /// entity `SideEntity` (`id`) — to `<dir>/toolkit.orb`. Two traits:
+    /// `ExtraTrait` (bound to `ExtraFields`, its only transition writes
+    /// `@entity.note`) and `SideThing` (bound to `SideEntity`, a no-op
+    /// transition). A consumer composing `ExtraTrait -> SideEntity` (explicit
+    /// rebind) alongside `SideThing` (no rebind) exercises the real
+    /// `PendingMerge` + Gap #22 code paths together, not a hand-built
+    /// `EntityDefinition`.
+    fn write_toolkit_atom(dir: &std::path::Path) {
+        let toolkit_orb = r#"{
+            "name": "ToolkitModule",
+            "version": "1.0.0",
+            "orbitals": [
+                {
+                    "name": "ToolkitOrbital",
+                    "entity": {
+                        "name": "ExtraFields",
+                        "fields": [
+                            { "name": "id", "type": "string" },
+                            { "name": "note", "type": "string" }
+                        ]
+                    },
+                    "auxiliaryEntities": [
+                        {
+                            "name": "SideEntity",
+                            "fields": [ { "name": "id", "type": "string" } ]
+                        }
+                    ],
+                    "traits": [
+                        {
+                            "name": "ExtraTrait",
+                            "linkedEntity": "ExtraFields",
+                            "stateMachine": {
+                                "states": [ { "name": "active", "isInitial": true } ],
+                                "events": [],
+                                "transitions": [
+                                    {
+                                        "from": "active",
+                                        "to": "active",
+                                        "event": "INIT",
+                                        "effects": [ ["set", "@entity.note", "hi"] ]
+                                    }
+                                ]
+                            }
+                        },
+                        {
+                            "name": "SideThing",
+                            "linkedEntity": "SideEntity",
+                            "stateMachine": {
+                                "states": [ { "name": "active", "isInitial": true } ],
+                                "events": [],
+                                "transitions": [
+                                    {
+                                        "from": "active",
+                                        "to": "active",
+                                        "event": "INIT",
+                                        "effects": []
+                                    }
+                                ]
+                            }
+                        }
+                    ]
+                }
+            ],
+            "ledger": { "schemaVersion": 1, "entries": {} }
+        }"#;
+        std::fs::write(dir.join("toolkit.orb"), toolkit_orb).expect("write toolkit.orb");
+    }
+
+    /// One reference-form trait ref: `"<alias>.traits.<name>"`, rebound to
+    /// `linked_entity` when given (`None` composes without a rebind).
+    fn toolkit_trait_ref(name: &str, linked_entity: Option<&str>) -> TraitReference {
+        TraitReference::Reference {
+            type_args: None,
+            id: None,
+            reference: Some(format!("Toolkit.traits.{name}")),
+            ref_id: None,
+            name: None,
+            linked_entity: linked_entity.map(|s| s.to_string()),
+            linked_entity_id: None,
+            config: None,
+            events: None,
+            event_ids: None,
+            fields: None,
+            listens: None,
+            emits_scope: None,
+        }
+    }
+
+    fn toolkit_uses_decl() -> orbital_core::schema::UseDeclaration {
+        orbital_core::schema::UseDeclaration {
+            from: "./toolkit.orb".to_string(),
+            alias: "Toolkit".to_string(),
+            config: None,
+        }
+    }
+
+    fn make_entity(name: &str, field_names: &[&str]) -> EntityDefinition {
+        EntityDefinition {
+            shared: false,
+            identity: false,
+            read_policy: None,
+            create_policy: None,
+            update_policy: None,
+            delete_policy: None,
+            access_waivers: None,
+            name: name.to_string(),
+            collection: None,
+            persistence: None,
+            fields: field_names
+                .iter()
+                .map(|f| make_field(f, FieldType::String))
+                .collect(),
+            instances: None,
+            id: None,
+        }
+    }
+
+    #[test]
+    fn rebind_lands_on_aux_registered_by_a_later_no_rebind_import() {
+        // Ordering case: `ExtraTrait -> SideEntity` is declared BEFORE
+        // `SideThing` (whose no-rebind import is what registers `SideEntity`
+        // as an auxiliary via Gap #22). The rebind target isn't visible
+        // locally until the WHOLE orbital's traits have inlined — this is
+        // exactly the std-construction-pm shape (§52 case (a)).
+        let dir = tempfile::tempdir().expect("tempdir");
+        write_toolkit_atom(dir.path());
+
+        let consumer_orbital = Orbital {
+            types: None,
+            name: "ConsumerOrbital".to_string(),
+            id: None,
+            uses: Some(vec![toolkit_uses_decl()]),
+            expects: None,
+            theme: None,
+            services: None,
+            entity: EntityRef::Inline(make_entity("HostEntity", &["id"])),
+            auxiliary_entities: None,
+            traits: vec![
+                toolkit_trait_ref("ExtraTrait", Some("SideEntity")),
+                toolkit_trait_ref("SideThing", None),
+            ],
+            pages: None,
+            emits: None,
+            listens: None,
+            exposes: None,
+            domain_context: None,
+            design: None,
+            reference: None,
+            config: None,
+        };
+        let mut schema = OrbitalSchema {
+            theme: None,
+            name: "ConsumerModule".to_string(),
+            version: None,
+            description: None,
+            orbitals: vec![consumer_orbital],
+            metadata: None,
+            ledger: None,
+            schema_version: None,
+            config: None,
+        };
+
+        let config = InlineConfig {
+            loader_config: LoaderConfig {
+                base_path: dir.path().to_path_buf(),
+                ..Default::default()
+            },
+            skip_inline: false,
+        };
+        inline_schema(&mut schema, &config, None).expect("inline must succeed");
+
+        let EntityRef::Inline(host) = &schema.orbitals[0].entity else {
+            panic!("expected inline primary entity");
+        };
+        assert!(
+            !field_names(host).contains(&"note".to_string()),
+            "the retired fallback used to land 'note' on the primary; fields: {:?}",
+            field_names(host)
+        );
+
+        let side = schema.orbitals[0]
+            .auxiliary_entities
+            .iter()
+            .flatten()
+            .find_map(|e| match e {
+                EntityRef::Inline(def) if def.name == "SideEntity" => Some(def),
+                _ => None,
+            })
+            .expect("SideEntity must be registered as an auxiliary");
+        let merged = side
+            .fields
+            .iter()
+            .find(|f| f.name.as_deref() == Some("note"))
+            .expect("'note' must land on SideEntity, the rebind's actual target");
+        assert_eq!(merged.merged_from.as_deref(), Some("ExtraFields"));
+    }
+
+    #[test]
+    fn rebind_lands_on_a_sibling_orbitals_primary_entity() {
+        // Cross-orbital case: `ExtraTrait -> SideOrbitalEntity` names another
+        // TOP-LEVEL orbital's own primary entity, not anything local to the
+        // composing orbital — the std-wiki `WikiHistory -> WikiRevision`
+        // shape (§52 case (b)). Resolvable only once every orbital in the
+        // schema has inlined (the schema-wide retry).
+        let dir = tempfile::tempdir().expect("tempdir");
+        write_toolkit_atom(dir.path());
+
+        let consumer_orbital = Orbital {
+            types: None,
+            name: "ConsumerOrbital".to_string(),
+            id: None,
+            uses: Some(vec![toolkit_uses_decl()]),
+            expects: None,
+            theme: None,
+            services: None,
+            entity: EntityRef::Inline(make_entity("HostEntity", &["id"])),
+            auxiliary_entities: None,
+            traits: vec![toolkit_trait_ref("ExtraTrait", Some("SideOrbitalEntity"))],
+            pages: None,
+            emits: None,
+            listens: None,
+            exposes: None,
+            domain_context: None,
+            design: None,
+            reference: None,
+            config: None,
+        };
+        let sibling_orbital = Orbital {
+            types: None,
+            name: "SiblingOrbital".to_string(),
+            id: None,
+            uses: None,
+            expects: None,
+            theme: None,
+            services: None,
+            entity: EntityRef::Inline(make_entity("SideOrbitalEntity", &["id"])),
+            auxiliary_entities: None,
+            traits: vec![],
+            pages: None,
+            emits: None,
+            listens: None,
+            exposes: None,
+            domain_context: None,
+            design: None,
+            reference: None,
+            config: None,
+        };
+        let mut schema = OrbitalSchema {
+            theme: None,
+            name: "ConsumerModule".to_string(),
+            version: None,
+            description: None,
+            orbitals: vec![consumer_orbital, sibling_orbital],
+            metadata: None,
+            ledger: None,
+            schema_version: None,
+            config: None,
+        };
+
+        let config = InlineConfig {
+            loader_config: LoaderConfig {
+                base_path: dir.path().to_path_buf(),
+                ..Default::default()
+            },
+            skip_inline: false,
+        };
+        inline_schema(&mut schema, &config, None).expect("inline must succeed");
+
+        let EntityRef::Inline(host) = &schema.orbitals[0].entity else {
+            panic!("expected inline primary entity");
+        };
+        assert!(
+            !field_names(host).contains(&"note".to_string()),
+            "the retired fallback used to land 'note' on the CALLER's primary; fields: {:?}",
+            field_names(host)
+        );
+
+        let EntityRef::Inline(sibling) = &schema.orbitals[1].entity else {
+            panic!("expected inline sibling entity");
+        };
+        let merged = sibling
+            .fields
+            .iter()
+            .find(|f| f.name.as_deref() == Some("note"))
+            .expect("'note' must land on the sibling orbital's own primary entity");
+        assert_eq!(merged.merged_from.as_deref(), Some("ExtraFields"));
+    }
+
+    #[test]
+    fn rebind_to_a_name_absent_from_the_whole_schema_merges_nowhere() {
+        // §52 hard stop: `ExtraTrait -> NoSuchEntity` names nothing anywhere
+        // in the schema — neither the caller's own primary/auxiliaries nor
+        // any sibling orbital's. Inline itself no longer has a fallback
+        // landing site, so the field must not appear ANYWHERE; the schema
+        // still inlines successfully (the hard error is
+        // `ORB_T_REBIND_TARGET_UNRESOLVED`, raised by
+        // `validation::trait_validator::validate_entity_rebind` on the
+        // (unresolved) result, not by inline).
+        let dir = tempfile::tempdir().expect("tempdir");
+        write_toolkit_atom(dir.path());
+
+        let consumer_orbital = Orbital {
+            types: None,
+            name: "ConsumerOrbital".to_string(),
+            id: None,
+            uses: Some(vec![toolkit_uses_decl()]),
+            expects: None,
+            theme: None,
+            services: None,
+            entity: EntityRef::Inline(make_entity("HostEntity", &["id"])),
+            auxiliary_entities: None,
+            traits: vec![toolkit_trait_ref("ExtraTrait", Some("NoSuchEntity"))],
+            pages: None,
+            emits: None,
+            listens: None,
+            exposes: None,
+            domain_context: None,
+            design: None,
+            reference: None,
+            config: None,
+        };
+        let mut schema = OrbitalSchema {
+            theme: None,
+            name: "ConsumerModule".to_string(),
+            version: None,
+            description: None,
+            orbitals: vec![consumer_orbital],
+            metadata: None,
+            ledger: None,
+            schema_version: None,
+            config: None,
+        };
+
+        let config = InlineConfig {
+            loader_config: LoaderConfig {
+                base_path: dir.path().to_path_buf(),
+                ..Default::default()
+            },
+            skip_inline: false,
+        };
+        inline_schema(&mut schema, &config, None).expect("inline must succeed");
+
+        let EntityRef::Inline(host) = &schema.orbitals[0].entity else {
+            panic!("expected inline primary entity");
+        };
+        assert!(
+            !field_names(host).contains(&"note".to_string()),
+            "an unresolvable target must never fall back onto the primary; fields: {:?}",
+            field_names(host)
+        );
+        // `note` must not merge onto ANY entity anywhere — not the caller's
+        // primary, and not onto any auxiliary either. `ToolkitOrbital`
+        // declares `SideEntity` as its own auxiliary, but nothing in
+        // `ExtraTrait`'s body references it by name (no fetch/persist, no
+        // hoisted child bound to it), so the §52-follow-up aux-travel filter
+        // (`trait_references_entity_by_name`) correctly leaves it behind too
+        // — this loop is normally empty for this fixture.
+        for aux in schema.orbitals[0].auxiliary_entities.iter().flatten() {
+            if let EntityRef::Inline(def) = aux {
+                assert!(
+                    !field_names(def).contains(&"note".to_string()),
+                    "an unresolvable target must not land on an unrelated auxiliary either; entity {:?} fields: {:?}",
+                    def.name,
+                    field_names(def)
+                );
+                assert_ne!(
+                    def.name, "NoSuchEntity",
+                    "an unresolvable target name must never itself materialize as an entity"
+                );
+            }
+        }
+    }
+
+    // ------------------------------------------------------------------
+    // §52 follow-up — aux-entities-travel is reference-gated, not
+    // unconditional (owner ruling 2026-09-19): an imported orbital's
+    // auxiliary entity now travels into the consumer only when the composed
+    // trait — or a hoisted inline child of it — still references that
+    // entity: as a fetch/persist target name, as a hoisted child's OWN
+    // `linkedEntity` binding, or as the trait's effective (post-rebind)
+    // bound entity. An entity nothing references, including a trait's own
+    // PRE-rebind binding once the consumer rebinds it elsewhere (the
+    // std-wiki `WikiHistory -> WikiRevision` shape), does not travel.
+    // ------------------------------------------------------------------
+
+    /// Writes a source package with one orbital (`SourceOrbital`, primary
+    /// `MainWidget`) declaring FOUR auxiliary entities and three traits:
+    /// - `MainTrait` (bound to `MainWidget`) `persist create`s `TouchedAux`
+    ///   (a real fetch/persist reference) and embeds `@trait.ChildWidget`.
+    /// - `ChildWidget`, MainTrait's hoisted child, bound to `ChildBoundAux`
+    ///   — referenced only via ITS OWN `linkedEntity`, never fetch/persist.
+    /// - `RebindableTrait`, bound to `NestedBoundAux` — analogous to
+    ///   std-wiki-page's `WikiHistory -> WikiPageRevision`: nothing in its
+    ///   body references `NestedBoundAux` by name, it's simply what the
+    ///   trait happens to be bound to until a consumer rebinds it away.
+    /// `UntouchedAux` is referenced by nothing anywhere — the baseline
+    /// "never travels" case.
+    fn write_refs_atom(dir: &std::path::Path) {
+        let refs_orb = r#"{
+            "name": "RefsModule",
+            "version": "1.0.0",
+            "orbitals": [
+                {
+                    "name": "SourceOrbital",
+                    "entity": {
+                        "name": "MainWidget",
+                        "fields": [ { "name": "id", "type": "string" } ]
+                    },
+                    "auxiliaryEntities": [
+                        {
+                            "name": "TouchedAux",
+                            "fields": [
+                                { "name": "id", "type": "string" },
+                                { "name": "flag", "type": "boolean" }
+                            ]
+                        },
+                        {
+                            "name": "ChildBoundAux",
+                            "fields": [ { "name": "id", "type": "string" } ]
+                        },
+                        {
+                            "name": "UntouchedAux",
+                            "fields": [ { "name": "id", "type": "string" } ]
+                        },
+                        {
+                            "name": "NestedBoundAux",
+                            "fields": [
+                                { "name": "id", "type": "string" },
+                                { "name": "secret", "type": "string" }
+                            ]
+                        },
+                        {
+                            "name": "RevisionLikeAux",
+                            "fields": [
+                                { "name": "id", "type": "string" },
+                                { "name": "mergedFieldA", "type": "string", "mergedFrom": "SourceX" },
+                                { "name": "mergedFieldB", "type": "string", "mergedFrom": "SourceX" }
+                            ]
+                        },
+                        {
+                            "name": "UnionAux",
+                            "fields": [
+                                { "name": "id", "type": "string" },
+                                { "name": "fieldA", "type": "string", "mergedFrom": "SourceY" },
+                                { "name": "fieldB", "type": "string", "mergedFrom": "SourceY" },
+                                { "name": "fieldC", "type": "string", "mergedFrom": "SourceY" }
+                            ]
+                        }
+                    ],
+                    "traits": [
+                        {
+                            "name": "MainTrait",
+                            "linkedEntity": "MainWidget",
+                            "stateMachine": {
+                                "states": [ { "name": "active", "isInitial": true } ],
+                                "events": [],
+                                "transitions": [
+                                    {
+                                        "from": "active",
+                                        "to": "active",
+                                        "event": "INIT",
+                                        "effects": [
+                                            ["persist", "create", "TouchedAux", { "flag": true }],
+                                            ["embed", "@trait.ChildWidget"]
+                                        ]
+                                    }
+                                ]
+                            }
+                        },
+                        {
+                            "name": "ChildWidget",
+                            "linkedEntity": "ChildBoundAux",
+                            "stateMachine": {
+                                "states": [ { "name": "active", "isInitial": true } ],
+                                "events": [],
+                                "transitions": [
+                                    {
+                                        "from": "active",
+                                        "to": "active",
+                                        "event": "INIT",
+                                        "effects": []
+                                    }
+                                ]
+                            }
+                        },
+                        {
+                            "name": "RebindableTrait",
+                            "linkedEntity": "NestedBoundAux",
+                            "stateMachine": {
+                                "states": [ { "name": "active", "isInitial": true } ],
+                                "events": [],
+                                "transitions": [
+                                    {
+                                        "from": "active",
+                                        "to": "active",
+                                        "event": "INIT",
+                                        "effects": []
+                                    }
+                                ]
+                            }
+                        },
+                        {
+                            "name": "RebindableMergedTrait",
+                            "linkedEntity": "RevisionLikeAux",
+                            "stateMachine": {
+                                "states": [ { "name": "active", "isInitial": true } ],
+                                "events": [],
+                                "transitions": [
+                                    {
+                                        "from": "active",
+                                        "to": "active",
+                                        "event": "INIT",
+                                        "effects": [ ["set", "@entity.mergedFieldA", "x"] ]
+                                    }
+                                ]
+                            }
+                        },
+                        {
+                            "name": "CrossPersistTrait",
+                            "linkedEntity": "MainWidget",
+                            "stateMachine": {
+                                "states": [ { "name": "active", "isInitial": true } ],
+                                "events": [],
+                                "transitions": [
+                                    {
+                                        "from": "active",
+                                        "to": "active",
+                                        "event": "INIT",
+                                        "effects": [
+                                            ["persist", "create", "RevisionLikeAux", { "mergedFieldB": "y" }]
+                                        ]
+                                    }
+                                ]
+                            }
+                        },
+                        {
+                            "name": "ReadsFieldA",
+                            "linkedEntity": "UnionAux",
+                            "stateMachine": {
+                                "states": [ { "name": "active", "isInitial": true } ],
+                                "events": [],
+                                "transitions": [
+                                    {
+                                        "from": "active",
+                                        "to": "active",
+                                        "event": "INIT",
+                                        "effects": [ ["set", "@entity.fieldA", "x"] ]
+                                    }
+                                ]
+                            }
+                        },
+                        {
+                            "name": "ReadsFieldB",
+                            "linkedEntity": "UnionAux",
+                            "stateMachine": {
+                                "states": [ { "name": "active", "isInitial": true } ],
+                                "events": [],
+                                "transitions": [
+                                    {
+                                        "from": "active",
+                                        "to": "active",
+                                        "event": "INIT",
+                                        "effects": [ ["set", "@entity.fieldB", "x"] ]
+                                    }
+                                ]
+                            }
+                        }
+                    ]
+                }
+            ],
+            "ledger": { "schemaVersion": 1, "entries": {} }
+        }"#;
+        std::fs::write(dir.join("refs.orb"), refs_orb).expect("write refs.orb");
+    }
+
+    fn refs_trait_ref(name: &str, linked_entity: Option<&str>) -> TraitReference {
+        TraitReference::Reference {
+            type_args: None,
+            id: None,
+            reference: Some(format!("Refs.traits.{name}")),
+            ref_id: None,
+            name: None,
+            linked_entity: linked_entity.map(|s| s.to_string()),
+            linked_entity_id: None,
+            config: None,
+            events: None,
+            event_ids: None,
+            fields: None,
+            listens: None,
+            emits_scope: None,
+        }
+    }
+
+    fn refs_uses_decl() -> orbital_core::schema::UseDeclaration {
+        orbital_core::schema::UseDeclaration {
+            from: "./refs.orb".to_string(),
+            alias: "Refs".to_string(),
+            config: None,
+        }
+    }
+
+    fn aux_names(orbital: &Orbital) -> Vec<String> {
+        orbital
+            .auxiliary_entities
+            .iter()
+            .flatten()
+            .filter_map(|e| match e {
+                EntityRef::Inline(def) => Some(def.name.clone()),
+                _ => None,
+            })
+            .collect()
+    }
+
+    #[test]
+    fn aux_travels_when_named_as_fetch_persist_target_or_hoisted_childs_binding() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        write_refs_atom(dir.path());
+
+        let consumer_orbital = Orbital {
+            types: None,
+            name: "ConsumerOrbital".to_string(),
+            id: None,
+            uses: Some(vec![refs_uses_decl()]),
+            expects: None,
+            theme: None,
+            services: None,
+            entity: EntityRef::Inline(make_entity("HostEntity", &["id"])),
+            auxiliary_entities: None,
+            traits: vec![refs_trait_ref("MainTrait", Some("HostEntity"))],
+            pages: None,
+            emits: None,
+            listens: None,
+            exposes: None,
+            domain_context: None,
+            design: None,
+            reference: None,
+            config: None,
+        };
+        let mut schema = OrbitalSchema {
+            theme: None,
+            name: "ConsumerModule".to_string(),
+            version: None,
+            description: None,
+            orbitals: vec![consumer_orbital],
+            metadata: None,
+            ledger: None,
+            schema_version: None,
+            config: None,
+        };
+
+        let config = InlineConfig {
+            loader_config: LoaderConfig {
+                base_path: dir.path().to_path_buf(),
+                ..Default::default()
+            },
+            skip_inline: false,
+        };
+        inline_schema(&mut schema, &config, None).expect("inline must succeed");
+
+        let names = aux_names(&schema.orbitals[0]);
+        assert!(
+            names.contains(&"TouchedAux".to_string()),
+            "an auxiliary the trait `persist`s into by name must travel; aux: {names:?}"
+        );
+        assert!(
+            names.contains(&"ChildBoundAux".to_string()),
+            "an auxiliary that is a hoisted child's OWN linkedEntity binding must travel; aux: {names:?}"
+        );
+        assert!(
+            !names.contains(&"UntouchedAux".to_string()),
+            "an auxiliary nothing references must NOT travel; aux: {names:?}"
+        );
+    }
+
+    #[test]
+    fn aux_does_not_travel_once_rebound_away_from_its_pre_rebind_binding() {
+        // The std-wiki shape: `RebindableTrait`'s OWN (pre-rebind) binding is
+        // `NestedBoundAux`, exactly like `WikiHistory`'s own binding to
+        // `std-wiki-page`'s `WikiPageRevision` before std-wiki rebinds it to
+        // `WikiRevision`. Nothing in `RebindableTrait`'s body references
+        // `NestedBoundAux` by name, so once the consumer rebinds the trait
+        // AWAY from it, `NestedBoundAux` must not ride along as a phantom
+        // auxiliary copy.
+        let dir = tempfile::tempdir().expect("tempdir");
+        write_refs_atom(dir.path());
+
+        let consumer_orbital = Orbital {
+            types: None,
+            name: "ConsumerOrbital".to_string(),
+            id: None,
+            uses: Some(vec![refs_uses_decl()]),
+            expects: None,
+            theme: None,
+            services: None,
+            entity: EntityRef::Inline(make_entity("OtherHost", &["id"])),
+            auxiliary_entities: None,
+            traits: vec![refs_trait_ref("RebindableTrait", Some("OtherHost"))],
+            pages: None,
+            emits: None,
+            listens: None,
+            exposes: None,
+            domain_context: None,
+            design: None,
+            reference: None,
+            config: None,
+        };
+        let mut schema = OrbitalSchema {
+            theme: None,
+            name: "ConsumerModule".to_string(),
+            version: None,
+            description: None,
+            orbitals: vec![consumer_orbital],
+            metadata: None,
+            ledger: None,
+            schema_version: None,
+            config: None,
+        };
+
+        let config = InlineConfig {
+            loader_config: LoaderConfig {
+                base_path: dir.path().to_path_buf(),
+                ..Default::default()
+            },
+            skip_inline: false,
+        };
+        inline_schema(&mut schema, &config, None).expect("inline must succeed");
+
+        let names = aux_names(&schema.orbitals[0]);
+        assert!(
+            !names.contains(&"NestedBoundAux".to_string()),
+            "a trait's PRE-rebind own binding must not travel once the consumer rebinds it elsewhere; aux: {names:?}"
+        );
+    }
+
+    // ------------------------------------------------------------------
+    // Owner ruling 2026-09-19: a traveled auxiliary keeps its declared
+    // (non-`mergedFrom`) fields plus every `mergedFrom` field the
+    // consumer's importing trait refs actually reference on it — the union
+    // over every trait ref that travels it, since the copy is one shared
+    // entry per name (`seen_aux_names`).
+    // ------------------------------------------------------------------
+
+    fn aux_field_names(orbital: &Orbital, entity_name: &str) -> Vec<String> {
+        orbital
+            .auxiliary_entities
+            .iter()
+            .flatten()
+            .filter_map(|e| match e {
+                EntityRef::Inline(def) if def.name == entity_name => Some(def),
+                _ => None,
+            })
+            .flat_map(|def| def.fields.iter().filter_map(|f| f.name.clone()))
+            .collect()
+    }
+
+    fn refs_consumer_schema(traits: Vec<TraitReference>) -> OrbitalSchema {
+        let consumer_orbital = Orbital {
+            types: None,
+            name: "ConsumerOrbital".to_string(),
+            id: None,
+            uses: Some(vec![refs_uses_decl()]),
+            expects: None,
+            theme: None,
+            services: None,
+            entity: EntityRef::Inline(make_entity("HostEntity", &["id"])),
+            auxiliary_entities: None,
+            traits,
+            pages: None,
+            emits: None,
+            listens: None,
+            exposes: None,
+            domain_context: None,
+            design: None,
+            reference: None,
+            config: None,
+        };
+        OrbitalSchema {
+            theme: None,
+            name: "ConsumerModule".to_string(),
+            version: None,
+            description: None,
+            orbitals: vec![consumer_orbital],
+            metadata: None,
+            ledger: None,
+            schema_version: None,
+            config: None,
+        }
+    }
+
+    fn inline_refs_schema(dir: &std::path::Path, schema: &mut OrbitalSchema) {
+        let config = InlineConfig {
+            loader_config: LoaderConfig {
+                base_path: dir.to_path_buf(),
+                ..Default::default()
+            },
+            skip_inline: false,
+        };
+        inline_schema(schema, &config, None).expect("inline must succeed");
+    }
+
+    #[test]
+    fn no_rebind_import_reading_a_merged_field_keeps_it() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        write_refs_atom(dir.path());
+        let mut schema = refs_consumer_schema(vec![refs_trait_ref("ReadsFieldA", None)]);
+        inline_refs_schema(dir.path(), &mut schema);
+
+        let fields = aux_field_names(&schema.orbitals[0], "UnionAux");
+        assert!(
+            fields.contains(&"id".to_string()),
+            "declared field must survive; fields: {fields:?}"
+        );
+        assert!(
+            fields.contains(&"fieldA".to_string()),
+            "referenced merged field must survive; fields: {fields:?}"
+        );
+        assert!(
+            !fields.contains(&"fieldB".to_string()),
+            "unreferenced merged field must not survive; fields: {fields:?}"
+        );
+        assert!(
+            !fields.contains(&"fieldC".to_string()),
+            "unreferenced merged field must not survive; fields: {fields:?}"
+        );
+    }
+
+    #[test]
+    fn two_imports_of_the_same_entity_keep_the_union_of_what_each_references() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        write_refs_atom(dir.path());
+        let mut schema = refs_consumer_schema(vec![
+            refs_trait_ref("ReadsFieldA", None),
+            refs_trait_ref("ReadsFieldB", None),
+        ]);
+        inline_refs_schema(dir.path(), &mut schema);
+
+        let fields = aux_field_names(&schema.orbitals[0], "UnionAux");
+        assert!(fields.contains(&"fieldA".to_string()), "fields: {fields:?}");
+        assert!(
+            fields.contains(&"fieldB".to_string()),
+            "the union of both importers must survive; fields: {fields:?}"
+        );
+        assert!(
+            !fields.contains(&"fieldC".to_string()),
+            "still unreferenced by either importer; fields: {fields:?}"
+        );
+    }
+
+    #[test]
+    fn rebound_away_drops_unreferenced_merged_field_keeps_declared_and_cross_referenced() {
+        // The std-wiki shape: `RebindableMergedTrait`'s NATURAL binding is
+        // `RevisionLikeAux` (reads `@entity.mergedFieldA` there), but the
+        // consumer rebinds it to `HostEntity` instead — so `mergedFieldA`
+        // is referenced by nobody once travel is decided. `RevisionLikeAux`
+        // still travels because `CrossPersistTrait` (bound to `MainWidget`)
+        // persists into it, referencing `mergedFieldB` specifically.
+        let dir = tempfile::tempdir().expect("tempdir");
+        write_refs_atom(dir.path());
+        let mut schema = refs_consumer_schema(vec![
+            refs_trait_ref("RebindableMergedTrait", Some("HostEntity")),
+            refs_trait_ref("CrossPersistTrait", None),
+        ]);
+        inline_refs_schema(dir.path(), &mut schema);
+
+        let fields = aux_field_names(&schema.orbitals[0], "RevisionLikeAux");
+        assert!(
+            fields.contains(&"id".to_string()),
+            "declared field always survives; fields: {fields:?}"
+        );
+        assert!(
+            fields.contains(&"mergedFieldB".to_string()),
+            "CrossPersistTrait's persist target field must survive; fields: {fields:?}"
+        );
+        assert!(
+            !fields.contains(&"mergedFieldA".to_string()),
+            "nothing references mergedFieldA once RebindableMergedTrait rebinds away; fields: {fields:?}"
+        );
+    }
+
+    #[test]
+    fn shared_primitive_own_vs_cross_entity() {
+        // (iv): `trait_referenced_fields_of_entity` is THE ONE field-usage
+        // definition both `validate_all_merged_field_usage` and the Gap #22
+        // travel filter call (grep-provable: one definition in entity.rs,
+        // two call sites — `validation/entity_mutation.rs` and
+        // `inline/mod.rs`, both via `crate::phases::inline::…`). This
+        // exercises its own-entity vs cross-entity branch directly.
+        use orbital_core::schema::{StringOrArray, TransitionDefinition};
+        let bound = make_entity("Bound", &["id", "note"]);
+        let other = make_entity("Other", &["id", "flag"]);
+        let mut trait_def = make_trait("T");
+        trait_def.linked_entity = Some("Bound".to_string());
+        trait_def
+            .state_machine
+            .transitions
+            .push(TransitionDefinition {
+                event_id: None,
+                from: StringOrArray::Single("active".to_string()),
+                to: "active".to_string(),
+                event: "INIT".to_string(),
+                guard: None,
+                effects: Some(vec![
+                    SExpression::Array(vec![s("set"), s("@entity.note"), s("x")]),
+                    SExpression::Array(vec![
+                        s("persist"),
+                        s("create"),
+                        s("Other"),
+                        SExpression::Object(
+                            [("flag".to_string(), s("true"))].into_iter().collect(),
+                        ),
+                    ]),
+                ]),
+            });
+
+        let own = trait_referenced_fields_of_entity(&trait_def, &bound, true);
+        assert!(
+            own.contains("note"),
+            "own-entity must pick up @entity.note; got {own:?}"
+        );
+
+        let cross = trait_referenced_fields_of_entity(&trait_def, &other, false);
+        assert!(
+            cross.contains("flag"),
+            "cross-entity must pick up the persist target field; got {cross:?}"
+        );
+        assert!(
+            !cross.contains("note"),
+            "cross-entity must NOT pick up @entity.* reads; got {cross:?}"
+        );
     }
 }

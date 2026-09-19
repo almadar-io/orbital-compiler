@@ -61,7 +61,12 @@ pub fn validate_all_traits(schema: &OrbitalSchema, ctx: &mut ValidationContext) 
         for (j, trait_ref) in orbital.traits.iter().enumerate() {
             if let TraitReference::Inline(trait_def) = trait_ref {
                 let path = trait_path(i, &orbital.name, j, trait_ref);
-                let result = validate_entity_rebind(trait_def, &path, &ctx.entity_definitions);
+                let result = validate_entity_rebind(
+                    trait_def,
+                    &path,
+                    &ctx.entity_definitions,
+                    &ctx.entity_names,
+                );
                 ctx.merge(result);
             }
         }
@@ -77,6 +82,9 @@ pub fn validate_all_traits(schema: &OrbitalSchema, ctx: &mut ValidationContext) 
 /// atom (`source_behavior` set) and its `linked_entity` differs from the
 /// atom's own entity (`source_entity_definition.name`). Only then do the
 /// rules apply:
+///   0. the target must actually name an entity — primary or auxiliary,
+///      this orbital or a sibling's — somewhere in the schema (else
+///      `ORB_T_REBIND_TARGET_UNRESOLVED`);
 ///   1. the atom's binding must be `entity_rebindable` (else `ORB_T_ENTITY_NOT_REBINDABLE`);
 ///   2. the target entity must have every field in `entity_contract.requires`
 ///      (else `ORB_T_REBIND_MISSING_FIELDS`). `provides` are NOT required —
@@ -85,6 +93,7 @@ fn validate_entity_rebind(
     trait_def: &TraitDefinition,
     path: &str,
     entity_definitions: &HashMap<String, EntityDefinition>,
+    entity_names: &HashSet<String>,
 ) -> ValidationResult {
     let mut result = ValidationResult::new();
 
@@ -103,6 +112,31 @@ fn validate_entity_rebind(
         .map(|e| e.name.as_str());
     let is_rebind = source_entity.map(|n| n != linked.as_str()).unwrap_or(false);
     if !is_rebind {
+        return result;
+    }
+
+    // §52 hard stop, before anything else: the rebind target must actually
+    // exist somewhere in the schema. `entity_names` is the SAME schema-wide
+    // existence set (built by `collect_names`, primary + Gap #22 auxiliary,
+    // every orbital) the inline-phase merge's own schema-wide resolver
+    // (`phases::inline::entity::merge_into_named_entity`) searches — a name
+    // absent from both has no field-merge landing site and never will.
+    // Retired 2026-09-19: this used to fall back to silently merging onto
+    // the caller's own primary entity instead of erroring.
+    if !entity_names.contains(linked.as_str()) {
+        result.add_error(
+            ValidationError::error(
+                ErrorCode::RebindTargetUnresolved,
+                format!("{}.linkedEntity", path),
+                format!(
+                    "Trait '{}' (from {}) rebinds to '{}', which names no primary or auxiliary entity anywhere in this schema; the merge has no target to land its fields on.",
+                    trait_def.name, source.behavior, linked
+                ),
+            )
+            .with_suggestion(
+                "Fix the linkedEntity rebind target's spelling, or declare/import the entity it should name.",
+            ),
+        );
         return result;
     }
 
@@ -1478,10 +1512,17 @@ mod tests {
         t
     }
 
+    /// The rebind target name alone, registered as existing in the schema —
+    /// what the other rebind rules (rebindable / required-fields) assume so
+    /// their own case is isolated from the new §52 existence check.
+    fn listing_only_names() -> HashSet<String> {
+        HashSet::from(["Listing".to_string()])
+    }
+
     #[test]
     fn test_rebind_not_rebindable_rejected() {
         let t = rebound_trait(None, &[]);
-        let result = validate_entity_rebind(&t, "test", &HashMap::new());
+        let result = validate_entity_rebind(&t, "test", &HashMap::new(), &listing_only_names());
         assert!(result
             .errors
             .iter()
@@ -1491,7 +1532,7 @@ mod tests {
     #[test]
     fn test_rebind_rebindable_allowed() {
         let t = rebound_trait(Some(true), &[]);
-        let result = validate_entity_rebind(&t, "test", &HashMap::new());
+        let result = validate_entity_rebind(&t, "test", &HashMap::new(), &listing_only_names());
         assert!(result.errors.is_empty(), "Unexpected: {:?}", result.errors);
     }
 
@@ -1500,7 +1541,7 @@ mod tests {
         let t = rebound_trait(Some(true), &["sku"]);
         let mut defs = HashMap::new();
         defs.insert("Listing".to_string(), make_entity("Listing", &["title"])); // no `sku`
-        let result = validate_entity_rebind(&t, "test", &defs);
+        let result = validate_entity_rebind(&t, "test", &defs, &listing_only_names());
         assert!(result
             .errors
             .iter()
@@ -1515,7 +1556,7 @@ mod tests {
             "Listing".to_string(),
             make_entity("Listing", &["sku", "title"]),
         );
-        let result = validate_entity_rebind(&t, "test", &defs);
+        let result = validate_entity_rebind(&t, "test", &defs, &listing_only_names());
         assert!(result.errors.is_empty(), "Unexpected: {:?}", result.errors);
     }
 
@@ -1525,8 +1566,41 @@ mod tests {
         let mut t = create_valid_trait();
         t.linked_entity = Some("Listing".to_string());
         t.entity_rebindable = None;
-        let result = validate_entity_rebind(&t, "test", &HashMap::new());
+        let result = validate_entity_rebind(&t, "test", &HashMap::new(), &HashSet::new());
         assert!(result.errors.is_empty(), "Unexpected: {:?}", result.errors);
+    }
+
+    #[test]
+    fn test_rebind_target_unresolved_when_name_not_in_schema() {
+        // §52: `linkedEntity` names something that is not any orbital's
+        // primary or auxiliary entity anywhere in the schema — the retired
+        // fallback used to silently merge onto the caller's own primary
+        // entity instead of reporting this.
+        let t = rebound_trait(Some(true), &[]);
+        let result = validate_entity_rebind(&t, "test", &HashMap::new(), &HashSet::new());
+        assert!(result
+            .errors
+            .iter()
+            .any(|e| e.code == ErrorCode::RebindTargetUnresolved));
+        // Fires INSTEAD of (before) the rebindable/required-fields checks —
+        // there is no target to check those against.
+        assert!(!result
+            .errors
+            .iter()
+            .any(|e| e.code == ErrorCode::TraitEntityNotRebindable));
+    }
+
+    #[test]
+    fn test_rebind_target_present_in_schema_not_unresolved() {
+        // Contrast/guard-rail: the SAME target name, registered as existing,
+        // must not trip the new check (the exclusion above is scoped to a
+        // truly absent name, not a blanket rejection of rebinds).
+        let t = rebound_trait(Some(true), &[]);
+        let result = validate_entity_rebind(&t, "test", &HashMap::new(), &listing_only_names());
+        assert!(!result
+            .errors
+            .iter()
+            .any(|e| e.code == ErrorCode::RebindTargetUnresolved));
     }
 
     #[test]

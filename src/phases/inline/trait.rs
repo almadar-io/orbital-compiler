@@ -3210,7 +3210,9 @@ mod forwarded_sibling_config_tests {
             Some(&SExpression::String("Widgets".to_string())),
         );
         assert_eq!(
-            resolved.get("label").and_then(|f| f.forwarded_from.as_deref()),
+            resolved
+                .get("label")
+                .and_then(|f| f.forwarded_from.as_deref()),
             Some("@config.title"),
             "the collapsed field must record its provenance"
         );
@@ -3229,7 +3231,9 @@ mod forwarded_sibling_config_tests {
         )
         .expect("label must fall through to the app-level schema config rung");
         assert_eq!(
-            resolved_via_app.get("label").and_then(|f| f.default.as_ref()),
+            resolved_via_app
+                .get("label")
+                .and_then(|f| f.default.as_ref()),
             Some(&SExpression::String("App Widgets".to_string())),
         );
     }

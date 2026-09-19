@@ -6,8 +6,8 @@ use crate::phases::validation::effect::{
     parse_fetch_include_literals, persist_entity_index, resolve_fetch_include_field,
 };
 use orbital_core::schema::{
-    EntityDefinition, EntityRef, EntityRefExtends, FieldDefinition, SExpression, TraitDefinition,
-    TraitReference,
+    EntityDefinition, EntityRef, EntityRefExtends, FieldDefinition, Orbital, SExpression,
+    TraitDefinition, TraitReference,
 };
 use std::collections::HashSet;
 
@@ -149,6 +149,62 @@ pub(crate) fn merge_imported_entity_fields(
     }
 }
 
+/// Locate the orbital (within `orbitals`, primary checked before
+/// auxiliaries, first match wins) whose entity is named `target`, and merge
+/// `imported`'s fields into it via [`merge_imported_entity_fields`]. Returns
+/// whether a target was found.
+///
+/// This is the ONE §52 rebind-merge landing-site resolver: called with a
+/// single caller orbital (`std::slice::from_mut`) to try the LOCAL landing
+/// first, then — if that fails — again with every orbital in the schema
+/// once all of them have finished inlining (so every Gap #22 no-rebind
+/// auxiliary is registered and every sibling orbital's primary entity is
+/// known). There is no other landing site: a target this can't find is not
+/// merged anywhere, and `ORB_T_REBIND_TARGET_UNRESOLVED`
+/// (`validation::trait_validator::validate_entity_rebind`) reports it — the
+/// retired behavior silently merged onto the caller's own primary entity
+/// instead.
+pub(crate) fn merge_into_named_entity(
+    orbitals: &mut [Orbital],
+    target: &str,
+    imported: &EntityDefinition,
+    intrinsic_only: bool,
+    required_data: &HashSet<String>,
+    referenced_fields: &HashSet<String>,
+) -> bool {
+    for orbital in orbitals.iter_mut() {
+        if let EntityRef::Inline(entity) = &mut orbital.entity {
+            if entity.name == target {
+                merge_imported_entity_fields(
+                    entity,
+                    imported,
+                    intrinsic_only,
+                    required_data,
+                    referenced_fields,
+                );
+                return true;
+            }
+        }
+        if let Some(aux_list) = orbital.auxiliary_entities.as_mut() {
+            for aux in aux_list.iter_mut() {
+                if let EntityRef::Inline(entity) = aux {
+                    if entity.name == target {
+                        merge_imported_entity_fields(
+                            entity,
+                            imported,
+                            intrinsic_only,
+                            required_data,
+                            referenced_fields,
+                        );
+                        return true;
+                    }
+                }
+            }
+        }
+    }
+    false
+}
+
 /// Every field of `imported_entity` that `trait_def` — or a hoisted
 /// synthetic render child of it, recursively — actually reads, writes,
 /// fetch-includes, or persists (R-ENTITY-FIELD-UNION-ACROSS-SAME-NAMED-ENTITY,
@@ -184,8 +240,7 @@ pub(crate) fn collect_trait_referenced_entity_fields(
     ctx: &InlineContext,
     visited: &mut HashSet<String>,
 ) -> HashSet<String> {
-    let mut fields = trait_def.referenced_entity_field_names();
-    collect_fetch_persist_entity_fields(trait_def, imported_entity, &mut fields);
+    let mut fields = trait_references_entity_fields(trait_def, imported_entity);
     if let Some(contract) = &trait_def.entity_contract {
         fields.extend(contract.requires.iter().cloned());
     }
@@ -207,57 +262,241 @@ pub(crate) fn collect_trait_referenced_entity_fields(
     fields
 }
 
+/// Parts 1+2+3 of the field-usage definition for a SINGLE trait (no
+/// recursion into hoisted children, no `entity_contract` — those are the
+/// caller's concern): `@entity.<field>` reads/writes
+/// (`TraitDefinition::referenced_entity_field_names`) unioned with
+/// `fetch`/`persist` references against `entity_def`
+/// (`collect_fetch_persist_entity_fields`). This is the ONE shared primitive
+/// both `collect_trait_referenced_entity_fields` (pre-inline merge, unions it
+/// over a composed trait + its hoisted children via `ctx`) and
+/// `phases::validation::entity_mutation`'s `ORB_E_MERGED_FIELD_UNREFERENCED`
+/// rule (post-inline, unions it over every trait of the final orbital bound
+/// to the entity) build on — never two definitions of "referenced".
+pub(crate) fn trait_references_entity_fields(
+    trait_def: &TraitDefinition,
+    entity_def: &EntityDefinition,
+) -> HashSet<String> {
+    let mut fields = trait_def.referenced_entity_field_names();
+    collect_fetch_persist_entity_fields(trait_def, entity_def, &mut fields);
+    fields
+}
+
+/// Fields of `entity_def` that `trait_def` references, given whether
+/// `entity_def` is `trait_def`'s EFFECTIVE bound entity (`is_own_entity`,
+/// supplied by the caller). Own-entity: parts 1-4 — `@entity.<field>`
+/// reads/writes (`trait_references_entity_fields`, entity-agnostic by
+/// construction: a `@entity.<field>` token stays the same string across any
+/// rebind rename, so it's correct for the caller to say "yes, own entity"
+/// even when `trait_def.linked_entity` itself still names the SOURCE
+/// package's pre-rebind binding) plus `entity_contract.requires`. Not
+/// own-entity: parts 2-4 only (`collect_fetch_persist_entity_fields` — a
+/// fetch/persist/render-ui-pattern target naming `entity_def` literally) —
+/// UNLESS `entity_def` is `trait_def`'s own RAW binding (a self-reference
+/// `apply_overrides_to_trait`'s rewrite retargets under an active rebind,
+/// e.g. `std-wiki-page`'s `WikiHistory` — bound to its OWN `WikiPageRevision`
+/// — doing a self-refetch `(persist update WikiPageRevision …)`; std-wiki's
+/// `-> WikiRevision` rebind retargets that literal token like every other
+/// one in the body, so it is never evidence `WikiPageRevision` itself is
+/// still needed), which contributes nothing.
+///
+/// THE ONE field-usage definition both `ORB_E_MERGED_FIELD_UNREFERENCED`
+/// (`validation::entity_mutation::validate_all_merged_field_usage`) and the
+/// §52 travel-copy filter (`inline_orbital`'s Gap #22 aux collection) build
+/// on.
+pub(crate) fn trait_referenced_fields_of_entity(
+    trait_def: &TraitDefinition,
+    entity_def: &EntityDefinition,
+    is_own_entity: bool,
+) -> HashSet<String> {
+    if is_own_entity {
+        let mut fields = trait_references_entity_fields(trait_def, entity_def);
+        if let Some(contract) = &trait_def.entity_contract {
+            fields.extend(contract.requires.iter().cloned());
+        }
+        fields
+    } else if trait_def.linked_entity.as_deref() == Some(entity_def.name.as_str()) {
+        HashSet::new()
+    } else {
+        let mut fields = HashSet::new();
+        let mut matched = false;
+        collect_fetch_persist_entity_fields_matched(
+            trait_def,
+            entity_def,
+            &mut fields,
+            &mut matched,
+        );
+        if matched && fields.is_empty() {
+            // A bare `fetch X {emit:…}`/`persist … X @entity` (no
+            // `include`/enumerated data) loads or writes the WHOLE row —
+            // every field, not some subset we can name — so nothing can be
+            // narrowed away. Every field name survives rather than none.
+            fields = entity_def
+                .fields
+                .iter()
+                .filter_map(|f| f.name.clone())
+                .collect();
+        }
+        fields
+    }
+}
+
+/// [`trait_referenced_fields_of_entity`], unioned over `trait_def` and every
+/// hoisted synthetic render child of it, recursively via
+/// `sibling_trait_refs_of` — a child's OWN binding to `candidate` counts as
+/// own-entity for ITSELF regardless of `trait_def`'s. Returns `(references,
+/// fields)`: `references` is "does this trait (or a child) reference
+/// `candidate` at all" — true whenever `candidate` IS some level's own
+/// binding, even one with zero field-level accesses (a trivial child), the
+/// check the Gap #22 aux-travel decision uses — while `fields` is what
+/// survives when `candidate`'s merged fields are filtered for travel
+/// (narrower than `references`: a bare own-binding with no field accesses
+/// contributes no fields, only the travel signal).
+pub(crate) fn trait_referenced_fields_of_entity_recursive(
+    trait_def: &TraitDefinition,
+    candidate: &EntityDefinition,
+    is_own_entity: bool,
+    alias: &str,
+    ctx: &InlineContext,
+    visited: &mut HashSet<String>,
+) -> (bool, HashSet<String>) {
+    let mut fields = trait_referenced_fields_of_entity(trait_def, candidate, is_own_entity);
+    let mut references = is_own_entity || !fields.is_empty();
+    for sibling in super::sibling_trait_refs_of(trait_def) {
+        if !visited.insert(sibling.clone()) {
+            continue;
+        }
+        if let Ok(TraitReference::Inline(child_def)) = ctx.get_trait(alias, &sibling) {
+            let child_is_own = child_def.linked_entity.as_deref() == Some(candidate.name.as_str());
+            let (child_references, child_fields) = trait_referenced_fields_of_entity_recursive(
+                &child_def,
+                candidate,
+                child_is_own,
+                alias,
+                ctx,
+                visited,
+            );
+            references = references || child_references;
+            fields.extend(child_fields);
+        }
+    }
+    (references, fields)
+}
+
 /// Walk every guard/effect in `trait_def`'s transitions, ticks, and
-/// config-field defaults looking for `fetch`/`persist` calls that name
-/// `entity_def` — parts 2+3 of `collect_trait_referenced_entity_fields`.
-/// Scoped to `entity_def.name`: a trait that fetches or persists some OTHER
-/// entity says nothing about which of THIS entity's fields it uses.
-fn collect_fetch_persist_entity_fields(
+/// config-field defaults looking for `fetch`/`persist` calls and render-ui
+/// pattern-contract nodes that name `entity_def` — parts 2+3+4 of
+/// `collect_trait_referenced_entity_fields`. Scoped to `entity_def.name`: a
+/// trait that fetches, persists, or renders against some OTHER entity says
+/// nothing about which of THIS entity's fields it uses.
+///
+/// `entity_def` need NOT be `trait_def`'s own `linked_entity` — this is
+/// also the cross-entity primitive `validate_all_merged_field_usage` uses
+/// to find a merged-field reference living in a trait bound to a DIFFERENT
+/// entity (e.g. `WikiRevisionCapture -> WikiPage` doing
+/// `(persist create WikiPageRevision {...})`). `trait_def.linked_entity` is
+/// threaded through separately as the render-ui fallback target (an absent
+/// literal `entity:` key defaults to the trait's OWN binding, never to
+/// whatever `entity_def` the caller happens to be checking).
+pub(crate) fn collect_fetch_persist_entity_fields(
     trait_def: &TraitDefinition,
     entity_def: &EntityDefinition,
     out: &mut HashSet<String>,
 ) {
+    let mut matched = false;
+    collect_fetch_persist_entity_fields_matched(trait_def, entity_def, out, &mut matched);
+}
+
+/// Same walk as [`collect_fetch_persist_entity_fields`], additionally
+/// setting `matched` when a `fetch`/`persist` call names `entity_def` at
+/// all — even with no `include`/data fields (`fetch Entity { emit: {...} }`,
+/// the common shape for a whole-row load with nothing to narrow, e.g.
+/// std-notify-on-event's `fetch NotificationPreference { emit: {...} }` or
+/// std-data-import's `fetch ImportRow { emit: {...} }`). `out` alone can't
+/// answer "is the entity referenced AT ALL": it's field-precise by design
+/// (`ORB_E_MERGED_FIELD_UNREFERENCED` wants exact field names), so a
+/// legitimate whole-row fetch with nothing to include looks identical to no
+/// reference at all. `matched` is the entity-EXISTENCE half of the SAME tree
+/// walk (used by `trait_references_entity_by_name`) — never a second walker
+/// over the same tree. The render-ui arm doesn't set `matched` independently
+/// of `out` (a node whose contract genuinely requires zero fields is
+/// indistinguishable from a non-match there) — a narrower, pre-existing
+/// limitation of `required_entity_fields_for_node` itself, not new here.
+pub(crate) fn collect_fetch_persist_entity_fields_matched(
+    trait_def: &TraitDefinition,
+    entity_def: &EntityDefinition,
+    out: &mut HashSet<String>,
+    matched: &mut bool,
+) {
+    let linked_entity = trait_def.linked_entity.as_deref();
     for transition in &trait_def.state_machine.transitions {
         if let Some(guard) = &transition.guard {
-            collect_fetch_persist_fields(guard, entity_def, out);
+            collect_fetch_persist_fields(guard, entity_def, linked_entity, out, matched);
         }
         if let Some(effects) = &transition.effects {
             for effect in effects {
-                collect_fetch_persist_fields(effect, entity_def, out);
+                collect_fetch_persist_fields(effect, entity_def, linked_entity, out, matched);
             }
         }
     }
     if let Some(ticks) = &trait_def.ticks {
         for tick in ticks {
             if let Some(guard) = &tick.guard {
-                collect_fetch_persist_fields(guard, entity_def, out);
+                collect_fetch_persist_fields(guard, entity_def, linked_entity, out, matched);
             }
             for effect in &tick.effects {
-                collect_fetch_persist_fields(effect, entity_def, out);
+                collect_fetch_persist_fields(effect, entity_def, linked_entity, out, matched);
             }
         }
     }
     if let Some(config) = &trait_def.config {
         for field in config.values() {
             if let Some(default) = &field.default {
-                collect_fetch_persist_fields(default, entity_def, out);
+                collect_fetch_persist_fields(default, entity_def, linked_entity, out, matched);
             }
         }
     }
 }
 
-/// Leaf-level `fetch`/`persist` matcher, recursing through arrays/objects so
-/// a call nested inside e.g. an `onSuccess` effect tree is still found.
+/// Leaf-level `fetch`/`persist`/render-ui-pattern-contract matcher,
+/// recursing through arrays/objects so a call or node nested inside e.g. an
+/// `onSuccess` effect tree or a `children:` list is still found. The
+/// render-ui arm reuses `required_entity_fields_for_node` (part 1's sibling
+/// reference kind — a pattern's `requiredFields` contract is a reference an
+/// `@entity.<field>` grep never sees) so this ONE recursive walk finds
+/// fetch/persist targets AND pattern-contract fields in the same pass —
+/// never a second walker over the same tree. `linked_entity` is the OWNING
+/// trait's own bound entity (for a render-ui node's absent-`entity`-key
+/// fallback), independent of `entity_def` (the entity we're checking
+/// references AGAINST — see `collect_fetch_persist_entity_fields`).
 fn collect_fetch_persist_fields(
     expr: &SExpression,
     entity_def: &EntityDefinition,
+    linked_entity: Option<&str>,
     out: &mut HashSet<String>,
+    matched: &mut bool,
 ) {
+    if let SExpression::Object(obj) = expr {
+        if let Some(SExpression::String(pattern_type)) = obj.get("type") {
+            let fields =
+                crate::phases::validation::render_ui::pattern::required_entity_fields_for_node(
+                    pattern_type,
+                    obj,
+                    &entity_def.name,
+                    linked_entity,
+                );
+            if !fields.is_empty() {
+                *matched = true;
+            }
+            out.extend(fields);
+        }
+    }
     if let SExpression::Array(arr) = expr {
         match arr.first() {
             Some(SExpression::String(op)) if op == "fetch" => {
                 if let Some(SExpression::String(entity_name)) = arr.get(1) {
                     if entity_name == &entity_def.name {
+                        *matched = true;
                         if let Some(SExpression::Object(opts)) = arr.get(2) {
                             if let Some(include_expr) = opts.get("include") {
                                 if let Some(literals) = parse_fetch_include_literals(include_expr) {
@@ -278,6 +517,7 @@ fn collect_fetch_persist_fields(
                 let entity_index = persist_entity_index(arr);
                 if let Some(SExpression::String(entity_name)) = arr.get(entity_index) {
                     if entity_name == &entity_def.name {
+                        *matched = true;
                         if let Some(SExpression::Object(data_fields)) = arr.get(entity_index + 1) {
                             out.extend(data_fields.keys().cloned());
                         }
@@ -287,11 +527,11 @@ fn collect_fetch_persist_fields(
             _ => {}
         }
         for item in arr {
-            collect_fetch_persist_fields(item, entity_def, out);
+            collect_fetch_persist_fields(item, entity_def, linked_entity, out, matched);
         }
     } else if let SExpression::Object(obj) = expr {
         for value in obj.values() {
-            collect_fetch_persist_fields(value, entity_def, out);
+            collect_fetch_persist_fields(value, entity_def, linked_entity, out, matched);
         }
     }
 }
@@ -384,5 +624,154 @@ pub(crate) fn inline_entity(
                 _ => Err(InlineError::InvalidReference(extends.reference.clone())),
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod render_ui_pattern_contract_reference_tests {
+    use super::*;
+    use orbital_core::schema::{
+        FieldDefinition, FieldType, Persistence, StateDefinition, StateMachine, StringOrArray,
+        TransitionDefinition,
+    };
+    use std::collections::HashMap;
+
+    fn entity(name: &str) -> EntityDefinition {
+        EntityDefinition {
+            shared: false,
+            identity: false,
+            read_policy: None,
+            create_policy: None,
+            update_policy: None,
+            delete_policy: None,
+            access_waivers: None,
+            name: name.to_string(),
+            collection: None,
+            persistence: Some(Persistence::Persistent),
+            instances: None,
+            fields: vec![FieldDefinition {
+                mock: None,
+                merged_from: None,
+                name: Some("id".to_string()),
+                field_type: FieldType::String,
+                required: None,
+                primary_key: None,
+                unique: None,
+                relation: None,
+                items: None,
+                values: None,
+                default: None,
+                properties: None,
+                intrinsic: None,
+                description: None,
+                synonyms: None,
+            }],
+            id: None,
+        }
+    }
+
+    fn trait_with_render_ui(linked_entity: &str, node: SExpression) -> TraitDefinition {
+        let render_effect = SExpression::Array(vec![
+            SExpression::String("render-ui".to_string()),
+            SExpression::String("main".to_string()),
+            node,
+        ]);
+        TraitDefinition {
+            local: false,
+            effect_row: None,
+            type_params: None,
+            type_args: None,
+            name: "TestTrait".to_string(),
+            entity_rebindable: None,
+            entity_contract: None,
+            category: None,
+            capabilities: vec![],
+            description: None,
+            linked_entity: Some(linked_entity.to_string()),
+            emits: None,
+            listens: None,
+            state_machine: StateMachine {
+                states: vec![StateDefinition {
+                    name: "idle".to_string(),
+                    is_initial: Some(true),
+                    is_terminal: None,
+                    description: None,
+                    time_bound_ms: None,
+                }],
+                events: None,
+                transitions: vec![TransitionDefinition {
+                    event_id: None,
+                    from: StringOrArray::Single("idle".to_string()),
+                    to: "idle".to_string(),
+                    event: "INIT".to_string(),
+                    guard: None,
+                    effects: Some(vec![render_effect]),
+                }],
+            },
+            ticks: None,
+            config: None,
+            data_entities: None,
+            scope: None,
+            source_behavior: None,
+            source_entity_definition: None,
+            id: None,
+            linked_entity_id: None,
+            entity_ref_ids: None,
+            trait_embed_ids: None,
+        }
+    }
+
+    fn calendar_grid_node() -> SExpression {
+        let mut obj = HashMap::new();
+        obj.insert(
+            "type".to_string(),
+            SExpression::String("calendar-grid".to_string()),
+        );
+        // No literal "entity" key — defaults to the trait's own linked_entity,
+        // matching `ui-calendar-grid.lolo`'s real render-ui node.
+        obj.insert(
+            "events".to_string(),
+            SExpression::String("@entity".to_string()),
+        );
+        SExpression::Object(obj)
+    }
+
+    /// PASS: a render-ui node whose pattern (`calendar-grid`) declares
+    /// `requiredFields` on a prop bound (whole-entity) to this trait's own
+    /// entity — the pattern's contract is a reference `@entity.<field>`
+    /// literal-grepping never sees, so it must count as referenced.
+    #[test]
+    fn render_ui_pattern_contract_field_counts_as_referenced() {
+        let e = entity("Schedule");
+        let t = trait_with_render_ui("Schedule", calendar_grid_node());
+        let fields = trait_references_entity_fields(&t, &e);
+        assert!(
+            fields.contains("title") && fields.contains("startTime"),
+            "calendar-grid's requiredFields (title, startTime) must be referenced: {:?}",
+            fields
+        );
+    }
+
+    /// FAIL (control): the SAME pattern node, but bound to a DIFFERENT
+    /// entity name via a literal `entity: "Other"` — the requiredFields
+    /// apply to `Other`, not to the entity under test, so nothing is added.
+    #[test]
+    fn render_ui_pattern_contract_field_not_referenced_for_a_different_bound_entity() {
+        let e = entity("Schedule");
+        let mut obj = match calendar_grid_node() {
+            SExpression::Object(o) => o,
+            _ => unreachable!(),
+        };
+        obj.insert(
+            "entity".to_string(),
+            SExpression::String("Other".to_string()),
+        );
+        let t = trait_with_render_ui("Schedule", SExpression::Object(obj));
+        let fields = trait_references_entity_fields(&t, &e);
+        assert!(
+            !fields.contains("title") && !fields.contains("startTime"),
+            "a node bound to a DIFFERENT entity must not contribute fields to this one: {:?}",
+            fields
+        );
     }
 }

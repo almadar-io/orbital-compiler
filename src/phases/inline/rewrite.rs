@@ -1042,7 +1042,11 @@ pub(crate) fn coerce_trait_knob_conditions(
     fn is_bound(value: Option<&SExpression>) -> bool {
         matches!(value, Some(SExpression::String(_)))
     }
-    fn walk(expr: &mut SExpression, trait_knobs: &HashSet<String>, effective_config: &HashMap<String, SExpression>) {
+    fn walk(
+        expr: &mut SExpression,
+        trait_knobs: &HashSet<String>,
+        effective_config: &HashMap<String, SExpression>,
+    ) {
         let SExpression::Array(arr) = expr else {
             return;
         };
@@ -1661,7 +1665,12 @@ fn resolve_payload_entity_schema(
     // never reach a stored row, so they never appear on one.
     let previous_required: HashMap<String, Option<bool>> = payload_schema
         .as_ref()
-        .map(|schema| schema.iter().map(|f| (f.name.clone(), f.required)).collect())
+        .map(|schema| {
+            schema
+                .iter()
+                .map(|f| (f.name.clone(), f.required))
+                .collect()
+        })
         .unwrap_or_default();
     let fields: Vec<PayloadField> = entity
         .fields
@@ -2867,8 +2876,14 @@ mod payload_entity_marker_tests {
             fields.iter().map(|f| (f.name.as_str(), f)).collect();
         assert_eq!(by_name["id"].required, Some(true));
         assert_eq!(by_name["content"].required, Some(true));
-        assert_eq!(by_name["name"].required, None, "host-merged required must not leak into the row payload");
-        assert!(!by_name.contains_key("draft"), "@intrinsic fields never appear on a row payload");
+        assert_eq!(
+            by_name["name"].required, None,
+            "host-merged required must not leak into the row payload"
+        );
+        assert!(
+            !by_name.contains_key("draft"),
+            "@intrinsic fields never appear on a row payload"
+        );
     }
 
     #[test]

@@ -157,6 +157,13 @@ pub enum ErrorCode {
     /// reads (its inferred `entityContract.requires`). The target would break
     /// the behavior.
     RebindMissingEntityFields,
+    /// A `linkedEntity` rebind names something that is not any orbital's
+    /// primary or auxiliary entity anywhere in the schema — the §52
+    /// rebind-merge (`phases::inline::entity::merge_into_named_entity`) has
+    /// nowhere to land the imported trait's fields. Retired 2026-09-19: this
+    /// used to fall back to the caller's primary entity silently; it is now
+    /// a hard error instead of a wrong-entity merge.
+    RebindTargetUnresolved,
     /// A `.lolo` event alias's `(E : Entity)` type parameter — lowered to the
     /// `"$E"` payload sentinel by `orbital-lolo` (increment 3-I,
     /// `docs/Almadar_LOLO.md` ~line 315/1387) — survived the inline phase's
@@ -774,6 +781,14 @@ pub enum ErrorCode {
     /// Exactly one render authority is allowed per shared entity, mirroring
     /// `SlotContention`'s single-owner rule.
     SharedEntityRenderAuthority,
+    /// Post-inline: an entity field carrying `mergedFrom` (added by the
+    /// rebind-merge auto-merge, `merge_imported_entity_fields`) that no
+    /// trait of the consuming orbital reads, writes, fetch-includes, or
+    /// persists — R-ENTITY-FIELD-UNION-ACROSS-SAME-NAMED-ENTITY. The merge
+    /// already narrows to referenced fields at compose time; this catches
+    /// drift when a later edit removes the trait/effect that used to
+    /// justify the merge. Error severity.
+    EntityMergedFieldUnreferenced,
     /// A trait runs a non-`Cron` tick (frame/duration interval) against a
     /// `Persistent` linked entity. Corpus-facing backstop mirroring the lolo
     /// L1 tick guards. Error severity.
@@ -1154,6 +1169,7 @@ impl ErrorCode {
             ErrorCode::TraitConfigTierInvalid => "ORB_T_CONFIG_TIER_INVALID",
             ErrorCode::TraitEntityNotRebindable => "ORB_T_ENTITY_NOT_REBINDABLE",
             ErrorCode::RebindMissingEntityFields => "ORB_T_REBIND_MISSING_FIELDS",
+            ErrorCode::RebindTargetUnresolved => "ORB_T_REBIND_TARGET_UNRESOLVED",
             ErrorCode::UnresolvedTypeParam => "ORB_T_UNRESOLVED_TYPE_PARAM",
             ErrorCode::EventRenameUnknownKey => "ORB_T_EVENT_RENAME_UNKNOWN_KEY",
             ErrorCode::TraitConfigUnknownCallSiteKey => "ORB_T_CONFIG_UNKNOWN_CALL_SITE_KEY",
@@ -1331,6 +1347,7 @@ impl ErrorCode {
             ErrorCode::EntitySplitMutation => "ORB_ENTITY_SPLIT_MUTATION",
             ErrorCode::SharedEntityFieldConflict => "ORB_SHARED_ENTITY_FIELD_CONFLICT",
             ErrorCode::SharedEntityRenderAuthority => "ORB_SHARED_ENTITY_RENDER_AUTHORITY",
+            ErrorCode::EntityMergedFieldUnreferenced => "ORB_E_MERGED_FIELD_UNREFERENCED",
             ErrorCode::TickRequiresRuntime => "ORB_TICK_REQUIRES_RUNTIME",
             ErrorCode::TickAsyncEffect => "ORB_TICK_ASYNC_EFFECT",
             ErrorCode::EntityIntrinsicFieldPersisted => "ORB_ENTITY_INTRINSIC_FIELD_PERSISTED",
@@ -1468,6 +1485,7 @@ impl ErrorCode {
             | ErrorCode::TraitConfigTierInvalid
             | ErrorCode::TraitEntityNotRebindable
             | ErrorCode::RebindMissingEntityFields
+            | ErrorCode::RebindTargetUnresolved
             | ErrorCode::EventRenameUnknownKey
             | ErrorCode::TraitConfigUnknownCallSiteKey
             | ErrorCode::TraitConfigMissingRequiredKey
@@ -1630,6 +1648,7 @@ impl ErrorCode {
             ErrorCode::EntitySplitMutation
             | ErrorCode::SharedEntityFieldConflict
             | ErrorCode::SharedEntityRenderAuthority
+            | ErrorCode::EntityMergedFieldUnreferenced
             | ErrorCode::TickRequiresRuntime
             | ErrorCode::TickAsyncEffect
             | ErrorCode::EntityIntrinsicFieldPersisted

@@ -571,6 +571,10 @@ pub fn validate_comprehensive_full(
     // post-inline so the fully `uses`-composed trait set and each entity's
     // `shared`/`persistence` flags are visible.
     entity_mutation::validate_all_entity_mutations(schema, &mut ctx);
+    // ORB_E_MERGED_FIELD_UNREFERENCED: post-inline, catches a rebind-merged
+    // entity field no trait of the consuming orbital references —
+    // R-ENTITY-FIELD-UNION-ACROSS-SAME-NAMED-ENTITY drift.
+    entity_mutation::validate_all_merged_field_usage(schema, &mut ctx);
     entity_mutation::validate_all_tick_guards(schema, &mut ctx);
     entity_mutation::validate_all_local_trait_dispatch(schema, &mut ctx);
     entity_mutation::validate_all_set_column_without_row(schema, &mut ctx);
