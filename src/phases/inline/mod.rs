@@ -80,9 +80,7 @@ use r#trait::apply_overrides_to_trait;
 #[cfg(test)]
 use rewrite::{rewrite_entity_refs, rewrite_identifiers, rewrite_trait_event_fields};
 
-use crate::loader::{
-    discover_registry_roots, ExternalOrbitalLoader, ImportChain, LoaderConfig, LoaderError,
-};
+use crate::loader::{ExternalOrbitalLoader, ImportChain, LoaderConfig, LoaderError};
 use orbital_core::schema::{
     ConfigField, ConfigProvenanceRecord, EntityDefinition, EntityRef, ExpectDeclaration, Orbital,
     OrbitalSchema, PayloadField, SchemaMetadata, ThemeRef, TraitDefinition, TraitReference,
@@ -229,6 +227,15 @@ impl InlineError {
             InlineError::LambdaStatefulTrait { .. } => "ORB_T_LAMBDA_STATEFUL_TRAIT",
             InlineError::EmitMergeConflict { .. } => "ORB_T_EMIT_MERGE_CONFLICT",
             InlineError::ConflictingTypeAlias { .. } => "ORB_T_CONFLICTING_TYPE_ALIAS",
+            InlineError::Loader(LoaderError::PackageNotInstalled { .. })
+            | InlineError::Loader(LoaderError::BehaviorPackageNotInstalled { .. }) => {
+                "ORB_BEHAVIOR_PACKAGE_NOT_INSTALLED"
+            }
+            InlineError::Loader(LoaderError::BehaviorNotFound { .. }) => "ORB_BEHAVIOR_NOT_FOUND",
+            InlineError::Loader(LoaderError::BehaviorAmbiguous { .. }) => "ORB_BEHAVIOR_AMBIGUOUS",
+            InlineError::Loader(LoaderError::PrefixConflict { .. }) => {
+                "ORB_BEHAVIOR_PREFIX_CONFLICT"
+            }
             _ => "INLINE_ERROR",
         }
     }
@@ -331,19 +338,7 @@ pub fn inline_schema_with_orbital_diagnostics(
     // tokens (`rebindInlineTraitEntity` / `applyTraitRenames`).
     normalize_identity_tokens(schema);
 
-    // Auto-discover behavior-package registry roots from the source path when
-    // none are configured, so bare imports like `almadar-behaviors/rpg-hero`
-    // resolve against the workspace's emitted `behaviors/registry/` trees.
-    let mut loader_config = config.loader_config.clone();
-    if loader_config.auto_discover_registries && loader_config.behaviors_registry_roots.is_empty() {
-        if let Some(src) = source_path {
-            for (scope, root) in discover_registry_roots(src) {
-                loader_config.behaviors_registry_roots.insert(scope, root);
-            }
-        }
-    }
-
-    let mut loader = ExternalOrbitalLoader::new(loader_config);
+    let mut loader = ExternalOrbitalLoader::new(config.loader_config.clone());
     let mut chain = ImportChain::new();
 
     // If we have a source path, add it to the chain
@@ -2453,6 +2448,53 @@ mod tests {
 
     fn fixtures_dir() -> PathBuf {
         PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("src/loader/fixtures")
+    }
+
+    #[test]
+    fn structured_code_maps_the_five_behavior_package_loader_errors() {
+        let cases = [
+            (
+                LoaderError::PackageNotInstalled {
+                    prefix: "almadar-behaviors".to_string(),
+                },
+                "ORB_BEHAVIOR_PACKAGE_NOT_INSTALLED",
+            ),
+            (
+                LoaderError::BehaviorPackageNotInstalled {
+                    package: "@almadar/std".to_string(),
+                },
+                "ORB_BEHAVIOR_PACKAGE_NOT_INSTALLED",
+            ),
+            (
+                LoaderError::BehaviorNotFound {
+                    name: "rpg-hero".to_string(),
+                    searched: vec!["@almadar/std@16.223.0".to_string()],
+                },
+                "ORB_BEHAVIOR_NOT_FOUND",
+            ),
+            (
+                LoaderError::BehaviorAmbiguous {
+                    name: "rpg-hero".to_string(),
+                    package_a: "pkg-a".to_string(),
+                    package_b: "pkg-b".to_string(),
+                },
+                "ORB_BEHAVIOR_AMBIGUOUS",
+            ),
+            (
+                LoaderError::PrefixConflict {
+                    prefix: "shared".to_string(),
+                    package_a: "pkg-a".to_string(),
+                    path_a: PathBuf::from("/a"),
+                    package_b: "pkg-b".to_string(),
+                    path_b: PathBuf::from("/b"),
+                },
+                "ORB_BEHAVIOR_PREFIX_CONFLICT",
+            ),
+        ];
+        for (loader_err, expected) in cases {
+            let err = InlineError::Loader(loader_err);
+            assert_eq!(err.structured_code(), expected);
+        }
     }
 
     // ------------------------------------------------------------------

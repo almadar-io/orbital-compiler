@@ -169,6 +169,13 @@ pub struct ValidationContext {
     /// contracts), loaded from services-registry.json for call-service
     /// validation — one struct so the two can never drift.
     pub service_registry: crate::embedded::ServiceRegistryData,
+    /// Installed behavior packages (discovered node-style, same set
+    /// `CompilerOptions`/`LoaderConfig` carry). Behavior packages are
+    /// installed, not baked (Almadar_Behavior_Packages.md Phase 2) — a
+    /// validator that needs to read a std/io `.orb`'s content (e.g. the
+    /// scope-boundary check's std-emits lookup) resolves it against this
+    /// list rather than an embedded registry.
+    pub packages: Vec<orbital_core::behavior_packages::BehaviorPackage>,
 }
 
 /// Domain type for context-aware validation
@@ -196,6 +203,7 @@ impl Default for ValidationContext {
             page_init_payloads: std::collections::HashMap::new(),
             extra_patterns: None,
             service_registry: crate::embedded::ServiceRegistryData::default(),
+            packages: Vec::new(),
         }
     }
 }
@@ -428,10 +436,14 @@ pub fn validate_comprehensive_with_options(
         extra_patterns,
         schema_language,
         crate::embedded::ServiceRegistryData::default(),
+        Vec::new(),
     )
 }
 
-/// Run comprehensive validation with all options including service action registry.
+/// Run comprehensive validation with all options including service action
+/// registry and installed behavior packages (see `ValidationContext::
+/// packages`; empty when the caller has none discovered — validators that
+/// consult it are best-effort and skip silently on an empty list).
 // `validate_comprehensive_full_with_phase_f` (the `phase_f_strict: bool`
 // toggle) was removed 2026-09-02 along with the legacy `warning()` severity
 // alias: the toggle only selected between two spellings of the same blocking
@@ -441,11 +453,13 @@ pub fn validate_comprehensive_full(
     extra_patterns: Option<ExtraPatterns>,
     schema_language: SchemaLanguage,
     service_registry: crate::embedded::ServiceRegistryData,
+    packages: Vec<orbital_core::behavior_packages::BehaviorPackage>,
 ) -> ValidationResult {
     let mut ctx = ValidationContext::new();
     ctx.extra_patterns = extra_patterns;
     ctx.schema_language = schema_language;
     ctx.service_registry = service_registry;
+    ctx.packages = packages;
 
     // Detect domain from schema metadata or orbital context
     if let Some(orbitals) = schema.orbitals.first() {

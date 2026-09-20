@@ -1,5 +1,6 @@
 use super::collect_all_traits;
 use crate::phases::validation::{ErrorCode, ValidationError, ValidationResult};
+use orbital_core::behavior_packages::BehaviorPackage;
 use orbital_core::schema::{EmitDefinition, EventScope, OrbitalSchema, TraitReference};
 use std::collections::HashMap;
 
@@ -22,8 +23,12 @@ use std::collections::HashMap;
 ///     hand-inlined it), we consult its `emits[]` and warn on internal-scoped
 ///     overrides.
 ///   * When the reference targets a std behavior (`from: "std/behaviors/..."`)
-///     we parse the embedded .orb registry to read the imported trait's
-///     `emits[]`. This covers the most common composition path.
+///     we resolve it against the discovered `@almadar/std` package's
+///     registry (`packages`, the same list `CompilerOptions`/`LoaderConfig`
+///     carry) and parse the `.orb` file to read the imported trait's
+///     `emits[]`. This covers the most common composition path. With no
+///     `almadar-std` package in `packages`, this source is unavailable and
+///     the reference is skipped — best-effort, never an error on its own.
 ///   * When neither applies (an external .orb file that hasn't been loaded by
 ///     the time this validator runs, e.g. pre-inline CLI validation of a
 ///     workspace-local import), we skip the check. A future phase that wires
@@ -32,7 +37,10 @@ use std::collections::HashMap;
 /// Severity: warning. The plan graduates this to an error after Phase 4 once
 /// every atom declares its `scope` explicitly
 /// (see `docs/Almadar_Agent_Behaviors_Plan.md`).
-pub(crate) fn validate_scope_boundary(schema: &OrbitalSchema) -> ValidationResult {
+pub(crate) fn validate_scope_boundary(
+    schema: &OrbitalSchema,
+    packages: &[BehaviorPackage],
+) -> ValidationResult {
     let mut result = ValidationResult::new();
 
     // Build a fast trait lookup: trait name -> its emits[] (if any). This
@@ -46,11 +54,13 @@ pub(crate) fn validate_scope_boundary(schema: &OrbitalSchema) -> ValidationResul
         }
     }
 
-    // Cache embedded std-behavior parses keyed by source path. The same
+    // Cache std-behavior parses keyed by source path. The same
     // `std/behaviors/X` content was previously re-parsed for every trait
     // reference into it; parse each distinct behavior at most once per run.
-    // `None` records a parse failure so we don't retry it.
+    // `None` records a parse failure (or a missing/unresolvable std package)
+    // so we don't retry it.
     let mut parsed_std_cache: HashMap<&str, Option<OrbitalSchema>> = HashMap::new();
+    let std_package = packages.iter().find(|p| p.prefix == "almadar-std");
 
     for (oi, orbital) in schema.orbitals.iter().enumerate() {
         // Build alias -> source path map from `uses:` so we can try to
@@ -104,26 +114,31 @@ pub(crate) fn validate_scope_boundary(schema: &OrbitalSchema) -> ValidationResul
             {
                 emits
             } else if let Some(src) = alias_source.get(alias) {
-                // Attempt to resolve std-behavior content. Other
-                // sources (local .orb paths) aren't loaded here —
-                // skip silently. The parsed schema is cached per src so
-                // repeated references don't re-parse the same content.
-                if crate::embedded::get_std_behavior_content(src).is_some() {
-                    let parsed = parsed_std_cache.entry(*src).or_insert_with(|| {
-                        crate::embedded::get_std_behavior_content(src)
-                            .and_then(|content| serde_json::from_str::<OrbitalSchema>(content).ok())
-                    });
-                    owned_holder = parsed
-                        .as_ref()
-                        .and_then(|schema| emits_for_trait(schema, target_trait_name));
-                    match &owned_holder {
-                        Some(e) => e,
-                        // Target trait found but has no emits[] —
-                        // nothing internal to guard against.
-                        None => continue,
-                    }
-                } else {
+                // Attempt to resolve std-behavior content against the
+                // discovered `@almadar/std` package's registry. Other
+                // sources (local .orb paths, non-std packages) aren't
+                // loaded here — skip silently. The parsed schema is cached
+                // per src so repeated references don't re-parse the same
+                // content.
+                let Some(behavior_name) = src.strip_prefix("std/behaviors/") else {
                     continue;
+                };
+                let Some(std_pkg) = std_package else {
+                    continue;
+                };
+                let parsed = parsed_std_cache.entry(*src).or_insert_with(|| {
+                    crate::loader::resolve_behavior_in_registry(behavior_name, &std_pkg.registry)
+                        .and_then(|path| std::fs::read_to_string(path).ok())
+                        .and_then(|content| serde_json::from_str::<OrbitalSchema>(&content).ok())
+                });
+                owned_holder = parsed
+                    .as_ref()
+                    .and_then(|schema| emits_for_trait(schema, target_trait_name));
+                match &owned_holder {
+                    Some(e) => e,
+                    // Target trait found but has no emits[] —
+                    // nothing internal to guard against.
+                    None => continue,
                 }
             } else {
                 // No `uses:` entry for the alias and not in-schema —
@@ -375,7 +390,7 @@ mod tests {
     #[test]
     fn test_scope_boundary_external_ok() {
         let schema = build_scope_boundary_fixture(EventScope::External);
-        let result = validate_scope_boundary(&schema);
+        let result = validate_scope_boundary(&schema, &[]);
         assert!(
             !result
                 .errors
@@ -392,7 +407,7 @@ mod tests {
     #[test]
     fn test_scope_boundary_internal_warns() {
         let schema = build_scope_boundary_fixture(EventScope::Internal);
-        let result = validate_scope_boundary(&schema);
+        let result = validate_scope_boundary(&schema, &[]);
         let hits: Vec<_> = result
             .errors
             .iter()
@@ -421,7 +436,7 @@ mod tests {
             *events = None;
             *listens = None;
         }
-        let result = validate_scope_boundary(&schema);
+        let result = validate_scope_boundary(&schema, &[]);
         assert!(
             result.errors.is_empty(),
             "References without overrides must be silent. Warnings: {:?}",

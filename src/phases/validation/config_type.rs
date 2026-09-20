@@ -1665,10 +1665,14 @@ fn trait_config_declares_forward(config: &HashMap<String, ConfigField>) -> bool 
 /// traits are exactly this, `wiring-lint.ts` L774-780), so only the
 /// forward-declaring class is a real defect. JS twin:
 /// `embedded-sibling-single-referrer`.
-fn validate_embed_config_forward_multi_referrer(schema: &OrbitalSchema, result: &mut ValidationResult) {
+fn validate_embed_config_forward_multi_referrer(
+    schema: &OrbitalSchema,
+    result: &mut ValidationResult,
+) {
     for orbital in &schema.orbitals {
         let graph = crate::phases::embed_graph::EmbedGraph::build(&orbital.traits);
-        let declared: HashMap<&str, &HashMap<String, ConfigField>> = graph.declared_iter().collect();
+        let declared: HashMap<&str, &HashMap<String, ConfigField>> =
+            graph.declared_iter().collect();
         for (child, referrers) in graph.referrers_iter() {
             if referrers.len() < 2 {
                 continue;

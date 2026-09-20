@@ -522,13 +522,19 @@ mod tests {
             "Feed embeds Stack8 only via a render-ui effect, not config — config-only view must not see it"
         );
         assert!(
-            full_forward.get("Feed").is_some_and(|c| c.contains("Stack8")),
+            full_forward
+                .get("Feed")
+                .is_some_and(|c| c.contains("Stack8")),
             "the full view must still see Feed -> Stack8"
         );
 
-        let stack8_children = config_forward.get("Stack8").expect("Stack8 has a config-default child");
+        let stack8_children = config_forward
+            .get("Stack8")
+            .expect("Stack8 has a config-default child");
         assert!(stack8_children.contains("Stack5"));
-        let stack5_children = config_forward.get("Stack5").expect("Stack5 has a config-default child");
+        let stack5_children = config_forward
+            .get("Stack5")
+            .expect("Stack5 has a config-default child");
         assert!(stack5_children.contains("Typography4"));
     }
 
@@ -597,8 +603,10 @@ mod tests {
 
     #[test]
     fn client_bound_traits_empty_when_page_declares_none() {
-        let orbital =
-            orbital_with_pages(timeline_shaped_traits(), json!([{ "name": "Home", "path": "/" }]));
+        let orbital = orbital_with_pages(
+            timeline_shaped_traits(),
+            json!([{ "name": "Home", "path": "/" }]),
+        );
         assert!(client_bound_traits(&orbital).is_empty());
     }
 

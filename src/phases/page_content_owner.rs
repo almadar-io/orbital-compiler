@@ -59,7 +59,10 @@ pub(crate) enum PageContentOwner {
 /// coercion runs. The `Bool(false)` arm is the one that actually fires for
 /// AssetDriveLink et al., and generalizes correctly beyond trait knobs: a
 /// literal-false condition means `then` is unreachable dead code, full stop.
-fn writes_content_main(effects: Option<&[SExpression]>, unbound_trait_knobs: &HashSet<&str>) -> bool {
+fn writes_content_main(
+    effects: Option<&[SExpression]>,
+    unbound_trait_knobs: &HashSet<&str>,
+) -> bool {
     fn scan(node: &SExpression, unbound_trait_knobs: &HashSet<&str>) -> bool {
         if let SExpression::Array(arr) = node {
             if let [SExpression::String(op), cond, _then_branch, rest @ ..] = arr.as_slice() {
@@ -110,7 +113,9 @@ pub(crate) fn is_content_main_writer(trait_def: &TraitDefinition) -> bool {
         .map(|config| {
             config
                 .iter()
-                .filter(|(_, cf)| cf.field_type == "trait" && matches!(cf.default, Some(SExpression::Null)))
+                .filter(|(_, cf)| {
+                    cf.field_type == "trait" && matches!(cf.default, Some(SExpression::Null))
+                })
                 .map(|(name, _)| name.as_str())
                 .collect()
         })
@@ -259,7 +264,8 @@ pub(crate) fn resolve_page_content_owner(
         if let Some(targets) = channel_adjacency.get(from.as_str()) {
             for target in targets {
                 if let Some(trait_def) = traits.get(*target) {
-                    if is_content_main_writer(trait_def) && channel_seen.insert(target.to_string()) {
+                    if is_content_main_writer(trait_def) && channel_seen.insert(target.to_string())
+                    {
                         channel.push(target.to_string());
                     }
                 }
@@ -342,7 +348,9 @@ mod tests {
             }
         });
         if let Some(cfg) = config {
-            obj.as_object_mut().unwrap().insert("config".to_string(), cfg);
+            obj.as_object_mut()
+                .unwrap()
+                .insert("config".to_string(), cfg);
         }
         trait_def(obj)
     }
@@ -361,12 +369,11 @@ mod tests {
     /// Build both adjacency views from the SAME set of trait definitions, as
     /// `orbital.traits` inline entries — matches how the real caller (an
     /// `EmbedGraph` built over `orbital.traits`) supplies them.
-    fn adjacencies_of(traits: &[TraitDefinition]) -> (EmbedAdjacency<'static>, EmbedAdjacency<'static>) {
-        let refs: Vec<TraitReference> = traits
-            .iter()
-            .cloned()
-            .map(TraitReference::Inline)
-            .collect();
+    fn adjacencies_of(
+        traits: &[TraitDefinition],
+    ) -> (EmbedAdjacency<'static>, EmbedAdjacency<'static>) {
+        let refs: Vec<TraitReference> =
+            traits.iter().cloned().map(TraitReference::Inline).collect();
         let orbital = Box::leak(Box::new(Orbital {
             types: None,
             name: "O".to_string(),
@@ -515,8 +522,14 @@ mod tests {
 
     #[test]
     fn prefers_the_channel_the_shell_designating_a_body_through_config() {
-        let shell = chrome_trait("AppLayout", Some(trait_ref_config("contentTrait", "Catalog")));
-        let owner = resolve(vec![shell, list_trait("Catalog")], &page_of(&["AppLayout", "Catalog"]));
+        let shell = chrome_trait(
+            "AppLayout",
+            Some(trait_ref_config("contentTrait", "Catalog")),
+        );
+        let owner = resolve(
+            vec![shell, list_trait("Catalog")],
+            &page_of(&["AppLayout", "Catalog"]),
+        );
         assert_eq!(owner, PageContentOwner::Channel("Catalog".to_string()));
     }
 
@@ -549,15 +562,18 @@ mod tests {
 
     #[test]
     fn reports_none_for_a_page_with_no_declared_traits() {
-        let page: PageDefinition = serde_json::from_value(json!({ "name": "P", "path": "/p", "traits": [] }))
-            .unwrap();
+        let page: PageDefinition =
+            serde_json::from_value(json!({ "name": "P", "path": "/p", "traits": [] })).unwrap();
         let owner = resolve(vec![list_trait("Catalog")], &page);
         assert_eq!(owner, PageContentOwner::None);
     }
 
     #[test]
     fn follows_the_channel_transitively_through_a_wrapper() {
-        let shell = chrome_trait("AppLayout", Some(trait_ref_config("contentTrait", "Wrapper")));
+        let shell = chrome_trait(
+            "AppLayout",
+            Some(trait_ref_config("contentTrait", "Wrapper")),
+        );
         let wrapper = chrome_trait("Wrapper", Some(trait_ref_config("body", "Catalog")));
         let owner = resolve(
             vec![shell, wrapper, list_trait("Catalog")],

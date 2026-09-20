@@ -214,16 +214,15 @@ pub(crate) fn validate_page_reachability(schema: &OrbitalSchema) -> ValidationRe
     // - runtime path: `packages/almadar-runtime/src/resolver/schema-to-ir.ts:581`
     //   (`getPage` with no name falls back to `pages[0]`/the first entry of
     //   the `ir.pages` map, built in the same declaration order).
-    let boot_position: Option<(usize, usize)> = schema.orbitals.iter().enumerate().find_map(
-        |(i, orbital)| {
+    let boot_position: Option<(usize, usize)> =
+        schema.orbitals.iter().enumerate().find_map(|(i, orbital)| {
             orbital
                 .pages
                 .iter()
                 .flatten()
                 .position(|p| p.as_inline().is_some())
                 .map(|j| (i, j))
-        },
-    );
+        });
 
     let signals = collect_reachability_signals(schema);
 
@@ -238,8 +237,7 @@ pub(crate) fn validate_page_reachability(schema: &OrbitalSchema) -> ValidationRe
             if page.path.split('/').any(|segment| segment.starts_with(':')) {
                 continue;
             }
-            if signals.hrefs.contains(&page.path) || signals.navigate_targets.contains(&page.path)
-            {
+            if signals.hrefs.contains(&page.path) || signals.navigate_targets.contains(&page.path) {
                 continue;
             }
             let reached_by_dynamic_prefix = signals
@@ -784,6 +782,7 @@ mod tests {
             None,
             crate::phases::validation::SchemaLanguage::English,
             crate::embedded::ServiceRegistryData::default(),
+            Vec::new(),
         )
         .errors
         .into_iter()
@@ -850,7 +849,10 @@ mod tests {
     // navigate-effect target) the generalisation adds.
     // ------------------------------------------------------------------
 
-    fn schema_for_reachability(traits: serde_json::Value, pages: serde_json::Value) -> OrbitalSchema {
+    fn schema_for_reachability(
+        traits: serde_json::Value,
+        pages: serde_json::Value,
+    ) -> OrbitalSchema {
         serde_json::from_value(serde_json::json!({
             "name": "test-page-reachability",
             "version": "1.0.0",
@@ -901,7 +903,10 @@ mod tests {
     fn fires_for_a_page_reachable_by_no_link_navitem_or_navigate_target() {
         let schema = schema_for_reachability(
             layout_trait_with_nav_href_array(&["/dashboard"]),
-            serde_json::json!([page("DashboardPage", "/dashboard"), page("StaffPage", "/staff")]),
+            serde_json::json!([
+                page("DashboardPage", "/dashboard"),
+                page("StaffPage", "/staff")
+            ]),
         );
         let messages = reachability_messages(&schema);
         assert_eq!(messages.len(), 1, "{:?}", messages);
@@ -912,7 +917,10 @@ mod tests {
     fn silent_once_the_page_has_an_entry_in_a_navitems_array() {
         let schema = schema_for_reachability(
             layout_trait_with_nav_href_array(&["/dashboard", "/staff"]),
-            serde_json::json!([page("DashboardPage", "/dashboard"), page("StaffPage", "/staff")]),
+            serde_json::json!([
+                page("DashboardPage", "/dashboard"),
+                page("StaffPage", "/staff")
+            ]),
         );
         assert_eq!(reachability_messages(&schema), Vec::<String>::new());
     }
@@ -921,7 +929,10 @@ mod tests {
     fn does_not_flag_a_parameterized_detail_page() {
         let schema = schema_for_reachability(
             layout_trait_with_nav_href_array(&["/staff"]),
-            serde_json::json!([page("StaffPage", "/staff"), page("StaffDetailPage", "/staff/:id")]),
+            serde_json::json!([
+                page("StaffPage", "/staff"),
+                page("StaffDetailPage", "/staff/:id")
+            ]),
         );
         assert_eq!(reachability_messages(&schema), Vec::<String>::new());
     }

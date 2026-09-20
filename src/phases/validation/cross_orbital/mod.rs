@@ -21,8 +21,7 @@ pub(crate) use cycles::validate_circular_dependencies;
 pub(crate) use entity::validate_entity_uniqueness;
 pub(crate) use event_wiring::{
     collect_async_result_events, collect_effect_produced_events, collect_failure_events,
-    extract_emit_event, transition_can_propagate,
-    validate_event_wiring,
+    extract_emit_event, transition_can_propagate, validate_event_wiring,
 };
 pub(crate) use filter_field_written::validate_filter_field_never_written;
 pub(crate) use listen_starvation::validate_listen_route_starves_required_field;
@@ -87,7 +86,7 @@ pub fn validate_cross_orbital(schema: &OrbitalSchema, ctx: &mut ValidationContex
 
     // COMP-7: validate that cross-trait override wires only touch emits
     // declared `scope: 'external'`. Error severity.
-    result.merge(validate_scope_boundary(schema));
+    result.merge(validate_scope_boundary(schema, &ctx.packages));
 
     // COMP-9: validate that every `type: 'relation'` field's target entity
     // resolves to an entity declared in the same schema. Error severity; the

@@ -507,7 +507,9 @@ fn validate_unbound_trait_knob_embeds(trait_def: &TraitDefinition, path: &str) -
         .map(|config| {
             config
                 .iter()
-                .filter(|(_, cf)| cf.field_type == "trait" && matches!(cf.default, Some(SExpression::Null)))
+                .filter(|(_, cf)| {
+                    cf.field_type == "trait" && matches!(cf.default, Some(SExpression::Null))
+                })
                 .map(|(name, _)| name.as_str())
                 .collect()
         })
@@ -597,7 +599,12 @@ fn validate_unbound_trait_knob_embeds(trait_def: &TraitDefinition, path: &str) -
             }
             SExpression::Array(arr) => {
                 for item in arr {
-                    check_render_payload_for_unbound_embeds(item, unbound_knobs, effect_path, result);
+                    check_render_payload_for_unbound_embeds(
+                        item,
+                        unbound_knobs,
+                        effect_path,
+                        result,
+                    );
                 }
             }
             SExpression::Object(obj) => {
@@ -614,10 +621,7 @@ fn validate_unbound_trait_knob_embeds(trait_def: &TraitDefinition, path: &str) -
             continue;
         };
         for (j, effect) in effects.iter().enumerate() {
-            let effect_path = format!(
-                "{}.stateMachine.transitions[{}].effects[{}]",
-                path, i, j
-            );
+            let effect_path = format!("{}.stateMachine.transitions[{}].effects[{}]", path, i, j);
             walk(effect, &unbound_knobs, &effect_path, &mut result);
         }
     }
@@ -1286,7 +1290,12 @@ mod tests {
         }
 
         fn obj(pairs: &[(&str, SExpression)]) -> SExpression {
-            SExpression::Object(pairs.iter().map(|(k, v)| (k.to_string(), v.clone())).collect())
+            SExpression::Object(
+                pairs
+                    .iter()
+                    .map(|(k, v)| (k.to_string(), v.clone()))
+                    .collect(),
+            )
         }
 
         fn trait_typed_config_field(default: SExpression) -> ConfigField {
@@ -1359,11 +1368,8 @@ mod tests {
         /// in the same effect list, is the sanctioned guard — silent.
         #[test]
         fn guarded_embed_of_unbound_knob_is_silent() {
-            let guarded = SExpression::Array(vec![
-                s("if"),
-                s("@config.uiTrait"),
-                uitrait_render_effect(),
-            ]);
+            let guarded =
+                SExpression::Array(vec![s("if"), s("@config.uiTrait"), uitrait_render_effect()]);
             let trait_def = trait_with_uitrait(SExpression::Null, guarded);
             let result = validate_trait_definition(&trait_def, "test", &HashSet::new());
             assert!(

@@ -405,8 +405,14 @@ mod tests {
 
     #[test]
     fn has_namespace_hit_matches_exact_basename_across_namespaces() {
-        assert!(has_namespace_hit("join"), "expected 'join' to hit 'str/join'");
-        assert!(has_namespace_hit("camelCase"), "expected 'camelCase' to hit 'str/camelCase'");
+        assert!(
+            has_namespace_hit("join"),
+            "expected 'join' to hit 'str/join'"
+        );
+        assert!(
+            has_namespace_hit("camelCase"),
+            "expected 'camelCase' to hit 'str/camelCase'"
+        );
         assert!(!has_namespace_hit("totally-not-an-operator"));
     }
 }

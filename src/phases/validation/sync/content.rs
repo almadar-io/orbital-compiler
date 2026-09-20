@@ -67,7 +67,12 @@ mod tests {
     use super::*;
 
     fn obj(pairs: &[(&str, SExpression)]) -> SExpression {
-        SExpression::Object(pairs.iter().map(|(k, v)| (k.to_string(), v.clone())).collect())
+        SExpression::Object(
+            pairs
+                .iter()
+                .map(|(k, v)| (k.to_string(), v.clone()))
+                .collect(),
+        )
     }
 
     #[test]
@@ -83,7 +88,9 @@ mod tests {
 
     #[test]
     fn content_body_pattern_true_for_string_payload() {
-        assert!(is_content_body_pattern(&SExpression::String("@trait.X".to_string())));
+        assert!(is_content_body_pattern(&SExpression::String(
+            "@trait.X".to_string()
+        )));
     }
 
     #[test]
@@ -112,7 +119,10 @@ mod tests {
                 SExpression::String((*slot).to_string()),
                 SExpression::Null,
             ]);
-            assert!(is_main_slot_render_ui(&effect), "slot {slot} should count as main");
+            assert!(
+                is_main_slot_render_ui(&effect),
+                "slot {slot} should count as main"
+            );
         }
     }
 

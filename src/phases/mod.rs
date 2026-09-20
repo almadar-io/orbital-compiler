@@ -48,7 +48,6 @@ use crate::composition::ComposeError;
 use orbital_core::ir::OirModule;
 use orbital_core::schema::OrbitalSchema;
 use std::path::Path;
-use std::path::PathBuf;
 use thiserror::Error;
 
 /// Compiler error
@@ -77,7 +76,10 @@ pub enum CompilerError {
 pub type CompileResult<T> = Result<T, CompilerError>;
 
 /// Compiler options
-#[derive(Debug, Clone, Default)]
+// `Clone` dropped: `discovery_error` carries `orbital_core::behavior_packages::
+// DiscoverError`, which is not `Clone` (its `Io` variant wraps `std::io::Error`)
+// — verified zero call sites clone a `CompilerOptions` today.
+#[derive(Debug, Default)]
 pub struct CompilerOptions {
     /// Skip validation phase
     pub skip_validation: bool,
@@ -97,115 +99,44 @@ pub struct CompilerOptions {
     pub nominalize: bool,
     /// Verbose output
     pub verbose: bool,
+    /// Set when behavior-package discovery (`orbital_core::behavior_packages::
+    /// discover`, run from the process cwd) failed — a `PrefixConflict` or a
+    /// malformed installed package. `packages` is then empty, which callers
+    /// must not silently treat as "no packages installed": `orb validate` /
+    /// `compile` report this before parsing, as validator infrastructure, not
+    /// a schema authoring error.
+    pub discovery_error: Option<orbital_core::behavior_packages::DiscoverError>,
 }
 
 impl CompilerOptions {
-    /// Build options with dev-workspace loader settings from environment
-    /// variables. When `ALMADAR_DEV` is set (any non-empty value other than
-    /// `0`), `std/behaviors/<name>` imports resolve against the local
-    /// workspace registry BEFORE the embedded baked registry, so behavior
-    /// edits take effect without rebuilding + rebaking the `orb` binary.
-    ///
-    /// Registry roots are populated from:
-    ///   1. `ALMADAR_WORKSPACE` (explicit `<repo>/packages` parent) if set, or
-    ///   2. auto-discovery from each schema's source path at inline time
-    ///      (the existing `discover_registry_roots` path, unchanged).
-    ///
-    /// Explicit per-package env overrides take precedence when present:
-    ///   - `ALMADAR_STD_REGISTRY`        → packages/almadar-std/behaviors/registry
-    ///   - `ALMADAR_BEHAVIORS_REGISTRY`  → packages/almadar-behaviors/behaviors/registry
-    ///
-    /// Production binaries ignore all of these (env unset → embedded baked
-    /// registry is authoritative, as before). Rebaking (`make sync && make
-    /// release install`) only needs to run for `cascade --publish`.
+    /// Discover installed behavior packages node-style from the process
+    /// working directory (`orbital_core::behavior_packages::discover`) and
+    /// wire them into the loader config both phases share. No environment
+    /// variables — the prior dev-mode toggles are retired
+    /// (Almadar_Behavior_Packages.md Phase 1) — a workspace-linked
+    /// `node_modules` (or `~/.orb` with none above cwd) already puts the
+    /// live package sources on the walk.
     pub fn from_env() -> Self {
-        let mut opts = Self::default();
-        // `ORBITAL_NOMINALIZE=1` opts into the Phase-3D nominalization pass
-        // independent of dev mode — it changes codegen output for every
-        // shell, so it is never implied by ALMADAR_DEV.
-        opts.nominalize = std::env::var("ORBITAL_NOMINALIZE")
+        // `ORBITAL_NOMINALIZE=1` opts into the Phase-3D nominalization pass —
+        // it changes codegen output for every shell, so it stays a dedicated
+        // toggle rather than folding into package discovery.
+        let nominalize = std::env::var("ORBITAL_NOMINALIZE")
             .map(|v| v == "1" || v == "true")
             .unwrap_or(false);
-        // Dev mode is ON when:
-        //   - ALMADAR_DEV is set to a truthy value, OR
-        //   - ALMADAR_ROOT is set AND the workspace registry dirs exist under
-        //     it (auto-on whenever you're inside the Almadar workspace, so
-        //     `orb` reads live behavior sources without a rebuild + rebake).
-        //   - ALMADAR_DEV=0 forces it OFF (to exercise the published-binary
-        //     baked-registry path).
-        let dev_on = match std::env::var("ALMADAR_DEV") {
-            Ok(v) => !v.is_empty() && v != "0",
-            Err(_) => {
-                // Auto-enable when ALMADAR_ROOT points at a workspace that
-                // has the behavior registry directories on disk.
-                std::env::var("ALMADAR_ROOT")
-                    .ok()
-                    .map(|root| {
-                        PathBuf::from(&root)
-                            .join("packages/almadar-std/behaviors/registry")
-                            .is_dir()
-                            || PathBuf::from(&root)
-                                .join("packages/almadar-behaviors/behaviors/registry")
-                                .is_dir()
-                    })
-                    .unwrap_or(false)
-            }
+        let mut opts = Self {
+            nominalize,
+            ..Self::default()
         };
-        if !dev_on {
-            return opts;
-        }
-        opts.inline.loader_config.dev_workspace = true;
 
-        // Per-package explicit overrides win.
-        if let Ok(p) = std::env::var("ALMADAR_STD_REGISTRY") {
-            let root = PathBuf::from(p);
-            if root.is_dir() {
-                opts.inline
-                    .loader_config
-                    .behaviors_registry_roots
-                    .insert("almadar-std".to_string(), root);
-            }
-        }
-        if let Ok(p) = std::env::var("ALMADAR_BEHAVIORS_REGISTRY") {
-            let root = PathBuf::from(p);
-            if root.is_dir() {
-                opts.inline
-                    .loader_config
-                    .behaviors_registry_roots
-                    .insert("almadar-behaviors".to_string(), root);
-            }
-        }
-        // If no explicit roots yet, seed from ALMADAR_WORKSPACE or the
-        // already-set ALMADAR_ROOT (the repo root). Otherwise leave roots
-        // empty so `inline_schema`'s source-path auto-discovery fills them
-        // per file.
-        if opts
-            .inline
-            .loader_config
-            .behaviors_registry_roots
-            .is_empty()
-        {
-            let ws = std::env::var("ALMADAR_WORKSPACE")
-                .or_else(|_| std::env::var("ALMADAR_ROOT"))
-                .ok();
-            if let Some(ws) = ws {
-                let ws_path = PathBuf::from(ws);
-                for (scope, rel) in [
-                    ("almadar-std", "packages/almadar-std/behaviors/registry"),
-                    (
-                        "almadar-behaviors",
-                        "packages/almadar-behaviors/behaviors/registry",
-                    ),
-                ] {
-                    let root = ws_path.join(rel);
-                    if root.is_dir() {
-                        opts.inline
-                            .loader_config
-                            .behaviors_registry_roots
-                            .insert(scope.to_string(), root);
-                    }
-                }
-            }
+        let cwd = match std::env::current_dir() {
+            Ok(d) => d,
+            Err(_) => return opts,
+        };
+        let user_store =
+            orbital_core::behavior_packages::user_store_dir().unwrap_or_else(|| cwd.clone());
+        match orbital_core::behavior_packages::discover(&cwd, &user_store) {
+            Ok(packages) => opts.inline.loader_config.packages = packages,
+            Err(e) => opts.discovery_error = Some(e),
         }
         opts
     }
@@ -400,33 +331,48 @@ mod tests {
     }
 
     // Wave-8: the wasm mount resolves its schema through `resolve_schema_with_path(.., None)`
-    // and relies on std peers resolving from the embedded `phf` (no filesystem source path).
-    // std-export `uses` Button1/DataList1/Popover1 as `TraitReference::Reference`; after resolve
-    // with `source_path=None` every one must become `TraitReference::Inline`.
+    // and relies on std peers resolving from the installed `@almadar/std` package (no
+    // filesystem source path). std-export `uses` a handful of atoms as
+    // `TraitReference::Reference`; after resolve with `source_path=None` every one must
+    // become `TraitReference::Inline`.
     #[test]
-    fn resolves_embedded_std_uses_with_no_source_path() {
+    fn resolves_installed_std_uses_with_no_source_path() {
         use orbital_core::schema::TraitReference;
+        use std::path::Path;
 
-        let json = crate::embedded::get_std_behavior_content("std/behaviors/std-export")
-            .expect("std-export must be embedded");
-        let schema = parse_json(json).expect("parse std-export");
+        let orb_path = orbital_test_support::installed_std_orb(
+            Path::new(env!("CARGO_MANIFEST_DIR")),
+            "std-export",
+        );
+        let json = std::fs::read_to_string(&orb_path).expect("read std-export.orb");
+        let schema = parse_json(&json).expect("parse std-export");
 
-        // Pre-condition: the three peers are unresolved References before inline.
+        // Pre-condition: the peers are unresolved References before inline.
         let orbital = &schema.orbitals[0];
         let refs_before = orbital
             .traits
             .iter()
             .filter(|t| matches!(t, TraitReference::Reference { .. }))
             .count();
-        // The baked std-export's peer count drifts across registry bakes
-        // (was 3, now 2); one unresolved Reference is enough to exercise
+        // The installed std-export's peer count drifts across registry
+        // publishes; one unresolved Reference is enough to exercise
         // no-source-path resolution.
         assert!(
             refs_before >= 1,
             "expected >=1 unresolved ref, got {refs_before}"
         );
 
-        let options = CompilerOptions::default();
+        // Discover installed behavior packages from this crate's manifest
+        // dir (the monorepo workspace link), not the process cwd — mirrors
+        // `CompilerOptions::from_env` rooted at a stable path for tests.
+        let start = Path::new(env!("CARGO_MANIFEST_DIR"));
+        let user_store = orbital_core::behavior_packages::user_store_dir()
+            .unwrap_or_else(|| start.to_path_buf());
+        let packages = orbital_core::behavior_packages::discover(start, &user_store)
+            .expect("behavior package discovery failed");
+        let mut options = CompilerOptions::default();
+        options.inline.loader_config.packages = packages;
+
         let resolved = resolve_schema_with_path(schema, &options, None)
             .expect("resolve std-export with no source path");
 

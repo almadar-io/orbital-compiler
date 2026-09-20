@@ -167,12 +167,10 @@ fn nominalize_shape(fields: Vec<OirField>, hint: &str, ctx: &mut Ctx, kind: Shap
         } else {
             ctx.stats.reused_dedup += 1;
         }
-        return OirType::TypeRef {
-            name: prev.clone(),
-        };
+        return OirType::TypeRef { name: prev.clone() };
     }
-    let name_claimed = ctx.named_types.contains_key(&name)
-        || ctx.registrations.iter().any(|(n, _)| *n == name);
+    let name_claimed =
+        ctx.named_types.contains_key(&name) || ctx.registrations.iter().any(|(n, _)| *n == name);
     if name_claimed {
         // The positional name is taken by a DIFFERENT shape — the
         // recursive-alias namespace and earlier registrations are never
@@ -269,8 +267,6 @@ pub fn nominalize_module(module: &mut OirModule) -> NominalizeStats {
     }
 
     module.named_types = ctx.named_types;
-    module
-        .named_types
-        .extend(ctx.registrations.into_iter());
+    module.named_types.extend(ctx.registrations.into_iter());
     ctx.stats
 }

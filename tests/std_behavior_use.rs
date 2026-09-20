@@ -2,11 +2,14 @@
 //! reference overrides, with no `behavior/*` operator calls.
 //!
 //! This is the end-to-end proof that the principled Phase 3.5 model works:
-//! the embedded loader resolves `from: "std/behaviors/std-modal"` against the
-//! `EMBEDDED_STD_BEHAVIORS` map, and the inline phase substitutes the imported
-//! trait/page references with the embedded definitions while preserving the
-//! caller's `linkedEntity` and `path` overrides.
+//! the loader resolves `from: "std/behaviors/std-modal"` against the
+//! discovered `@almadar/std` package's registry (Phase 2, `docs/Almadar_
+//! Behavior_Packages.md` §10 — behaviors are installed, not baked), and the
+//! inline phase substitutes the imported trait/page references with the
+//! installed definitions while preserving the caller's `linkedEntity` and
+//! `path` overrides.
 
+use orbital_compiler::loader::LoaderConfig;
 use orbital_compiler::phases::inline::{
     inline_schema, inline_schema_with_config_diagnostics, InlineConfig, InlineError,
 };
@@ -16,6 +19,31 @@ use orbital_compiler::phases::validation::trait_ref_config::validate_trait_ref_c
 use orbital_compiler::{compile_file, CompilerError, CompilerOptions};
 use orbital_core::{EntityRef, PageRef, TraitReference};
 use std::path::PathBuf;
+
+/// Installed behavior packages discovered from this crate's manifest dir
+/// (the monorepo workspace link), never the process cwd — every fixture in
+/// this file `uses` std behaviors, and Phase 2 (`docs/Almadar_Behavior_
+/// Packages.md` §10) removed the embedded std fallback the default
+/// `InlineConfig`/`CompilerOptions` used to resolve through.
+fn discovered_packages() -> Vec<orbital_core::behavior_packages::BehaviorPackage> {
+    let start = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+    let user_store =
+        orbital_core::behavior_packages::user_store_dir().unwrap_or_else(|| start.clone());
+    orbital_core::behavior_packages::discover(&start, &user_store)
+        .expect("behavior package discovery failed")
+}
+
+/// `InlineConfig::default()` with the real installed std (and any sibling
+/// packages) wired in, so `uses: { from: "std/behaviors/..." }` resolves.
+fn std_inline_config() -> InlineConfig {
+    InlineConfig {
+        loader_config: LoaderConfig {
+            packages: discovered_packages(),
+            ..Default::default()
+        },
+        ..Default::default()
+    }
+}
 
 fn fixture_path() -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR"))
@@ -132,7 +160,7 @@ fn shopping_cart_parses_and_inlines_std_modal() {
     // Run inline phase. Default LoaderConfig is fine because the embedded
     // branch in ExternalOrbitalLoader will handle "std/behaviors/std-modal"
     // before any filesystem fallback runs.
-    let config = InlineConfig::default();
+    let config = std_inline_config();
     let result = inline_schema(&mut schema, &config, Some(&path));
     assert!(result.is_ok(), "inline failed: {:?}", result.err());
 }
@@ -142,7 +170,7 @@ fn shopping_cart_keeps_user_entity_after_inline() {
     let path = fixture_path();
     let mut schema = parse_file(&path).expect("fixture must parse");
 
-    let config = InlineConfig::default();
+    let config = std_inline_config();
     inline_schema(&mut schema, &config, Some(&path)).expect("inline must succeed");
 
     // The user declared `ShoppingCart` literally in the orbital, so the
@@ -168,7 +196,7 @@ fn shopping_cart_inlines_modal_trait_with_linked_entity_override() {
     let path = fixture_path();
     let mut schema = parse_file(&path).expect("fixture must parse");
 
-    let config = InlineConfig::default();
+    let config = std_inline_config();
     inline_schema(&mut schema, &config, Some(&path)).expect("inline must succeed");
 
     // Phase 3.5.G.A.1 fixed the inliner to push a single merged
@@ -218,7 +246,7 @@ fn shopping_cart_inlines_modal_page_with_path_override() {
     let path = fixture_path();
     let mut schema = parse_file(&path).expect("fixture must parse");
 
-    let config = InlineConfig::default();
+    let config = std_inline_config();
     inline_schema(&mut schema, &config, Some(&path)).expect("inline must succeed");
 
     // After inlining, the page reference `Modal.pages.ModalRecordModalPage`
@@ -264,6 +292,7 @@ fn lowered_oir_options() -> CompilerOptions {
     CompilerOptions {
         skip_validation: true,
         comprehensive_validation: false,
+        inline: std_inline_config(),
         ..Default::default()
     }
 }
@@ -438,7 +467,7 @@ fn button_config_ref_events_rename_of_truly_unknown_key_diagnoses_without_abort(
     let mut diagnostics = Vec::new();
     inline_schema_with_config_diagnostics(
         &mut schema,
-        &InlineConfig::default(),
+        &std_inline_config(),
         Some(&path),
         &mut diagnostics,
     )
@@ -488,7 +517,7 @@ fn bad_event_rename_does_not_uninline_sibling_orbitals() {
     let mut diagnostics = Vec::new();
     inline_schema_with_config_diagnostics(
         &mut schema,
-        &InlineConfig::default(),
+        &std_inline_config(),
         Some(&path),
         &mut diagnostics,
     )

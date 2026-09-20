@@ -33,8 +33,8 @@ fn required_leaf_paths(fields: &[PayloadField], prefix: &str, out: &mut Vec<Stri
         } else {
             format!("{prefix}.{}", field.name)
         };
-        let descends = field.entity.is_none()
-            && field.properties.as_ref().is_some_and(|p| !p.is_empty());
+        let descends =
+            field.entity.is_none() && field.properties.as_ref().is_some_and(|p| !p.is_empty());
         if descends {
             required_leaf_paths(field.properties.as_ref().unwrap(), &path, out);
         } else if field.required == Some(true) {
@@ -56,8 +56,7 @@ fn declares_path(fields: &[PayloadField], segments: &[&str]) -> bool {
     if rest.is_empty() {
         return true;
     }
-    let is_leaf =
-        field.entity.is_some() || field.properties.as_ref().is_none_or(|p| p.is_empty());
+    let is_leaf = field.entity.is_some() || field.properties.as_ref().is_none_or(|p| p.is_empty());
     if is_leaf {
         false
     } else {
@@ -106,10 +105,9 @@ fn definer_knob_companion_declares_path(
     };
     config.values().any(|field| {
         field.payload_for.as_deref() == Some(knob)
-            && field
-                .default
-                .as_ref()
-                .is_some_and(|d| matches!(d, SExpression::Object(_)) && literal_declares_path(d, segments))
+            && field.default.as_ref().is_some_and(|d| {
+                matches!(d, SExpression::Object(_)) && literal_declares_path(d, segments)
+            })
     })
 }
 
@@ -247,7 +245,11 @@ mod tests {
     fn empty_state_machine_with_events(events: Vec<EventDefinition>) -> StateMachine {
         StateMachine {
             states: vec![],
-            events: if events.is_empty() { None } else { Some(events) },
+            events: if events.is_empty() {
+                None
+            } else {
+                Some(events)
+            },
             transitions: vec![],
         }
     }
@@ -482,7 +484,11 @@ mod tests {
             "ChatComposer",
             Some(vec![emit(
                 "SAVE",
-                Some(vec![object_field("data", false, vec![field("channel", true)])]),
+                Some(vec![object_field(
+                    "data",
+                    false,
+                    vec![field("channel", true)],
+                )]),
             )]),
             None,
             vec![],
@@ -573,10 +579,7 @@ mod tests {
             "ChatMessagePersistor",
             None,
             Some(vec![listen]),
-            vec![event_def(
-                "DO_CREATE",
-                Some(vec![field("content", true)]),
-            )],
+            vec![event_def("DO_CREATE", Some(vec![field("content", true)]))],
         );
         let schema = schema_with(vec![orbital_with("ChatOrbital", vec![source, listener])]);
 
@@ -661,7 +664,10 @@ mod tests {
             Some(vec![listen_from("GENERATE", "SeqButtonHint", "GENERATE")]),
             vec![event_def("GENERATE", Some(vec![field("prompt", true)]))],
         );
-        let schema = schema_with(vec![orbital_with("SeqChallengeOrbital", vec![source, listener])]);
+        let schema = schema_with(vec![orbital_with(
+            "SeqChallengeOrbital",
+            vec![source, listener],
+        )]);
 
         let result = validate_listen_route_starves_required_field(&schema);
         assert!(result.errors.is_empty(), "{:?}", result.errors);
@@ -685,7 +691,10 @@ mod tests {
             Some(vec![listen_from("GENERATE", "SeqButtonHint", "GENERATE")]),
             vec![event_def("GENERATE", Some(vec![field("prompt", true)]))],
         );
-        let schema = schema_with(vec![orbital_with("SeqChallengeOrbital", vec![source, listener])]);
+        let schema = schema_with(vec![orbital_with(
+            "SeqChallengeOrbital",
+            vec![source, listener],
+        )]);
 
         let result = validate_listen_route_starves_required_field(&schema);
         let hits: Vec<_> = result

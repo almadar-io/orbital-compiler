@@ -34,7 +34,8 @@ use crate::phases::sexpr_json::sexpr_obj_to_json_map;
 use orbital_core::events::is_bus_excluded_event;
 use orbital_core::schema::{
     json_conditional_leaf_values, ConfigField, Orbital, OrbitalSchema, PageDefinition, PageRef,
-    SExpression, StateMachine, StringOrArray, TraitDefinition, TraitReference, TransitionDefinition,
+    SExpression, StateMachine, StringOrArray, TraitDefinition, TraitReference,
+    TransitionDefinition,
 };
 use orbital_core::slots::SELF_OVERLAY_PATTERN_TYPES;
 use std::collections::{HashMap, HashSet};
@@ -135,6 +136,7 @@ pub fn validate_all_circuits(schema: &OrbitalSchema, ctx: &mut ValidationContext
     }
 }
 
+use super::sync::content::is_main_slot_render_ui;
 /// Overlay slots that require exit transitions. Canonical list lives in
 /// `orbital_core::slots` (shared with the desktop renderer); the validator
 /// requires every path leaving a state that mounts one of these to clear it
@@ -142,7 +144,6 @@ pub fn validate_all_circuits(schema: &OrbitalSchema, ctx: &mut ValidationContext
 /// state's content mounted across the transition (gap #15 in
 /// `docs/Almadar_Std_Verification.md`).
 use orbital_core::slots::OVERLAY_SLOTS;
-use super::sync::content::is_main_slot_render_ui;
 
 /// Events that are valid exit events for overlay slots
 const OVERLAY_EXIT_EVENTS: &[&str] = &["CLOSE", "CANCEL", "DISMISS", "SAVE", "SUBMIT", "CONFIRM"];
@@ -1388,8 +1389,8 @@ fn validate_modal_shell_overlay_contract(
             if !is_pattern_payload(payload) {
                 continue;
             }
-            let is_self_overlay = pattern_type_of(payload)
-                .is_some_and(|t| SELF_OVERLAY_PATTERN_TYPES.contains(&t));
+            let is_self_overlay =
+                pattern_type_of(payload).is_some_and(|t| SELF_OVERLAY_PATTERN_TYPES.contains(&t));
             if is_self_overlay {
                 continue;
             }
@@ -1841,13 +1842,18 @@ pub fn validate_page_content_ownership(schema: &OrbitalSchema, ctx: &mut Validat
             let PageRef::Inline(page) = page_ref else {
                 continue;
             };
-            let owner =
-                resolve_page_content_owner(page, &traits_by_name, &channel_adjacency, &embed_adjacency);
+            let owner = resolve_page_content_owner(
+                page,
+                &traits_by_name,
+                &channel_adjacency,
+                &embed_adjacency,
+            );
 
             if let PageContentOwner::Channel(name) | PageContentOwner::SoleWriter(name) = &owner {
-                if let (Some(trait_def), Some(&j)) =
-                    (traits_by_name.get(name.as_str()), trait_index_by_name.get(name.as_str()))
-                {
+                if let (Some(trait_def), Some(&j)) = (
+                    traits_by_name.get(name.as_str()),
+                    trait_index_by_name.get(name.as_str()),
+                ) {
                     validate_viewer_stranded_for_owner(
                         i,
                         orbital,
@@ -1861,7 +1867,10 @@ pub fn validate_page_content_ownership(schema: &OrbitalSchema, ctx: &mut Validat
                 }
             }
 
-            if matches!(owner, PageContentOwner::Channel(_) | PageContentOwner::Ambiguous(_)) {
+            if matches!(
+                owner,
+                PageContentOwner::Channel(_) | PageContentOwner::Ambiguous(_)
+            ) {
                 validate_second_content_body(
                     i,
                     page_index,
@@ -2124,7 +2133,10 @@ impl<'a> RenderScope<'a> {
         visiting: &mut HashSet<String>,
         visiting_fields: &mut HashSet<String>,
     ) -> bool {
-        let default = self.config.and_then(|c| c.get(knob)).and_then(|f| f.default.as_ref());
+        let default = self
+            .config
+            .and_then(|c| c.get(knob))
+            .and_then(|f| f.default.as_ref());
         match default {
             Some(value) if is_pattern_node_tree_shape(value) => {
                 body_offers_way_on(value, traits, self, visiting, visiting_fields)
@@ -2176,10 +2188,14 @@ fn resolve_value_literal_candidates(
             Some(SExpression::String(op)) if op == "if" => {
                 let mut out = Vec::new();
                 if let Some(t) = items.get(2) {
-                    out.extend(resolve_value_literal_candidates(t, lets, depth + 1).unwrap_or_default());
+                    out.extend(
+                        resolve_value_literal_candidates(t, lets, depth + 1).unwrap_or_default(),
+                    );
                 }
                 if let Some(e) = items.get(3) {
-                    out.extend(resolve_value_literal_candidates(e, lets, depth + 1).unwrap_or_default());
+                    out.extend(
+                        resolve_value_literal_candidates(e, lets, depth + 1).unwrap_or_default(),
+                    );
                 }
                 if out.is_empty() {
                     None
@@ -2203,7 +2219,11 @@ fn resolve_value_literal_candidates(
                         }
                     }
                 }
-                resolve_value_literal_candidates(items.iter().skip(2).next_back()?, &scope, depth + 1)
+                resolve_value_literal_candidates(
+                    items.iter().skip(2).next_back()?,
+                    &scope,
+                    depth + 1,
+                )
             }
             _ if is_pattern_node_tree_shape(expr) => Some(vec![expr.clone()]),
             _ => None,
@@ -2220,7 +2240,9 @@ fn resolve_value_literal_candidates(
 /// value resolves (via `resolve_value_literal_candidates`, using that flat
 /// scope). A `set` whose value does not resolve is skipped, not recorded —
 /// it never clears a field's earlier resolved candidate.
-fn collect_entity_field_literal_candidates(effects: &[SExpression]) -> HashMap<String, Vec<SExpression>> {
+fn collect_entity_field_literal_candidates(
+    effects: &[SExpression],
+) -> HashMap<String, Vec<SExpression>> {
     fn walk(
         expr: &SExpression,
         lets: &mut HashMap<String, SExpression>,
@@ -2243,10 +2265,14 @@ fn collect_entity_field_literal_candidates(effects: &[SExpression]) -> HashMap<S
                     }
                 }
             } else if op == "set" {
-                if let (Some(SExpression::String(target)), Some(value)) = (items.get(1), items.get(2)) {
+                if let (Some(SExpression::String(target)), Some(value)) =
+                    (items.get(1), items.get(2))
+                {
                     if let Some(field) = target.strip_prefix("@entity.") {
                         if !field.contains(['.', '[']) {
-                            if let Some(candidates) = resolve_value_literal_candidates(value, lets, 0) {
+                            if let Some(candidates) =
+                                resolve_value_literal_candidates(value, lets, 0)
+                            {
                                 fields.insert(field.to_string(), candidates);
                             }
                         }
@@ -2365,7 +2391,13 @@ fn trait_offers_way_on(
         .transitions
         .iter()
         .filter_map(|t| t.effects.as_deref())
-        .chain(trait_def.ticks.iter().flatten().map(|t| t.effects.as_slice()));
+        .chain(
+            trait_def
+                .ticks
+                .iter()
+                .flatten()
+                .map(|t| t.effects.as_slice()),
+        );
     'arms: for effects in effect_lists {
         for (idx, effect) in effects.iter().enumerate() {
             if !is_main_slot_render_ui(effect) {
@@ -2400,7 +2432,9 @@ fn trait_offers_way_on(
 /// direction the F31 probe corrected).
 fn event_prop_value_is_live(value: &SExpression) -> bool {
     match value {
-        SExpression::String(s) => s.starts_with('@') || (!s.is_empty() && !is_bus_excluded_event(s)),
+        SExpression::String(s) => {
+            s.starts_with('@') || (!s.is_empty() && !is_bus_excluded_event(s))
+        }
         SExpression::Array(items) => items.iter().any(event_prop_value_is_live),
         SExpression::Object(map) => map.values().any(event_prop_value_is_live),
         _ => false,
@@ -2476,7 +2510,13 @@ fn validate_viewer_stranded_for_owner(
             // Only effects BEFORE this render-ui, in program order — a
             // `set` appearing after it hasn't run yet and must not count.
             let scope = RenderScope::for_effects(&effects[..idx], trait_def);
-            if body_offers_way_on(body, traits, &scope, &mut HashSet::new(), &mut HashSet::new()) {
+            if body_offers_way_on(
+                body,
+                traits,
+                &scope,
+                &mut HashSet::new(),
+                &mut HashSet::new(),
+            ) {
                 continue;
             }
             seen.insert(event.clone());
@@ -2854,8 +2894,11 @@ mod tests {
     fn dead_lifecycle_action_on_button_errors() {
         let render_ui =
             render_ui_info_with_props("button", serde_json::json!({ "action": "INIT" }));
-        let result =
-            validate_render_action_lifecycle_events_for_effects(&[render_ui], "TestOrbital", "TestTrait");
+        let result = validate_render_action_lifecycle_events_for_effects(
+            &[render_ui],
+            "TestOrbital",
+            "TestTrait",
+        );
         let hits: Vec<_> = result
             .errors
             .iter()
@@ -2887,8 +2930,11 @@ mod tests {
     fn live_named_action_is_not_flagged() {
         let render_ui =
             render_ui_info_with_props("button", serde_json::json!({ "action": "REFRESH" }));
-        let result =
-            validate_render_action_lifecycle_events_for_effects(&[render_ui], "TestOrbital", "TestTrait");
+        let result = validate_render_action_lifecycle_events_for_effects(
+            &[render_ui],
+            "TestOrbital",
+            "TestTrait",
+        );
         assert!(result.errors.is_empty(), "{:?}", result.errors);
     }
 
@@ -2958,7 +3004,8 @@ mod tests {
             type_args: None,
         };
 
-        let result = validate_render_action_lifecycle_events(&trait_def, "TestOrbital", "test.path");
+        let result =
+            validate_render_action_lifecycle_events(&trait_def, "TestOrbital", "test.path");
         assert!(result.errors.is_empty(), "{:?}", result.errors);
     }
 
@@ -2980,7 +3027,11 @@ mod tests {
             to: to.to_string(),
             event: event.to_string(),
             guard: None,
-            effects: if effects.is_empty() { None } else { Some(effects) },
+            effects: if effects.is_empty() {
+                None
+            } else {
+                Some(effects)
+            },
         }
     }
 
@@ -3148,7 +3199,12 @@ mod tests {
                         ["render-ui", "modal", { "type": "form" }]
                     ])),
                 ),
-                sm_transition("open", "idle", "CANCEL", effects_from(serde_json::json!([]))),
+                sm_transition(
+                    "open",
+                    "idle",
+                    "CANCEL",
+                    effects_from(serde_json::json!([])),
+                ),
             ],
         };
         let result = validate_modal_shell_overlay_contract(&sm, "test");
@@ -3344,7 +3400,10 @@ mod tests {
         }));
         let result = validate_lifecycle_emit_effects(&trait_def, "TestOrbital", "test.path");
         assert_eq!(result.errors.len(), 1, "{:?}", result.errors);
-        assert_eq!(result.errors[0].code, ErrorCode::CircuitLifecycleEmitUndelivered);
+        assert_eq!(
+            result.errors[0].code,
+            ErrorCode::CircuitLifecycleEmitUndelivered
+        );
     }
 
     // --- ORB_CIRCUIT_CLIENT_UNBOUND_STATE_MACHINE ---
@@ -3394,7 +3453,10 @@ mod tests {
     #[test]
     fn client_unbound_state_machine_hit_when_no_page_or_embed_reaches_the_trait() {
         let orbital = orbital_json(
-            vec![inline_trait_with_a_transition("Bound"), inline_trait_with_a_transition("Orphan")],
+            vec![
+                inline_trait_with_a_transition("Bound"),
+                inline_trait_with_a_transition("Orphan"),
+            ],
             serde_json::json!([{ "name": "Home", "path": "/home", "traits": [{ "ref": "Bound" }] }]),
         );
         let bound = client_bound_traits(&orbital);
@@ -3480,7 +3542,9 @@ mod tests {
             .find(|e| e.code == ErrorCode::CircuitClientUnboundStateMachine)
             .unwrap_or_else(|| panic!("expected a finding: {:?}", result.errors));
         assert!(
-            hit.suggestion.as_deref().is_some_and(|s| s.contains("/home")),
+            hit.suggestion
+                .as_deref()
+                .is_some_and(|s| s.contains("/home")),
             "{:?}",
             hit.suggestion
         );
@@ -3498,9 +3562,16 @@ mod tests {
                     "loading",
                     "browsing",
                     "ChatMessageLoaded",
-                    effects_from(serde_json::json!([["render-ui", "main", { "type": "data-list" }]])),
+                    effects_from(
+                        serde_json::json!([["render-ui", "main", { "type": "data-list" }]]),
+                    ),
                 ),
-                sm_transition("browsing", "opened", "OPEN", effects_from(serde_json::json!([]))),
+                sm_transition(
+                    "browsing",
+                    "opened",
+                    "OPEN",
+                    effects_from(serde_json::json!([])),
+                ),
             ],
         };
         let result = validate_dead_bodiless_actions(&sm, "test");
@@ -3518,17 +3589,29 @@ mod tests {
     /// with no effects is dead from the painted `browsing`, whatever `idle` is.
     #[test]
     fn dead_bodiless_action_hit_when_a_from_list_contains_a_painted_state() {
-        let mut arm = sm_transition("idle", "opened", "OPEN", effects_from(serde_json::json!([])));
+        let mut arm = sm_transition(
+            "idle",
+            "opened",
+            "OPEN",
+            effects_from(serde_json::json!([])),
+        );
         arm.from = StringOrArray::Multiple(vec!["browsing".to_string(), "idle".to_string()]);
         let sm = StateMachine {
-            states: vec![state("loading"), state("browsing"), state("idle"), state("opened")],
+            states: vec![
+                state("loading"),
+                state("browsing"),
+                state("idle"),
+                state("opened"),
+            ],
             events: None,
             transitions: vec![
                 sm_transition(
                     "loading",
                     "browsing",
                     "ChatMessageLoaded",
-                    effects_from(serde_json::json!([["render-ui", "main", { "type": "data-list" }]])),
+                    effects_from(
+                        serde_json::json!([["render-ui", "main", { "type": "data-list" }]]),
+                    ),
                 ),
                 arm,
             ],
@@ -3549,9 +3632,16 @@ mod tests {
                     "browsing",
                     "browsing",
                     "ChatMessageLoaded",
-                    effects_from(serde_json::json!([["render-ui", "main", { "type": "data-list" }]])),
+                    effects_from(
+                        serde_json::json!([["render-ui", "main", { "type": "data-list" }]]),
+                    ),
                 ),
-                sm_transition("browsing", "browsing", "REFRESH", effects_from(serde_json::json!([]))),
+                sm_transition(
+                    "browsing",
+                    "browsing",
+                    "REFRESH",
+                    effects_from(serde_json::json!([])),
+                ),
             ],
         };
         let result = validate_dead_bodiless_actions(&sm, "test");
@@ -3569,13 +3659,17 @@ mod tests {
                     "loading",
                     "browsing",
                     "ChatMessageLoaded",
-                    effects_from(serde_json::json!([["render-ui", "main", { "type": "data-list" }]])),
+                    effects_from(
+                        serde_json::json!([["render-ui", "main", { "type": "data-list" }]]),
+                    ),
                 ),
                 sm_transition(
                     "browsing",
                     "opened",
                     "OPEN",
-                    effects_from(serde_json::json!([["render-ui", "main", { "type": "detail-panel" }]])),
+                    effects_from(
+                        serde_json::json!([["render-ui", "main", { "type": "detail-panel" }]]),
+                    ),
                 ),
             ],
         };
@@ -3589,7 +3683,12 @@ mod tests {
         let sm = StateMachine {
             states: vec![state("idle"), state("gone")],
             events: None,
-            transitions: vec![sm_transition("idle", "gone", "LEAVE", effects_from(serde_json::json!([])))],
+            transitions: vec![sm_transition(
+                "idle",
+                "gone",
+                "LEAVE",
+                effects_from(serde_json::json!([])),
+            )],
         };
         let result = validate_dead_bodiless_actions(&sm, "test");
         assert!(result.errors.is_empty(), "{:?}", result.errors);
@@ -3684,7 +3783,10 @@ mod tests {
     /// `owner_and_trigger`, plus extra Inline trait definitions in the same
     /// orbital — for embedding a real, resolvable leaf trait from the
     /// owner's STRAND body.
-    fn owner_and_trigger_with(body: serde_json::Value, extra: Vec<serde_json::Value>) -> Vec<serde_json::Value> {
+    fn owner_and_trigger_with(
+        body: serde_json::Value,
+        extra: Vec<serde_json::Value>,
+    ) -> Vec<serde_json::Value> {
         let mut traits = owner_and_trigger(body);
         traits.extend(extra);
         traits
@@ -3775,7 +3877,9 @@ mod tests {
         // "Anything" has no Inline entry anywhere in this orbital — an
         // unresolvable reference is unknown, never presumed dead.
         let orbital = orbital_json(
-            owner_and_trigger(serde_json::json!({ "type": "stack", "children": ["@trait.Anything"] })),
+            owner_and_trigger(
+                serde_json::json!({ "type": "stack", "children": ["@trait.Anything"] }),
+            ),
             page_with(&["Owner", "Trigger"]),
         );
         assert!(viewer_stranded_hits(orbital).is_empty());

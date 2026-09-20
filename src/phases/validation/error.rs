@@ -1109,6 +1109,21 @@ pub enum ErrorCode {
     OrbIdDuplicateEventId,
 
     // =========================================================================
+    // Behavior Package Errors (ORB_BEHAVIOR_*)
+    // =========================================================================
+    /// `<prefix>/<name>` names a prefix no installed behavior package declares.
+    BehaviorPackageNotInstalled,
+    /// The prefix resolved to an installed package, but it has no behavior by
+    /// that name (or `std/behaviors/<name>` matched neither the std source nor
+    /// any other installed package).
+    BehaviorNotFound,
+    /// `std/behaviors/<name>` matched the same behavior name in two or more
+    /// non-std installed packages.
+    BehaviorAmbiguous,
+    /// Two different installed packages declare the same `orb.prefix`.
+    BehaviorPrefixConflict,
+
+    // =========================================================================
     // Generic Errors (ORB_GEN_*)
     // =========================================================================
     /// Generic invalid value
@@ -1289,7 +1304,9 @@ impl ErrorCode {
             ErrorCode::CrossOrbitalMissingName => "ORB_X_MISSING_ORBITAL_NAME",
             ErrorCode::CrossOrbitalPayloadMismatch => "ORB_X_PAYLOAD_MISMATCH",
             ErrorCode::CrossOrbitalListenSourceUnresolved => "ORB_X_LISTEN_SOURCE_UNRESOLVED",
-            ErrorCode::CrossOrbitalListenSourceNeverProduces => "ORB_X_LISTEN_SOURCE_NEVER_PRODUCES",
+            ErrorCode::CrossOrbitalListenSourceNeverProduces => {
+                "ORB_X_LISTEN_SOURCE_NEVER_PRODUCES"
+            }
             ErrorCode::ListenTriggerUnmatched => "ORB_X_LISTEN_TRIGGER_UNMATCHED",
             ErrorCode::FilterFieldNeverWritten => "ORB_X_FILTER_FIELD_NEVER_WRITTEN",
             ErrorCode::InternalEventExposed => "ORB_X_INTERNAL_EVENT_EXPOSED",
@@ -1370,7 +1387,9 @@ impl ErrorCode {
             ErrorCode::CircuitModalShellCloseDeaf => "ORB_CIRCUIT_MODAL_SHELL_CLOSE_DEAF",
             ErrorCode::CircuitSelfOverlayInShell => "ORB_CIRCUIT_SELF_OVERLAY_IN_SHELL",
             ErrorCode::CircuitLifecycleEmitUndelivered => "ORB_CIRCUIT_LIFECYCLE_EMIT_UNDELIVERED",
-            ErrorCode::CircuitClientUnboundStateMachine => "ORB_CIRCUIT_CLIENT_UNBOUND_STATE_MACHINE",
+            ErrorCode::CircuitClientUnboundStateMachine => {
+                "ORB_CIRCUIT_CLIENT_UNBOUND_STATE_MACHINE"
+            }
             ErrorCode::CircuitDeadBodilessAction => "ORB_CIRCUIT_DEAD_BODILESS_ACTION",
             ErrorCode::CircuitAsyncResultDeafTarget => "ORB_CIRCUIT_ASYNC_RESULT_DEAF_TARGET",
             ErrorCode::CircuitViewerStranded => "ORB_CIRCUIT_VIEWER_STRANDED",
@@ -1432,6 +1451,12 @@ impl ErrorCode {
             ErrorCode::OrbIdKindMismatch => "ORB_ID_KIND_MISMATCH",
             ErrorCode::OrbIdLedgerOrphan => "ORB_ID_LEDGER_ORPHAN",
             ErrorCode::OrbIdDuplicateEventId => "ORB_ID_DUPLICATE_EVENT_ID",
+
+            // Behavior Package
+            ErrorCode::BehaviorPackageNotInstalled => "ORB_BEHAVIOR_PACKAGE_NOT_INSTALLED",
+            ErrorCode::BehaviorNotFound => "ORB_BEHAVIOR_NOT_FOUND",
+            ErrorCode::BehaviorAmbiguous => "ORB_BEHAVIOR_AMBIGUOUS",
+            ErrorCode::BehaviorPrefixConflict => "ORB_BEHAVIOR_PREFIX_CONFLICT",
 
             // Generic
             ErrorCode::InvalidValue => "ORB_GEN_INVALID_VALUE",
@@ -1716,6 +1741,11 @@ impl ErrorCode {
             | ErrorCode::OrbIdKindMismatch
             | ErrorCode::OrbIdLedgerOrphan
             | ErrorCode::OrbIdDuplicateEventId => "identity",
+
+            ErrorCode::BehaviorPackageNotInstalled
+            | ErrorCode::BehaviorNotFound
+            | ErrorCode::BehaviorAmbiguous
+            | ErrorCode::BehaviorPrefixConflict => "behavior_package",
 
             ErrorCode::InvalidValue
             | ErrorCode::InvalidReference

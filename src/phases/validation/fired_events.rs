@@ -659,12 +659,16 @@ mod tests {
         let mut fired = FiredEvents::default();
         collect_fired_events_recursive("T", &tree, &mut fired);
         assert!(
-            !fired.by_effect.contains(&("T".to_string(), "DEAD".to_string())),
+            !fired
+                .by_effect
+                .contains(&("T".to_string(), "DEAD".to_string())),
             "an emit behind a provably-false condition must not count as fired: {:?}",
             fired.by_effect
         );
         assert!(
-            fired.by_effect.contains(&("T".to_string(), "LIVE".to_string())),
+            fired
+                .by_effect
+                .contains(&("T".to_string(), "LIVE".to_string())),
             "the always-taken else branch must still count as fired: {:?}",
             fired.by_effect
         );
@@ -684,8 +688,12 @@ mod tests {
         ]);
         let mut fired = FiredEvents::default();
         collect_fired_events_recursive("T", &tree, &mut fired);
-        assert!(fired.by_effect.contains(&("T".to_string(), "A".to_string())));
-        assert!(fired.by_effect.contains(&("T".to_string(), "B".to_string())));
+        assert!(fired
+            .by_effect
+            .contains(&("T".to_string(), "A".to_string())));
+        assert!(fired
+            .by_effect
+            .contains(&("T".to_string(), "B".to_string())));
     }
 
     #[test]

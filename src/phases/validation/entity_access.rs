@@ -671,7 +671,13 @@ mod tests {
     fn intrinsic_field_in_access_policy_errors() {
         let entity = note_entity();
         let mut result = ValidationResult::new();
-        check_entity_field("isEditing", "@entity.isEditing", "Note.@update", &entity, &mut result);
+        check_entity_field(
+            "isEditing",
+            "@entity.isEditing",
+            "Note.@update",
+            &entity,
+            &mut result,
+        );
         assert!(
             result
                 .errors
@@ -686,7 +692,13 @@ mod tests {
     fn persisted_field_in_access_policy_passes() {
         let entity = note_entity();
         let mut result = ValidationResult::new();
-        check_entity_field("ownerId", "@entity.ownerId", "Note.@update", &entity, &mut result);
+        check_entity_field(
+            "ownerId",
+            "@entity.ownerId",
+            "Note.@update",
+            &entity,
+            &mut result,
+        );
         assert!(
             !result
                 .all_issues()
@@ -700,7 +712,13 @@ mod tests {
     fn unknown_field_in_access_policy_is_unaffected_by_the_intrinsic_rule() {
         let entity = note_entity();
         let mut result = ValidationResult::new();
-        check_entity_field("bogus", "@entity.bogus", "Note.@update", &entity, &mut result);
+        check_entity_field(
+            "bogus",
+            "@entity.bogus",
+            "Note.@update",
+            &entity,
+            &mut result,
+        );
         assert!(
             !result
                 .all_issues()
@@ -798,10 +816,11 @@ mod owner_columns_scoped_tests {
     fn does_not_guess_from_a_field_name_a_bare_string_owner_is_invisible() {
         let mut schema = app_with_owner_column(None);
         if let EntityRef::Inline(def) = &mut schema.orbitals[0].entity {
-            def.fields = vec![serde_json::from_value(
-                json!({ "name": "assignee", "type": "string" }),
-            )
-            .expect("valid field")];
+            def.fields =
+                vec![
+                    serde_json::from_value(json!({ "name": "assignee", "type": "string" }))
+                        .expect("valid field"),
+                ];
         }
         assert!(findings(&schema).errors.is_empty());
     }

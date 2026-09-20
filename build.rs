@@ -21,14 +21,7 @@ fn main() {
     println!("cargo:rerun-if-changed=src/baked/canonical-operators.json");
     println!("cargo:rerun-if-changed=src/baked/patterns-registry.json");
     println!("cargo:rerun-if-changed=src/baked/themes-registry.json");
-    println!("cargo:rerun-if-changed=src/baked/behaviors-registry-std.json");
-    println!("cargo:rerun-if-changed=src/baked/behaviors-registry-io.json");
-    println!("cargo:rerun-if-changed=src/baked/factory-signatures-std.json");
-    println!("cargo:rerun-if-changed=src/baked/factory-signatures-io.json");
     println!("cargo:rerun-if-changed=src/baked/services-registry.json");
-    // The full std+io behavior corpus is embedded from `src/baked/{std,io}/…`.
-    println!("cargo:rerun-if-changed=src/baked/std");
-    println!("cargo:rerun-if-changed=src/baked/io");
     println!("cargo:rerun-if-changed=src/baked/bindings.ts");
 
     let out_dir = PathBuf::from(std::env::var("OUT_DIR").expect("OUT_DIR unset"));

@@ -599,7 +599,9 @@ mod tests {
     #[test]
     fn test_entity_untyped_array_field_errors_typed_array_field_does_not() {
         let mut entity = create_valid_entity();
-        entity.fields.push(create_field("attachments", FieldType::Array));
+        entity
+            .fields
+            .push(create_field("attachments", FieldType::Array));
         let mut typed_array = create_field("tags", FieldType::Array);
         typed_array.items = Some(Box::new(create_field("", FieldType::String)));
         entity.fields.push(typed_array);

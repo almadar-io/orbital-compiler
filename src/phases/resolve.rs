@@ -2,6 +2,7 @@
 //!
 //! Resolves all references and produces the final OIR (Orbital Intermediate Representation).
 
+use crate::phases::embed_graph::EmbedGraph;
 use orbital_core::ir::{
     OirBinaryOp, OirBinding, OirBindingRoot, OirCardinality, OirConfigFieldType, OirConstraint,
     OirEffect, OirEmit, OirEmitConfig, OirEntity, OirEvent, OirEventScope, OirExpr, OirField,
@@ -14,7 +15,6 @@ use orbital_core::schema::{
     PageDefinition, PageRef, SExpression, SectionDefinition, ServiceRef, StringOrArray, ThemeRef,
     TraitDefinition, TraitReference, TransitionDefinition,
 };
-use crate::phases::embed_graph::EmbedGraph;
 use std::cell::RefCell;
 use std::collections::{BTreeMap, HashMap, HashSet};
 use thiserror::Error;
@@ -4000,12 +4000,13 @@ mod tests {
     fn resolve_field_carries_intrinsic_true() {
         let schema = empty_schema();
         let resolver = Resolver::new(&schema);
-        let field: orbital_core::schema::FieldDefinition = serde_json::from_value(serde_json::json!({
-            "name": "currentStepIndex",
-            "type": "number",
-            "intrinsic": true
-        }))
-        .expect("valid field definition");
+        let field: orbital_core::schema::FieldDefinition =
+            serde_json::from_value(serde_json::json!({
+                "name": "currentStepIndex",
+                "type": "number",
+                "intrinsic": true
+            }))
+            .expect("valid field definition");
         let oir_field = resolver.resolve_field(&field).expect("resolves");
         assert!(oir_field.intrinsic, "intrinsic must survive resolve_field");
     }
@@ -4014,11 +4015,12 @@ mod tests {
     fn resolve_field_defaults_intrinsic_false_when_absent() {
         let schema = empty_schema();
         let resolver = Resolver::new(&schema);
-        let field: orbital_core::schema::FieldDefinition = serde_json::from_value(serde_json::json!({
-            "name": "title",
-            "type": "string"
-        }))
-        .expect("valid field definition");
+        let field: orbital_core::schema::FieldDefinition =
+            serde_json::from_value(serde_json::json!({
+                "name": "title",
+                "type": "string"
+            }))
+            .expect("valid field definition");
         let oir_field = resolver.resolve_field(&field).expect("resolves");
         assert!(!oir_field.intrinsic);
     }

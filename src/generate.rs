@@ -35,7 +35,9 @@ pub enum GenerateError {
 pub type GenerateResult<T> = Result<T, GenerateError>;
 
 /// Generation options
-#[derive(Debug, Clone, Default)]
+// `Clone` dropped along with `CompilerOptions`'s (see that struct's comment) —
+// verified zero call sites clone a `GenerateOptions` today.
+#[derive(Debug, Default)]
 pub struct GenerateOptions {
     /// Compiler options
     pub compiler: CompilerOptions,

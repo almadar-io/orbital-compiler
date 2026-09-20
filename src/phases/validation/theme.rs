@@ -512,7 +512,8 @@ mod theme_pin_contradicts_app_tests {
 
     #[test]
     fn no_app_level_theme_declared_is_silent() {
-        let schema = schema_from_json(r#"{
+        let schema = schema_from_json(
+            r#"{
           "name": "fixture", "version": "1.0.0",
           "orbitals": [{
             "name": "OddOrbital",
@@ -520,7 +521,8 @@ mod theme_pin_contradicts_app_tests {
             "traits": [{ "ref": "std-app-layout#AppLayout", "name": "OddLayout",
               "config": { "theme": { "type": "string", "default": "terminal-dark" } } }]
           }]
-        }"#);
+        }"#,
+        );
         assert!(validate_theme_pin_matches_app(&schema).errors.is_empty());
     }
 }

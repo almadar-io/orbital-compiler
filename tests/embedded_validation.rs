@@ -1,16 +1,20 @@
-//! Integration tests for Phase 3 of Lolo v3 (embedded JSON registries).
+//! Integration tests for Phase 3 of Lolo v3 (embedded JSON registries) plus
+//! the installed std behavior corpus (Phase 2, `docs/Almadar_Behavior_
+//! Packages.md` §10: `@almadar/std` is an installed npm package, not baked).
 //!
-//! Twenty test cases proving the validator now reads from the embedded
-//! `operators.json`, `patterns-registry.json`, and `behaviors-registry.json`,
-//! plus the hand-ported `BINDING_CONTEXT_RULES`. See
+//! Proves the validator reads core language data (`operators.json`,
+//! `patterns-registry.json`) from the embedded registries, the discovered
+//! `@almadar/std` package's `.orb` corpus parses and carries the expected
+//! atom/organism tiers, plus the hand-ported `BINDING_CONTEXT_RULES`. See
 //! `docs/Lolo_Language_Spec_v3_PLAN.md` Section 8.7.
 
 use orbital_compiler::embedded;
 use orbital_compiler::phases::validation::sigil_context::validate_trait_sigil_contexts;
 use orbital_core::schema::{
-    SExpression, StateDefinition, StateMachine, StringOrArray, StringOrNumber, TickDefinition,
-    TraitDefinition, TransitionDefinition,
+    OrbitalSchema, SExpression, StateDefinition, StateMachine, StringOrArray, StringOrNumber,
+    TickDefinition, TraitDefinition, TransitionDefinition,
 };
+use std::path::{Path, PathBuf};
 
 // ============================================================================
 // Helpers
@@ -247,28 +251,74 @@ fn sigil_unknown_root_in_guard_is_rejected() {
 }
 
 // ============================================================================
-// 3 behavior existence cases (atom / molecule / organism levels)
+// Installed std corpus validates — `@almadar/std` is an installed npm
+// package (Phase 2), not baked; its `.orb` corpus is walked straight off the
+// discovered package's registry directory rather than an embedded map.
 // ============================================================================
 
-#[test]
-fn behavior_some_atom_exists() {
-    let map = embedded::behaviors();
-    let atom_count = map.values().filter(|b| b.level == "atom").count();
-    assert!(atom_count > 0, "registry should have at least one atom");
+/// Recursively collect every `.orb` file under `dir`.
+fn collect_orb_files(dir: &Path, out: &mut Vec<PathBuf>) {
+    let Ok(entries) = std::fs::read_dir(dir) else {
+        return;
+    };
+    for entry in entries.flatten() {
+        let path = entry.path();
+        if path.is_dir() {
+            collect_orb_files(&path, out);
+        } else if path.extension().and_then(|e| e.to_str()) == Some("orb") {
+            out.push(path);
+        }
+    }
 }
 
 #[test]
-fn behavior_some_molecule_exists() {
-    let map = embedded::behaviors();
-    let mol_count = map.values().filter(|b| b.level == "molecule").count();
-    assert!(mol_count > 0, "registry should have at least one molecule");
-}
+fn installed_std_corpus_validates() {
+    let std_pkg = orbital_test_support::installed_package(
+        "almadar-std",
+        Path::new(env!("CARGO_MANIFEST_DIR")),
+    );
+    let mut files = Vec::new();
+    collect_orb_files(&std_pkg.registry, &mut files);
+    // Corpus is ~469 files at time of writing; floor well below that so a
+    // routine publish doesn't red this test, but a wholesale registry loss
+    // (e.g. a bad install) still fails loudly.
+    assert!(
+        files.len() >= 300,
+        "installed @almadar/std registry shrank below 300 .orb files — got {} under {}",
+        files.len(),
+        std_pkg.registry.display()
+    );
 
-#[test]
-fn behavior_some_organism_exists() {
-    let map = embedded::behaviors();
-    let org_count = map.values().filter(|b| b.level == "organism").count();
-    assert!(org_count > 0, "registry should have at least one organism");
+    let (mut atoms, mut organisms, mut other) = (0u32, 0u32, 0u32);
+    for path in &files {
+        let content = std::fs::read_to_string(path)
+            .unwrap_or_else(|e| panic!("read {}: {e}", path.display()));
+        let schema: OrbitalSchema = serde_json::from_str(&content)
+            .unwrap_or_else(|e| panic!("{} failed to parse as OrbitalSchema: {e}", path.display()));
+        assert!(
+            !schema.name.is_empty(),
+            "{} parsed with an empty schema name",
+            path.display()
+        );
+
+        let rel = path
+            .strip_prefix(&std_pkg.registry)
+            .unwrap_or(path)
+            .to_string_lossy();
+        if rel.contains("/organisms/") {
+            organisms += 1;
+        } else if rel.contains("/atoms/") {
+            atoms += 1;
+        } else {
+            // The single sanctioned molecules exception (`ui/core/molecules`)
+            // plus any generated `templates/` — see Almadar_Std.md's
+            // atomic-design section (two tiers: atoms + organisms).
+            other += 1;
+        }
+    }
+    assert!(atoms > 0, "installed std registry has zero atoms");
+    assert!(organisms > 0, "installed std registry has zero organisms");
+    let _ = other;
 }
 
 // ============================================================================

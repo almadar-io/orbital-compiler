@@ -95,6 +95,7 @@ fn run(schema: &OrbitalSchema) -> orbital_compiler::phases::validation::Validati
         None,
         SchemaLanguage::English,
         orbital_compiler::embedded::ServiceRegistryData::default(),
+        Vec::new(),
     )
 }
 

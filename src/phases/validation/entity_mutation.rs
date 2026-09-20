@@ -922,8 +922,11 @@ fn guard_references_intrinsic_field<'a>(
             intrinsic_named(field)
         }
         SExpression::Array(arr) => {
-            if let (Some(SExpression::String(op)), Some(SExpression::String(root)), Some(SExpression::String(field))) =
-                (arr.first(), arr.get(1), arr.get(2))
+            if let (
+                Some(SExpression::String(op)),
+                Some(SExpression::String(root)),
+                Some(SExpression::String(field)),
+            ) = (arr.first(), arr.get(1), arr.get(2))
             {
                 if op == "object/get" && root == "@entity" {
                     if let Some(hit) = intrinsic_named(field) {
@@ -949,8 +952,11 @@ pub fn validate_all_guard_frame_field_authorization(
     ctx: &mut ValidationContext,
 ) {
     for (trait_def, path) in super::inline_traits(schema) {
-        let result =
-            validate_trait_guard_frame_field_authorization(trait_def, &path, &ctx.entity_definitions);
+        let result = validate_trait_guard_frame_field_authorization(
+            trait_def,
+            &path,
+            &ctx.entity_definitions,
+        );
         ctx.merge(result);
     }
 }
@@ -1572,7 +1578,11 @@ fn validate_trait_set_column_without_row(
         }
         if let Some(effects) = &transition.effects {
             for effect in effects {
-                effect.collect_entity_field_refs(&mut referenced_all, &mut set_all, &transition.event);
+                effect.collect_entity_field_refs(
+                    &mut referenced_all,
+                    &mut set_all,
+                    &transition.event,
+                );
             }
         }
     }
@@ -1628,7 +1638,11 @@ fn validate_trait_set_column_without_row(
         let mut local_referenced: HashMap<String, String> = HashMap::new();
         let mut local_set: HashSet<String> = HashSet::new();
         for effect in effects {
-            effect.collect_entity_field_refs(&mut local_referenced, &mut local_set, &transition.event);
+            effect.collect_entity_field_refs(
+                &mut local_referenced,
+                &mut local_set,
+                &transition.event,
+            );
         }
         let mut fields: Vec<&String> = local_set.iter().filter(|f| f.as_str() != "id").collect();
         fields.sort();
@@ -2325,9 +2339,16 @@ mod tests {
         // Two traits bound to one [shared] entity, each owning a DIFFERENT
         // render slot — Rule 6 refinement: no contention when the slots
         // differ, even though both read the same shared entity.
-        let t1 = trait_with_init_effects("Reader1", "Pool", vec![render_ui_reading_slot("hp", "main")]);
-        let t2 =
-            trait_with_init_effects("Reader2", "Pool", vec![render_ui_reading_slot("hp", "sidebar")]);
+        let t1 = trait_with_init_effects(
+            "Reader1",
+            "Pool",
+            vec![render_ui_reading_slot("hp", "main")],
+        );
+        let t2 = trait_with_init_effects(
+            "Reader2",
+            "Pool",
+            vec![render_ui_reading_slot("hp", "sidebar")],
+        );
         let traits = vec![&t1, &t2];
         let mut defs = HashMap::new();
         defs.insert("Pool".to_string(), entity("Pool", true, None));
@@ -2587,7 +2608,10 @@ mod tests {
         ]);
         let t = local_trait_with_guard("ChatComposer", "Message", None, vec![persist_effect]);
         let mut defs = HashMap::new();
-        defs.insert("Message".to_string(), entity("Message", true, Some(Persistence::Persistent)));
+        defs.insert(
+            "Message".to_string(),
+            entity("Message", true, Some(Persistence::Persistent)),
+        );
         let result = validate_trait_local_dispatch(&t, "test", &defs);
         assert!(
             result
@@ -2604,7 +2628,10 @@ mod tests {
         let guard = arr(vec![s("=="), s("@user.id"), s("@entity.ownerId")]);
         let t = local_trait_with_guard("Composer", "Message", Some(guard), vec![]);
         let mut defs = HashMap::new();
-        defs.insert("Message".to_string(), entity("Message", true, Some(Persistence::Persistent)));
+        defs.insert(
+            "Message".to_string(),
+            entity("Message", true, Some(Persistence::Persistent)),
+        );
         let result = validate_trait_local_dispatch(&t, "test", &defs);
         assert!(
             result
@@ -2626,7 +2653,10 @@ mod tests {
             vec![set_effect("draft")],
         );
         let mut defs = HashMap::new();
-        defs.insert("Message".to_string(), entity("Message", true, Some(Persistence::Persistent)));
+        defs.insert(
+            "Message".to_string(),
+            entity("Message", true, Some(Persistence::Persistent)),
+        );
         let result = validate_trait_local_dispatch(&t, "test", &defs);
         assert!(
             !result
@@ -2660,7 +2690,10 @@ mod tests {
     fn local_trait_on_shared_entity_passes_the_shape_check() {
         let t = local_trait_with_guard("Composer", "Message", None, vec![set_effect("draft")]);
         let mut defs = HashMap::new();
-        defs.insert("Message".to_string(), entity("Message", true, Some(Persistence::Persistent)));
+        defs.insert(
+            "Message".to_string(),
+            entity("Message", true, Some(Persistence::Persistent)),
+        );
         let result = validate_trait_local_dispatch(&t, "test", &defs);
         assert!(
             !result
@@ -2748,7 +2781,10 @@ mod tests {
     fn set_column_without_row_and_no_persist_errors() {
         let t = trait_with_init_effects("DraftScratch", "Note", vec![set_effect("title")]);
         let mut defs = HashMap::new();
-        defs.insert("Note".to_string(), entity("Note", false, Some(Persistence::Persistent)));
+        defs.insert(
+            "Note".to_string(),
+            entity("Note", false, Some(Persistence::Persistent)),
+        );
         let result = validate_trait_set_column_without_row(&t, "test", &defs, &HashSet::new(), &[]);
         assert!(
             result
@@ -2798,7 +2834,10 @@ mod tests {
             payload_entity: None,
         }]);
         let mut defs = HashMap::new();
-        defs.insert("Note".to_string(), entity("Note", false, Some(Persistence::Persistent)));
+        defs.insert(
+            "Note".to_string(),
+            entity("Note", false, Some(Persistence::Persistent)),
+        );
         let result = validate_trait_set_column_without_row(&t, "test", &defs, &HashSet::new(), &[]);
         assert!(
             result.errors.is_empty(),
@@ -2854,7 +2893,10 @@ mod tests {
             payload_entity: None,
         }]);
         let mut defs = HashMap::new();
-        defs.insert("Note".to_string(), entity("Note", false, Some(Persistence::Persistent)));
+        defs.insert(
+            "Note".to_string(),
+            entity("Note", false, Some(Persistence::Persistent)),
+        );
         let result = validate_trait_set_column_without_row(&t, "test", &defs, &HashSet::new(), &[]);
         assert!(
             result.errors.is_empty(),
@@ -2871,7 +2913,10 @@ mod tests {
             vec![set_effect("title"), persist_create_effect("Note")],
         );
         let mut defs = HashMap::new();
-        defs.insert("Note".to_string(), entity("Note", false, Some(Persistence::Persistent)));
+        defs.insert(
+            "Note".to_string(),
+            entity("Note", false, Some(Persistence::Persistent)),
+        );
         let result = validate_trait_set_column_without_row(&t, "test", &defs, &HashSet::new(), &[]);
         assert!(
             result.errors.is_empty(),
@@ -2887,7 +2932,10 @@ mod tests {
         // is the one that creates the row against the same shared instance.
         let t = trait_with_init_effects("Attacher", "Message", vec![set_effect("attachment")]);
         let mut defs = HashMap::new();
-        defs.insert("Message".to_string(), entity("Message", true, Some(Persistence::Persistent)));
+        defs.insert(
+            "Message".to_string(),
+            entity("Message", true, Some(Persistence::Persistent)),
+        );
         let orbital_persisted: HashSet<&str> = ["Message"].into_iter().collect();
         let result =
             validate_trait_set_column_without_row(&t, "test", &defs, &orbital_persisted, &[]);
@@ -2905,7 +2953,10 @@ mod tests {
         // orbital-wide exemption must not apply here.
         let t = trait_with_init_effects("Attacher", "Note", vec![set_effect("title")]);
         let mut defs = HashMap::new();
-        defs.insert("Note".to_string(), entity("Note", false, Some(Persistence::Persistent)));
+        defs.insert(
+            "Note".to_string(),
+            entity("Note", false, Some(Persistence::Persistent)),
+        );
         let orbital_persisted: HashSet<&str> = ["Note"].into_iter().collect();
         let result =
             validate_trait_set_column_without_row(&t, "test", &defs, &orbital_persisted, &[]);
@@ -2980,13 +3031,25 @@ mod tests {
             vec![persist_whole_payload_effect("Note", "data")],
         );
         persistor.state_machine.transitions[0].event = "DO_UPDATE".to_string();
-        persistor.listens = Some(vec![restate_listen("VendorOnboard", "NEXT_STEP", "DO_UPDATE")]);
+        persistor.listens = Some(vec![restate_listen(
+            "VendorOnboard",
+            "NEXT_STEP",
+            "DO_UPDATE",
+        )]);
 
         let mut defs = HashMap::new();
-        defs.insert("Note".to_string(), entity("Note", false, Some(Persistence::Persistent)));
+        defs.insert(
+            "Note".to_string(),
+            entity("Note", false, Some(Persistence::Persistent)),
+        );
         let siblings: Vec<&TraitDefinition> = vec![&source, &persistor];
-        let result =
-            validate_trait_set_column_without_row(&source, "test", &defs, &HashSet::new(), &siblings);
+        let result = validate_trait_set_column_without_row(
+            &source,
+            "test",
+            &defs,
+            &HashSet::new(),
+            &siblings,
+        );
         assert!(
             result.errors.is_empty(),
             "A write drawn from the exact payload a restate-routed sibling persists must land: {:?}",
@@ -3022,10 +3085,18 @@ mod tests {
         persistor.listens = Some(vec![restate_listen("VendorOnboard", "SUBMIT", "DO_SUBMIT")]);
 
         let mut defs = HashMap::new();
-        defs.insert("Note".to_string(), entity("Note", false, Some(Persistence::Persistent)));
+        defs.insert(
+            "Note".to_string(),
+            entity("Note", false, Some(Persistence::Persistent)),
+        );
         let siblings: Vec<&TraitDefinition> = vec![&source, &persistor];
-        let result =
-            validate_trait_set_column_without_row(&source, "test", &defs, &HashSet::new(), &siblings);
+        let result = validate_trait_set_column_without_row(
+            &source,
+            "test",
+            &defs,
+            &HashSet::new(),
+            &siblings,
+        );
         assert!(
             result
                 .errors
@@ -3115,7 +3186,10 @@ mod tests {
             vec![set_effect("id"), set_effect("title")],
         );
         let mut defs = HashMap::new();
-        defs.insert("Note".to_string(), entity("Note", false, Some(Persistence::Persistent)));
+        defs.insert(
+            "Note".to_string(),
+            entity("Note", false, Some(Persistence::Persistent)),
+        );
         let result = validate_trait_set_column_without_row(&t, "test", &defs, &HashSet::new(), &[]);
         assert!(
             result.errors.is_empty(),
@@ -3128,7 +3202,10 @@ mod tests {
     fn set_column_on_intrinsic_field_passes() {
         let t = trait_with_init_effects("Widget", "Note", vec![set_effect("isEditing")]);
         let mut defs = HashMap::new();
-        defs.insert("Note".to_string(), entity_with_intrinsic_field("Note", "isEditing"));
+        defs.insert(
+            "Note".to_string(),
+            entity_with_intrinsic_field("Note", "isEditing"),
+        );
         let result = validate_trait_set_column_without_row(&t, "test", &defs, &HashSet::new(), &[]);
         assert!(
             result.errors.is_empty(),
@@ -3141,7 +3218,10 @@ mod tests {
     fn set_column_on_runtime_entity_is_exempt() {
         let t = trait_with_init_effects("Widget", "Cursor", vec![set_effect("x")]);
         let mut defs = HashMap::new();
-        defs.insert("Cursor".to_string(), entity("Cursor", false, Some(Persistence::Runtime)));
+        defs.insert(
+            "Cursor".to_string(),
+            entity("Cursor", false, Some(Persistence::Runtime)),
+        );
         let result = validate_trait_set_column_without_row(&t, "test", &defs, &HashSet::new(), &[]);
         assert!(
             result.errors.is_empty(),
@@ -3156,18 +3236,20 @@ mod tests {
     fn guard_on_intrinsic_field_alongside_user_gating_persist_errors() {
         let guard = arr(vec![
             s("and"),
-            arr(vec![s("=="), s("@entity.isEditing"), SExpression::Bool(true)]),
+            arr(vec![
+                s("=="),
+                s("@entity.isEditing"),
+                SExpression::Bool(true),
+            ]),
             arr(vec![s("=="), s("@user.id"), s("@entity.ownerId")]),
         ]);
-        let persist_effect = arr(vec![
-            s("persist"),
-            s("update"),
-            s("Note"),
-            s("@entity"),
-        ]);
+        let persist_effect = arr(vec![s("persist"), s("update"), s("Note"), s("@entity")]);
         let t = trait_with_guard("NoteEditor", "Note", Some(guard), vec![persist_effect]);
         let mut defs = HashMap::new();
-        defs.insert("Note".to_string(), entity_with_intrinsic_field("Note", "isEditing"));
+        defs.insert(
+            "Note".to_string(),
+            entity_with_intrinsic_field("Note", "isEditing"),
+        );
         let result = validate_trait_guard_frame_field_authorization(&t, "test", &defs);
         assert!(
             result
@@ -3183,11 +3265,18 @@ mod tests {
     fn guard_on_intrinsic_field_without_user_is_not_authorization() {
         // A plain precondition guard with no identity comparison — like
         // ChatComposer.SEND's `activeChannel != ""` — is not a hit.
-        let guard = arr(vec![s("=="), s("@entity.isEditing"), SExpression::Bool(true)]);
+        let guard = arr(vec![
+            s("=="),
+            s("@entity.isEditing"),
+            SExpression::Bool(true),
+        ]);
         let persist_effect = arr(vec![s("persist"), s("update"), s("Note"), s("@entity")]);
         let t = trait_with_guard("NoteEditor", "Note", Some(guard), vec![persist_effect]);
         let mut defs = HashMap::new();
-        defs.insert("Note".to_string(), entity_with_intrinsic_field("Note", "isEditing"));
+        defs.insert(
+            "Note".to_string(),
+            entity_with_intrinsic_field("Note", "isEditing"),
+        );
         let result = validate_trait_guard_frame_field_authorization(&t, "test", &defs);
         assert!(
             result.errors.is_empty(),
@@ -3200,12 +3289,19 @@ mod tests {
     fn guard_on_intrinsic_field_with_user_but_no_mutation_is_not_a_hit() {
         let guard = arr(vec![
             s("and"),
-            arr(vec![s("=="), s("@entity.isEditing"), SExpression::Bool(true)]),
+            arr(vec![
+                s("=="),
+                s("@entity.isEditing"),
+                SExpression::Bool(true),
+            ]),
             arr(vec![s("=="), s("@user.id"), s("@entity.ownerId")]),
         ]);
         let t = trait_with_guard("NoteViewer", "Note", Some(guard), vec![set_effect("title")]);
         let mut defs = HashMap::new();
-        defs.insert("Note".to_string(), entity_with_intrinsic_field("Note", "isEditing"));
+        defs.insert(
+            "Note".to_string(),
+            entity_with_intrinsic_field("Note", "isEditing"),
+        );
         let result = validate_trait_guard_frame_field_authorization(&t, "test", &defs);
         assert!(
             result.errors.is_empty(),
@@ -3219,12 +3315,23 @@ mod tests {
     #[test]
     fn user_guard_on_local_trait_without_server_effect_does_not_warn() {
         let guard = arr(vec![s("=="), s("@user.id"), s("@entity.ownerId")]);
-        let t = local_trait_with_guard("Composer", "Message", Some(guard), vec![set_effect("draft")]);
+        let t = local_trait_with_guard(
+            "Composer",
+            "Message",
+            Some(guard),
+            vec![set_effect("draft")],
+        );
         let mut defs = HashMap::new();
-        defs.insert("Message".to_string(), entity("Message", true, Some(Persistence::Persistent)));
+        defs.insert(
+            "Message".to_string(),
+            entity("Message", true, Some(Persistence::Persistent)),
+        );
         let result = validate_trait_auth_guard_client_only(&t, "t", &defs);
         assert!(
-            result.warnings.iter().all(|e| e.code != ErrorCode::AuthGuardClientOnly),
+            result
+                .warnings
+                .iter()
+                .all(|e| e.code != ErrorCode::AuthGuardClientOnly),
             "A local trait with no server-touching effect has nothing to protect: {:?}",
             result.warnings
         );
@@ -3235,10 +3342,16 @@ mod tests {
         let guard = arr(vec![s("=="), s("@user.id"), s("@entity.ownerId")]);
         let t = trait_with_guard("Cursor", "Cursor", Some(guard), vec![set_effect("x")]);
         let mut defs = HashMap::new();
-        defs.insert("Cursor".to_string(), entity("Cursor", false, Some(Persistence::Runtime)));
+        defs.insert(
+            "Cursor".to_string(),
+            entity("Cursor", false, Some(Persistence::Runtime)),
+        );
         let result = validate_trait_auth_guard_client_only(&t, "t", &defs);
         assert!(
-            result.warnings.iter().all(|e| e.code != ErrorCode::AuthGuardClientOnly),
+            result
+                .warnings
+                .iter()
+                .all(|e| e.code != ErrorCode::AuthGuardClientOnly),
             "A [runtime]-bound trait with no server-touching effect has nothing to protect: {:?}",
             result.warnings
         );
@@ -3260,13 +3373,20 @@ mod tests {
         ]);
         let t = local_trait_with_guard("Composer", "Message", Some(guard), vec![persist_effect]);
         let mut defs = HashMap::new();
-        defs.insert("Message".to_string(), entity("Message", true, Some(Persistence::Persistent)));
+        defs.insert(
+            "Message".to_string(),
+            entity("Message", true, Some(Persistence::Persistent)),
+        );
         let result = validate_trait_auth_guard_client_only(&t, "test", &defs);
         let hit = result
             .warnings
             .iter()
             .find(|e| e.code == ErrorCode::AuthGuardClientOnly);
-        assert!(hit.is_some(), "Expected AuthGuardClientOnly warning: {:?}", result.warnings);
+        assert!(
+            hit.is_some(),
+            "Expected AuthGuardClientOnly warning: {:?}",
+            result.warnings
+        );
         assert!(
             hit.unwrap().message.contains("advances optimistically")
                 && hit.unwrap().message.contains("effects stay server-gated"),
@@ -3291,13 +3411,20 @@ mod tests {
         ]);
         let t = trait_with_guard("Cursor", "Cursor", Some(guard), vec![nested_fetch]);
         let mut defs = HashMap::new();
-        defs.insert("Cursor".to_string(), entity("Cursor", false, Some(Persistence::Runtime)));
+        defs.insert(
+            "Cursor".to_string(),
+            entity("Cursor", false, Some(Persistence::Runtime)),
+        );
         let result = validate_trait_auth_guard_client_only(&t, "test", &defs);
         let hit = result
             .warnings
             .iter()
             .find(|e| e.code == ErrorCode::AuthGuardClientOnly);
-        assert!(hit.is_some(), "Expected AuthGuardClientOnly warning: {:?}", result.warnings);
+        assert!(
+            hit.is_some(),
+            "Expected AuthGuardClientOnly warning: {:?}",
+            result.warnings
+        );
         assert!(
             hit.unwrap().message.contains("advances optimistically")
                 && hit.unwrap().message.contains("effects stay server-gated"),
@@ -3309,9 +3436,17 @@ mod tests {
     #[test]
     fn user_guard_on_server_gated_trait_does_not_warn() {
         let guard = arr(vec![s("=="), s("@user.id"), s("@entity.ownerId")]);
-        let t = trait_with_guard("Composer", "Message", Some(guard), vec![set_effect("draft")]);
+        let t = trait_with_guard(
+            "Composer",
+            "Message",
+            Some(guard),
+            vec![set_effect("draft")],
+        );
         let mut defs = HashMap::new();
-        defs.insert("Message".to_string(), entity("Message", true, Some(Persistence::Persistent)));
+        defs.insert(
+            "Message".to_string(),
+            entity("Message", true, Some(Persistence::Persistent)),
+        );
         let result = validate_trait_auth_guard_client_only(&t, "test", &defs);
         assert!(
             result.warnings.is_empty(),

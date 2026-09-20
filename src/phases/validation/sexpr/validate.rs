@@ -637,7 +637,10 @@ mod tests {
             .expect("expected an SExprInvalidOperator error for bare 'camelCase'");
         assert!(err.message.contains("camelCase"));
         assert!(
-            err.suggestion.as_deref().unwrap_or("").contains("str/camelCase"),
+            err.suggestion
+                .as_deref()
+                .unwrap_or("")
+                .contains("str/camelCase"),
             "suggestion should point at the real operator: {:?}",
             err.suggestion
         );
@@ -651,7 +654,10 @@ mod tests {
         let expr = SExpression::Array(vec![SExpression::String("camelCase".to_string())]);
         let result = validate_sexpr(&expr, "test", SExprContext::Effect, &HashSet::new());
         assert!(
-            !result.errors.iter().any(|e| e.code == ErrorCode::SExprInvalidOperator),
+            !result
+                .errors
+                .iter()
+                .any(|e| e.code == ErrorCode::SExprInvalidOperator),
             "a single-element array must be treated as literal data, not a call attempt"
         );
     }
@@ -674,7 +680,10 @@ mod tests {
         ]);
         let result = validate_sexpr(&expr, "test", SExprContext::Effect, &HashSet::new());
         assert!(
-            !result.errors.iter().any(|e| e.code == ErrorCode::SExprInvalidOperator),
+            !result
+                .errors
+                .iter()
+                .any(|e| e.code == ErrorCode::SExprInvalidOperator),
             "a literal enum-options list of plain identifiers must stay data, not become a call"
         );
     }
@@ -699,7 +708,10 @@ mod tests {
         ]);
         let result = validate_sexpr(&expr, "test", SExprContext::Effect, &HashSet::new());
         assert!(
-            !result.errors.iter().any(|e| e.code == ErrorCode::SExprInvalidOperator),
+            !result
+                .errors
+                .iter()
+                .any(|e| e.code == ErrorCode::SExprInvalidOperator),
             "'join' is a known legacy alias and must not be flagged"
         );
     }

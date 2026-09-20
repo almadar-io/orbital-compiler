@@ -101,7 +101,11 @@ mod tests {
             to: to.to_string(),
             event: event.to_string(),
             guard: None,
-            effects: if effects.is_empty() { None } else { Some(effects) },
+            effects: if effects.is_empty() {
+                None
+            } else {
+                Some(effects)
+            },
         }
     }
 
@@ -123,16 +127,24 @@ mod tests {
             states: vec![state("browsing", true), state("loading", false)],
             events: None,
             transitions: vec![
-                sm_transition("browsing", "loading", "REFRESH", effects_from(serde_json::json!([
-                    ["fetch", "Item", { "emit": { "success": "ItemLoaded", "failure": "ItemFailed" } }]
-                ]))),
+                sm_transition(
+                    "browsing",
+                    "loading",
+                    "REFRESH",
+                    effects_from(serde_json::json!([
+                        ["fetch", "Item", { "emit": { "success": "ItemLoaded", "failure": "ItemFailed" } }]
+                    ])),
+                ),
                 // "loading" only handles ItemFailed, not ItemLoaded.
                 sm_transition("loading", "browsing", "ItemFailed", vec![]),
             ],
         };
         let result = validate_async_result_deaf_target(&sm, "test");
         assert!(
-            result.errors.iter().any(|e| e.code == ErrorCode::CircuitAsyncResultDeafTarget),
+            result
+                .errors
+                .iter()
+                .any(|e| e.code == ErrorCode::CircuitAsyncResultDeafTarget),
             "{:?}",
             result.errors
         );
@@ -144,9 +156,14 @@ mod tests {
             states: vec![state("browsing", true), state("loading", false)],
             events: None,
             transitions: vec![
-                sm_transition("browsing", "loading", "REFRESH", effects_from(serde_json::json!([
-                    ["fetch", "Item", { "emit": { "success": "ItemLoaded", "failure": "ItemFailed" } }]
-                ]))),
+                sm_transition(
+                    "browsing",
+                    "loading",
+                    "REFRESH",
+                    effects_from(serde_json::json!([
+                        ["fetch", "Item", { "emit": { "success": "ItemLoaded", "failure": "ItemFailed" } }]
+                    ])),
+                ),
                 sm_transition("loading", "browsing", "ItemLoaded", vec![]),
                 sm_transition("loading", "browsing", "ItemFailed", vec![]),
             ],
