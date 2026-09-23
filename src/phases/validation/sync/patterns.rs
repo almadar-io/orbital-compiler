@@ -2,7 +2,7 @@
 //!
 //! Source: packages/almadar-core/src/patterns/patterns-registry.json
 //!
-//! Last synced: 2026-09-19
+//! Last synced: 2026-09-21
 //! To regenerate: npx tsx tools/almadar-pattern-sync/index.ts
 //!
 //! DO NOT EDIT MANUALLY - changes will be overwritten on next sync.
@@ -648,14 +648,7 @@ pub static VALID_ITEM_ACTION_PROPS: LazyLock<HashSet<&'static str>> = LazyLock::
         // Navigation converged on navigatesTo (row-field interpolation, the
         // JS components' implemented prop); href was never honored by any layer
         // (C-ITEMACTION-HREF-CONTRACT-DIVERGENCE).
-        "label",
-        "event",
-        "icon",
-        "variant",
-        "disabled",
-        "hidden",
-        "confirm",
-        "payload",
+        "label", "event", "icon", "variant", "disabled", "hidden", "confirm", "payload",
         "navigatesTo",
     ]
     .into_iter()
@@ -682,10 +675,7 @@ pub static PATTERN_REQUIRED_PROPS: LazyLock<HashMap<&'static str, Vec<&'static s
             ("book-table-of-contents", vec!["parts"]),
             ("branching-logic-builder", vec!["questions", "rules"]),
             ("carousel", vec!["items"]),
-            (
-                "case-study-card",
-                vec!["title", "description", "category", "href"],
-            ),
+            ("case-study-card", vec!["title", "description", "category", "href"]),
             ("center", vec!["children"]),
             ("chart-legend", vec!["items"]),
             ("choice-button", vec!["text"]),
@@ -713,10 +703,7 @@ pub static PATTERN_REQUIRED_PROPS: LazyLock<HashMap<&'static str, Vec<&'static s
             ("draw-mesh", vec!["type", "shape", "position"]),
             ("draw-shape", vec!["type", "shape", "position"]),
             ("draw-shape-layer", vec!["type", "items"]),
-            (
-                "draw-skinned-mesh",
-                vec!["type", "position", "asset", "bones"],
-            ),
+            ("draw-skinned-mesh", vec!["type", "position", "asset", "bones"]),
             ("draw-sprite", vec!["type", "position", "asset"]),
             ("draw-sprite-layer", vec!["type", "items"]),
             ("draw-text", vec!["type", "text", "position", "color"]),
@@ -767,10 +754,7 @@ pub static PATTERN_REQUIRED_PROPS: LazyLock<HashMap<&'static str, Vec<&'static s
             ("module-card", vec!["data"]),
             ("navigation", vec!["items"]),
             ("notification", vec!["message"]),
-            (
-                "option-constraint-group",
-                vec!["groupId", "title", "options"],
-            ),
+            ("option-constraint-group", vec!["groupId", "title", "options"]),
             ("page-transition", vec!["locationKey", "children"]),
             ("pagination", vec!["currentPage", "totalPages"]),
             ("popover", vec!["content", "children"]),
@@ -786,10 +770,7 @@ pub static PATTERN_REQUIRED_PROPS: LazyLock<HashMap<&'static str, Vec<&'static s
             ("quiz-block", vec!["question", "answer"]),
             ("reflection-block", vec!["prompt", "index"]),
             ("relation-select", vec!["options"]),
-            (
-                "repeatable-form-section",
-                vec!["sectionType", "title", "items", "renderItem"],
-            ),
+            ("repeatable-form-section", vec!["sectionType", "title", "items", "renderItem"]),
             ("reply-tree", vec!["nodes"]),
             ("scaled-diagram", vec!["children"]),
             ("score-display", vec!["value"]),
@@ -811,16 +792,10 @@ pub static PATTERN_REQUIRED_PROPS: LazyLock<HashMap<&'static str, Vec<&'static s
             ("stat-badge", vec!["label"]),
             ("stat-display", vec!["label", "value"]),
             ("state-graph", vec!["states"]),
-            (
-                "state-json-view",
-                vec!["name", "initialState", "states", "transitions"],
-            ),
+            ("state-json-view", vec!["name", "initialState", "states", "transitions"]),
             ("stats-grid", vec!["stats"]),
             ("step-flow", vec!["steps"]),
-            (
-                "subagent-trace-panel",
-                vec!["subagents", "disclosureLevel", "open"],
-            ),
+            ("subagent-trace-panel", vec!["subagents", "disclosureLevel", "open"]),
             ("swipeable-row", vec!["children"]),
             ("tabbed-container", vec!["tabs"]),
             ("table-view", vec!["entity"]),
@@ -851,10 +826,7 @@ pub static PATTERN_REQUIRED_PROPS: LazyLock<HashMap<&'static str, Vec<&'static s
 pub static PATTERN_PROPS_SCHEMA: LazyLock<HashMap<&'static str, HashSet<&'static str>>> =
     LazyLock::new(|| {
         [
-            (
-                "about-page-template",
-                ["className", "entity"].into_iter().collect(),
-            ),
+            ("about-page-template", ["className", "entity"].into_iter().collect()),
             (
                 "accordion",
                 [
@@ -906,12 +878,7 @@ pub static PATTERN_PROPS_SCHEMA: LazyLock<HashMap<&'static str, HashSet<&'static
                 .into_iter()
                 .collect(),
             ),
-            (
-                "activation-block",
-                ["className", "question", "saveEvent", "savedResponse"]
-                    .into_iter()
-                    .collect(),
-            ),
+            ("activation-block", ["className", "question", "saveEvent", "savedResponse"].into_iter().collect()),
             (
                 "alert",
                 [
@@ -981,19 +948,7 @@ pub static PATTERN_PROPS_SCHEMA: LazyLock<HashMap<&'static str, HashSet<&'static
                 .into_iter()
                 .collect(),
             ),
-            (
-                "animated-counter",
-                [
-                    "className",
-                    "duration",
-                    "format",
-                    "prefix",
-                    "suffix",
-                    "value",
-                ]
-                .into_iter()
-                .collect(),
-            ),
+            ("animated-counter", ["className", "duration", "format", "prefix", "suffix", "value"].into_iter().collect()),
             (
                 "animated-graphic",
                 [
@@ -1031,12 +986,7 @@ pub static PATTERN_PROPS_SCHEMA: LazyLock<HashMap<&'static str, HashSet<&'static
                 .into_iter()
                 .collect(),
             ),
-            (
-                "article-section",
-                ["children", "className", "maxWidth", "title"]
-                    .into_iter()
-                    .collect(),
-            ),
+            ("article-section", ["children", "className", "maxWidth", "title"].into_iter().collect()),
             ("aside", ["children", "className"].into_iter().collect()),
             (
                 "atlas-image",
@@ -1070,18 +1020,7 @@ pub static PATTERN_PROPS_SCHEMA: LazyLock<HashMap<&'static str, HashSet<&'static
                 .into_iter()
                 .collect(),
             ),
-            (
-                "auth-layout",
-                [
-                    "appName",
-                    "backgroundImage",
-                    "brandingContent",
-                    "logo",
-                    "showBranding",
-                ]
-                .into_iter()
-                .collect(),
-            ),
+            ("auth-layout", ["appName", "backgroundImage", "brandingContent", "logo", "showBranding"].into_iter().collect()),
             (
                 "avatar",
                 [
@@ -1166,43 +1105,10 @@ pub static PATTERN_PROPS_SCHEMA: LazyLock<HashMap<&'static str, HashSet<&'static
                 .into_iter()
                 .collect(),
             ),
-            (
-                "book-chapter-view",
-                ["chapter", "className", "direction", "orbitalSchema"]
-                    .into_iter()
-                    .collect(),
-            ),
-            (
-                "book-cover-page",
-                [
-                    "author",
-                    "className",
-                    "coverImageUrl",
-                    "direction",
-                    "subtitle",
-                    "title",
-                ]
-                .into_iter()
-                .collect(),
-            ),
-            (
-                "book-nav-bar",
-                [
-                    "chapterTitle",
-                    "className",
-                    "currentPage",
-                    "direction",
-                    "totalPages",
-                ]
-                .into_iter()
-                .collect(),
-            ),
-            (
-                "book-table-of-contents",
-                ["className", "currentChapterId", "direction", "parts"]
-                    .into_iter()
-                    .collect(),
-            ),
+            ("book-chapter-view", ["chapter", "className", "direction", "orbitalSchema"].into_iter().collect()),
+            ("book-cover-page", ["author", "className", "coverImageUrl", "direction", "subtitle", "title"].into_iter().collect()),
+            ("book-nav-bar", ["chapterTitle", "className", "currentPage", "direction", "totalPages"].into_iter().collect()),
+            ("book-table-of-contents", ["className", "currentChapterId", "direction", "parts"].into_iter().collect()),
             (
                 "book-viewer",
                 [
@@ -1268,19 +1174,7 @@ pub static PATTERN_PROPS_SCHEMA: LazyLock<HashMap<&'static str, HashSet<&'static
                 .into_iter()
                 .collect(),
             ),
-            (
-                "breadcrumb",
-                [
-                    "className",
-                    "fromNavStack",
-                    "itemEvent",
-                    "items",
-                    "maxItems",
-                    "separator",
-                ]
-                .into_iter()
-                .collect(),
-            ),
+            ("breadcrumb", ["className", "fromNavStack", "itemEvent", "items", "maxItems", "separator"].into_iter().collect()),
             (
                 "button",
                 [
@@ -1515,10 +1409,7 @@ pub static PATTERN_PROPS_SCHEMA: LazyLock<HashMap<&'static str, HashSet<&'static
                 .into_iter()
                 .collect(),
             ),
-            (
-                "chart-legend",
-                ["className", "direction", "items"].into_iter().collect(),
-            ),
+            ("chart-legend", ["className", "direction", "items"].into_iter().collect()),
             (
                 "chat-bar",
                 [
@@ -1542,18 +1433,7 @@ pub static PATTERN_PROPS_SCHEMA: LazyLock<HashMap<&'static str, HashSet<&'static
                 .into_iter()
                 .collect(),
             ),
-            (
-                "checkbox",
-                [
-                    "checked",
-                    "className",
-                    "defaultChecked",
-                    "label",
-                    "onChange",
-                ]
-                .into_iter()
-                .collect(),
-            ),
+            ("checkbox", ["checked", "className", "defaultChecked", "label", "onChange"].into_iter().collect()),
             (
                 "chemistry-canvas",
                 [
@@ -1644,19 +1524,7 @@ pub static PATTERN_PROPS_SCHEMA: LazyLock<HashMap<&'static str, HashSet<&'static
                 .into_iter()
                 .collect(),
             ),
-            (
-                "code-runner-panel",
-                [
-                    "className",
-                    "code",
-                    "language",
-                    "onRun",
-                    "runEvent",
-                    "runnable",
-                ]
-                .into_iter()
-                .collect(),
-            ),
+            ("code-runner-panel", ["className", "code", "language", "onRun", "runEvent", "runnable"].into_iter().collect()),
             (
                 "command-palette",
                 [
@@ -1671,31 +1539,9 @@ pub static PATTERN_PROPS_SCHEMA: LazyLock<HashMap<&'static str, HashSet<&'static
                 .into_iter()
                 .collect(),
             ),
-            (
-                "community-links",
-                [
-                    "className",
-                    "discord",
-                    "github",
-                    "heading",
-                    "subtitle",
-                    "twitter",
-                ]
-                .into_iter()
-                .collect(),
-            ),
-            (
-                "conditional-wrapper",
-                ["animate", "children", "condition", "context", "fallback"]
-                    .into_iter()
-                    .collect(),
-            ),
-            (
-                "confetti-effect",
-                ["className", "duration", "particleCount", "trigger"]
-                    .into_iter()
-                    .collect(),
-            ),
+            ("community-links", ["className", "discord", "github", "heading", "subtitle", "twitter"].into_iter().collect()),
+            ("conditional-wrapper", ["animate", "children", "condition", "context", "fallback"].into_iter().collect()),
+            ("confetti-effect", ["className", "duration", "particleCount", "trigger"].into_iter().collect()),
             (
                 "confirm-dialog",
                 [
@@ -1718,24 +1564,8 @@ pub static PATTERN_PROPS_SCHEMA: LazyLock<HashMap<&'static str, HashSet<&'static
                 .into_iter()
                 .collect(),
             ),
-            (
-                "connection-block",
-                ["className", "content"].into_iter().collect(),
-            ),
-            (
-                "container",
-                [
-                    "as",
-                    "center",
-                    "children",
-                    "className",
-                    "maxWidth",
-                    "padding",
-                    "size",
-                ]
-                .into_iter()
-                .collect(),
-            ),
+            ("connection-block", ["className", "content"].into_iter().collect()),
+            ("container", ["as", "center", "children", "className", "maxWidth", "padding", "size"].into_iter().collect()),
             (
                 "content-renderer",
                 [
@@ -1757,12 +1587,7 @@ pub static PATTERN_PROPS_SCHEMA: LazyLock<HashMap<&'static str, HashSet<&'static
                 .into_iter()
                 .collect(),
             ),
-            (
-                "content-section",
-                ["background", "children", "className", "id", "padding"]
-                    .into_iter()
-                    .collect(),
-            ),
+            ("content-section", ["background", "children", "className", "id", "padding"].into_iter().collect()),
             (
                 "control-button",
                 [
@@ -1985,18 +1810,8 @@ pub static PATTERN_PROPS_SCHEMA: LazyLock<HashMap<&'static str, HashSet<&'static
                 .into_iter()
                 .collect(),
             ),
-            (
-                "date-range-selector",
-                ["className", "onSelect", "options", "selected"]
-                    .into_iter()
-                    .collect(),
-            ),
-            (
-                "day-cell",
-                ["className", "date", "isToday", "onClick"]
-                    .into_iter()
-                    .collect(),
-            ),
+            ("date-range-selector", ["className", "onSelect", "options", "selected"].into_iter().collect()),
+            ("day-cell", ["className", "date", "isToday", "onClick"].into_iter().collect()),
             (
                 "detail-panel",
                 [
@@ -2037,45 +1852,13 @@ pub static PATTERN_PROPS_SCHEMA: LazyLock<HashMap<&'static str, HashSet<&'static
                 .collect(),
             ),
             ("dialog", ["children", "className"].into_iter().collect()),
-            (
-                "dialogue-bubble",
-                [
-                    "className",
-                    "mood",
-                    "portrait",
-                    "position",
-                    "revealedChars",
-                    "speaker",
-                    "text",
-                ]
-                .into_iter()
-                .collect(),
-            ),
-            (
-                "divider",
-                ["className", "label", "orientation", "variant"]
-                    .into_iter()
-                    .collect(),
-            ),
-            (
-                "doc-breadcrumb",
-                ["className", "items"].into_iter().collect(),
-            ),
-            (
-                "doc-pagination",
-                ["className", "next", "prev"].into_iter().collect(),
-            ),
-            (
-                "doc-search",
-                ["className", "onSearch", "placeholder"]
-                    .into_iter()
-                    .collect(),
-            ),
+            ("dialogue-bubble", ["className", "mood", "portrait", "position", "revealedChars", "speaker", "text"].into_iter().collect()),
+            ("divider", ["className", "label", "orientation", "variant"].into_iter().collect()),
+            ("doc-breadcrumb", ["className", "items"].into_iter().collect()),
+            ("doc-pagination", ["className", "next", "prev"].into_iter().collect()),
+            ("doc-search", ["className", "onSearch", "placeholder"].into_iter().collect()),
             ("doc-sidebar", ["className", "items"].into_iter().collect()),
-            (
-                "doc-toc",
-                ["activeId", "className", "items"].into_iter().collect(),
-            ),
+            ("doc-toc", ["activeId", "className", "items"].into_iter().collect()),
             (
                 "dock-layout",
                 [
@@ -2110,19 +1893,7 @@ pub static PATTERN_PROPS_SCHEMA: LazyLock<HashMap<&'static str, HashSet<&'static
                 .into_iter()
                 .collect(),
             ),
-            (
-                "document-details",
-                [
-                    "className",
-                    "entity",
-                    "fields",
-                    "metaCommitEvent",
-                    "relationEvent",
-                    "title",
-                ]
-                .into_iter()
-                .collect(),
-            ),
+            ("document-details", ["className", "entity", "fields", "metaCommitEvent", "relationEvent", "title"].into_iter().collect()),
             (
                 "document-panel",
                 [
@@ -2170,21 +1941,7 @@ pub static PATTERN_PROPS_SCHEMA: LazyLock<HashMap<&'static str, HashSet<&'static
                 .into_iter()
                 .collect(),
             ),
-            (
-                "draw-fx-layer",
-                [
-                    "art",
-                    "id",
-                    "items",
-                    "presets",
-                    "sprites",
-                    "textColor",
-                    "tickMs",
-                    "type",
-                ]
-                .into_iter()
-                .collect(),
-            ),
+            ("draw-fx-layer", ["art", "id", "items", "presets", "sprites", "textColor", "tickMs", "type"].into_iter().collect()),
             (
                 "draw-group",
                 [
@@ -2270,10 +2027,7 @@ pub static PATTERN_PROPS_SCHEMA: LazyLock<HashMap<&'static str, HashSet<&'static
                 .into_iter()
                 .collect(),
             ),
-            (
-                "draw-shape-layer",
-                ["id", "items", "type"].into_iter().collect(),
-            ),
+            ("draw-shape-layer", ["id", "items", "type"].into_iter().collect()),
             (
                 "draw-skinned-mesh",
                 [
@@ -2317,23 +2071,27 @@ pub static PATTERN_PROPS_SCHEMA: LazyLock<HashMap<&'static str, HashSet<&'static
                 .into_iter()
                 .collect(),
             ),
-            (
-                "draw-sprite-layer",
-                ["id", "items", "type"].into_iter().collect(),
-            ),
+            ("draw-sprite-layer", ["id", "items", "type"].into_iter().collect()),
             (
                 "draw-text",
                 [
-                    "align", "anchor", "baseline", "color", "font", "id", "offsetX", "offsetY",
-                    "opacity", "position", "text", "type",
+                    "align",
+                    "anchor",
+                    "baseline",
+                    "color",
+                    "font",
+                    "id",
+                    "offsetX",
+                    "offsetY",
+                    "opacity",
+                    "position",
+                    "text",
+                    "type",
                 ]
                 .into_iter()
                 .collect(),
             ),
-            (
-                "draw-text-layer",
-                ["id", "items", "type"].into_iter().collect(),
-            ),
+            ("draw-text-layer", ["id", "items", "type"].into_iter().collect()),
             (
                 "drawer",
                 [
@@ -2369,32 +2127,8 @@ pub static PATTERN_PROPS_SCHEMA: LazyLock<HashMap<&'static str, HashSet<&'static
                 .into_iter()
                 .collect(),
             ),
-            (
-                "edge-decoration",
-                [
-                    "className",
-                    "color",
-                    "opacity",
-                    "side",
-                    "strokeWidth",
-                    "variant",
-                    "width",
-                ]
-                .into_iter()
-                .collect(),
-            ),
-            (
-                "emoji-picker",
-                [
-                    "className",
-                    "pickEvent",
-                    "position",
-                    "triggerIcon",
-                    "triggerLabel",
-                ]
-                .into_iter()
-                .collect(),
-            ),
+            ("edge-decoration", ["className", "color", "opacity", "side", "strokeWidth", "variant", "width"].into_iter().collect()),
+            ("emoji-picker", ["className", "pickEvent", "position", "triggerIcon", "triggerLabel"].into_iter().collect()),
             (
                 "empty-state",
                 [
@@ -2509,25 +2243,8 @@ pub static PATTERN_PROPS_SCHEMA: LazyLock<HashMap<&'static str, HashSet<&'static
                 .into_iter()
                 .collect(),
             ),
-            (
-                "error-boundary",
-                ["children", "className", "fallback", "onError"]
-                    .into_iter()
-                    .collect(),
-            ),
-            (
-                "error-state",
-                [
-                    "className",
-                    "description",
-                    "message",
-                    "onRetry",
-                    "retryEvent",
-                    "title",
-                ]
-                .into_iter()
-                .collect(),
-            ),
+            ("error-boundary", ["children", "className", "fallback", "onError"].into_iter().collect()),
+            ("error-state", ["className", "description", "message", "onRetry", "retryEvent", "title"].into_iter().collect()),
             (
                 "feature-card",
                 [
@@ -2543,16 +2260,8 @@ pub static PATTERN_PROPS_SCHEMA: LazyLock<HashMap<&'static str, HashSet<&'static
                 .into_iter()
                 .collect(),
             ),
-            (
-                "feature-detail-page-template",
-                ["className", "entity"].into_iter().collect(),
-            ),
-            (
-                "feature-grid",
-                ["className", "columns", "gap", "items"]
-                    .into_iter()
-                    .collect(),
-            ),
+            ("feature-detail-page-template", ["className", "entity"].into_iter().collect()),
+            ("feature-grid", ["className", "columns", "gap", "items"].into_iter().collect()),
             (
                 "feature-grid-organism",
                 [
@@ -2650,18 +2359,8 @@ pub static PATTERN_PROPS_SCHEMA: LazyLock<HashMap<&'static str, HashSet<&'static
                 .into_iter()
                 .collect(),
             ),
-            (
-                "flip-card",
-                ["back", "className", "flipped", "front", "height", "onFlip"]
-                    .into_iter()
-                    .collect(),
-            ),
-            (
-                "flip-container",
-                ["children", "className", "flipped", "onClick"]
-                    .into_iter()
-                    .collect(),
-            ),
+            ("flip-card", ["back", "className", "flipped", "front", "height", "onFlip"].into_iter().collect()),
+            ("flip-container", ["children", "className", "flipped", "onClick"].into_iter().collect()),
             (
                 "floating-action-button",
                 [
@@ -2678,12 +2377,7 @@ pub static PATTERN_PROPS_SCHEMA: LazyLock<HashMap<&'static str, HashSet<&'static
                 .into_iter()
                 .collect(),
             ),
-            (
-                "floating-toolbar",
-                ["children", "className", "items", "position"]
-                    .into_iter()
-                    .collect(),
-            ),
+            ("floating-toolbar", ["children", "className", "items", "position"].into_iter().collect()),
             (
                 "form",
                 [
@@ -2737,19 +2431,7 @@ pub static PATTERN_PROPS_SCHEMA: LazyLock<HashMap<&'static str, HashSet<&'static
                 .into_iter()
                 .collect(),
             ),
-            (
-                "form-field",
-                [
-                    "children",
-                    "className",
-                    "error",
-                    "hint",
-                    "label",
-                    "required",
-                ]
-                .into_iter()
-                .collect(),
-            ),
+            ("form-field", ["children", "className", "error", "hint", "label", "required"].into_iter().collect()),
             (
                 "form-layout",
                 [
@@ -2824,34 +2506,9 @@ pub static PATTERN_PROPS_SCHEMA: LazyLock<HashMap<&'static str, HashSet<&'static
                 .into_iter()
                 .collect(),
             ),
-            (
-                "fx-overlay",
-                ["children", "className", "items", "tickMs"]
-                    .into_iter()
-                    .collect(),
-            ),
-            (
-                "game-audio-cue",
-                [
-                    "baseUrl", "cue", "cueSeq", "manifest", "music", "muted", "volume",
-                ]
-                .into_iter()
-                .collect(),
-            ),
-            (
-                "game-audio-toggle",
-                [
-                    "className",
-                    "error",
-                    "isLoading",
-                    "offAsset",
-                    "onAsset",
-                    "size",
-                    "toggleEvent",
-                ]
-                .into_iter()
-                .collect(),
-            ),
+            ("fx-overlay", ["children", "className", "items", "tickMs"].into_iter().collect()),
+            ("game-audio-cue", ["baseUrl", "cue", "cueSeq", "manifest", "music", "muted", "volume"].into_iter().collect()),
+            ("game-audio-toggle", ["className", "error", "isLoading", "offAsset", "onAsset", "size", "toggleEvent"].into_iter().collect()),
             (
                 "game-hud",
                 [
@@ -2867,12 +2524,7 @@ pub static PATTERN_PROPS_SCHEMA: LazyLock<HashMap<&'static str, HashSet<&'static
                 .into_iter()
                 .collect(),
             ),
-            (
-                "game-icon",
-                ["alt", "assetUrl", "className", "icon", "size"]
-                    .into_iter()
-                    .collect(),
-            ),
+            ("game-icon", ["alt", "assetUrl", "className", "icon", "size"].into_iter().collect()),
             (
                 "game-menu",
                 [
@@ -2959,10 +2611,7 @@ pub static PATTERN_PROPS_SCHEMA: LazyLock<HashMap<&'static str, HashSet<&'static
                 .into_iter()
                 .collect(),
             ),
-            (
-                "gradient-divider",
-                ["className", "color"].into_iter().collect(),
-            ),
+            ("gradient-divider", ["className", "color"].into_iter().collect()),
             (
                 "graph-canvas",
                 [
@@ -3173,25 +2822,8 @@ pub static PATTERN_PROPS_SCHEMA: LazyLock<HashMap<&'static str, HashSet<&'static
                 .into_iter()
                 .collect(),
             ),
-            (
-                "import-progress",
-                ["className", "counts", "labels", "step"]
-                    .into_iter()
-                    .collect(),
-            ),
-            (
-                "import-source-picker",
-                [
-                    "className",
-                    "moreSources",
-                    "onFilesSelected",
-                    "onSelect",
-                    "sources",
-                    "title",
-                ]
-                .into_iter()
-                .collect(),
-            ),
+            ("import-progress", ["className", "counts", "labels", "step"].into_iter().collect()),
+            ("import-source-picker", ["className", "moreSources", "onFilesSelected", "onSelect", "sources", "title"].into_iter().collect()),
             (
                 "infinite-scroll-sentinel",
                 [
@@ -3254,10 +2886,7 @@ pub static PATTERN_PROPS_SCHEMA: LazyLock<HashMap<&'static str, HashSet<&'static
                 .into_iter()
                 .collect(),
             ),
-            (
-                "install-box",
-                ["className", "command", "label"].into_iter().collect(),
-            ),
+            ("install-box", ["className", "command", "label"].into_iter().collect()),
             (
                 "jazari-state-machine",
                 [
@@ -3273,24 +2902,9 @@ pub static PATTERN_PROPS_SCHEMA: LazyLock<HashMap<&'static str, HashSet<&'static
                 .into_iter()
                 .collect(),
             ),
-            (
-                "label",
-                ["className", "htmlFor", "required", "text"]
-                    .into_iter()
-                    .collect(),
-            ),
-            (
-                "landing-page-template",
-                ["className", "entity", "featureColumns", "variant"]
-                    .into_iter()
-                    .collect(),
-            ),
-            (
-                "law-reference-tooltip",
-                ["children", "className", "position", "reference"]
-                    .into_iter()
-                    .collect(),
-            ),
+            ("label", ["className", "htmlFor", "required", "text"].into_iter().collect()),
+            ("landing-page-template", ["className", "entity", "featureColumns", "variant"].into_iter().collect()),
+            ("law-reference-tooltip", ["children", "className", "position", "reference"].into_iter().collect()),
             (
                 "learning-canvas",
                 [
@@ -3361,12 +2975,7 @@ pub static PATTERN_PROPS_SCHEMA: LazyLock<HashMap<&'static str, HashSet<&'static
                 .into_iter()
                 .collect(),
             ),
-            (
-                "loading-state",
-                ["className", "fullPage", "message", "title"]
-                    .into_iter()
-                    .collect(),
-            ),
+            ("loading-state", ["className", "fullPage", "message", "title"].into_iter().collect()),
             (
                 "map-view",
                 [
@@ -3387,22 +2996,9 @@ pub static PATTERN_PROPS_SCHEMA: LazyLock<HashMap<&'static str, HashSet<&'static
                 .into_iter()
                 .collect(),
             ),
-            (
-                "markdown-content",
-                ["className", "content", "direction"].into_iter().collect(),
-            ),
-            (
-                "marketing-footer",
-                ["className", "columns", "copyright", "logo"]
-                    .into_iter()
-                    .collect(),
-            ),
-            (
-                "marketing-stat-card",
-                ["className", "label", "size", "value"]
-                    .into_iter()
-                    .collect(),
-            ),
+            ("markdown-content", ["className", "content", "direction"].into_iter().collect()),
+            ("marketing-footer", ["className", "columns", "copyright", "logo"].into_iter().collect()),
+            ("marketing-stat-card", ["className", "label", "size", "value"].into_iter().collect()),
             (
                 "master-detail",
                 [
@@ -3529,19 +3125,7 @@ pub static PATTERN_PROPS_SCHEMA: LazyLock<HashMap<&'static str, HashSet<&'static
                 .into_iter()
                 .collect(),
             ),
-            (
-                "menu",
-                [
-                    "className",
-                    "footer",
-                    "header",
-                    "items",
-                    "position",
-                    "trigger",
-                ]
-                .into_iter()
-                .collect(),
-            ),
+            ("menu", ["className", "footer", "header", "items", "position", "trigger"].into_iter().collect()),
             (
                 "meter",
                 [
@@ -3600,12 +3184,7 @@ pub static PATTERN_PROPS_SCHEMA: LazyLock<HashMap<&'static str, HashSet<&'static
                 .collect(),
             ),
             ("module-card", ["data"].into_iter().collect()),
-            (
-                "navigation",
-                ["className", "error", "isLoading", "items", "orientation"]
-                    .into_iter()
-                    .collect(),
-            ),
+            ("navigation", ["className", "error", "isLoading", "items", "orientation"].into_iter().collect()),
             (
                 "notification",
                 [
@@ -3676,12 +3255,7 @@ pub static PATTERN_PROPS_SCHEMA: LazyLock<HashMap<&'static str, HashSet<&'static
                 .into_iter()
                 .collect(),
             ),
-            (
-                "overlay",
-                ["action", "blur", "className", "isVisible", "onClick"]
-                    .into_iter()
-                    .collect(),
-            ),
+            ("overlay", ["action", "blur", "className", "isVisible", "onClick"].into_iter().collect()),
             (
                 "page-header",
                 [
@@ -3703,12 +3277,7 @@ pub static PATTERN_PROPS_SCHEMA: LazyLock<HashMap<&'static str, HashSet<&'static
                 .into_iter()
                 .collect(),
             ),
-            (
-                "page-transition",
-                ["children", "className", "locationKey"]
-                    .into_iter()
-                    .collect(),
-            ),
+            ("page-transition", ["children", "className", "locationKey"].into_iter().collect()),
             (
                 "pagination",
                 [
@@ -3730,12 +3299,7 @@ pub static PATTERN_PROPS_SCHEMA: LazyLock<HashMap<&'static str, HashSet<&'static
                 .into_iter()
                 .collect(),
             ),
-            (
-                "pattern-tile",
-                ["className", "color", "size", "strokeWidth", "variant"]
-                    .into_iter()
-                    .collect(),
-            ),
+            ("pattern-tile", ["className", "color", "size", "strokeWidth", "variant"].into_iter().collect()),
             (
                 "physics-canvas",
                 [
@@ -3809,10 +3373,7 @@ pub static PATTERN_PROPS_SCHEMA: LazyLock<HashMap<&'static str, HashSet<&'static
                 .into_iter()
                 .collect(),
             ),
-            (
-                "presence",
-                ["children", "className", "show"].into_iter().collect(),
-            ),
+            ("presence", ["children", "className", "show"].into_iter().collect()),
             (
                 "pricing-card",
                 [
@@ -3850,10 +3411,7 @@ pub static PATTERN_PROPS_SCHEMA: LazyLock<HashMap<&'static str, HashSet<&'static
                 .into_iter()
                 .collect(),
             ),
-            (
-                "pricing-page-template",
-                ["className", "entity"].into_iter().collect(),
-            ),
+            ("pricing-page-template", ["className", "entity"].into_iter().collect()),
             (
                 "progress-bar",
                 [
@@ -3872,35 +3430,9 @@ pub static PATTERN_PROPS_SCHEMA: LazyLock<HashMap<&'static str, HashSet<&'static
                 .into_iter()
                 .collect(),
             ),
-            (
-                "progress-dots",
-                [
-                    "className",
-                    "count",
-                    "currentIndex",
-                    "getState",
-                    "onDotClick",
-                    "size",
-                ]
-                .into_iter()
-                .collect(),
-            ),
-            (
-                "pull-quote",
-                ["children", "className"].into_iter().collect(),
-            ),
-            (
-                "pull-to-refresh",
-                [
-                    "children",
-                    "className",
-                    "refreshEvent",
-                    "refreshPayload",
-                    "threshold",
-                ]
-                .into_iter()
-                .collect(),
-            ),
+            ("progress-dots", ["className", "count", "currentIndex", "getState", "onDotClick", "size"].into_iter().collect()),
+            ("pull-quote", ["children", "className"].into_iter().collect()),
+            ("pull-to-refresh", ["children", "className", "refreshEvent", "refreshPayload", "threshold"].into_iter().collect()),
             (
                 "qr-scanner",
                 [
@@ -3917,10 +3449,7 @@ pub static PATTERN_PROPS_SCHEMA: LazyLock<HashMap<&'static str, HashSet<&'static
                 .into_iter()
                 .collect(),
             ),
-            (
-                "quiz-block",
-                ["answer", "className", "question"].into_iter().collect(),
-            ),
+            ("quiz-block", ["answer", "className", "question"].into_iter().collect()),
             (
                 "radio",
                 [
@@ -3957,12 +3486,7 @@ pub static PATTERN_PROPS_SCHEMA: LazyLock<HashMap<&'static str, HashSet<&'static
                 .into_iter()
                 .collect(),
             ),
-            (
-                "reflection-block",
-                ["className", "index", "prompt", "saveEvent", "savedNote"]
-                    .into_iter()
-                    .collect(),
-            ),
+            ("reflection-block", ["className", "index", "prompt", "saveEvent", "savedNote"].into_iter().collect()),
             (
                 "relation-select",
                 [
@@ -4040,38 +3564,9 @@ pub static PATTERN_PROPS_SCHEMA: LazyLock<HashMap<&'static str, HashSet<&'static
                 .into_iter()
                 .collect(),
             ),
-            (
-                "runtime-debugger",
-                [
-                    "className",
-                    "defaultCollapsed",
-                    "defaultTab",
-                    "mode",
-                    "position",
-                    "schema",
-                ]
-                .into_iter()
-                .collect(),
-            ),
-            (
-                "scaled-diagram",
-                ["children", "className"].into_iter().collect(),
-            ),
-            (
-                "score-display",
-                [
-                    "assetUrl",
-                    "className",
-                    "icon",
-                    "label",
-                    "locale",
-                    "score",
-                    "size",
-                    "value",
-                ]
-                .into_iter()
-                .collect(),
-            ),
+            ("runtime-debugger", ["className", "defaultCollapsed", "defaultTab", "mode", "position", "schema"].into_iter().collect()),
+            ("scaled-diagram", ["children", "className"].into_iter().collect()),
+            ("score-display", ["assetUrl", "className", "icon", "label", "locale", "score", "size", "value"].into_iter().collect()),
             (
                 "search-input",
                 [
@@ -4109,12 +3604,7 @@ pub static PATTERN_PROPS_SCHEMA: LazyLock<HashMap<&'static str, HashSet<&'static
                 .into_iter()
                 .collect(),
             ),
-            (
-                "section-header",
-                ["align", "className", "level", "subtitle", "title"]
-                    .into_iter()
-                    .collect(),
-            ),
+            ("section-header", ["align", "className", "level", "subtitle", "title"].into_iter().collect()),
             (
                 "segment-renderer",
                 [
@@ -4166,24 +3656,8 @@ pub static PATTERN_PROPS_SCHEMA: LazyLock<HashMap<&'static str, HashSet<&'static
                 .into_iter()
                 .collect(),
             ),
-            (
-                "service-catalog",
-                ["className", "services"].into_iter().collect(),
-            ),
-            (
-                "showcase-card",
-                [
-                    "accentColor",
-                    "badge",
-                    "className",
-                    "description",
-                    "href",
-                    "image",
-                    "title",
-                ]
-                .into_iter()
-                .collect(),
-            ),
+            ("service-catalog", ["className", "services"].into_iter().collect()),
+            ("showcase-card", ["accentColor", "badge", "className", "description", "href", "image", "title"].into_iter().collect()),
             (
                 "showcase-organism",
                 [
@@ -4265,29 +3739,9 @@ pub static PATTERN_PROPS_SCHEMA: LazyLock<HashMap<&'static str, HashSet<&'static
                 .into_iter()
                 .collect(),
             ),
-            (
-                "simple-grid",
-                [
-                    "children",
-                    "className",
-                    "cols",
-                    "gap",
-                    "maxCols",
-                    "minChildWidth",
-                ]
-                .into_iter()
-                .collect(),
-            ),
-            (
-                "skeleton",
-                ["className", "columns", "fields", "rows", "variant"]
-                    .into_iter()
-                    .collect(),
-            ),
-            (
-                "social-proof",
-                ["className", "items", "variant"].into_iter().collect(),
-            ),
+            ("simple-grid", ["children", "className", "cols", "gap", "maxCols", "minChildWidth"].into_iter().collect()),
+            ("skeleton", ["className", "columns", "fields", "rows", "variant"].into_iter().collect()),
+            ("social-proof", ["className", "items", "variant"].into_iter().collect()),
             (
                 "sortable-list",
                 [
@@ -4301,28 +3755,9 @@ pub static PATTERN_PROPS_SCHEMA: LazyLock<HashMap<&'static str, HashSet<&'static
                 .into_iter()
                 .collect(),
             ),
-            (
-                "spacer",
-                ["axis", "className", "size"].into_iter().collect(),
-            ),
-            (
-                "sparkline",
-                [
-                    "className",
-                    "color",
-                    "data",
-                    "fill",
-                    "height",
-                    "strokeWidth",
-                    "width",
-                ]
-                .into_iter()
-                .collect(),
-            ),
-            (
-                "spinner",
-                ["className", "overlay", "size"].into_iter().collect(),
-            ),
+            ("spacer", ["axis", "className", "size"].into_iter().collect()),
+            ("sparkline", ["className", "color", "data", "fill", "height", "strokeWidth", "width"].into_iter().collect()),
+            ("spinner", ["className", "overlay", "size"].into_iter().collect()),
             (
                 "split",
                 [
@@ -4530,22 +3965,8 @@ pub static PATTERN_PROPS_SCHEMA: LazyLock<HashMap<&'static str, HashSet<&'static
                 .into_iter()
                 .collect(),
             ),
-            (
-                "state-machine-view",
-                [
-                    "className",
-                    "error",
-                    "isLoading",
-                    "layoutData",
-                    "renderStateNode",
-                ]
-                .into_iter()
-                .collect(),
-            ),
-            (
-                "stats-grid",
-                ["className", "columns", "stats"].into_iter().collect(),
-            ),
+            ("state-machine-view", ["className", "error", "isLoading", "layoutData", "renderStateNode"].into_iter().collect()),
+            ("stats-grid", ["className", "columns", "stats"].into_iter().collect()),
             (
                 "stats-organism",
                 [
@@ -4566,18 +3987,8 @@ pub static PATTERN_PROPS_SCHEMA: LazyLock<HashMap<&'static str, HashSet<&'static
                 .into_iter()
                 .collect(),
             ),
-            (
-                "status-dot",
-                ["className", "label", "pulse", "size", "status"]
-                    .into_iter()
-                    .collect(),
-            ),
-            (
-                "step-flow",
-                ["className", "orientation", "showConnectors", "steps"]
-                    .into_iter()
-                    .collect(),
-            ),
+            ("status-dot", ["className", "label", "pulse", "size", "status"].into_iter().collect()),
+            ("step-flow", ["className", "orientation", "showConnectors", "steps"].into_iter().collect()),
             (
                 "step-flow-organism",
                 [
@@ -4845,19 +4256,7 @@ pub static PATTERN_PROPS_SCHEMA: LazyLock<HashMap<&'static str, HashSet<&'static
                 .into_iter()
                 .collect(),
             ),
-            (
-                "swipeable-row",
-                [
-                    "children",
-                    "className",
-                    "itemData",
-                    "leftActions",
-                    "rightActions",
-                    "threshold",
-                ]
-                .into_iter()
-                .collect(),
-            ),
+            ("swipeable-row", ["children", "className", "itemData", "leftActions", "rightActions", "threshold"].into_iter().collect()),
             (
                 "switch",
                 [
@@ -4873,19 +4272,7 @@ pub static PATTERN_PROPS_SCHEMA: LazyLock<HashMap<&'static str, HashSet<&'static
                 .into_iter()
                 .collect(),
             ),
-            (
-                "tabbed-container",
-                [
-                    "activeTab",
-                    "className",
-                    "defaultTab",
-                    "onTabChange",
-                    "position",
-                    "tabs",
-                ]
-                .into_iter()
-                .collect(),
-            ),
+            ("tabbed-container", ["activeTab", "className", "defaultTab", "onTabChange", "position", "tabs"].into_iter().collect()),
             (
                 "table-view",
                 [
@@ -4939,10 +4326,7 @@ pub static PATTERN_PROPS_SCHEMA: LazyLock<HashMap<&'static str, HashSet<&'static
                 .into_iter()
                 .collect(),
             ),
-            (
-                "tag-cloud",
-                ["className", "tags", "variant"].into_iter().collect(),
-            ),
+            ("tag-cloud", ["className", "tags", "variant"].into_iter().collect()),
             (
                 "tag-input",
                 [
@@ -4960,12 +4344,7 @@ pub static PATTERN_PROPS_SCHEMA: LazyLock<HashMap<&'static str, HashSet<&'static
                 .into_iter()
                 .collect(),
             ),
-            (
-                "team-card",
-                ["avatar", "bio", "className", "name", "nameAr", "role"]
-                    .into_iter()
-                    .collect(),
-            ),
+            ("team-card", ["avatar", "bio", "className", "name", "nameAr", "role"].into_iter().collect()),
             (
                 "team-organism",
                 [
@@ -5004,29 +4383,9 @@ pub static PATTERN_PROPS_SCHEMA: LazyLock<HashMap<&'static str, HashSet<&'static
                 .into_iter()
                 .collect(),
             ),
-            (
-                "textarea",
-                [
-                    "action",
-                    "className",
-                    "error",
-                    "onChange",
-                    "placeholder",
-                    "rows",
-                ]
-                .into_iter()
-                .collect(),
-            ),
-            (
-                "theme-toggle",
-                ["className", "showLabel", "size"].into_iter().collect(),
-            ),
-            (
-                "time-slot-cell",
-                ["children", "className", "isOccupied", "onClick", "time"]
-                    .into_iter()
-                    .collect(),
-            ),
+            ("textarea", ["action", "className", "error", "onChange", "placeholder", "rows"].into_iter().collect()),
+            ("theme-toggle", ["className", "showLabel", "size"].into_iter().collect()),
+            ("time-slot-cell", ["children", "className", "isOccupied", "onClick", "time"].into_iter().collect()),
             (
                 "timeline",
                 [
@@ -5087,10 +4446,7 @@ pub static PATTERN_PROPS_SCHEMA: LazyLock<HashMap<&'static str, HashSet<&'static
                 .into_iter()
                 .collect(),
             ),
-            (
-                "trait-frame",
-                ["fallback", "traitName"].into_iter().collect(),
-            ),
+            ("trait-frame", ["fallback", "traitName"].into_iter().collect()),
             (
                 "trait-slot",
                 [
@@ -5119,26 +4475,8 @@ pub static PATTERN_PROPS_SCHEMA: LazyLock<HashMap<&'static str, HashSet<&'static
                 .into_iter()
                 .collect(),
             ),
-            (
-                "trend-indicator",
-                [
-                    "className",
-                    "direction",
-                    "invert",
-                    "label",
-                    "showValue",
-                    "size",
-                    "value",
-                ]
-                .into_iter()
-                .collect(),
-            ),
-            (
-                "typewriter-text",
-                ["className", "onComplete", "speed", "startDelay", "text"]
-                    .into_iter()
-                    .collect(),
-            ),
+            ("trend-indicator", ["className", "direction", "invert", "label", "showValue", "size", "value"].into_iter().collect()),
+            ("typewriter-text", ["className", "onComplete", "speed", "startDelay", "text"].into_iter().collect()),
             (
                 "typography",
                 [
@@ -5353,6846 +4691,5522 @@ pub static PATTERN_PROPS_SCHEMA: LazyLock<HashMap<&'static str, HashSet<&'static
 
 /// Prop types per pattern (pattern_type -> prop_name -> allowed_types)
 /// Only includes props with concrete types (not "unknown").
-pub static PATTERN_PROP_TYPES: LazyLock<
-    HashMap<&'static str, HashMap<&'static str, &'static [&'static str]>>,
-> = LazyLock::new(|| {
-    [
-        (
-            "about-page-template",
-            [
-                ("entity", &["object"] as &[&str]),
-                ("className", &["string"] as &[&str]),
-            ]
-            .into_iter()
-            .collect(),
-        ),
-        (
-            "accordion",
-            [
-                ("items", &["array"] as &[&str]),
-                ("multiple", &["boolean"] as &[&str]),
-                ("defaultOpenItems", &["array"] as &[&str]),
-                ("defaultOpen", &["array"] as &[&str]),
-                ("openItems", &["array"] as &[&str]),
-                ("onItemToggle", &["function"] as &[&str]),
-                ("className", &["string"] as &[&str]),
-                ("toggleEvent", &["string"] as &[&str]),
-            ]
-            .into_iter()
-            .collect(),
-        ),
-        (
-            "action-palette",
-            [
-                ("actions", &["array"] as &[&str]),
-                ("usedActionIds", &["array"] as &[&str]),
-                ("allowDuplicates", &["boolean"] as &[&str]),
-                ("categoryColors", &["object"] as &[&str]),
-                ("size", &["string"] as &[&str]),
-                ("label", &["string"] as &[&str]),
-                ("className", &["string"] as &[&str]),
-            ]
-            .into_iter()
-            .collect(),
-        ),
-        (
-            "action-tile",
-            [
-                ("className", &["string"] as &[&str]),
-                ("isLoading", &["boolean"] as &[&str]),
-                ("error", &["object"] as &[&str]),
-                ("sortBy", &["string"] as &[&str]),
-                ("sortDirection", &["string"] as &[&str]),
-                ("searchValue", &["string"] as &[&str]),
-                ("page", &["number"] as &[&str]),
-                ("pageSize", &["number"] as &[&str]),
-                ("totalCount", &["number"] as &[&str]),
-                ("activeFilters", &["object"] as &[&str]),
-                ("selectedIds", &["array"] as &[&str]),
-                ("action", &["object"] as &[&str]),
-                ("size", &["string"] as &[&str]),
-                ("disabled", &["boolean"] as &[&str]),
-                ("categoryColors", &["object"] as &[&str]),
-            ]
-            .into_iter()
-            .collect(),
-        ),
-        (
-            "activation-block",
-            [
-                ("question", &["string"] as &[&str]),
-                ("savedResponse", &["string"] as &[&str]),
-                ("saveEvent", &["string"] as &[&str]),
-                ("className", &["string"] as &[&str]),
-            ]
-            .into_iter()
-            .collect(),
-        ),
-        (
-            "alert",
-            [
-                ("children", &["node"] as &[&str]),
-                ("message", &["string"] as &[&str]),
-                ("variant", &["string"] as &[&str]),
-                ("title", &["string"] as &[&str]),
-                ("dismissible", &["boolean"] as &[&str]),
-                ("onDismiss", &["function"] as &[&str]),
-                ("onClose", &["function"] as &[&str]),
-                ("actions", &["node"] as &[&str]),
-                ("className", &["string"] as &[&str]),
-                ("dismissEvent", &["string"] as &[&str]),
-            ]
-            .into_iter()
-            .collect(),
-        ),
-        (
-            "algo-graph-canvas",
-            [
-                ("className", &["string"] as &[&str]),
-                ("width", &["number"] as &[&str]),
-                ("height", &["number"] as &[&str]),
-                ("title", &["string"] as &[&str]),
-                ("backgroundColor", &["string"] as &[&str]),
-                ("nodes", &["array"] as &[&str]),
-                ("edges", &["array"] as &[&str]),
-                ("layout", &["string"] as &[&str]),
-                ("root", &["string"] as &[&str]),
-                ("shapes", &["array"] as &[&str]),
-                ("interactive", &["boolean"] as &[&str]),
-                ("animate", &["boolean"] as &[&str]),
-                ("onShapeClick", &["function"] as &[&str]),
-                ("onNodeClick", &["function"] as &[&str]),
-                ("isLoading", &["boolean"] as &[&str]),
-                ("error", &["object"] as &[&str]),
-            ]
-            .into_iter()
-            .collect(),
-        ),
-        (
-            "algorithm-canvas",
-            [
-                ("className", &["string"] as &[&str]),
-                ("width", &["number"] as &[&str]),
-                ("height", &["number"] as &[&str]),
-                ("title", &["string"] as &[&str]),
-                ("backgroundColor", &["string"] as &[&str]),
-                ("bars", &["array"] as &[&str]),
-                ("cells", &["array"] as &[&str]),
-                ("pointers", &["array"] as &[&str]),
-                ("ranges", &["array"] as &[&str]),
-                ("slots", &["array"] as &[&str]),
-                ("slotOrientation", &["string"] as &[&str]),
-                ("frames", &["array"] as &[&str]),
-                ("buckets", &["array"] as &[&str]),
-                ("auxBars", &["array"] as &[&str]),
-                ("rowLabels", &["array"] as &[&str]),
-                ("colLabels", &["array"] as &[&str]),
-                ("shapes", &["array"] as &[&str]),
-                ("interactive", &["boolean"] as &[&str]),
-                ("animate", &["boolean"] as &[&str]),
-                ("onShapeClick", &["function"] as &[&str]),
-                ("isLoading", &["boolean"] as &[&str]),
-                ("error", &["object"] as &[&str]),
-            ]
-            .into_iter()
-            .collect(),
-        ),
-        (
-            "animated-counter",
-            [
-                ("value", &["number", "string"] as &[&str]),
-                ("duration", &["number"] as &[&str]),
-                ("prefix", &["string"] as &[&str]),
-                ("suffix", &["string"] as &[&str]),
-                ("format", &["string"] as &[&str]),
-                ("className", &["string"] as &[&str]),
-            ]
-            .into_iter()
-            .collect(),
-        ),
-        (
-            "animated-graphic",
-            [
-                ("className", &["string"] as &[&str]),
-                ("src", &["asset"] as &[&str]),
-                ("svgContent", &["string"] as &[&str]),
-                ("animation", &["string"] as &[&str]),
-                ("animate", &["boolean"] as &[&str]),
-                ("duration", &["number"] as &[&str]),
-                ("delay", &["number"] as &[&str]),
-                ("easing", &["string"] as &[&str]),
-                ("width", &["string", "number"] as &[&str]),
-                ("height", &["string", "number"] as &[&str]),
-                ("strokeColor", &["string"] as &[&str]),
-                ("fillColor", &["string"] as &[&str]),
-                ("alt", &["string"] as &[&str]),
-            ]
-            .into_iter()
-            .collect(),
-        ),
-        (
-            "animated-reveal",
-            [
-                ("className", &["string"] as &[&str]),
-                ("trigger", &["string"] as &[&str]),
-                ("animation", &["string"] as &[&str]),
-                ("duration", &["number"] as &[&str]),
-                ("delay", &["number"] as &[&str]),
-                ("threshold", &["number"] as &[&str]),
-                ("once", &["boolean"] as &[&str]),
-                ("animate", &["boolean"] as &[&str]),
-                ("easing", &["string"] as &[&str]),
-                ("children", &["node", "function"] as &[&str]),
-            ]
-            .into_iter()
-            .collect(),
-        ),
-        (
-            "article-section",
-            [
-                ("title", &["string"] as &[&str]),
-                ("children", &["node"] as &[&str]),
-                ("maxWidth", &["string"] as &[&str]),
-                ("className", &["string"] as &[&str]),
-            ]
-            .into_iter()
-            .collect(),
-        ),
-        (
-            "aside",
-            [
-                ("className", &["string"] as &[&str]),
-                ("children", &["node"] as &[&str]),
-            ]
-            .into_iter()
-            .collect(),
-        ),
-        (
-            "atlas-image",
-            [
-                ("asset", &["object"] as &[&str]),
-                ("size", &["number"] as &[&str]),
-                ("width", &["number"] as &[&str]),
-                ("height", &["number"] as &[&str]),
-                ("fill", &["boolean"] as &[&str]),
-                ("fit", &["string"] as &[&str]),
-                ("alt", &["string"] as &[&str]),
-                ("className", &["string"] as &[&str]),
-                ("style", &["object"] as &[&str]),
-                ("aria-hidden", &["boolean"] as &[&str]),
-            ]
-            .into_iter()
-            .collect(),
-        ),
-        (
-            "atlas-panel",
-            [
-                ("asset", &["object"] as &[&str]),
-                ("borderSlice", &["number"] as &[&str]),
-                ("borderWidth", &["number"] as &[&str]),
-                ("mode", &["string"] as &[&str]),
-                ("className", &["string"] as &[&str]),
-                ("style", &["object"] as &[&str]),
-                ("children", &["node"] as &[&str]),
-                ("aria-hidden", &["boolean"] as &[&str]),
-            ]
-            .into_iter()
-            .collect(),
-        ),
-        (
-            "auth-layout",
-            [
-                ("appName", &["string"] as &[&str]),
-                ("logo", &["node"] as &[&str]),
-                ("backgroundImage", &["asset"] as &[&str]),
-                ("showBranding", &["boolean"] as &[&str]),
-                ("brandingContent", &["node"] as &[&str]),
-            ]
-            .into_iter()
-            .collect(),
-        ),
-        (
-            "avatar",
-            [
-                ("src", &["asset"] as &[&str]),
-                ("alt", &["string"] as &[&str]),
-                ("name", &["string"] as &[&str]),
-                ("initials", &["string"] as &[&str]),
-                ("icon", &["icon", "string"] as &[&str]),
-                ("size", &["string"] as &[&str]),
-                ("status", &["string"] as &[&str]),
-                ("badge", &["string", "number"] as &[&str]),
-                ("className", &["string"] as &[&str]),
-                ("onClick", &["function"] as &[&str]),
-                ("action", &["string"] as &[&str]),
-                ("actionPayload", &["object"] as &[&str]),
-            ]
-            .into_iter()
-            .collect(),
-        ),
-        (
-            "badge",
-            [
-                ("className", &["string"] as &[&str]),
-                ("variant", &["string"] as &[&str]),
-                ("size", &["string"] as &[&str]),
-                ("amount", &["number"] as &[&str]),
-                ("label", &["string", "number"] as &[&str]),
-                ("icon", &["icon", "string"] as &[&str]),
-                ("iconAsset", &["object"] as &[&str]),
-                ("onRemove", &["function"] as &[&str]),
-                ("removeLabel", &["string"] as &[&str]),
-            ]
-            .into_iter()
-            .collect(),
-        ),
-        (
-            "behavior-view",
-            [("data", &["object"] as &[&str])].into_iter().collect(),
-        ),
-        (
-            "biology-canvas",
-            [
-                ("className", &["string"] as &[&str]),
-                ("width", &["number"] as &[&str]),
-                ("height", &["number"] as &[&str]),
-                ("title", &["string"] as &[&str]),
-                ("backgroundColor", &["string"] as &[&str]),
-                ("mode", &["string"] as &[&str]),
-                ("camera", &["object"] as &[&str]),
-                ("lighting", &["object"] as &[&str]),
-                ("post", &["object"] as &[&str]),
-                ("nodes", &["array"] as &[&str]),
-                ("edges", &["array"] as &[&str]),
-                ("compartments", &["array"] as &[&str]),
-                ("bands", &["array"] as &[&str]),
-                ("stages", &["array"] as &[&str]),
-                ("stageStyle", &["string"] as &[&str]),
-                ("helix", &["object"] as &[&str]),
-                ("helix3d", &["object"] as &[&str]),
-                ("shapes", &["array"] as &[&str]),
-                ("readouts", &["array"] as &[&str]),
-                ("traces", &["array"] as &[&str]),
-                ("showGrid", &["boolean"] as &[&str]),
-                ("shadows", &["boolean"] as &[&str]),
-                ("interactive", &["boolean"] as &[&str]),
-                ("animate", &["boolean"] as &[&str]),
-                ("onShapeClick", &["function"] as &[&str]),
-                ("isLoading", &["boolean"] as &[&str]),
-                ("error", &["object"] as &[&str]),
-            ]
-            .into_iter()
-            .collect(),
-        ),
-        (
-            "bloom-quiz-block",
-            [
-                ("level", &["string"] as &[&str]),
-                ("question", &["string"] as &[&str]),
-                ("answer", &["string"] as &[&str]),
-                ("index", &["number"] as &[&str]),
-                ("isAnswered", &["boolean"] as &[&str]),
-                ("answerEvent", &["string"] as &[&str]),
-                ("className", &["string"] as &[&str]),
-            ]
-            .into_iter()
-            .collect(),
-        ),
-        (
-            "book-chapter-view",
-            [
-                ("className", &["string"] as &[&str]),
-                ("chapter", &["object"] as &[&str]),
-                ("orbitalSchema", &["object"] as &[&str]),
-                ("direction", &["string"] as &[&str]),
-            ]
-            .into_iter()
-            .collect(),
-        ),
-        (
-            "book-cover-page",
-            [
-                ("className", &["string"] as &[&str]),
-                ("title", &["string"] as &[&str]),
-                ("subtitle", &["string"] as &[&str]),
-                ("author", &["string"] as &[&str]),
-                ("coverImageUrl", &["asset"] as &[&str]),
-                ("direction", &["string"] as &[&str]),
-            ]
-            .into_iter()
-            .collect(),
-        ),
-        (
-            "book-nav-bar",
-            [
-                ("className", &["string"] as &[&str]),
-                ("currentPage", &["number"] as &[&str]),
-                ("totalPages", &["number"] as &[&str]),
-                ("chapterTitle", &["string"] as &[&str]),
-                ("direction", &["string"] as &[&str]),
-            ]
-            .into_iter()
-            .collect(),
-        ),
-        (
-            "book-table-of-contents",
-            [
-                ("className", &["string"] as &[&str]),
-                ("parts", &["object", "array"] as &[&str]),
-                ("currentChapterId", &["string"] as &[&str]),
-                ("direction", &["string"] as &[&str]),
-            ]
-            .into_iter()
-            .collect(),
-        ),
-        (
-            "book-viewer",
-            [
-                ("className", &["string"] as &[&str]),
-                ("isLoading", &["boolean"] as &[&str]),
-                ("error", &["object"] as &[&str]),
-                ("sortBy", &["string"] as &[&str]),
-                ("sortDirection", &["string"] as &[&str]),
-                ("searchValue", &["string"] as &[&str]),
-                ("page", &["number"] as &[&str]),
-                ("pageSize", &["number"] as &[&str]),
-                ("totalCount", &["number"] as &[&str]),
-                ("activeFilters", &["object"] as &[&str]),
-                ("selectedIds", &["array"] as &[&str]),
-                ("entity", &["object", "array"] as &[&str]),
-                ("initialPage", &["number"] as &[&str]),
-                ("fieldMap", &["object", "string"] as &[&str]),
-            ]
-            .into_iter()
-            .collect(),
-        ),
-        (
-            "box",
-            [
-                ("className", &["string"] as &[&str]),
-                ("data-theme", &["string"] as &[&str]),
-                ("padding", &["string"] as &[&str]),
-                ("paddingX", &["string"] as &[&str]),
-                ("paddingY", &["string"] as &[&str]),
-                ("margin", &["string"] as &[&str]),
-                ("marginX", &["string"] as &[&str]),
-                ("marginY", &["string"] as &[&str]),
-                ("bg", &["string"] as &[&str]),
-                ("border", &["boolean"] as &[&str]),
-                ("rounded", &["string"] as &[&str]),
-                ("shadow", &["string"] as &[&str]),
-                ("display", &["string"] as &[&str]),
-                ("fullWidth", &["boolean"] as &[&str]),
-                ("fullHeight", &["boolean"] as &[&str]),
-                ("overflow", &["string"] as &[&str]),
-                ("position", &["string"] as &[&str]),
-                ("as", &["component"] as &[&str]),
-                ("action", &["string"] as &[&str]),
-                ("actionPayload", &["object"] as &[&str]),
-                ("hoverEvent", &["string"] as &[&str]),
-                ("tapReveal", &["boolean"] as &[&str]),
-                ("maxWidth", &["string"] as &[&str]),
-                ("children", &["node"] as &[&str]),
-            ]
-            .into_iter()
-            .collect(),
-        ),
-        (
-            "branching-logic-builder",
-            [
-                ("questions", &["array", "object"] as &[&str]),
-                ("rules", &["array", "object"] as &[&str]),
-                ("onRulesChange", &["function"] as &[&str]),
-                ("rulesChangeEvent", &["string"] as &[&str]),
-                ("readOnly", &["boolean"] as &[&str]),
-                ("className", &["string"] as &[&str]),
-            ]
-            .into_iter()
-            .collect(),
-        ),
-        (
-            "breadcrumb",
-            [
-                ("items", &["array"] as &[&str]),
-                ("fromNavStack", &["boolean"] as &[&str]),
-                ("itemEvent", &["string"] as &[&str]),
-                ("separator", &["icon", "string"] as &[&str]),
-                ("maxItems", &["number"] as &[&str]),
-                ("className", &["string"] as &[&str]),
-            ]
-            .into_iter()
-            .collect(),
-        ),
-        (
-            "button",
-            [
-                ("className", &["string"] as &[&str]),
-                ("variant", &["string"] as &[&str]),
-                ("size", &["string"] as &[&str]),
-                ("isLoading", &["boolean"] as &[&str]),
-                ("leftIcon", &["icon", "string"] as &[&str]),
-                ("rightIcon", &["icon", "string"] as &[&str]),
-                ("icon", &["icon", "string"] as &[&str]),
-                ("iconRight", &["icon", "string"] as &[&str]),
-                ("iconAsset", &["object"] as &[&str]),
-                ("action", &["string"] as &[&str]),
-                ("actionPayload", &["object"] as &[&str]),
-                ("label", &["string"] as &[&str]),
-                ("disabled", &["boolean"] as &[&str]),
-                ("data-testid", &["string"] as &[&str]),
-            ]
-            .into_iter()
-            .collect(),
-        ),
-        (
-            "calendar-grid",
-            [
-                ("weekStart", &["date"] as &[&str]),
-                ("timeSlots", &["array"] as &[&str]),
-                ("events", &["object", "array"] as &[&str]),
-                ("onSlotClick", &["function"] as &[&str]),
-                ("onDayClick", &["function"] as &[&str]),
-                ("onEventClick", &["function"] as &[&str]),
-                ("className", &["string"] as &[&str]),
-                ("longPressEvent", &["string"] as &[&str]),
-                ("longPressPayload", &["object"] as &[&str]),
-                ("swipeLeftEvent", &["string"] as &[&str]),
-                ("swipeRightEvent", &["string"] as &[&str]),
-                ("dayWindow", &["number", "string"] as &[&str]),
-                ("titleField", &["string"] as &[&str]),
-                ("startField", &["string"] as &[&str]),
-                ("endField", &["string"] as &[&str]),
-                ("colorField", &["string"] as &[&str]),
-                ("children", &["function"] as &[&str]),
-                ("renderItem", &["function"] as &[&str]),
-            ]
-            .into_iter()
-            .collect(),
-        ),
-        (
-            "canvas",
-            [
-                ("mode", &["string"] as &[&str]),
-                ("drawables", &["array"] as &[&str]),
-                ("camera", &["object"] as &[&str]),
-                ("projection", &["string"] as &[&str]),
-                ("className", &["string"] as &[&str]),
-                ("isLoading", &["boolean"] as &[&str]),
-                ("unitScale", &["number"] as &[&str]),
-                ("showMinimap", &["boolean"] as &[&str]),
-                ("fit", &["boolean"] as &[&str]),
-                ("tileWidth", &["number"] as &[&str]),
-                ("backgroundImage", &["asset", "object"] as &[&str]),
-                ("backgroundColor", &["string"] as &[&str]),
-                ("worldWidth", &["number"] as &[&str]),
-                ("worldHeight", &["number"] as &[&str]),
-                ("pixelsPerUnit", &["number"] as &[&str]),
-                ("showGrid", &["boolean"] as &[&str]),
-                ("shadows", &["boolean"] as &[&str]),
-                ("showCoordinates", &["boolean"] as &[&str]),
-                ("showTileInfo", &["boolean"] as &[&str]),
-                ("fogOfWar", &["array"] as &[&str]),
-                ("lighting", &["object"] as &[&str]),
-                ("post", &["object"] as &[&str]),
-                ("tileClickEvent", &["string"] as &[&str]),
-                ("unitClickEvent", &["string"] as &[&str]),
-                ("tileHoverEvent", &["string"] as &[&str]),
-                ("tileLeaveEvent", &["string"] as &[&str]),
-                ("featureClickEvent", &["string"] as &[&str]),
-                ("keyMap", &["object"] as &[&str]),
-                ("keyUpMap", &["object"] as &[&str]),
-                ("editable", &["boolean"] as &[&str]),
-                ("selectedId", &["string"] as &[&str]),
-                ("onSelect", &["function"] as &[&str]),
-                ("onMove", &["function"] as &[&str]),
-                ("selectEvent", &["string"] as &[&str]),
-                ("moveEvent", &["string"] as &[&str]),
-                ("children", &["node"] as &[&str]),
-            ]
-            .into_iter()
-            .collect(),
-        ),
-        (
-            "canvas-2d",
-            [
-                ("className", &["string"] as &[&str]),
-                ("isLoading", &["boolean"] as &[&str]),
-                ("error", &["object"] as &[&str]),
-                ("projection", &["string"] as &[&str]),
-                ("drawables", &["array"] as &[&str]),
-                ("backgroundImage", &["asset", "object"] as &[&str]),
-                ("tileClickEvent", &["string"] as &[&str]),
-                ("unitClickEvent", &["string"] as &[&str]),
-                ("tileHoverEvent", &["string"] as &[&str]),
-                ("tileLeaveEvent", &["string"] as &[&str]),
-                ("keyMap", &["object"] as &[&str]),
-                ("keyUpMap", &["object"] as &[&str]),
-                ("editable", &["boolean"] as &[&str]),
-                ("selectedId", &["string"] as &[&str]),
-                ("onSelect", &["function"] as &[&str]),
-                ("onMove", &["function"] as &[&str]),
-                ("selectEvent", &["string"] as &[&str]),
-                ("moveEvent", &["string"] as &[&str]),
-                ("camera", &["string"] as &[&str]),
-                ("scale", &["number"] as &[&str]),
-                ("tileWidth", &["number"] as &[&str]),
-                ("fit", &["boolean"] as &[&str]),
-                ("showMinimap", &["boolean"] as &[&str]),
-                ("followTarget", &["object"] as &[&str]),
-                ("cameraPos", &["object"] as &[&str]),
-                ("bgColor", &["string"] as &[&str]),
-                ("children", &["node"] as &[&str]),
-            ]
-            .into_iter()
-            .collect(),
-        ),
-        (
-            "card",
-            [
-                ("className", &["string"] as &[&str]),
-                ("variant", &["string"] as &[&str]),
-                ("padding", &["string"] as &[&str]),
-                ("title", &["string"] as &[&str]),
-                ("subtitle", &["string"] as &[&str]),
-                ("shadow", &["string"] as &[&str]),
-                ("look", &["string"] as &[&str]),
-                ("children", &["node"] as &[&str]),
-                ("action", &["string"] as &[&str]),
-                ("loading", &["boolean"] as &[&str]),
-            ]
-            .into_iter()
-            .collect(),
-        ),
-        (
-            "carousel",
-            [
-                ("items", &["array"] as &[&str]),
-                ("renderItem", &["function"] as &[&str]),
-                ("children", &["function"] as &[&str]),
-                ("autoPlay", &["boolean"] as &[&str]),
-                ("autoPlayInterval", &["number"] as &[&str]),
-                ("showDots", &["boolean"] as &[&str]),
-                ("showArrows", &["boolean"] as &[&str]),
-                ("loop", &["boolean"] as &[&str]),
-                ("slideChangeEvent", &["string"] as &[&str]),
-                ("slideChangePayload", &["object"] as &[&str]),
-                ("className", &["string"] as &[&str]),
-            ]
-            .into_iter()
-            .collect(),
-        ),
-        (
-            "case-study-card",
-            [
-                ("title", &["string"] as &[&str]),
-                ("description", &["string"] as &[&str]),
-                ("category", &["string"] as &[&str]),
-                ("categoryColor", &["string"] as &[&str]),
-                ("href", &["string"] as &[&str]),
-                ("linkLabel", &["string"] as &[&str]),
-                ("className", &["string"] as &[&str]),
-            ]
-            .into_iter()
-            .collect(),
-        ),
-        (
-            "case-study-organism",
-            [
-                ("className", &["string"] as &[&str]),
-                ("isLoading", &["boolean"] as &[&str]),
-                ("error", &["object"] as &[&str]),
-                ("sortBy", &["string"] as &[&str]),
-                ("sortDirection", &["string"] as &[&str]),
-                ("searchValue", &["string"] as &[&str]),
-                ("page", &["number"] as &[&str]),
-                ("pageSize", &["number"] as &[&str]),
-                ("totalCount", &["number"] as &[&str]),
-                ("activeFilters", &["object"] as &[&str]),
-                ("selectedIds", &["array"] as &[&str]),
-                ("entity", &["object", "array"] as &[&str]),
-                ("heading", &["string"] as &[&str]),
-                ("subtitle", &["string"] as &[&str]),
-            ]
-            .into_iter()
-            .collect(),
-        ),
-        (
-            "center",
-            [
-                ("inline", &["boolean"] as &[&str]),
-                ("horizontal", &["boolean"] as &[&str]),
-                ("vertical", &["boolean"] as &[&str]),
-                ("minHeight", &["string", "number"] as &[&str]),
-                ("fullHeight", &["boolean"] as &[&str]),
-                ("fullWidth", &["boolean"] as &[&str]),
-                ("className", &["string"] as &[&str]),
-                ("style", &["object"] as &[&str]),
-                ("children", &["node"] as &[&str]),
-                ("as", &["component"] as &[&str]),
-            ]
-            .into_iter()
-            .collect(),
-        ),
-        (
-            "chart",
-            [
-                ("title", &["string"] as &[&str]),
-                ("subtitle", &["string"] as &[&str]),
-                ("chartType", &["string"] as &[&str]),
-                ("look", &["string"] as &[&str]),
-                ("series", &["array"] as &[&str]),
-                ("data", &["array"] as &[&str]),
-                ("scatterData", &["array"] as &[&str]),
-                ("height", &["number"] as &[&str]),
-                ("showLegend", &["boolean"] as &[&str]),
-                ("showValues", &["boolean"] as &[&str]),
-                ("stack", &["string"] as &[&str]),
-                ("timeAxis", &["boolean"] as &[&str]),
-                ("drillEvent", &["string"] as &[&str]),
-                ("actions", &["array"] as &[&str]),
-                ("isLoading", &["boolean"] as &[&str]),
-                ("error", &["object"] as &[&str]),
-                ("className", &["string"] as &[&str]),
-            ]
-            .into_iter()
-            .collect(),
-        ),
-        (
-            "chart-legend",
-            [
-                ("items", &["array"] as &[&str]),
-                ("className", &["string"] as &[&str]),
-                ("direction", &["string"] as &[&str]),
-            ]
-            .into_iter()
-            .collect(),
-        ),
-        (
-            "chat-bar",
-            [
-                ("className", &["string"] as &[&str]),
-                ("isLoading", &["boolean"] as &[&str]),
-                ("error", &["object"] as &[&str]),
-                ("sortBy", &["string"] as &[&str]),
-                ("sortDirection", &["string"] as &[&str]),
-                ("searchValue", &["string"] as &[&str]),
-                ("page", &["number"] as &[&str]),
-                ("pageSize", &["number"] as &[&str]),
-                ("totalCount", &["number"] as &[&str]),
-                ("activeFilters", &["object"] as &[&str]),
-                ("selectedIds", &["array"] as &[&str]),
-                ("status", &["string"] as &[&str]),
-                ("activeGate", &["string"] as &[&str]),
-                ("jepaValidity", &["number"] as &[&str]),
-                ("placeholder", &["string"] as &[&str]),
-                ("context", &["string"] as &[&str]),
-            ]
-            .into_iter()
-            .collect(),
-        ),
-        (
-            "checkbox",
-            [
-                ("className", &["string"] as &[&str]),
-                ("checked", &["boolean"] as &[&str]),
-                ("defaultChecked", &["boolean"] as &[&str]),
-                ("label", &["string"] as &[&str]),
-                ("onChange", &["function", "string"] as &[&str]),
-            ]
-            .into_iter()
-            .collect(),
-        ),
-        (
-            "chemistry-canvas",
-            [
-                ("className", &["string"] as &[&str]),
-                ("width", &["number"] as &[&str]),
-                ("height", &["number"] as &[&str]),
-                ("title", &["string"] as &[&str]),
-                ("backgroundColor", &["string"] as &[&str]),
-                ("mode", &["string"] as &[&str]),
-                ("camera", &["object"] as &[&str]),
-                ("lighting", &["object"] as &[&str]),
-                ("post", &["object"] as &[&str]),
-                ("atoms", &["array"] as &[&str]),
-                ("bonds", &["array"] as &[&str]),
-                ("arrows", &["array"] as &[&str]),
-                ("bondStyle", &["string"] as &[&str]),
-                ("containers", &["array"] as &[&str]),
-                ("equation", &["string"] as &[&str]),
-                ("equationColor", &["string"] as &[&str]),
-                ("lattice3d", &["object"] as &[&str]),
-                ("shapes", &["array"] as &[&str]),
-                ("readouts", &["array"] as &[&str]),
-                ("traces", &["array"] as &[&str]),
-                ("showGrid", &["boolean"] as &[&str]),
-                ("shadows", &["boolean"] as &[&str]),
-                ("interactive", &["boolean"] as &[&str]),
-                ("animate", &["boolean"] as &[&str]),
-                ("onShapeClick", &["function"] as &[&str]),
-                ("isLoading", &["boolean"] as &[&str]),
-                ("error", &["object"] as &[&str]),
-            ]
-            .into_iter()
-            .collect(),
-        ),
-        (
-            "choice-button",
-            [
-                ("text", &["string"] as &[&str]),
-                ("index", &["number"] as &[&str]),
-                ("assetUrl", &["object"] as &[&str]),
-                ("icon", &["icon", "string"] as &[&str]),
-                ("disabled", &["boolean"] as &[&str]),
-                ("selected", &["boolean"] as &[&str]),
-                ("onClick", &["function"] as &[&str]),
-                ("action", &["string"] as &[&str]),
-                ("payload", &["object"] as &[&str]),
-                ("className", &["string"] as &[&str]),
-            ]
-            .into_iter()
-            .collect(),
-        ),
-        (
-            "code-block",
-            [
-                ("code", &["string"] as &[&str]),
-                ("language", &["string"] as &[&str]),
-                ("showCopyButton", &["boolean"] as &[&str]),
-                ("showLanguageBadge", &["boolean"] as &[&str]),
-                ("maxHeight", &["string", "number"] as &[&str]),
-                ("foldable", &["boolean"] as &[&str]),
-                ("className", &["string"] as &[&str]),
-                ("editable", &["boolean"] as &[&str]),
-                ("onChange", &["function"] as &[&str]),
-                ("errorLines", &["object"] as &[&str]),
-                ("title", &["string"] as &[&str]),
-                ("mode", &["string"] as &[&str]),
-                ("diff", &["array"] as &[&str]),
-                ("oldValue", &["string"] as &[&str]),
-                ("newValue", &["string"] as &[&str]),
-                ("showLineNumbers", &["boolean"] as &[&str]),
-                ("wordWrap", &["boolean"] as &[&str]),
-                ("files", &["array"] as &[&str]),
-                ("naturalLanguages", &["array"] as &[&str]),
-                ("actions", &["array"] as &[&str]),
-                ("isLoading", &["boolean"] as &[&str]),
-                ("error", &["object"] as &[&str]),
-                ("showCopy", &["boolean"] as &[&str]),
-                ("editorId", &["string"] as &[&str]),
-                ("onEditorFocus", &["string"] as &[&str]),
-                ("onEditorBlur", &["string"] as &[&str]),
-                ("onMotion", &["string"] as &[&str]),
-                ("onOperate", &["string"] as &[&str]),
-                ("onInsertText", &["string"] as &[&str]),
-                ("onSetMode", &["string"] as &[&str]),
-                ("motions", &["array"] as &[&str]),
-                ("operators", &["array"] as &[&str]),
-            ]
-            .into_iter()
-            .collect(),
-        ),
-        (
-            "code-runner-panel",
-            [
-                ("code", &["string"] as &[&str]),
-                ("language", &["string"] as &[&str]),
-                ("runnable", &["boolean"] as &[&str]),
-                ("onRun", &["function"] as &[&str]),
-                ("runEvent", &["string"] as &[&str]),
-                ("className", &["string"] as &[&str]),
-            ]
-            .into_iter()
-            .collect(),
-        ),
-        (
-            "command-palette",
-            [
-                ("open", &["boolean"] as &[&str]),
-                ("onOpenChange", &["function"] as &[&str]),
-                ("commands", &["array"] as &[&str]),
-                ("onSelect", &["function"] as &[&str]),
-                ("placeholder", &["string"] as &[&str]),
-                ("emptyLabel", &["string"] as &[&str]),
-                ("className", &["string"] as &[&str]),
-            ]
-            .into_iter()
-            .collect(),
-        ),
-        (
-            "community-links",
-            [
-                ("github", &["object"] as &[&str]),
-                ("discord", &["object"] as &[&str]),
-                ("twitter", &["object"] as &[&str]),
-                ("heading", &["string"] as &[&str]),
-                ("subtitle", &["string"] as &[&str]),
-                ("className", &["string"] as &[&str]),
-            ]
-            .into_iter()
-            .collect(),
-        ),
-        (
-            "conditional-wrapper",
-            [
-                ("condition", &["sexpr"] as &[&str]),
-                ("context", &["object"] as &[&str]),
-                ("children", &["node"] as &[&str]),
-                ("fallback", &["node"] as &[&str]),
-                ("animate", &["boolean"] as &[&str]),
-            ]
-            .into_iter()
-            .collect(),
-        ),
-        (
-            "confetti-effect",
-            [
-                ("trigger", &["boolean"] as &[&str]),
-                ("duration", &["number"] as &[&str]),
-                ("particleCount", &["number"] as &[&str]),
-                ("className", &["string"] as &[&str]),
-            ]
-            .into_iter()
-            .collect(),
-        ),
-        (
-            "confirm-dialog",
-            [
-                ("isOpen", &["boolean"] as &[&str]),
-                ("onClose", &["function"] as &[&str]),
-                ("onConfirm", &["function"] as &[&str]),
-                ("title", &["string"] as &[&str]),
-                ("message", &["string", "node"] as &[&str]),
-                ("description", &["string", "node"] as &[&str]),
-                ("confirmText", &["string"] as &[&str]),
-                ("confirmLabel", &["string"] as &[&str]),
-                ("cancelText", &["string"] as &[&str]),
-                ("cancelLabel", &["string"] as &[&str]),
-                ("variant", &["string"] as &[&str]),
-                ("size", &["string"] as &[&str]),
-                ("isLoading", &["boolean"] as &[&str]),
-                ("error", &["object"] as &[&str]),
-                ("className", &["string"] as &[&str]),
-            ]
-            .into_iter()
-            .collect(),
-        ),
-        (
-            "connection-block",
-            [
-                ("content", &["string"] as &[&str]),
-                ("className", &["string"] as &[&str]),
-            ]
-            .into_iter()
-            .collect(),
-        ),
-        (
-            "container",
-            [
-                ("size", &["string"] as &[&str]),
-                ("maxWidth", &["string"] as &[&str]),
-                ("padding", &["string"] as &[&str]),
-                ("center", &["boolean"] as &[&str]),
-                ("className", &["string"] as &[&str]),
-                ("children", &["node"] as &[&str]),
-                ("as", &["component"] as &[&str]),
-            ]
-            .into_iter()
-            .collect(),
-        ),
-        (
-            "content-renderer",
-            [
-                ("className", &["string"] as &[&str]),
-                ("isLoading", &["boolean"] as &[&str]),
-                ("error", &["object"] as &[&str]),
-                ("sortBy", &["string"] as &[&str]),
-                ("sortDirection", &["string"] as &[&str]),
-                ("searchValue", &["string"] as &[&str]),
-                ("page", &["number"] as &[&str]),
-                ("pageSize", &["number"] as &[&str]),
-                ("totalCount", &["number"] as &[&str]),
-                ("activeFilters", &["object"] as &[&str]),
-                ("selectedIds", &["array"] as &[&str]),
-                ("content", &["string"] as &[&str]),
-                ("segments", &["array"] as &[&str]),
-                ("direction", &["string"] as &[&str]),
-            ]
-            .into_iter()
-            .collect(),
-        ),
-        (
-            "content-section",
-            [
-                ("children", &["node"] as &[&str]),
-                ("background", &["string"] as &[&str]),
-                ("padding", &["string"] as &[&str]),
-                ("id", &["string"] as &[&str]),
-                ("className", &["string"] as &[&str]),
-            ]
-            .into_iter()
-            .collect(),
-        ),
-        (
-            "control-button",
-            [
-                ("assetUrl", &["object"] as &[&str]),
-                ("label", &["string"] as &[&str]),
-                ("icon", &["icon", "string"] as &[&str]),
-                ("size", &["string"] as &[&str]),
-                ("shape", &["string"] as &[&str]),
-                ("variant", &["string"] as &[&str]),
-                ("onPress", &["function"] as &[&str]),
-                ("onRelease", &["function"] as &[&str]),
-                ("pressEvent", &["string"] as &[&str]),
-                ("releaseEvent", &["string"] as &[&str]),
-                ("pressed", &["boolean"] as &[&str]),
-                ("disabled", &["boolean"] as &[&str]),
-                ("className", &["string"] as &[&str]),
-            ]
-            .into_iter()
-            .collect(),
-        ),
-        (
-            "control-grid",
-            [
-                ("kind", &["string"] as &[&str]),
-                ("buttons", &["array"] as &[&str]),
-                ("layout", &["string"] as &[&str]),
-                ("includeDiagonals", &["boolean"] as &[&str]),
-                ("onAction", &["function"] as &[&str]),
-                ("actionEvent", &["string"] as &[&str]),
-                ("onDirection", &["function"] as &[&str]),
-                ("directionEvent", &["string"] as &[&str]),
-                ("directionEvents", &["object"] as &[&str]),
-                ("directionReleaseEvents", &["object"] as &[&str]),
-                ("directionAssets", &["object"] as &[&str]),
-                ("size", &["string"] as &[&str]),
-                ("disabled", &["boolean"] as &[&str]),
-                ("visibility", &["string"] as &[&str]),
-                ("className", &["string"] as &[&str]),
-            ]
-            .into_iter()
-            .collect(),
-        ),
-        (
-            "counter-template",
-            [
-                ("entity", &["object"] as &[&str]),
-                ("className", &["string"] as &[&str]),
-                ("onIncrement", &["function"] as &[&str]),
-                ("onDecrement", &["function"] as &[&str]),
-                ("onReset", &["function"] as &[&str]),
-                ("incrementEvent", &["string"] as &[&str]),
-                ("decrementEvent", &["string"] as &[&str]),
-                ("resetEvent", &["string"] as &[&str]),
-                ("title", &["string"] as &[&str]),
-                ("showReset", &["boolean"] as &[&str]),
-                ("size", &["string"] as &[&str]),
-                ("variant", &["string"] as &[&str]),
-            ]
-            .into_iter()
-            .collect(),
-        ),
-        (
-            "cta-banner",
-            [
-                ("title", &["string"] as &[&str]),
-                ("subtitle", &["string"] as &[&str]),
-                ("primaryAction", &["object"] as &[&str]),
-                ("secondaryAction", &["object"] as &[&str]),
-                ("background", &["string"] as &[&str]),
-                ("align", &["string"] as &[&str]),
-                ("className", &["string"] as &[&str]),
-            ]
-            .into_iter()
-            .collect(),
-        ),
-        (
-            "dashboard-grid",
-            [
-                ("className", &["string"] as &[&str]),
-                ("isLoading", &["boolean"] as &[&str]),
-                ("error", &["object"] as &[&str]),
-                ("sortBy", &["string"] as &[&str]),
-                ("sortDirection", &["string"] as &[&str]),
-                ("searchValue", &["string"] as &[&str]),
-                ("page", &["number"] as &[&str]),
-                ("pageSize", &["number"] as &[&str]),
-                ("totalCount", &["number"] as &[&str]),
-                ("activeFilters", &["object"] as &[&str]),
-                ("selectedIds", &["array"] as &[&str]),
-                ("columns", &["number"] as &[&str]),
-                ("gap", &["string"] as &[&str]),
-                ("cells", &["array"] as &[&str]),
-            ]
-            .into_iter()
-            .collect(),
-        ),
-        (
-            "dashboard-layout",
-            [
-                ("appName", &["string"] as &[&str]),
-                ("logo", &["node"] as &[&str]),
-                ("navItems", &["array"] as &[&str]),
-                ("user", &["object"] as &[&str]),
-                ("headerActions", &["node"] as &[&str]),
-                ("showSearch", &["boolean"] as &[&str]),
-                ("searchEvent", &["string"] as &[&str]),
-                ("onSearchSubmit", &["function"] as &[&str]),
-                ("topBarActions", &["array"] as &[&str]),
-                ("notifications", &["array"] as &[&str]),
-                ("notificationClickEvent", &["string"] as &[&str]),
-                ("onNotificationClick", &["function"] as &[&str]),
-                ("showThemeToggle", &["boolean"] as &[&str]),
-                ("sidebarFooter", &["node"] as &[&str]),
-                ("sidebarContent", &["node"] as &[&str]),
-                ("currentPath", &["string"] as &[&str]),
-                ("onSignOut", &["function"] as &[&str]),
-                ("layoutMode", &["string"] as &[&str]),
-                ("children", &["node"] as &[&str]),
-            ]
-            .into_iter()
-            .collect(),
-        ),
-        (
-            "data-grid",
-            [
-                ("dragGroup", &["string"] as &[&str]),
-                ("accepts", &["string"] as &[&str]),
-                ("sortable", &["boolean"] as &[&str]),
-                ("dropEvent", &["string"] as &[&str]),
-                ("reorderEvent", &["string"] as &[&str]),
-                ("positionEvent", &["string"] as &[&str]),
-                ("dndItemIdField", &["string"] as &[&str]),
-                ("dndRoot", &["boolean"] as &[&str]),
-                ("entity", &["object", "array"] as &[&str]),
-                ("fields", &["array"] as &[&str]),
-                ("columns", &["array"] as &[&str]),
-                ("itemActions", &["array"] as &[&str]),
-                ("maxInlineActions", &["number"] as &[&str]),
-                ("scrollX", &["boolean"] as &[&str]),
-                ("cols", &["number"] as &[&str]),
-                ("gap", &["string"] as &[&str]),
-                ("minCardWidth", &["number"] as &[&str]),
-                ("className", &["string"] as &[&str]),
-                ("isLoading", &["boolean"] as &[&str]),
-                ("error", &["object"] as &[&str]),
-                ("imageField", &["string"] as &[&str]),
-                ("selectable", &["boolean"] as &[&str]),
-                ("selectionEvent", &["string"] as &[&str]),
-                ("infiniteScroll", &["boolean"] as &[&str]),
-                ("loadMoreEvent", &["string"] as &[&str]),
-                ("hasMore", &["boolean"] as &[&str]),
-                ("children", &["function"] as &[&str]),
-                ("renderItem", &["function"] as &[&str]),
-                ("pageSize", &["number"] as &[&str]),
-                ("look", &["string"] as &[&str]),
-                ("relationsData", &["object"] as &[&str]),
-            ]
-            .into_iter()
-            .collect(),
-        ),
-        (
-            "data-list",
-            [
-                ("dragGroup", &["string"] as &[&str]),
-                ("accepts", &["string"] as &[&str]),
-                ("sortable", &["boolean"] as &[&str]),
-                ("dropEvent", &["string"] as &[&str]),
-                ("reorderEvent", &["string"] as &[&str]),
-                ("positionEvent", &["string"] as &[&str]),
-                ("dndItemIdField", &["string"] as &[&str]),
-                ("dndRoot", &["boolean"] as &[&str]),
-                ("entity", &["object", "array"] as &[&str]),
-                ("fields", &["array"] as &[&str]),
-                ("columns", &["array"] as &[&str]),
-                ("itemActions", &["array"] as &[&str]),
-                ("maxInlineActions", &["number"] as &[&str]),
-                ("itemClickEvent", &["string"] as &[&str]),
-                ("gap", &["string"] as &[&str]),
-                ("variant", &["string"] as &[&str]),
-                ("groupBy", &["string"] as &[&str]),
-                ("senderField", &["string"] as &[&str]),
-                ("senderLabelField", &["string"] as &[&str]),
-                ("currentUser", &["string"] as &[&str]),
-                ("emptyMessage", &["string"] as &[&str]),
-                ("className", &["string"] as &[&str]),
-                ("isLoading", &["boolean"] as &[&str]),
-                ("error", &["object"] as &[&str]),
-                ("reorderable", &["boolean"] as &[&str]),
-                ("swipeLeftEvent", &["string"] as &[&str]),
-                ("swipeLeftActions", &["array"] as &[&str]),
-                ("swipeRightEvent", &["string"] as &[&str]),
-                ("swipeRightActions", &["array"] as &[&str]),
-                ("longPressEvent", &["string"] as &[&str]),
-                ("infiniteScroll", &["boolean"] as &[&str]),
-                ("loadMoreEvent", &["string"] as &[&str]),
-                ("hasMore", &["boolean"] as &[&str]),
-                ("children", &["function"] as &[&str]),
-                ("renderItem", &["function"] as &[&str]),
-                ("pageSize", &["number"] as &[&str]),
-                ("sortBy", &["string"] as &[&str]),
-                ("sortDirection", &["string"] as &[&str]),
-                ("look", &["string"] as &[&str]),
-                ("relationsData", &["object"] as &[&str]),
-            ]
-            .into_iter()
-            .collect(),
-        ),
-        (
-            "date-range-picker",
-            [
-                ("from", &["string"] as &[&str]),
-                ("to", &["string"] as &[&str]),
-                ("event", &["string"] as &[&str]),
-                ("onChange", &["function"] as &[&str]),
-                ("presets", &["array"] as &[&str]),
-                ("fromLabel", &["string"] as &[&str]),
-                ("toLabel", &["string"] as &[&str]),
-                ("className", &["string"] as &[&str]),
-            ]
-            .into_iter()
-            .collect(),
-        ),
-        (
-            "date-range-selector",
-            [
-                ("options", &["array"] as &[&str]),
-                ("selected", &["string"] as &[&str]),
-                ("onSelect", &["function"] as &[&str]),
-                ("className", &["string"] as &[&str]),
-            ]
-            .into_iter()
-            .collect(),
-        ),
-        (
-            "day-cell",
-            [
-                ("date", &["date"] as &[&str]),
-                ("isToday", &["boolean"] as &[&str]),
-                ("onClick", &["function"] as &[&str]),
-                ("className", &["string"] as &[&str]),
-            ]
-            .into_iter()
-            .collect(),
-        ),
-        (
-            "detail-panel",
-            [
-                ("className", &["string"] as &[&str]),
-                ("isLoading", &["boolean"] as &[&str]),
-                ("error", &["object"] as &[&str]),
-                ("sortBy", &["string"] as &[&str]),
-                ("sortDirection", &["string"] as &[&str]),
-                ("searchValue", &["string"] as &[&str]),
-                ("page", &["number"] as &[&str]),
-                ("pageSize", &["number"] as &[&str]),
-                ("totalCount", &["number"] as &[&str]),
-                ("activeFilters", &["object"] as &[&str]),
-                ("selectedIds", &["array"] as &[&str]),
-                ("entity", &["object"] as &[&str]),
-                ("title", &["string"] as &[&str]),
-                ("onTitleCommit", &["function"] as &[&str]),
-                ("subtitle", &["string"] as &[&str]),
-                ("status", &["object"] as &[&str]),
-                ("avatar", &["node"] as &[&str]),
-                ("sections", &["array"] as &[&str]),
-                ("actions", &["array"] as &[&str]),
-                ("maxInlineActions", &["number"] as &[&str]),
-                ("backAction", &["object"] as &[&str]),
-                ("footer", &["node"] as &[&str]),
-                ("slideOver", &["boolean"] as &[&str]),
-                ("fields", &["array"] as &[&str]),
-                ("fieldNames", &["array"] as &[&str]),
-                ("initialData", &["object"] as &[&str]),
-                ("mode", &["string"] as &[&str]),
-                ("position", &["string"] as &[&str]),
-                ("width", &["string"] as &[&str]),
-                ("displayFields", &["array"] as &[&str]),
-                ("showActions", &["boolean"] as &[&str]),
-                ("relationsData", &["object"] as &[&str]),
-            ]
-            .into_iter()
-            .collect(),
-        ),
-        (
-            "dialog",
-            [
-                ("className", &["string"] as &[&str]),
-                ("children", &["node"] as &[&str]),
-            ]
-            .into_iter()
-            .collect(),
-        ),
-        (
-            "dialogue-bubble",
-            [
-                ("speaker", &["string"] as &[&str]),
-                ("text", &["string"] as &[&str]),
-                ("portrait", &["object"] as &[&str]),
-                ("position", &["string"] as &[&str]),
-                ("mood", &["string"] as &[&str]),
-                ("revealedChars", &["number"] as &[&str]),
-                ("className", &["string"] as &[&str]),
-            ]
-            .into_iter()
-            .collect(),
-        ),
-        (
-            "divider",
-            [
-                ("orientation", &["string"] as &[&str]),
-                ("label", &["string"] as &[&str]),
-                ("variant", &["string"] as &[&str]),
-                ("className", &["string"] as &[&str]),
-            ]
-            .into_iter()
-            .collect(),
-        ),
-        (
-            "doc-breadcrumb",
-            [
-                ("items", &["array"] as &[&str]),
-                ("className", &["string"] as &[&str]),
-            ]
-            .into_iter()
-            .collect(),
-        ),
-        (
-            "doc-pagination",
-            [
-                ("prev", &["object"] as &[&str]),
-                ("next", &["object"] as &[&str]),
-                ("className", &["string"] as &[&str]),
-            ]
-            .into_iter()
-            .collect(),
-        ),
-        (
-            "doc-search",
-            [
-                ("placeholder", &["string"] as &[&str]),
-                ("onSearch", &["function"] as &[&str]),
-                ("className", &["string"] as &[&str]),
-            ]
-            .into_iter()
-            .collect(),
-        ),
-        (
-            "doc-sidebar",
-            [
-                ("items", &["array"] as &[&str]),
-                ("className", &["string"] as &[&str]),
-            ]
-            .into_iter()
-            .collect(),
-        ),
-        (
-            "doc-toc",
-            [
-                ("items", &["array"] as &[&str]),
-                ("activeId", &["string"] as &[&str]),
-                ("className", &["string"] as &[&str]),
-            ]
-            .into_iter()
-            .collect(),
-        ),
-        (
-            "dock-layout",
-            [
-                ("rail", &["node"] as &[&str]),
-                ("sidebar", &["node"] as &[&str]),
-                ("main", &["node"] as &[&str]),
-                ("bottomPanel", &["node"] as &[&str]),
-                ("statusBar", &["node"] as &[&str]),
-                ("secondarySidebar", &["node"] as &[&str]),
-                ("railWidth", &["number"] as &[&str]),
-                ("secondarySidebarWidth", &["number"] as &[&str]),
-                ("sidebarCollapsed", &["boolean"] as &[&str]),
-                ("onSidebarCollapsedChange", &["function"] as &[&str]),
-                ("sidebarWidth", &["number"] as &[&str]),
-                ("onSidebarWidthChange", &["function"] as &[&str]),
-                ("sidebarMinSize", &["number"] as &[&str]),
-                ("bottomPanelCollapsed", &["boolean"] as &[&str]),
-                ("onBottomPanelCollapsedChange", &["function"] as &[&str]),
-                ("bottomPanelHeight", &["number"] as &[&str]),
-                ("onBottomPanelHeightChange", &["function"] as &[&str]),
-                ("bottomPanelMinSize", &["number"] as &[&str]),
-                ("secondarySidebarCollapsed", &["boolean"] as &[&str]),
-                (
-                    "onSecondarySidebarCollapsedChange",
-                    &["function"] as &[&str],
-                ),
-                ("className", &["string"] as &[&str]),
-                ("railClassName", &["string"] as &[&str]),
-                ("sidebarClassName", &["string"] as &[&str]),
-                ("mainClassName", &["string"] as &[&str]),
-                ("bottomPanelClassName", &["string"] as &[&str]),
-                ("statusBarClassName", &["string"] as &[&str]),
-                ("secondarySidebarClassName", &["string"] as &[&str]),
-            ]
-            .into_iter()
-            .collect(),
-        ),
-        (
-            "document-details",
-            [
-                ("entity", &["object"] as &[&str]),
-                ("fields", &["array"] as &[&str]),
-                ("metaCommitEvent", &["string"] as &[&str]),
-                ("relationEvent", &["string"] as &[&str]),
-                ("title", &["string"] as &[&str]),
-                ("className", &["string"] as &[&str]),
-            ]
-            .into_iter()
-            .collect(),
-        ),
-        (
-            "document-panel",
-            [
-                ("id", &["string"] as &[&str]),
-                ("title", &["string"] as &[&str]),
-                ("subtitle", &["string"] as &[&str]),
-                ("coverImage", &["string"] as &[&str]),
-                ("icon", &["icon", "string"] as &[&str]),
-                ("value", &["string"] as &[&str]),
-                ("actions", &["array"] as &[&str]),
-                ("maxInlineActions", &["number"] as &[&str]),
-                ("editing", &["boolean"] as &[&str]),
-                ("titleCommitEvent", &["string"] as &[&str]),
-                ("contentChangeEvent", &["string"] as &[&str]),
-                ("editEvent", &["string"] as &[&str]),
-                ("doneEvent", &["string"] as &[&str]),
-                ("editLabel", &["string"] as &[&str]),
-                ("doneLabel", &["string"] as &[&str]),
-                ("autosaveHint", &["string"] as &[&str]),
-                ("placeholder", &["string"] as &[&str]),
-                ("className", &["string"] as &[&str]),
-            ]
-            .into_iter()
-            .collect(),
-        ),
-        (
-            "document-viewer",
-            [
-                ("title", &["string"] as &[&str]),
-                ("src", &["asset"] as &[&str]),
-                ("content", &["string"] as &[&str]),
-                ("documentType", &["string"] as &[&str]),
-                ("currentPage", &["number"] as &[&str]),
-                ("totalPages", &["number"] as &[&str]),
-                ("height", &["number", "string"] as &[&str]),
-                ("showToolbar", &["boolean"] as &[&str]),
-                ("showDownload", &["boolean"] as &[&str]),
-                ("showPrint", &["boolean"] as &[&str]),
-                ("actions", &["array"] as &[&str]),
-                ("documents", &["array"] as &[&str]),
-                ("isLoading", &["boolean"] as &[&str]),
-                ("error", &["object"] as &[&str]),
-                ("className", &["string"] as &[&str]),
-            ]
-            .into_iter()
-            .collect(),
-        ),
-        (
-            "draw-fx-layer",
-            [
-                ("id", &["string"] as &[&str]),
-                ("type", &["string"] as &[&str]),
-                ("items", &["array"] as &[&str]),
-                ("presets", &["array"] as &[&str]),
-                ("art", &["object"] as &[&str]),
-                ("sprites", &["object"] as &[&str]),
-                ("tickMs", &["number"] as &[&str]),
-                ("textColor", &["string"] as &[&str]),
-            ]
-            .into_iter()
-            .collect(),
-        ),
-        (
-            "draw-group",
-            [
-                ("id", &["string"] as &[&str]),
-                ("type", &["string"] as &[&str]),
-                ("position", &["object"] as &[&str]),
-                ("scale", &["number"] as &[&str]),
-                ("rotate", &["number"] as &[&str]),
-                ("rotation", &["array"] as &[&str]),
-                ("bone", &["string"] as &[&str]),
-                ("skeleton", &["boolean"] as &[&str]),
-                ("animation", &["object"] as &[&str]),
-                ("opacity", &["number"] as &[&str]),
-                ("clip", &["string"] as &[&str]),
-                ("items", &["array"] as &[&str]),
-            ]
-            .into_iter()
-            .collect(),
-        ),
-        (
-            "draw-mesh",
-            [
-                ("id", &["string"] as &[&str]),
-                ("type", &["string"] as &[&str]),
-                ("shape", &["string"] as &[&str]),
-                ("position", &["object"] as &[&str]),
-                ("width", &["number"] as &[&str]),
-                ("height", &["number"] as &[&str]),
-                ("depth", &["number"] as &[&str]),
-                ("radius", &["number"] as &[&str]),
-                ("radiusTop", &["number"] as &[&str]),
-                ("radiusBottom", &["number"] as &[&str]),
-                ("tube", &["number"] as &[&str]),
-                ("segments", &["number"] as &[&str]),
-                ("vertices", &["array"] as &[&str]),
-                ("faces", &["array"] as &[&str]),
-                ("uvs", &["array"] as &[&str]),
-                ("skin", &["object"] as &[&str]),
-                ("rotation", &["array"] as &[&str]),
-                ("pivot", &["string"] as &[&str]),
-                ("material", &["object"] as &[&str]),
-                ("outline", &["object"] as &[&str]),
-                ("castShadow", &["boolean"] as &[&str]),
-                ("receiveShadow", &["boolean"] as &[&str]),
-                ("animation", &["object"] as &[&str]),
-                ("opacity", &["number"] as &[&str]),
-            ]
-            .into_iter()
-            .collect(),
-        ),
-        (
-            "draw-shape",
-            [
-                ("id", &["string"] as &[&str]),
-                ("type", &["string"] as &[&str]),
-                ("shape", &["string"] as &[&str]),
-                ("position", &["object"] as &[&str]),
-                ("anchor", &["string"] as &[&str]),
-                ("width", &["number"] as &[&str]),
-                ("height", &["number"] as &[&str]),
-                ("radiusX", &["number"] as &[&str]),
-                ("radiusY", &["number"] as &[&str]),
-                ("offsetX", &["number"] as &[&str]),
-                ("offsetY", &["number"] as &[&str]),
-                ("points", &["array"] as &[&str]),
-                ("d", &["string"] as &[&str]),
-                ("fill", &["string"] as &[&str]),
-                ("gradient", &["object"] as &[&str]),
-                ("fillPattern", &["object"] as &[&str]),
-                ("stroke", &["string"] as &[&str]),
-                ("strokeWidth", &["number"] as &[&str]),
-                ("strokeGradient", &["object"] as &[&str]),
-                ("strokeDash", &["array"] as &[&str]),
-                ("strokeDashOffset", &["number"] as &[&str]),
-                ("blendMode", &["string"] as &[&str]),
-                ("blur", &["number"] as &[&str]),
-                ("rotate", &["number"] as &[&str]),
-                ("pivot", &["object"] as &[&str]),
-                ("shadow", &["object"] as &[&str]),
-                ("animation", &["object"] as &[&str]),
-                ("opacity", &["number"] as &[&str]),
-            ]
-            .into_iter()
-            .collect(),
-        ),
-        (
-            "draw-shape-layer",
-            [
-                ("id", &["string"] as &[&str]),
-                ("type", &["string"] as &[&str]),
-                ("items", &["array"] as &[&str]),
-            ]
-            .into_iter()
-            .collect(),
-        ),
-        (
-            "draw-skinned-mesh",
-            [
-                ("id", &["string"] as &[&str]),
-                ("type", &["string"] as &[&str]),
-                ("position", &["object"] as &[&str]),
-                ("asset", &["object"] as &[&str]),
-                ("mesh", &["object"] as &[&str]),
-                ("meshUrl", &["string"] as &[&str]),
-                ("bones", &["array"] as &[&str]),
-                ("pose", &["object"] as &[&str]),
-                ("clip", &["object"] as &[&str]),
-                ("clipName", &["string"] as &[&str]),
-                ("frame", &["number"] as &[&str]),
-                ("opacity", &["number"] as &[&str]),
-                ("weightsOverlay", &["boolean"] as &[&str]),
-                ("ghost", &["object"] as &[&str]),
-            ]
-            .into_iter()
-            .collect(),
-        ),
-        (
-            "draw-sprite",
-            [
-                ("id", &["string"] as &[&str]),
-                ("type", &["string"] as &[&str]),
-                ("position", &["object"] as &[&str]),
-                ("asset", &["object"] as &[&str]),
-                ("anchor", &["string"] as &[&str]),
-                ("width", &["number"] as &[&str]),
-                ("height", &["number"] as &[&str]),
-                ("frame", &["object"] as &[&str]),
-                ("animation", &["string"] as &[&str]),
-                ("loop", &["boolean"] as &[&str]),
-                ("clockMs", &["number"] as &[&str]),
-                ("flipX", &["boolean"] as &[&str]),
-                ("rotation", &["number"] as &[&str]),
-                ("opacity", &["number"] as &[&str]),
-                ("shadow", &["object"] as &[&str]),
-            ]
-            .into_iter()
-            .collect(),
-        ),
-        (
-            "draw-sprite-layer",
-            [
-                ("id", &["string"] as &[&str]),
-                ("type", &["string"] as &[&str]),
-                ("items", &["array"] as &[&str]),
-            ]
-            .into_iter()
-            .collect(),
-        ),
-        (
-            "draw-text",
-            [
-                ("id", &["string"] as &[&str]),
-                ("type", &["string"] as &[&str]),
-                ("text", &["string"] as &[&str]),
-                ("position", &["object"] as &[&str]),
-                ("anchor", &["string"] as &[&str]),
-                ("offsetX", &["number"] as &[&str]),
-                ("offsetY", &["number"] as &[&str]),
-                ("color", &["string"] as &[&str]),
-                ("font", &["string"] as &[&str]),
-                ("align", &["string"] as &[&str]),
-                ("baseline", &["string"] as &[&str]),
-                ("opacity", &["number"] as &[&str]),
-            ]
-            .into_iter()
-            .collect(),
-        ),
-        (
-            "draw-text-layer",
-            [
-                ("id", &["string"] as &[&str]),
-                ("type", &["string"] as &[&str]),
-                ("items", &["array"] as &[&str]),
-            ]
-            .into_iter()
-            .collect(),
-        ),
-        (
-            "drawer",
-            [
-                ("isOpen", &["boolean"] as &[&str]),
-                ("onClose", &["function"] as &[&str]),
-                ("title", &["node"] as &[&str]),
-                ("children", &["node"] as &[&str]),
-                ("footer", &["node"] as &[&str]),
-                ("position", &["string"] as &[&str]),
-                ("width", &["string"] as &[&str]),
-                ("showCloseButton", &["boolean"] as &[&str]),
-                ("closeOnOverlayClick", &["boolean"] as &[&str]),
-                ("closeOnEscape", &["boolean"] as &[&str]),
-                ("className", &["string"] as &[&str]),
-                ("closeEvent", &["string"] as &[&str]),
-            ]
-            .into_iter()
-            .collect(),
-        ),
-        (
-            "drawer-slot",
-            [
-                ("children", &["node"] as &[&str]),
-                ("title", &["string"] as &[&str]),
-                ("position", &["string"] as &[&str]),
-                ("size", &["string"] as &[&str]),
-                ("className", &["string"] as &[&str]),
-                ("isLoading", &["boolean"] as &[&str]),
-                ("error", &["object"] as &[&str]),
-                ("entity", &["string"] as &[&str]),
-                ("sourceTrait", &["string"] as &[&str]),
-            ]
-            .into_iter()
-            .collect(),
-        ),
-        (
-            "edge-decoration",
-            [
-                ("variant", &["string"] as &[&str]),
-                ("side", &["string"] as &[&str]),
-                ("opacity", &["number"] as &[&str]),
-                ("color", &["string"] as &[&str]),
-                ("strokeWidth", &["number"] as &[&str]),
-                ("width", &["number"] as &[&str]),
-                ("className", &["string"] as &[&str]),
-            ]
-            .into_iter()
-            .collect(),
-        ),
-        (
-            "emoji-picker",
-            [
-                ("pickEvent", &["string"] as &[&str]),
-                ("position", &["string"] as &[&str]),
-                ("triggerIcon", &["icon", "string"] as &[&str]),
-                ("triggerLabel", &["string"] as &[&str]),
-                ("className", &["string"] as &[&str]),
-            ]
-            .into_iter()
-            .collect(),
-        ),
-        (
-            "empty-state",
-            [
-                ("icon", &["icon", "string"] as &[&str]),
-                ("title", &["string"] as &[&str]),
-                ("message", &["string"] as &[&str]),
-                ("description", &["string"] as &[&str]),
-                ("actionLabel", &["string"] as &[&str]),
-                ("onAction", &["function"] as &[&str]),
-                ("className", &["string"] as &[&str]),
-                ("destructive", &["boolean"] as &[&str]),
-                ("variant", &["string"] as &[&str]),
-                ("actionEvent", &["string"] as &[&str]),
-                ("look", &["string"] as &[&str]),
-            ]
-            .into_iter()
-            .collect(),
-        ),
-        (
-            "entity-cards",
-            [
-                ("className", &["string"] as &[&str]),
-                ("isLoading", &["boolean"] as &[&str]),
-                ("error", &["object"] as &[&str]),
-                ("sortBy", &["string"] as &[&str]),
-                ("sortDirection", &["string"] as &[&str]),
-                ("searchValue", &["string"] as &[&str]),
-                ("page", &["number"] as &[&str]),
-                ("pageSize", &["number"] as &[&str]),
-                ("totalCount", &["number"] as &[&str]),
-                ("activeFilters", &["object"] as &[&str]),
-                ("selectedIds", &["array"] as &[&str]),
-                ("entity", &["object", "array"] as &[&str]),
-                ("minCardWidth", &["number"] as &[&str]),
-                ("maxCols", &["number"] as &[&str]),
-                ("gap", &["string"] as &[&str]),
-                ("alignItems", &["string"] as &[&str]),
-                ("children", &["node"] as &[&str]),
-                ("fields", &["array"] as &[&str]),
-                ("fieldNames", &["array"] as &[&str]),
-                ("columns", &["array"] as &[&str]),
-                ("itemActions", &["array"] as &[&str]),
-                ("showTotal", &["boolean"] as &[&str]),
-                ("showAvatar", &["boolean"] as &[&str]),
-                ("variant", &["string"] as &[&str]),
-                ("imageField", &["string"] as &[&str]),
-            ]
-            .into_iter()
-            .collect(),
-        ),
-        (
-            "entity-list",
-            [
-                ("className", &["string"] as &[&str]),
-                ("isLoading", &["boolean"] as &[&str]),
-                ("error", &["object"] as &[&str]),
-                ("sortBy", &["string"] as &[&str]),
-                ("sortDirection", &["string"] as &[&str]),
-                ("searchValue", &["string"] as &[&str]),
-                ("page", &["number"] as &[&str]),
-                ("pageSize", &["number"] as &[&str]),
-                ("totalCount", &["number"] as &[&str]),
-                ("activeFilters", &["object"] as &[&str]),
-                ("selectedIds", &["array"] as &[&str]),
-                ("entity", &["object", "array"] as &[&str]),
-                ("entityType", &["string"] as &[&str]),
-                ("selectable", &["boolean"] as &[&str]),
-                ("itemActions", &["function", "array"] as &[&str]),
-                ("showDividers", &["boolean"] as &[&str]),
-                ("variant", &["string"] as &[&str]),
-                ("emptyMessage", &["string"] as &[&str]),
-                ("renderItem", &["function"] as &[&str]),
-                ("children", &["node"] as &[&str]),
-                ("fields", &["array"] as &[&str]),
-                ("fieldNames", &["array"] as &[&str]),
-            ]
-            .into_iter()
-            .collect(),
-        ),
-        (
-            "entity-table",
-            [
-                ("className", &["string"] as &[&str]),
-                ("isLoading", &["boolean"] as &[&str]),
-                ("error", &["object"] as &[&str]),
-                ("sortBy", &["string"] as &[&str]),
-                ("sortDirection", &["string"] as &[&str]),
-                ("searchValue", &["string"] as &[&str]),
-                ("page", &["number"] as &[&str]),
-                ("pageSize", &["number"] as &[&str]),
-                ("totalCount", &["number"] as &[&str]),
-                ("activeFilters", &["object"] as &[&str]),
-                ("selectedIds", &["array"] as &[&str]),
-                ("entity", &["object", "array"] as &[&str]),
-                ("fields", &["array"] as &[&str]),
-                ("columns", &["array"] as &[&str]),
-                ("itemActions", &["array"] as &[&str]),
-                ("emptyIcon", &["icon", "string"] as &[&str]),
-                ("emptyTitle", &["string"] as &[&str]),
-                ("emptyDescription", &["string"] as &[&str]),
-                ("emptyAction", &["object"] as &[&str]),
-                ("selectable", &["boolean"] as &[&str]),
-                ("searchable", &["boolean"] as &[&str]),
-                ("searchPlaceholder", &["string"] as &[&str]),
-                ("rowActions", &["array"] as &[&str]),
-                ("bulkActions", &["array"] as &[&str]),
-                ("headerActions", &["node"] as &[&str]),
-                ("showTotal", &["boolean"] as &[&str]),
-                ("look", &["string"] as &[&str]),
-                ("relationsData", &["object"] as &[&str]),
-            ]
-            .into_iter()
-            .collect(),
-        ),
-        (
-            "error-boundary",
-            [
-                ("children", &["node"] as &[&str]),
-                ("fallback", &["node", "function"] as &[&str]),
-                ("className", &["string"] as &[&str]),
-                ("onError", &["function"] as &[&str]),
-            ]
-            .into_iter()
-            .collect(),
-        ),
-        (
-            "error-state",
-            [
-                ("title", &["string"] as &[&str]),
-                ("message", &["string"] as &[&str]),
-                ("description", &["string"] as &[&str]),
-                ("onRetry", &["function"] as &[&str]),
-                ("className", &["string"] as &[&str]),
-                ("retryEvent", &["string"] as &[&str]),
-            ]
-            .into_iter()
-            .collect(),
-        ),
-        (
-            "feature-card",
-            [
-                ("icon", &["icon", "string"] as &[&str]),
-                ("title", &["string"] as &[&str]),
-                ("description", &["string"] as &[&str]),
-                ("href", &["string"] as &[&str]),
-                ("linkLabel", &["string"] as &[&str]),
-                ("variant", &["string"] as &[&str]),
-                ("size", &["string"] as &[&str]),
-                ("className", &["string"] as &[&str]),
-            ]
-            .into_iter()
-            .collect(),
-        ),
-        (
-            "feature-detail-page-template",
-            [
-                ("entity", &["object"] as &[&str]),
-                ("className", &["string"] as &[&str]),
-            ]
-            .into_iter()
-            .collect(),
-        ),
-        (
-            "feature-grid",
-            [
-                ("items", &["array"] as &[&str]),
-                ("columns", &["number"] as &[&str]),
-                ("gap", &["string"] as &[&str]),
-                ("className", &["string"] as &[&str]),
-            ]
-            .into_iter()
-            .collect(),
-        ),
-        (
-            "feature-grid-organism",
-            [
-                ("className", &["string"] as &[&str]),
-                ("isLoading", &["boolean"] as &[&str]),
-                ("error", &["object"] as &[&str]),
-                ("sortBy", &["string"] as &[&str]),
-                ("sortDirection", &["string"] as &[&str]),
-                ("searchValue", &["string"] as &[&str]),
-                ("page", &["number"] as &[&str]),
-                ("pageSize", &["number"] as &[&str]),
-                ("totalCount", &["number"] as &[&str]),
-                ("activeFilters", &["object"] as &[&str]),
-                ("selectedIds", &["array"] as &[&str]),
-                ("entity", &["object", "array"] as &[&str]),
-                ("columns", &["number"] as &[&str]),
-                ("heading", &["string"] as &[&str]),
-                ("subtitle", &["string"] as &[&str]),
-            ]
-            .into_iter()
-            .collect(),
-        ),
-        (
-            "file-tree",
-            [
-                ("tree", &["array"] as &[&str]),
-                ("items", &["array"] as &[&str]),
-                ("selectedPath", &["string"] as &[&str]),
-                ("selectedId", &["string"] as &[&str]),
-                ("look", &["string"] as &[&str]),
-                ("onFileSelect", &["function"] as &[&str]),
-                ("onNodeSelect", &["function"] as &[&str]),
-                ("onNodeAction", &["function"] as &[&str]),
-                ("nodeActionIcon", &["string"] as &[&str]),
-                ("nodeActionLabel", &["string"] as &[&str]),
-                ("onNodeReorder", &["function"] as &[&str]),
-                ("className", &["string"] as &[&str]),
-                ("indent", &["number"] as &[&str]),
-            ]
-            .into_iter()
-            .collect(),
-        ),
-        (
-            "filter-group",
-            [
-                ("entity", &["string"] as &[&str]),
-                ("filters", &["array"] as &[&str]),
-                ("onFilterChange", &["function"] as &[&str]),
-                ("onClearAll", &["function"] as &[&str]),
-                ("className", &["string"] as &[&str]),
-                ("variant", &["string"] as &[&str]),
-                ("showIcon", &["boolean"] as &[&str]),
-                ("query", &["string"] as &[&str]),
-                ("isLoading", &["boolean"] as &[&str]),
-                ("look", &["string"] as &[&str]),
-                ("event", &["string"] as &[&str]),
-                ("clearEvent", &["string"] as &[&str]),
-            ]
-            .into_iter()
-            .collect(),
-        ),
-        (
-            "filter-pill",
-            [
-                ("className", &["string"] as &[&str]),
-                ("variant", &["string"] as &[&str]),
-                ("size", &["string"] as &[&str]),
-                ("label", &["string", "number"] as &[&str]),
-                ("icon", &["icon", "string"] as &[&str]),
-                ("onRemove", &["function"] as &[&str]),
-                ("removable", &["boolean"] as &[&str]),
-                ("onClick", &["function"] as &[&str]),
-                ("clickEvent", &["string"] as &[&str]),
-                ("removeEvent", &["string"] as &[&str]),
-            ]
-            .into_iter()
-            .collect(),
-        ),
-        (
-            "flex",
-            [
-                ("direction", &["string"] as &[&str]),
-                ("wrap", &["string"] as &[&str]),
-                ("align", &["string"] as &[&str]),
-                ("justify", &["string"] as &[&str]),
-                ("gap", &["string"] as &[&str]),
-                ("inline", &["boolean"] as &[&str]),
-                ("grow", &["boolean", "number"] as &[&str]),
-                ("shrink", &["boolean", "number"] as &[&str]),
-                ("basis", &["string", "number"] as &[&str]),
-                ("className", &["string"] as &[&str]),
-                ("children", &["node"] as &[&str]),
-                ("as", &["component"] as &[&str]),
-            ]
-            .into_iter()
-            .collect(),
-        ),
-        (
-            "flip-card",
-            [
-                ("front", &["node"] as &[&str]),
-                ("back", &["node"] as &[&str]),
-                ("flipped", &["boolean"] as &[&str]),
-                ("onFlip", &["function"] as &[&str]),
-                ("className", &["string"] as &[&str]),
-                ("height", &["string"] as &[&str]),
-            ]
-            .into_iter()
-            .collect(),
-        ),
-        (
-            "flip-container",
-            [
-                ("flipped", &["boolean"] as &[&str]),
-                ("className", &["string"] as &[&str]),
-                ("children", &["node"] as &[&str]),
-                ("onClick", &["function"] as &[&str]),
-            ]
-            .into_iter()
-            .collect(),
-        ),
-        (
-            "floating-action-button",
-            [
-                ("action", &["string"] as &[&str]),
-                ("actionPayload", &["object"] as &[&str]),
-                ("actions", &["array"] as &[&str]),
-                ("icon", &["icon", "string"] as &[&str]),
-                ("onClick", &["function"] as &[&str]),
-                ("variant", &["string"] as &[&str]),
-                ("label", &["string"] as &[&str]),
-                ("position", &["string"] as &[&str]),
-                ("className", &["string"] as &[&str]),
-            ]
-            .into_iter()
-            .collect(),
-        ),
-        (
-            "floating-toolbar",
-            [
-                ("items", &["array"] as &[&str]),
-                ("position", &["string"] as &[&str]),
-                ("children", &["node"] as &[&str]),
-                ("className", &["string"] as &[&str]),
-            ]
-            .into_iter()
-            .collect(),
-        ),
-        (
-            "form",
-            [
-                ("children", &["node"] as &[&str]),
-                ("onSubmit", &["string"] as &[&str]),
-                ("onCancel", &["string"] as &[&str]),
-                ("layout", &["string"] as &[&str]),
-                ("gap", &["string"] as &[&str]),
-                ("className", &["string"] as &[&str]),
-                ("entity", &["object", "array"] as &[&str]),
-                ("mode", &["string"] as &[&str]),
-                ("fields", &["array"] as &[&str]),
-                ("initialData", &["object"] as &[&str]),
-                ("isLoading", &["boolean"] as &[&str]),
-                ("error", &["object"] as &[&str]),
-                ("submitLabel", &["string"] as &[&str]),
-                ("cancelLabel", &["string"] as &[&str]),
-                ("showCancel", &["boolean"] as &[&str]),
-                ("showSubmit", &["boolean"] as &[&str]),
-                ("title", &["string"] as &[&str]),
-                ("submitEvent", &["string"] as &[&str]),
-                ("cancelEvent", &["string"] as &[&str]),
-                ("relationsData", &["object"] as &[&str]),
-                ("relationsLoading", &["object"] as &[&str]),
-                ("fieldOverrides", &["array"] as &[&str]),
-                ("conditionalFields", &["object", "boolean"] as &[&str]),
-                ("hiddenCalculations", &["array", "boolean"] as &[&str]),
-                ("violationTriggers", &["array", "boolean"] as &[&str]),
-                ("evaluationContext", &["object"] as &[&str]),
-                ("sections", &["array"] as &[&str]),
-                ("onFieldChange", &["function"] as &[&str]),
-                ("configPath", &["string"] as &[&str]),
-                ("repeatable", &["boolean"] as &[&str]),
-            ]
-            .into_iter()
-            .collect(),
-        ),
-        (
-            "form-actions",
-            [
-                ("children", &["node"] as &[&str]),
-                ("primary", &["object"] as &[&str]),
-                ("secondary", &["array"] as &[&str]),
-                ("variant", &["string"] as &[&str]),
-                ("orientation", &["string"] as &[&str]),
-                ("className", &["string"] as &[&str]),
-                ("entity", &["string"] as &[&str]),
-                ("filters", &["array"] as &[&str]),
-                ("look", &["string"] as &[&str]),
-            ]
-            .into_iter()
-            .collect(),
-        ),
-        (
-            "form-field",
-            [
-                ("label", &["string"] as &[&str]),
-                ("required", &["boolean"] as &[&str]),
-                ("error", &["string"] as &[&str]),
-                ("hint", &["string"] as &[&str]),
-                ("className", &["string"] as &[&str]),
-                ("children", &["node"] as &[&str]),
-            ]
-            .into_iter()
-            .collect(),
-        ),
-        (
-            "form-layout",
-            [
-                ("className", &["string"] as &[&str]),
-                ("isLoading", &["boolean"] as &[&str]),
-                ("error", &["object"] as &[&str]),
-                ("sortBy", &["string"] as &[&str]),
-                ("sortDirection", &["string"] as &[&str]),
-                ("searchValue", &["string"] as &[&str]),
-                ("page", &["number"] as &[&str]),
-                ("pageSize", &["number"] as &[&str]),
-                ("totalCount", &["number"] as &[&str]),
-                ("activeFilters", &["object"] as &[&str]),
-                ("selectedIds", &["array"] as &[&str]),
-                ("children", &["node"] as &[&str]),
-                ("dividers", &["boolean"] as &[&str]),
-            ]
-            .into_iter()
-            .collect(),
-        ),
-        (
-            "form-section",
-            [
-                ("children", &["node"] as &[&str]),
-                ("onSubmit", &["string"] as &[&str]),
-                ("onCancel", &["string"] as &[&str]),
-                ("layout", &["string"] as &[&str]),
-                ("gap", &["string"] as &[&str]),
-                ("className", &["string"] as &[&str]),
-                ("entity", &["object", "array"] as &[&str]),
-                ("mode", &["string"] as &[&str]),
-                ("fields", &["array"] as &[&str]),
-                ("initialData", &["object"] as &[&str]),
-                ("isLoading", &["boolean"] as &[&str]),
-                ("error", &["object"] as &[&str]),
-                ("submitLabel", &["string"] as &[&str]),
-                ("cancelLabel", &["string"] as &[&str]),
-                ("showCancel", &["boolean"] as &[&str]),
-                ("showSubmit", &["boolean"] as &[&str]),
-                ("title", &["string"] as &[&str]),
-                ("submitEvent", &["string"] as &[&str]),
-                ("cancelEvent", &["string"] as &[&str]),
-                ("relationsData", &["object"] as &[&str]),
-                ("relationsLoading", &["object"] as &[&str]),
-                ("fieldOverrides", &["array"] as &[&str]),
-                ("conditionalFields", &["object", "boolean"] as &[&str]),
-                ("hiddenCalculations", &["array", "boolean"] as &[&str]),
-                ("violationTriggers", &["array", "boolean"] as &[&str]),
-                ("evaluationContext", &["object"] as &[&str]),
-                ("sections", &["array"] as &[&str]),
-                ("onFieldChange", &["function"] as &[&str]),
-                ("configPath", &["string"] as &[&str]),
-                ("repeatable", &["boolean"] as &[&str]),
-            ]
-            .into_iter()
-            .collect(),
-        ),
-        (
-            "form-section-header",
-            [
-                ("title", &["string"] as &[&str]),
-                ("subtitle", &["string"] as &[&str]),
-                ("isCollapsed", &["boolean"] as &[&str]),
-                ("onToggle", &["function"] as &[&str]),
-                ("badge", &["string"] as &[&str]),
-                ("badgeVariant", &["string"] as &[&str]),
-                ("icon", &["icon", "string"] as &[&str]),
-                ("hasErrors", &["boolean"] as &[&str]),
-                ("isComplete", &["boolean"] as &[&str]),
-                ("className", &["string"] as &[&str]),
-            ]
-            .into_iter()
-            .collect(),
-        ),
-        (
-            "fx-overlay",
-            [
-                ("items", &["array"] as &[&str]),
-                ("tickMs", &["number"] as &[&str]),
-                ("children", &["node"] as &[&str]),
-                ("className", &["string"] as &[&str]),
-            ]
-            .into_iter()
-            .collect(),
-        ),
-        (
-            "game-audio-cue",
-            [
-                ("cue", &["string"] as &[&str]),
-                ("cueSeq", &["number"] as &[&str]),
-                ("music", &["string"] as &[&str]),
-                ("muted", &["boolean"] as &[&str]),
-                ("volume", &["number"] as &[&str]),
-                ("manifest", &["object"] as &[&str]),
-                ("baseUrl", &["string"] as &[&str]),
-            ]
-            .into_iter()
-            .collect(),
-        ),
-        (
-            "game-audio-toggle",
-            [
-                ("size", &["string"] as &[&str]),
-                ("className", &["string"] as &[&str]),
-                ("isLoading", &["boolean"] as &[&str]),
-                ("error", &["object"] as &[&str]),
-                ("onAsset", &["object"] as &[&str]),
-                ("offAsset", &["object"] as &[&str]),
-                ("toggleEvent", &["string"] as &[&str]),
-            ]
-            .into_iter()
-            .collect(),
-        ),
-        (
-            "game-hud",
-            [
-                ("position", &["string"] as &[&str]),
-                ("stats", &["array"] as &[&str]),
-                ("items", &["array"] as &[&str]),
-                ("elements", &["array"] as &[&str]),
-                ("size", &["string"] as &[&str]),
-                ("variant", &["string"] as &[&str]),
-                ("className", &["string"] as &[&str]),
-                ("transparent", &["boolean"] as &[&str]),
-            ]
-            .into_iter()
-            .collect(),
-        ),
-        (
-            "game-icon",
-            [
-                ("assetUrl", &["object"] as &[&str]),
-                ("icon", &["icon", "string"] as &[&str]),
-                ("size", &["number", "string"] as &[&str]),
-                ("alt", &["string"] as &[&str]),
-                ("className", &["string"] as &[&str]),
-            ]
-            .into_iter()
-            .collect(),
-        ),
-        (
-            "game-menu",
-            [
-                ("title", &["string"] as &[&str]),
-                ("subtitle", &["string"] as &[&str]),
-                ("options", &["array"] as &[&str]),
-                ("menuItems", &["array"] as &[&str]),
-                ("onSelect", &["function"] as &[&str]),
-                ("background", &["string"] as &[&str]),
-                ("logo", &["object"] as &[&str]),
-                ("className", &["string"] as &[&str]),
-            ]
-            .into_iter()
-            .collect(),
-        ),
-        (
-            "game-shell",
-            [
-                ("appName", &["string"] as &[&str]),
-                ("hud", &["node"] as &[&str]),
-                ("addons", &["node"] as &[&str]),
-                ("controls", &["node"] as &[&str]),
-                ("overlay", &["node"] as &[&str]),
-                ("className", &["string"] as &[&str]),
-                ("showTopBar", &["boolean"] as &[&str]),
-                ("children", &["node"] as &[&str]),
-                ("backgroundAsset", &["object"] as &[&str]),
-                ("hudBackgroundAsset", &["object"] as &[&str]),
-                ("fontFamily", &["string"] as &[&str]),
-                ("data-theme", &["string"] as &[&str]),
-            ]
-            .into_iter()
-            .collect(),
-        ),
-        (
-            "gantt",
-            [
-                ("tasks", &["object", "array"] as &[&str]),
-                ("links", &["array"] as &[&str]),
-                ("titleField", &["string"] as &[&str]),
-                ("startField", &["string"] as &[&str]),
-                ("endField", &["string"] as &[&str]),
-                ("durationField", &["string"] as &[&str]),
-                ("statusField", &["string"] as &[&str]),
-                ("groupField", &["string"] as &[&str]),
-                ("rangeStart", &["string", "date"] as &[&str]),
-                ("rangeEnd", &["string", "date"] as &[&str]),
-                ("showToday", &["boolean"] as &[&str]),
-                ("dayWidth", &["number"] as &[&str]),
-                ("barClickEvent", &["string"] as &[&str]),
-                ("className", &["string"] as &[&str]),
-                ("isLoading", &["boolean"] as &[&str]),
-                ("error", &["object"] as &[&str]),
-            ]
-            .into_iter()
-            .collect(),
-        ),
-        (
-            "generic-app-template",
-            [
-                ("entity", &["object"] as &[&str]),
-                ("className", &["string"] as &[&str]),
-                ("title", &["string"] as &[&str]),
-                ("subtitle", &["string"] as &[&str]),
-                ("children", &["node"] as &[&str]),
-                ("headerActions", &["node"] as &[&str]),
-                ("footer", &["node"] as &[&str]),
-            ]
-            .into_iter()
-            .collect(),
-        ),
-        (
-            "geometric-pattern",
-            [
-                ("variant", &["string"] as &[&str]),
-                ("mode", &["string"] as &[&str]),
-                ("opacity", &["number"] as &[&str]),
-                ("color", &["string"] as &[&str]),
-                ("scale", &["number"] as &[&str]),
-                ("strokeWidth", &["number"] as &[&str]),
-                ("children", &["node"] as &[&str]),
-                ("className", &["string"] as &[&str]),
-            ]
-            .into_iter()
-            .collect(),
-        ),
-        (
-            "gradient-divider",
-            [
-                ("color", &["string"] as &[&str]),
-                ("className", &["string"] as &[&str]),
-            ]
-            .into_iter()
-            .collect(),
-        ),
-        (
-            "graph-canvas",
-            [
-                ("title", &["string"] as &[&str]),
-                ("nodes", &["array"] as &[&str]),
-                ("edges", &["array"] as &[&str]),
-                ("proposedEdges", &["array"] as &[&str]),
-                ("similarity", &["array"] as &[&str]),
-                ("height", &["number"] as &[&str]),
-                ("showLabels", &["boolean"] as &[&str]),
-                ("interactive", &["boolean"] as &[&str]),
-                ("draggable", &["boolean"] as &[&str]),
-                ("actions", &["array"] as &[&str]),
-                ("onNodeClick", &["function"] as &[&str]),
-                ("onMarkClick", &["function"] as &[&str]),
-                ("onNodeDoubleClick", &["function"] as &[&str]),
-                ("onBadgeClick", &["function"] as &[&str]),
-                ("nodeClickEvent", &["string"] as &[&str]),
-                ("selectedNodeId", &["string"] as &[&str]),
-                ("repulsion", &["number"] as &[&str]),
-                ("linkDistance", &["number"] as &[&str]),
-                ("nodeSpacing", &["number"] as &[&str]),
-                ("linkOpacity", &["number"] as &[&str]),
-                ("layout", &["string"] as &[&str]),
-                ("isLoading", &["boolean"] as &[&str]),
-                ("error", &["object"] as &[&str]),
-                ("className", &["string"] as &[&str]),
-            ]
-            .into_iter()
-            .collect(),
-        ),
-        (
-            "graph-view",
-            [
-                ("nodes", &["array"] as &[&str]),
-                ("edges", &["array"] as &[&str]),
-                ("onNodeClick", &["function"] as &[&str]),
-                ("onNodeHover", &["function"] as &[&str]),
-                ("width", &["number"] as &[&str]),
-                ("height", &["number"] as &[&str]),
-                ("className", &["string"] as &[&str]),
-                ("showLabels", &["boolean"] as &[&str]),
-                ("zoomToFit", &["boolean"] as &[&str]),
-                ("layout", &["string"] as &[&str]),
-            ]
-            .into_iter()
-            .collect(),
-        ),
-        (
-            "grid",
-            [
-                ("cols", &["number", "string", "object"] as &[&str]),
-                ("rows", &["number"] as &[&str]),
-                ("gap", &["string"] as &[&str]),
-                ("rowGap", &["string"] as &[&str]),
-                ("colGap", &["string"] as &[&str]),
-                ("alignItems", &["string"] as &[&str]),
-                ("justifyItems", &["string"] as &[&str]),
-                ("flow", &["string"] as &[&str]),
-                ("className", &["string"] as &[&str]),
-                ("style", &["object"] as &[&str]),
-                ("children", &["node"] as &[&str]),
-                ("as", &["component"] as &[&str]),
-            ]
-            .into_iter()
-            .collect(),
-        ),
-        (
-            "header",
-            [
-                ("logo", &["node"] as &[&str]),
-                ("logoSrc", &["asset"] as &[&str]),
-                ("brandName", &["string"] as &[&str]),
-                ("navigationItems", &["array"] as &[&str]),
-                ("showMenuToggle", &["boolean"] as &[&str]),
-                ("isMenuOpen", &["boolean"] as &[&str]),
-                ("onMenuToggle", &["function"] as &[&str]),
-                ("showSearch", &["boolean"] as &[&str]),
-                ("searchPlaceholder", &["string"] as &[&str]),
-                ("onSearch", &["function"] as &[&str]),
-                ("userAvatar", &["object"] as &[&str]),
-                ("userName", &["string"] as &[&str]),
-                ("onUserClick", &["function"] as &[&str]),
-                ("actions", &["node"] as &[&str]),
-                ("sticky", &["boolean"] as &[&str]),
-                ("variant", &["string"] as &[&str]),
-                ("look", &["string"] as &[&str]),
-                ("onLogoClick", &["function"] as &[&str]),
-                ("className", &["string"] as &[&str]),
-                ("isLoading", &["boolean"] as &[&str]),
-                ("error", &["object"] as &[&str]),
-            ]
-            .into_iter()
-            .collect(),
-        ),
-        (
-            "health-bar",
-            [
-                ("current", &["number"] as &[&str]),
-                ("max", &["number"] as &[&str]),
-                ("format", &["string"] as &[&str]),
-                ("level", &["number"] as &[&str]),
-                ("showLabel", &["boolean"] as &[&str]),
-                ("labelSuffix", &["string"] as &[&str]),
-                ("size", &["string"] as &[&str]),
-                ("className", &["string"] as &[&str]),
-                ("animated", &["boolean"] as &[&str]),
-                ("frameAsset", &["object"] as &[&str]),
-                ("fillAsset", &["object"] as &[&str]),
-            ]
-            .into_iter()
-            .collect(),
-        ),
-        (
-            "hero-organism",
-            [
-                ("className", &["string"] as &[&str]),
-                ("isLoading", &["boolean"] as &[&str]),
-                ("error", &["object"] as &[&str]),
-                ("sortBy", &["string"] as &[&str]),
-                ("sortDirection", &["string"] as &[&str]),
-                ("searchValue", &["string"] as &[&str]),
-                ("page", &["number"] as &[&str]),
-                ("pageSize", &["number"] as &[&str]),
-                ("totalCount", &["number"] as &[&str]),
-                ("activeFilters", &["object"] as &[&str]),
-                ("selectedIds", &["array"] as &[&str]),
-                ("entity", &["object"] as &[&str]),
-                ("children", &["node"] as &[&str]),
-            ]
-            .into_iter()
-            .collect(),
-        ),
-        (
-            "hero-section",
-            [
-                ("tag", &["string"] as &[&str]),
-                ("tagVariant", &["string"] as &[&str]),
-                ("title", &["string"] as &[&str]),
-                ("titleAccent", &["string"] as &[&str]),
-                ("subtitle", &["string"] as &[&str]),
-                ("primaryAction", &["object"] as &[&str]),
-                ("secondaryAction", &["object"] as &[&str]),
-                ("installCommand", &["string"] as &[&str]),
-                ("image", &["object"] as &[&str]),
-                ("imagePosition", &["string"] as &[&str]),
-                ("background", &["string"] as &[&str]),
-                ("align", &["string"] as &[&str]),
-                ("backgroundElement", &["node"] as &[&str]),
-                ("children", &["node"] as &[&str]),
-                ("className", &["string"] as &[&str]),
-            ]
-            .into_iter()
-            .collect(),
-        ),
-        (
-            "hstack",
-            [
-                ("gap", &["string"] as &[&str]),
-                ("align", &["string"] as &[&str]),
-                ("justify", &["string"] as &[&str]),
-                ("wrap", &["boolean"] as &[&str]),
-                ("reverse", &["boolean"] as &[&str]),
-                ("flex", &["boolean"] as &[&str]),
-                ("className", &["string"] as &[&str]),
-                ("style", &["object"] as &[&str]),
-                ("children", &["node"] as &[&str]),
-                ("as", &["component"] as &[&str]),
-                ("onClick", &["function"] as &[&str]),
-                ("onKeyDown", &["function"] as &[&str]),
-                ("role", &["string"] as &[&str]),
-                ("tabIndex", &["number"] as &[&str]),
-                ("action", &["string"] as &[&str]),
-                ("actionPayload", &["object"] as &[&str]),
-                ("responsive", &["boolean"] as &[&str]),
-            ]
-            .into_iter()
-            .collect(),
-        ),
-        (
-            "icon",
-            [
-                ("icon", &["icon", "string"] as &[&str]),
-                ("name", &["string"] as &[&str]),
-                ("size", &["string"] as &[&str]),
-                ("color", &["string"] as &[&str]),
-                ("animation", &["string"] as &[&str]),
-                ("className", &["string"] as &[&str]),
-                ("strokeWidth", &["number"] as &[&str]),
-                ("style", &["object"] as &[&str]),
-            ]
-            .into_iter()
-            .collect(),
-        ),
-        (
-            "import-preview-tree",
-            [
-                ("units", &["array"] as &[&str]),
-                ("skipped", &["array"] as &[&str]),
-                ("entityDisplay", &["object"] as &[&str]),
-                ("onConfirm", &["function"] as &[&str]),
-                ("onCancel", &["function"] as &[&str]),
-                ("confirmLabel", &["string"] as &[&str]),
-                ("cancelLabel", &["string"] as &[&str]),
-                ("indent", &["number"] as &[&str]),
-                ("className", &["string"] as &[&str]),
-            ]
-            .into_iter()
-            .collect(),
-        ),
-        (
-            "import-progress",
-            [
-                ("step", &["string"] as &[&str]),
-                ("counts", &["object"] as &[&str]),
-                ("labels", &["object"] as &[&str]),
-                ("className", &["string"] as &[&str]),
-            ]
-            .into_iter()
-            .collect(),
-        ),
-        (
-            "import-source-picker",
-            [
-                ("sources", &["array"] as &[&str]),
-                ("onSelect", &["function"] as &[&str]),
-                ("onFilesSelected", &["function"] as &[&str]),
-                ("title", &["string"] as &[&str]),
-                ("moreSources", &["node"] as &[&str]),
-                ("className", &["string"] as &[&str]),
-            ]
-            .into_iter()
-            .collect(),
-        ),
-        (
-            "infinite-scroll-sentinel",
-            [
-                ("loadMoreEvent", &["string"] as &[&str]),
-                ("loadMorePayload", &["object"] as &[&str]),
-                ("isLoading", &["boolean"] as &[&str]),
-                ("hasMore", &["boolean"] as &[&str]),
-                ("threshold", &["string"] as &[&str]),
-                ("className", &["string"] as &[&str]),
-            ]
-            .into_iter()
-            .collect(),
-        ),
-        (
-            "input",
-            [
-                ("className", &["string"] as &[&str]),
-                ("placeholder", &["string"] as &[&str]),
-                ("value", &["string", "number"] as &[&str]),
-                ("disabled", &["boolean"] as &[&str]),
-                ("action", &["string"] as &[&str]),
-                ("inputType", &["string"] as &[&str]),
-                ("label", &["string"] as &[&str]),
-                ("helperText", &["string"] as &[&str]),
-                ("error", &["string"] as &[&str]),
-                ("leftIcon", &["icon", "string"] as &[&str]),
-                ("rightIcon", &["icon", "string"] as &[&str]),
-                ("icon", &["icon", "string"] as &[&str]),
-                ("clearable", &["boolean"] as &[&str]),
-                ("onClear", &["function", "string"] as &[&str]),
-                ("options", &["array"] as &[&str]),
-                ("rows", &["number"] as &[&str]),
-                ("onChange", &["function", "string"] as &[&str]),
-            ]
-            .into_iter()
-            .collect(),
-        ),
-        (
-            "input-group",
-            [
-                ("className", &["string"] as &[&str]),
-                ("placeholder", &["string"] as &[&str]),
-                ("value", &["string", "number"] as &[&str]),
-                ("disabled", &["boolean"] as &[&str]),
-                ("action", &["string"] as &[&str]),
-                ("inputType", &["string"] as &[&str]),
-                ("label", &["string"] as &[&str]),
-                ("helperText", &["string"] as &[&str]),
-                ("error", &["string"] as &[&str]),
-                ("leftIcon", &["icon", "string"] as &[&str]),
-                ("rightIcon", &["icon", "string"] as &[&str]),
-                ("clearable", &["boolean"] as &[&str]),
-                ("onClear", &["function", "string"] as &[&str]),
-                ("options", &["array"] as &[&str]),
-                ("rows", &["number"] as &[&str]),
-                ("onChange", &["function", "string"] as &[&str]),
-                ("leftAddon", &["node", "icon"] as &[&str]),
-                ("rightAddon", &["node", "icon"] as &[&str]),
-            ]
-            .into_iter()
-            .collect(),
-        ),
-        (
-            "install-box",
-            [
-                ("command", &["string"] as &[&str]),
-                ("label", &["string"] as &[&str]),
-                ("className", &["string"] as &[&str]),
-            ]
-            .into_iter()
-            .collect(),
-        ),
-        (
-            "jazari-state-machine",
-            [
-                ("className", &["string"] as &[&str]),
-                ("isLoading", &["boolean"] as &[&str]),
-                ("error", &["object"] as &[&str]),
-                ("schema", &["object"] as &[&str]),
-                ("trait", &["object"] as &[&str]),
-                ("traitIndex", &["number"] as &[&str]),
-                ("entityFields", &["array"] as &[&str]),
-                ("direction", &["string"] as &[&str]),
-            ]
-            .into_iter()
-            .collect(),
-        ),
-        (
-            "label",
-            [
-                ("className", &["string"] as &[&str]),
-                ("text", &["string"] as &[&str]),
-                ("htmlFor", &["string"] as &[&str]),
-                ("required", &["boolean"] as &[&str]),
-            ]
-            .into_iter()
-            .collect(),
-        ),
-        (
-            "landing-page-template",
-            [
-                ("entity", &["object"] as &[&str]),
-                ("className", &["string"] as &[&str]),
-                ("variant", &["string"] as &[&str]),
-                ("featureColumns", &["number"] as &[&str]),
-            ]
-            .into_iter()
-            .collect(),
-        ),
-        (
-            "law-reference-tooltip",
-            [
-                ("reference", &["object"] as &[&str]),
-                ("children", &["node"] as &[&str]),
-                ("position", &["string"] as &[&str]),
-                ("className", &["string"] as &[&str]),
-            ]
-            .into_iter()
-            .collect(),
-        ),
-        (
-            "learning-canvas",
-            [
-                ("className", &["string"] as &[&str]),
-                ("width", &["number"] as &[&str]),
-                ("height", &["number"] as &[&str]),
-                ("backgroundColor", &["string"] as &[&str]),
-                ("fontFamily", &["string"] as &[&str]),
-                ("shapes", &["array"] as &[&str]),
-                ("drawables", &["array"] as &[&str]),
-                ("projector", &["object"] as &[&str]),
-                ("readouts", &["array"] as &[&str]),
-                ("traces", &["array"] as &[&str]),
-                ("interactive", &["boolean"] as &[&str]),
-                ("animate", &["boolean"] as &[&str]),
-                ("onShapeClick", &["function"] as &[&str]),
-                ("onShapeHover", &["function"] as &[&str]),
-                ("isLoading", &["boolean"] as &[&str]),
-                ("error", &["object"] as &[&str]),
-            ]
-            .into_iter()
-            .collect(),
-        ),
-        (
-            "lightbox",
-            [
-                ("images", &["array"] as &[&str]),
-                ("currentIndex", &["number"] as &[&str]),
-                ("isOpen", &["boolean"] as &[&str]),
-                ("showCounter", &["boolean"] as &[&str]),
-                ("closeAction", &["string"] as &[&str]),
-                ("onClose", &["function"] as &[&str]),
-                ("onIndexChange", &["function"] as &[&str]),
-                ("className", &["string"] as &[&str]),
-            ]
-            .into_iter()
-            .collect(),
-        ),
-        (
-            "likert-scale",
-            [
-                ("question", &["string"] as &[&str]),
-                ("options", &["array"] as &[&str]),
-                ("value", &["number", "string"] as &[&str]),
-                ("onChange", &["function"] as &[&str]),
-                ("changeEvent", &["string"] as &[&str]),
-                ("disabled", &["boolean"] as &[&str]),
-                ("size", &["string"] as &[&str]),
-                ("variant", &["string"] as &[&str]),
-                ("className", &["string"] as &[&str]),
-            ]
-            .into_iter()
-            .collect(),
-        ),
-        (
-            "line-chart",
-            [
-                ("data", &["array"] as &[&str]),
-                ("width", &["number"] as &[&str]),
-                ("height", &["number"] as &[&str]),
-                ("showGrid", &["boolean"] as &[&str]),
-                ("showValues", &["boolean"] as &[&str]),
-                ("showArea", &["boolean"] as &[&str]),
-                ("lineColor", &["string"] as &[&str]),
-                ("areaColor", &["string"] as &[&str]),
-                ("className", &["string"] as &[&str]),
-            ]
-            .into_iter()
-            .collect(),
-        ),
-        (
-            "loading-state",
-            [
-                ("title", &["string"] as &[&str]),
-                ("message", &["string"] as &[&str]),
-                ("className", &["string"] as &[&str]),
-                ("fullPage", &["boolean"] as &[&str]),
-            ]
-            .into_iter()
-            .collect(),
-        ),
-        (
-            "map-view",
-            [
-                ("markers", &["array"] as &[&str]),
-                ("routes", &["array"] as &[&str]),
-                ("centerLat", &["number"] as &[&str]),
-                ("centerLng", &["number"] as &[&str]),
-                ("zoom", &["number"] as &[&str]),
-                ("height", &["string"] as &[&str]),
-                ("onMarkerClick", &["function"] as &[&str]),
-                ("onMapClick", &["function"] as &[&str]),
-                ("mapClickEvent", &["string"] as &[&str]),
-                ("markerClickEvent", &["string"] as &[&str]),
-                ("showClickedPin", &["boolean"] as &[&str]),
-                ("className", &["string"] as &[&str]),
-                ("showAttribution", &["boolean"] as &[&str]),
-            ]
-            .into_iter()
-            .collect(),
-        ),
-        (
-            "markdown-content",
-            [
-                ("content", &["string"] as &[&str]),
-                ("direction", &["string"] as &[&str]),
-                ("className", &["string"] as &[&str]),
-            ]
-            .into_iter()
-            .collect(),
-        ),
-        (
-            "marketing-footer",
-            [
-                ("columns", &["array"] as &[&str]),
-                ("copyright", &["string"] as &[&str]),
-                ("logo", &["object"] as &[&str]),
-                ("className", &["string"] as &[&str]),
-            ]
-            .into_iter()
-            .collect(),
-        ),
-        (
-            "marketing-stat-card",
-            [
-                ("value", &["string"] as &[&str]),
-                ("label", &["string"] as &[&str]),
-                ("size", &["string"] as &[&str]),
-                ("className", &["string"] as &[&str]),
-            ]
-            .into_iter()
-            .collect(),
-        ),
-        (
-            "master-detail",
-            [
-                ("className", &["string"] as &[&str]),
-                ("isLoading", &["boolean"] as &[&str]),
-                ("error", &["object"] as &[&str]),
-                ("sortBy", &["string"] as &[&str]),
-                ("sortDirection", &["string"] as &[&str]),
-                ("searchValue", &["string"] as &[&str]),
-                ("page", &["number"] as &[&str]),
-                ("pageSize", &["number"] as &[&str]),
-                ("totalCount", &["number"] as &[&str]),
-                ("activeFilters", &["object"] as &[&str]),
-                ("selectedIds", &["array"] as &[&str]),
-                ("entity", &["object", "array"] as &[&str]),
-                ("masterFields", &["array"] as &[&str]),
-                ("detailFields", &["array"] as &[&str]),
-                ("loading", &["boolean"] as &[&str]),
-            ]
-            .into_iter()
-            .collect(),
-        ),
-        (
-            "master-detail-layout",
-            [
-                ("master", &["node"] as &[&str]),
-                ("detail", &["node"] as &[&str]),
-                ("emptyDetail", &["node"] as &[&str]),
-                ("hasSelection", &["boolean"] as &[&str]),
-                ("masterWidth", &["string"] as &[&str]),
-                ("className", &["string"] as &[&str]),
-                ("masterClassName", &["string"] as &[&str]),
-                ("detailClassName", &["string"] as &[&str]),
-            ]
-            .into_iter()
-            .collect(),
-        ),
-        (
-            "math-canvas",
-            [
-                ("className", &["string"] as &[&str]),
-                ("width", &["number"] as &[&str]),
-                ("height", &["number"] as &[&str]),
-                ("title", &["string"] as &[&str]),
-                ("xMin", &["number"] as &[&str]),
-                ("xMax", &["number"] as &[&str]),
-                ("yMin", &["number"] as &[&str]),
-                ("yMax", &["number"] as &[&str]),
-                ("showAxes", &["boolean"] as &[&str]),
-                ("showGrid", &["boolean"] as &[&str]),
-                ("gridStep", &["number"] as &[&str]),
-                ("backgroundColor", &["string"] as &[&str]),
-                ("gridColor", &["string"] as &[&str]),
-                ("axisColor", &["string"] as &[&str]),
-                ("showTickLabels", &["boolean"] as &[&str]),
-                ("tickLabelFontSize", &["number"] as &[&str]),
-                ("labelFontSize", &["number"] as &[&str]),
-                ("fontFamily", &["string"] as &[&str]),
-                ("showCurveLabels", &["boolean"] as &[&str]),
-                ("curves", &["array"] as &[&str]),
-                ("points", &["array"] as &[&str]),
-                ("vectors", &["array"] as &[&str]),
-                ("regions", &["array"] as &[&str]),
-                ("bars", &["array"] as &[&str]),
-                ("guides", &["array"] as &[&str]),
-                ("angles", &["array"] as &[&str]),
-                ("hops", &["array"] as &[&str]),
-                ("shapes", &["array"] as &[&str]),
-                ("drawables", &["array"] as &[&str]),
-                ("readouts", &["array"] as &[&str]),
-                ("traces", &["array"] as &[&str]),
-                ("interactive", &["boolean"] as &[&str]),
-                ("animate", &["boolean"] as &[&str]),
-                ("onShapeClick", &["function"] as &[&str]),
-                ("keyMap", &["object"] as &[&str]),
-                ("keyUpMap", &["object"] as &[&str]),
-                ("isLoading", &["boolean"] as &[&str]),
-                ("error", &["object"] as &[&str]),
-            ]
-            .into_iter()
-            .collect(),
-        ),
-        (
-            "matrix-question",
-            [
-                ("title", &["string"] as &[&str]),
-                ("rows", &["array"] as &[&str]),
-                ("columns", &["array"] as &[&str]),
-                ("values", &["object"] as &[&str]),
-                ("onChange", &["function"] as &[&str]),
-                ("changeEvent", &["string"] as &[&str]),
-                ("disabled", &["boolean"] as &[&str]),
-                ("size", &["string"] as &[&str]),
-                ("className", &["string"] as &[&str]),
-            ]
-            .into_iter()
-            .collect(),
-        ),
-        (
-            "media-gallery",
-            [
-                ("className", &["string"] as &[&str]),
-                ("isLoading", &["boolean"] as &[&str]),
-                ("error", &["object"] as &[&str]),
-                ("sortBy", &["string"] as &[&str]),
-                ("sortDirection", &["string"] as &[&str]),
-                ("searchValue", &["string"] as &[&str]),
-                ("page", &["number"] as &[&str]),
-                ("pageSize", &["number"] as &[&str]),
-                ("totalCount", &["number"] as &[&str]),
-                ("activeFilters", &["object"] as &[&str]),
-                ("selectedIds", &["array"] as &[&str]),
-                ("entity", &["object", "array"] as &[&str]),
-                ("title", &["string"] as &[&str]),
-                ("items", &["array"] as &[&str]),
-                ("columns", &["number"] as &[&str]),
-                ("selectable", &["boolean"] as &[&str]),
-                ("selectedItems", &["array"] as &[&str]),
-                ("selectionEvent", &["string"] as &[&str]),
-                ("showUpload", &["boolean"] as &[&str]),
-                ("actions", &["array"] as &[&str]),
-                ("aspectRatio", &["string"] as &[&str]),
-            ]
-            .into_iter()
-            .collect(),
-        ),
-        (
-            "menu",
-            [
-                ("trigger", &["node"] as &[&str]),
-                ("items", &["array"] as &[&str]),
-                ("position", &["string"] as &[&str]),
-                ("className", &["string"] as &[&str]),
-                ("header", &["node"] as &[&str]),
-                ("footer", &["node"] as &[&str]),
-            ]
-            .into_iter()
-            .collect(),
-        ),
-        (
-            "meter",
-            [
-                ("value", &["number"] as &[&str]),
-                ("min", &["number"] as &[&str]),
-                ("max", &["number"] as &[&str]),
-                ("label", &["string"] as &[&str]),
-                ("unit", &["string"] as &[&str]),
-                ("variant", &["string"] as &[&str]),
-                ("thresholds", &["array"] as &[&str]),
-                ("segments", &["number"] as &[&str]),
-                ("showValue", &["boolean"] as &[&str]),
-                ("size", &["string"] as &[&str]),
-                ("actions", &["array"] as &[&str]),
-                ("isLoading", &["boolean"] as &[&str]),
-                ("error", &["object"] as &[&str]),
-                ("className", &["string"] as &[&str]),
-            ]
-            .into_iter()
-            .collect(),
-        ),
-        (
-            "modal",
-            [
-                ("isOpen", &["boolean"] as &[&str]),
-                ("onClose", &["function"] as &[&str]),
-                ("onExited", &["function"] as &[&str]),
-                ("title", &["string"] as &[&str]),
-                ("children", &["node"] as &[&str]),
-                ("footer", &["node"] as &[&str]),
-                ("size", &["string"] as &[&str]),
-                ("showCloseButton", &["boolean"] as &[&str]),
-                ("closeOnOverlayClick", &["boolean"] as &[&str]),
-                ("closeOnEscape", &["boolean"] as &[&str]),
-                ("className", &["string"] as &[&str]),
-                ("closeEvent", &["string"] as &[&str]),
-                ("swipeDownToClose", &["boolean"] as &[&str]),
-                ("look", &["string"] as &[&str]),
-            ]
-            .into_iter()
-            .collect(),
-        ),
-        (
-            "modal-slot",
-            [
-                ("children", &["node"] as &[&str]),
-                ("title", &["string"] as &[&str]),
-                ("size", &["string"] as &[&str]),
-                ("className", &["string"] as &[&str]),
-                ("isLoading", &["boolean"] as &[&str]),
-                ("error", &["object"] as &[&str]),
-                ("entity", &["string"] as &[&str]),
-                ("sourceTrait", &["string"] as &[&str]),
-            ]
-            .into_iter()
-            .collect(),
-        ),
-        (
-            "module-card",
-            [("data", &["object"] as &[&str])].into_iter().collect(),
-        ),
-        (
-            "navigation",
-            [
-                ("items", &["array"] as &[&str]),
-                ("orientation", &["string"] as &[&str]),
-                ("className", &["string"] as &[&str]),
-                ("isLoading", &["boolean"] as &[&str]),
-                ("error", &["object"] as &[&str]),
-            ]
-            .into_iter()
-            .collect(),
-        ),
-        (
-            "notification",
-            [
-                ("variant", &["string"] as &[&str]),
-                ("message", &["string"] as &[&str]),
-                ("title", &["string"] as &[&str]),
-                ("duration", &["number"] as &[&str]),
-                ("dismissible", &["boolean"] as &[&str]),
-                ("onDismiss", &["function"] as &[&str]),
-                ("actionLabel", &["string"] as &[&str]),
-                ("onAction", &["function"] as &[&str]),
-                ("badge", &["string", "number"] as &[&str]),
-                ("className", &["string"] as &[&str]),
-                ("dismissEvent", &["string"] as &[&str]),
-                ("actionEvent", &["string"] as &[&str]),
-            ]
-            .into_iter()
-            .collect(),
-        ),
-        (
-            "number-stepper",
-            [
-                ("value", &["number"] as &[&str]),
-                ("min", &["number"] as &[&str]),
-                ("max", &["number"] as &[&str]),
-                ("step", &["number"] as &[&str]),
-                ("size", &["string"] as &[&str]),
-                ("disabled", &["boolean"] as &[&str]),
-                ("onChange", &["function"] as &[&str]),
-                ("action", &["string"] as &[&str]),
-                ("actionPayload", &["object"] as &[&str]),
-                ("className", &["string"] as &[&str]),
-                ("label", &["string"] as &[&str]),
-            ]
-            .into_iter()
-            .collect(),
-        ),
-        (
-            "option-constraint-group",
-            [
-                ("groupId", &["string"] as &[&str]),
-                ("title", &["string"] as &[&str]),
-                ("description", &["string"] as &[&str]),
-                ("options", &["array"] as &[&str]),
-                ("constraint", &["object"] as &[&str]),
-                ("selected", &["array"] as &[&str]),
-                ("onChange", &["function"] as &[&str]),
-                ("changeEvent", &["string"] as &[&str]),
-                ("size", &["string"] as &[&str]),
-                ("className", &["string"] as &[&str]),
-            ]
-            .into_iter()
-            .collect(),
-        ),
-        (
-            "orbital-visualization",
-            [
-                ("schema", &["object"] as &[&str]),
-                ("complexity", &["number"] as &[&str]),
-                ("size", &["string"] as &[&str]),
-                ("showLabel", &["boolean"] as &[&str]),
-                ("animated", &["boolean"] as &[&str]),
-                ("onClick", &["function"] as &[&str]),
-                ("className", &["string"] as &[&str]),
-                ("isLoading", &["boolean"] as &[&str]),
-                ("error", &["object"] as &[&str]),
-            ]
-            .into_iter()
-            .collect(),
-        ),
-        (
-            "overlay",
-            [
-                ("isVisible", &["boolean"] as &[&str]),
-                ("onClick", &["function"] as &[&str]),
-                ("className", &["string"] as &[&str]),
-                ("blur", &["boolean"] as &[&str]),
-                ("action", &["string"] as &[&str]),
-            ]
-            .into_iter()
-            .collect(),
-        ),
-        (
-            "page-header",
-            [
-                ("title", &["string", "number"] as &[&str]),
-                ("subtitle", &["string", "number"] as &[&str]),
-                ("showBack", &["boolean"] as &[&str]),
-                ("backEvent", &["string"] as &[&str]),
-                ("breadcrumbs", &["array"] as &[&str]),
-                ("status", &["object", "string"] as &[&str]),
-                ("actions", &["array"] as &[&str]),
-                ("isLoading", &["boolean"] as &[&str]),
-                ("error", &["object"] as &[&str]),
-                ("tabs", &["array"] as &[&str]),
-                ("activeTab", &["string"] as &[&str]),
-                ("onTabChange", &["function"] as &[&str]),
-                ("children", &["node"] as &[&str]),
-                ("className", &["string"] as &[&str]),
-            ]
-            .into_iter()
-            .collect(),
-        ),
-        (
-            "page-transition",
-            [
-                ("locationKey", &["string"] as &[&str]),
-                ("children", &["node"] as &[&str]),
-                ("className", &["string"] as &[&str]),
-            ]
-            .into_iter()
-            .collect(),
-        ),
-        (
-            "pagination",
-            [
-                ("currentPage", &["number"] as &[&str]),
-                ("totalPages", &["number"] as &[&str]),
-                ("onPageChange", &["function"] as &[&str]),
-                ("showPageSize", &["boolean"] as &[&str]),
-                ("pageSizeOptions", &["array"] as &[&str]),
-                ("pageSize", &["number"] as &[&str]),
-                ("onPageSizeChange", &["function"] as &[&str]),
-                ("showJumpToPage", &["boolean"] as &[&str]),
-                ("showTotal", &["boolean"] as &[&str]),
-                ("totalItems", &["number"] as &[&str]),
-                ("maxVisiblePages", &["number"] as &[&str]),
-                ("className", &["string"] as &[&str]),
-                ("pageChangeEvent", &["string"] as &[&str]),
-                ("pageSizeChangeEvent", &["string"] as &[&str]),
-            ]
-            .into_iter()
-            .collect(),
-        ),
-        (
-            "pattern-tile",
-            [
-                ("variant", &["string"] as &[&str]),
-                ("size", &["number"] as &[&str]),
-                ("color", &["string"] as &[&str]),
-                ("strokeWidth", &["number"] as &[&str]),
-                ("className", &["string"] as &[&str]),
-            ]
-            .into_iter()
-            .collect(),
-        ),
-        (
-            "physics-canvas",
-            [
-                ("className", &["string"] as &[&str]),
-                ("width", &["number"] as &[&str]),
-                ("height", &["number"] as &[&str]),
-                ("title", &["string"] as &[&str]),
-                ("backgroundColor", &["string"] as &[&str]),
-                ("mode", &["string"] as &[&str]),
-                ("camera", &["object"] as &[&str]),
-                ("lighting", &["object"] as &[&str]),
-                ("post", &["object"] as &[&str]),
-                ("bodies", &["array"] as &[&str]),
-                ("constraints", &["array"] as &[&str]),
-                ("showVelocity", &["boolean"] as &[&str]),
-                ("showForces", &["boolean"] as &[&str]),
-                ("velocityScale", &["number"] as &[&str]),
-                ("forceScale", &["number"] as &[&str]),
-                ("sceneObjects", &["array"] as &[&str]),
-                ("trails", &["array"] as &[&str]),
-                ("vectors", &["array"] as &[&str]),
-                ("surface3d", &["object"] as &[&str]),
-                ("vectors3d", &["array"] as &[&str]),
-                ("vectorScale", &["number"] as &[&str]),
-                ("angles", &["array"] as &[&str]),
-                ("field", &["object"] as &[&str]),
-                ("meters", &["array"] as &[&str]),
-                ("shapes", &["array"] as &[&str]),
-                ("readouts", &["array"] as &[&str]),
-                ("traces", &["array"] as &[&str]),
-                ("showGrid", &["boolean"] as &[&str]),
-                ("shadows", &["boolean"] as &[&str]),
-                ("interactive", &["boolean"] as &[&str]),
-                ("animate", &["boolean"] as &[&str]),
-                ("onShapeClick", &["function"] as &[&str]),
-                ("isLoading", &["boolean"] as &[&str]),
-                ("error", &["object"] as &[&str]),
-            ]
-            .into_iter()
-            .collect(),
-        ),
-        (
-            "popover",
-            [
-                ("content", &["node"] as &[&str]),
-                ("children", &["node"] as &[&str]),
-                ("position", &["string"] as &[&str]),
-                ("trigger", &["string"] as &[&str]),
-                ("showArrow", &["boolean"] as &[&str]),
-                ("open", &["boolean"] as &[&str]),
-                ("onOpenChange", &["function"] as &[&str]),
-                ("className", &["string"] as &[&str]),
-            ]
-            .into_iter()
-            .collect(),
-        ),
-        (
-            "positioned-canvas",
-            [
-                ("items", &["object", "array"] as &[&str]),
-                ("width", &["number"] as &[&str]),
-                ("height", &["number"] as &[&str]),
-                ("selectedId", &["string"] as &[&str]),
-                ("editable", &["boolean"] as &[&str]),
-                ("onSelect", &["function"] as &[&str]),
-                ("onMove", &["function"] as &[&str]),
-                ("selectEvent", &["string"] as &[&str]),
-                ("moveEvent", &["string"] as &[&str]),
-                ("className", &["string"] as &[&str]),
-            ]
-            .into_iter()
-            .collect(),
-        ),
-        (
-            "presence",
-            [
-                ("show", &["boolean"] as &[&str]),
-                ("className", &["string"] as &[&str]),
-                ("children", &["node"] as &[&str]),
-            ]
-            .into_iter()
-            .collect(),
-        ),
-        (
-            "pricing-card",
-            [
-                ("name", &["string"] as &[&str]),
-                ("price", &["string"] as &[&str]),
-                ("description", &["string"] as &[&str]),
-                ("features", &["array"] as &[&str]),
-                ("action", &["object"] as &[&str]),
-                ("highlighted", &["boolean"] as &[&str]),
-                ("badge", &["string"] as &[&str]),
-                ("className", &["string"] as &[&str]),
-            ]
-            .into_iter()
-            .collect(),
-        ),
-        (
-            "pricing-grid",
-            [
-                ("plans", &["array"] as &[&str]),
-                ("className", &["string"] as &[&str]),
-            ]
-            .into_iter()
-            .collect(),
-        ),
-        (
-            "pricing-organism",
-            [
-                ("className", &["string"] as &[&str]),
-                ("isLoading", &["boolean"] as &[&str]),
-                ("error", &["object"] as &[&str]),
-                ("sortBy", &["string"] as &[&str]),
-                ("sortDirection", &["string"] as &[&str]),
-                ("searchValue", &["string"] as &[&str]),
-                ("page", &["number"] as &[&str]),
-                ("pageSize", &["number"] as &[&str]),
-                ("totalCount", &["number"] as &[&str]),
-                ("activeFilters", &["object"] as &[&str]),
-                ("selectedIds", &["array"] as &[&str]),
-                ("entity", &["object", "array"] as &[&str]),
-                ("heading", &["string"] as &[&str]),
-                ("subtitle", &["string"] as &[&str]),
-            ]
-            .into_iter()
-            .collect(),
-        ),
-        (
-            "pricing-page-template",
-            [
-                ("entity", &["object"] as &[&str]),
-                ("className", &["string"] as &[&str]),
-            ]
-            .into_iter()
-            .collect(),
-        ),
-        (
-            "progress-bar",
-            [
-                ("value", &["number"] as &[&str]),
-                ("max", &["number"] as &[&str]),
-                ("progressType", &["string"] as &[&str]),
-                ("variant", &["string"] as &[&str]),
-                ("color", &["string"] as &[&str]),
-                ("showPercentage", &["boolean"] as &[&str]),
-                ("showLabel", &["boolean"] as &[&str]),
-                ("label", &["string"] as &[&str]),
-                ("size", &["string"] as &[&str]),
-                ("steps", &["number"] as &[&str]),
-                ("className", &["string"] as &[&str]),
-            ]
-            .into_iter()
-            .collect(),
-        ),
-        (
-            "progress-dots",
-            [
-                ("count", &["number"] as &[&str]),
-                ("currentIndex", &["number"] as &[&str]),
-                ("getState", &["function"] as &[&str]),
-                ("onDotClick", &["function"] as &[&str]),
-                ("className", &["string"] as &[&str]),
-                ("size", &["string"] as &[&str]),
-            ]
-            .into_iter()
-            .collect(),
-        ),
-        (
-            "pull-quote",
-            [
-                ("children", &["string"] as &[&str]),
-                ("className", &["string"] as &[&str]),
-            ]
-            .into_iter()
-            .collect(),
-        ),
-        (
-            "pull-to-refresh",
-            [
-                ("refreshEvent", &["string"] as &[&str]),
-                ("refreshPayload", &["object"] as &[&str]),
-                ("threshold", &["number"] as &[&str]),
-                ("children", &["node"] as &[&str]),
-                ("className", &["string"] as &[&str]),
-            ]
-            .into_iter()
-            .collect(),
-        ),
-        (
-            "qr-scanner",
-            [
-                ("onScan", &["function"] as &[&str]),
-                ("scanEvent", &["string"] as &[&str]),
-                ("onError", &["function"] as &[&str]),
-                ("facingMode", &["string"] as &[&str]),
-                ("paused", &["boolean"] as &[&str]),
-                ("showOverlay", &["boolean"] as &[&str]),
-                ("showCameraControls", &["boolean"] as &[&str]),
-                ("fallback", &["node"] as &[&str]),
-                ("className", &["string"] as &[&str]),
-            ]
-            .into_iter()
-            .collect(),
-        ),
-        (
-            "quiz-block",
-            [
-                ("question", &["string"] as &[&str]),
-                ("answer", &["string"] as &[&str]),
-                ("className", &["string"] as &[&str]),
-            ]
-            .into_iter()
-            .collect(),
-        ),
-        (
-            "radio",
-            [
-                ("className", &["string"] as &[&str]),
-                ("options", &["array"] as &[&str]),
-                ("value", &["string"] as &[&str]),
-                ("action", &["string"] as &[&str]),
-                ("label", &["string"] as &[&str]),
-                ("helperText", &["string"] as &[&str]),
-                ("error", &["string"] as &[&str]),
-                ("size", &["string"] as &[&str]),
-            ]
-            .into_iter()
-            .collect(),
-        ),
-        (
-            "range-slider",
-            [
-                ("className", &["string"] as &[&str]),
-                ("min", &["number"] as &[&str]),
-                ("max", &["number"] as &[&str]),
-                ("value", &["number"] as &[&str]),
-                ("step", &["number"] as &[&str]),
-                ("showTooltip", &["boolean"] as &[&str]),
-                ("showTicks", &["boolean"] as &[&str]),
-                ("buffered", &["number"] as &[&str]),
-                ("size", &["string"] as &[&str]),
-                ("disabled", &["boolean"] as &[&str]),
-                ("action", &["string"] as &[&str]),
-                ("actionPayload", &["object"] as &[&str]),
-                ("onChange", &["function"] as &[&str]),
-                ("formatValue", &["function"] as &[&str]),
-            ]
-            .into_iter()
-            .collect(),
-        ),
-        (
-            "reflection-block",
-            [
-                ("prompt", &["string"] as &[&str]),
-                ("index", &["number"] as &[&str]),
-                ("savedNote", &["string"] as &[&str]),
-                ("saveEvent", &["string"] as &[&str]),
-                ("className", &["string"] as &[&str]),
-            ]
-            .into_iter()
-            .collect(),
-        ),
-        (
-            "relation-select",
-            [
-                ("value", &["string"] as &[&str]),
-                ("onChange", &["function"] as &[&str]),
-                ("options", &["array"] as &[&str]),
-                ("placeholder", &["string"] as &[&str]),
-                ("required", &["boolean"] as &[&str]),
-                ("disabled", &["boolean"] as &[&str]),
-                ("isLoading", &["boolean"] as &[&str]),
-                ("error", &["string"] as &[&str]),
-                ("clearable", &["boolean"] as &[&str]),
-                ("name", &["string"] as &[&str]),
-                ("className", &["string"] as &[&str]),
-                ("searchPlaceholder", &["string"] as &[&str]),
-                ("emptyMessage", &["string"] as &[&str]),
-            ]
-            .into_iter()
-            .collect(),
-        ),
-        (
-            "repeatable-form-section",
-            [
-                ("sectionType", &["string"] as &[&str]),
-                ("title", &["string"] as &[&str]),
-                ("items", &["array"] as &[&str]),
-                ("renderItem", &["function"] as &[&str]),
-                ("minItems", &["number"] as &[&str]),
-                ("maxItems", &["number"] as &[&str]),
-                ("allowReorder", &["boolean"] as &[&str]),
-                ("addLabel", &["string"] as &[&str]),
-                ("emptyMessage", &["string"] as &[&str]),
-                ("readOnly", &["boolean"] as &[&str]),
-                ("className", &["string"] as &[&str]),
-                ("onAdd", &["function"] as &[&str]),
-                ("onRemove", &["function"] as &[&str]),
-                ("onReorder", &["function"] as &[&str]),
-                ("trackAddedInState", &["boolean"] as &[&str]),
-                ("currentState", &["string"] as &[&str]),
-                ("showAuditInfo", &["boolean"] as &[&str]),
-            ]
-            .into_iter()
-            .collect(),
-        ),
-        (
-            "reply-tree",
-            [
-                ("nodes", &["object", "array"] as &[&str]),
-                ("maxDepth", &["number"] as &[&str]),
-                ("onVote", &["function"] as &[&str]),
-                ("onReply", &["function"] as &[&str]),
-                ("onFlag", &["function"] as &[&str]),
-                ("onContinueThread", &["function"] as &[&str]),
-                ("voteEvent", &["string"] as &[&str]),
-                ("replyEvent", &["string"] as &[&str]),
-                ("flagEvent", &["string"] as &[&str]),
-                ("continueThreadEvent", &["string"] as &[&str]),
-                ("showActions", &["boolean"] as &[&str]),
-                ("className", &["string"] as &[&str]),
-            ]
-            .into_iter()
-            .collect(),
-        ),
-        (
-            "rich-text-editor",
-            [
-                ("value", &["string"] as &[&str]),
-                ("onChange", &["function"] as &[&str]),
-                ("changeEvent", &["string"] as &[&str]),
-                ("readOnly", &["boolean"] as &[&str]),
-                ("placeholder", &["string"] as &[&str]),
-                ("showToolbar", &["boolean"] as &[&str]),
-                ("className", &["string"] as &[&str]),
-            ]
-            .into_iter()
-            .collect(),
-        ),
-        (
-            "runtime-debugger",
-            [
-                ("position", &["string"] as &[&str]),
-                ("defaultCollapsed", &["boolean"] as &[&str]),
-                ("className", &["string"] as &[&str]),
-                ("mode", &["string"] as &[&str]),
-                ("defaultTab", &["string"] as &[&str]),
-                ("schema", &["object"] as &[&str]),
-            ]
-            .into_iter()
-            .collect(),
-        ),
-        (
-            "scaled-diagram",
-            [
-                ("children", &["node"] as &[&str]),
-                ("className", &["string"] as &[&str]),
-            ]
-            .into_iter()
-            .collect(),
-        ),
-        (
-            "score-display",
-            [
-                ("assetUrl", &["object"] as &[&str]),
-                ("value", &["number"] as &[&str]),
-                ("score", &["number"] as &[&str]),
-                ("label", &["string"] as &[&str]),
-                ("icon", &["icon", "string"] as &[&str]),
-                ("size", &["string"] as &[&str]),
-                ("className", &["string"] as &[&str]),
-                ("locale", &["string"] as &[&str]),
-            ]
-            .into_iter()
-            .collect(),
-        ),
-        (
-            "search-input",
-            [
-                ("value", &["string"] as &[&str]),
-                ("onSearch", &["function"] as &[&str]),
-                ("debounceMs", &["number"] as &[&str]),
-                ("isLoading", &["boolean"] as &[&str]),
-                ("placeholder", &["string"] as &[&str]),
-                ("clearable", &["boolean"] as &[&str]),
-                ("className", &["string"] as &[&str]),
-                ("event", &["string"] as &[&str]),
-                ("entity", &["string"] as &[&str]),
-                ("query", &["string"] as &[&str]),
-            ]
-            .into_iter()
-            .collect(),
-        ),
-        (
-            "section",
-            [
-                ("title", &["string"] as &[&str]),
-                ("description", &["string"] as &[&str]),
-                ("action", &["node"] as &[&str]),
-                ("padding", &["string"] as &[&str]),
-                ("variant", &["string"] as &[&str]),
-                ("divider", &["boolean"] as &[&str]),
-                ("className", &["string"] as &[&str]),
-                ("children", &["node"] as &[&str]),
-                ("headerClassName", &["string"] as &[&str]),
-                ("contentClassName", &["string"] as &[&str]),
-                ("as", &["component"] as &[&str]),
-                ("isLoading", &["boolean"] as &[&str]),
-                ("error", &["object"] as &[&str]),
-            ]
-            .into_iter()
-            .collect(),
-        ),
-        (
-            "section-header",
-            [
-                ("title", &["string"] as &[&str]),
-                ("subtitle", &["string"] as &[&str]),
-                ("align", &["string"] as &[&str]),
-                ("level", &["number"] as &[&str]),
-                ("className", &["string"] as &[&str]),
-            ]
-            .into_iter()
-            .collect(),
-        ),
-        (
-            "segment-renderer",
-            [
-                ("segments", &["array"] as &[&str]),
-                ("className", &["string"] as &[&str]),
-                ("containerClassName", &["string"] as &[&str]),
-                ("userProgress", &["object"] as &[&str]),
-                ("onRunCodeSimulation", &["function"] as &[&str]),
-                ("onRenderVisualization", &["function"] as &[&str]),
-            ]
-            .into_iter()
-            .collect(),
-        ),
-        (
-            "select",
-            [
-                ("className", &["string"] as &[&str]),
-                ("options", &["array"] as &[&str]),
-                ("groups", &["array"] as &[&str]),
-                ("placeholder", &["string"] as &[&str]),
-                ("value", &["string", "array"] as &[&str]),
-                ("action", &["string"] as &[&str]),
-                ("error", &["string"] as &[&str]),
-                ("multiple", &["boolean"] as &[&str]),
-                ("searchable", &["boolean"] as &[&str]),
-                ("clearable", &["boolean"] as &[&str]),
-                ("onChange", &["function", "string"] as &[&str]),
-                ("onValueChange", &["function", "string"] as &[&str]),
-            ]
-            .into_iter()
-            .collect(),
-        ),
-        (
-            "sequence-bar",
-            [
-                ("slots", &["array"] as &[&str]),
-                ("maxSlots", &["number"] as &[&str]),
-                ("onSlotDrop", &["function"] as &[&str]),
-                ("onSlotRemove", &["function"] as &[&str]),
-                ("slotDropEvent", &["string"] as &[&str]),
-                ("slotRemoveEvent", &["string"] as &[&str]),
-                ("playing", &["boolean"] as &[&str]),
-                ("currentStep", &["number"] as &[&str]),
-                ("categoryColors", &["object"] as &[&str]),
-                ("slotFeedback", &["array"] as &[&str]),
-                ("size", &["string"] as &[&str]),
-                ("className", &["string"] as &[&str]),
-            ]
-            .into_iter()
-            .collect(),
-        ),
-        (
-            "service-catalog",
-            [
-                ("services", &["array"] as &[&str]),
-                ("className", &["string"] as &[&str]),
-            ]
-            .into_iter()
-            .collect(),
-        ),
-        (
-            "showcase-card",
-            [
-                ("title", &["string"] as &[&str]),
-                ("description", &["string"] as &[&str]),
-                ("image", &["object"] as &[&str]),
-                ("href", &["string"] as &[&str]),
-                ("badge", &["string"] as &[&str]),
-                ("accentColor", &["string"] as &[&str]),
-                ("className", &["string"] as &[&str]),
-            ]
-            .into_iter()
-            .collect(),
-        ),
-        (
-            "showcase-organism",
-            [
-                ("className", &["string"] as &[&str]),
-                ("isLoading", &["boolean"] as &[&str]),
-                ("error", &["object"] as &[&str]),
-                ("sortBy", &["string"] as &[&str]),
-                ("sortDirection", &["string"] as &[&str]),
-                ("searchValue", &["string"] as &[&str]),
-                ("page", &["number"] as &[&str]),
-                ("pageSize", &["number"] as &[&str]),
-                ("totalCount", &["number"] as &[&str]),
-                ("activeFilters", &["object"] as &[&str]),
-                ("selectedIds", &["array"] as &[&str]),
-                ("entity", &["object", "array"] as &[&str]),
-                ("columns", &["number"] as &[&str]),
-                ("heading", &["string"] as &[&str]),
-                ("subtitle", &["string"] as &[&str]),
-            ]
-            .into_iter()
-            .collect(),
-        ),
-        (
-            "side-panel",
-            [
-                ("title", &["string"] as &[&str]),
-                ("children", &["node"] as &[&str]),
-                ("isOpen", &["boolean"] as &[&str]),
-                ("onClose", &["function"] as &[&str]),
-                ("width", &["string"] as &[&str]),
-                ("position", &["string"] as &[&str]),
-                ("showOverlay", &["boolean"] as &[&str]),
-                ("className", &["string"] as &[&str]),
-                ("closeEvent", &["string"] as &[&str]),
-            ]
-            .into_iter()
-            .collect(),
-        ),
-        (
-            "sidebar",
-            [
-                ("className", &["string"] as &[&str]),
-                ("isLoading", &["boolean"] as &[&str]),
-                ("error", &["object"] as &[&str]),
-                ("logo", &["node"] as &[&str]),
-                ("logoSrc", &["asset"] as &[&str]),
-                ("brandName", &["string"] as &[&str]),
-                ("items", &["array"] as &[&str]),
-                ("userSection", &["node"] as &[&str]),
-                ("footerContent", &["node"] as &[&str]),
-                ("collapsed", &["boolean"] as &[&str]),
-                ("defaultCollapsed", &["boolean"] as &[&str]),
-                ("collapseChangeEvent", &["string"] as &[&str]),
-                ("hideCollapseButton", &["boolean"] as &[&str]),
-                ("showCloseButton", &["boolean"] as &[&str]),
-                ("closeEvent", &["string"] as &[&str]),
-                ("logoClickEvent", &["string"] as &[&str]),
-            ]
-            .into_iter()
-            .collect(),
-        ),
-        (
-            "signature-pad",
-            [
-                ("label", &["string"] as &[&str]),
-                ("helperText", &["string"] as &[&str]),
-                ("strokeColor", &["string"] as &[&str]),
-                ("strokeWidth", &["number"] as &[&str]),
-                ("height", &["number"] as &[&str]),
-                ("readOnly", &["boolean"] as &[&str]),
-                ("value", &["string"] as &[&str]),
-                ("onChange", &["function"] as &[&str]),
-                ("signEvent", &["string"] as &[&str]),
-                ("clearEvent", &["string"] as &[&str]),
-                ("isLoading", &["boolean"] as &[&str]),
-                ("error", &["object"] as &[&str]),
-                ("className", &["string"] as &[&str]),
-            ]
-            .into_iter()
-            .collect(),
-        ),
-        (
-            "simple-grid",
-            [
-                ("minChildWidth", &["number", "string"] as &[&str]),
-                ("maxCols", &["number"] as &[&str]),
-                ("cols", &["number"] as &[&str]),
-                ("gap", &["string"] as &[&str]),
-                ("className", &["string"] as &[&str]),
-                ("children", &["node"] as &[&str]),
-            ]
-            .into_iter()
-            .collect(),
-        ),
-        (
-            "skeleton",
-            [
-                ("variant", &["string"] as &[&str]),
-                ("rows", &["number"] as &[&str]),
-                ("columns", &["number"] as &[&str]),
-                ("fields", &["number"] as &[&str]),
-                ("className", &["string"] as &[&str]),
-            ]
-            .into_iter()
-            .collect(),
-        ),
-        (
-            "social-proof",
-            [
-                ("items", &["array"] as &[&str]),
-                ("variant", &["string"] as &[&str]),
-                ("className", &["string"] as &[&str]),
-            ]
-            .into_iter()
-            .collect(),
-        ),
-        (
-            "sortable-list",
-            [
-                ("items", &["object", "array"] as &[&str]),
-                ("renderItem", &["function"] as &[&str]),
-                ("reorderEvent", &["string"] as &[&str]),
-                ("reorderPayload", &["object"] as &[&str]),
-                ("dragHandlePosition", &["string"] as &[&str]),
-                ("className", &["string"] as &[&str]),
-            ]
-            .into_iter()
-            .collect(),
-        ),
-        (
-            "spacer",
-            [
-                ("size", &["string"] as &[&str]),
-                ("axis", &["string"] as &[&str]),
-                ("className", &["string"] as &[&str]),
-            ]
-            .into_iter()
-            .collect(),
-        ),
-        (
-            "sparkline",
-            [
-                ("data", &["array"] as &[&str]),
-                ("color", &["string"] as &[&str]),
-                ("width", &["number"] as &[&str]),
-                ("height", &["number"] as &[&str]),
-                ("strokeWidth", &["number"] as &[&str]),
-                ("fill", &["boolean"] as &[&str]),
-                ("className", &["string"] as &[&str]),
-            ]
-            .into_iter()
-            .collect(),
-        ),
-        (
-            "spinner",
-            [
-                ("className", &["string"] as &[&str]),
-                ("size", &["string"] as &[&str]),
-                ("overlay", &["boolean"] as &[&str]),
-            ]
-            .into_iter()
-            .collect(),
-        ),
-        (
-            "split",
-            [
-                ("ratio", &["string"] as &[&str]),
-                ("gap", &["string"] as &[&str]),
-                ("reverse", &["boolean"] as &[&str]),
-                ("stackOnMobile", &["boolean"] as &[&str]),
-                ("stackBreakpoint", &["string"] as &[&str]),
-                ("align", &["string"] as &[&str]),
-                ("className", &["string"] as &[&str]),
-                ("leftClassName", &["string"] as &[&str]),
-                ("rightClassName", &["string"] as &[&str]),
-                ("children", &["array"] as &[&str]),
-                ("isLoading", &["boolean"] as &[&str]),
-                ("error", &["object"] as &[&str]),
-            ]
-            .into_iter()
-            .collect(),
-        ),
-        (
-            "split-pane",
-            [
-                ("direction", &["string"] as &[&str]),
-                ("ratio", &["number"] as &[&str]),
-                ("minSize", &["number"] as &[&str]),
-                ("resizable", &["boolean"] as &[&str]),
-                ("left", &["node"] as &[&str]),
-                ("right", &["node"] as &[&str]),
-                ("className", &["string"] as &[&str]),
-                ("leftClassName", &["string"] as &[&str]),
-                ("rightClassName", &["string"] as &[&str]),
-                ("onRatioChange", &["function"] as &[&str]),
-            ]
-            .into_iter()
-            .collect(),
-        ),
-        (
-            "split-section",
-            [
-                ("title", &["string"] as &[&str]),
-                ("description", &["string", "node"] as &[&str]),
-                ("bullets", &["array"] as &[&str]),
-                ("image", &["object"] as &[&str]),
-                ("imagePosition", &["string"] as &[&str]),
-                ("background", &["string"] as &[&str]),
-                ("children", &["node"] as &[&str]),
-                ("className", &["string"] as &[&str]),
-            ]
-            .into_iter()
-            .collect(),
-        ),
-        (
-            "stack",
-            [
-                ("direction", &["string"] as &[&str]),
-                ("gap", &["string"] as &[&str]),
-                ("align", &["string"] as &[&str]),
-                ("justify", &["string"] as &[&str]),
-                ("wrap", &["boolean"] as &[&str]),
-                ("reverse", &["boolean"] as &[&str]),
-                ("flex", &["boolean"] as &[&str]),
-                ("className", &["string"] as &[&str]),
-                ("style", &["object"] as &[&str]),
-                ("children", &["node"] as &[&str]),
-                ("as", &["component"] as &[&str]),
-                ("onClick", &["function"] as &[&str]),
-                ("onKeyDown", &["function"] as &[&str]),
-                ("role", &["string"] as &[&str]),
-                ("tabIndex", &["number"] as &[&str]),
-                ("action", &["string"] as &[&str]),
-                ("actionPayload", &["object"] as &[&str]),
-                ("responsive", &["boolean"] as &[&str]),
-            ]
-            .into_iter()
-            .collect(),
-        ),
-        (
-            "star-rating",
-            [
-                ("value", &["number"] as &[&str]),
-                ("max", &["number"] as &[&str]),
-                ("readOnly", &["boolean"] as &[&str]),
-                ("precision", &["string"] as &[&str]),
-                ("size", &["string"] as &[&str]),
-                ("action", &["string"] as &[&str]),
-                ("actionPayload", &["object"] as &[&str]),
-                ("onChange", &["function"] as &[&str]),
-                ("className", &["string"] as &[&str]),
-                ("label", &["string"] as &[&str]),
-            ]
-            .into_iter()
-            .collect(),
-        ),
-        (
-            "stat-badge",
-            [
-                ("assetUrl", &["object"] as &[&str]),
-                ("iconUrl", &["object"] as &[&str]),
-                ("label", &["string"] as &[&str]),
-                ("value", &["number", "string"] as &[&str]),
-                ("max", &["number"] as &[&str]),
-                ("source", &["string"] as &[&str]),
-                ("field", &["string"] as &[&str]),
-                ("format", &["string"] as &[&str]),
-                ("icon", &["icon", "string"] as &[&str]),
-                ("size", &["string"] as &[&str]),
-                ("variant", &["string"] as &[&str]),
-                ("className", &["string"] as &[&str]),
-            ]
-            .into_iter()
-            .collect(),
-        ),
-        (
-            "stat-card",
-            [
-                ("className", &["string"] as &[&str]),
-                ("isLoading", &["boolean"] as &[&str]),
-                ("error", &["object"] as &[&str]),
-                ("sortBy", &["string"] as &[&str]),
-                ("sortDirection", &["string"] as &[&str]),
-                ("searchValue", &["string"] as &[&str]),
-                ("page", &["number"] as &[&str]),
-                ("pageSize", &["number"] as &[&str]),
-                ("totalCount", &["number"] as &[&str]),
-                ("activeFilters", &["object"] as &[&str]),
-                ("selectedIds", &["array"] as &[&str]),
-                ("entity", &["object", "array"] as &[&str]),
-                ("label", &["string"] as &[&str]),
-                ("title", &["string"] as &[&str]),
-                ("value", &["string", "number", "array"] as &[&str]),
-                ("previousValue", &["number"] as &[&str]),
-                ("currentValue", &["number"] as &[&str]),
-                ("trend", &["number"] as &[&str]),
-                ("trendDirection", &["string"] as &[&str]),
-                ("invertTrend", &["boolean"] as &[&str]),
-                ("icon", &["icon", "string"] as &[&str]),
-                ("iconBg", &["string"] as &[&str]),
-                ("iconColor", &["string"] as &[&str]),
-                ("subtitle", &["string"] as &[&str]),
-                ("action", &["object"] as &[&str]),
-                ("metrics", &["array"] as &[&str]),
-                ("compact", &["boolean"] as &[&str]),
-                ("sparklineData", &["array"] as &[&str]),
-            ]
-            .into_iter()
-            .collect(),
-        ),
-        (
-            "stat-display",
-            [
-                ("label", &["string"] as &[&str]),
-                ("value", &["number", "string"] as &[&str]),
-                ("max", &["number"] as &[&str]),
-                ("target", &["number"] as &[&str]),
-                ("trend", &["number"] as &[&str]),
-                ("trendPolarity", &["string"] as &[&str]),
-                ("trendFormat", &["string"] as &[&str]),
-                ("sparklineData", &["array"] as &[&str]),
-                ("clickEvent", &["string"] as &[&str]),
-                ("prefix", &["string"] as &[&str]),
-                ("suffix", &["string"] as &[&str]),
-                ("icon", &["icon", "string"] as &[&str]),
-                ("iconBg", &["string"] as &[&str]),
-                ("iconColor", &["string"] as &[&str]),
-                ("format", &["string"] as &[&str]),
-                ("size", &["string"] as &[&str]),
-                ("variant", &["string"] as &[&str]),
-                ("compact", &["boolean"] as &[&str]),
-                ("look", &["string"] as &[&str]),
-                ("className", &["string"] as &[&str]),
-                ("isLoading", &["boolean"] as &[&str]),
-                ("error", &["object"] as &[&str]),
-            ]
-            .into_iter()
-            .collect(),
-        ),
-        (
-            "state-graph",
-            [
-                ("states", &["array"] as &[&str]),
-                ("transitions", &["array"] as &[&str]),
-                ("currentState", &["string"] as &[&str]),
-                ("selectedState", &["string"] as &[&str]),
-                ("addingFrom", &["string"] as &[&str]),
-                ("initialState", &["string"] as &[&str]),
-                ("width", &["number"] as &[&str]),
-                ("height", &["number"] as &[&str]),
-                ("nodeClickEvent", &["string"] as &[&str]),
-                ("className", &["string"] as &[&str]),
-            ]
-            .into_iter()
-            .collect(),
-        ),
-        (
-            "state-json-view",
-            [
-                ("name", &["string"] as &[&str]),
-                ("initialState", &["string"] as &[&str]),
-                ("states", &["array"] as &[&str]),
-                ("transitions", &["array"] as &[&str]),
-                ("label", &["string"] as &[&str]),
-                ("defaultExpanded", &["boolean"] as &[&str]),
-                ("className", &["string"] as &[&str]),
-            ]
-            .into_iter()
-            .collect(),
-        ),
-        (
-            "state-machine-view",
-            [
-                ("className", &["string"] as &[&str]),
-                ("isLoading", &["boolean"] as &[&str]),
-                ("error", &["object"] as &[&str]),
-                ("layoutData", &["object"] as &[&str]),
-                ("renderStateNode", &["function"] as &[&str]),
-            ]
-            .into_iter()
-            .collect(),
-        ),
-        (
-            "stats-grid",
-            [
-                ("stats", &["array"] as &[&str]),
-                ("columns", &["number"] as &[&str]),
-                ("className", &["string"] as &[&str]),
-            ]
-            .into_iter()
-            .collect(),
-        ),
-        (
-            "stats-organism",
-            [
-                ("className", &["string"] as &[&str]),
-                ("isLoading", &["boolean"] as &[&str]),
-                ("error", &["object"] as &[&str]),
-                ("sortBy", &["string"] as &[&str]),
-                ("sortDirection", &["string"] as &[&str]),
-                ("searchValue", &["string"] as &[&str]),
-                ("page", &["number"] as &[&str]),
-                ("pageSize", &["number"] as &[&str]),
-                ("totalCount", &["number"] as &[&str]),
-                ("activeFilters", &["object"] as &[&str]),
-                ("selectedIds", &["array"] as &[&str]),
-                ("entity", &["object", "array"] as &[&str]),
-                ("columns", &["number"] as &[&str]),
-            ]
-            .into_iter()
-            .collect(),
-        ),
-        (
-            "status-dot",
-            [
-                ("className", &["string"] as &[&str]),
-                ("status", &["string"] as &[&str]),
-                ("pulse", &["boolean"] as &[&str]),
-                ("size", &["string"] as &[&str]),
-                ("label", &["string"] as &[&str]),
-            ]
-            .into_iter()
-            .collect(),
-        ),
-        (
-            "step-flow",
-            [
-                ("steps", &["array"] as &[&str]),
-                ("orientation", &["string"] as &[&str]),
-                ("showConnectors", &["boolean"] as &[&str]),
-                ("className", &["string"] as &[&str]),
-            ]
-            .into_iter()
-            .collect(),
-        ),
-        (
-            "step-flow-organism",
-            [
-                ("className", &["string"] as &[&str]),
-                ("isLoading", &["boolean"] as &[&str]),
-                ("error", &["object"] as &[&str]),
-                ("sortBy", &["string"] as &[&str]),
-                ("sortDirection", &["string"] as &[&str]),
-                ("searchValue", &["string"] as &[&str]),
-                ("page", &["number"] as &[&str]),
-                ("pageSize", &["number"] as &[&str]),
-                ("totalCount", &["number"] as &[&str]),
-                ("activeFilters", &["object"] as &[&str]),
-                ("selectedIds", &["array"] as &[&str]),
-                ("entity", &["object", "array"] as &[&str]),
-                ("orientation", &["string"] as &[&str]),
-                ("showConnectors", &["boolean"] as &[&str]),
-                ("heading", &["string"] as &[&str]),
-                ("subtitle", &["string"] as &[&str]),
-            ]
-            .into_iter()
-            .collect(),
-        ),
-        (
-            "subagent-trace-panel",
-            [
-                ("className", &["string"] as &[&str]),
-                ("isLoading", &["boolean"] as &[&str]),
-                ("error", &["object"] as &[&str]),
-                ("sortBy", &["string"] as &[&str]),
-                ("sortDirection", &["string"] as &[&str]),
-                ("searchValue", &["string"] as &[&str]),
-                ("page", &["number"] as &[&str]),
-                ("pageSize", &["number"] as &[&str]),
-                ("totalCount", &["number"] as &[&str]),
-                ("activeFilters", &["object"] as &[&str]),
-                ("selectedIds", &["array"] as &[&str]),
-                ("subagents", &["array"] as &[&str]),
-                ("focusedOrbital", &["string"] as &[&str]),
-                ("disclosureLevel", &["number"] as &[&str]),
-                ("open", &["boolean"] as &[&str]),
-                ("onClose", &["function"] as &[&str]),
-                ("coordinatorActivities", &["array"] as &[&str]),
-                ("coordinatorMessages", &["array"] as &[&str]),
-                ("mode", &["string"] as &[&str]),
-            ]
-            .into_iter()
-            .collect(),
-        ),
-        (
-            "svg-branch",
-            [
-                ("x", &["number"] as &[&str]),
-                ("y", &["number"] as &[&str]),
-                ("variant", &["string"] as &[&str]),
-                ("branches", &["number"] as &[&str]),
-                ("size", &["number"] as &[&str]),
-                ("color", &["string"] as &[&str]),
-                ("opacity", &["number"] as &[&str]),
-                ("className", &["string"] as &[&str]),
-                ("asRoot", &["boolean"] as &[&str]),
-                ("width", &["number"] as &[&str]),
-                ("height", &["number"] as &[&str]),
-            ]
-            .into_iter()
-            .collect(),
-        ),
-        (
-            "svg-connection",
-            [
-                ("x1", &["number"] as &[&str]),
-                ("y1", &["number"] as &[&str]),
-                ("x2", &["number"] as &[&str]),
-                ("y2", &["number"] as &[&str]),
-                ("variant", &["string"] as &[&str]),
-                ("color", &["string"] as &[&str]),
-                ("strokeWidth", &["number"] as &[&str]),
-                ("opacity", &["number"] as &[&str]),
-                ("className", &["string"] as &[&str]),
-                ("asRoot", &["boolean"] as &[&str]),
-                ("width", &["number"] as &[&str]),
-                ("height", &["number"] as &[&str]),
-            ]
-            .into_iter()
-            .collect(),
-        ),
-        (
-            "svg-flow",
-            [
-                ("points", &["array"] as &[&str]),
-                ("color", &["string"] as &[&str]),
-                ("strokeWidth", &["number"] as &[&str]),
-                ("animated", &["boolean"] as &[&str]),
-                ("opacity", &["number"] as &[&str]),
-                ("className", &["string"] as &[&str]),
-                ("asRoot", &["boolean"] as &[&str]),
-                ("width", &["number"] as &[&str]),
-                ("height", &["number"] as &[&str]),
-            ]
-            .into_iter()
-            .collect(),
-        ),
-        (
-            "svg-grid",
-            [
-                ("x", &["number"] as &[&str]),
-                ("y", &["number"] as &[&str]),
-                ("cols", &["number"] as &[&str]),
-                ("rows", &["number"] as &[&str]),
-                ("spacing", &["number"] as &[&str]),
-                ("nodeRadius", &["number"] as &[&str]),
-                ("color", &["string"] as &[&str]),
-                ("opacity", &["number"] as &[&str]),
-                ("className", &["string"] as &[&str]),
-                ("highlights", &["array"] as &[&str]),
-                ("asRoot", &["boolean"] as &[&str]),
-                ("width", &["number"] as &[&str]),
-                ("height", &["number"] as &[&str]),
-            ]
-            .into_iter()
-            .collect(),
-        ),
-        (
-            "svg-lobe",
-            [
-                ("cx", &["number"] as &[&str]),
-                ("cy", &["number"] as &[&str]),
-                ("rx", &["number"] as &[&str]),
-                ("ry", &["number"] as &[&str]),
-                ("rotation", &["number"] as &[&str]),
-                ("shells", &["number"] as &[&str]),
-                ("color", &["string"] as &[&str]),
-                ("opacity", &["number"] as &[&str]),
-                ("className", &["string"] as &[&str]),
-                ("asRoot", &["boolean"] as &[&str]),
-                ("width", &["number"] as &[&str]),
-                ("height", &["number"] as &[&str]),
-            ]
-            .into_iter()
-            .collect(),
-        ),
-        (
-            "svg-mesh",
-            [
-                ("cx", &["number"] as &[&str]),
-                ("cy", &["number"] as &[&str]),
-                ("nodes", &["number"] as &[&str]),
-                ("radius", &["number"] as &[&str]),
-                ("color", &["string"] as &[&str]),
-                ("connectionDensity", &["number"] as &[&str]),
-                ("opacity", &["number"] as &[&str]),
-                ("className", &["string"] as &[&str]),
-                ("asRoot", &["boolean"] as &[&str]),
-                ("width", &["number"] as &[&str]),
-                ("height", &["number"] as &[&str]),
-            ]
-            .into_iter()
-            .collect(),
-        ),
-        (
-            "svg-morph",
-            [
-                ("x", &["number"] as &[&str]),
-                ("y", &["number"] as &[&str]),
-                ("size", &["number"] as &[&str]),
-                ("variant", &["string"] as &[&str]),
-                ("color", &["string"] as &[&str]),
-                ("opacity", &["number"] as &[&str]),
-                ("className", &["string"] as &[&str]),
-                ("asRoot", &["boolean"] as &[&str]),
-                ("width", &["number"] as &[&str]),
-                ("height", &["number"] as &[&str]),
-            ]
-            .into_iter()
-            .collect(),
-        ),
-        (
-            "svg-node",
-            [
-                ("x", &["number"] as &[&str]),
-                ("y", &["number"] as &[&str]),
-                ("r", &["number"] as &[&str]),
-                ("variant", &["string"] as &[&str]),
-                ("color", &["string"] as &[&str]),
-                ("opacity", &["number"] as &[&str]),
-                ("className", &["string"] as &[&str]),
-                ("label", &["string"] as &[&str]),
-                ("asRoot", &["boolean"] as &[&str]),
-                ("width", &["number"] as &[&str]),
-                ("height", &["number"] as &[&str]),
-            ]
-            .into_iter()
-            .collect(),
-        ),
-        (
-            "svg-pulse",
-            [
-                ("cx", &["number"] as &[&str]),
-                ("cy", &["number"] as &[&str]),
-                ("rings", &["number"] as &[&str]),
-                ("maxRadius", &["number"] as &[&str]),
-                ("color", &["string"] as &[&str]),
-                ("animated", &["boolean"] as &[&str]),
-                ("opacity", &["number"] as &[&str]),
-                ("className", &["string"] as &[&str]),
-                ("asRoot", &["boolean"] as &[&str]),
-                ("width", &["number"] as &[&str]),
-                ("height", &["number"] as &[&str]),
-            ]
-            .into_iter()
-            .collect(),
-        ),
-        (
-            "svg-ring",
-            [
-                ("cx", &["number"] as &[&str]),
-                ("cy", &["number"] as &[&str]),
-                ("r", &["number"] as &[&str]),
-                ("variant", &["string"] as &[&str]),
-                ("color", &["string"] as &[&str]),
-                ("strokeWidth", &["number"] as &[&str]),
-                ("opacity", &["number"] as &[&str]),
-                ("className", &["string"] as &[&str]),
-                ("label", &["string"] as &[&str]),
-                ("asRoot", &["boolean"] as &[&str]),
-                ("width", &["number"] as &[&str]),
-                ("height", &["number"] as &[&str]),
-            ]
-            .into_iter()
-            .collect(),
-        ),
-        (
-            "svg-shield",
-            [
-                ("x", &["number"] as &[&str]),
-                ("y", &["number"] as &[&str]),
-                ("size", &["number"] as &[&str]),
-                ("variant", &["string"] as &[&str]),
-                ("color", &["string"] as &[&str]),
-                ("opacity", &["number"] as &[&str]),
-                ("className", &["string"] as &[&str]),
-                ("asRoot", &["boolean"] as &[&str]),
-                ("width", &["number"] as &[&str]),
-                ("height", &["number"] as &[&str]),
-            ]
-            .into_iter()
-            .collect(),
-        ),
-        (
-            "svg-stack",
-            [
-                ("x", &["number"] as &[&str]),
-                ("y", &["number"] as &[&str]),
-                ("layers", &["number"] as &[&str]),
-                ("width", &["number"] as &[&str]),
-                ("height", &["number"] as &[&str]),
-                ("color", &["string"] as &[&str]),
-                ("opacity", &["number"] as &[&str]),
-                ("className", &["string"] as &[&str]),
-                ("labels", &["array"] as &[&str]),
-                ("asRoot", &["boolean"] as &[&str]),
-                ("svgWidth", &["number"] as &[&str]),
-                ("svgHeight", &["number"] as &[&str]),
-            ]
-            .into_iter()
-            .collect(),
-        ),
-        (
-            "swipeable-row",
-            [
-                ("leftActions", &["array"] as &[&str]),
-                ("rightActions", &["array"] as &[&str]),
-                ("threshold", &["number"] as &[&str]),
-                ("children", &["node"] as &[&str]),
-                ("itemData", &["object"] as &[&str]),
-                ("className", &["string"] as &[&str]),
-            ]
-            .into_iter()
-            .collect(),
-        ),
-        (
-            "switch",
-            [
-                ("checked", &["boolean"] as &[&str]),
-                ("defaultChecked", &["boolean"] as &[&str]),
-                ("onChange", &["function"] as &[&str]),
-                ("disabled", &["boolean"] as &[&str]),
-                ("label", &["string"] as &[&str]),
-                ("id", &["string"] as &[&str]),
-                ("name", &["string"] as &[&str]),
-                ("className", &["string"] as &[&str]),
-            ]
-            .into_iter()
-            .collect(),
-        ),
-        (
-            "tabbed-container",
-            [
-                ("tabs", &["array"] as &[&str]),
-                ("defaultTab", &["string"] as &[&str]),
-                ("activeTab", &["string"] as &[&str]),
-                ("onTabChange", &["function"] as &[&str]),
-                ("position", &["string"] as &[&str]),
-                ("className", &["string"] as &[&str]),
-            ]
-            .into_iter()
-            .collect(),
-        ),
-        (
-            "table-view",
-            [
-                ("dragGroup", &["string"] as &[&str]),
-                ("accepts", &["string"] as &[&str]),
-                ("sortable", &["boolean"] as &[&str]),
-                ("dropEvent", &["string"] as &[&str]),
-                ("reorderEvent", &["string"] as &[&str]),
-                ("positionEvent", &["string"] as &[&str]),
-                ("dndItemIdField", &["string"] as &[&str]),
-                ("dndRoot", &["boolean"] as &[&str]),
-                ("entity", &["object", "array"] as &[&str]),
-                ("columns", &["array"] as &[&str]),
-                ("fields", &["array"] as &[&str]),
-                ("itemActions", &["array"] as &[&str]),
-                ("maxInlineActions", &["number"] as &[&str]),
-                ("itemClickEvent", &["string"] as &[&str]),
-                ("selectable", &["boolean"] as &[&str]),
-                ("selectEvent", &["string"] as &[&str]),
-                ("selectedIds", &["array"] as &[&str]),
-                ("sortEvent", &["string"] as &[&str]),
-                ("sortColumn", &["string"] as &[&str]),
-                ("sortDirection", &["string"] as &[&str]),
-                ("className", &["string"] as &[&str]),
-                ("emptyMessage", &["string"] as &[&str]),
-                ("isLoading", &["boolean"] as &[&str]),
-                ("error", &["object"] as &[&str]),
-                ("groupBy", &["string"] as &[&str]),
-                ("pageSize", &["number"] as &[&str]),
-                ("children", &["function"] as &[&str]),
-                ("renderItem", &["function"] as &[&str]),
-                ("look", &["string"] as &[&str]),
-                ("relationsData", &["object"] as &[&str]),
-            ]
-            .into_iter()
-            .collect(),
-        ),
-        (
-            "tabs",
-            [
-                ("items", &["array"] as &[&str]),
-                ("tabs", &["array"] as &[&str]),
-                ("defaultActiveTab", &["string"] as &[&str]),
-                ("activeTab", &["string"] as &[&str]),
-                ("onTabChange", &["function"] as &[&str]),
-                ("tabChangeEvent", &["string"] as &[&str]),
-                ("variant", &["string"] as &[&str]),
-                ("orientation", &["string"] as &[&str]),
-                ("className", &["string"] as &[&str]),
-            ]
-            .into_iter()
-            .collect(),
-        ),
-        (
-            "tag-cloud",
-            [
-                ("tags", &["array"] as &[&str]),
-                ("variant", &["string"] as &[&str]),
-                ("className", &["string"] as &[&str]),
-            ]
-            .into_iter()
-            .collect(),
-        ),
-        (
-            "tag-input",
-            [
-                ("value", &["array"] as &[&str]),
-                ("onChange", &["function"] as &[&str]),
-                ("placeholder", &["string"] as &[&str]),
-                ("disabled", &["boolean"] as &[&str]),
-                ("variant", &["string"] as &[&str]),
-                ("unique", &["boolean"] as &[&str]),
-                ("helperText", &["string"] as &[&str]),
-                ("className", &["string"] as &[&str]),
-                ("addEvent", &["string"] as &[&str]),
-                ("removeEvent", &["string"] as &[&str]),
-            ]
-            .into_iter()
-            .collect(),
-        ),
-        (
-            "team-card",
-            [
-                ("name", &["string"] as &[&str]),
-                ("nameAr", &["string"] as &[&str]),
-                ("role", &["string"] as &[&str]),
-                ("bio", &["string"] as &[&str]),
-                ("avatar", &["asset", "object"] as &[&str]),
-                ("className", &["string"] as &[&str]),
-            ]
-            .into_iter()
-            .collect(),
-        ),
-        (
-            "team-organism",
-            [
-                ("className", &["string"] as &[&str]),
-                ("isLoading", &["boolean"] as &[&str]),
-                ("error", &["object"] as &[&str]),
-                ("sortBy", &["string"] as &[&str]),
-                ("sortDirection", &["string"] as &[&str]),
-                ("searchValue", &["string"] as &[&str]),
-                ("page", &["number"] as &[&str]),
-                ("pageSize", &["number"] as &[&str]),
-                ("totalCount", &["number"] as &[&str]),
-                ("activeFilters", &["object"] as &[&str]),
-                ("selectedIds", &["array"] as &[&str]),
-                ("entity", &["object", "array"] as &[&str]),
-                ("heading", &["string"] as &[&str]),
-                ("subtitle", &["string"] as &[&str]),
-            ]
-            .into_iter()
-            .collect(),
-        ),
-        (
-            "text-highlight",
-            [
-                ("highlightType", &["string"] as &[&str]),
-                ("isActive", &["boolean"] as &[&str]),
-                ("onClick", &["function"] as &[&str]),
-                ("onMouseEnter", &["function"] as &[&str]),
-                ("onMouseLeave", &["function"] as &[&str]),
-                ("annotationId", &["string"] as &[&str]),
-                ("className", &["string"] as &[&str]),
-                ("children", &["node"] as &[&str]),
-                ("action", &["string"] as &[&str]),
-                ("hoverEvent", &["string"] as &[&str]),
-            ]
-            .into_iter()
-            .collect(),
-        ),
-        (
-            "textarea",
-            [
-                ("className", &["string"] as &[&str]),
-                ("placeholder", &["string"] as &[&str]),
-                ("rows", &["number"] as &[&str]),
-                ("action", &["string"] as &[&str]),
-                ("error", &["string"] as &[&str]),
-                ("onChange", &["function", "string"] as &[&str]),
-            ]
-            .into_iter()
-            .collect(),
-        ),
-        (
-            "theme-toggle",
-            [
-                ("className", &["string"] as &[&str]),
-                ("size", &["string"] as &[&str]),
-                ("showLabel", &["boolean"] as &[&str]),
-            ]
-            .into_iter()
-            .collect(),
-        ),
-        (
-            "time-slot-cell",
-            [
-                ("time", &["string"] as &[&str]),
-                ("onClick", &["function"] as &[&str]),
-                ("className", &["string"] as &[&str]),
-                ("children", &["node"] as &[&str]),
-                ("isOccupied", &["boolean"] as &[&str]),
-            ]
-            .into_iter()
-            .collect(),
-        ),
-        (
-            "timeline",
-            [
-                ("className", &["string"] as &[&str]),
-                ("isLoading", &["boolean"] as &[&str]),
-                ("error", &["object"] as &[&str]),
-                ("entity", &["object", "array"] as &[&str]),
-                ("title", &["string"] as &[&str]),
-                ("items", &["array"] as &[&str]),
-                ("fields", &["array"] as &[&str]),
-                ("itemActions", &["array"] as &[&str]),
-                ("look", &["string"] as &[&str]),
-            ]
-            .into_iter()
-            .collect(),
-        ),
-        (
-            "timer-display",
-            [
-                ("seconds", &["number"] as &[&str]),
-                ("running", &["boolean"] as &[&str]),
-                ("format", &["string"] as &[&str]),
-                ("size", &["string"] as &[&str]),
-                ("className", &["string"] as &[&str]),
-                ("lowThreshold", &["number"] as &[&str]),
-                ("iconAsset", &["object"] as &[&str]),
-            ]
-            .into_iter()
-            .collect(),
-        ),
-        (
-            "toast-slot",
-            [
-                ("children", &["node"] as &[&str]),
-                ("variant", &["string"] as &[&str]),
-                ("title", &["string"] as &[&str]),
-                ("duration", &["number"] as &[&str]),
-                ("className", &["string"] as &[&str]),
-                ("isLoading", &["boolean"] as &[&str]),
-                ("error", &["object"] as &[&str]),
-                ("entity", &["string"] as &[&str]),
-                ("sourceTrait", &["string"] as &[&str]),
-            ]
-            .into_iter()
-            .collect(),
-        ),
-        (
-            "tooltip",
-            [
-                ("content", &["node"] as &[&str]),
-                ("children", &["node"] as &[&str]),
-                ("position", &["string"] as &[&str]),
-                ("delay", &["number"] as &[&str]),
-                ("hideDelay", &["number"] as &[&str]),
-                ("showArrow", &["boolean"] as &[&str]),
-                ("className", &["string"] as &[&str]),
-            ]
-            .into_iter()
-            .collect(),
-        ),
-        (
-            "trait-frame",
-            [
-                ("traitName", &["string"] as &[&str]),
-                ("fallback", &["node"] as &[&str]),
-            ]
-            .into_iter()
-            .collect(),
-        ),
-        (
-            "trait-slot",
-            [
-                ("slotNumber", &["number"] as &[&str]),
-                ("equippedItem", &["object"] as &[&str]),
-                ("locked", &["boolean"] as &[&str]),
-                ("lockLabel", &["string"] as &[&str]),
-                ("selected", &["boolean"] as &[&str]),
-                ("size", &["string"] as &[&str]),
-                ("showTooltip", &["boolean"] as &[&str]),
-                ("categoryColors", &["object"] as &[&str]),
-                ("tooltipFrameUrl", &["object"] as &[&str]),
-                ("className", &["string"] as &[&str]),
-                ("isLoading", &["boolean"] as &[&str]),
-                ("error", &["object"] as &[&str]),
-                ("onItemDrop", &["function"] as &[&str]),
-                ("draggable", &["boolean"] as &[&str]),
-                ("onDragStart", &["function"] as &[&str]),
-                ("feedback", &["string"] as &[&str]),
-                ("onClick", &["function"] as &[&str]),
-                ("onRemove", &["function"] as &[&str]),
-                ("clickEvent", &["string"] as &[&str]),
-                ("removeEvent", &["string"] as &[&str]),
-                ("dropEvent", &["string"] as &[&str]),
-            ]
-            .into_iter()
-            .collect(),
-        ),
-        (
-            "trend-indicator",
-            [
-                ("className", &["string"] as &[&str]),
-                ("value", &["number"] as &[&str]),
-                ("direction", &["string"] as &[&str]),
-                ("showValue", &["boolean"] as &[&str]),
-                ("invert", &["boolean"] as &[&str]),
-                ("label", &["string"] as &[&str]),
-                ("size", &["string"] as &[&str]),
-            ]
-            .into_iter()
-            .collect(),
-        ),
-        (
-            "typewriter-text",
-            [
-                ("text", &["string"] as &[&str]),
-                ("speed", &["number"] as &[&str]),
-                ("startDelay", &["number"] as &[&str]),
-                ("className", &["string"] as &[&str]),
-                ("onComplete", &["function"] as &[&str]),
-            ]
-            .into_iter()
-            .collect(),
-        ),
-        (
-            "typography",
-            [
-                ("variant", &["string"] as &[&str]),
-                ("level", &["number"] as &[&str]),
-                ("color", &["string"] as &[&str]),
-                ("align", &["string"] as &[&str]),
-                ("weight", &["string"] as &[&str]),
-                ("size", &["string"] as &[&str]),
-                ("truncate", &["boolean"] as &[&str]),
-                ("overflow", &["string"] as &[&str]),
-                ("as", &["component"] as &[&str]),
-                ("id", &["string"] as &[&str]),
-                ("className", &["string"] as &[&str]),
-                ("style", &["object"] as &[&str]),
-                ("format", &["string"] as &[&str]),
-                ("content", &["node"] as &[&str]),
-                ("children", &["node"] as &[&str]),
-            ]
-            .into_iter()
-            .collect(),
-        ),
-        (
-            "ui-slot-component",
-            [
-                ("slot", &["object"] as &[&str]),
-                ("portal", &["boolean"] as &[&str]),
-                ("position", &["string"] as &[&str]),
-                ("className", &["string"] as &[&str]),
-                ("draggable", &["boolean"] as &[&str]),
-                ("isLoading", &["boolean"] as &[&str]),
-                ("error", &["object"] as &[&str]),
-                ("entity", &["string"] as &[&str]),
-                ("children", &["node"] as &[&str]),
-                ("pattern", &["string"] as &[&str]),
-                ("sourceTrait", &["string"] as &[&str]),
-                ("fallback", &["node"] as &[&str]),
-                ("mode", &["string"] as &[&str]),
-            ]
-            .into_iter()
-            .collect(),
-        ),
-        (
-            "ui-slot-renderer",
-            [
-                ("includeHud", &["boolean"] as &[&str]),
-                ("hudMode", &["string"] as &[&str]),
-                ("includeFloating", &["boolean"] as &[&str]),
-                ("className", &["string"] as &[&str]),
-                ("isLoading", &["boolean"] as &[&str]),
-                ("error", &["object"] as &[&str]),
-                ("entity", &["string"] as &[&str]),
-                ("suspense", &["boolean", "object"] as &[&str]),
-            ]
-            .into_iter()
-            .collect(),
-        ),
-        (
-            "upload-drop-zone",
-            [
-                ("accept", &["string"] as &[&str]),
-                ("maxSize", &["number"] as &[&str]),
-                ("maxFiles", &["number"] as &[&str]),
-                ("label", &["string"] as &[&str]),
-                ("description", &["string"] as &[&str]),
-                ("icon", &["icon", "string"] as &[&str]),
-                ("disabled", &["boolean"] as &[&str]),
-                ("action", &["string"] as &[&str]),
-                ("actionPayload", &["object"] as &[&str]),
-                ("onFiles", &["function"] as &[&str]),
-                ("className", &["string"] as &[&str]),
-            ]
-            .into_iter()
-            .collect(),
-        ),
-        (
-            "version-diff",
-            [
-                ("revisions", &["array", "object"] as &[&str]),
-                ("beforeId", &["string"] as &[&str]),
-                ("afterId", &["string"] as &[&str]),
-                ("view", &["string"] as &[&str]),
-                ("onSelectBefore", &["function"] as &[&str]),
-                ("onSelectAfter", &["function"] as &[&str]),
-                ("onRevert", &["function"] as &[&str]),
-                ("selectBeforeEvent", &["string"] as &[&str]),
-                ("selectAfterEvent", &["string"] as &[&str]),
-                ("revertEvent", &["string"] as &[&str]),
-                ("language", &["string"] as &[&str]),
-                ("className", &["string"] as &[&str]),
-            ]
-            .into_iter()
-            .collect(),
-        ),
-        (
-            "violation-alert",
-            [
-                ("violation", &["object"] as &[&str]),
-                ("severity", &["string"] as &[&str]),
-                ("dismissible", &["boolean"] as &[&str]),
-                ("onDismiss", &["function"] as &[&str]),
-                ("onNavigateToField", &["function"] as &[&str]),
-                ("compact", &["boolean"] as &[&str]),
-                ("className", &["string"] as &[&str]),
-                ("message", &["string"] as &[&str]),
-            ]
-            .into_iter()
-            .collect(),
-        ),
-        (
-            "vote-stack",
-            [
-                ("count", &["number"] as &[&str]),
-                ("userVote", &["string"] as &[&str]),
-                ("onVote", &["function"] as &[&str]),
-                ("voteEvent", &["string"] as &[&str]),
-                ("disabled", &["boolean"] as &[&str]),
-                ("size", &["string"] as &[&str]),
-                ("variant", &["string"] as &[&str]),
-                ("className", &["string"] as &[&str]),
-                ("label", &["string"] as &[&str]),
-            ]
-            .into_iter()
-            .collect(),
-        ),
-        (
-            "vstack",
-            [
-                ("gap", &["string"] as &[&str]),
-                ("align", &["string"] as &[&str]),
-                ("justify", &["string"] as &[&str]),
-                ("wrap", &["boolean"] as &[&str]),
-                ("reverse", &["boolean"] as &[&str]),
-                ("flex", &["boolean"] as &[&str]),
-                ("className", &["string"] as &[&str]),
-                ("style", &["object"] as &[&str]),
-                ("children", &["node"] as &[&str]),
-                ("as", &["component"] as &[&str]),
-                ("onClick", &["function"] as &[&str]),
-                ("onKeyDown", &["function"] as &[&str]),
-                ("role", &["string"] as &[&str]),
-                ("tabIndex", &["number"] as &[&str]),
-                ("action", &["string"] as &[&str]),
-                ("actionPayload", &["object"] as &[&str]),
-                ("responsive", &["boolean"] as &[&str]),
-            ]
-            .into_iter()
-            .collect(),
-        ),
-        (
-            "wizard-container",
-            [
-                ("steps", &["array"] as &[&str]),
-                ("currentStep", &["number", "string"] as &[&str]),
-                ("onStepChange", &["function"] as &[&str]),
-                ("onComplete", &["function"] as &[&str]),
-                ("showProgress", &["boolean"] as &[&str]),
-                ("allowBack", &["boolean"] as &[&str]),
-                ("compact", &["boolean"] as &[&str]),
-                ("className", &["string"] as &[&str]),
-                ("isLoading", &["boolean"] as &[&str]),
-                ("error", &["object"] as &[&str]),
-                ("nextEvent", &["string"] as &[&str]),
-                ("backEvent", &["string"] as &[&str]),
-                ("completeEvent", &["string"] as &[&str]),
-            ]
-            .into_iter()
-            .collect(),
-        ),
-        (
-            "wizard-navigation",
-            [
-                ("currentStep", &["number"] as &[&str]),
-                ("totalSteps", &["number"] as &[&str]),
-                ("isValid", &["boolean"] as &[&str]),
-                ("showBack", &["boolean"] as &[&str]),
-                ("showNext", &["boolean"] as &[&str]),
-                ("showComplete", &["boolean"] as &[&str]),
-                ("backLabel", &["string"] as &[&str]),
-                ("nextLabel", &["string"] as &[&str]),
-                ("completeLabel", &["string"] as &[&str]),
-                ("onBack", &["string"] as &[&str]),
-                ("onNext", &["string"] as &[&str]),
-                ("onComplete", &["string"] as &[&str]),
-                ("onBackClick", &["function"] as &[&str]),
-                ("onNextClick", &["function"] as &[&str]),
-                ("onCompleteClick", &["function"] as &[&str]),
-                ("compact", &["boolean"] as &[&str]),
-                ("className", &["string"] as &[&str]),
-            ]
-            .into_iter()
-            .collect(),
-        ),
-        (
-            "wizard-progress",
-            [
-                ("steps", &["array"] as &[&str]),
-                ("currentStep", &["number"] as &[&str]),
-                ("onStepClick", &["function"] as &[&str]),
-                ("allowNavigation", &["boolean"] as &[&str]),
-                ("compact", &["boolean"] as &[&str]),
-                ("className", &["string"] as &[&str]),
-                ("stepClickEvent", &["string"] as &[&str]),
-            ]
-            .into_iter()
-            .collect(),
-        ),
-    ]
-    .into_iter()
-    .collect()
-});
+pub static PATTERN_PROP_TYPES: LazyLock<HashMap<&'static str, HashMap<&'static str, &'static [&'static str]>>> =
+    LazyLock::new(|| {
+        [
+            ("about-page-template", [("entity", &["object"] as &[&str]), ("className", &["string"] as &[&str])].into_iter().collect()),
+            (
+                "accordion",
+                [
+                    ("items", &["array"] as &[&str]),
+                    ("multiple", &["boolean"] as &[&str]),
+                    ("defaultOpenItems", &["array"] as &[&str]),
+                    ("defaultOpen", &["array"] as &[&str]),
+                    ("openItems", &["array"] as &[&str]),
+                    ("onItemToggle", &["function"] as &[&str]),
+                    ("className", &["string"] as &[&str]),
+                    ("toggleEvent", &["string"] as &[&str]),
+                ]
+                .into_iter()
+                .collect(),
+            ),
+            (
+                "action-palette",
+                [
+                    ("actions", &["array"] as &[&str]),
+                    ("usedActionIds", &["array"] as &[&str]),
+                    ("allowDuplicates", &["boolean"] as &[&str]),
+                    ("categoryColors", &["object"] as &[&str]),
+                    ("size", &["string"] as &[&str]),
+                    ("label", &["string"] as &[&str]),
+                    ("className", &["string"] as &[&str]),
+                ]
+                .into_iter()
+                .collect(),
+            ),
+            (
+                "action-tile",
+                [
+                    ("className", &["string"] as &[&str]),
+                    ("isLoading", &["boolean"] as &[&str]),
+                    ("error", &["object"] as &[&str]),
+                    ("sortBy", &["string"] as &[&str]),
+                    ("sortDirection", &["string"] as &[&str]),
+                    ("searchValue", &["string"] as &[&str]),
+                    ("page", &["number"] as &[&str]),
+                    ("pageSize", &["number"] as &[&str]),
+                    ("totalCount", &["number"] as &[&str]),
+                    ("activeFilters", &["object"] as &[&str]),
+                    ("selectedIds", &["array"] as &[&str]),
+                    ("action", &["object"] as &[&str]),
+                    ("size", &["string"] as &[&str]),
+                    ("disabled", &["boolean"] as &[&str]),
+                    ("categoryColors", &["object"] as &[&str]),
+                ]
+                .into_iter()
+                .collect(),
+            ),
+            (
+                "activation-block",
+                [
+                    ("question", &["string"] as &[&str]),
+                    ("savedResponse", &["string"] as &[&str]),
+                    ("saveEvent", &["string"] as &[&str]),
+                    ("className", &["string"] as &[&str]),
+                ]
+                .into_iter()
+                .collect(),
+            ),
+            (
+                "alert",
+                [
+                    ("children", &["node"] as &[&str]),
+                    ("message", &["string"] as &[&str]),
+                    ("variant", &["string"] as &[&str]),
+                    ("title", &["string"] as &[&str]),
+                    ("dismissible", &["boolean"] as &[&str]),
+                    ("onDismiss", &["function"] as &[&str]),
+                    ("onClose", &["function"] as &[&str]),
+                    ("actions", &["node"] as &[&str]),
+                    ("className", &["string"] as &[&str]),
+                    ("dismissEvent", &["string"] as &[&str]),
+                ]
+                .into_iter()
+                .collect(),
+            ),
+            (
+                "algo-graph-canvas",
+                [
+                    ("className", &["string"] as &[&str]),
+                    ("width", &["number"] as &[&str]),
+                    ("height", &["number"] as &[&str]),
+                    ("title", &["string"] as &[&str]),
+                    ("backgroundColor", &["string"] as &[&str]),
+                    ("nodes", &["array"] as &[&str]),
+                    ("edges", &["array"] as &[&str]),
+                    ("layout", &["string"] as &[&str]),
+                    ("root", &["string"] as &[&str]),
+                    ("shapes", &["array"] as &[&str]),
+                    ("interactive", &["boolean"] as &[&str]),
+                    ("animate", &["boolean"] as &[&str]),
+                    ("onShapeClick", &["function"] as &[&str]),
+                    ("onNodeClick", &["function"] as &[&str]),
+                    ("isLoading", &["boolean"] as &[&str]),
+                    ("error", &["object"] as &[&str]),
+                ]
+                .into_iter()
+                .collect(),
+            ),
+            (
+                "algorithm-canvas",
+                [
+                    ("className", &["string"] as &[&str]),
+                    ("width", &["number"] as &[&str]),
+                    ("height", &["number"] as &[&str]),
+                    ("title", &["string"] as &[&str]),
+                    ("backgroundColor", &["string"] as &[&str]),
+                    ("bars", &["array"] as &[&str]),
+                    ("cells", &["array"] as &[&str]),
+                    ("pointers", &["array"] as &[&str]),
+                    ("ranges", &["array"] as &[&str]),
+                    ("slots", &["array"] as &[&str]),
+                    ("slotOrientation", &["string"] as &[&str]),
+                    ("frames", &["array"] as &[&str]),
+                    ("buckets", &["array"] as &[&str]),
+                    ("auxBars", &["array"] as &[&str]),
+                    ("rowLabels", &["array"] as &[&str]),
+                    ("colLabels", &["array"] as &[&str]),
+                    ("shapes", &["array"] as &[&str]),
+                    ("interactive", &["boolean"] as &[&str]),
+                    ("animate", &["boolean"] as &[&str]),
+                    ("onShapeClick", &["function"] as &[&str]),
+                    ("isLoading", &["boolean"] as &[&str]),
+                    ("error", &["object"] as &[&str]),
+                ]
+                .into_iter()
+                .collect(),
+            ),
+            (
+                "animated-counter",
+                [
+                    ("value", &["number", "string"] as &[&str]),
+                    ("duration", &["number"] as &[&str]),
+                    ("prefix", &["string"] as &[&str]),
+                    ("suffix", &["string"] as &[&str]),
+                    ("format", &["string"] as &[&str]),
+                    ("className", &["string"] as &[&str]),
+                ]
+                .into_iter()
+                .collect(),
+            ),
+            (
+                "animated-graphic",
+                [
+                    ("className", &["string"] as &[&str]),
+                    ("src", &["asset"] as &[&str]),
+                    ("svgContent", &["string"] as &[&str]),
+                    ("animation", &["string"] as &[&str]),
+                    ("animate", &["boolean"] as &[&str]),
+                    ("duration", &["number"] as &[&str]),
+                    ("delay", &["number"] as &[&str]),
+                    ("easing", &["string"] as &[&str]),
+                    ("width", &["string", "number"] as &[&str]),
+                    ("height", &["string", "number"] as &[&str]),
+                    ("strokeColor", &["string"] as &[&str]),
+                    ("fillColor", &["string"] as &[&str]),
+                    ("alt", &["string"] as &[&str]),
+                ]
+                .into_iter()
+                .collect(),
+            ),
+            (
+                "animated-reveal",
+                [
+                    ("className", &["string"] as &[&str]),
+                    ("trigger", &["string"] as &[&str]),
+                    ("animation", &["string"] as &[&str]),
+                    ("duration", &["number"] as &[&str]),
+                    ("delay", &["number"] as &[&str]),
+                    ("threshold", &["number"] as &[&str]),
+                    ("once", &["boolean"] as &[&str]),
+                    ("animate", &["boolean"] as &[&str]),
+                    ("easing", &["string"] as &[&str]),
+                    ("children", &["node", "function"] as &[&str]),
+                ]
+                .into_iter()
+                .collect(),
+            ),
+            (
+                "article-section",
+                [
+                    ("title", &["string"] as &[&str]),
+                    ("children", &["node"] as &[&str]),
+                    ("maxWidth", &["string"] as &[&str]),
+                    ("className", &["string"] as &[&str]),
+                ]
+                .into_iter()
+                .collect(),
+            ),
+            ("aside", [("className", &["string"] as &[&str]), ("children", &["node"] as &[&str])].into_iter().collect()),
+            (
+                "atlas-image",
+                [
+                    ("asset", &["object"] as &[&str]),
+                    ("size", &["number"] as &[&str]),
+                    ("width", &["number"] as &[&str]),
+                    ("height", &["number"] as &[&str]),
+                    ("fill", &["boolean"] as &[&str]),
+                    ("fit", &["string"] as &[&str]),
+                    ("alt", &["string"] as &[&str]),
+                    ("className", &["string"] as &[&str]),
+                    ("style", &["object"] as &[&str]),
+                    ("aria-hidden", &["boolean"] as &[&str]),
+                ]
+                .into_iter()
+                .collect(),
+            ),
+            (
+                "atlas-panel",
+                [
+                    ("asset", &["object"] as &[&str]),
+                    ("borderSlice", &["number"] as &[&str]),
+                    ("borderWidth", &["number"] as &[&str]),
+                    ("mode", &["string"] as &[&str]),
+                    ("className", &["string"] as &[&str]),
+                    ("style", &["object"] as &[&str]),
+                    ("children", &["node"] as &[&str]),
+                    ("aria-hidden", &["boolean"] as &[&str]),
+                ]
+                .into_iter()
+                .collect(),
+            ),
+            (
+                "auth-layout",
+                [
+                    ("appName", &["string"] as &[&str]),
+                    ("logo", &["node"] as &[&str]),
+                    ("backgroundImage", &["asset"] as &[&str]),
+                    ("showBranding", &["boolean"] as &[&str]),
+                    ("brandingContent", &["node"] as &[&str]),
+                ]
+                .into_iter()
+                .collect(),
+            ),
+            (
+                "avatar",
+                [
+                    ("src", &["asset"] as &[&str]),
+                    ("alt", &["string"] as &[&str]),
+                    ("name", &["string"] as &[&str]),
+                    ("initials", &["string"] as &[&str]),
+                    ("icon", &["icon", "string"] as &[&str]),
+                    ("size", &["string"] as &[&str]),
+                    ("status", &["string"] as &[&str]),
+                    ("badge", &["string", "number"] as &[&str]),
+                    ("className", &["string"] as &[&str]),
+                    ("onClick", &["function"] as &[&str]),
+                    ("action", &["string"] as &[&str]),
+                    ("actionPayload", &["object"] as &[&str]),
+                ]
+                .into_iter()
+                .collect(),
+            ),
+            (
+                "badge",
+                [
+                    ("className", &["string"] as &[&str]),
+                    ("variant", &["string"] as &[&str]),
+                    ("size", &["string"] as &[&str]),
+                    ("amount", &["number"] as &[&str]),
+                    ("label", &["string", "number"] as &[&str]),
+                    ("icon", &["icon", "string"] as &[&str]),
+                    ("iconAsset", &["object"] as &[&str]),
+                    ("onRemove", &["function"] as &[&str]),
+                    ("removeLabel", &["string"] as &[&str]),
+                ]
+                .into_iter()
+                .collect(),
+            ),
+            ("behavior-view", [("data", &["object"] as &[&str])].into_iter().collect()),
+            (
+                "biology-canvas",
+                [
+                    ("className", &["string"] as &[&str]),
+                    ("width", &["number"] as &[&str]),
+                    ("height", &["number"] as &[&str]),
+                    ("title", &["string"] as &[&str]),
+                    ("backgroundColor", &["string"] as &[&str]),
+                    ("mode", &["string"] as &[&str]),
+                    ("camera", &["object"] as &[&str]),
+                    ("lighting", &["object"] as &[&str]),
+                    ("post", &["object"] as &[&str]),
+                    ("nodes", &["array"] as &[&str]),
+                    ("edges", &["array"] as &[&str]),
+                    ("compartments", &["array"] as &[&str]),
+                    ("bands", &["array"] as &[&str]),
+                    ("stages", &["array"] as &[&str]),
+                    ("stageStyle", &["string"] as &[&str]),
+                    ("helix", &["object"] as &[&str]),
+                    ("helix3d", &["object"] as &[&str]),
+                    ("shapes", &["array"] as &[&str]),
+                    ("readouts", &["array"] as &[&str]),
+                    ("traces", &["array"] as &[&str]),
+                    ("showGrid", &["boolean"] as &[&str]),
+                    ("shadows", &["boolean"] as &[&str]),
+                    ("interactive", &["boolean"] as &[&str]),
+                    ("animate", &["boolean"] as &[&str]),
+                    ("onShapeClick", &["function"] as &[&str]),
+                    ("isLoading", &["boolean"] as &[&str]),
+                    ("error", &["object"] as &[&str]),
+                ]
+                .into_iter()
+                .collect(),
+            ),
+            (
+                "bloom-quiz-block",
+                [
+                    ("level", &["string"] as &[&str]),
+                    ("question", &["string"] as &[&str]),
+                    ("answer", &["string"] as &[&str]),
+                    ("index", &["number"] as &[&str]),
+                    ("isAnswered", &["boolean"] as &[&str]),
+                    ("answerEvent", &["string"] as &[&str]),
+                    ("className", &["string"] as &[&str]),
+                ]
+                .into_iter()
+                .collect(),
+            ),
+            (
+                "book-chapter-view",
+                [
+                    ("className", &["string"] as &[&str]),
+                    ("chapter", &["object"] as &[&str]),
+                    ("orbitalSchema", &["object"] as &[&str]),
+                    ("direction", &["string"] as &[&str]),
+                ]
+                .into_iter()
+                .collect(),
+            ),
+            (
+                "book-cover-page",
+                [
+                    ("className", &["string"] as &[&str]),
+                    ("title", &["string"] as &[&str]),
+                    ("subtitle", &["string"] as &[&str]),
+                    ("author", &["string"] as &[&str]),
+                    ("coverImageUrl", &["asset"] as &[&str]),
+                    ("direction", &["string"] as &[&str]),
+                ]
+                .into_iter()
+                .collect(),
+            ),
+            (
+                "book-nav-bar",
+                [
+                    ("className", &["string"] as &[&str]),
+                    ("currentPage", &["number"] as &[&str]),
+                    ("totalPages", &["number"] as &[&str]),
+                    ("chapterTitle", &["string"] as &[&str]),
+                    ("direction", &["string"] as &[&str]),
+                ]
+                .into_iter()
+                .collect(),
+            ),
+            (
+                "book-table-of-contents",
+                [
+                    ("className", &["string"] as &[&str]),
+                    ("parts", &["object", "array"] as &[&str]),
+                    ("currentChapterId", &["string"] as &[&str]),
+                    ("direction", &["string"] as &[&str]),
+                ]
+                .into_iter()
+                .collect(),
+            ),
+            (
+                "book-viewer",
+                [
+                    ("className", &["string"] as &[&str]),
+                    ("isLoading", &["boolean"] as &[&str]),
+                    ("error", &["object"] as &[&str]),
+                    ("sortBy", &["string"] as &[&str]),
+                    ("sortDirection", &["string"] as &[&str]),
+                    ("searchValue", &["string"] as &[&str]),
+                    ("page", &["number"] as &[&str]),
+                    ("pageSize", &["number"] as &[&str]),
+                    ("totalCount", &["number"] as &[&str]),
+                    ("activeFilters", &["object"] as &[&str]),
+                    ("selectedIds", &["array"] as &[&str]),
+                    ("entity", &["object", "array"] as &[&str]),
+                    ("initialPage", &["number"] as &[&str]),
+                    ("fieldMap", &["object", "string"] as &[&str]),
+                ]
+                .into_iter()
+                .collect(),
+            ),
+            (
+                "box",
+                [
+                    ("className", &["string"] as &[&str]),
+                    ("data-theme", &["string"] as &[&str]),
+                    ("padding", &["string"] as &[&str]),
+                    ("paddingX", &["string"] as &[&str]),
+                    ("paddingY", &["string"] as &[&str]),
+                    ("margin", &["string"] as &[&str]),
+                    ("marginX", &["string"] as &[&str]),
+                    ("marginY", &["string"] as &[&str]),
+                    ("bg", &["string"] as &[&str]),
+                    ("border", &["boolean"] as &[&str]),
+                    ("rounded", &["string"] as &[&str]),
+                    ("shadow", &["string"] as &[&str]),
+                    ("display", &["string"] as &[&str]),
+                    ("fullWidth", &["boolean"] as &[&str]),
+                    ("fullHeight", &["boolean"] as &[&str]),
+                    ("overflow", &["string"] as &[&str]),
+                    ("position", &["string"] as &[&str]),
+                    ("as", &["component"] as &[&str]),
+                    ("action", &["string"] as &[&str]),
+                    ("actionPayload", &["object"] as &[&str]),
+                    ("hoverEvent", &["string"] as &[&str]),
+                    ("tapReveal", &["boolean"] as &[&str]),
+                    ("maxWidth", &["string"] as &[&str]),
+                    ("children", &["node"] as &[&str]),
+                ]
+                .into_iter()
+                .collect(),
+            ),
+            (
+                "branching-logic-builder",
+                [
+                    ("questions", &["array", "object"] as &[&str]),
+                    ("rules", &["array", "object"] as &[&str]),
+                    ("onRulesChange", &["function"] as &[&str]),
+                    ("rulesChangeEvent", &["string"] as &[&str]),
+                    ("readOnly", &["boolean"] as &[&str]),
+                    ("className", &["string"] as &[&str]),
+                ]
+                .into_iter()
+                .collect(),
+            ),
+            (
+                "breadcrumb",
+                [
+                    ("items", &["array"] as &[&str]),
+                    ("fromNavStack", &["boolean"] as &[&str]),
+                    ("itemEvent", &["string"] as &[&str]),
+                    ("separator", &["icon", "string"] as &[&str]),
+                    ("maxItems", &["number"] as &[&str]),
+                    ("className", &["string"] as &[&str]),
+                ]
+                .into_iter()
+                .collect(),
+            ),
+            (
+                "button",
+                [
+                    ("className", &["string"] as &[&str]),
+                    ("variant", &["string"] as &[&str]),
+                    ("size", &["string"] as &[&str]),
+                    ("isLoading", &["boolean"] as &[&str]),
+                    ("leftIcon", &["icon", "string"] as &[&str]),
+                    ("rightIcon", &["icon", "string"] as &[&str]),
+                    ("icon", &["icon", "string"] as &[&str]),
+                    ("iconRight", &["icon", "string"] as &[&str]),
+                    ("iconAsset", &["object"] as &[&str]),
+                    ("action", &["string"] as &[&str]),
+                    ("actionPayload", &["object"] as &[&str]),
+                    ("label", &["string"] as &[&str]),
+                    ("disabled", &["boolean"] as &[&str]),
+                    ("data-testid", &["string"] as &[&str]),
+                ]
+                .into_iter()
+                .collect(),
+            ),
+            (
+                "calendar-grid",
+                [
+                    ("weekStart", &["date"] as &[&str]),
+                    ("timeSlots", &["array"] as &[&str]),
+                    ("events", &["object", "array"] as &[&str]),
+                    ("onSlotClick", &["function"] as &[&str]),
+                    ("onDayClick", &["function"] as &[&str]),
+                    ("onEventClick", &["function"] as &[&str]),
+                    ("className", &["string"] as &[&str]),
+                    ("longPressEvent", &["string"] as &[&str]),
+                    ("longPressPayload", &["object"] as &[&str]),
+                    ("swipeLeftEvent", &["string"] as &[&str]),
+                    ("swipeRightEvent", &["string"] as &[&str]),
+                    ("dayWindow", &["number", "string"] as &[&str]),
+                    ("titleField", &["string"] as &[&str]),
+                    ("startField", &["string"] as &[&str]),
+                    ("endField", &["string"] as &[&str]),
+                    ("colorField", &["string"] as &[&str]),
+                    ("children", &["function"] as &[&str]),
+                    ("renderItem", &["function"] as &[&str]),
+                ]
+                .into_iter()
+                .collect(),
+            ),
+            (
+                "canvas",
+                [
+                    ("mode", &["string"] as &[&str]),
+                    ("drawables", &["array"] as &[&str]),
+                    ("camera", &["object"] as &[&str]),
+                    ("projection", &["string"] as &[&str]),
+                    ("className", &["string"] as &[&str]),
+                    ("isLoading", &["boolean"] as &[&str]),
+                    ("unitScale", &["number"] as &[&str]),
+                    ("showMinimap", &["boolean"] as &[&str]),
+                    ("fit", &["boolean"] as &[&str]),
+                    ("tileWidth", &["number"] as &[&str]),
+                    ("backgroundImage", &["asset", "object"] as &[&str]),
+                    ("backgroundColor", &["string"] as &[&str]),
+                    ("worldWidth", &["number"] as &[&str]),
+                    ("worldHeight", &["number"] as &[&str]),
+                    ("pixelsPerUnit", &["number"] as &[&str]),
+                    ("showGrid", &["boolean"] as &[&str]),
+                    ("shadows", &["boolean"] as &[&str]),
+                    ("showCoordinates", &["boolean"] as &[&str]),
+                    ("showTileInfo", &["boolean"] as &[&str]),
+                    ("fogOfWar", &["array"] as &[&str]),
+                    ("lighting", &["object"] as &[&str]),
+                    ("post", &["object"] as &[&str]),
+                    ("tileClickEvent", &["string"] as &[&str]),
+                    ("unitClickEvent", &["string"] as &[&str]),
+                    ("tileHoverEvent", &["string"] as &[&str]),
+                    ("tileLeaveEvent", &["string"] as &[&str]),
+                    ("featureClickEvent", &["string"] as &[&str]),
+                    ("keyMap", &["object"] as &[&str]),
+                    ("keyUpMap", &["object"] as &[&str]),
+                    ("editable", &["boolean"] as &[&str]),
+                    ("selectedId", &["string"] as &[&str]),
+                    ("onSelect", &["function"] as &[&str]),
+                    ("onMove", &["function"] as &[&str]),
+                    ("selectEvent", &["string"] as &[&str]),
+                    ("moveEvent", &["string"] as &[&str]),
+                    ("children", &["node"] as &[&str]),
+                ]
+                .into_iter()
+                .collect(),
+            ),
+            (
+                "canvas-2d",
+                [
+                    ("className", &["string"] as &[&str]),
+                    ("isLoading", &["boolean"] as &[&str]),
+                    ("error", &["object"] as &[&str]),
+                    ("projection", &["string"] as &[&str]),
+                    ("drawables", &["array"] as &[&str]),
+                    ("backgroundImage", &["asset", "object"] as &[&str]),
+                    ("tileClickEvent", &["string"] as &[&str]),
+                    ("unitClickEvent", &["string"] as &[&str]),
+                    ("tileHoverEvent", &["string"] as &[&str]),
+                    ("tileLeaveEvent", &["string"] as &[&str]),
+                    ("keyMap", &["object"] as &[&str]),
+                    ("keyUpMap", &["object"] as &[&str]),
+                    ("editable", &["boolean"] as &[&str]),
+                    ("selectedId", &["string"] as &[&str]),
+                    ("onSelect", &["function"] as &[&str]),
+                    ("onMove", &["function"] as &[&str]),
+                    ("selectEvent", &["string"] as &[&str]),
+                    ("moveEvent", &["string"] as &[&str]),
+                    ("camera", &["string"] as &[&str]),
+                    ("scale", &["number"] as &[&str]),
+                    ("tileWidth", &["number"] as &[&str]),
+                    ("fit", &["boolean"] as &[&str]),
+                    ("showMinimap", &["boolean"] as &[&str]),
+                    ("followTarget", &["object"] as &[&str]),
+                    ("cameraPos", &["object"] as &[&str]),
+                    ("bgColor", &["string"] as &[&str]),
+                    ("children", &["node"] as &[&str]),
+                ]
+                .into_iter()
+                .collect(),
+            ),
+            (
+                "card",
+                [
+                    ("className", &["string"] as &[&str]),
+                    ("variant", &["string"] as &[&str]),
+                    ("padding", &["string"] as &[&str]),
+                    ("title", &["string"] as &[&str]),
+                    ("subtitle", &["string"] as &[&str]),
+                    ("shadow", &["string"] as &[&str]),
+                    ("look", &["string"] as &[&str]),
+                    ("children", &["node"] as &[&str]),
+                    ("action", &["string"] as &[&str]),
+                    ("loading", &["boolean"] as &[&str]),
+                ]
+                .into_iter()
+                .collect(),
+            ),
+            (
+                "carousel",
+                [
+                    ("items", &["array"] as &[&str]),
+                    ("renderItem", &["function"] as &[&str]),
+                    ("children", &["function"] as &[&str]),
+                    ("autoPlay", &["boolean"] as &[&str]),
+                    ("autoPlayInterval", &["number"] as &[&str]),
+                    ("showDots", &["boolean"] as &[&str]),
+                    ("showArrows", &["boolean"] as &[&str]),
+                    ("loop", &["boolean"] as &[&str]),
+                    ("slideChangeEvent", &["string"] as &[&str]),
+                    ("slideChangePayload", &["object"] as &[&str]),
+                    ("className", &["string"] as &[&str]),
+                ]
+                .into_iter()
+                .collect(),
+            ),
+            (
+                "case-study-card",
+                [
+                    ("title", &["string"] as &[&str]),
+                    ("description", &["string"] as &[&str]),
+                    ("category", &["string"] as &[&str]),
+                    ("categoryColor", &["string"] as &[&str]),
+                    ("href", &["string"] as &[&str]),
+                    ("linkLabel", &["string"] as &[&str]),
+                    ("className", &["string"] as &[&str]),
+                ]
+                .into_iter()
+                .collect(),
+            ),
+            (
+                "case-study-organism",
+                [
+                    ("className", &["string"] as &[&str]),
+                    ("isLoading", &["boolean"] as &[&str]),
+                    ("error", &["object"] as &[&str]),
+                    ("sortBy", &["string"] as &[&str]),
+                    ("sortDirection", &["string"] as &[&str]),
+                    ("searchValue", &["string"] as &[&str]),
+                    ("page", &["number"] as &[&str]),
+                    ("pageSize", &["number"] as &[&str]),
+                    ("totalCount", &["number"] as &[&str]),
+                    ("activeFilters", &["object"] as &[&str]),
+                    ("selectedIds", &["array"] as &[&str]),
+                    ("entity", &["object", "array"] as &[&str]),
+                    ("heading", &["string"] as &[&str]),
+                    ("subtitle", &["string"] as &[&str]),
+                ]
+                .into_iter()
+                .collect(),
+            ),
+            (
+                "center",
+                [
+                    ("inline", &["boolean"] as &[&str]),
+                    ("horizontal", &["boolean"] as &[&str]),
+                    ("vertical", &["boolean"] as &[&str]),
+                    ("minHeight", &["string", "number"] as &[&str]),
+                    ("fullHeight", &["boolean"] as &[&str]),
+                    ("fullWidth", &["boolean"] as &[&str]),
+                    ("className", &["string"] as &[&str]),
+                    ("style", &["object"] as &[&str]),
+                    ("children", &["node"] as &[&str]),
+                    ("as", &["component"] as &[&str]),
+                ]
+                .into_iter()
+                .collect(),
+            ),
+            (
+                "chart",
+                [
+                    ("title", &["string"] as &[&str]),
+                    ("subtitle", &["string"] as &[&str]),
+                    ("chartType", &["string"] as &[&str]),
+                    ("look", &["string"] as &[&str]),
+                    ("series", &["array"] as &[&str]),
+                    ("data", &["array"] as &[&str]),
+                    ("scatterData", &["array"] as &[&str]),
+                    ("height", &["number"] as &[&str]),
+                    ("showLegend", &["boolean"] as &[&str]),
+                    ("showValues", &["boolean"] as &[&str]),
+                    ("stack", &["string"] as &[&str]),
+                    ("timeAxis", &["boolean"] as &[&str]),
+                    ("drillEvent", &["string"] as &[&str]),
+                    ("actions", &["array"] as &[&str]),
+                    ("isLoading", &["boolean"] as &[&str]),
+                    ("error", &["object"] as &[&str]),
+                    ("className", &["string"] as &[&str]),
+                ]
+                .into_iter()
+                .collect(),
+            ),
+            (
+                "chart-legend",
+                [
+                    ("items", &["array"] as &[&str]),
+                    ("className", &["string"] as &[&str]),
+                    ("direction", &["string"] as &[&str]),
+                ]
+                .into_iter()
+                .collect(),
+            ),
+            (
+                "chat-bar",
+                [
+                    ("className", &["string"] as &[&str]),
+                    ("isLoading", &["boolean"] as &[&str]),
+                    ("error", &["object"] as &[&str]),
+                    ("sortBy", &["string"] as &[&str]),
+                    ("sortDirection", &["string"] as &[&str]),
+                    ("searchValue", &["string"] as &[&str]),
+                    ("page", &["number"] as &[&str]),
+                    ("pageSize", &["number"] as &[&str]),
+                    ("totalCount", &["number"] as &[&str]),
+                    ("activeFilters", &["object"] as &[&str]),
+                    ("selectedIds", &["array"] as &[&str]),
+                    ("status", &["string"] as &[&str]),
+                    ("activeGate", &["string"] as &[&str]),
+                    ("jepaValidity", &["number"] as &[&str]),
+                    ("placeholder", &["string"] as &[&str]),
+                    ("context", &["string"] as &[&str]),
+                ]
+                .into_iter()
+                .collect(),
+            ),
+            (
+                "checkbox",
+                [
+                    ("className", &["string"] as &[&str]),
+                    ("checked", &["boolean"] as &[&str]),
+                    ("defaultChecked", &["boolean"] as &[&str]),
+                    ("label", &["string"] as &[&str]),
+                    ("onChange", &["function", "string"] as &[&str]),
+                ]
+                .into_iter()
+                .collect(),
+            ),
+            (
+                "chemistry-canvas",
+                [
+                    ("className", &["string"] as &[&str]),
+                    ("width", &["number"] as &[&str]),
+                    ("height", &["number"] as &[&str]),
+                    ("title", &["string"] as &[&str]),
+                    ("backgroundColor", &["string"] as &[&str]),
+                    ("mode", &["string"] as &[&str]),
+                    ("camera", &["object"] as &[&str]),
+                    ("lighting", &["object"] as &[&str]),
+                    ("post", &["object"] as &[&str]),
+                    ("atoms", &["array"] as &[&str]),
+                    ("bonds", &["array"] as &[&str]),
+                    ("arrows", &["array"] as &[&str]),
+                    ("bondStyle", &["string"] as &[&str]),
+                    ("containers", &["array"] as &[&str]),
+                    ("equation", &["string"] as &[&str]),
+                    ("equationColor", &["string"] as &[&str]),
+                    ("lattice3d", &["object"] as &[&str]),
+                    ("shapes", &["array"] as &[&str]),
+                    ("readouts", &["array"] as &[&str]),
+                    ("traces", &["array"] as &[&str]),
+                    ("showGrid", &["boolean"] as &[&str]),
+                    ("shadows", &["boolean"] as &[&str]),
+                    ("interactive", &["boolean"] as &[&str]),
+                    ("animate", &["boolean"] as &[&str]),
+                    ("onShapeClick", &["function"] as &[&str]),
+                    ("isLoading", &["boolean"] as &[&str]),
+                    ("error", &["object"] as &[&str]),
+                ]
+                .into_iter()
+                .collect(),
+            ),
+            (
+                "choice-button",
+                [
+                    ("text", &["string"] as &[&str]),
+                    ("index", &["number"] as &[&str]),
+                    ("assetUrl", &["object"] as &[&str]),
+                    ("icon", &["icon", "string"] as &[&str]),
+                    ("disabled", &["boolean"] as &[&str]),
+                    ("selected", &["boolean"] as &[&str]),
+                    ("onClick", &["function"] as &[&str]),
+                    ("action", &["string"] as &[&str]),
+                    ("payload", &["object"] as &[&str]),
+                    ("className", &["string"] as &[&str]),
+                ]
+                .into_iter()
+                .collect(),
+            ),
+            (
+                "code-block",
+                [
+                    ("code", &["string"] as &[&str]),
+                    ("language", &["string"] as &[&str]),
+                    ("showCopyButton", &["boolean"] as &[&str]),
+                    ("showLanguageBadge", &["boolean"] as &[&str]),
+                    ("maxHeight", &["string", "number"] as &[&str]),
+                    ("foldable", &["boolean"] as &[&str]),
+                    ("className", &["string"] as &[&str]),
+                    ("editable", &["boolean"] as &[&str]),
+                    ("onChange", &["function"] as &[&str]),
+                    ("errorLines", &["object"] as &[&str]),
+                    ("title", &["string"] as &[&str]),
+                    ("mode", &["string"] as &[&str]),
+                    ("diff", &["array"] as &[&str]),
+                    ("oldValue", &["string"] as &[&str]),
+                    ("newValue", &["string"] as &[&str]),
+                    ("showLineNumbers", &["boolean"] as &[&str]),
+                    ("wordWrap", &["boolean"] as &[&str]),
+                    ("files", &["array"] as &[&str]),
+                    ("naturalLanguages", &["array"] as &[&str]),
+                    ("actions", &["array"] as &[&str]),
+                    ("isLoading", &["boolean"] as &[&str]),
+                    ("error", &["object"] as &[&str]),
+                    ("showCopy", &["boolean"] as &[&str]),
+                    ("editorId", &["string"] as &[&str]),
+                    ("onEditorFocus", &["string"] as &[&str]),
+                    ("onEditorBlur", &["string"] as &[&str]),
+                    ("onMotion", &["string"] as &[&str]),
+                    ("onOperate", &["string"] as &[&str]),
+                    ("onInsertText", &["string"] as &[&str]),
+                    ("onSetMode", &["string"] as &[&str]),
+                    ("motions", &["array"] as &[&str]),
+                    ("operators", &["array"] as &[&str]),
+                ]
+                .into_iter()
+                .collect(),
+            ),
+            (
+                "code-runner-panel",
+                [
+                    ("code", &["string"] as &[&str]),
+                    ("language", &["string"] as &[&str]),
+                    ("runnable", &["boolean"] as &[&str]),
+                    ("onRun", &["function"] as &[&str]),
+                    ("runEvent", &["string"] as &[&str]),
+                    ("className", &["string"] as &[&str]),
+                ]
+                .into_iter()
+                .collect(),
+            ),
+            (
+                "command-palette",
+                [
+                    ("open", &["boolean"] as &[&str]),
+                    ("onOpenChange", &["function"] as &[&str]),
+                    ("commands", &["array"] as &[&str]),
+                    ("onSelect", &["function"] as &[&str]),
+                    ("placeholder", &["string"] as &[&str]),
+                    ("emptyLabel", &["string"] as &[&str]),
+                    ("className", &["string"] as &[&str]),
+                ]
+                .into_iter()
+                .collect(),
+            ),
+            (
+                "community-links",
+                [
+                    ("github", &["object"] as &[&str]),
+                    ("discord", &["object"] as &[&str]),
+                    ("twitter", &["object"] as &[&str]),
+                    ("heading", &["string"] as &[&str]),
+                    ("subtitle", &["string"] as &[&str]),
+                    ("className", &["string"] as &[&str]),
+                ]
+                .into_iter()
+                .collect(),
+            ),
+            (
+                "conditional-wrapper",
+                [
+                    ("condition", &["sexpr"] as &[&str]),
+                    ("context", &["object"] as &[&str]),
+                    ("children", &["node"] as &[&str]),
+                    ("fallback", &["node"] as &[&str]),
+                    ("animate", &["boolean"] as &[&str]),
+                ]
+                .into_iter()
+                .collect(),
+            ),
+            (
+                "confetti-effect",
+                [
+                    ("trigger", &["boolean"] as &[&str]),
+                    ("duration", &["number"] as &[&str]),
+                    ("particleCount", &["number"] as &[&str]),
+                    ("className", &["string"] as &[&str]),
+                ]
+                .into_iter()
+                .collect(),
+            ),
+            (
+                "confirm-dialog",
+                [
+                    ("isOpen", &["boolean"] as &[&str]),
+                    ("onClose", &["function"] as &[&str]),
+                    ("onConfirm", &["function"] as &[&str]),
+                    ("title", &["string"] as &[&str]),
+                    ("message", &["string", "node"] as &[&str]),
+                    ("description", &["string", "node"] as &[&str]),
+                    ("confirmText", &["string"] as &[&str]),
+                    ("confirmLabel", &["string"] as &[&str]),
+                    ("cancelText", &["string"] as &[&str]),
+                    ("cancelLabel", &["string"] as &[&str]),
+                    ("variant", &["string"] as &[&str]),
+                    ("size", &["string"] as &[&str]),
+                    ("isLoading", &["boolean"] as &[&str]),
+                    ("error", &["object"] as &[&str]),
+                    ("className", &["string"] as &[&str]),
+                ]
+                .into_iter()
+                .collect(),
+            ),
+            ("connection-block", [("content", &["string"] as &[&str]), ("className", &["string"] as &[&str])].into_iter().collect()),
+            (
+                "container",
+                [
+                    ("size", &["string"] as &[&str]),
+                    ("maxWidth", &["string"] as &[&str]),
+                    ("padding", &["string"] as &[&str]),
+                    ("center", &["boolean"] as &[&str]),
+                    ("className", &["string"] as &[&str]),
+                    ("children", &["node"] as &[&str]),
+                    ("as", &["component"] as &[&str]),
+                ]
+                .into_iter()
+                .collect(),
+            ),
+            (
+                "content-renderer",
+                [
+                    ("className", &["string"] as &[&str]),
+                    ("isLoading", &["boolean"] as &[&str]),
+                    ("error", &["object"] as &[&str]),
+                    ("sortBy", &["string"] as &[&str]),
+                    ("sortDirection", &["string"] as &[&str]),
+                    ("searchValue", &["string"] as &[&str]),
+                    ("page", &["number"] as &[&str]),
+                    ("pageSize", &["number"] as &[&str]),
+                    ("totalCount", &["number"] as &[&str]),
+                    ("activeFilters", &["object"] as &[&str]),
+                    ("selectedIds", &["array"] as &[&str]),
+                    ("content", &["string"] as &[&str]),
+                    ("segments", &["array"] as &[&str]),
+                    ("direction", &["string"] as &[&str]),
+                ]
+                .into_iter()
+                .collect(),
+            ),
+            (
+                "content-section",
+                [
+                    ("children", &["node"] as &[&str]),
+                    ("background", &["string"] as &[&str]),
+                    ("padding", &["string"] as &[&str]),
+                    ("id", &["string"] as &[&str]),
+                    ("className", &["string"] as &[&str]),
+                ]
+                .into_iter()
+                .collect(),
+            ),
+            (
+                "control-button",
+                [
+                    ("assetUrl", &["object"] as &[&str]),
+                    ("label", &["string"] as &[&str]),
+                    ("icon", &["icon", "string"] as &[&str]),
+                    ("size", &["string"] as &[&str]),
+                    ("shape", &["string"] as &[&str]),
+                    ("variant", &["string"] as &[&str]),
+                    ("onPress", &["function"] as &[&str]),
+                    ("onRelease", &["function"] as &[&str]),
+                    ("pressEvent", &["string"] as &[&str]),
+                    ("releaseEvent", &["string"] as &[&str]),
+                    ("pressed", &["boolean"] as &[&str]),
+                    ("disabled", &["boolean"] as &[&str]),
+                    ("className", &["string"] as &[&str]),
+                ]
+                .into_iter()
+                .collect(),
+            ),
+            (
+                "control-grid",
+                [
+                    ("kind", &["string"] as &[&str]),
+                    ("buttons", &["array"] as &[&str]),
+                    ("layout", &["string"] as &[&str]),
+                    ("includeDiagonals", &["boolean"] as &[&str]),
+                    ("onAction", &["function"] as &[&str]),
+                    ("actionEvent", &["string"] as &[&str]),
+                    ("onDirection", &["function"] as &[&str]),
+                    ("directionEvent", &["string"] as &[&str]),
+                    ("directionEvents", &["object"] as &[&str]),
+                    ("directionReleaseEvents", &["object"] as &[&str]),
+                    ("directionAssets", &["object"] as &[&str]),
+                    ("size", &["string"] as &[&str]),
+                    ("disabled", &["boolean"] as &[&str]),
+                    ("visibility", &["string"] as &[&str]),
+                    ("className", &["string"] as &[&str]),
+                ]
+                .into_iter()
+                .collect(),
+            ),
+            (
+                "counter-template",
+                [
+                    ("entity", &["object"] as &[&str]),
+                    ("className", &["string"] as &[&str]),
+                    ("onIncrement", &["function"] as &[&str]),
+                    ("onDecrement", &["function"] as &[&str]),
+                    ("onReset", &["function"] as &[&str]),
+                    ("incrementEvent", &["string"] as &[&str]),
+                    ("decrementEvent", &["string"] as &[&str]),
+                    ("resetEvent", &["string"] as &[&str]),
+                    ("title", &["string"] as &[&str]),
+                    ("showReset", &["boolean"] as &[&str]),
+                    ("size", &["string"] as &[&str]),
+                    ("variant", &["string"] as &[&str]),
+                ]
+                .into_iter()
+                .collect(),
+            ),
+            (
+                "cta-banner",
+                [
+                    ("title", &["string"] as &[&str]),
+                    ("subtitle", &["string"] as &[&str]),
+                    ("primaryAction", &["object"] as &[&str]),
+                    ("secondaryAction", &["object"] as &[&str]),
+                    ("background", &["string"] as &[&str]),
+                    ("align", &["string"] as &[&str]),
+                    ("className", &["string"] as &[&str]),
+                ]
+                .into_iter()
+                .collect(),
+            ),
+            (
+                "dashboard-grid",
+                [
+                    ("className", &["string"] as &[&str]),
+                    ("isLoading", &["boolean"] as &[&str]),
+                    ("error", &["object"] as &[&str]),
+                    ("sortBy", &["string"] as &[&str]),
+                    ("sortDirection", &["string"] as &[&str]),
+                    ("searchValue", &["string"] as &[&str]),
+                    ("page", &["number"] as &[&str]),
+                    ("pageSize", &["number"] as &[&str]),
+                    ("totalCount", &["number"] as &[&str]),
+                    ("activeFilters", &["object"] as &[&str]),
+                    ("selectedIds", &["array"] as &[&str]),
+                    ("columns", &["number"] as &[&str]),
+                    ("gap", &["string"] as &[&str]),
+                    ("cells", &["array"] as &[&str]),
+                ]
+                .into_iter()
+                .collect(),
+            ),
+            (
+                "dashboard-layout",
+                [
+                    ("appName", &["string"] as &[&str]),
+                    ("logo", &["node"] as &[&str]),
+                    ("navItems", &["array"] as &[&str]),
+                    ("user", &["object"] as &[&str]),
+                    ("headerActions", &["node"] as &[&str]),
+                    ("showSearch", &["boolean"] as &[&str]),
+                    ("searchEvent", &["string"] as &[&str]),
+                    ("onSearchSubmit", &["function"] as &[&str]),
+                    ("topBarActions", &["array"] as &[&str]),
+                    ("notifications", &["array"] as &[&str]),
+                    ("notificationClickEvent", &["string"] as &[&str]),
+                    ("onNotificationClick", &["function"] as &[&str]),
+                    ("showThemeToggle", &["boolean"] as &[&str]),
+                    ("sidebarFooter", &["node"] as &[&str]),
+                    ("sidebarContent", &["node"] as &[&str]),
+                    ("currentPath", &["string"] as &[&str]),
+                    ("onSignOut", &["function"] as &[&str]),
+                    ("layoutMode", &["string"] as &[&str]),
+                    ("children", &["node"] as &[&str]),
+                ]
+                .into_iter()
+                .collect(),
+            ),
+            (
+                "data-grid",
+                [
+                    ("dragGroup", &["string"] as &[&str]),
+                    ("accepts", &["string"] as &[&str]),
+                    ("sortable", &["boolean"] as &[&str]),
+                    ("dropEvent", &["string"] as &[&str]),
+                    ("reorderEvent", &["string"] as &[&str]),
+                    ("positionEvent", &["string"] as &[&str]),
+                    ("dndItemIdField", &["string"] as &[&str]),
+                    ("dndRoot", &["boolean"] as &[&str]),
+                    ("entity", &["object", "array"] as &[&str]),
+                    ("fields", &["array"] as &[&str]),
+                    ("columns", &["array"] as &[&str]),
+                    ("itemActions", &["array"] as &[&str]),
+                    ("maxInlineActions", &["number"] as &[&str]),
+                    ("scrollX", &["boolean"] as &[&str]),
+                    ("cols", &["number"] as &[&str]),
+                    ("gap", &["string"] as &[&str]),
+                    ("minCardWidth", &["number"] as &[&str]),
+                    ("className", &["string"] as &[&str]),
+                    ("isLoading", &["boolean"] as &[&str]),
+                    ("error", &["object"] as &[&str]),
+                    ("imageField", &["string"] as &[&str]),
+                    ("selectable", &["boolean"] as &[&str]),
+                    ("selectionEvent", &["string"] as &[&str]),
+                    ("infiniteScroll", &["boolean"] as &[&str]),
+                    ("loadMoreEvent", &["string"] as &[&str]),
+                    ("hasMore", &["boolean"] as &[&str]),
+                    ("children", &["function"] as &[&str]),
+                    ("renderItem", &["function"] as &[&str]),
+                    ("pageSize", &["number"] as &[&str]),
+                    ("look", &["string"] as &[&str]),
+                    ("relationsData", &["object"] as &[&str]),
+                ]
+                .into_iter()
+                .collect(),
+            ),
+            (
+                "data-list",
+                [
+                    ("dragGroup", &["string"] as &[&str]),
+                    ("accepts", &["string"] as &[&str]),
+                    ("sortable", &["boolean"] as &[&str]),
+                    ("dropEvent", &["string"] as &[&str]),
+                    ("reorderEvent", &["string"] as &[&str]),
+                    ("positionEvent", &["string"] as &[&str]),
+                    ("dndItemIdField", &["string"] as &[&str]),
+                    ("dndRoot", &["boolean"] as &[&str]),
+                    ("entity", &["object", "array"] as &[&str]),
+                    ("fields", &["array"] as &[&str]),
+                    ("columns", &["array"] as &[&str]),
+                    ("itemActions", &["array"] as &[&str]),
+                    ("maxInlineActions", &["number"] as &[&str]),
+                    ("itemClickEvent", &["string"] as &[&str]),
+                    ("gap", &["string"] as &[&str]),
+                    ("variant", &["string"] as &[&str]),
+                    ("groupBy", &["string"] as &[&str]),
+                    ("senderField", &["string"] as &[&str]),
+                    ("senderLabelField", &["string"] as &[&str]),
+                    ("currentUser", &["string"] as &[&str]),
+                    ("emptyMessage", &["string"] as &[&str]),
+                    ("className", &["string"] as &[&str]),
+                    ("isLoading", &["boolean"] as &[&str]),
+                    ("error", &["object"] as &[&str]),
+                    ("reorderable", &["boolean"] as &[&str]),
+                    ("swipeLeftEvent", &["string"] as &[&str]),
+                    ("swipeLeftActions", &["array"] as &[&str]),
+                    ("swipeRightEvent", &["string"] as &[&str]),
+                    ("swipeRightActions", &["array"] as &[&str]),
+                    ("longPressEvent", &["string"] as &[&str]),
+                    ("infiniteScroll", &["boolean"] as &[&str]),
+                    ("loadMoreEvent", &["string"] as &[&str]),
+                    ("hasMore", &["boolean"] as &[&str]),
+                    ("children", &["function"] as &[&str]),
+                    ("renderItem", &["function"] as &[&str]),
+                    ("pageSize", &["number"] as &[&str]),
+                    ("sortBy", &["string"] as &[&str]),
+                    ("sortDirection", &["string"] as &[&str]),
+                    ("look", &["string"] as &[&str]),
+                    ("relationsData", &["object"] as &[&str]),
+                ]
+                .into_iter()
+                .collect(),
+            ),
+            (
+                "date-range-picker",
+                [
+                    ("from", &["string"] as &[&str]),
+                    ("to", &["string"] as &[&str]),
+                    ("event", &["string"] as &[&str]),
+                    ("onChange", &["function"] as &[&str]),
+                    ("presets", &["array"] as &[&str]),
+                    ("fromLabel", &["string"] as &[&str]),
+                    ("toLabel", &["string"] as &[&str]),
+                    ("className", &["string"] as &[&str]),
+                ]
+                .into_iter()
+                .collect(),
+            ),
+            (
+                "date-range-selector",
+                [
+                    ("options", &["array"] as &[&str]),
+                    ("selected", &["string"] as &[&str]),
+                    ("onSelect", &["function"] as &[&str]),
+                    ("className", &["string"] as &[&str]),
+                ]
+                .into_iter()
+                .collect(),
+            ),
+            (
+                "day-cell",
+                [
+                    ("date", &["date"] as &[&str]),
+                    ("isToday", &["boolean"] as &[&str]),
+                    ("onClick", &["function"] as &[&str]),
+                    ("className", &["string"] as &[&str]),
+                ]
+                .into_iter()
+                .collect(),
+            ),
+            (
+                "detail-panel",
+                [
+                    ("className", &["string"] as &[&str]),
+                    ("isLoading", &["boolean"] as &[&str]),
+                    ("error", &["object"] as &[&str]),
+                    ("sortBy", &["string"] as &[&str]),
+                    ("sortDirection", &["string"] as &[&str]),
+                    ("searchValue", &["string"] as &[&str]),
+                    ("page", &["number"] as &[&str]),
+                    ("pageSize", &["number"] as &[&str]),
+                    ("totalCount", &["number"] as &[&str]),
+                    ("activeFilters", &["object"] as &[&str]),
+                    ("selectedIds", &["array"] as &[&str]),
+                    ("entity", &["object"] as &[&str]),
+                    ("title", &["string"] as &[&str]),
+                    ("onTitleCommit", &["function"] as &[&str]),
+                    ("subtitle", &["string"] as &[&str]),
+                    ("status", &["object"] as &[&str]),
+                    ("avatar", &["node"] as &[&str]),
+                    ("sections", &["array"] as &[&str]),
+                    ("actions", &["array"] as &[&str]),
+                    ("maxInlineActions", &["number"] as &[&str]),
+                    ("backAction", &["object"] as &[&str]),
+                    ("footer", &["node"] as &[&str]),
+                    ("slideOver", &["boolean"] as &[&str]),
+                    ("fields", &["array"] as &[&str]),
+                    ("fieldNames", &["array"] as &[&str]),
+                    ("initialData", &["object"] as &[&str]),
+                    ("mode", &["string"] as &[&str]),
+                    ("position", &["string"] as &[&str]),
+                    ("width", &["string"] as &[&str]),
+                    ("displayFields", &["array"] as &[&str]),
+                    ("showActions", &["boolean"] as &[&str]),
+                    ("relationsData", &["object"] as &[&str]),
+                ]
+                .into_iter()
+                .collect(),
+            ),
+            ("dialog", [("className", &["string"] as &[&str]), ("children", &["node"] as &[&str])].into_iter().collect()),
+            (
+                "dialogue-bubble",
+                [
+                    ("speaker", &["string"] as &[&str]),
+                    ("text", &["string"] as &[&str]),
+                    ("portrait", &["object"] as &[&str]),
+                    ("position", &["string"] as &[&str]),
+                    ("mood", &["string"] as &[&str]),
+                    ("revealedChars", &["number"] as &[&str]),
+                    ("className", &["string"] as &[&str]),
+                ]
+                .into_iter()
+                .collect(),
+            ),
+            (
+                "divider",
+                [
+                    ("orientation", &["string"] as &[&str]),
+                    ("label", &["string"] as &[&str]),
+                    ("variant", &["string"] as &[&str]),
+                    ("className", &["string"] as &[&str]),
+                ]
+                .into_iter()
+                .collect(),
+            ),
+            ("doc-breadcrumb", [("items", &["array"] as &[&str]), ("className", &["string"] as &[&str])].into_iter().collect()),
+            (
+                "doc-pagination",
+                [
+                    ("prev", &["object"] as &[&str]),
+                    ("next", &["object"] as &[&str]),
+                    ("className", &["string"] as &[&str]),
+                ]
+                .into_iter()
+                .collect(),
+            ),
+            (
+                "doc-search",
+                [
+                    ("placeholder", &["string"] as &[&str]),
+                    ("onSearch", &["function"] as &[&str]),
+                    ("className", &["string"] as &[&str]),
+                ]
+                .into_iter()
+                .collect(),
+            ),
+            ("doc-sidebar", [("items", &["array"] as &[&str]), ("className", &["string"] as &[&str])].into_iter().collect()),
+            (
+                "doc-toc",
+                [
+                    ("items", &["array"] as &[&str]),
+                    ("activeId", &["string"] as &[&str]),
+                    ("className", &["string"] as &[&str]),
+                ]
+                .into_iter()
+                .collect(),
+            ),
+            (
+                "dock-layout",
+                [
+                    ("rail", &["node"] as &[&str]),
+                    ("sidebar", &["node"] as &[&str]),
+                    ("main", &["node"] as &[&str]),
+                    ("bottomPanel", &["node"] as &[&str]),
+                    ("statusBar", &["node"] as &[&str]),
+                    ("secondarySidebar", &["node"] as &[&str]),
+                    ("railWidth", &["number"] as &[&str]),
+                    ("secondarySidebarWidth", &["number"] as &[&str]),
+                    ("sidebarCollapsed", &["boolean"] as &[&str]),
+                    ("onSidebarCollapsedChange", &["function"] as &[&str]),
+                    ("sidebarWidth", &["number"] as &[&str]),
+                    ("onSidebarWidthChange", &["function"] as &[&str]),
+                    ("sidebarMinSize", &["number"] as &[&str]),
+                    ("bottomPanelCollapsed", &["boolean"] as &[&str]),
+                    ("onBottomPanelCollapsedChange", &["function"] as &[&str]),
+                    ("bottomPanelHeight", &["number"] as &[&str]),
+                    ("onBottomPanelHeightChange", &["function"] as &[&str]),
+                    ("bottomPanelMinSize", &["number"] as &[&str]),
+                    ("secondarySidebarCollapsed", &["boolean"] as &[&str]),
+                    ("onSecondarySidebarCollapsedChange", &["function"] as &[&str]),
+                    ("className", &["string"] as &[&str]),
+                    ("railClassName", &["string"] as &[&str]),
+                    ("sidebarClassName", &["string"] as &[&str]),
+                    ("mainClassName", &["string"] as &[&str]),
+                    ("bottomPanelClassName", &["string"] as &[&str]),
+                    ("statusBarClassName", &["string"] as &[&str]),
+                    ("secondarySidebarClassName", &["string"] as &[&str]),
+                ]
+                .into_iter()
+                .collect(),
+            ),
+            (
+                "document-details",
+                [
+                    ("entity", &["object"] as &[&str]),
+                    ("fields", &["array"] as &[&str]),
+                    ("metaCommitEvent", &["string"] as &[&str]),
+                    ("relationEvent", &["string"] as &[&str]),
+                    ("title", &["string"] as &[&str]),
+                    ("className", &["string"] as &[&str]),
+                ]
+                .into_iter()
+                .collect(),
+            ),
+            (
+                "document-panel",
+                [
+                    ("id", &["string"] as &[&str]),
+                    ("title", &["string"] as &[&str]),
+                    ("subtitle", &["string"] as &[&str]),
+                    ("coverImage", &["string"] as &[&str]),
+                    ("icon", &["icon", "string"] as &[&str]),
+                    ("value", &["string"] as &[&str]),
+                    ("actions", &["array"] as &[&str]),
+                    ("maxInlineActions", &["number"] as &[&str]),
+                    ("editing", &["boolean"] as &[&str]),
+                    ("titleCommitEvent", &["string"] as &[&str]),
+                    ("contentChangeEvent", &["string"] as &[&str]),
+                    ("editEvent", &["string"] as &[&str]),
+                    ("doneEvent", &["string"] as &[&str]),
+                    ("editLabel", &["string"] as &[&str]),
+                    ("doneLabel", &["string"] as &[&str]),
+                    ("autosaveHint", &["string"] as &[&str]),
+                    ("placeholder", &["string"] as &[&str]),
+                    ("className", &["string"] as &[&str]),
+                ]
+                .into_iter()
+                .collect(),
+            ),
+            (
+                "document-viewer",
+                [
+                    ("title", &["string"] as &[&str]),
+                    ("src", &["asset"] as &[&str]),
+                    ("content", &["string"] as &[&str]),
+                    ("documentType", &["string"] as &[&str]),
+                    ("currentPage", &["number"] as &[&str]),
+                    ("totalPages", &["number"] as &[&str]),
+                    ("height", &["number", "string"] as &[&str]),
+                    ("showToolbar", &["boolean"] as &[&str]),
+                    ("showDownload", &["boolean"] as &[&str]),
+                    ("showPrint", &["boolean"] as &[&str]),
+                    ("actions", &["array"] as &[&str]),
+                    ("documents", &["array"] as &[&str]),
+                    ("isLoading", &["boolean"] as &[&str]),
+                    ("error", &["object"] as &[&str]),
+                    ("className", &["string"] as &[&str]),
+                ]
+                .into_iter()
+                .collect(),
+            ),
+            (
+                "draw-fx-layer",
+                [
+                    ("id", &["string"] as &[&str]),
+                    ("type", &["string"] as &[&str]),
+                    ("items", &["array"] as &[&str]),
+                    ("presets", &["array"] as &[&str]),
+                    ("art", &["object"] as &[&str]),
+                    ("sprites", &["object"] as &[&str]),
+                    ("tickMs", &["number"] as &[&str]),
+                    ("textColor", &["string"] as &[&str]),
+                ]
+                .into_iter()
+                .collect(),
+            ),
+            (
+                "draw-group",
+                [
+                    ("id", &["string"] as &[&str]),
+                    ("type", &["string"] as &[&str]),
+                    ("position", &["object"] as &[&str]),
+                    ("scale", &["number"] as &[&str]),
+                    ("rotate", &["number"] as &[&str]),
+                    ("rotation", &["array"] as &[&str]),
+                    ("bone", &["string"] as &[&str]),
+                    ("skeleton", &["boolean"] as &[&str]),
+                    ("animation", &["object"] as &[&str]),
+                    ("opacity", &["number"] as &[&str]),
+                    ("clip", &["string"] as &[&str]),
+                    ("items", &["array"] as &[&str]),
+                ]
+                .into_iter()
+                .collect(),
+            ),
+            (
+                "draw-mesh",
+                [
+                    ("id", &["string"] as &[&str]),
+                    ("type", &["string"] as &[&str]),
+                    ("shape", &["string"] as &[&str]),
+                    ("position", &["object"] as &[&str]),
+                    ("width", &["number"] as &[&str]),
+                    ("height", &["number"] as &[&str]),
+                    ("depth", &["number"] as &[&str]),
+                    ("radius", &["number"] as &[&str]),
+                    ("radiusTop", &["number"] as &[&str]),
+                    ("radiusBottom", &["number"] as &[&str]),
+                    ("tube", &["number"] as &[&str]),
+                    ("segments", &["number"] as &[&str]),
+                    ("vertices", &["array"] as &[&str]),
+                    ("faces", &["array"] as &[&str]),
+                    ("uvs", &["array"] as &[&str]),
+                    ("skin", &["object"] as &[&str]),
+                    ("rotation", &["array"] as &[&str]),
+                    ("pivot", &["string"] as &[&str]),
+                    ("material", &["object"] as &[&str]),
+                    ("outline", &["object"] as &[&str]),
+                    ("castShadow", &["boolean"] as &[&str]),
+                    ("receiveShadow", &["boolean"] as &[&str]),
+                    ("animation", &["object"] as &[&str]),
+                    ("opacity", &["number"] as &[&str]),
+                ]
+                .into_iter()
+                .collect(),
+            ),
+            (
+                "draw-shape",
+                [
+                    ("id", &["string"] as &[&str]),
+                    ("type", &["string"] as &[&str]),
+                    ("shape", &["string"] as &[&str]),
+                    ("position", &["object"] as &[&str]),
+                    ("anchor", &["string"] as &[&str]),
+                    ("width", &["number"] as &[&str]),
+                    ("height", &["number"] as &[&str]),
+                    ("radiusX", &["number"] as &[&str]),
+                    ("radiusY", &["number"] as &[&str]),
+                    ("offsetX", &["number"] as &[&str]),
+                    ("offsetY", &["number"] as &[&str]),
+                    ("points", &["array"] as &[&str]),
+                    ("d", &["string"] as &[&str]),
+                    ("fill", &["string"] as &[&str]),
+                    ("gradient", &["object"] as &[&str]),
+                    ("fillPattern", &["object"] as &[&str]),
+                    ("stroke", &["string"] as &[&str]),
+                    ("strokeWidth", &["number"] as &[&str]),
+                    ("strokeGradient", &["object"] as &[&str]),
+                    ("strokeDash", &["array"] as &[&str]),
+                    ("strokeDashOffset", &["number"] as &[&str]),
+                    ("blendMode", &["string"] as &[&str]),
+                    ("blur", &["number"] as &[&str]),
+                    ("rotate", &["number"] as &[&str]),
+                    ("pivot", &["object"] as &[&str]),
+                    ("shadow", &["object"] as &[&str]),
+                    ("animation", &["object"] as &[&str]),
+                    ("opacity", &["number"] as &[&str]),
+                ]
+                .into_iter()
+                .collect(),
+            ),
+            ("draw-shape-layer", [("id", &["string"] as &[&str]), ("type", &["string"] as &[&str]), ("items", &["array"] as &[&str])].into_iter().collect()),
+            (
+                "draw-skinned-mesh",
+                [
+                    ("id", &["string"] as &[&str]),
+                    ("type", &["string"] as &[&str]),
+                    ("position", &["object"] as &[&str]),
+                    ("asset", &["object"] as &[&str]),
+                    ("mesh", &["object"] as &[&str]),
+                    ("meshUrl", &["string"] as &[&str]),
+                    ("bones", &["array"] as &[&str]),
+                    ("pose", &["object"] as &[&str]),
+                    ("clip", &["object"] as &[&str]),
+                    ("clipName", &["string"] as &[&str]),
+                    ("frame", &["number"] as &[&str]),
+                    ("opacity", &["number"] as &[&str]),
+                    ("weightsOverlay", &["boolean"] as &[&str]),
+                    ("ghost", &["object"] as &[&str]),
+                ]
+                .into_iter()
+                .collect(),
+            ),
+            (
+                "draw-sprite",
+                [
+                    ("id", &["string"] as &[&str]),
+                    ("type", &["string"] as &[&str]),
+                    ("position", &["object"] as &[&str]),
+                    ("asset", &["object"] as &[&str]),
+                    ("anchor", &["string"] as &[&str]),
+                    ("width", &["number"] as &[&str]),
+                    ("height", &["number"] as &[&str]),
+                    ("frame", &["object"] as &[&str]),
+                    ("animation", &["string"] as &[&str]),
+                    ("loop", &["boolean"] as &[&str]),
+                    ("clockMs", &["number"] as &[&str]),
+                    ("flipX", &["boolean"] as &[&str]),
+                    ("rotation", &["number"] as &[&str]),
+                    ("opacity", &["number"] as &[&str]),
+                    ("shadow", &["object"] as &[&str]),
+                ]
+                .into_iter()
+                .collect(),
+            ),
+            ("draw-sprite-layer", [("id", &["string"] as &[&str]), ("type", &["string"] as &[&str]), ("items", &["array"] as &[&str])].into_iter().collect()),
+            (
+                "draw-text",
+                [
+                    ("id", &["string"] as &[&str]),
+                    ("type", &["string"] as &[&str]),
+                    ("text", &["string"] as &[&str]),
+                    ("position", &["object"] as &[&str]),
+                    ("anchor", &["string"] as &[&str]),
+                    ("offsetX", &["number"] as &[&str]),
+                    ("offsetY", &["number"] as &[&str]),
+                    ("color", &["string"] as &[&str]),
+                    ("font", &["string"] as &[&str]),
+                    ("align", &["string"] as &[&str]),
+                    ("baseline", &["string"] as &[&str]),
+                    ("opacity", &["number"] as &[&str]),
+                ]
+                .into_iter()
+                .collect(),
+            ),
+            ("draw-text-layer", [("id", &["string"] as &[&str]), ("type", &["string"] as &[&str]), ("items", &["array"] as &[&str])].into_iter().collect()),
+            (
+                "drawer",
+                [
+                    ("isOpen", &["boolean"] as &[&str]),
+                    ("onClose", &["function"] as &[&str]),
+                    ("title", &["node"] as &[&str]),
+                    ("children", &["node"] as &[&str]),
+                    ("footer", &["node"] as &[&str]),
+                    ("position", &["string"] as &[&str]),
+                    ("width", &["string"] as &[&str]),
+                    ("showCloseButton", &["boolean"] as &[&str]),
+                    ("closeOnOverlayClick", &["boolean"] as &[&str]),
+                    ("closeOnEscape", &["boolean"] as &[&str]),
+                    ("className", &["string"] as &[&str]),
+                    ("closeEvent", &["string"] as &[&str]),
+                ]
+                .into_iter()
+                .collect(),
+            ),
+            (
+                "drawer-slot",
+                [
+                    ("children", &["node"] as &[&str]),
+                    ("title", &["string"] as &[&str]),
+                    ("position", &["string"] as &[&str]),
+                    ("size", &["string"] as &[&str]),
+                    ("className", &["string"] as &[&str]),
+                    ("isLoading", &["boolean"] as &[&str]),
+                    ("error", &["object"] as &[&str]),
+                    ("entity", &["string"] as &[&str]),
+                    ("sourceTrait", &["string"] as &[&str]),
+                ]
+                .into_iter()
+                .collect(),
+            ),
+            (
+                "edge-decoration",
+                [
+                    ("variant", &["string"] as &[&str]),
+                    ("side", &["string"] as &[&str]),
+                    ("opacity", &["number"] as &[&str]),
+                    ("color", &["string"] as &[&str]),
+                    ("strokeWidth", &["number"] as &[&str]),
+                    ("width", &["number"] as &[&str]),
+                    ("className", &["string"] as &[&str]),
+                ]
+                .into_iter()
+                .collect(),
+            ),
+            (
+                "emoji-picker",
+                [
+                    ("pickEvent", &["string"] as &[&str]),
+                    ("position", &["string"] as &[&str]),
+                    ("triggerIcon", &["icon", "string"] as &[&str]),
+                    ("triggerLabel", &["string"] as &[&str]),
+                    ("className", &["string"] as &[&str]),
+                ]
+                .into_iter()
+                .collect(),
+            ),
+            (
+                "empty-state",
+                [
+                    ("icon", &["icon", "string"] as &[&str]),
+                    ("title", &["string"] as &[&str]),
+                    ("message", &["string"] as &[&str]),
+                    ("description", &["string"] as &[&str]),
+                    ("actionLabel", &["string"] as &[&str]),
+                    ("onAction", &["function"] as &[&str]),
+                    ("className", &["string"] as &[&str]),
+                    ("destructive", &["boolean"] as &[&str]),
+                    ("variant", &["string"] as &[&str]),
+                    ("actionEvent", &["string"] as &[&str]),
+                    ("look", &["string"] as &[&str]),
+                ]
+                .into_iter()
+                .collect(),
+            ),
+            (
+                "entity-cards",
+                [
+                    ("className", &["string"] as &[&str]),
+                    ("isLoading", &["boolean"] as &[&str]),
+                    ("error", &["object"] as &[&str]),
+                    ("sortBy", &["string"] as &[&str]),
+                    ("sortDirection", &["string"] as &[&str]),
+                    ("searchValue", &["string"] as &[&str]),
+                    ("page", &["number"] as &[&str]),
+                    ("pageSize", &["number"] as &[&str]),
+                    ("totalCount", &["number"] as &[&str]),
+                    ("activeFilters", &["object"] as &[&str]),
+                    ("selectedIds", &["array"] as &[&str]),
+                    ("entity", &["object", "array"] as &[&str]),
+                    ("minCardWidth", &["number"] as &[&str]),
+                    ("maxCols", &["number"] as &[&str]),
+                    ("gap", &["string"] as &[&str]),
+                    ("alignItems", &["string"] as &[&str]),
+                    ("children", &["node"] as &[&str]),
+                    ("fields", &["array"] as &[&str]),
+                    ("fieldNames", &["array"] as &[&str]),
+                    ("columns", &["array"] as &[&str]),
+                    ("itemActions", &["array"] as &[&str]),
+                    ("showTotal", &["boolean"] as &[&str]),
+                    ("showAvatar", &["boolean"] as &[&str]),
+                    ("variant", &["string"] as &[&str]),
+                    ("imageField", &["string"] as &[&str]),
+                ]
+                .into_iter()
+                .collect(),
+            ),
+            (
+                "entity-list",
+                [
+                    ("className", &["string"] as &[&str]),
+                    ("isLoading", &["boolean"] as &[&str]),
+                    ("error", &["object"] as &[&str]),
+                    ("sortBy", &["string"] as &[&str]),
+                    ("sortDirection", &["string"] as &[&str]),
+                    ("searchValue", &["string"] as &[&str]),
+                    ("page", &["number"] as &[&str]),
+                    ("pageSize", &["number"] as &[&str]),
+                    ("totalCount", &["number"] as &[&str]),
+                    ("activeFilters", &["object"] as &[&str]),
+                    ("selectedIds", &["array"] as &[&str]),
+                    ("entity", &["object", "array"] as &[&str]),
+                    ("entityType", &["string"] as &[&str]),
+                    ("selectable", &["boolean"] as &[&str]),
+                    ("itemActions", &["function", "array"] as &[&str]),
+                    ("showDividers", &["boolean"] as &[&str]),
+                    ("variant", &["string"] as &[&str]),
+                    ("emptyMessage", &["string"] as &[&str]),
+                    ("renderItem", &["function"] as &[&str]),
+                    ("children", &["node"] as &[&str]),
+                    ("fields", &["array"] as &[&str]),
+                    ("fieldNames", &["array"] as &[&str]),
+                ]
+                .into_iter()
+                .collect(),
+            ),
+            (
+                "entity-table",
+                [
+                    ("className", &["string"] as &[&str]),
+                    ("isLoading", &["boolean"] as &[&str]),
+                    ("error", &["object"] as &[&str]),
+                    ("sortBy", &["string"] as &[&str]),
+                    ("sortDirection", &["string"] as &[&str]),
+                    ("searchValue", &["string"] as &[&str]),
+                    ("page", &["number"] as &[&str]),
+                    ("pageSize", &["number"] as &[&str]),
+                    ("totalCount", &["number"] as &[&str]),
+                    ("activeFilters", &["object"] as &[&str]),
+                    ("selectedIds", &["array"] as &[&str]),
+                    ("entity", &["object", "array"] as &[&str]),
+                    ("fields", &["array"] as &[&str]),
+                    ("columns", &["array"] as &[&str]),
+                    ("itemActions", &["array"] as &[&str]),
+                    ("emptyIcon", &["icon", "string"] as &[&str]),
+                    ("emptyTitle", &["string"] as &[&str]),
+                    ("emptyDescription", &["string"] as &[&str]),
+                    ("emptyAction", &["object"] as &[&str]),
+                    ("selectable", &["boolean"] as &[&str]),
+                    ("searchable", &["boolean"] as &[&str]),
+                    ("searchPlaceholder", &["string"] as &[&str]),
+                    ("rowActions", &["array"] as &[&str]),
+                    ("bulkActions", &["array"] as &[&str]),
+                    ("headerActions", &["node"] as &[&str]),
+                    ("showTotal", &["boolean"] as &[&str]),
+                    ("look", &["string"] as &[&str]),
+                    ("relationsData", &["object"] as &[&str]),
+                ]
+                .into_iter()
+                .collect(),
+            ),
+            (
+                "error-boundary",
+                [
+                    ("children", &["node"] as &[&str]),
+                    ("fallback", &["node", "function"] as &[&str]),
+                    ("className", &["string"] as &[&str]),
+                    ("onError", &["function"] as &[&str]),
+                ]
+                .into_iter()
+                .collect(),
+            ),
+            (
+                "error-state",
+                [
+                    ("title", &["string"] as &[&str]),
+                    ("message", &["string"] as &[&str]),
+                    ("description", &["string"] as &[&str]),
+                    ("onRetry", &["function"] as &[&str]),
+                    ("className", &["string"] as &[&str]),
+                    ("retryEvent", &["string"] as &[&str]),
+                ]
+                .into_iter()
+                .collect(),
+            ),
+            (
+                "feature-card",
+                [
+                    ("icon", &["icon", "string"] as &[&str]),
+                    ("title", &["string"] as &[&str]),
+                    ("description", &["string"] as &[&str]),
+                    ("href", &["string"] as &[&str]),
+                    ("linkLabel", &["string"] as &[&str]),
+                    ("variant", &["string"] as &[&str]),
+                    ("size", &["string"] as &[&str]),
+                    ("className", &["string"] as &[&str]),
+                ]
+                .into_iter()
+                .collect(),
+            ),
+            ("feature-detail-page-template", [("entity", &["object"] as &[&str]), ("className", &["string"] as &[&str])].into_iter().collect()),
+            (
+                "feature-grid",
+                [
+                    ("items", &["array"] as &[&str]),
+                    ("columns", &["number"] as &[&str]),
+                    ("gap", &["string"] as &[&str]),
+                    ("className", &["string"] as &[&str]),
+                ]
+                .into_iter()
+                .collect(),
+            ),
+            (
+                "feature-grid-organism",
+                [
+                    ("className", &["string"] as &[&str]),
+                    ("isLoading", &["boolean"] as &[&str]),
+                    ("error", &["object"] as &[&str]),
+                    ("sortBy", &["string"] as &[&str]),
+                    ("sortDirection", &["string"] as &[&str]),
+                    ("searchValue", &["string"] as &[&str]),
+                    ("page", &["number"] as &[&str]),
+                    ("pageSize", &["number"] as &[&str]),
+                    ("totalCount", &["number"] as &[&str]),
+                    ("activeFilters", &["object"] as &[&str]),
+                    ("selectedIds", &["array"] as &[&str]),
+                    ("entity", &["object", "array"] as &[&str]),
+                    ("columns", &["number"] as &[&str]),
+                    ("heading", &["string"] as &[&str]),
+                    ("subtitle", &["string"] as &[&str]),
+                ]
+                .into_iter()
+                .collect(),
+            ),
+            (
+                "file-tree",
+                [
+                    ("tree", &["array"] as &[&str]),
+                    ("items", &["array"] as &[&str]),
+                    ("selectedPath", &["string"] as &[&str]),
+                    ("selectedId", &["string"] as &[&str]),
+                    ("look", &["string"] as &[&str]),
+                    ("onFileSelect", &["function"] as &[&str]),
+                    ("onNodeSelect", &["function"] as &[&str]),
+                    ("onNodeAction", &["function"] as &[&str]),
+                    ("nodeActionIcon", &["string"] as &[&str]),
+                    ("nodeActionLabel", &["string"] as &[&str]),
+                    ("onNodeReorder", &["function"] as &[&str]),
+                    ("className", &["string"] as &[&str]),
+                    ("indent", &["number"] as &[&str]),
+                ]
+                .into_iter()
+                .collect(),
+            ),
+            (
+                "filter-group",
+                [
+                    ("entity", &["string"] as &[&str]),
+                    ("filters", &["array"] as &[&str]),
+                    ("onFilterChange", &["function"] as &[&str]),
+                    ("onClearAll", &["function"] as &[&str]),
+                    ("className", &["string"] as &[&str]),
+                    ("variant", &["string"] as &[&str]),
+                    ("showIcon", &["boolean"] as &[&str]),
+                    ("query", &["string"] as &[&str]),
+                    ("isLoading", &["boolean"] as &[&str]),
+                    ("look", &["string"] as &[&str]),
+                    ("event", &["string"] as &[&str]),
+                    ("clearEvent", &["string"] as &[&str]),
+                ]
+                .into_iter()
+                .collect(),
+            ),
+            (
+                "filter-pill",
+                [
+                    ("className", &["string"] as &[&str]),
+                    ("variant", &["string"] as &[&str]),
+                    ("size", &["string"] as &[&str]),
+                    ("label", &["string", "number"] as &[&str]),
+                    ("icon", &["icon", "string"] as &[&str]),
+                    ("onRemove", &["function"] as &[&str]),
+                    ("removable", &["boolean"] as &[&str]),
+                    ("onClick", &["function"] as &[&str]),
+                    ("clickEvent", &["string"] as &[&str]),
+                    ("removeEvent", &["string"] as &[&str]),
+                ]
+                .into_iter()
+                .collect(),
+            ),
+            (
+                "flex",
+                [
+                    ("direction", &["string"] as &[&str]),
+                    ("wrap", &["string"] as &[&str]),
+                    ("align", &["string"] as &[&str]),
+                    ("justify", &["string"] as &[&str]),
+                    ("gap", &["string"] as &[&str]),
+                    ("inline", &["boolean"] as &[&str]),
+                    ("grow", &["boolean", "number"] as &[&str]),
+                    ("shrink", &["boolean", "number"] as &[&str]),
+                    ("basis", &["string", "number"] as &[&str]),
+                    ("className", &["string"] as &[&str]),
+                    ("children", &["node"] as &[&str]),
+                    ("as", &["component"] as &[&str]),
+                ]
+                .into_iter()
+                .collect(),
+            ),
+            (
+                "flip-card",
+                [
+                    ("front", &["node"] as &[&str]),
+                    ("back", &["node"] as &[&str]),
+                    ("flipped", &["boolean"] as &[&str]),
+                    ("onFlip", &["function"] as &[&str]),
+                    ("className", &["string"] as &[&str]),
+                    ("height", &["string"] as &[&str]),
+                ]
+                .into_iter()
+                .collect(),
+            ),
+            (
+                "flip-container",
+                [
+                    ("flipped", &["boolean"] as &[&str]),
+                    ("className", &["string"] as &[&str]),
+                    ("children", &["node"] as &[&str]),
+                    ("onClick", &["function"] as &[&str]),
+                ]
+                .into_iter()
+                .collect(),
+            ),
+            (
+                "floating-action-button",
+                [
+                    ("action", &["string"] as &[&str]),
+                    ("actionPayload", &["object"] as &[&str]),
+                    ("actions", &["array"] as &[&str]),
+                    ("icon", &["icon", "string"] as &[&str]),
+                    ("onClick", &["function"] as &[&str]),
+                    ("variant", &["string"] as &[&str]),
+                    ("label", &["string"] as &[&str]),
+                    ("position", &["string"] as &[&str]),
+                    ("className", &["string"] as &[&str]),
+                ]
+                .into_iter()
+                .collect(),
+            ),
+            (
+                "floating-toolbar",
+                [
+                    ("items", &["array"] as &[&str]),
+                    ("position", &["string"] as &[&str]),
+                    ("children", &["node"] as &[&str]),
+                    ("className", &["string"] as &[&str]),
+                ]
+                .into_iter()
+                .collect(),
+            ),
+            (
+                "form",
+                [
+                    ("children", &["node"] as &[&str]),
+                    ("onSubmit", &["string"] as &[&str]),
+                    ("onCancel", &["string"] as &[&str]),
+                    ("layout", &["string"] as &[&str]),
+                    ("gap", &["string"] as &[&str]),
+                    ("className", &["string"] as &[&str]),
+                    ("entity", &["object", "array"] as &[&str]),
+                    ("mode", &["string"] as &[&str]),
+                    ("fields", &["array"] as &[&str]),
+                    ("initialData", &["object"] as &[&str]),
+                    ("isLoading", &["boolean"] as &[&str]),
+                    ("error", &["object"] as &[&str]),
+                    ("submitLabel", &["string"] as &[&str]),
+                    ("cancelLabel", &["string"] as &[&str]),
+                    ("showCancel", &["boolean"] as &[&str]),
+                    ("showSubmit", &["boolean"] as &[&str]),
+                    ("title", &["string"] as &[&str]),
+                    ("submitEvent", &["string"] as &[&str]),
+                    ("cancelEvent", &["string"] as &[&str]),
+                    ("relationsData", &["object"] as &[&str]),
+                    ("relationsLoading", &["object"] as &[&str]),
+                    ("fieldOverrides", &["array"] as &[&str]),
+                    ("conditionalFields", &["object", "boolean"] as &[&str]),
+                    ("hiddenCalculations", &["array", "boolean"] as &[&str]),
+                    ("violationTriggers", &["array", "boolean"] as &[&str]),
+                    ("evaluationContext", &["object"] as &[&str]),
+                    ("sections", &["array"] as &[&str]),
+                    ("onFieldChange", &["function"] as &[&str]),
+                    ("configPath", &["string"] as &[&str]),
+                    ("repeatable", &["boolean"] as &[&str]),
+                ]
+                .into_iter()
+                .collect(),
+            ),
+            (
+                "form-actions",
+                [
+                    ("children", &["node"] as &[&str]),
+                    ("primary", &["object"] as &[&str]),
+                    ("secondary", &["array"] as &[&str]),
+                    ("variant", &["string"] as &[&str]),
+                    ("orientation", &["string"] as &[&str]),
+                    ("className", &["string"] as &[&str]),
+                    ("entity", &["string"] as &[&str]),
+                    ("filters", &["array"] as &[&str]),
+                    ("look", &["string"] as &[&str]),
+                ]
+                .into_iter()
+                .collect(),
+            ),
+            (
+                "form-field",
+                [
+                    ("label", &["string"] as &[&str]),
+                    ("required", &["boolean"] as &[&str]),
+                    ("error", &["string"] as &[&str]),
+                    ("hint", &["string"] as &[&str]),
+                    ("className", &["string"] as &[&str]),
+                    ("children", &["node"] as &[&str]),
+                ]
+                .into_iter()
+                .collect(),
+            ),
+            (
+                "form-layout",
+                [
+                    ("className", &["string"] as &[&str]),
+                    ("isLoading", &["boolean"] as &[&str]),
+                    ("error", &["object"] as &[&str]),
+                    ("sortBy", &["string"] as &[&str]),
+                    ("sortDirection", &["string"] as &[&str]),
+                    ("searchValue", &["string"] as &[&str]),
+                    ("page", &["number"] as &[&str]),
+                    ("pageSize", &["number"] as &[&str]),
+                    ("totalCount", &["number"] as &[&str]),
+                    ("activeFilters", &["object"] as &[&str]),
+                    ("selectedIds", &["array"] as &[&str]),
+                    ("children", &["node"] as &[&str]),
+                    ("dividers", &["boolean"] as &[&str]),
+                ]
+                .into_iter()
+                .collect(),
+            ),
+            (
+                "form-section",
+                [
+                    ("children", &["node"] as &[&str]),
+                    ("onSubmit", &["string"] as &[&str]),
+                    ("onCancel", &["string"] as &[&str]),
+                    ("layout", &["string"] as &[&str]),
+                    ("gap", &["string"] as &[&str]),
+                    ("className", &["string"] as &[&str]),
+                    ("entity", &["object", "array"] as &[&str]),
+                    ("mode", &["string"] as &[&str]),
+                    ("fields", &["array"] as &[&str]),
+                    ("initialData", &["object"] as &[&str]),
+                    ("isLoading", &["boolean"] as &[&str]),
+                    ("error", &["object"] as &[&str]),
+                    ("submitLabel", &["string"] as &[&str]),
+                    ("cancelLabel", &["string"] as &[&str]),
+                    ("showCancel", &["boolean"] as &[&str]),
+                    ("showSubmit", &["boolean"] as &[&str]),
+                    ("title", &["string"] as &[&str]),
+                    ("submitEvent", &["string"] as &[&str]),
+                    ("cancelEvent", &["string"] as &[&str]),
+                    ("relationsData", &["object"] as &[&str]),
+                    ("relationsLoading", &["object"] as &[&str]),
+                    ("fieldOverrides", &["array"] as &[&str]),
+                    ("conditionalFields", &["object", "boolean"] as &[&str]),
+                    ("hiddenCalculations", &["array", "boolean"] as &[&str]),
+                    ("violationTriggers", &["array", "boolean"] as &[&str]),
+                    ("evaluationContext", &["object"] as &[&str]),
+                    ("sections", &["array"] as &[&str]),
+                    ("onFieldChange", &["function"] as &[&str]),
+                    ("configPath", &["string"] as &[&str]),
+                    ("repeatable", &["boolean"] as &[&str]),
+                ]
+                .into_iter()
+                .collect(),
+            ),
+            (
+                "form-section-header",
+                [
+                    ("title", &["string"] as &[&str]),
+                    ("subtitle", &["string"] as &[&str]),
+                    ("isCollapsed", &["boolean"] as &[&str]),
+                    ("onToggle", &["function"] as &[&str]),
+                    ("badge", &["string"] as &[&str]),
+                    ("badgeVariant", &["string"] as &[&str]),
+                    ("icon", &["icon", "string"] as &[&str]),
+                    ("hasErrors", &["boolean"] as &[&str]),
+                    ("isComplete", &["boolean"] as &[&str]),
+                    ("className", &["string"] as &[&str]),
+                ]
+                .into_iter()
+                .collect(),
+            ),
+            (
+                "fx-overlay",
+                [
+                    ("items", &["array"] as &[&str]),
+                    ("tickMs", &["number"] as &[&str]),
+                    ("children", &["node"] as &[&str]),
+                    ("className", &["string"] as &[&str]),
+                ]
+                .into_iter()
+                .collect(),
+            ),
+            (
+                "game-audio-cue",
+                [
+                    ("cue", &["string"] as &[&str]),
+                    ("cueSeq", &["number"] as &[&str]),
+                    ("music", &["string"] as &[&str]),
+                    ("muted", &["boolean"] as &[&str]),
+                    ("volume", &["number"] as &[&str]),
+                    ("manifest", &["object"] as &[&str]),
+                    ("baseUrl", &["string"] as &[&str]),
+                ]
+                .into_iter()
+                .collect(),
+            ),
+            (
+                "game-audio-toggle",
+                [
+                    ("size", &["string"] as &[&str]),
+                    ("className", &["string"] as &[&str]),
+                    ("isLoading", &["boolean"] as &[&str]),
+                    ("error", &["object"] as &[&str]),
+                    ("onAsset", &["object"] as &[&str]),
+                    ("offAsset", &["object"] as &[&str]),
+                    ("toggleEvent", &["string"] as &[&str]),
+                ]
+                .into_iter()
+                .collect(),
+            ),
+            (
+                "game-hud",
+                [
+                    ("position", &["string"] as &[&str]),
+                    ("stats", &["array"] as &[&str]),
+                    ("items", &["array"] as &[&str]),
+                    ("elements", &["array"] as &[&str]),
+                    ("size", &["string"] as &[&str]),
+                    ("variant", &["string"] as &[&str]),
+                    ("className", &["string"] as &[&str]),
+                    ("transparent", &["boolean"] as &[&str]),
+                ]
+                .into_iter()
+                .collect(),
+            ),
+            (
+                "game-icon",
+                [
+                    ("assetUrl", &["object"] as &[&str]),
+                    ("icon", &["icon", "string"] as &[&str]),
+                    ("size", &["number", "string"] as &[&str]),
+                    ("alt", &["string"] as &[&str]),
+                    ("className", &["string"] as &[&str]),
+                ]
+                .into_iter()
+                .collect(),
+            ),
+            (
+                "game-menu",
+                [
+                    ("title", &["string"] as &[&str]),
+                    ("subtitle", &["string"] as &[&str]),
+                    ("options", &["array"] as &[&str]),
+                    ("menuItems", &["array"] as &[&str]),
+                    ("onSelect", &["function"] as &[&str]),
+                    ("background", &["string"] as &[&str]),
+                    ("logo", &["object"] as &[&str]),
+                    ("className", &["string"] as &[&str]),
+                ]
+                .into_iter()
+                .collect(),
+            ),
+            (
+                "game-shell",
+                [
+                    ("appName", &["string"] as &[&str]),
+                    ("hud", &["node"] as &[&str]),
+                    ("addons", &["node"] as &[&str]),
+                    ("controls", &["node"] as &[&str]),
+                    ("overlay", &["node"] as &[&str]),
+                    ("className", &["string"] as &[&str]),
+                    ("showTopBar", &["boolean"] as &[&str]),
+                    ("children", &["node"] as &[&str]),
+                    ("backgroundAsset", &["object"] as &[&str]),
+                    ("hudBackgroundAsset", &["object"] as &[&str]),
+                    ("fontFamily", &["string"] as &[&str]),
+                    ("data-theme", &["string"] as &[&str]),
+                ]
+                .into_iter()
+                .collect(),
+            ),
+            (
+                "gantt",
+                [
+                    ("tasks", &["object", "array"] as &[&str]),
+                    ("links", &["array"] as &[&str]),
+                    ("titleField", &["string"] as &[&str]),
+                    ("startField", &["string"] as &[&str]),
+                    ("endField", &["string"] as &[&str]),
+                    ("durationField", &["string"] as &[&str]),
+                    ("statusField", &["string"] as &[&str]),
+                    ("groupField", &["string"] as &[&str]),
+                    ("rangeStart", &["string", "date"] as &[&str]),
+                    ("rangeEnd", &["string", "date"] as &[&str]),
+                    ("showToday", &["boolean"] as &[&str]),
+                    ("dayWidth", &["number"] as &[&str]),
+                    ("barClickEvent", &["string"] as &[&str]),
+                    ("className", &["string"] as &[&str]),
+                    ("isLoading", &["boolean"] as &[&str]),
+                    ("error", &["object"] as &[&str]),
+                ]
+                .into_iter()
+                .collect(),
+            ),
+            (
+                "generic-app-template",
+                [
+                    ("entity", &["object"] as &[&str]),
+                    ("className", &["string"] as &[&str]),
+                    ("title", &["string"] as &[&str]),
+                    ("subtitle", &["string"] as &[&str]),
+                    ("children", &["node"] as &[&str]),
+                    ("headerActions", &["node"] as &[&str]),
+                    ("footer", &["node"] as &[&str]),
+                ]
+                .into_iter()
+                .collect(),
+            ),
+            (
+                "geometric-pattern",
+                [
+                    ("variant", &["string"] as &[&str]),
+                    ("mode", &["string"] as &[&str]),
+                    ("opacity", &["number"] as &[&str]),
+                    ("color", &["string"] as &[&str]),
+                    ("scale", &["number"] as &[&str]),
+                    ("strokeWidth", &["number"] as &[&str]),
+                    ("children", &["node"] as &[&str]),
+                    ("className", &["string"] as &[&str]),
+                ]
+                .into_iter()
+                .collect(),
+            ),
+            ("gradient-divider", [("color", &["string"] as &[&str]), ("className", &["string"] as &[&str])].into_iter().collect()),
+            (
+                "graph-canvas",
+                [
+                    ("title", &["string"] as &[&str]),
+                    ("nodes", &["array"] as &[&str]),
+                    ("edges", &["array"] as &[&str]),
+                    ("proposedEdges", &["array"] as &[&str]),
+                    ("similarity", &["array"] as &[&str]),
+                    ("height", &["number"] as &[&str]),
+                    ("showLabels", &["boolean"] as &[&str]),
+                    ("interactive", &["boolean"] as &[&str]),
+                    ("draggable", &["boolean"] as &[&str]),
+                    ("actions", &["array"] as &[&str]),
+                    ("onNodeClick", &["function"] as &[&str]),
+                    ("onMarkClick", &["function"] as &[&str]),
+                    ("onNodeDoubleClick", &["function"] as &[&str]),
+                    ("onBadgeClick", &["function"] as &[&str]),
+                    ("nodeClickEvent", &["string"] as &[&str]),
+                    ("selectedNodeId", &["string"] as &[&str]),
+                    ("repulsion", &["number"] as &[&str]),
+                    ("linkDistance", &["number"] as &[&str]),
+                    ("nodeSpacing", &["number"] as &[&str]),
+                    ("linkOpacity", &["number"] as &[&str]),
+                    ("layout", &["string"] as &[&str]),
+                    ("isLoading", &["boolean"] as &[&str]),
+                    ("error", &["object"] as &[&str]),
+                    ("className", &["string"] as &[&str]),
+                ]
+                .into_iter()
+                .collect(),
+            ),
+            (
+                "graph-view",
+                [
+                    ("nodes", &["array"] as &[&str]),
+                    ("edges", &["array"] as &[&str]),
+                    ("onNodeClick", &["function"] as &[&str]),
+                    ("onNodeHover", &["function"] as &[&str]),
+                    ("width", &["number"] as &[&str]),
+                    ("height", &["number"] as &[&str]),
+                    ("className", &["string"] as &[&str]),
+                    ("showLabels", &["boolean"] as &[&str]),
+                    ("zoomToFit", &["boolean"] as &[&str]),
+                    ("layout", &["string"] as &[&str]),
+                ]
+                .into_iter()
+                .collect(),
+            ),
+            (
+                "grid",
+                [
+                    ("cols", &["number", "string", "object"] as &[&str]),
+                    ("rows", &["number"] as &[&str]),
+                    ("gap", &["string"] as &[&str]),
+                    ("rowGap", &["string"] as &[&str]),
+                    ("colGap", &["string"] as &[&str]),
+                    ("alignItems", &["string"] as &[&str]),
+                    ("justifyItems", &["string"] as &[&str]),
+                    ("flow", &["string"] as &[&str]),
+                    ("className", &["string"] as &[&str]),
+                    ("style", &["object"] as &[&str]),
+                    ("children", &["node"] as &[&str]),
+                    ("as", &["component"] as &[&str]),
+                ]
+                .into_iter()
+                .collect(),
+            ),
+            (
+                "header",
+                [
+                    ("logo", &["node"] as &[&str]),
+                    ("logoSrc", &["asset"] as &[&str]),
+                    ("brandName", &["string"] as &[&str]),
+                    ("navigationItems", &["array"] as &[&str]),
+                    ("showMenuToggle", &["boolean"] as &[&str]),
+                    ("isMenuOpen", &["boolean"] as &[&str]),
+                    ("onMenuToggle", &["function"] as &[&str]),
+                    ("showSearch", &["boolean"] as &[&str]),
+                    ("searchPlaceholder", &["string"] as &[&str]),
+                    ("onSearch", &["function"] as &[&str]),
+                    ("userAvatar", &["object"] as &[&str]),
+                    ("userName", &["string"] as &[&str]),
+                    ("onUserClick", &["function"] as &[&str]),
+                    ("actions", &["node"] as &[&str]),
+                    ("sticky", &["boolean"] as &[&str]),
+                    ("variant", &["string"] as &[&str]),
+                    ("look", &["string"] as &[&str]),
+                    ("onLogoClick", &["function"] as &[&str]),
+                    ("className", &["string"] as &[&str]),
+                    ("isLoading", &["boolean"] as &[&str]),
+                    ("error", &["object"] as &[&str]),
+                ]
+                .into_iter()
+                .collect(),
+            ),
+            (
+                "health-bar",
+                [
+                    ("current", &["number"] as &[&str]),
+                    ("max", &["number"] as &[&str]),
+                    ("format", &["string"] as &[&str]),
+                    ("level", &["number"] as &[&str]),
+                    ("showLabel", &["boolean"] as &[&str]),
+                    ("labelSuffix", &["string"] as &[&str]),
+                    ("size", &["string"] as &[&str]),
+                    ("className", &["string"] as &[&str]),
+                    ("animated", &["boolean"] as &[&str]),
+                    ("frameAsset", &["object"] as &[&str]),
+                    ("fillAsset", &["object"] as &[&str]),
+                ]
+                .into_iter()
+                .collect(),
+            ),
+            (
+                "hero-organism",
+                [
+                    ("className", &["string"] as &[&str]),
+                    ("isLoading", &["boolean"] as &[&str]),
+                    ("error", &["object"] as &[&str]),
+                    ("sortBy", &["string"] as &[&str]),
+                    ("sortDirection", &["string"] as &[&str]),
+                    ("searchValue", &["string"] as &[&str]),
+                    ("page", &["number"] as &[&str]),
+                    ("pageSize", &["number"] as &[&str]),
+                    ("totalCount", &["number"] as &[&str]),
+                    ("activeFilters", &["object"] as &[&str]),
+                    ("selectedIds", &["array"] as &[&str]),
+                    ("entity", &["object"] as &[&str]),
+                    ("children", &["node"] as &[&str]),
+                ]
+                .into_iter()
+                .collect(),
+            ),
+            (
+                "hero-section",
+                [
+                    ("tag", &["string"] as &[&str]),
+                    ("tagVariant", &["string"] as &[&str]),
+                    ("title", &["string"] as &[&str]),
+                    ("titleAccent", &["string"] as &[&str]),
+                    ("subtitle", &["string"] as &[&str]),
+                    ("primaryAction", &["object"] as &[&str]),
+                    ("secondaryAction", &["object"] as &[&str]),
+                    ("installCommand", &["string"] as &[&str]),
+                    ("image", &["object"] as &[&str]),
+                    ("imagePosition", &["string"] as &[&str]),
+                    ("background", &["string"] as &[&str]),
+                    ("align", &["string"] as &[&str]),
+                    ("backgroundElement", &["node"] as &[&str]),
+                    ("children", &["node"] as &[&str]),
+                    ("className", &["string"] as &[&str]),
+                ]
+                .into_iter()
+                .collect(),
+            ),
+            (
+                "hstack",
+                [
+                    ("gap", &["string"] as &[&str]),
+                    ("align", &["string"] as &[&str]),
+                    ("justify", &["string"] as &[&str]),
+                    ("wrap", &["boolean"] as &[&str]),
+                    ("reverse", &["boolean"] as &[&str]),
+                    ("flex", &["boolean"] as &[&str]),
+                    ("className", &["string"] as &[&str]),
+                    ("style", &["object"] as &[&str]),
+                    ("children", &["node"] as &[&str]),
+                    ("as", &["component"] as &[&str]),
+                    ("onClick", &["function"] as &[&str]),
+                    ("onKeyDown", &["function"] as &[&str]),
+                    ("role", &["string"] as &[&str]),
+                    ("tabIndex", &["number"] as &[&str]),
+                    ("action", &["string"] as &[&str]),
+                    ("actionPayload", &["object"] as &[&str]),
+                    ("responsive", &["boolean"] as &[&str]),
+                ]
+                .into_iter()
+                .collect(),
+            ),
+            (
+                "icon",
+                [
+                    ("icon", &["icon", "string"] as &[&str]),
+                    ("name", &["string"] as &[&str]),
+                    ("size", &["string"] as &[&str]),
+                    ("color", &["string"] as &[&str]),
+                    ("animation", &["string"] as &[&str]),
+                    ("className", &["string"] as &[&str]),
+                    ("strokeWidth", &["number"] as &[&str]),
+                    ("style", &["object"] as &[&str]),
+                ]
+                .into_iter()
+                .collect(),
+            ),
+            (
+                "import-preview-tree",
+                [
+                    ("units", &["array"] as &[&str]),
+                    ("skipped", &["array"] as &[&str]),
+                    ("entityDisplay", &["object"] as &[&str]),
+                    ("onConfirm", &["function"] as &[&str]),
+                    ("onCancel", &["function"] as &[&str]),
+                    ("confirmLabel", &["string"] as &[&str]),
+                    ("cancelLabel", &["string"] as &[&str]),
+                    ("indent", &["number"] as &[&str]),
+                    ("className", &["string"] as &[&str]),
+                ]
+                .into_iter()
+                .collect(),
+            ),
+            (
+                "import-progress",
+                [
+                    ("step", &["string"] as &[&str]),
+                    ("counts", &["object"] as &[&str]),
+                    ("labels", &["object"] as &[&str]),
+                    ("className", &["string"] as &[&str]),
+                ]
+                .into_iter()
+                .collect(),
+            ),
+            (
+                "import-source-picker",
+                [
+                    ("sources", &["array"] as &[&str]),
+                    ("onSelect", &["function"] as &[&str]),
+                    ("onFilesSelected", &["function"] as &[&str]),
+                    ("title", &["string"] as &[&str]),
+                    ("moreSources", &["node"] as &[&str]),
+                    ("className", &["string"] as &[&str]),
+                ]
+                .into_iter()
+                .collect(),
+            ),
+            (
+                "infinite-scroll-sentinel",
+                [
+                    ("loadMoreEvent", &["string"] as &[&str]),
+                    ("loadMorePayload", &["object"] as &[&str]),
+                    ("isLoading", &["boolean"] as &[&str]),
+                    ("hasMore", &["boolean"] as &[&str]),
+                    ("threshold", &["string"] as &[&str]),
+                    ("className", &["string"] as &[&str]),
+                ]
+                .into_iter()
+                .collect(),
+            ),
+            (
+                "input",
+                [
+                    ("className", &["string"] as &[&str]),
+                    ("placeholder", &["string"] as &[&str]),
+                    ("value", &["string", "number"] as &[&str]),
+                    ("disabled", &["boolean"] as &[&str]),
+                    ("action", &["string"] as &[&str]),
+                    ("inputType", &["string"] as &[&str]),
+                    ("label", &["string"] as &[&str]),
+                    ("helperText", &["string"] as &[&str]),
+                    ("error", &["string"] as &[&str]),
+                    ("leftIcon", &["icon", "string"] as &[&str]),
+                    ("rightIcon", &["icon", "string"] as &[&str]),
+                    ("icon", &["icon", "string"] as &[&str]),
+                    ("clearable", &["boolean"] as &[&str]),
+                    ("onClear", &["function", "string"] as &[&str]),
+                    ("options", &["array"] as &[&str]),
+                    ("rows", &["number"] as &[&str]),
+                    ("onChange", &["function", "string"] as &[&str]),
+                ]
+                .into_iter()
+                .collect(),
+            ),
+            (
+                "input-group",
+                [
+                    ("className", &["string"] as &[&str]),
+                    ("placeholder", &["string"] as &[&str]),
+                    ("value", &["string", "number"] as &[&str]),
+                    ("disabled", &["boolean"] as &[&str]),
+                    ("action", &["string"] as &[&str]),
+                    ("inputType", &["string"] as &[&str]),
+                    ("label", &["string"] as &[&str]),
+                    ("helperText", &["string"] as &[&str]),
+                    ("error", &["string"] as &[&str]),
+                    ("leftIcon", &["icon", "string"] as &[&str]),
+                    ("rightIcon", &["icon", "string"] as &[&str]),
+                    ("clearable", &["boolean"] as &[&str]),
+                    ("onClear", &["function", "string"] as &[&str]),
+                    ("options", &["array"] as &[&str]),
+                    ("rows", &["number"] as &[&str]),
+                    ("onChange", &["function", "string"] as &[&str]),
+                    ("leftAddon", &["node", "icon"] as &[&str]),
+                    ("rightAddon", &["node", "icon"] as &[&str]),
+                ]
+                .into_iter()
+                .collect(),
+            ),
+            (
+                "install-box",
+                [
+                    ("command", &["string"] as &[&str]),
+                    ("label", &["string"] as &[&str]),
+                    ("className", &["string"] as &[&str]),
+                ]
+                .into_iter()
+                .collect(),
+            ),
+            (
+                "jazari-state-machine",
+                [
+                    ("className", &["string"] as &[&str]),
+                    ("isLoading", &["boolean"] as &[&str]),
+                    ("error", &["object"] as &[&str]),
+                    ("schema", &["object"] as &[&str]),
+                    ("trait", &["object"] as &[&str]),
+                    ("traitIndex", &["number"] as &[&str]),
+                    ("entityFields", &["array"] as &[&str]),
+                    ("direction", &["string"] as &[&str]),
+                ]
+                .into_iter()
+                .collect(),
+            ),
+            (
+                "label",
+                [
+                    ("className", &["string"] as &[&str]),
+                    ("text", &["string"] as &[&str]),
+                    ("htmlFor", &["string"] as &[&str]),
+                    ("required", &["boolean"] as &[&str]),
+                ]
+                .into_iter()
+                .collect(),
+            ),
+            (
+                "landing-page-template",
+                [
+                    ("entity", &["object"] as &[&str]),
+                    ("className", &["string"] as &[&str]),
+                    ("variant", &["string"] as &[&str]),
+                    ("featureColumns", &["number"] as &[&str]),
+                ]
+                .into_iter()
+                .collect(),
+            ),
+            (
+                "law-reference-tooltip",
+                [
+                    ("reference", &["object"] as &[&str]),
+                    ("children", &["node"] as &[&str]),
+                    ("position", &["string"] as &[&str]),
+                    ("className", &["string"] as &[&str]),
+                ]
+                .into_iter()
+                .collect(),
+            ),
+            (
+                "learning-canvas",
+                [
+                    ("className", &["string"] as &[&str]),
+                    ("width", &["number"] as &[&str]),
+                    ("height", &["number"] as &[&str]),
+                    ("backgroundColor", &["string"] as &[&str]),
+                    ("fontFamily", &["string"] as &[&str]),
+                    ("shapes", &["array"] as &[&str]),
+                    ("drawables", &["array"] as &[&str]),
+                    ("projector", &["object"] as &[&str]),
+                    ("readouts", &["array"] as &[&str]),
+                    ("traces", &["array"] as &[&str]),
+                    ("interactive", &["boolean"] as &[&str]),
+                    ("animate", &["boolean"] as &[&str]),
+                    ("onShapeClick", &["function"] as &[&str]),
+                    ("onShapeHover", &["function"] as &[&str]),
+                    ("isLoading", &["boolean"] as &[&str]),
+                    ("error", &["object"] as &[&str]),
+                ]
+                .into_iter()
+                .collect(),
+            ),
+            (
+                "lightbox",
+                [
+                    ("images", &["array"] as &[&str]),
+                    ("currentIndex", &["number"] as &[&str]),
+                    ("isOpen", &["boolean"] as &[&str]),
+                    ("showCounter", &["boolean"] as &[&str]),
+                    ("closeAction", &["string"] as &[&str]),
+                    ("onClose", &["function"] as &[&str]),
+                    ("onIndexChange", &["function"] as &[&str]),
+                    ("className", &["string"] as &[&str]),
+                ]
+                .into_iter()
+                .collect(),
+            ),
+            (
+                "likert-scale",
+                [
+                    ("question", &["string"] as &[&str]),
+                    ("options", &["array"] as &[&str]),
+                    ("value", &["number", "string"] as &[&str]),
+                    ("onChange", &["function"] as &[&str]),
+                    ("changeEvent", &["string"] as &[&str]),
+                    ("disabled", &["boolean"] as &[&str]),
+                    ("size", &["string"] as &[&str]),
+                    ("variant", &["string"] as &[&str]),
+                    ("className", &["string"] as &[&str]),
+                ]
+                .into_iter()
+                .collect(),
+            ),
+            (
+                "line-chart",
+                [
+                    ("data", &["array"] as &[&str]),
+                    ("width", &["number"] as &[&str]),
+                    ("height", &["number"] as &[&str]),
+                    ("showGrid", &["boolean"] as &[&str]),
+                    ("showValues", &["boolean"] as &[&str]),
+                    ("showArea", &["boolean"] as &[&str]),
+                    ("lineColor", &["string"] as &[&str]),
+                    ("areaColor", &["string"] as &[&str]),
+                    ("className", &["string"] as &[&str]),
+                ]
+                .into_iter()
+                .collect(),
+            ),
+            (
+                "loading-state",
+                [
+                    ("title", &["string"] as &[&str]),
+                    ("message", &["string"] as &[&str]),
+                    ("className", &["string"] as &[&str]),
+                    ("fullPage", &["boolean"] as &[&str]),
+                ]
+                .into_iter()
+                .collect(),
+            ),
+            (
+                "map-view",
+                [
+                    ("markers", &["array"] as &[&str]),
+                    ("routes", &["array"] as &[&str]),
+                    ("centerLat", &["number"] as &[&str]),
+                    ("centerLng", &["number"] as &[&str]),
+                    ("zoom", &["number"] as &[&str]),
+                    ("height", &["string"] as &[&str]),
+                    ("onMarkerClick", &["function"] as &[&str]),
+                    ("onMapClick", &["function"] as &[&str]),
+                    ("mapClickEvent", &["string"] as &[&str]),
+                    ("markerClickEvent", &["string"] as &[&str]),
+                    ("showClickedPin", &["boolean"] as &[&str]),
+                    ("className", &["string"] as &[&str]),
+                    ("showAttribution", &["boolean"] as &[&str]),
+                ]
+                .into_iter()
+                .collect(),
+            ),
+            (
+                "markdown-content",
+                [
+                    ("content", &["string"] as &[&str]),
+                    ("direction", &["string"] as &[&str]),
+                    ("className", &["string"] as &[&str]),
+                ]
+                .into_iter()
+                .collect(),
+            ),
+            (
+                "marketing-footer",
+                [
+                    ("columns", &["array"] as &[&str]),
+                    ("copyright", &["string"] as &[&str]),
+                    ("logo", &["object"] as &[&str]),
+                    ("className", &["string"] as &[&str]),
+                ]
+                .into_iter()
+                .collect(),
+            ),
+            (
+                "marketing-stat-card",
+                [
+                    ("value", &["string"] as &[&str]),
+                    ("label", &["string"] as &[&str]),
+                    ("size", &["string"] as &[&str]),
+                    ("className", &["string"] as &[&str]),
+                ]
+                .into_iter()
+                .collect(),
+            ),
+            (
+                "master-detail",
+                [
+                    ("className", &["string"] as &[&str]),
+                    ("isLoading", &["boolean"] as &[&str]),
+                    ("error", &["object"] as &[&str]),
+                    ("sortBy", &["string"] as &[&str]),
+                    ("sortDirection", &["string"] as &[&str]),
+                    ("searchValue", &["string"] as &[&str]),
+                    ("page", &["number"] as &[&str]),
+                    ("pageSize", &["number"] as &[&str]),
+                    ("totalCount", &["number"] as &[&str]),
+                    ("activeFilters", &["object"] as &[&str]),
+                    ("selectedIds", &["array"] as &[&str]),
+                    ("entity", &["object", "array"] as &[&str]),
+                    ("masterFields", &["array"] as &[&str]),
+                    ("detailFields", &["array"] as &[&str]),
+                    ("loading", &["boolean"] as &[&str]),
+                ]
+                .into_iter()
+                .collect(),
+            ),
+            (
+                "master-detail-layout",
+                [
+                    ("master", &["node"] as &[&str]),
+                    ("detail", &["node"] as &[&str]),
+                    ("emptyDetail", &["node"] as &[&str]),
+                    ("hasSelection", &["boolean"] as &[&str]),
+                    ("masterWidth", &["string"] as &[&str]),
+                    ("className", &["string"] as &[&str]),
+                    ("masterClassName", &["string"] as &[&str]),
+                    ("detailClassName", &["string"] as &[&str]),
+                ]
+                .into_iter()
+                .collect(),
+            ),
+            (
+                "math-canvas",
+                [
+                    ("className", &["string"] as &[&str]),
+                    ("width", &["number"] as &[&str]),
+                    ("height", &["number"] as &[&str]),
+                    ("title", &["string"] as &[&str]),
+                    ("xMin", &["number"] as &[&str]),
+                    ("xMax", &["number"] as &[&str]),
+                    ("yMin", &["number"] as &[&str]),
+                    ("yMax", &["number"] as &[&str]),
+                    ("showAxes", &["boolean"] as &[&str]),
+                    ("showGrid", &["boolean"] as &[&str]),
+                    ("gridStep", &["number"] as &[&str]),
+                    ("backgroundColor", &["string"] as &[&str]),
+                    ("gridColor", &["string"] as &[&str]),
+                    ("axisColor", &["string"] as &[&str]),
+                    ("showTickLabels", &["boolean"] as &[&str]),
+                    ("tickLabelFontSize", &["number"] as &[&str]),
+                    ("labelFontSize", &["number"] as &[&str]),
+                    ("fontFamily", &["string"] as &[&str]),
+                    ("showCurveLabels", &["boolean"] as &[&str]),
+                    ("curves", &["array"] as &[&str]),
+                    ("points", &["array"] as &[&str]),
+                    ("vectors", &["array"] as &[&str]),
+                    ("regions", &["array"] as &[&str]),
+                    ("bars", &["array"] as &[&str]),
+                    ("guides", &["array"] as &[&str]),
+                    ("angles", &["array"] as &[&str]),
+                    ("hops", &["array"] as &[&str]),
+                    ("shapes", &["array"] as &[&str]),
+                    ("drawables", &["array"] as &[&str]),
+                    ("readouts", &["array"] as &[&str]),
+                    ("traces", &["array"] as &[&str]),
+                    ("interactive", &["boolean"] as &[&str]),
+                    ("animate", &["boolean"] as &[&str]),
+                    ("onShapeClick", &["function"] as &[&str]),
+                    ("keyMap", &["object"] as &[&str]),
+                    ("keyUpMap", &["object"] as &[&str]),
+                    ("isLoading", &["boolean"] as &[&str]),
+                    ("error", &["object"] as &[&str]),
+                ]
+                .into_iter()
+                .collect(),
+            ),
+            (
+                "matrix-question",
+                [
+                    ("title", &["string"] as &[&str]),
+                    ("rows", &["array"] as &[&str]),
+                    ("columns", &["array"] as &[&str]),
+                    ("values", &["object"] as &[&str]),
+                    ("onChange", &["function"] as &[&str]),
+                    ("changeEvent", &["string"] as &[&str]),
+                    ("disabled", &["boolean"] as &[&str]),
+                    ("size", &["string"] as &[&str]),
+                    ("className", &["string"] as &[&str]),
+                ]
+                .into_iter()
+                .collect(),
+            ),
+            (
+                "media-gallery",
+                [
+                    ("className", &["string"] as &[&str]),
+                    ("isLoading", &["boolean"] as &[&str]),
+                    ("error", &["object"] as &[&str]),
+                    ("sortBy", &["string"] as &[&str]),
+                    ("sortDirection", &["string"] as &[&str]),
+                    ("searchValue", &["string"] as &[&str]),
+                    ("page", &["number"] as &[&str]),
+                    ("pageSize", &["number"] as &[&str]),
+                    ("totalCount", &["number"] as &[&str]),
+                    ("activeFilters", &["object"] as &[&str]),
+                    ("selectedIds", &["array"] as &[&str]),
+                    ("entity", &["object", "array"] as &[&str]),
+                    ("title", &["string"] as &[&str]),
+                    ("items", &["array"] as &[&str]),
+                    ("columns", &["number"] as &[&str]),
+                    ("selectable", &["boolean"] as &[&str]),
+                    ("selectedItems", &["array"] as &[&str]),
+                    ("selectionEvent", &["string"] as &[&str]),
+                    ("showUpload", &["boolean"] as &[&str]),
+                    ("actions", &["array"] as &[&str]),
+                    ("aspectRatio", &["string"] as &[&str]),
+                ]
+                .into_iter()
+                .collect(),
+            ),
+            (
+                "menu",
+                [
+                    ("trigger", &["node"] as &[&str]),
+                    ("items", &["array"] as &[&str]),
+                    ("position", &["string"] as &[&str]),
+                    ("className", &["string"] as &[&str]),
+                    ("header", &["node"] as &[&str]),
+                    ("footer", &["node"] as &[&str]),
+                ]
+                .into_iter()
+                .collect(),
+            ),
+            (
+                "meter",
+                [
+                    ("value", &["number"] as &[&str]),
+                    ("min", &["number"] as &[&str]),
+                    ("max", &["number"] as &[&str]),
+                    ("label", &["string"] as &[&str]),
+                    ("unit", &["string"] as &[&str]),
+                    ("variant", &["string"] as &[&str]),
+                    ("thresholds", &["array"] as &[&str]),
+                    ("segments", &["number"] as &[&str]),
+                    ("showValue", &["boolean"] as &[&str]),
+                    ("size", &["string"] as &[&str]),
+                    ("actions", &["array"] as &[&str]),
+                    ("isLoading", &["boolean"] as &[&str]),
+                    ("error", &["object"] as &[&str]),
+                    ("className", &["string"] as &[&str]),
+                ]
+                .into_iter()
+                .collect(),
+            ),
+            (
+                "modal",
+                [
+                    ("isOpen", &["boolean"] as &[&str]),
+                    ("onClose", &["function"] as &[&str]),
+                    ("onExited", &["function"] as &[&str]),
+                    ("title", &["string"] as &[&str]),
+                    ("children", &["node"] as &[&str]),
+                    ("footer", &["node"] as &[&str]),
+                    ("size", &["string"] as &[&str]),
+                    ("showCloseButton", &["boolean"] as &[&str]),
+                    ("closeOnOverlayClick", &["boolean"] as &[&str]),
+                    ("closeOnEscape", &["boolean"] as &[&str]),
+                    ("className", &["string"] as &[&str]),
+                    ("closeEvent", &["string"] as &[&str]),
+                    ("swipeDownToClose", &["boolean"] as &[&str]),
+                    ("look", &["string"] as &[&str]),
+                ]
+                .into_iter()
+                .collect(),
+            ),
+            (
+                "modal-slot",
+                [
+                    ("children", &["node"] as &[&str]),
+                    ("title", &["string"] as &[&str]),
+                    ("size", &["string"] as &[&str]),
+                    ("className", &["string"] as &[&str]),
+                    ("isLoading", &["boolean"] as &[&str]),
+                    ("error", &["object"] as &[&str]),
+                    ("entity", &["string"] as &[&str]),
+                    ("sourceTrait", &["string"] as &[&str]),
+                ]
+                .into_iter()
+                .collect(),
+            ),
+            ("module-card", [("data", &["object"] as &[&str])].into_iter().collect()),
+            (
+                "navigation",
+                [
+                    ("items", &["array"] as &[&str]),
+                    ("orientation", &["string"] as &[&str]),
+                    ("className", &["string"] as &[&str]),
+                    ("isLoading", &["boolean"] as &[&str]),
+                    ("error", &["object"] as &[&str]),
+                ]
+                .into_iter()
+                .collect(),
+            ),
+            (
+                "notification",
+                [
+                    ("variant", &["string"] as &[&str]),
+                    ("message", &["string"] as &[&str]),
+                    ("title", &["string"] as &[&str]),
+                    ("duration", &["number"] as &[&str]),
+                    ("dismissible", &["boolean"] as &[&str]),
+                    ("onDismiss", &["function"] as &[&str]),
+                    ("actionLabel", &["string"] as &[&str]),
+                    ("onAction", &["function"] as &[&str]),
+                    ("badge", &["string", "number"] as &[&str]),
+                    ("className", &["string"] as &[&str]),
+                    ("dismissEvent", &["string"] as &[&str]),
+                    ("actionEvent", &["string"] as &[&str]),
+                ]
+                .into_iter()
+                .collect(),
+            ),
+            (
+                "number-stepper",
+                [
+                    ("value", &["number"] as &[&str]),
+                    ("min", &["number"] as &[&str]),
+                    ("max", &["number"] as &[&str]),
+                    ("step", &["number"] as &[&str]),
+                    ("size", &["string"] as &[&str]),
+                    ("disabled", &["boolean"] as &[&str]),
+                    ("onChange", &["function"] as &[&str]),
+                    ("action", &["string"] as &[&str]),
+                    ("actionPayload", &["object"] as &[&str]),
+                    ("className", &["string"] as &[&str]),
+                    ("label", &["string"] as &[&str]),
+                ]
+                .into_iter()
+                .collect(),
+            ),
+            (
+                "option-constraint-group",
+                [
+                    ("groupId", &["string"] as &[&str]),
+                    ("title", &["string"] as &[&str]),
+                    ("description", &["string"] as &[&str]),
+                    ("options", &["array"] as &[&str]),
+                    ("constraint", &["object"] as &[&str]),
+                    ("selected", &["array"] as &[&str]),
+                    ("onChange", &["function"] as &[&str]),
+                    ("changeEvent", &["string"] as &[&str]),
+                    ("size", &["string"] as &[&str]),
+                    ("className", &["string"] as &[&str]),
+                ]
+                .into_iter()
+                .collect(),
+            ),
+            (
+                "orbital-visualization",
+                [
+                    ("schema", &["object"] as &[&str]),
+                    ("complexity", &["number"] as &[&str]),
+                    ("size", &["string"] as &[&str]),
+                    ("showLabel", &["boolean"] as &[&str]),
+                    ("animated", &["boolean"] as &[&str]),
+                    ("onClick", &["function"] as &[&str]),
+                    ("className", &["string"] as &[&str]),
+                    ("isLoading", &["boolean"] as &[&str]),
+                    ("error", &["object"] as &[&str]),
+                ]
+                .into_iter()
+                .collect(),
+            ),
+            (
+                "overlay",
+                [
+                    ("isVisible", &["boolean"] as &[&str]),
+                    ("onClick", &["function"] as &[&str]),
+                    ("className", &["string"] as &[&str]),
+                    ("blur", &["boolean"] as &[&str]),
+                    ("action", &["string"] as &[&str]),
+                ]
+                .into_iter()
+                .collect(),
+            ),
+            (
+                "page-header",
+                [
+                    ("title", &["string", "number"] as &[&str]),
+                    ("subtitle", &["string", "number"] as &[&str]),
+                    ("showBack", &["boolean"] as &[&str]),
+                    ("backEvent", &["string"] as &[&str]),
+                    ("breadcrumbs", &["array"] as &[&str]),
+                    ("status", &["object", "string"] as &[&str]),
+                    ("actions", &["array"] as &[&str]),
+                    ("isLoading", &["boolean"] as &[&str]),
+                    ("error", &["object"] as &[&str]),
+                    ("tabs", &["array"] as &[&str]),
+                    ("activeTab", &["string"] as &[&str]),
+                    ("onTabChange", &["function"] as &[&str]),
+                    ("children", &["node"] as &[&str]),
+                    ("className", &["string"] as &[&str]),
+                ]
+                .into_iter()
+                .collect(),
+            ),
+            (
+                "page-transition",
+                [
+                    ("locationKey", &["string"] as &[&str]),
+                    ("children", &["node"] as &[&str]),
+                    ("className", &["string"] as &[&str]),
+                ]
+                .into_iter()
+                .collect(),
+            ),
+            (
+                "pagination",
+                [
+                    ("currentPage", &["number"] as &[&str]),
+                    ("totalPages", &["number"] as &[&str]),
+                    ("onPageChange", &["function"] as &[&str]),
+                    ("showPageSize", &["boolean"] as &[&str]),
+                    ("pageSizeOptions", &["array"] as &[&str]),
+                    ("pageSize", &["number"] as &[&str]),
+                    ("onPageSizeChange", &["function"] as &[&str]),
+                    ("showJumpToPage", &["boolean"] as &[&str]),
+                    ("showTotal", &["boolean"] as &[&str]),
+                    ("totalItems", &["number"] as &[&str]),
+                    ("maxVisiblePages", &["number"] as &[&str]),
+                    ("className", &["string"] as &[&str]),
+                    ("pageChangeEvent", &["string"] as &[&str]),
+                    ("pageSizeChangeEvent", &["string"] as &[&str]),
+                ]
+                .into_iter()
+                .collect(),
+            ),
+            (
+                "pattern-tile",
+                [
+                    ("variant", &["string"] as &[&str]),
+                    ("size", &["number"] as &[&str]),
+                    ("color", &["string"] as &[&str]),
+                    ("strokeWidth", &["number"] as &[&str]),
+                    ("className", &["string"] as &[&str]),
+                ]
+                .into_iter()
+                .collect(),
+            ),
+            (
+                "physics-canvas",
+                [
+                    ("className", &["string"] as &[&str]),
+                    ("width", &["number"] as &[&str]),
+                    ("height", &["number"] as &[&str]),
+                    ("title", &["string"] as &[&str]),
+                    ("backgroundColor", &["string"] as &[&str]),
+                    ("mode", &["string"] as &[&str]),
+                    ("camera", &["object"] as &[&str]),
+                    ("lighting", &["object"] as &[&str]),
+                    ("post", &["object"] as &[&str]),
+                    ("bodies", &["array"] as &[&str]),
+                    ("constraints", &["array"] as &[&str]),
+                    ("showVelocity", &["boolean"] as &[&str]),
+                    ("showForces", &["boolean"] as &[&str]),
+                    ("velocityScale", &["number"] as &[&str]),
+                    ("forceScale", &["number"] as &[&str]),
+                    ("sceneObjects", &["array"] as &[&str]),
+                    ("trails", &["array"] as &[&str]),
+                    ("vectors", &["array"] as &[&str]),
+                    ("surface3d", &["object"] as &[&str]),
+                    ("vectors3d", &["array"] as &[&str]),
+                    ("vectorScale", &["number"] as &[&str]),
+                    ("angles", &["array"] as &[&str]),
+                    ("field", &["object"] as &[&str]),
+                    ("meters", &["array"] as &[&str]),
+                    ("shapes", &["array"] as &[&str]),
+                    ("readouts", &["array"] as &[&str]),
+                    ("traces", &["array"] as &[&str]),
+                    ("showGrid", &["boolean"] as &[&str]),
+                    ("shadows", &["boolean"] as &[&str]),
+                    ("interactive", &["boolean"] as &[&str]),
+                    ("animate", &["boolean"] as &[&str]),
+                    ("onShapeClick", &["function"] as &[&str]),
+                    ("isLoading", &["boolean"] as &[&str]),
+                    ("error", &["object"] as &[&str]),
+                ]
+                .into_iter()
+                .collect(),
+            ),
+            (
+                "popover",
+                [
+                    ("content", &["node"] as &[&str]),
+                    ("children", &["node"] as &[&str]),
+                    ("position", &["string"] as &[&str]),
+                    ("trigger", &["string"] as &[&str]),
+                    ("showArrow", &["boolean"] as &[&str]),
+                    ("open", &["boolean"] as &[&str]),
+                    ("onOpenChange", &["function"] as &[&str]),
+                    ("className", &["string"] as &[&str]),
+                ]
+                .into_iter()
+                .collect(),
+            ),
+            (
+                "positioned-canvas",
+                [
+                    ("items", &["object", "array"] as &[&str]),
+                    ("width", &["number"] as &[&str]),
+                    ("height", &["number"] as &[&str]),
+                    ("selectedId", &["string"] as &[&str]),
+                    ("editable", &["boolean"] as &[&str]),
+                    ("onSelect", &["function"] as &[&str]),
+                    ("onMove", &["function"] as &[&str]),
+                    ("selectEvent", &["string"] as &[&str]),
+                    ("moveEvent", &["string"] as &[&str]),
+                    ("className", &["string"] as &[&str]),
+                ]
+                .into_iter()
+                .collect(),
+            ),
+            (
+                "presence",
+                [
+                    ("show", &["boolean"] as &[&str]),
+                    ("className", &["string"] as &[&str]),
+                    ("children", &["node"] as &[&str]),
+                ]
+                .into_iter()
+                .collect(),
+            ),
+            (
+                "pricing-card",
+                [
+                    ("name", &["string"] as &[&str]),
+                    ("price", &["string"] as &[&str]),
+                    ("description", &["string"] as &[&str]),
+                    ("features", &["array"] as &[&str]),
+                    ("action", &["object"] as &[&str]),
+                    ("highlighted", &["boolean"] as &[&str]),
+                    ("badge", &["string"] as &[&str]),
+                    ("className", &["string"] as &[&str]),
+                ]
+                .into_iter()
+                .collect(),
+            ),
+            ("pricing-grid", [("plans", &["array"] as &[&str]), ("className", &["string"] as &[&str])].into_iter().collect()),
+            (
+                "pricing-organism",
+                [
+                    ("className", &["string"] as &[&str]),
+                    ("isLoading", &["boolean"] as &[&str]),
+                    ("error", &["object"] as &[&str]),
+                    ("sortBy", &["string"] as &[&str]),
+                    ("sortDirection", &["string"] as &[&str]),
+                    ("searchValue", &["string"] as &[&str]),
+                    ("page", &["number"] as &[&str]),
+                    ("pageSize", &["number"] as &[&str]),
+                    ("totalCount", &["number"] as &[&str]),
+                    ("activeFilters", &["object"] as &[&str]),
+                    ("selectedIds", &["array"] as &[&str]),
+                    ("entity", &["object", "array"] as &[&str]),
+                    ("heading", &["string"] as &[&str]),
+                    ("subtitle", &["string"] as &[&str]),
+                ]
+                .into_iter()
+                .collect(),
+            ),
+            ("pricing-page-template", [("entity", &["object"] as &[&str]), ("className", &["string"] as &[&str])].into_iter().collect()),
+            (
+                "progress-bar",
+                [
+                    ("value", &["number"] as &[&str]),
+                    ("max", &["number"] as &[&str]),
+                    ("progressType", &["string"] as &[&str]),
+                    ("variant", &["string"] as &[&str]),
+                    ("color", &["string"] as &[&str]),
+                    ("showPercentage", &["boolean"] as &[&str]),
+                    ("showLabel", &["boolean"] as &[&str]),
+                    ("label", &["string"] as &[&str]),
+                    ("size", &["string"] as &[&str]),
+                    ("steps", &["number"] as &[&str]),
+                    ("className", &["string"] as &[&str]),
+                ]
+                .into_iter()
+                .collect(),
+            ),
+            (
+                "progress-dots",
+                [
+                    ("count", &["number"] as &[&str]),
+                    ("currentIndex", &["number"] as &[&str]),
+                    ("getState", &["function"] as &[&str]),
+                    ("onDotClick", &["function"] as &[&str]),
+                    ("className", &["string"] as &[&str]),
+                    ("size", &["string"] as &[&str]),
+                ]
+                .into_iter()
+                .collect(),
+            ),
+            ("pull-quote", [("children", &["string"] as &[&str]), ("className", &["string"] as &[&str])].into_iter().collect()),
+            (
+                "pull-to-refresh",
+                [
+                    ("refreshEvent", &["string"] as &[&str]),
+                    ("refreshPayload", &["object"] as &[&str]),
+                    ("threshold", &["number"] as &[&str]),
+                    ("children", &["node"] as &[&str]),
+                    ("className", &["string"] as &[&str]),
+                ]
+                .into_iter()
+                .collect(),
+            ),
+            (
+                "qr-scanner",
+                [
+                    ("onScan", &["function"] as &[&str]),
+                    ("scanEvent", &["string"] as &[&str]),
+                    ("onError", &["function"] as &[&str]),
+                    ("facingMode", &["string"] as &[&str]),
+                    ("paused", &["boolean"] as &[&str]),
+                    ("showOverlay", &["boolean"] as &[&str]),
+                    ("showCameraControls", &["boolean"] as &[&str]),
+                    ("fallback", &["node"] as &[&str]),
+                    ("className", &["string"] as &[&str]),
+                ]
+                .into_iter()
+                .collect(),
+            ),
+            (
+                "quiz-block",
+                [
+                    ("question", &["string"] as &[&str]),
+                    ("answer", &["string"] as &[&str]),
+                    ("className", &["string"] as &[&str]),
+                ]
+                .into_iter()
+                .collect(),
+            ),
+            (
+                "radio",
+                [
+                    ("className", &["string"] as &[&str]),
+                    ("options", &["array"] as &[&str]),
+                    ("value", &["string"] as &[&str]),
+                    ("action", &["string"] as &[&str]),
+                    ("label", &["string"] as &[&str]),
+                    ("helperText", &["string"] as &[&str]),
+                    ("error", &["string"] as &[&str]),
+                    ("size", &["string"] as &[&str]),
+                ]
+                .into_iter()
+                .collect(),
+            ),
+            (
+                "range-slider",
+                [
+                    ("className", &["string"] as &[&str]),
+                    ("min", &["number"] as &[&str]),
+                    ("max", &["number"] as &[&str]),
+                    ("value", &["number"] as &[&str]),
+                    ("step", &["number"] as &[&str]),
+                    ("showTooltip", &["boolean"] as &[&str]),
+                    ("showTicks", &["boolean"] as &[&str]),
+                    ("buffered", &["number"] as &[&str]),
+                    ("size", &["string"] as &[&str]),
+                    ("disabled", &["boolean"] as &[&str]),
+                    ("action", &["string"] as &[&str]),
+                    ("actionPayload", &["object"] as &[&str]),
+                    ("onChange", &["function"] as &[&str]),
+                    ("formatValue", &["function"] as &[&str]),
+                ]
+                .into_iter()
+                .collect(),
+            ),
+            (
+                "reflection-block",
+                [
+                    ("prompt", &["string"] as &[&str]),
+                    ("index", &["number"] as &[&str]),
+                    ("savedNote", &["string"] as &[&str]),
+                    ("saveEvent", &["string"] as &[&str]),
+                    ("className", &["string"] as &[&str]),
+                ]
+                .into_iter()
+                .collect(),
+            ),
+            (
+                "relation-select",
+                [
+                    ("value", &["string"] as &[&str]),
+                    ("onChange", &["function"] as &[&str]),
+                    ("options", &["array"] as &[&str]),
+                    ("placeholder", &["string"] as &[&str]),
+                    ("required", &["boolean"] as &[&str]),
+                    ("disabled", &["boolean"] as &[&str]),
+                    ("isLoading", &["boolean"] as &[&str]),
+                    ("error", &["string"] as &[&str]),
+                    ("clearable", &["boolean"] as &[&str]),
+                    ("name", &["string"] as &[&str]),
+                    ("className", &["string"] as &[&str]),
+                    ("searchPlaceholder", &["string"] as &[&str]),
+                    ("emptyMessage", &["string"] as &[&str]),
+                ]
+                .into_iter()
+                .collect(),
+            ),
+            (
+                "repeatable-form-section",
+                [
+                    ("sectionType", &["string"] as &[&str]),
+                    ("title", &["string"] as &[&str]),
+                    ("items", &["array"] as &[&str]),
+                    ("renderItem", &["function"] as &[&str]),
+                    ("minItems", &["number"] as &[&str]),
+                    ("maxItems", &["number"] as &[&str]),
+                    ("allowReorder", &["boolean"] as &[&str]),
+                    ("addLabel", &["string"] as &[&str]),
+                    ("emptyMessage", &["string"] as &[&str]),
+                    ("readOnly", &["boolean"] as &[&str]),
+                    ("className", &["string"] as &[&str]),
+                    ("onAdd", &["function"] as &[&str]),
+                    ("onRemove", &["function"] as &[&str]),
+                    ("onReorder", &["function"] as &[&str]),
+                    ("trackAddedInState", &["boolean"] as &[&str]),
+                    ("currentState", &["string"] as &[&str]),
+                    ("showAuditInfo", &["boolean"] as &[&str]),
+                ]
+                .into_iter()
+                .collect(),
+            ),
+            (
+                "reply-tree",
+                [
+                    ("nodes", &["object", "array"] as &[&str]),
+                    ("maxDepth", &["number"] as &[&str]),
+                    ("onVote", &["function"] as &[&str]),
+                    ("onReply", &["function"] as &[&str]),
+                    ("onFlag", &["function"] as &[&str]),
+                    ("onContinueThread", &["function"] as &[&str]),
+                    ("voteEvent", &["string"] as &[&str]),
+                    ("replyEvent", &["string"] as &[&str]),
+                    ("flagEvent", &["string"] as &[&str]),
+                    ("continueThreadEvent", &["string"] as &[&str]),
+                    ("showActions", &["boolean"] as &[&str]),
+                    ("className", &["string"] as &[&str]),
+                ]
+                .into_iter()
+                .collect(),
+            ),
+            (
+                "rich-text-editor",
+                [
+                    ("value", &["string"] as &[&str]),
+                    ("onChange", &["function"] as &[&str]),
+                    ("changeEvent", &["string"] as &[&str]),
+                    ("readOnly", &["boolean"] as &[&str]),
+                    ("placeholder", &["string"] as &[&str]),
+                    ("showToolbar", &["boolean"] as &[&str]),
+                    ("className", &["string"] as &[&str]),
+                ]
+                .into_iter()
+                .collect(),
+            ),
+            (
+                "runtime-debugger",
+                [
+                    ("position", &["string"] as &[&str]),
+                    ("defaultCollapsed", &["boolean"] as &[&str]),
+                    ("className", &["string"] as &[&str]),
+                    ("mode", &["string"] as &[&str]),
+                    ("defaultTab", &["string"] as &[&str]),
+                    ("schema", &["object"] as &[&str]),
+                ]
+                .into_iter()
+                .collect(),
+            ),
+            ("scaled-diagram", [("children", &["node"] as &[&str]), ("className", &["string"] as &[&str])].into_iter().collect()),
+            (
+                "score-display",
+                [
+                    ("assetUrl", &["object"] as &[&str]),
+                    ("value", &["number"] as &[&str]),
+                    ("score", &["number"] as &[&str]),
+                    ("label", &["string"] as &[&str]),
+                    ("icon", &["icon", "string"] as &[&str]),
+                    ("size", &["string"] as &[&str]),
+                    ("className", &["string"] as &[&str]),
+                    ("locale", &["string"] as &[&str]),
+                ]
+                .into_iter()
+                .collect(),
+            ),
+            (
+                "search-input",
+                [
+                    ("value", &["string"] as &[&str]),
+                    ("onSearch", &["function"] as &[&str]),
+                    ("debounceMs", &["number"] as &[&str]),
+                    ("isLoading", &["boolean"] as &[&str]),
+                    ("placeholder", &["string"] as &[&str]),
+                    ("clearable", &["boolean"] as &[&str]),
+                    ("className", &["string"] as &[&str]),
+                    ("event", &["string"] as &[&str]),
+                    ("entity", &["string"] as &[&str]),
+                    ("query", &["string"] as &[&str]),
+                ]
+                .into_iter()
+                .collect(),
+            ),
+            (
+                "section",
+                [
+                    ("title", &["string"] as &[&str]),
+                    ("description", &["string"] as &[&str]),
+                    ("action", &["node"] as &[&str]),
+                    ("padding", &["string"] as &[&str]),
+                    ("variant", &["string"] as &[&str]),
+                    ("divider", &["boolean"] as &[&str]),
+                    ("className", &["string"] as &[&str]),
+                    ("children", &["node"] as &[&str]),
+                    ("headerClassName", &["string"] as &[&str]),
+                    ("contentClassName", &["string"] as &[&str]),
+                    ("as", &["component"] as &[&str]),
+                    ("isLoading", &["boolean"] as &[&str]),
+                    ("error", &["object"] as &[&str]),
+                ]
+                .into_iter()
+                .collect(),
+            ),
+            (
+                "section-header",
+                [
+                    ("title", &["string"] as &[&str]),
+                    ("subtitle", &["string"] as &[&str]),
+                    ("align", &["string"] as &[&str]),
+                    ("level", &["number"] as &[&str]),
+                    ("className", &["string"] as &[&str]),
+                ]
+                .into_iter()
+                .collect(),
+            ),
+            (
+                "segment-renderer",
+                [
+                    ("segments", &["array"] as &[&str]),
+                    ("className", &["string"] as &[&str]),
+                    ("containerClassName", &["string"] as &[&str]),
+                    ("userProgress", &["object"] as &[&str]),
+                    ("onRunCodeSimulation", &["function"] as &[&str]),
+                    ("onRenderVisualization", &["function"] as &[&str]),
+                ]
+                .into_iter()
+                .collect(),
+            ),
+            (
+                "select",
+                [
+                    ("className", &["string"] as &[&str]),
+                    ("options", &["array"] as &[&str]),
+                    ("groups", &["array"] as &[&str]),
+                    ("placeholder", &["string"] as &[&str]),
+                    ("value", &["string", "array"] as &[&str]),
+                    ("action", &["string"] as &[&str]),
+                    ("error", &["string"] as &[&str]),
+                    ("multiple", &["boolean"] as &[&str]),
+                    ("searchable", &["boolean"] as &[&str]),
+                    ("clearable", &["boolean"] as &[&str]),
+                    ("onChange", &["function", "string"] as &[&str]),
+                    ("onValueChange", &["function", "string"] as &[&str]),
+                ]
+                .into_iter()
+                .collect(),
+            ),
+            (
+                "sequence-bar",
+                [
+                    ("slots", &["array"] as &[&str]),
+                    ("maxSlots", &["number"] as &[&str]),
+                    ("onSlotDrop", &["function"] as &[&str]),
+                    ("onSlotRemove", &["function"] as &[&str]),
+                    ("slotDropEvent", &["string"] as &[&str]),
+                    ("slotRemoveEvent", &["string"] as &[&str]),
+                    ("playing", &["boolean"] as &[&str]),
+                    ("currentStep", &["number"] as &[&str]),
+                    ("categoryColors", &["object"] as &[&str]),
+                    ("slotFeedback", &["array"] as &[&str]),
+                    ("size", &["string"] as &[&str]),
+                    ("className", &["string"] as &[&str]),
+                ]
+                .into_iter()
+                .collect(),
+            ),
+            ("service-catalog", [("services", &["array"] as &[&str]), ("className", &["string"] as &[&str])].into_iter().collect()),
+            (
+                "showcase-card",
+                [
+                    ("title", &["string"] as &[&str]),
+                    ("description", &["string"] as &[&str]),
+                    ("image", &["object"] as &[&str]),
+                    ("href", &["string"] as &[&str]),
+                    ("badge", &["string"] as &[&str]),
+                    ("accentColor", &["string"] as &[&str]),
+                    ("className", &["string"] as &[&str]),
+                ]
+                .into_iter()
+                .collect(),
+            ),
+            (
+                "showcase-organism",
+                [
+                    ("className", &["string"] as &[&str]),
+                    ("isLoading", &["boolean"] as &[&str]),
+                    ("error", &["object"] as &[&str]),
+                    ("sortBy", &["string"] as &[&str]),
+                    ("sortDirection", &["string"] as &[&str]),
+                    ("searchValue", &["string"] as &[&str]),
+                    ("page", &["number"] as &[&str]),
+                    ("pageSize", &["number"] as &[&str]),
+                    ("totalCount", &["number"] as &[&str]),
+                    ("activeFilters", &["object"] as &[&str]),
+                    ("selectedIds", &["array"] as &[&str]),
+                    ("entity", &["object", "array"] as &[&str]),
+                    ("columns", &["number"] as &[&str]),
+                    ("heading", &["string"] as &[&str]),
+                    ("subtitle", &["string"] as &[&str]),
+                ]
+                .into_iter()
+                .collect(),
+            ),
+            (
+                "side-panel",
+                [
+                    ("title", &["string"] as &[&str]),
+                    ("children", &["node"] as &[&str]),
+                    ("isOpen", &["boolean"] as &[&str]),
+                    ("onClose", &["function"] as &[&str]),
+                    ("width", &["string"] as &[&str]),
+                    ("position", &["string"] as &[&str]),
+                    ("showOverlay", &["boolean"] as &[&str]),
+                    ("className", &["string"] as &[&str]),
+                    ("closeEvent", &["string"] as &[&str]),
+                ]
+                .into_iter()
+                .collect(),
+            ),
+            (
+                "sidebar",
+                [
+                    ("className", &["string"] as &[&str]),
+                    ("isLoading", &["boolean"] as &[&str]),
+                    ("error", &["object"] as &[&str]),
+                    ("logo", &["node"] as &[&str]),
+                    ("logoSrc", &["asset"] as &[&str]),
+                    ("brandName", &["string"] as &[&str]),
+                    ("items", &["array"] as &[&str]),
+                    ("userSection", &["node"] as &[&str]),
+                    ("footerContent", &["node"] as &[&str]),
+                    ("collapsed", &["boolean"] as &[&str]),
+                    ("defaultCollapsed", &["boolean"] as &[&str]),
+                    ("collapseChangeEvent", &["string"] as &[&str]),
+                    ("hideCollapseButton", &["boolean"] as &[&str]),
+                    ("showCloseButton", &["boolean"] as &[&str]),
+                    ("closeEvent", &["string"] as &[&str]),
+                    ("logoClickEvent", &["string"] as &[&str]),
+                ]
+                .into_iter()
+                .collect(),
+            ),
+            (
+                "signature-pad",
+                [
+                    ("label", &["string"] as &[&str]),
+                    ("helperText", &["string"] as &[&str]),
+                    ("strokeColor", &["string"] as &[&str]),
+                    ("strokeWidth", &["number"] as &[&str]),
+                    ("height", &["number"] as &[&str]),
+                    ("readOnly", &["boolean"] as &[&str]),
+                    ("value", &["string"] as &[&str]),
+                    ("onChange", &["function"] as &[&str]),
+                    ("signEvent", &["string"] as &[&str]),
+                    ("clearEvent", &["string"] as &[&str]),
+                    ("isLoading", &["boolean"] as &[&str]),
+                    ("error", &["object"] as &[&str]),
+                    ("className", &["string"] as &[&str]),
+                ]
+                .into_iter()
+                .collect(),
+            ),
+            (
+                "simple-grid",
+                [
+                    ("minChildWidth", &["number", "string"] as &[&str]),
+                    ("maxCols", &["number"] as &[&str]),
+                    ("cols", &["number"] as &[&str]),
+                    ("gap", &["string"] as &[&str]),
+                    ("className", &["string"] as &[&str]),
+                    ("children", &["node"] as &[&str]),
+                ]
+                .into_iter()
+                .collect(),
+            ),
+            (
+                "skeleton",
+                [
+                    ("variant", &["string"] as &[&str]),
+                    ("rows", &["number"] as &[&str]),
+                    ("columns", &["number"] as &[&str]),
+                    ("fields", &["number"] as &[&str]),
+                    ("className", &["string"] as &[&str]),
+                ]
+                .into_iter()
+                .collect(),
+            ),
+            (
+                "social-proof",
+                [
+                    ("items", &["array"] as &[&str]),
+                    ("variant", &["string"] as &[&str]),
+                    ("className", &["string"] as &[&str]),
+                ]
+                .into_iter()
+                .collect(),
+            ),
+            (
+                "sortable-list",
+                [
+                    ("items", &["object", "array"] as &[&str]),
+                    ("renderItem", &["function"] as &[&str]),
+                    ("reorderEvent", &["string"] as &[&str]),
+                    ("reorderPayload", &["object"] as &[&str]),
+                    ("dragHandlePosition", &["string"] as &[&str]),
+                    ("className", &["string"] as &[&str]),
+                ]
+                .into_iter()
+                .collect(),
+            ),
+            (
+                "spacer",
+                [
+                    ("size", &["string"] as &[&str]),
+                    ("axis", &["string"] as &[&str]),
+                    ("className", &["string"] as &[&str]),
+                ]
+                .into_iter()
+                .collect(),
+            ),
+            (
+                "sparkline",
+                [
+                    ("data", &["array"] as &[&str]),
+                    ("color", &["string"] as &[&str]),
+                    ("width", &["number"] as &[&str]),
+                    ("height", &["number"] as &[&str]),
+                    ("strokeWidth", &["number"] as &[&str]),
+                    ("fill", &["boolean"] as &[&str]),
+                    ("className", &["string"] as &[&str]),
+                ]
+                .into_iter()
+                .collect(),
+            ),
+            (
+                "spinner",
+                [
+                    ("className", &["string"] as &[&str]),
+                    ("size", &["string"] as &[&str]),
+                    ("overlay", &["boolean"] as &[&str]),
+                ]
+                .into_iter()
+                .collect(),
+            ),
+            (
+                "split",
+                [
+                    ("ratio", &["string"] as &[&str]),
+                    ("gap", &["string"] as &[&str]),
+                    ("reverse", &["boolean"] as &[&str]),
+                    ("stackOnMobile", &["boolean"] as &[&str]),
+                    ("stackBreakpoint", &["string"] as &[&str]),
+                    ("align", &["string"] as &[&str]),
+                    ("className", &["string"] as &[&str]),
+                    ("leftClassName", &["string"] as &[&str]),
+                    ("rightClassName", &["string"] as &[&str]),
+                    ("children", &["array"] as &[&str]),
+                    ("isLoading", &["boolean"] as &[&str]),
+                    ("error", &["object"] as &[&str]),
+                ]
+                .into_iter()
+                .collect(),
+            ),
+            (
+                "split-pane",
+                [
+                    ("direction", &["string"] as &[&str]),
+                    ("ratio", &["number"] as &[&str]),
+                    ("minSize", &["number"] as &[&str]),
+                    ("resizable", &["boolean"] as &[&str]),
+                    ("left", &["node"] as &[&str]),
+                    ("right", &["node"] as &[&str]),
+                    ("className", &["string"] as &[&str]),
+                    ("leftClassName", &["string"] as &[&str]),
+                    ("rightClassName", &["string"] as &[&str]),
+                    ("onRatioChange", &["function"] as &[&str]),
+                ]
+                .into_iter()
+                .collect(),
+            ),
+            (
+                "split-section",
+                [
+                    ("title", &["string"] as &[&str]),
+                    ("description", &["string", "node"] as &[&str]),
+                    ("bullets", &["array"] as &[&str]),
+                    ("image", &["object"] as &[&str]),
+                    ("imagePosition", &["string"] as &[&str]),
+                    ("background", &["string"] as &[&str]),
+                    ("children", &["node"] as &[&str]),
+                    ("className", &["string"] as &[&str]),
+                ]
+                .into_iter()
+                .collect(),
+            ),
+            (
+                "stack",
+                [
+                    ("direction", &["string"] as &[&str]),
+                    ("gap", &["string"] as &[&str]),
+                    ("align", &["string"] as &[&str]),
+                    ("justify", &["string"] as &[&str]),
+                    ("wrap", &["boolean"] as &[&str]),
+                    ("reverse", &["boolean"] as &[&str]),
+                    ("flex", &["boolean"] as &[&str]),
+                    ("className", &["string"] as &[&str]),
+                    ("style", &["object"] as &[&str]),
+                    ("children", &["node"] as &[&str]),
+                    ("as", &["component"] as &[&str]),
+                    ("onClick", &["function"] as &[&str]),
+                    ("onKeyDown", &["function"] as &[&str]),
+                    ("role", &["string"] as &[&str]),
+                    ("tabIndex", &["number"] as &[&str]),
+                    ("action", &["string"] as &[&str]),
+                    ("actionPayload", &["object"] as &[&str]),
+                    ("responsive", &["boolean"] as &[&str]),
+                ]
+                .into_iter()
+                .collect(),
+            ),
+            (
+                "star-rating",
+                [
+                    ("value", &["number"] as &[&str]),
+                    ("max", &["number"] as &[&str]),
+                    ("readOnly", &["boolean"] as &[&str]),
+                    ("precision", &["string"] as &[&str]),
+                    ("size", &["string"] as &[&str]),
+                    ("action", &["string"] as &[&str]),
+                    ("actionPayload", &["object"] as &[&str]),
+                    ("onChange", &["function"] as &[&str]),
+                    ("className", &["string"] as &[&str]),
+                    ("label", &["string"] as &[&str]),
+                ]
+                .into_iter()
+                .collect(),
+            ),
+            (
+                "stat-badge",
+                [
+                    ("assetUrl", &["object"] as &[&str]),
+                    ("iconUrl", &["object"] as &[&str]),
+                    ("label", &["string"] as &[&str]),
+                    ("value", &["number", "string"] as &[&str]),
+                    ("max", &["number"] as &[&str]),
+                    ("source", &["string"] as &[&str]),
+                    ("field", &["string"] as &[&str]),
+                    ("format", &["string"] as &[&str]),
+                    ("icon", &["icon", "string"] as &[&str]),
+                    ("size", &["string"] as &[&str]),
+                    ("variant", &["string"] as &[&str]),
+                    ("className", &["string"] as &[&str]),
+                ]
+                .into_iter()
+                .collect(),
+            ),
+            (
+                "stat-card",
+                [
+                    ("className", &["string"] as &[&str]),
+                    ("isLoading", &["boolean"] as &[&str]),
+                    ("error", &["object"] as &[&str]),
+                    ("sortBy", &["string"] as &[&str]),
+                    ("sortDirection", &["string"] as &[&str]),
+                    ("searchValue", &["string"] as &[&str]),
+                    ("page", &["number"] as &[&str]),
+                    ("pageSize", &["number"] as &[&str]),
+                    ("totalCount", &["number"] as &[&str]),
+                    ("activeFilters", &["object"] as &[&str]),
+                    ("selectedIds", &["array"] as &[&str]),
+                    ("entity", &["object", "array"] as &[&str]),
+                    ("label", &["string"] as &[&str]),
+                    ("title", &["string"] as &[&str]),
+                    ("value", &["string", "number", "array"] as &[&str]),
+                    ("previousValue", &["number"] as &[&str]),
+                    ("currentValue", &["number"] as &[&str]),
+                    ("trend", &["number"] as &[&str]),
+                    ("trendDirection", &["string"] as &[&str]),
+                    ("invertTrend", &["boolean"] as &[&str]),
+                    ("icon", &["icon", "string"] as &[&str]),
+                    ("iconBg", &["string"] as &[&str]),
+                    ("iconColor", &["string"] as &[&str]),
+                    ("subtitle", &["string"] as &[&str]),
+                    ("action", &["object"] as &[&str]),
+                    ("metrics", &["array"] as &[&str]),
+                    ("compact", &["boolean"] as &[&str]),
+                    ("sparklineData", &["array"] as &[&str]),
+                ]
+                .into_iter()
+                .collect(),
+            ),
+            (
+                "stat-display",
+                [
+                    ("label", &["string"] as &[&str]),
+                    ("value", &["number", "string"] as &[&str]),
+                    ("max", &["number"] as &[&str]),
+                    ("target", &["number"] as &[&str]),
+                    ("trend", &["number"] as &[&str]),
+                    ("trendPolarity", &["string"] as &[&str]),
+                    ("trendFormat", &["string"] as &[&str]),
+                    ("sparklineData", &["array"] as &[&str]),
+                    ("clickEvent", &["string"] as &[&str]),
+                    ("prefix", &["string"] as &[&str]),
+                    ("suffix", &["string"] as &[&str]),
+                    ("icon", &["icon", "string"] as &[&str]),
+                    ("iconBg", &["string"] as &[&str]),
+                    ("iconColor", &["string"] as &[&str]),
+                    ("format", &["string"] as &[&str]),
+                    ("size", &["string"] as &[&str]),
+                    ("variant", &["string"] as &[&str]),
+                    ("compact", &["boolean"] as &[&str]),
+                    ("look", &["string"] as &[&str]),
+                    ("className", &["string"] as &[&str]),
+                    ("isLoading", &["boolean"] as &[&str]),
+                    ("error", &["object"] as &[&str]),
+                ]
+                .into_iter()
+                .collect(),
+            ),
+            (
+                "state-graph",
+                [
+                    ("states", &["array"] as &[&str]),
+                    ("transitions", &["array"] as &[&str]),
+                    ("currentState", &["string"] as &[&str]),
+                    ("selectedState", &["string"] as &[&str]),
+                    ("addingFrom", &["string"] as &[&str]),
+                    ("initialState", &["string"] as &[&str]),
+                    ("width", &["number"] as &[&str]),
+                    ("height", &["number"] as &[&str]),
+                    ("nodeClickEvent", &["string"] as &[&str]),
+                    ("className", &["string"] as &[&str]),
+                ]
+                .into_iter()
+                .collect(),
+            ),
+            (
+                "state-json-view",
+                [
+                    ("name", &["string"] as &[&str]),
+                    ("initialState", &["string"] as &[&str]),
+                    ("states", &["array"] as &[&str]),
+                    ("transitions", &["array"] as &[&str]),
+                    ("label", &["string"] as &[&str]),
+                    ("defaultExpanded", &["boolean"] as &[&str]),
+                    ("className", &["string"] as &[&str]),
+                ]
+                .into_iter()
+                .collect(),
+            ),
+            (
+                "state-machine-view",
+                [
+                    ("className", &["string"] as &[&str]),
+                    ("isLoading", &["boolean"] as &[&str]),
+                    ("error", &["object"] as &[&str]),
+                    ("layoutData", &["object"] as &[&str]),
+                    ("renderStateNode", &["function"] as &[&str]),
+                ]
+                .into_iter()
+                .collect(),
+            ),
+            (
+                "stats-grid",
+                [
+                    ("stats", &["array"] as &[&str]),
+                    ("columns", &["number"] as &[&str]),
+                    ("className", &["string"] as &[&str]),
+                ]
+                .into_iter()
+                .collect(),
+            ),
+            (
+                "stats-organism",
+                [
+                    ("className", &["string"] as &[&str]),
+                    ("isLoading", &["boolean"] as &[&str]),
+                    ("error", &["object"] as &[&str]),
+                    ("sortBy", &["string"] as &[&str]),
+                    ("sortDirection", &["string"] as &[&str]),
+                    ("searchValue", &["string"] as &[&str]),
+                    ("page", &["number"] as &[&str]),
+                    ("pageSize", &["number"] as &[&str]),
+                    ("totalCount", &["number"] as &[&str]),
+                    ("activeFilters", &["object"] as &[&str]),
+                    ("selectedIds", &["array"] as &[&str]),
+                    ("entity", &["object", "array"] as &[&str]),
+                    ("columns", &["number"] as &[&str]),
+                ]
+                .into_iter()
+                .collect(),
+            ),
+            (
+                "status-dot",
+                [
+                    ("className", &["string"] as &[&str]),
+                    ("status", &["string"] as &[&str]),
+                    ("pulse", &["boolean"] as &[&str]),
+                    ("size", &["string"] as &[&str]),
+                    ("label", &["string"] as &[&str]),
+                ]
+                .into_iter()
+                .collect(),
+            ),
+            (
+                "step-flow",
+                [
+                    ("steps", &["array"] as &[&str]),
+                    ("orientation", &["string"] as &[&str]),
+                    ("showConnectors", &["boolean"] as &[&str]),
+                    ("className", &["string"] as &[&str]),
+                ]
+                .into_iter()
+                .collect(),
+            ),
+            (
+                "step-flow-organism",
+                [
+                    ("className", &["string"] as &[&str]),
+                    ("isLoading", &["boolean"] as &[&str]),
+                    ("error", &["object"] as &[&str]),
+                    ("sortBy", &["string"] as &[&str]),
+                    ("sortDirection", &["string"] as &[&str]),
+                    ("searchValue", &["string"] as &[&str]),
+                    ("page", &["number"] as &[&str]),
+                    ("pageSize", &["number"] as &[&str]),
+                    ("totalCount", &["number"] as &[&str]),
+                    ("activeFilters", &["object"] as &[&str]),
+                    ("selectedIds", &["array"] as &[&str]),
+                    ("entity", &["object", "array"] as &[&str]),
+                    ("orientation", &["string"] as &[&str]),
+                    ("showConnectors", &["boolean"] as &[&str]),
+                    ("heading", &["string"] as &[&str]),
+                    ("subtitle", &["string"] as &[&str]),
+                ]
+                .into_iter()
+                .collect(),
+            ),
+            (
+                "subagent-trace-panel",
+                [
+                    ("className", &["string"] as &[&str]),
+                    ("isLoading", &["boolean"] as &[&str]),
+                    ("error", &["object"] as &[&str]),
+                    ("sortBy", &["string"] as &[&str]),
+                    ("sortDirection", &["string"] as &[&str]),
+                    ("searchValue", &["string"] as &[&str]),
+                    ("page", &["number"] as &[&str]),
+                    ("pageSize", &["number"] as &[&str]),
+                    ("totalCount", &["number"] as &[&str]),
+                    ("activeFilters", &["object"] as &[&str]),
+                    ("selectedIds", &["array"] as &[&str]),
+                    ("subagents", &["array"] as &[&str]),
+                    ("focusedOrbital", &["string"] as &[&str]),
+                    ("disclosureLevel", &["number"] as &[&str]),
+                    ("open", &["boolean"] as &[&str]),
+                    ("onClose", &["function"] as &[&str]),
+                    ("coordinatorActivities", &["array"] as &[&str]),
+                    ("coordinatorMessages", &["array"] as &[&str]),
+                    ("mode", &["string"] as &[&str]),
+                ]
+                .into_iter()
+                .collect(),
+            ),
+            (
+                "svg-branch",
+                [
+                    ("x", &["number"] as &[&str]),
+                    ("y", &["number"] as &[&str]),
+                    ("variant", &["string"] as &[&str]),
+                    ("branches", &["number"] as &[&str]),
+                    ("size", &["number"] as &[&str]),
+                    ("color", &["string"] as &[&str]),
+                    ("opacity", &["number"] as &[&str]),
+                    ("className", &["string"] as &[&str]),
+                    ("asRoot", &["boolean"] as &[&str]),
+                    ("width", &["number"] as &[&str]),
+                    ("height", &["number"] as &[&str]),
+                ]
+                .into_iter()
+                .collect(),
+            ),
+            (
+                "svg-connection",
+                [
+                    ("x1", &["number"] as &[&str]),
+                    ("y1", &["number"] as &[&str]),
+                    ("x2", &["number"] as &[&str]),
+                    ("y2", &["number"] as &[&str]),
+                    ("variant", &["string"] as &[&str]),
+                    ("color", &["string"] as &[&str]),
+                    ("strokeWidth", &["number"] as &[&str]),
+                    ("opacity", &["number"] as &[&str]),
+                    ("className", &["string"] as &[&str]),
+                    ("asRoot", &["boolean"] as &[&str]),
+                    ("width", &["number"] as &[&str]),
+                    ("height", &["number"] as &[&str]),
+                ]
+                .into_iter()
+                .collect(),
+            ),
+            (
+                "svg-flow",
+                [
+                    ("points", &["array"] as &[&str]),
+                    ("color", &["string"] as &[&str]),
+                    ("strokeWidth", &["number"] as &[&str]),
+                    ("animated", &["boolean"] as &[&str]),
+                    ("opacity", &["number"] as &[&str]),
+                    ("className", &["string"] as &[&str]),
+                    ("asRoot", &["boolean"] as &[&str]),
+                    ("width", &["number"] as &[&str]),
+                    ("height", &["number"] as &[&str]),
+                ]
+                .into_iter()
+                .collect(),
+            ),
+            (
+                "svg-grid",
+                [
+                    ("x", &["number"] as &[&str]),
+                    ("y", &["number"] as &[&str]),
+                    ("cols", &["number"] as &[&str]),
+                    ("rows", &["number"] as &[&str]),
+                    ("spacing", &["number"] as &[&str]),
+                    ("nodeRadius", &["number"] as &[&str]),
+                    ("color", &["string"] as &[&str]),
+                    ("opacity", &["number"] as &[&str]),
+                    ("className", &["string"] as &[&str]),
+                    ("highlights", &["array"] as &[&str]),
+                    ("asRoot", &["boolean"] as &[&str]),
+                    ("width", &["number"] as &[&str]),
+                    ("height", &["number"] as &[&str]),
+                ]
+                .into_iter()
+                .collect(),
+            ),
+            (
+                "svg-lobe",
+                [
+                    ("cx", &["number"] as &[&str]),
+                    ("cy", &["number"] as &[&str]),
+                    ("rx", &["number"] as &[&str]),
+                    ("ry", &["number"] as &[&str]),
+                    ("rotation", &["number"] as &[&str]),
+                    ("shells", &["number"] as &[&str]),
+                    ("color", &["string"] as &[&str]),
+                    ("opacity", &["number"] as &[&str]),
+                    ("className", &["string"] as &[&str]),
+                    ("asRoot", &["boolean"] as &[&str]),
+                    ("width", &["number"] as &[&str]),
+                    ("height", &["number"] as &[&str]),
+                ]
+                .into_iter()
+                .collect(),
+            ),
+            (
+                "svg-mesh",
+                [
+                    ("cx", &["number"] as &[&str]),
+                    ("cy", &["number"] as &[&str]),
+                    ("nodes", &["number"] as &[&str]),
+                    ("radius", &["number"] as &[&str]),
+                    ("color", &["string"] as &[&str]),
+                    ("connectionDensity", &["number"] as &[&str]),
+                    ("opacity", &["number"] as &[&str]),
+                    ("className", &["string"] as &[&str]),
+                    ("asRoot", &["boolean"] as &[&str]),
+                    ("width", &["number"] as &[&str]),
+                    ("height", &["number"] as &[&str]),
+                ]
+                .into_iter()
+                .collect(),
+            ),
+            (
+                "svg-morph",
+                [
+                    ("x", &["number"] as &[&str]),
+                    ("y", &["number"] as &[&str]),
+                    ("size", &["number"] as &[&str]),
+                    ("variant", &["string"] as &[&str]),
+                    ("color", &["string"] as &[&str]),
+                    ("opacity", &["number"] as &[&str]),
+                    ("className", &["string"] as &[&str]),
+                    ("asRoot", &["boolean"] as &[&str]),
+                    ("width", &["number"] as &[&str]),
+                    ("height", &["number"] as &[&str]),
+                ]
+                .into_iter()
+                .collect(),
+            ),
+            (
+                "svg-node",
+                [
+                    ("x", &["number"] as &[&str]),
+                    ("y", &["number"] as &[&str]),
+                    ("r", &["number"] as &[&str]),
+                    ("variant", &["string"] as &[&str]),
+                    ("color", &["string"] as &[&str]),
+                    ("opacity", &["number"] as &[&str]),
+                    ("className", &["string"] as &[&str]),
+                    ("label", &["string"] as &[&str]),
+                    ("asRoot", &["boolean"] as &[&str]),
+                    ("width", &["number"] as &[&str]),
+                    ("height", &["number"] as &[&str]),
+                ]
+                .into_iter()
+                .collect(),
+            ),
+            (
+                "svg-pulse",
+                [
+                    ("cx", &["number"] as &[&str]),
+                    ("cy", &["number"] as &[&str]),
+                    ("rings", &["number"] as &[&str]),
+                    ("maxRadius", &["number"] as &[&str]),
+                    ("color", &["string"] as &[&str]),
+                    ("animated", &["boolean"] as &[&str]),
+                    ("opacity", &["number"] as &[&str]),
+                    ("className", &["string"] as &[&str]),
+                    ("asRoot", &["boolean"] as &[&str]),
+                    ("width", &["number"] as &[&str]),
+                    ("height", &["number"] as &[&str]),
+                ]
+                .into_iter()
+                .collect(),
+            ),
+            (
+                "svg-ring",
+                [
+                    ("cx", &["number"] as &[&str]),
+                    ("cy", &["number"] as &[&str]),
+                    ("r", &["number"] as &[&str]),
+                    ("variant", &["string"] as &[&str]),
+                    ("color", &["string"] as &[&str]),
+                    ("strokeWidth", &["number"] as &[&str]),
+                    ("opacity", &["number"] as &[&str]),
+                    ("className", &["string"] as &[&str]),
+                    ("label", &["string"] as &[&str]),
+                    ("asRoot", &["boolean"] as &[&str]),
+                    ("width", &["number"] as &[&str]),
+                    ("height", &["number"] as &[&str]),
+                ]
+                .into_iter()
+                .collect(),
+            ),
+            (
+                "svg-shield",
+                [
+                    ("x", &["number"] as &[&str]),
+                    ("y", &["number"] as &[&str]),
+                    ("size", &["number"] as &[&str]),
+                    ("variant", &["string"] as &[&str]),
+                    ("color", &["string"] as &[&str]),
+                    ("opacity", &["number"] as &[&str]),
+                    ("className", &["string"] as &[&str]),
+                    ("asRoot", &["boolean"] as &[&str]),
+                    ("width", &["number"] as &[&str]),
+                    ("height", &["number"] as &[&str]),
+                ]
+                .into_iter()
+                .collect(),
+            ),
+            (
+                "svg-stack",
+                [
+                    ("x", &["number"] as &[&str]),
+                    ("y", &["number"] as &[&str]),
+                    ("layers", &["number"] as &[&str]),
+                    ("width", &["number"] as &[&str]),
+                    ("height", &["number"] as &[&str]),
+                    ("color", &["string"] as &[&str]),
+                    ("opacity", &["number"] as &[&str]),
+                    ("className", &["string"] as &[&str]),
+                    ("labels", &["array"] as &[&str]),
+                    ("asRoot", &["boolean"] as &[&str]),
+                    ("svgWidth", &["number"] as &[&str]),
+                    ("svgHeight", &["number"] as &[&str]),
+                ]
+                .into_iter()
+                .collect(),
+            ),
+            (
+                "swipeable-row",
+                [
+                    ("leftActions", &["array"] as &[&str]),
+                    ("rightActions", &["array"] as &[&str]),
+                    ("threshold", &["number"] as &[&str]),
+                    ("children", &["node"] as &[&str]),
+                    ("itemData", &["object"] as &[&str]),
+                    ("className", &["string"] as &[&str]),
+                ]
+                .into_iter()
+                .collect(),
+            ),
+            (
+                "switch",
+                [
+                    ("checked", &["boolean"] as &[&str]),
+                    ("defaultChecked", &["boolean"] as &[&str]),
+                    ("onChange", &["function"] as &[&str]),
+                    ("disabled", &["boolean"] as &[&str]),
+                    ("label", &["string"] as &[&str]),
+                    ("id", &["string"] as &[&str]),
+                    ("name", &["string"] as &[&str]),
+                    ("className", &["string"] as &[&str]),
+                ]
+                .into_iter()
+                .collect(),
+            ),
+            (
+                "tabbed-container",
+                [
+                    ("tabs", &["array"] as &[&str]),
+                    ("defaultTab", &["string"] as &[&str]),
+                    ("activeTab", &["string"] as &[&str]),
+                    ("onTabChange", &["function"] as &[&str]),
+                    ("position", &["string"] as &[&str]),
+                    ("className", &["string"] as &[&str]),
+                ]
+                .into_iter()
+                .collect(),
+            ),
+            (
+                "table-view",
+                [
+                    ("dragGroup", &["string"] as &[&str]),
+                    ("accepts", &["string"] as &[&str]),
+                    ("sortable", &["boolean"] as &[&str]),
+                    ("dropEvent", &["string"] as &[&str]),
+                    ("reorderEvent", &["string"] as &[&str]),
+                    ("positionEvent", &["string"] as &[&str]),
+                    ("dndItemIdField", &["string"] as &[&str]),
+                    ("dndRoot", &["boolean"] as &[&str]),
+                    ("entity", &["object", "array"] as &[&str]),
+                    ("columns", &["array"] as &[&str]),
+                    ("fields", &["array"] as &[&str]),
+                    ("itemActions", &["array"] as &[&str]),
+                    ("maxInlineActions", &["number"] as &[&str]),
+                    ("itemClickEvent", &["string"] as &[&str]),
+                    ("selectable", &["boolean"] as &[&str]),
+                    ("selectEvent", &["string"] as &[&str]),
+                    ("selectedIds", &["array"] as &[&str]),
+                    ("sortEvent", &["string"] as &[&str]),
+                    ("sortColumn", &["string"] as &[&str]),
+                    ("sortDirection", &["string"] as &[&str]),
+                    ("className", &["string"] as &[&str]),
+                    ("emptyMessage", &["string"] as &[&str]),
+                    ("isLoading", &["boolean"] as &[&str]),
+                    ("error", &["object"] as &[&str]),
+                    ("groupBy", &["string"] as &[&str]),
+                    ("pageSize", &["number"] as &[&str]),
+                    ("children", &["function"] as &[&str]),
+                    ("renderItem", &["function"] as &[&str]),
+                    ("look", &["string"] as &[&str]),
+                    ("relationsData", &["object"] as &[&str]),
+                ]
+                .into_iter()
+                .collect(),
+            ),
+            (
+                "tabs",
+                [
+                    ("items", &["array"] as &[&str]),
+                    ("tabs", &["array"] as &[&str]),
+                    ("defaultActiveTab", &["string"] as &[&str]),
+                    ("activeTab", &["string"] as &[&str]),
+                    ("onTabChange", &["function"] as &[&str]),
+                    ("tabChangeEvent", &["string"] as &[&str]),
+                    ("variant", &["string"] as &[&str]),
+                    ("orientation", &["string"] as &[&str]),
+                    ("className", &["string"] as &[&str]),
+                ]
+                .into_iter()
+                .collect(),
+            ),
+            (
+                "tag-cloud",
+                [
+                    ("tags", &["array"] as &[&str]),
+                    ("variant", &["string"] as &[&str]),
+                    ("className", &["string"] as &[&str]),
+                ]
+                .into_iter()
+                .collect(),
+            ),
+            (
+                "tag-input",
+                [
+                    ("value", &["array"] as &[&str]),
+                    ("onChange", &["function"] as &[&str]),
+                    ("placeholder", &["string"] as &[&str]),
+                    ("disabled", &["boolean"] as &[&str]),
+                    ("variant", &["string"] as &[&str]),
+                    ("unique", &["boolean"] as &[&str]),
+                    ("helperText", &["string"] as &[&str]),
+                    ("className", &["string"] as &[&str]),
+                    ("addEvent", &["string"] as &[&str]),
+                    ("removeEvent", &["string"] as &[&str]),
+                ]
+                .into_iter()
+                .collect(),
+            ),
+            (
+                "team-card",
+                [
+                    ("name", &["string"] as &[&str]),
+                    ("nameAr", &["string"] as &[&str]),
+                    ("role", &["string"] as &[&str]),
+                    ("bio", &["string"] as &[&str]),
+                    ("avatar", &["asset", "object"] as &[&str]),
+                    ("className", &["string"] as &[&str]),
+                ]
+                .into_iter()
+                .collect(),
+            ),
+            (
+                "team-organism",
+                [
+                    ("className", &["string"] as &[&str]),
+                    ("isLoading", &["boolean"] as &[&str]),
+                    ("error", &["object"] as &[&str]),
+                    ("sortBy", &["string"] as &[&str]),
+                    ("sortDirection", &["string"] as &[&str]),
+                    ("searchValue", &["string"] as &[&str]),
+                    ("page", &["number"] as &[&str]),
+                    ("pageSize", &["number"] as &[&str]),
+                    ("totalCount", &["number"] as &[&str]),
+                    ("activeFilters", &["object"] as &[&str]),
+                    ("selectedIds", &["array"] as &[&str]),
+                    ("entity", &["object", "array"] as &[&str]),
+                    ("heading", &["string"] as &[&str]),
+                    ("subtitle", &["string"] as &[&str]),
+                ]
+                .into_iter()
+                .collect(),
+            ),
+            (
+                "text-highlight",
+                [
+                    ("highlightType", &["string"] as &[&str]),
+                    ("isActive", &["boolean"] as &[&str]),
+                    ("onClick", &["function"] as &[&str]),
+                    ("onMouseEnter", &["function"] as &[&str]),
+                    ("onMouseLeave", &["function"] as &[&str]),
+                    ("annotationId", &["string"] as &[&str]),
+                    ("className", &["string"] as &[&str]),
+                    ("children", &["node"] as &[&str]),
+                    ("action", &["string"] as &[&str]),
+                    ("hoverEvent", &["string"] as &[&str]),
+                ]
+                .into_iter()
+                .collect(),
+            ),
+            (
+                "textarea",
+                [
+                    ("className", &["string"] as &[&str]),
+                    ("placeholder", &["string"] as &[&str]),
+                    ("rows", &["number"] as &[&str]),
+                    ("action", &["string"] as &[&str]),
+                    ("error", &["string"] as &[&str]),
+                    ("onChange", &["function", "string"] as &[&str]),
+                ]
+                .into_iter()
+                .collect(),
+            ),
+            (
+                "theme-toggle",
+                [
+                    ("className", &["string"] as &[&str]),
+                    ("size", &["string"] as &[&str]),
+                    ("showLabel", &["boolean"] as &[&str]),
+                ]
+                .into_iter()
+                .collect(),
+            ),
+            (
+                "time-slot-cell",
+                [
+                    ("time", &["string"] as &[&str]),
+                    ("onClick", &["function"] as &[&str]),
+                    ("className", &["string"] as &[&str]),
+                    ("children", &["node"] as &[&str]),
+                    ("isOccupied", &["boolean"] as &[&str]),
+                ]
+                .into_iter()
+                .collect(),
+            ),
+            (
+                "timeline",
+                [
+                    ("className", &["string"] as &[&str]),
+                    ("isLoading", &["boolean"] as &[&str]),
+                    ("error", &["object"] as &[&str]),
+                    ("entity", &["object", "array"] as &[&str]),
+                    ("title", &["string"] as &[&str]),
+                    ("items", &["array"] as &[&str]),
+                    ("fields", &["array"] as &[&str]),
+                    ("itemActions", &["array"] as &[&str]),
+                    ("look", &["string"] as &[&str]),
+                ]
+                .into_iter()
+                .collect(),
+            ),
+            (
+                "timer-display",
+                [
+                    ("seconds", &["number"] as &[&str]),
+                    ("running", &["boolean"] as &[&str]),
+                    ("format", &["string"] as &[&str]),
+                    ("size", &["string"] as &[&str]),
+                    ("className", &["string"] as &[&str]),
+                    ("lowThreshold", &["number"] as &[&str]),
+                    ("iconAsset", &["object"] as &[&str]),
+                ]
+                .into_iter()
+                .collect(),
+            ),
+            (
+                "toast-slot",
+                [
+                    ("children", &["node"] as &[&str]),
+                    ("variant", &["string"] as &[&str]),
+                    ("title", &["string"] as &[&str]),
+                    ("duration", &["number"] as &[&str]),
+                    ("className", &["string"] as &[&str]),
+                    ("isLoading", &["boolean"] as &[&str]),
+                    ("error", &["object"] as &[&str]),
+                    ("entity", &["string"] as &[&str]),
+                    ("sourceTrait", &["string"] as &[&str]),
+                ]
+                .into_iter()
+                .collect(),
+            ),
+            (
+                "tooltip",
+                [
+                    ("content", &["node"] as &[&str]),
+                    ("children", &["node"] as &[&str]),
+                    ("position", &["string"] as &[&str]),
+                    ("delay", &["number"] as &[&str]),
+                    ("hideDelay", &["number"] as &[&str]),
+                    ("showArrow", &["boolean"] as &[&str]),
+                    ("className", &["string"] as &[&str]),
+                ]
+                .into_iter()
+                .collect(),
+            ),
+            ("trait-frame", [("traitName", &["string"] as &[&str]), ("fallback", &["node"] as &[&str])].into_iter().collect()),
+            (
+                "trait-slot",
+                [
+                    ("slotNumber", &["number"] as &[&str]),
+                    ("equippedItem", &["object"] as &[&str]),
+                    ("locked", &["boolean"] as &[&str]),
+                    ("lockLabel", &["string"] as &[&str]),
+                    ("selected", &["boolean"] as &[&str]),
+                    ("size", &["string"] as &[&str]),
+                    ("showTooltip", &["boolean"] as &[&str]),
+                    ("categoryColors", &["object"] as &[&str]),
+                    ("tooltipFrameUrl", &["object"] as &[&str]),
+                    ("className", &["string"] as &[&str]),
+                    ("isLoading", &["boolean"] as &[&str]),
+                    ("error", &["object"] as &[&str]),
+                    ("onItemDrop", &["function"] as &[&str]),
+                    ("draggable", &["boolean"] as &[&str]),
+                    ("onDragStart", &["function"] as &[&str]),
+                    ("feedback", &["string"] as &[&str]),
+                    ("onClick", &["function"] as &[&str]),
+                    ("onRemove", &["function"] as &[&str]),
+                    ("clickEvent", &["string"] as &[&str]),
+                    ("removeEvent", &["string"] as &[&str]),
+                    ("dropEvent", &["string"] as &[&str]),
+                ]
+                .into_iter()
+                .collect(),
+            ),
+            (
+                "trend-indicator",
+                [
+                    ("className", &["string"] as &[&str]),
+                    ("value", &["number"] as &[&str]),
+                    ("direction", &["string"] as &[&str]),
+                    ("showValue", &["boolean"] as &[&str]),
+                    ("invert", &["boolean"] as &[&str]),
+                    ("label", &["string"] as &[&str]),
+                    ("size", &["string"] as &[&str]),
+                ]
+                .into_iter()
+                .collect(),
+            ),
+            (
+                "typewriter-text",
+                [
+                    ("text", &["string"] as &[&str]),
+                    ("speed", &["number"] as &[&str]),
+                    ("startDelay", &["number"] as &[&str]),
+                    ("className", &["string"] as &[&str]),
+                    ("onComplete", &["function"] as &[&str]),
+                ]
+                .into_iter()
+                .collect(),
+            ),
+            (
+                "typography",
+                [
+                    ("variant", &["string"] as &[&str]),
+                    ("level", &["number"] as &[&str]),
+                    ("color", &["string"] as &[&str]),
+                    ("align", &["string"] as &[&str]),
+                    ("weight", &["string"] as &[&str]),
+                    ("size", &["string"] as &[&str]),
+                    ("truncate", &["boolean"] as &[&str]),
+                    ("overflow", &["string"] as &[&str]),
+                    ("as", &["component"] as &[&str]),
+                    ("id", &["string"] as &[&str]),
+                    ("className", &["string"] as &[&str]),
+                    ("style", &["object"] as &[&str]),
+                    ("format", &["string"] as &[&str]),
+                    ("content", &["node"] as &[&str]),
+                    ("children", &["node"] as &[&str]),
+                ]
+                .into_iter()
+                .collect(),
+            ),
+            (
+                "ui-slot-component",
+                [
+                    ("slot", &["object"] as &[&str]),
+                    ("portal", &["boolean"] as &[&str]),
+                    ("position", &["string"] as &[&str]),
+                    ("className", &["string"] as &[&str]),
+                    ("draggable", &["boolean"] as &[&str]),
+                    ("isLoading", &["boolean"] as &[&str]),
+                    ("error", &["object"] as &[&str]),
+                    ("entity", &["string"] as &[&str]),
+                    ("children", &["node"] as &[&str]),
+                    ("pattern", &["string"] as &[&str]),
+                    ("sourceTrait", &["string"] as &[&str]),
+                    ("fallback", &["node"] as &[&str]),
+                    ("mode", &["string"] as &[&str]),
+                ]
+                .into_iter()
+                .collect(),
+            ),
+            (
+                "ui-slot-renderer",
+                [
+                    ("includeHud", &["boolean"] as &[&str]),
+                    ("hudMode", &["string"] as &[&str]),
+                    ("includeFloating", &["boolean"] as &[&str]),
+                    ("className", &["string"] as &[&str]),
+                    ("isLoading", &["boolean"] as &[&str]),
+                    ("error", &["object"] as &[&str]),
+                    ("entity", &["string"] as &[&str]),
+                    ("suspense", &["boolean", "object"] as &[&str]),
+                ]
+                .into_iter()
+                .collect(),
+            ),
+            (
+                "upload-drop-zone",
+                [
+                    ("accept", &["string"] as &[&str]),
+                    ("maxSize", &["number"] as &[&str]),
+                    ("maxFiles", &["number"] as &[&str]),
+                    ("label", &["string"] as &[&str]),
+                    ("description", &["string"] as &[&str]),
+                    ("icon", &["icon", "string"] as &[&str]),
+                    ("disabled", &["boolean"] as &[&str]),
+                    ("action", &["string"] as &[&str]),
+                    ("actionPayload", &["object"] as &[&str]),
+                    ("onFiles", &["function"] as &[&str]),
+                    ("className", &["string"] as &[&str]),
+                ]
+                .into_iter()
+                .collect(),
+            ),
+            (
+                "version-diff",
+                [
+                    ("revisions", &["array", "object"] as &[&str]),
+                    ("beforeId", &["string"] as &[&str]),
+                    ("afterId", &["string"] as &[&str]),
+                    ("view", &["string"] as &[&str]),
+                    ("onSelectBefore", &["function"] as &[&str]),
+                    ("onSelectAfter", &["function"] as &[&str]),
+                    ("onRevert", &["function"] as &[&str]),
+                    ("selectBeforeEvent", &["string"] as &[&str]),
+                    ("selectAfterEvent", &["string"] as &[&str]),
+                    ("revertEvent", &["string"] as &[&str]),
+                    ("language", &["string"] as &[&str]),
+                    ("className", &["string"] as &[&str]),
+                ]
+                .into_iter()
+                .collect(),
+            ),
+            (
+                "violation-alert",
+                [
+                    ("violation", &["object"] as &[&str]),
+                    ("severity", &["string"] as &[&str]),
+                    ("dismissible", &["boolean"] as &[&str]),
+                    ("onDismiss", &["function"] as &[&str]),
+                    ("onNavigateToField", &["function"] as &[&str]),
+                    ("compact", &["boolean"] as &[&str]),
+                    ("className", &["string"] as &[&str]),
+                    ("message", &["string"] as &[&str]),
+                ]
+                .into_iter()
+                .collect(),
+            ),
+            (
+                "vote-stack",
+                [
+                    ("count", &["number"] as &[&str]),
+                    ("userVote", &["string"] as &[&str]),
+                    ("onVote", &["function"] as &[&str]),
+                    ("voteEvent", &["string"] as &[&str]),
+                    ("disabled", &["boolean"] as &[&str]),
+                    ("size", &["string"] as &[&str]),
+                    ("variant", &["string"] as &[&str]),
+                    ("className", &["string"] as &[&str]),
+                    ("label", &["string"] as &[&str]),
+                ]
+                .into_iter()
+                .collect(),
+            ),
+            (
+                "vstack",
+                [
+                    ("gap", &["string"] as &[&str]),
+                    ("align", &["string"] as &[&str]),
+                    ("justify", &["string"] as &[&str]),
+                    ("wrap", &["boolean"] as &[&str]),
+                    ("reverse", &["boolean"] as &[&str]),
+                    ("flex", &["boolean"] as &[&str]),
+                    ("className", &["string"] as &[&str]),
+                    ("style", &["object"] as &[&str]),
+                    ("children", &["node"] as &[&str]),
+                    ("as", &["component"] as &[&str]),
+                    ("onClick", &["function"] as &[&str]),
+                    ("onKeyDown", &["function"] as &[&str]),
+                    ("role", &["string"] as &[&str]),
+                    ("tabIndex", &["number"] as &[&str]),
+                    ("action", &["string"] as &[&str]),
+                    ("actionPayload", &["object"] as &[&str]),
+                    ("responsive", &["boolean"] as &[&str]),
+                ]
+                .into_iter()
+                .collect(),
+            ),
+            (
+                "wizard-container",
+                [
+                    ("steps", &["array"] as &[&str]),
+                    ("currentStep", &["number", "string"] as &[&str]),
+                    ("onStepChange", &["function"] as &[&str]),
+                    ("onComplete", &["function"] as &[&str]),
+                    ("showProgress", &["boolean"] as &[&str]),
+                    ("allowBack", &["boolean"] as &[&str]),
+                    ("compact", &["boolean"] as &[&str]),
+                    ("className", &["string"] as &[&str]),
+                    ("isLoading", &["boolean"] as &[&str]),
+                    ("error", &["object"] as &[&str]),
+                    ("nextEvent", &["string"] as &[&str]),
+                    ("backEvent", &["string"] as &[&str]),
+                    ("completeEvent", &["string"] as &[&str]),
+                ]
+                .into_iter()
+                .collect(),
+            ),
+            (
+                "wizard-navigation",
+                [
+                    ("currentStep", &["number"] as &[&str]),
+                    ("totalSteps", &["number"] as &[&str]),
+                    ("isValid", &["boolean"] as &[&str]),
+                    ("showBack", &["boolean"] as &[&str]),
+                    ("showNext", &["boolean"] as &[&str]),
+                    ("showComplete", &["boolean"] as &[&str]),
+                    ("backLabel", &["string"] as &[&str]),
+                    ("nextLabel", &["string"] as &[&str]),
+                    ("completeLabel", &["string"] as &[&str]),
+                    ("onBack", &["string"] as &[&str]),
+                    ("onNext", &["string"] as &[&str]),
+                    ("onComplete", &["string"] as &[&str]),
+                    ("onBackClick", &["function"] as &[&str]),
+                    ("onNextClick", &["function"] as &[&str]),
+                    ("onCompleteClick", &["function"] as &[&str]),
+                    ("compact", &["boolean"] as &[&str]),
+                    ("className", &["string"] as &[&str]),
+                ]
+                .into_iter()
+                .collect(),
+            ),
+            (
+                "wizard-progress",
+                [
+                    ("steps", &["array"] as &[&str]),
+                    ("currentStep", &["number"] as &[&str]),
+                    ("onStepClick", &["function"] as &[&str]),
+                    ("allowNavigation", &["boolean"] as &[&str]),
+                    ("compact", &["boolean"] as &[&str]),
+                    ("className", &["string"] as &[&str]),
+                    ("stepClickEvent", &["string"] as &[&str]),
+                ]
+                .into_iter()
+                .collect(),
+            ),
+        ]
+        .into_iter()
+        .collect()
+    });
 
 /// Allowed string-literal values per pattern prop (pattern_type -> prop_name
 /// -> allowed_values). Only present when the prop's declared TypeScript type
 /// is a bounded union of string literals (e.g. StackJustify, AlertVariant).
 /// The Rust validator rejects any literal value that isn't in this set.
-pub static PATTERN_PROP_ENUM_VALUES: LazyLock<
-    HashMap<&'static str, HashMap<&'static str, &'static [&'static str]>>,
-> = LazyLock::new(|| {
-    [
-        (
-            "action-palette",
-            [("size", &["sm", "md", "lg"] as &[&str])]
-                .into_iter()
-                .collect(),
-        ),
-        (
-            "action-tile",
-            [
-                ("sortDirection", &["asc", "desc"] as &[&str]),
-                ("size", &["sm", "md", "lg"] as &[&str]),
-            ]
-            .into_iter()
-            .collect(),
-        ),
-        (
-            "alert",
-            [(
-                "variant",
-                &["info", "success", "warning", "error"] as &[&str],
-            )]
-            .into_iter()
-            .collect(),
-        ),
-        (
-            "algo-graph-canvas",
-            [(
-                "layout",
-                &["manual", "tree", "layered", "circle"] as &[&str],
-            )]
-            .into_iter()
-            .collect(),
-        ),
-        (
-            "algorithm-canvas",
-            [("slotOrientation", &["horizontal", "vertical"] as &[&str])]
-                .into_iter()
-                .collect(),
-        ),
-        (
-            "animated-graphic",
-            [("animation", &["draw", "fill", "pulse", "morph"] as &[&str])]
-                .into_iter()
-                .collect(),
-        ),
-        (
-            "animated-reveal",
-            [
-                ("trigger", &["scroll", "hover", "manual"] as &[&str]),
-                (
-                    "animation",
-                    &[
-                        "fade-up",
-                        "fade-down",
-                        "fade-in",
-                        "fade-left",
-                        "fade-right",
-                        "scale",
-                        "scale-up",
-                        "none",
-                    ] as &[&str],
-                ),
-            ]
-            .into_iter()
-            .collect(),
-        ),
-        (
-            "article-section",
-            [("maxWidth", &["sm", "md", "lg"] as &[&str])]
-                .into_iter()
-                .collect(),
-        ),
-        (
-            "atlas-image",
-            [("fit", &["contain", "cover", "fill"] as &[&str])]
-                .into_iter()
-                .collect(),
-        ),
-        (
-            "atlas-panel",
-            [("mode", &["nineSlice", "repeat"] as &[&str])]
-                .into_iter()
-                .collect(),
-        ),
-        (
-            "avatar",
-            [
-                ("size", &["xs", "sm", "md", "lg", "xl"] as &[&str]),
-                ("status", &["online", "offline", "away", "busy"] as &[&str]),
-            ]
-            .into_iter()
-            .collect(),
-        ),
-        (
-            "badge",
-            [
-                (
-                    "variant",
-                    &[
-                        "default",
-                        "primary",
-                        "secondary",
-                        "success",
-                        "warning",
-                        "danger",
-                        "error",
-                        "info",
-                        "neutral",
-                    ] as &[&str],
-                ),
-                ("size", &["sm", "md", "lg"] as &[&str]),
-            ]
-            .into_iter()
-            .collect(),
-        ),
-        (
-            "biology-canvas",
-            [
-                ("mode", &["2d", "3d"] as &[&str]),
-                ("stageStyle", &["timeline", "ring"] as &[&str]),
-            ]
-            .into_iter()
-            .collect(),
-        ),
-        (
-            "bloom-quiz-block",
-            [(
-                "level",
-                &[
-                    "remember",
-                    "understand",
-                    "apply",
-                    "analyze",
-                    "evaluate",
-                    "create",
-                ] as &[&str],
-            )]
-            .into_iter()
-            .collect(),
-        ),
-        (
-            "book-chapter-view",
-            [("direction", &["rtl", "ltr"] as &[&str])]
-                .into_iter()
-                .collect(),
-        ),
-        (
-            "book-cover-page",
-            [("direction", &["rtl", "ltr"] as &[&str])]
-                .into_iter()
-                .collect(),
-        ),
-        (
-            "book-nav-bar",
-            [("direction", &["rtl", "ltr"] as &[&str])]
-                .into_iter()
-                .collect(),
-        ),
-        (
-            "book-table-of-contents",
-            [("direction", &["rtl", "ltr"] as &[&str])]
-                .into_iter()
-                .collect(),
-        ),
-        (
-            "book-viewer",
-            [("sortDirection", &["asc", "desc"] as &[&str])]
-                .into_iter()
-                .collect(),
-        ),
-        (
-            "box",
-            [
-                (
-                    "padding",
-                    &["none", "xs", "sm", "md", "lg", "xl", "2xl"] as &[&str],
-                ),
-                (
-                    "paddingX",
-                    &["none", "xs", "sm", "md", "lg", "xl", "2xl"] as &[&str],
-                ),
-                (
-                    "paddingY",
-                    &["none", "xs", "sm", "md", "lg", "xl", "2xl"] as &[&str],
-                ),
-                (
-                    "margin",
-                    &["none", "xs", "sm", "md", "lg", "xl", "2xl", "auto"] as &[&str],
-                ),
-                (
-                    "marginX",
-                    &["none", "xs", "sm", "md", "lg", "xl", "2xl", "auto"] as &[&str],
-                ),
-                (
-                    "marginY",
-                    &["none", "xs", "sm", "md", "lg", "xl", "2xl", "auto"] as &[&str],
-                ),
-                (
-                    "bg",
-                    &[
-                        "transparent",
-                        "primary",
-                        "secondary",
-                        "muted",
-                        "accent",
-                        "surface",
-                        "overlay",
-                    ] as &[&str],
-                ),
-                (
-                    "rounded",
-                    &["none", "sm", "md", "lg", "xl", "2xl", "full"] as &[&str],
-                ),
-                ("shadow", &["none", "sm", "md", "lg", "xl"] as &[&str]),
-                (
-                    "display",
-                    &[
-                        "block",
-                        "inline",
-                        "inline-block",
-                        "flex",
-                        "inline-flex",
-                        "grid",
-                    ] as &[&str],
-                ),
-                (
-                    "overflow",
-                    &["auto", "hidden", "visible", "scroll"] as &[&str],
-                ),
-                (
-                    "position",
-                    &["relative", "absolute", "fixed", "sticky"] as &[&str],
-                ),
-            ]
-            .into_iter()
-            .collect(),
-        ),
-        (
-            "button",
-            [
-                (
-                    "variant",
-                    &[
-                        "primary",
-                        "secondary",
-                        "ghost",
-                        "danger",
-                        "success",
-                        "warning",
-                        "default",
-                    ] as &[&str],
-                ),
-                ("size", &["sm", "md", "lg"] as &[&str]),
-            ]
-            .into_iter()
-            .collect(),
-        ),
-        (
-            "calendar-grid",
-            [("dayWindow", &["auto"] as &[&str])].into_iter().collect(),
-        ),
-        (
-            "canvas",
-            [
-                ("mode", &["2d", "3d"] as &[&str]),
-                (
-                    "projection",
-                    &["isometric", "hex", "flat", "free", "side"] as &[&str],
-                ),
-            ]
-            .into_iter()
-            .collect(),
-        ),
-        (
-            "canvas-2d",
-            [
-                (
-                    "projection",
-                    &["isometric", "hex", "flat", "free", "side"] as &[&str],
-                ),
-                ("camera", &["pan-zoom", "follow", "fixed"] as &[&str]),
-            ]
-            .into_iter()
-            .collect(),
-        ),
-        (
-            "card",
-            [
-                (
-                    "variant",
-                    &["default", "bordered", "elevated", "interactive"] as &[&str],
-                ),
-                ("padding", &["none", "sm", "md", "lg"] as &[&str]),
-                ("shadow", &["none", "sm", "md", "lg"] as &[&str]),
-                (
-                    "look",
-                    &[
-                        "elevated",
-                        "flat-bordered",
-                        "borderless-divider",
-                        "ticket",
-                        "invoice",
-                        "chip",
-                        "tile-image-first",
-                    ] as &[&str],
-                ),
-            ]
-            .into_iter()
-            .collect(),
-        ),
-        (
-            "case-study-organism",
-            [("sortDirection", &["asc", "desc"] as &[&str])]
-                .into_iter()
-                .collect(),
-        ),
-        (
-            "chart",
-            [
-                (
-                    "chartType",
-                    &[
-                        "bar",
-                        "line",
-                        "pie",
-                        "area",
-                        "donut",
-                        "scatter",
-                        "histogram",
-                    ] as &[&str],
-                ),
-                (
-                    "look",
-                    &[
-                        "bar-vertical",
-                        "bar-horizontal",
-                        "line",
-                        "area",
-                        "pie",
-                        "donut",
-                        "scatter",
-                        "histogram",
-                    ] as &[&str],
-                ),
-                ("stack", &["none", "stack", "normalize"] as &[&str]),
-            ]
-            .into_iter()
-            .collect(),
-        ),
-        (
-            "chart-legend",
-            [("direction", &["horizontal", "vertical"] as &[&str])]
-                .into_iter()
-                .collect(),
-        ),
-        (
-            "chat-bar",
-            [
-                ("sortDirection", &["asc", "desc"] as &[&str]),
-                (
-                    "status",
-                    &["idle", "running", "paused", "complete", "error"] as &[&str],
-                ),
-            ]
-            .into_iter()
-            .collect(),
-        ),
-        (
-            "chemistry-canvas",
-            [
-                ("mode", &["2d", "3d"] as &[&str]),
-                ("bondStyle", &["thick", "parallel"] as &[&str]),
-            ]
-            .into_iter()
-            .collect(),
-        ),
-        (
-            "code-block",
-            [("mode", &["code", "diff"] as &[&str])]
-                .into_iter()
-                .collect(),
-        ),
-        (
-            "confirm-dialog",
-            [
-                (
-                    "variant",
-                    &["danger", "warning", "info", "default"] as &[&str],
-                ),
-                ("size", &["sm", "md", "lg", "xl", "full"] as &[&str]),
-            ]
-            .into_iter()
-            .collect(),
-        ),
-        (
-            "container",
-            [
-                (
-                    "size",
-                    &["xs", "sm", "md", "lg", "xl", "2xl", "full"] as &[&str],
-                ),
-                (
-                    "maxWidth",
-                    &["xs", "sm", "md", "lg", "xl", "2xl", "full"] as &[&str],
-                ),
-                ("padding", &["none", "sm", "md", "lg", "xl"] as &[&str]),
-            ]
-            .into_iter()
-            .collect(),
-        ),
-        (
-            "content-renderer",
-            [
-                ("sortDirection", &["asc", "desc"] as &[&str]),
-                ("direction", &["rtl", "ltr"] as &[&str]),
-            ]
-            .into_iter()
-            .collect(),
-        ),
-        (
-            "content-section",
-            [
-                (
-                    "background",
-                    &["default", "alt", "dark", "gradient"] as &[&str],
-                ),
-                ("padding", &["sm", "md", "lg"] as &[&str]),
-            ]
-            .into_iter()
-            .collect(),
-        ),
-        (
-            "control-grid",
-            [
-                ("kind", &["dpad", "actions"] as &[&str]),
-                ("layout", &["horizontal", "vertical", "diamond"] as &[&str]),
-                ("size", &["sm", "md", "lg"] as &[&str]),
-                ("visibility", &["auto", "always"] as &[&str]),
-            ]
-            .into_iter()
-            .collect(),
-        ),
-        (
-            "counter-template",
-            [
-                ("size", &["sm", "md", "lg"] as &[&str]),
-                ("variant", &["minimal", "standard", "full"] as &[&str]),
-            ]
-            .into_iter()
-            .collect(),
-        ),
-        (
-            "cta-banner",
-            [
-                (
-                    "background",
-                    &["default", "alt", "dark", "gradient", "primary"] as &[&str],
-                ),
-                ("align", &["center", "left"] as &[&str]),
-            ]
-            .into_iter()
-            .collect(),
-        ),
-        (
-            "dashboard-grid",
-            [
-                ("sortDirection", &["asc", "desc"] as &[&str]),
-                ("gap", &["sm", "md", "lg"] as &[&str]),
-            ]
-            .into_iter()
-            .collect(),
-        ),
-        (
-            "dashboard-layout",
-            [(
-                "layoutMode",
-                &["sidebar", "topnav", "bottomnav", "minimal"] as &[&str],
-            )]
-            .into_iter()
-            .collect(),
-        ),
-        (
-            "data-grid",
-            [
-                ("gap", &["none", "sm", "md", "lg", "xl"] as &[&str]),
-                (
-                    "look",
-                    &["dense", "spacious", "striped", "borderless", "card-rows"] as &[&str],
-                ),
-            ]
-            .into_iter()
-            .collect(),
-        ),
-        (
-            "data-list",
-            [
-                ("gap", &["none", "sm", "md", "lg"] as &[&str]),
-                (
-                    "variant",
-                    &["default", "card", "compact", "message"] as &[&str],
-                ),
-                ("sortDirection", &["asc", "desc"] as &[&str]),
-                (
-                    "look",
-                    &["dense", "spacious", "striped", "borderless", "card-rows"] as &[&str],
-                ),
-            ]
-            .into_iter()
-            .collect(),
-        ),
-        (
-            "detail-panel",
-            [
-                ("sortDirection", &["asc", "desc"] as &[&str]),
-                ("position", &["left", "right"] as &[&str]),
-            ]
-            .into_iter()
-            .collect(),
-        ),
-        (
-            "dialogue-bubble",
-            [
-                ("position", &["top", "bottom"] as &[&str]),
-                (
-                    "mood",
-                    &["neutral", "happy", "concerned", "angry"] as &[&str],
-                ),
-            ]
-            .into_iter()
-            .collect(),
-        ),
-        (
-            "divider",
-            [
-                ("orientation", &["horizontal", "vertical"] as &[&str]),
-                ("variant", &["solid", "dashed", "dotted"] as &[&str]),
-            ]
-            .into_iter()
-            .collect(),
-        ),
-        (
-            "document-viewer",
-            [(
-                "documentType",
-                &["pdf", "text", "html", "markdown"] as &[&str],
-            )]
-            .into_iter()
-            .collect(),
-        ),
-        (
-            "draw-fx-layer",
-            [("type", &["draw-fx-layer"] as &[&str])]
-                .into_iter()
-                .collect(),
-        ),
-        (
-            "draw-group",
-            [("type", &["draw-group"] as &[&str])].into_iter().collect(),
-        ),
-        (
-            "draw-mesh",
-            [
-                ("type", &["draw-mesh"] as &[&str]),
-                (
-                    "shape",
-                    &[
-                        "box",
-                        "sphere",
-                        "capsule",
-                        "cylinder",
-                        "cone",
-                        "torus",
-                        "plane",
-                        "circle",
-                        "polyhedron",
-                    ] as &[&str],
-                ),
-                ("pivot", &["bottom", "center"] as &[&str]),
-            ]
-            .into_iter()
-            .collect(),
-        ),
-        (
-            "draw-shape",
-            [
-                ("type", &["draw-shape"] as &[&str]),
-                (
-                    "shape",
-                    &["cell", "rect", "ellipse", "poly", "path"] as &[&str],
-                ),
-                ("anchor", &["top-left", "ground", "center"] as &[&str]),
-                (
-                    "blendMode",
-                    &[
-                        "source-over",
-                        "lighter",
-                        "multiply",
-                        "screen",
-                        "overlay",
-                        "darken",
-                        "lighten",
-                        "color-dodge",
-                        "color-burn",
-                        "hard-light",
-                        "soft-light",
-                        "difference",
-                        "exclusion",
-                        "hue",
-                        "saturation",
-                        "color",
-                        "luminosity",
-                        "source-atop",
-                        "destination-over",
-                        "destination-out",
-                        "xor",
-                    ] as &[&str],
-                ),
-            ]
-            .into_iter()
-            .collect(),
-        ),
-        (
-            "draw-shape-layer",
-            [("type", &["draw-shape-layer"] as &[&str])]
-                .into_iter()
-                .collect(),
-        ),
-        (
-            "draw-skinned-mesh",
-            [("type", &["draw-skinned-mesh"] as &[&str])]
-                .into_iter()
-                .collect(),
-        ),
-        (
-            "draw-sprite",
-            [
-                ("type", &["draw-sprite"] as &[&str]),
-                ("anchor", &["top-left", "ground", "center"] as &[&str]),
-            ]
-            .into_iter()
-            .collect(),
-        ),
-        (
-            "draw-sprite-layer",
-            [("type", &["draw-sprite-layer"] as &[&str])]
-                .into_iter()
-                .collect(),
-        ),
-        (
-            "draw-text",
-            [
-                ("type", &["draw-text"] as &[&str]),
-                ("anchor", &["top-left", "ground", "center"] as &[&str]),
-                (
-                    "align",
-                    &["center", "end", "left", "right", "start"] as &[&str],
-                ),
-                (
-                    "baseline",
-                    &[
-                        "alphabetic",
-                        "bottom",
-                        "hanging",
-                        "ideographic",
-                        "middle",
-                        "top",
-                    ] as &[&str],
-                ),
-            ]
-            .into_iter()
-            .collect(),
-        ),
-        (
-            "draw-text-layer",
-            [("type", &["draw-text-layer"] as &[&str])]
-                .into_iter()
-                .collect(),
-        ),
-        (
-            "drawer",
-            [("position", &["left", "right"] as &[&str])]
-                .into_iter()
-                .collect(),
-        ),
-        (
-            "drawer-slot",
-            [
-                ("position", &["left", "right"] as &[&str]),
-                ("size", &["sm", "md", "lg", "xl", "full"] as &[&str]),
-            ]
-            .into_iter()
-            .collect(),
-        ),
-        (
-            "edge-decoration",
-            [
-                ("variant", &["arch", "vine", "lattice"] as &[&str]),
-                ("side", &["left", "right", "both"] as &[&str]),
-            ]
-            .into_iter()
-            .collect(),
-        ),
-        (
-            "emoji-picker",
-            [("position", &["top", "bottom"] as &[&str])]
-                .into_iter()
-                .collect(),
-        ),
-        (
-            "empty-state",
-            [
-                (
-                    "variant",
-                    &["default", "success", "error", "warning", "info"] as &[&str],
-                ),
-                (
-                    "look",
-                    &["illustrated", "icon-only", "text-only", "mascot"] as &[&str],
-                ),
-            ]
-            .into_iter()
-            .collect(),
-        ),
-        (
-            "entity-cards",
-            [
-                ("sortDirection", &["asc", "desc"] as &[&str]),
-                ("gap", &["none", "sm", "md", "lg", "xl"] as &[&str]),
-                (
-                    "alignItems",
-                    &["start", "center", "end", "stretch"] as &[&str],
-                ),
-            ]
-            .into_iter()
-            .collect(),
-        ),
-        (
-            "entity-list",
-            [
-                ("sortDirection", &["asc", "desc"] as &[&str]),
-                ("variant", &["default", "card"] as &[&str]),
-            ]
-            .into_iter()
-            .collect(),
-        ),
-        (
-            "entity-table",
-            [
-                ("sortDirection", &["asc", "desc"] as &[&str]),
-                (
-                    "look",
-                    &["dense", "spacious", "striped", "borderless", "card-rows"] as &[&str],
-                ),
-            ]
-            .into_iter()
-            .collect(),
-        ),
-        (
-            "feature-card",
-            [
-                (
-                    "variant",
-                    &["default", "bordered", "elevated", "interactive"] as &[&str],
-                ),
-                ("size", &["sm", "md", "lg"] as &[&str]),
-            ]
-            .into_iter()
-            .collect(),
-        ),
-        (
-            "feature-grid",
-            [("gap", &["sm", "md", "lg"] as &[&str])]
-                .into_iter()
-                .collect(),
-        ),
-        (
-            "feature-grid-organism",
-            [("sortDirection", &["asc", "desc"] as &[&str])]
-                .into_iter()
-                .collect(),
-        ),
-        (
-            "file-tree",
-            [("look", &["files", "nav"] as &[&str])]
-                .into_iter()
-                .collect(),
-        ),
-        (
-            "filter-group",
-            [
-                (
-                    "variant",
-                    &["default", "compact", "pills", "vertical"] as &[&str],
-                ),
-                (
-                    "look",
-                    &[
-                        "toolbar",
-                        "chips",
-                        "pills",
-                        "popover-trigger",
-                        "inline-column-header",
-                    ] as &[&str],
-                ),
-            ]
-            .into_iter()
-            .collect(),
-        ),
-        (
-            "filter-pill",
-            [
-                (
-                    "variant",
-                    &[
-                        "default",
-                        "primary",
-                        "secondary",
-                        "success",
-                        "warning",
-                        "danger",
-                        "info",
-                        "neutral",
-                    ] as &[&str],
-                ),
-                ("size", &["sm", "md", "lg"] as &[&str]),
-            ]
-            .into_iter()
-            .collect(),
-        ),
-        (
-            "flex",
-            [
-                (
-                    "direction",
-                    &["row", "row-reverse", "col", "col-reverse"] as &[&str],
-                ),
-                ("wrap", &["nowrap", "wrap", "wrap-reverse"] as &[&str]),
-                (
-                    "align",
-                    &["start", "center", "end", "stretch", "baseline"] as &[&str],
-                ),
-                (
-                    "justify",
-                    &["start", "center", "end", "between", "around", "evenly"] as &[&str],
-                ),
-                (
-                    "gap",
-                    &["none", "xs", "sm", "md", "lg", "xl", "2xl"] as &[&str],
-                ),
-            ]
-            .into_iter()
-            .collect(),
-        ),
-        (
-            "floating-action-button",
-            [(
-                "variant",
-                &["primary", "secondary", "success", "danger", "warning"] as &[&str],
-            )]
-            .into_iter()
-            .collect(),
-        ),
-        (
-            "floating-toolbar",
-            [(
-                "position",
-                &[
-                    "bottom-center",
-                    "bottom-left",
-                    "bottom-right",
-                    "top-center",
-                    "top-left",
-                    "top-right",
-                ] as &[&str],
-            )]
-            .into_iter()
-            .collect(),
-        ),
-        (
-            "form",
-            [
-                ("layout", &["vertical", "horizontal", "inline"] as &[&str]),
-                ("gap", &["sm", "md", "lg"] as &[&str]),
-            ]
-            .into_iter()
-            .collect(),
-        ),
-        (
-            "form-actions",
-            [
-                ("variant", &["default", "segmented", "toggle"] as &[&str]),
-                ("orientation", &["horizontal", "vertical"] as &[&str]),
-                (
-                    "look",
-                    &[
-                        "right-aligned-buttons",
-                        "floating-bar",
-                        "inline-row",
-                        "dropdown-menu",
-                        "command-palette-trigger",
-                    ] as &[&str],
-                ),
-            ]
-            .into_iter()
-            .collect(),
-        ),
-        (
-            "form-layout",
-            [("sortDirection", &["asc", "desc"] as &[&str])]
-                .into_iter()
-                .collect(),
-        ),
-        (
-            "form-section",
-            [
-                ("layout", &["vertical", "horizontal", "inline"] as &[&str]),
-                ("gap", &["sm", "md", "lg"] as &[&str]),
-            ]
-            .into_iter()
-            .collect(),
-        ),
-        (
-            "form-section-header",
-            [(
-                "badgeVariant",
-                &["default", "primary", "success", "warning", "danger"] as &[&str],
-            )]
-            .into_iter()
-            .collect(),
-        ),
-        (
-            "game-audio-toggle",
-            [("size", &["sm", "md", "lg"] as &[&str])]
-                .into_iter()
-                .collect(),
-        ),
-        (
-            "game-hud",
-            [
-                ("size", &["sm", "md", "lg"] as &[&str]),
-                ("variant", &["floating", "bar"] as &[&str]),
-            ]
-            .into_iter()
-            .collect(),
-        ),
-        (
-            "game-icon",
-            [("size", &["sm", "md", "lg"] as &[&str])]
-                .into_iter()
-                .collect(),
-        ),
-        (
-            "geometric-pattern",
-            [
-                (
-                    "variant",
-                    &[
-                        "star8",
-                        "star6",
-                        "khatam",
-                        "star10",
-                        "star12",
-                        "rosette-double",
-                        "rosette-filled",
-                        "seigaiha",
-                        "greek-key",
-                        "celtic-knot",
-                        "kolam",
-                        "arch",
-                        "arabesque-vine",
-                        "arabesque-net",
-                    ] as &[&str],
-                ),
-                (
-                    "mode",
-                    &["background", "left", "right", "dual", "around", "frame"] as &[&str],
-                ),
-            ]
-            .into_iter()
-            .collect(),
-        ),
-        (
-            "graph-canvas",
-            [("layout", &["force", "circular", "grid"] as &[&str])]
-                .into_iter()
-                .collect(),
-        ),
-        (
-            "graph-view",
-            [("layout", &["force", "flow", "tree", "radial"] as &[&str])]
-                .into_iter()
-                .collect(),
-        ),
-        (
-            "grid",
-            [
-                ("cols", &["none"] as &[&str]),
-                (
-                    "gap",
-                    &["none", "xs", "sm", "md", "lg", "xl", "2xl"] as &[&str],
-                ),
-                (
-                    "rowGap",
-                    &["none", "xs", "sm", "md", "lg", "xl", "2xl"] as &[&str],
-                ),
-                (
-                    "colGap",
-                    &["none", "xs", "sm", "md", "lg", "xl", "2xl"] as &[&str],
-                ),
-                (
-                    "alignItems",
-                    &["start", "center", "end", "stretch", "baseline"] as &[&str],
-                ),
-                (
-                    "justifyItems",
-                    &["start", "center", "end", "stretch"] as &[&str],
-                ),
-                ("flow", &["row", "col", "row-dense", "col-dense"] as &[&str]),
-            ]
-            .into_iter()
-            .collect(),
-        ),
-        (
-            "header",
-            [
-                ("variant", &["mobile", "desktop"] as &[&str]),
-                (
-                    "look",
-                    &[
-                        "hero",
-                        "compact-bar",
-                        "breadcrumb",
-                        "contextual",
-                        "editorial-banner",
-                    ] as &[&str],
-                ),
-            ]
-            .into_iter()
-            .collect(),
-        ),
-        (
-            "health-bar",
-            [
-                (
-                    "format",
-                    &["hearts", "bar", "numeric", "progress"] as &[&str],
-                ),
-                ("size", &["sm", "md", "lg"] as &[&str]),
-            ]
-            .into_iter()
-            .collect(),
-        ),
-        (
-            "hero-organism",
-            [("sortDirection", &["asc", "desc"] as &[&str])]
-                .into_iter()
-                .collect(),
-        ),
-        (
-            "hero-section",
-            [
-                ("tagVariant", &["primary", "secondary", "accent"] as &[&str]),
-                (
-                    "imagePosition",
-                    &["below", "right", "background"] as &[&str],
-                ),
-                ("background", &["dark", "gradient", "subtle"] as &[&str]),
-                ("align", &["center", "left"] as &[&str]),
-            ]
-            .into_iter()
-            .collect(),
-        ),
-        (
-            "hstack",
-            [
-                (
-                    "gap",
-                    &["none", "xs", "sm", "md", "lg", "xl", "2xl"] as &[&str],
-                ),
-                (
-                    "align",
-                    &["start", "center", "end", "stretch", "baseline"] as &[&str],
-                ),
-                (
-                    "justify",
-                    &["start", "center", "end", "between", "around", "evenly"] as &[&str],
-                ),
-            ]
-            .into_iter()
-            .collect(),
-        ),
-        (
-            "icon",
-            [
-                ("size", &["xs", "sm", "md", "lg", "xl"] as &[&str]),
-                ("animation", &["spin", "pulse", "none"] as &[&str]),
-            ]
-            .into_iter()
-            .collect(),
-        ),
-        (
-            "import-progress",
-            [(
-                "step",
-                &[
-                    "fetching",
-                    "mapping",
-                    "reviewing",
-                    "committing",
-                    "done",
-                    "failed",
-                ] as &[&str],
-            )]
-            .into_iter()
-            .collect(),
-        ),
-        (
-            "input",
-            [(
-                "inputType",
-                &[
-                    "text",
-                    "email",
-                    "password",
-                    "number",
-                    "tel",
-                    "url",
-                    "search",
-                    "date",
-                    "datetime-local",
-                    "time",
-                    "checkbox",
-                    "select",
-                    "textarea",
-                ] as &[&str],
-            )]
-            .into_iter()
-            .collect(),
-        ),
-        (
-            "input-group",
-            [(
-                "inputType",
-                &[
-                    "text",
-                    "email",
-                    "password",
-                    "number",
-                    "tel",
-                    "url",
-                    "search",
-                    "date",
-                    "datetime-local",
-                    "time",
-                    "checkbox",
-                    "select",
-                    "textarea",
-                ] as &[&str],
-            )]
-            .into_iter()
-            .collect(),
-        ),
-        (
-            "jazari-state-machine",
-            [("direction", &["ltr", "rtl"] as &[&str])]
-                .into_iter()
-                .collect(),
-        ),
-        (
-            "landing-page-template",
-            [("variant", &["product", "service", "platform"] as &[&str])]
-                .into_iter()
-                .collect(),
-        ),
-        (
-            "law-reference-tooltip",
-            [("position", &["top", "bottom", "left", "right"] as &[&str])]
-                .into_iter()
-                .collect(),
-        ),
-        (
-            "likert-scale",
-            [
-                ("size", &["sm", "md", "lg"] as &[&str]),
-                ("variant", &["radios", "buttons"] as &[&str]),
-            ]
-            .into_iter()
-            .collect(),
-        ),
-        (
-            "markdown-content",
-            [("direction", &["ltr", "rtl"] as &[&str])]
-                .into_iter()
-                .collect(),
-        ),
-        (
-            "marketing-stat-card",
-            [("size", &["sm", "md", "lg"] as &[&str])]
-                .into_iter()
-                .collect(),
-        ),
-        (
-            "master-detail",
-            [("sortDirection", &["asc", "desc"] as &[&str])]
-                .into_iter()
-                .collect(),
-        ),
-        (
-            "matrix-question",
-            [("size", &["sm", "md"] as &[&str])].into_iter().collect(),
-        ),
-        (
-            "media-gallery",
-            [
-                ("sortDirection", &["asc", "desc"] as &[&str]),
-                (
-                    "aspectRatio",
-                    &["square", "landscape", "portrait"] as &[&str],
-                ),
-            ]
-            .into_iter()
-            .collect(),
-        ),
-        (
-            "menu",
-            [(
-                "position",
-                &[
-                    "top-left",
-                    "top-right",
-                    "bottom-left",
-                    "bottom-right",
-                    "top-start",
-                    "top-end",
-                    "bottom-start",
-                    "bottom-end",
-                ] as &[&str],
-            )]
-            .into_iter()
-            .collect(),
-        ),
-        (
-            "meter",
-            [
-                ("variant", &["linear", "radial", "segmented"] as &[&str]),
-                ("size", &["sm", "md", "lg"] as &[&str]),
-            ]
-            .into_iter()
-            .collect(),
-        ),
-        (
-            "modal",
-            [
-                ("size", &["sm", "md", "lg", "xl", "full"] as &[&str]),
-                (
-                    "look",
-                    &["centered-card", "top-sheet", "side-drawer", "full-screen"] as &[&str],
-                ),
-            ]
-            .into_iter()
-            .collect(),
-        ),
-        (
-            "modal-slot",
-            [("size", &["sm", "md", "lg", "xl", "full"] as &[&str])]
-                .into_iter()
-                .collect(),
-        ),
-        (
-            "navigation",
-            [("orientation", &["horizontal", "vertical"] as &[&str])]
-                .into_iter()
-                .collect(),
-        ),
-        (
-            "notification",
-            [(
-                "variant",
-                &["success", "error", "info", "warning"] as &[&str],
-            )]
-            .into_iter()
-            .collect(),
-        ),
-        (
-            "number-stepper",
-            [("size", &["sm", "md", "lg"] as &[&str])]
-                .into_iter()
-                .collect(),
-        ),
-        (
-            "option-constraint-group",
-            [("size", &["sm", "md"] as &[&str])].into_iter().collect(),
-        ),
-        (
-            "orbital-visualization",
-            [("size", &["sm", "md", "lg", "xl"] as &[&str])]
-                .into_iter()
-                .collect(),
-        ),
-        (
-            "pattern-tile",
-            [(
-                "variant",
-                &[
-                    "star8",
-                    "star6",
-                    "khatam",
-                    "star10",
-                    "star12",
-                    "rosette-double",
-                    "rosette-filled",
-                    "seigaiha",
-                    "greek-key",
-                    "celtic-knot",
-                    "kolam",
-                    "arch",
-                    "arabesque-vine",
-                    "arabesque-net",
-                ] as &[&str],
-            )]
-            .into_iter()
-            .collect(),
-        ),
-        (
-            "physics-canvas",
-            [("mode", &["2d", "3d"] as &[&str])].into_iter().collect(),
-        ),
-        (
-            "popover",
-            [
-                ("position", &["top", "bottom", "left", "right"] as &[&str]),
-                ("trigger", &["click", "hover"] as &[&str]),
-            ]
-            .into_iter()
-            .collect(),
-        ),
-        (
-            "pricing-organism",
-            [("sortDirection", &["asc", "desc"] as &[&str])]
-                .into_iter()
-                .collect(),
-        ),
-        (
-            "progress-bar",
-            [
-                (
-                    "progressType",
-                    &["linear", "circular", "stepped"] as &[&str],
-                ),
-                (
-                    "variant",
-                    &[
-                        "default", "primary", "success", "warning", "error", "danger",
-                    ] as &[&str],
-                ),
-                (
-                    "color",
-                    &[
-                        "default", "primary", "success", "warning", "error", "danger",
-                    ] as &[&str],
-                ),
-                ("size", &["sm", "md", "lg"] as &[&str]),
-            ]
-            .into_iter()
-            .collect(),
-        ),
-        (
-            "progress-dots",
-            [("size", &["sm", "md", "lg"] as &[&str])]
-                .into_iter()
-                .collect(),
-        ),
-        (
-            "qr-scanner",
-            [("facingMode", &["environment", "user"] as &[&str])]
-                .into_iter()
-                .collect(),
-        ),
-        (
-            "radio",
-            [("size", &["sm", "md", "lg"] as &[&str])]
-                .into_iter()
-                .collect(),
-        ),
-        (
-            "range-slider",
-            [("size", &["sm", "md", "lg"] as &[&str])]
-                .into_iter()
-                .collect(),
-        ),
-        (
-            "runtime-debugger",
-            [
-                (
-                    "position",
-                    &["bottom-right", "bottom-left", "top-right", "top-left"] as &[&str],
-                ),
-                ("mode", &["floating", "inline", "verify"] as &[&str]),
-            ]
-            .into_iter()
-            .collect(),
-        ),
-        (
-            "score-display",
-            [("size", &["sm", "md", "lg", "xl"] as &[&str])]
-                .into_iter()
-                .collect(),
-        ),
-        (
-            "section",
-            [
-                ("padding", &["none", "sm", "md", "lg", "xl"] as &[&str]),
-                (
-                    "variant",
-                    &["default", "card", "bordered", "filled"] as &[&str],
-                ),
-            ]
-            .into_iter()
-            .collect(),
-        ),
-        (
-            "section-header",
-            [("align", &["center", "left", "right"] as &[&str])]
-                .into_iter()
-                .collect(),
-        ),
-        (
-            "sequence-bar",
-            [("size", &["sm", "md", "lg"] as &[&str])]
-                .into_iter()
-                .collect(),
-        ),
-        (
-            "showcase-organism",
-            [("sortDirection", &["asc", "desc"] as &[&str])]
-                .into_iter()
-                .collect(),
-        ),
-        (
-            "side-panel",
-            [("position", &["left", "right"] as &[&str])]
-                .into_iter()
-                .collect(),
-        ),
-        (
-            "simple-grid",
-            [("gap", &["none", "xs", "sm", "md", "lg", "xl"] as &[&str])]
-                .into_iter()
-                .collect(),
-        ),
-        (
-            "skeleton",
-            [(
-                "variant",
-                &["header", "table", "form", "card", "text"] as &[&str],
-            )]
-            .into_iter()
-            .collect(),
-        ),
-        (
-            "social-proof",
-            [("variant", &["logos", "quotes", "badges"] as &[&str])]
-                .into_iter()
-                .collect(),
-        ),
-        (
-            "sortable-list",
-            [("dragHandlePosition", &["left", "right"] as &[&str])]
-                .into_iter()
-                .collect(),
-        ),
-        (
-            "spacer",
-            [
-                (
-                    "size",
-                    &["xs", "sm", "md", "lg", "xl", "2xl", "auto"] as &[&str],
-                ),
-                ("axis", &["horizontal", "vertical"] as &[&str]),
-            ]
-            .into_iter()
-            .collect(),
-        ),
-        (
-            "sparkline",
-            [(
-                "color",
-                &[
-                    "auto", "primary", "success", "warning", "error", "info", "muted",
-                ] as &[&str],
-            )]
-            .into_iter()
-            .collect(),
-        ),
-        (
-            "spinner",
-            [("size", &["xs", "sm", "md", "lg"] as &[&str])]
-                .into_iter()
-                .collect(),
-        ),
-        (
-            "split",
-            [
-                (
-                    "ratio",
-                    &[
-                        "1:1", "1:2", "2:1", "1:3", "3:1", "1:4", "4:1", "2:3", "3:2",
-                    ] as &[&str],
-                ),
-                ("gap", &["none", "sm", "md", "lg", "xl"] as &[&str]),
-                ("stackBreakpoint", &["sm", "md", "lg", "xl"] as &[&str]),
-                ("align", &["start", "center", "end", "stretch"] as &[&str]),
-            ]
-            .into_iter()
-            .collect(),
-        ),
-        (
-            "split-pane",
-            [("direction", &["horizontal", "vertical"] as &[&str])]
-                .into_iter()
-                .collect(),
-        ),
-        (
-            "split-section",
-            [
-                ("imagePosition", &["left", "right"] as &[&str]),
-                ("background", &["default", "alt"] as &[&str]),
-            ]
-            .into_iter()
-            .collect(),
-        ),
-        (
-            "stack",
-            [
-                ("direction", &["horizontal", "vertical"] as &[&str]),
-                (
-                    "gap",
-                    &["none", "xs", "sm", "md", "lg", "xl", "2xl"] as &[&str],
-                ),
-                (
-                    "align",
-                    &["start", "center", "end", "stretch", "baseline"] as &[&str],
-                ),
-                (
-                    "justify",
-                    &["start", "center", "end", "between", "around", "evenly"] as &[&str],
-                ),
-            ]
-            .into_iter()
-            .collect(),
-        ),
-        (
-            "star-rating",
-            [
-                ("precision", &["full", "half"] as &[&str]),
-                ("size", &["sm", "md", "lg"] as &[&str]),
-            ]
-            .into_iter()
-            .collect(),
-        ),
-        (
-            "stat-card",
-            [
-                ("sortDirection", &["asc", "desc"] as &[&str]),
-                ("trendDirection", &["up", "down", "neutral"] as &[&str]),
-            ]
-            .into_iter()
-            .collect(),
-        ),
-        (
-            "stat-display",
-            [
-                (
-                    "trendPolarity",
-                    &["higher-is-better", "lower-is-better"] as &[&str],
-                ),
-                ("trendFormat", &["absolute", "percent"] as &[&str]),
-                ("size", &["sm", "md", "lg"] as &[&str]),
-                (
-                    "variant",
-                    &["default", "primary", "success", "warning", "error", "info"] as &[&str],
-                ),
-                (
-                    "look",
-                    &["elevated", "flat", "progress-backed", "gauge", "sparkline"] as &[&str],
-                ),
-            ]
-            .into_iter()
-            .collect(),
-        ),
-        (
-            "stats-organism",
-            [("sortDirection", &["asc", "desc"] as &[&str])]
-                .into_iter()
-                .collect(),
-        ),
-        (
-            "status-dot",
-            [
-                (
-                    "status",
-                    &["online", "offline", "away", "busy", "warning", "critical"] as &[&str],
-                ),
-                ("size", &["sm", "md", "lg"] as &[&str]),
-            ]
-            .into_iter()
-            .collect(),
-        ),
-        (
-            "step-flow",
-            [("orientation", &["horizontal", "vertical"] as &[&str])]
-                .into_iter()
-                .collect(),
-        ),
-        (
-            "step-flow-organism",
-            [
-                ("sortDirection", &["asc", "desc"] as &[&str]),
-                ("orientation", &["horizontal", "vertical"] as &[&str]),
-            ]
-            .into_iter()
-            .collect(),
-        ),
-        (
-            "subagent-trace-panel",
-            [
-                ("sortDirection", &["asc", "desc"] as &[&str]),
-                ("mode", &["overlay", "tab"] as &[&str]),
-            ]
-            .into_iter()
-            .collect(),
-        ),
-        (
-            "svg-branch",
-            [("variant", &["fork", "merge", "diamond"] as &[&str])]
-                .into_iter()
-                .collect(),
-        ),
-        (
-            "svg-connection",
-            [("variant", &["solid", "dashed", "animated"] as &[&str])]
-                .into_iter()
-                .collect(),
-        ),
-        (
-            "svg-morph",
-            [(
-                "variant",
-                &["text-to-code", "code-to-app", "generic"] as &[&str],
-            )]
-            .into_iter()
-            .collect(),
-        ),
-        (
-            "svg-node",
-            [("variant", &["filled", "stroked", "pulse"] as &[&str])]
-                .into_iter()
-                .collect(),
-        ),
-        (
-            "svg-ring",
-            [("variant", &["solid", "dashed", "glow"] as &[&str])]
-                .into_iter()
-                .collect(),
-        ),
-        (
-            "svg-shield",
-            [("variant", &["outline", "filled", "check"] as &[&str])]
-                .into_iter()
-                .collect(),
-        ),
-        (
-            "tabbed-container",
-            [("position", &["top", "left"] as &[&str])]
-                .into_iter()
-                .collect(),
-        ),
-        (
-            "table-view",
-            [
-                ("sortDirection", &["asc", "desc"] as &[&str]),
-                (
-                    "look",
-                    &["dense", "spacious", "striped", "borderless", "bordered"] as &[&str],
-                ),
-            ]
-            .into_iter()
-            .collect(),
-        ),
-        (
-            "tabs",
-            [
-                ("variant", &["default", "pills", "underline"] as &[&str]),
-                ("orientation", &["horizontal", "vertical"] as &[&str]),
-            ]
-            .into_iter()
-            .collect(),
-        ),
-        (
-            "tag-cloud",
-            [("variant", &["default", "primary", "accent"] as &[&str])]
-                .into_iter()
-                .collect(),
-        ),
-        (
-            "tag-input",
-            [(
-                "variant",
-                &[
-                    "default",
-                    "primary",
-                    "secondary",
-                    "success",
-                    "warning",
-                    "danger",
-                    "error",
-                    "info",
-                    "neutral",
-                ] as &[&str],
-            )]
-            .into_iter()
-            .collect(),
-        ),
-        (
-            "team-organism",
-            [("sortDirection", &["asc", "desc"] as &[&str])]
-                .into_iter()
-                .collect(),
-        ),
-        (
-            "text-highlight",
-            [("highlightType", &["question", "note"] as &[&str])]
-                .into_iter()
-                .collect(),
-        ),
-        (
-            "theme-toggle",
-            [("size", &["sm", "md", "lg"] as &[&str])]
-                .into_iter()
-                .collect(),
-        ),
-        (
-            "timeline",
-            [(
-                "look",
-                &[
-                    "vertical-compact",
-                    "vertical-spacious",
-                    "horizontal",
-                    "swimlane",
-                ] as &[&str],
-            )]
-            .into_iter()
-            .collect(),
-        ),
-        (
-            "timer-display",
-            [
-                ("format", &["mm:ss", "ss", "countdown"] as &[&str]),
-                ("size", &["sm", "md", "lg"] as &[&str]),
-            ]
-            .into_iter()
-            .collect(),
-        ),
-        (
-            "toast-slot",
-            [(
-                "variant",
-                &["success", "error", "info", "warning"] as &[&str],
-            )]
-            .into_iter()
-            .collect(),
-        ),
-        (
-            "tooltip",
-            [("position", &["top", "bottom", "left", "right"] as &[&str])]
-                .into_iter()
-                .collect(),
-        ),
-        (
-            "trait-slot",
-            [
-                ("size", &["sm", "md", "lg"] as &[&str]),
-                ("feedback", &["correct", "wrong"] as &[&str]),
-            ]
-            .into_iter()
-            .collect(),
-        ),
-        (
-            "trend-indicator",
-            [
-                ("direction", &["up", "down", "flat"] as &[&str]),
-                ("size", &["sm", "md", "lg"] as &[&str]),
-            ]
-            .into_iter()
-            .collect(),
-        ),
-        (
-            "typography",
-            [
-                (
-                    "variant",
-                    &[
-                        "h1",
-                        "h2",
-                        "h3",
-                        "h4",
-                        "h5",
-                        "h6",
-                        "heading",
-                        "subheading",
-                        "body1",
-                        "body2",
-                        "body",
-                        "caption",
-                        "overline",
-                        "small",
-                        "large",
-                        "label",
-                    ] as &[&str],
-                ),
-                (
-                    "color",
-                    &[
-                        "primary",
-                        "secondary",
-                        "muted",
-                        "error",
-                        "success",
-                        "warning",
-                        "inherit",
-                    ] as &[&str],
-                ),
-                ("align", &["left", "center", "right"] as &[&str]),
-                (
-                    "weight",
-                    &["none", "light", "normal", "medium", "semibold", "bold"] as &[&str],
-                ),
-                (
-                    "size",
-                    &["none", "xs", "sm", "md", "lg", "xl", "2xl", "3xl"] as &[&str],
-                ),
-                (
-                    "overflow",
-                    &["visible", "hidden", "wrap", "clamp-2", "clamp-3"] as &[&str],
-                ),
-                (
-                    "format",
-                    &[
-                        "none", "date", "time", "datetime", "number", "currency", "percent",
-                    ] as &[&str],
-                ),
-            ]
-            .into_iter()
-            .collect(),
-        ),
-        (
-            "ui-slot-component",
-            [
-                (
-                    "position",
-                    &[
-                        "left",
-                        "right",
-                        "top-right",
-                        "top-left",
-                        "bottom-right",
-                        "bottom-left",
-                    ] as &[&str],
-                ),
-                ("mode", &["replace", "append"] as &[&str]),
-            ]
-            .into_iter()
-            .collect(),
-        ),
-        (
-            "ui-slot-renderer",
-            [("hudMode", &["fixed", "inline"] as &[&str])]
-                .into_iter()
-                .collect(),
-        ),
-        (
-            "version-diff",
-            [("view", &["side-by-side", "inline"] as &[&str])]
-                .into_iter()
-                .collect(),
-        ),
-        (
-            "violation-alert",
-            [("severity", &["warning", "error"] as &[&str])]
-                .into_iter()
-                .collect(),
-        ),
-        (
-            "vote-stack",
-            [
-                ("userVote", &["up", "down", "none"] as &[&str]),
-                ("size", &["sm", "md", "lg"] as &[&str]),
-                ("variant", &["vertical", "horizontal"] as &[&str]),
-            ]
-            .into_iter()
-            .collect(),
-        ),
-        (
-            "vstack",
-            [
-                (
-                    "gap",
-                    &["none", "xs", "sm", "md", "lg", "xl", "2xl"] as &[&str],
-                ),
-                (
-                    "align",
-                    &["start", "center", "end", "stretch", "baseline"] as &[&str],
-                ),
-                (
-                    "justify",
-                    &["start", "center", "end", "between", "around", "evenly"] as &[&str],
-                ),
-            ]
-            .into_iter()
-            .collect(),
-        ),
-    ]
-    .into_iter()
-    .collect()
-});
+pub static PATTERN_PROP_ENUM_VALUES: LazyLock<HashMap<&'static str, HashMap<&'static str, &'static [&'static str]>>> =
+    LazyLock::new(|| {
+        [
+            ("action-palette", [("size", &["sm", "md", "lg"] as &[&str])].into_iter().collect()),
+            ("action-tile", [("sortDirection", &["asc", "desc"] as &[&str]), ("size", &["sm", "md", "lg"] as &[&str])].into_iter().collect()),
+            ("alert", [("variant", &["info", "success", "warning", "error"] as &[&str])].into_iter().collect()),
+            ("algo-graph-canvas", [("layout", &["manual", "tree", "layered", "circle"] as &[&str])].into_iter().collect()),
+            ("algorithm-canvas", [("slotOrientation", &["horizontal", "vertical"] as &[&str])].into_iter().collect()),
+            ("animated-graphic", [("animation", &["draw", "fill", "pulse", "morph"] as &[&str])].into_iter().collect()),
+            (
+                "animated-reveal",
+                [
+                    ("trigger", &["scroll", "hover", "manual"] as &[&str]),
+                    ("animation", &["fade-up", "fade-down", "fade-in", "fade-left", "fade-right", "scale", "scale-up", "none"] as &[&str]),
+                ]
+                .into_iter()
+                .collect(),
+            ),
+            ("article-section", [("maxWidth", &["sm", "md", "lg"] as &[&str])].into_iter().collect()),
+            ("atlas-image", [("fit", &["contain", "cover", "fill"] as &[&str])].into_iter().collect()),
+            ("atlas-panel", [("mode", &["nineSlice", "repeat"] as &[&str])].into_iter().collect()),
+            (
+                "avatar",
+                [
+                    ("size", &["xs", "sm", "md", "lg", "xl"] as &[&str]),
+                    ("status", &["online", "offline", "away", "busy"] as &[&str]),
+                ]
+                .into_iter()
+                .collect(),
+            ),
+            (
+                "badge",
+                [
+                    ("variant", &["default", "primary", "secondary", "success", "warning", "danger", "error", "info", "neutral"] as &[&str]),
+                    ("size", &["sm", "md", "lg"] as &[&str]),
+                ]
+                .into_iter()
+                .collect(),
+            ),
+            ("biology-canvas", [("mode", &["2d", "3d"] as &[&str]), ("stageStyle", &["timeline", "ring"] as &[&str])].into_iter().collect()),
+            ("bloom-quiz-block", [("level", &["remember", "understand", "apply", "analyze", "evaluate", "create"] as &[&str])].into_iter().collect()),
+            ("book-chapter-view", [("direction", &["rtl", "ltr"] as &[&str])].into_iter().collect()),
+            ("book-cover-page", [("direction", &["rtl", "ltr"] as &[&str])].into_iter().collect()),
+            ("book-nav-bar", [("direction", &["rtl", "ltr"] as &[&str])].into_iter().collect()),
+            ("book-table-of-contents", [("direction", &["rtl", "ltr"] as &[&str])].into_iter().collect()),
+            ("book-viewer", [("sortDirection", &["asc", "desc"] as &[&str])].into_iter().collect()),
+            (
+                "box",
+                [
+                    ("padding", &["none", "xs", "sm", "md", "lg", "xl", "2xl"] as &[&str]),
+                    ("paddingX", &["none", "xs", "sm", "md", "lg", "xl", "2xl"] as &[&str]),
+                    ("paddingY", &["none", "xs", "sm", "md", "lg", "xl", "2xl"] as &[&str]),
+                    ("margin", &["none", "xs", "sm", "md", "lg", "xl", "2xl", "auto"] as &[&str]),
+                    ("marginX", &["none", "xs", "sm", "md", "lg", "xl", "2xl", "auto"] as &[&str]),
+                    ("marginY", &["none", "xs", "sm", "md", "lg", "xl", "2xl", "auto"] as &[&str]),
+                    ("bg", &["transparent", "primary", "secondary", "muted", "accent", "surface", "overlay"] as &[&str]),
+                    ("rounded", &["none", "sm", "md", "lg", "xl", "2xl", "full"] as &[&str]),
+                    ("shadow", &["none", "sm", "md", "lg", "xl"] as &[&str]),
+                    ("display", &["block", "inline", "inline-block", "flex", "inline-flex", "grid"] as &[&str]),
+                    ("overflow", &["auto", "hidden", "visible", "scroll"] as &[&str]),
+                    ("position", &["relative", "absolute", "fixed", "sticky"] as &[&str]),
+                ]
+                .into_iter()
+                .collect(),
+            ),
+            (
+                "button",
+                [
+                    ("variant", &["primary", "secondary", "ghost", "danger", "success", "warning", "default"] as &[&str]),
+                    ("size", &["sm", "md", "lg"] as &[&str]),
+                ]
+                .into_iter()
+                .collect(),
+            ),
+            ("calendar-grid", [("dayWindow", &["auto"] as &[&str])].into_iter().collect()),
+            (
+                "canvas",
+                [
+                    ("mode", &["2d", "3d"] as &[&str]),
+                    ("projection", &["isometric", "hex", "flat", "free", "side"] as &[&str]),
+                ]
+                .into_iter()
+                .collect(),
+            ),
+            (
+                "canvas-2d",
+                [
+                    ("projection", &["isometric", "hex", "flat", "free", "side"] as &[&str]),
+                    ("camera", &["pan-zoom", "follow", "fixed"] as &[&str]),
+                ]
+                .into_iter()
+                .collect(),
+            ),
+            (
+                "card",
+                [
+                    ("variant", &["default", "bordered", "elevated", "interactive"] as &[&str]),
+                    ("padding", &["none", "sm", "md", "lg"] as &[&str]),
+                    ("shadow", &["none", "sm", "md", "lg"] as &[&str]),
+                    ("look", &["elevated", "flat-bordered", "borderless-divider", "ticket", "invoice", "chip", "tile-image-first"] as &[&str]),
+                ]
+                .into_iter()
+                .collect(),
+            ),
+            ("case-study-organism", [("sortDirection", &["asc", "desc"] as &[&str])].into_iter().collect()),
+            (
+                "chart",
+                [
+                    ("chartType", &["bar", "line", "pie", "area", "donut", "scatter", "histogram"] as &[&str]),
+                    ("look", &["bar-vertical", "bar-horizontal", "line", "area", "pie", "donut", "scatter", "histogram"] as &[&str]),
+                    ("stack", &["none", "stack", "normalize"] as &[&str]),
+                ]
+                .into_iter()
+                .collect(),
+            ),
+            ("chart-legend", [("direction", &["horizontal", "vertical"] as &[&str])].into_iter().collect()),
+            (
+                "chat-bar",
+                [
+                    ("sortDirection", &["asc", "desc"] as &[&str]),
+                    ("status", &["idle", "running", "paused", "complete", "error"] as &[&str]),
+                ]
+                .into_iter()
+                .collect(),
+            ),
+            ("chemistry-canvas", [("mode", &["2d", "3d"] as &[&str]), ("bondStyle", &["thick", "parallel"] as &[&str])].into_iter().collect()),
+            ("code-block", [("mode", &["code", "diff"] as &[&str])].into_iter().collect()),
+            (
+                "confirm-dialog",
+                [
+                    ("variant", &["danger", "warning", "info", "default"] as &[&str]),
+                    ("size", &["sm", "md", "lg", "xl", "full"] as &[&str]),
+                ]
+                .into_iter()
+                .collect(),
+            ),
+            (
+                "container",
+                [
+                    ("size", &["xs", "sm", "md", "lg", "xl", "2xl", "full"] as &[&str]),
+                    ("maxWidth", &["xs", "sm", "md", "lg", "xl", "2xl", "full"] as &[&str]),
+                    ("padding", &["none", "sm", "md", "lg", "xl"] as &[&str]),
+                ]
+                .into_iter()
+                .collect(),
+            ),
+            ("content-renderer", [("sortDirection", &["asc", "desc"] as &[&str]), ("direction", &["rtl", "ltr"] as &[&str])].into_iter().collect()),
+            (
+                "content-section",
+                [
+                    ("background", &["default", "alt", "dark", "gradient"] as &[&str]),
+                    ("padding", &["sm", "md", "lg"] as &[&str]),
+                ]
+                .into_iter()
+                .collect(),
+            ),
+            (
+                "control-grid",
+                [
+                    ("kind", &["dpad", "actions"] as &[&str]),
+                    ("layout", &["horizontal", "vertical", "diamond"] as &[&str]),
+                    ("size", &["sm", "md", "lg"] as &[&str]),
+                    ("visibility", &["auto", "always"] as &[&str]),
+                ]
+                .into_iter()
+                .collect(),
+            ),
+            ("counter-template", [("size", &["sm", "md", "lg"] as &[&str]), ("variant", &["minimal", "standard", "full"] as &[&str])].into_iter().collect()),
+            (
+                "cta-banner",
+                [
+                    ("background", &["default", "alt", "dark", "gradient", "primary"] as &[&str]),
+                    ("align", &["center", "left"] as &[&str]),
+                ]
+                .into_iter()
+                .collect(),
+            ),
+            ("dashboard-grid", [("sortDirection", &["asc", "desc"] as &[&str]), ("gap", &["sm", "md", "lg"] as &[&str])].into_iter().collect()),
+            ("dashboard-layout", [("layoutMode", &["sidebar", "topnav", "bottomnav", "minimal"] as &[&str])].into_iter().collect()),
+            (
+                "data-grid",
+                [
+                    ("gap", &["none", "sm", "md", "lg", "xl"] as &[&str]),
+                    ("look", &["dense", "spacious", "striped", "borderless", "card-rows"] as &[&str]),
+                ]
+                .into_iter()
+                .collect(),
+            ),
+            (
+                "data-list",
+                [
+                    ("gap", &["none", "sm", "md", "lg"] as &[&str]),
+                    ("variant", &["default", "card", "compact", "message"] as &[&str]),
+                    ("sortDirection", &["asc", "desc"] as &[&str]),
+                    ("look", &["dense", "spacious", "striped", "borderless", "card-rows"] as &[&str]),
+                ]
+                .into_iter()
+                .collect(),
+            ),
+            ("detail-panel", [("sortDirection", &["asc", "desc"] as &[&str]), ("position", &["left", "right"] as &[&str])].into_iter().collect()),
+            (
+                "dialogue-bubble",
+                [
+                    ("position", &["top", "bottom"] as &[&str]),
+                    ("mood", &["neutral", "happy", "concerned", "angry"] as &[&str]),
+                ]
+                .into_iter()
+                .collect(),
+            ),
+            (
+                "divider",
+                [
+                    ("orientation", &["horizontal", "vertical"] as &[&str]),
+                    ("variant", &["solid", "dashed", "dotted"] as &[&str]),
+                ]
+                .into_iter()
+                .collect(),
+            ),
+            ("document-viewer", [("documentType", &["pdf", "text", "html", "markdown"] as &[&str])].into_iter().collect()),
+            ("draw-fx-layer", [("type", &["draw-fx-layer"] as &[&str])].into_iter().collect()),
+            ("draw-group", [("type", &["draw-group"] as &[&str])].into_iter().collect()),
+            (
+                "draw-mesh",
+                [
+                    ("type", &["draw-mesh"] as &[&str]),
+                    ("shape", &["box", "sphere", "capsule", "cylinder", "cone", "torus", "plane", "circle", "polyhedron"] as &[&str]),
+                    ("pivot", &["bottom", "center"] as &[&str]),
+                ]
+                .into_iter()
+                .collect(),
+            ),
+            (
+                "draw-shape",
+                [
+                    ("type", &["draw-shape"] as &[&str]),
+                    ("shape", &["cell", "rect", "ellipse", "poly", "path"] as &[&str]),
+                    ("anchor", &["top-left", "ground", "center"] as &[&str]),
+                    ("blendMode", &["source-over", "lighter", "multiply", "screen", "overlay", "darken", "lighten", "color-dodge", "color-burn", "hard-light", "soft-light", "difference", "exclusion", "hue", "saturation", "color", "luminosity", "source-atop", "destination-over", "destination-out", "xor"] as &[&str]),
+                ]
+                .into_iter()
+                .collect(),
+            ),
+            ("draw-shape-layer", [("type", &["draw-shape-layer"] as &[&str])].into_iter().collect()),
+            ("draw-skinned-mesh", [("type", &["draw-skinned-mesh"] as &[&str])].into_iter().collect()),
+            ("draw-sprite", [("type", &["draw-sprite"] as &[&str]), ("anchor", &["top-left", "ground", "center"] as &[&str])].into_iter().collect()),
+            ("draw-sprite-layer", [("type", &["draw-sprite-layer"] as &[&str])].into_iter().collect()),
+            (
+                "draw-text",
+                [
+                    ("type", &["draw-text"] as &[&str]),
+                    ("anchor", &["top-left", "ground", "center"] as &[&str]),
+                    ("align", &["center", "end", "left", "right", "start"] as &[&str]),
+                    ("baseline", &["alphabetic", "bottom", "hanging", "ideographic", "middle", "top"] as &[&str]),
+                ]
+                .into_iter()
+                .collect(),
+            ),
+            ("draw-text-layer", [("type", &["draw-text-layer"] as &[&str])].into_iter().collect()),
+            ("drawer", [("position", &["left", "right"] as &[&str])].into_iter().collect()),
+            ("drawer-slot", [("position", &["left", "right"] as &[&str]), ("size", &["sm", "md", "lg", "xl", "full"] as &[&str])].into_iter().collect()),
+            (
+                "edge-decoration",
+                [
+                    ("variant", &["arch", "vine", "lattice"] as &[&str]),
+                    ("side", &["left", "right", "both"] as &[&str]),
+                ]
+                .into_iter()
+                .collect(),
+            ),
+            ("emoji-picker", [("position", &["top", "bottom"] as &[&str])].into_iter().collect()),
+            (
+                "empty-state",
+                [
+                    ("variant", &["default", "success", "error", "warning", "info"] as &[&str]),
+                    ("look", &["illustrated", "icon-only", "text-only", "mascot"] as &[&str]),
+                ]
+                .into_iter()
+                .collect(),
+            ),
+            (
+                "entity-cards",
+                [
+                    ("sortDirection", &["asc", "desc"] as &[&str]),
+                    ("gap", &["none", "sm", "md", "lg", "xl"] as &[&str]),
+                    ("alignItems", &["start", "center", "end", "stretch"] as &[&str]),
+                ]
+                .into_iter()
+                .collect(),
+            ),
+            ("entity-list", [("sortDirection", &["asc", "desc"] as &[&str]), ("variant", &["default", "card"] as &[&str])].into_iter().collect()),
+            (
+                "entity-table",
+                [
+                    ("sortDirection", &["asc", "desc"] as &[&str]),
+                    ("look", &["dense", "spacious", "striped", "borderless", "card-rows"] as &[&str]),
+                ]
+                .into_iter()
+                .collect(),
+            ),
+            (
+                "feature-card",
+                [
+                    ("variant", &["default", "bordered", "elevated", "interactive"] as &[&str]),
+                    ("size", &["sm", "md", "lg"] as &[&str]),
+                ]
+                .into_iter()
+                .collect(),
+            ),
+            ("feature-grid", [("gap", &["sm", "md", "lg"] as &[&str])].into_iter().collect()),
+            ("feature-grid-organism", [("sortDirection", &["asc", "desc"] as &[&str])].into_iter().collect()),
+            ("file-tree", [("look", &["files", "nav"] as &[&str])].into_iter().collect()),
+            (
+                "filter-group",
+                [
+                    ("variant", &["default", "compact", "pills", "vertical"] as &[&str]),
+                    ("look", &["toolbar", "chips", "pills", "popover-trigger", "inline-column-header"] as &[&str]),
+                ]
+                .into_iter()
+                .collect(),
+            ),
+            (
+                "filter-pill",
+                [
+                    ("variant", &["default", "primary", "secondary", "success", "warning", "danger", "info", "neutral"] as &[&str]),
+                    ("size", &["sm", "md", "lg"] as &[&str]),
+                ]
+                .into_iter()
+                .collect(),
+            ),
+            (
+                "flex",
+                [
+                    ("direction", &["row", "row-reverse", "col", "col-reverse"] as &[&str]),
+                    ("wrap", &["nowrap", "wrap", "wrap-reverse"] as &[&str]),
+                    ("align", &["start", "center", "end", "stretch", "baseline"] as &[&str]),
+                    ("justify", &["start", "center", "end", "between", "around", "evenly"] as &[&str]),
+                    ("gap", &["none", "xs", "sm", "md", "lg", "xl", "2xl"] as &[&str]),
+                ]
+                .into_iter()
+                .collect(),
+            ),
+            ("floating-action-button", [("variant", &["primary", "secondary", "success", "danger", "warning"] as &[&str])].into_iter().collect()),
+            (
+                "floating-toolbar",
+                [
+                    ("position", &["bottom-center", "bottom-left", "bottom-right", "top-center", "top-left", "top-right"] as &[&str]),
+                ]
+                .into_iter()
+                .collect(),
+            ),
+            (
+                "form",
+                [
+                    ("layout", &["vertical", "horizontal", "inline"] as &[&str]),
+                    ("gap", &["sm", "md", "lg"] as &[&str]),
+                ]
+                .into_iter()
+                .collect(),
+            ),
+            (
+                "form-actions",
+                [
+                    ("variant", &["default", "segmented", "toggle"] as &[&str]),
+                    ("orientation", &["horizontal", "vertical"] as &[&str]),
+                    ("look", &["right-aligned-buttons", "floating-bar", "inline-row", "dropdown-menu", "command-palette-trigger"] as &[&str]),
+                ]
+                .into_iter()
+                .collect(),
+            ),
+            ("form-layout", [("sortDirection", &["asc", "desc"] as &[&str])].into_iter().collect()),
+            (
+                "form-section",
+                [
+                    ("layout", &["vertical", "horizontal", "inline"] as &[&str]),
+                    ("gap", &["sm", "md", "lg"] as &[&str]),
+                ]
+                .into_iter()
+                .collect(),
+            ),
+            ("form-section-header", [("badgeVariant", &["default", "primary", "success", "warning", "danger"] as &[&str])].into_iter().collect()),
+            ("game-audio-toggle", [("size", &["sm", "md", "lg"] as &[&str])].into_iter().collect()),
+            ("game-hud", [("size", &["sm", "md", "lg"] as &[&str]), ("variant", &["floating", "bar"] as &[&str])].into_iter().collect()),
+            ("game-icon", [("size", &["sm", "md", "lg"] as &[&str])].into_iter().collect()),
+            (
+                "geometric-pattern",
+                [
+                    ("variant", &["star8", "star6", "khatam", "star10", "star12", "rosette-double", "rosette-filled", "seigaiha", "greek-key", "celtic-knot", "kolam", "arch", "arabesque-vine", "arabesque-net"] as &[&str]),
+                    ("mode", &["background", "left", "right", "dual", "around", "frame"] as &[&str]),
+                ]
+                .into_iter()
+                .collect(),
+            ),
+            ("graph-canvas", [("layout", &["force", "circular", "grid"] as &[&str])].into_iter().collect()),
+            ("graph-view", [("layout", &["force", "flow", "tree", "radial"] as &[&str])].into_iter().collect()),
+            (
+                "grid",
+                [
+                    ("cols", &["none"] as &[&str]),
+                    ("gap", &["none", "xs", "sm", "md", "lg", "xl", "2xl"] as &[&str]),
+                    ("rowGap", &["none", "xs", "sm", "md", "lg", "xl", "2xl"] as &[&str]),
+                    ("colGap", &["none", "xs", "sm", "md", "lg", "xl", "2xl"] as &[&str]),
+                    ("alignItems", &["start", "center", "end", "stretch", "baseline"] as &[&str]),
+                    ("justifyItems", &["start", "center", "end", "stretch"] as &[&str]),
+                    ("flow", &["row", "col", "row-dense", "col-dense"] as &[&str]),
+                ]
+                .into_iter()
+                .collect(),
+            ),
+            (
+                "header",
+                [
+                    ("variant", &["mobile", "desktop"] as &[&str]),
+                    ("look", &["hero", "compact-bar", "breadcrumb", "contextual", "editorial-banner"] as &[&str]),
+                ]
+                .into_iter()
+                .collect(),
+            ),
+            (
+                "health-bar",
+                [
+                    ("format", &["hearts", "bar", "numeric", "progress"] as &[&str]),
+                    ("size", &["sm", "md", "lg"] as &[&str]),
+                ]
+                .into_iter()
+                .collect(),
+            ),
+            ("hero-organism", [("sortDirection", &["asc", "desc"] as &[&str])].into_iter().collect()),
+            (
+                "hero-section",
+                [
+                    ("tagVariant", &["primary", "secondary", "accent"] as &[&str]),
+                    ("imagePosition", &["below", "right", "background"] as &[&str]),
+                    ("background", &["dark", "gradient", "subtle"] as &[&str]),
+                    ("align", &["center", "left"] as &[&str]),
+                ]
+                .into_iter()
+                .collect(),
+            ),
+            (
+                "hstack",
+                [
+                    ("gap", &["none", "xs", "sm", "md", "lg", "xl", "2xl"] as &[&str]),
+                    ("align", &["start", "center", "end", "stretch", "baseline"] as &[&str]),
+                    ("justify", &["start", "center", "end", "between", "around", "evenly"] as &[&str]),
+                ]
+                .into_iter()
+                .collect(),
+            ),
+            (
+                "icon",
+                [
+                    ("size", &["xs", "sm", "md", "lg", "xl"] as &[&str]),
+                    ("animation", &["spin", "pulse", "none"] as &[&str]),
+                ]
+                .into_iter()
+                .collect(),
+            ),
+            ("import-progress", [("step", &["fetching", "mapping", "reviewing", "committing", "done", "failed"] as &[&str])].into_iter().collect()),
+            (
+                "input",
+                [
+                    ("inputType", &["text", "email", "password", "number", "tel", "url", "search", "date", "datetime-local", "time", "checkbox", "select", "textarea"] as &[&str]),
+                ]
+                .into_iter()
+                .collect(),
+            ),
+            (
+                "input-group",
+                [
+                    ("inputType", &["text", "email", "password", "number", "tel", "url", "search", "date", "datetime-local", "time", "checkbox", "select", "textarea"] as &[&str]),
+                ]
+                .into_iter()
+                .collect(),
+            ),
+            ("jazari-state-machine", [("direction", &["ltr", "rtl"] as &[&str])].into_iter().collect()),
+            ("landing-page-template", [("variant", &["product", "service", "platform"] as &[&str])].into_iter().collect()),
+            ("law-reference-tooltip", [("position", &["top", "bottom", "left", "right"] as &[&str])].into_iter().collect()),
+            ("likert-scale", [("size", &["sm", "md", "lg"] as &[&str]), ("variant", &["radios", "buttons"] as &[&str])].into_iter().collect()),
+            ("markdown-content", [("direction", &["ltr", "rtl"] as &[&str])].into_iter().collect()),
+            ("marketing-stat-card", [("size", &["sm", "md", "lg"] as &[&str])].into_iter().collect()),
+            ("master-detail", [("sortDirection", &["asc", "desc"] as &[&str])].into_iter().collect()),
+            ("matrix-question", [("size", &["sm", "md"] as &[&str])].into_iter().collect()),
+            (
+                "media-gallery",
+                [
+                    ("sortDirection", &["asc", "desc"] as &[&str]),
+                    ("aspectRatio", &["square", "landscape", "portrait"] as &[&str]),
+                ]
+                .into_iter()
+                .collect(),
+            ),
+            (
+                "menu",
+                [
+                    ("position", &["top-left", "top-right", "bottom-left", "bottom-right", "top-start", "top-end", "bottom-start", "bottom-end"] as &[&str]),
+                ]
+                .into_iter()
+                .collect(),
+            ),
+            (
+                "meter",
+                [
+                    ("variant", &["linear", "radial", "segmented"] as &[&str]),
+                    ("size", &["sm", "md", "lg"] as &[&str]),
+                ]
+                .into_iter()
+                .collect(),
+            ),
+            (
+                "modal",
+                [
+                    ("size", &["sm", "md", "lg", "xl", "full"] as &[&str]),
+                    ("look", &["centered-card", "top-sheet", "side-drawer", "full-screen"] as &[&str]),
+                ]
+                .into_iter()
+                .collect(),
+            ),
+            ("modal-slot", [("size", &["sm", "md", "lg", "xl", "full"] as &[&str])].into_iter().collect()),
+            ("navigation", [("orientation", &["horizontal", "vertical"] as &[&str])].into_iter().collect()),
+            ("notification", [("variant", &["success", "error", "info", "warning"] as &[&str])].into_iter().collect()),
+            ("number-stepper", [("size", &["sm", "md", "lg"] as &[&str])].into_iter().collect()),
+            ("option-constraint-group", [("size", &["sm", "md"] as &[&str])].into_iter().collect()),
+            ("orbital-visualization", [("size", &["sm", "md", "lg", "xl"] as &[&str])].into_iter().collect()),
+            (
+                "pattern-tile",
+                [
+                    ("variant", &["star8", "star6", "khatam", "star10", "star12", "rosette-double", "rosette-filled", "seigaiha", "greek-key", "celtic-knot", "kolam", "arch", "arabesque-vine", "arabesque-net"] as &[&str]),
+                ]
+                .into_iter()
+                .collect(),
+            ),
+            ("physics-canvas", [("mode", &["2d", "3d"] as &[&str])].into_iter().collect()),
+            (
+                "popover",
+                [
+                    ("position", &["top", "bottom", "left", "right"] as &[&str]),
+                    ("trigger", &["click", "hover"] as &[&str]),
+                ]
+                .into_iter()
+                .collect(),
+            ),
+            ("pricing-organism", [("sortDirection", &["asc", "desc"] as &[&str])].into_iter().collect()),
+            (
+                "progress-bar",
+                [
+                    ("progressType", &["linear", "circular", "stepped"] as &[&str]),
+                    ("variant", &["default", "primary", "success", "warning", "error", "danger"] as &[&str]),
+                    ("color", &["default", "primary", "success", "warning", "error", "danger"] as &[&str]),
+                    ("size", &["sm", "md", "lg"] as &[&str]),
+                ]
+                .into_iter()
+                .collect(),
+            ),
+            ("progress-dots", [("size", &["sm", "md", "lg"] as &[&str])].into_iter().collect()),
+            ("qr-scanner", [("facingMode", &["environment", "user"] as &[&str])].into_iter().collect()),
+            ("radio", [("size", &["sm", "md", "lg"] as &[&str])].into_iter().collect()),
+            ("range-slider", [("size", &["sm", "md", "lg"] as &[&str])].into_iter().collect()),
+            (
+                "runtime-debugger",
+                [
+                    ("position", &["bottom-right", "bottom-left", "top-right", "top-left"] as &[&str]),
+                    ("mode", &["floating", "inline", "verify"] as &[&str]),
+                ]
+                .into_iter()
+                .collect(),
+            ),
+            ("score-display", [("size", &["sm", "md", "lg", "xl"] as &[&str])].into_iter().collect()),
+            (
+                "section",
+                [
+                    ("padding", &["none", "sm", "md", "lg", "xl"] as &[&str]),
+                    ("variant", &["default", "card", "bordered", "filled"] as &[&str]),
+                ]
+                .into_iter()
+                .collect(),
+            ),
+            ("section-header", [("align", &["center", "left", "right"] as &[&str])].into_iter().collect()),
+            ("sequence-bar", [("size", &["sm", "md", "lg"] as &[&str])].into_iter().collect()),
+            ("showcase-organism", [("sortDirection", &["asc", "desc"] as &[&str])].into_iter().collect()),
+            ("side-panel", [("position", &["left", "right"] as &[&str])].into_iter().collect()),
+            ("simple-grid", [("gap", &["none", "xs", "sm", "md", "lg", "xl"] as &[&str])].into_iter().collect()),
+            ("skeleton", [("variant", &["header", "table", "form", "card", "text"] as &[&str])].into_iter().collect()),
+            ("social-proof", [("variant", &["logos", "quotes", "badges"] as &[&str])].into_iter().collect()),
+            ("sortable-list", [("dragHandlePosition", &["left", "right"] as &[&str])].into_iter().collect()),
+            (
+                "spacer",
+                [
+                    ("size", &["xs", "sm", "md", "lg", "xl", "2xl", "auto"] as &[&str]),
+                    ("axis", &["horizontal", "vertical"] as &[&str]),
+                ]
+                .into_iter()
+                .collect(),
+            ),
+            ("sparkline", [("color", &["auto", "primary", "success", "warning", "error", "info", "muted"] as &[&str])].into_iter().collect()),
+            ("spinner", [("size", &["xs", "sm", "md", "lg"] as &[&str])].into_iter().collect()),
+            (
+                "split",
+                [
+                    ("ratio", &["1:1", "1:2", "2:1", "1:3", "3:1", "1:4", "4:1", "2:3", "3:2"] as &[&str]),
+                    ("gap", &["none", "sm", "md", "lg", "xl"] as &[&str]),
+                    ("stackBreakpoint", &["sm", "md", "lg", "xl"] as &[&str]),
+                    ("align", &["start", "center", "end", "stretch"] as &[&str]),
+                ]
+                .into_iter()
+                .collect(),
+            ),
+            ("split-pane", [("direction", &["horizontal", "vertical"] as &[&str])].into_iter().collect()),
+            ("split-section", [("imagePosition", &["left", "right"] as &[&str]), ("background", &["default", "alt"] as &[&str])].into_iter().collect()),
+            (
+                "stack",
+                [
+                    ("direction", &["horizontal", "vertical"] as &[&str]),
+                    ("gap", &["none", "xs", "sm", "md", "lg", "xl", "2xl"] as &[&str]),
+                    ("align", &["start", "center", "end", "stretch", "baseline"] as &[&str]),
+                    ("justify", &["start", "center", "end", "between", "around", "evenly"] as &[&str]),
+                ]
+                .into_iter()
+                .collect(),
+            ),
+            ("star-rating", [("precision", &["full", "half"] as &[&str]), ("size", &["sm", "md", "lg"] as &[&str])].into_iter().collect()),
+            (
+                "stat-card",
+                [
+                    ("sortDirection", &["asc", "desc"] as &[&str]),
+                    ("trendDirection", &["up", "down", "neutral"] as &[&str]),
+                ]
+                .into_iter()
+                .collect(),
+            ),
+            (
+                "stat-display",
+                [
+                    ("trendPolarity", &["higher-is-better", "lower-is-better"] as &[&str]),
+                    ("trendFormat", &["absolute", "percent"] as &[&str]),
+                    ("size", &["sm", "md", "lg"] as &[&str]),
+                    ("variant", &["default", "primary", "success", "warning", "error", "info"] as &[&str]),
+                    ("look", &["elevated", "flat", "progress-backed", "gauge", "sparkline"] as &[&str]),
+                ]
+                .into_iter()
+                .collect(),
+            ),
+            ("stats-organism", [("sortDirection", &["asc", "desc"] as &[&str])].into_iter().collect()),
+            (
+                "status-dot",
+                [
+                    ("status", &["online", "offline", "away", "busy", "warning", "critical"] as &[&str]),
+                    ("size", &["sm", "md", "lg"] as &[&str]),
+                ]
+                .into_iter()
+                .collect(),
+            ),
+            ("step-flow", [("orientation", &["horizontal", "vertical"] as &[&str])].into_iter().collect()),
+            (
+                "step-flow-organism",
+                [
+                    ("sortDirection", &["asc", "desc"] as &[&str]),
+                    ("orientation", &["horizontal", "vertical"] as &[&str]),
+                ]
+                .into_iter()
+                .collect(),
+            ),
+            ("subagent-trace-panel", [("sortDirection", &["asc", "desc"] as &[&str]), ("mode", &["overlay", "tab"] as &[&str])].into_iter().collect()),
+            ("svg-branch", [("variant", &["fork", "merge", "diamond"] as &[&str])].into_iter().collect()),
+            ("svg-connection", [("variant", &["solid", "dashed", "animated"] as &[&str])].into_iter().collect()),
+            ("svg-morph", [("variant", &["text-to-code", "code-to-app", "generic"] as &[&str])].into_iter().collect()),
+            ("svg-node", [("variant", &["filled", "stroked", "pulse"] as &[&str])].into_iter().collect()),
+            ("svg-ring", [("variant", &["solid", "dashed", "glow"] as &[&str])].into_iter().collect()),
+            ("svg-shield", [("variant", &["outline", "filled", "check"] as &[&str])].into_iter().collect()),
+            ("tabbed-container", [("position", &["top", "left"] as &[&str])].into_iter().collect()),
+            (
+                "table-view",
+                [
+                    ("sortDirection", &["asc", "desc"] as &[&str]),
+                    ("look", &["dense", "spacious", "striped", "borderless", "bordered"] as &[&str]),
+                ]
+                .into_iter()
+                .collect(),
+            ),
+            (
+                "tabs",
+                [
+                    ("variant", &["default", "pills", "underline"] as &[&str]),
+                    ("orientation", &["horizontal", "vertical"] as &[&str]),
+                ]
+                .into_iter()
+                .collect(),
+            ),
+            ("tag-cloud", [("variant", &["default", "primary", "accent"] as &[&str])].into_iter().collect()),
+            (
+                "tag-input",
+                [
+                    ("variant", &["default", "primary", "secondary", "success", "warning", "danger", "error", "info", "neutral"] as &[&str]),
+                ]
+                .into_iter()
+                .collect(),
+            ),
+            ("team-organism", [("sortDirection", &["asc", "desc"] as &[&str])].into_iter().collect()),
+            ("text-highlight", [("highlightType", &["question", "note"] as &[&str])].into_iter().collect()),
+            ("theme-toggle", [("size", &["sm", "md", "lg"] as &[&str])].into_iter().collect()),
+            ("timeline", [("look", &["vertical-compact", "vertical-spacious", "horizontal", "swimlane"] as &[&str])].into_iter().collect()),
+            ("timer-display", [("format", &["mm:ss", "ss", "countdown"] as &[&str]), ("size", &["sm", "md", "lg"] as &[&str])].into_iter().collect()),
+            ("toast-slot", [("variant", &["success", "error", "info", "warning"] as &[&str])].into_iter().collect()),
+            ("tooltip", [("position", &["top", "bottom", "left", "right"] as &[&str])].into_iter().collect()),
+            ("trait-slot", [("size", &["sm", "md", "lg"] as &[&str]), ("feedback", &["correct", "wrong"] as &[&str])].into_iter().collect()),
+            ("trend-indicator", [("direction", &["up", "down", "flat"] as &[&str]), ("size", &["sm", "md", "lg"] as &[&str])].into_iter().collect()),
+            (
+                "typography",
+                [
+                    ("variant", &["h1", "h2", "h3", "h4", "h5", "h6", "heading", "subheading", "body1", "body2", "body", "caption", "overline", "small", "large", "label"] as &[&str]),
+                    ("color", &["primary", "secondary", "muted", "error", "success", "warning", "inherit"] as &[&str]),
+                    ("align", &["left", "center", "right"] as &[&str]),
+                    ("weight", &["none", "light", "normal", "medium", "semibold", "bold"] as &[&str]),
+                    ("size", &["none", "xs", "sm", "md", "lg", "xl", "2xl", "3xl"] as &[&str]),
+                    ("overflow", &["visible", "hidden", "wrap", "clamp-2", "clamp-3"] as &[&str]),
+                    ("format", &["none", "date", "time", "datetime", "number", "currency", "percent"] as &[&str]),
+                ]
+                .into_iter()
+                .collect(),
+            ),
+            (
+                "ui-slot-component",
+                [
+                    ("position", &["left", "right", "top-right", "top-left", "bottom-right", "bottom-left"] as &[&str]),
+                    ("mode", &["replace", "append"] as &[&str]),
+                ]
+                .into_iter()
+                .collect(),
+            ),
+            ("ui-slot-renderer", [("hudMode", &["fixed", "inline"] as &[&str])].into_iter().collect()),
+            ("version-diff", [("view", &["side-by-side", "inline"] as &[&str])].into_iter().collect()),
+            ("violation-alert", [("severity", &["warning", "error"] as &[&str])].into_iter().collect()),
+            (
+                "vote-stack",
+                [
+                    ("userVote", &["up", "down", "none"] as &[&str]),
+                    ("size", &["sm", "md", "lg"] as &[&str]),
+                    ("variant", &["vertical", "horizontal"] as &[&str]),
+                ]
+                .into_iter()
+                .collect(),
+            ),
+            (
+                "vstack",
+                [
+                    ("gap", &["none", "xs", "sm", "md", "lg", "xl", "2xl"] as &[&str]),
+                    ("align", &["start", "center", "end", "stretch", "baseline"] as &[&str]),
+                    ("justify", &["start", "center", "end", "between", "around", "evenly"] as &[&str]),
+                ]
+                .into_iter()
+                .collect(),
+            ),
+        ]
+        .into_iter()
+        .collect()
+    });
 
 /// Event-valued prop names per pattern (pattern_type -> set of prop names
 /// whose TypeScript type is EventKey from @almadar/core).
@@ -12212,43 +10226,20 @@ pub static PATTERN_EVENT_PROPS: LazyLock<HashMap<&'static str, HashSet<&'static 
             ("button", ["action"].into_iter().collect()),
             ("card", ["action"].into_iter().collect()),
             ("choice-button", ["action"].into_iter().collect()),
-            (
-                "control-button",
-                ["pressEvent", "releaseEvent"].into_iter().collect(),
-            ),
-            (
-                "counter-template",
-                ["incrementEvent", "decrementEvent", "resetEvent"]
-                    .into_iter()
-                    .collect(),
-            ),
+            ("control-button", ["pressEvent", "releaseEvent"].into_iter().collect()),
+            ("counter-template", ["incrementEvent", "decrementEvent", "resetEvent"].into_iter().collect()),
             ("data-grid", ["loadMoreEvent"].into_iter().collect()),
-            (
-                "data-list",
-                [
-                    "reorderEvent",
-                    "swipeLeftEvent",
-                    "swipeRightEvent",
-                    "longPressEvent",
-                    "loadMoreEvent",
-                ]
-                .into_iter()
-                .collect(),
-            ),
+            ("data-list", ["reorderEvent", "swipeLeftEvent", "swipeRightEvent", "longPressEvent", "loadMoreEvent"].into_iter().collect()),
             ("drawer", ["closeEvent"].into_iter().collect()),
             ("floating-action-button", ["action"].into_iter().collect()),
             ("form", ["cancelEvent"].into_iter().collect()),
             ("form-section", ["cancelEvent"].into_iter().collect()),
             ("hstack", ["action"].into_iter().collect()),
-            (
-                "infinite-scroll-sentinel",
-                ["loadMoreEvent"].into_iter().collect(),
-            ),
+            ("infinite-scroll-sentinel", ["loadMoreEvent"].into_iter().collect()),
             ("overlay", ["action"].into_iter().collect()),
             ("pull-to-refresh", ["refreshEvent"].into_iter().collect()),
             ("stack", ["action"].into_iter().collect()),
             ("table-view", ["itemClickEvent"].into_iter().collect()),
-            ("textarea", ["action"].into_iter().collect()),
             ("vstack", ["action"].into_iter().collect()),
             ("wizard-container", ["completeEvent"].into_iter().collect()),
         ]
@@ -12265,95 +10256,37 @@ pub static PATTERN_EVENT_PROPS: LazyLock<HashMap<&'static str, HashSet<&'static 
 ///
 /// Default eventField is 'event'; patterns with a non-default field
 /// surface the name explicitly.
-pub static PATTERN_EVENT_LIST_PROPS: LazyLock<
-    HashMap<&'static str, HashMap<&'static str, &'static str>>,
-> = LazyLock::new(|| {
-    [
-        ("breadcrumb", [("items", "event")].into_iter().collect()),
-        ("chart", [("actions", "event")].into_iter().collect()),
-        ("code-block", [("actions", "event")].into_iter().collect()),
-        (
-            "dashboard-layout",
-            [("topBarActions", "event")].into_iter().collect(),
-        ),
-        (
-            "data-grid",
-            [("itemActions", "event")].into_iter().collect(),
-        ),
-        (
-            "data-list",
-            [("itemActions", "event")].into_iter().collect(),
-        ),
-        ("detail-panel", [("actions", "event")].into_iter().collect()),
-        (
-            "document-panel",
-            [("actions", "event")].into_iter().collect(),
-        ),
-        (
-            "document-viewer",
-            [("actions", "event")].into_iter().collect(),
-        ),
-        (
-            "entity-cards",
-            [("itemActions", "event")].into_iter().collect(),
-        ),
-        (
-            "entity-list",
-            [("itemActions", "event")].into_iter().collect(),
-        ),
-        (
-            "entity-table",
-            [
-                ("itemActions", "event"),
-                ("rowActions", "event"),
-                ("bulkActions", "event"),
-            ]
-            .into_iter()
-            .collect(),
-        ),
-        (
-            "floating-action-button",
-            [("actions", "event")].into_iter().collect(),
-        ),
-        (
-            "form-actions",
-            [("secondary", "event")].into_iter().collect(),
-        ),
-        (
-            "game-menu",
-            [("options", "event"), ("menuItems", "event")]
-                .into_iter()
-                .collect(),
-        ),
-        ("graph-canvas", [("actions", "event")].into_iter().collect()),
-        (
-            "media-gallery",
-            [("actions", "event")].into_iter().collect(),
-        ),
-        ("menu", [("items", "event")].into_iter().collect()),
-        ("meter", [("actions", "event")].into_iter().collect()),
-        ("page-header", [("actions", "event")].into_iter().collect()),
-        (
-            "swipeable-row",
-            [("leftActions", "event"), ("rightActions", "event")]
-                .into_iter()
-                .collect(),
-        ),
-        (
-            "table-view",
-            [("itemActions", "event")].into_iter().collect(),
-        ),
-        (
-            "tabs",
-            [("items", "event"), ("tabs", "event")]
-                .into_iter()
-                .collect(),
-        ),
-        ("timeline", [("itemActions", "event")].into_iter().collect()),
-    ]
-    .into_iter()
-    .collect()
-});
+pub static PATTERN_EVENT_LIST_PROPS: LazyLock<HashMap<&'static str, HashMap<&'static str, &'static str>>> =
+    LazyLock::new(|| {
+        [
+            ("breadcrumb", [("items", "event")].into_iter().collect()),
+            ("chart", [("actions", "event")].into_iter().collect()),
+            ("code-block", [("actions", "event")].into_iter().collect()),
+            ("dashboard-layout", [("topBarActions", "event")].into_iter().collect()),
+            ("data-grid", [("itemActions", "event")].into_iter().collect()),
+            ("data-list", [("itemActions", "event")].into_iter().collect()),
+            ("detail-panel", [("actions", "event")].into_iter().collect()),
+            ("document-panel", [("actions", "event")].into_iter().collect()),
+            ("document-viewer", [("actions", "event")].into_iter().collect()),
+            ("entity-cards", [("itemActions", "event")].into_iter().collect()),
+            ("entity-list", [("itemActions", "event")].into_iter().collect()),
+            ("entity-table", [("itemActions", "event"), ("rowActions", "event"), ("bulkActions", "event")].into_iter().collect()),
+            ("floating-action-button", [("actions", "event")].into_iter().collect()),
+            ("form-actions", [("secondary", "event")].into_iter().collect()),
+            ("game-menu", [("options", "event"), ("menuItems", "event")].into_iter().collect()),
+            ("graph-canvas", [("actions", "event")].into_iter().collect()),
+            ("media-gallery", [("actions", "event")].into_iter().collect()),
+            ("menu", [("items", "event")].into_iter().collect()),
+            ("meter", [("actions", "event")].into_iter().collect()),
+            ("page-header", [("actions", "event")].into_iter().collect()),
+            ("swipeable-row", [("leftActions", "event"), ("rightActions", "event")].into_iter().collect()),
+            ("table-view", [("itemActions", "event")].into_iter().collect()),
+            ("tabs", [("items", "event"), ("tabs", "event")].into_iter().collect()),
+            ("timeline", [("itemActions", "event")].into_iter().collect()),
+        ]
+        .into_iter()
+        .collect()
+    });
 
 /// Patterns that require action/event props
 pub static ACTION_REQUIRED_PATTERNS: LazyLock<HashSet<&'static str>> =

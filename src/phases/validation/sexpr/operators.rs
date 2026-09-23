@@ -211,6 +211,8 @@ pub const CORE_OPERATORS: &[&str] = &[
     "math/default",
     "math/floor",
     "math/lerp",
+    "math/ln",
+    "math/log10",
     "math/map",
     "math/max",
     "math/min",

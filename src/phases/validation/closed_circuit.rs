@@ -131,6 +131,7 @@ pub fn validate_all_circuits(schema: &OrbitalSchema, ctx: &mut ValidationContext
                     &orbital.name,
                     &path,
                 ));
+                ctx.merge(validate_self_emit_loop(trait_def, &orbital.name, &path));
             }
         }
     }
@@ -1665,7 +1666,128 @@ fn validate_lifecycle_emit_effects(
     result
 }
 
-/// `ORB_CIRCUIT_CLIENT_UNBOUND_STATE_MACHINE`: an inline trait owns a
+/// `ORB_CIRCUIT_SELF_EMIT_LOOP`: a transition arm re-emits its OWN trigger
+/// event, an arm on that same event is reachable at the `to` state, and the
+/// re-emitted payload carries no evidence of per-hop progress — the runtime
+/// path re-enters an arm on the same event with an unchanged payload and
+/// loops forever (G-RUNTIME-020). Three-way hazard condition, ALL must hold:
+/// (1) an untargeted `(emit X)` where `X == transition.event` anywhere in the
+/// effects tree (same `if`/`do` recursion as `collect_lifecycle_emits`);
+/// (2) some transition in the same trait fires on X from a state matching
+/// `transition.to` — INCLUDING this arm itself when it is a self-transition
+/// (`from == to`), since the re-emitted X lands back in `from` and re-fires
+/// this very arm (the std-snake RESTART loop). Without any same-event arm at
+/// `to` the broadcast is a dead end, not a loop;
+/// (3) the emit's payload (arr[2], when present) shows no evidence of
+/// per-hop progress. Progress evidence is either:
+///   (a) a string leaf equal to `@payload` or starting with `@payload.`
+///   (direct sentinel fan-out counters), OR
+///   (b) the payload references `@entity` (a leaf equal to `@entity` or
+///   starting with `@entity.`) AND the arm's own effects mutate `@entity`
+///   (a `["set", "@entity" | "@entity.<field>", ...]` effect, anywhere in
+///   the effects tree) — each hop re-derives the payload from the mutated
+///   entity, so the payload changes and the loop terminates (the
+///   project-friday `*_MARK_NEXT_ROW` import loops are this shape).
+/// Payloads that are literals / `@config`-only / empty carry no progress
+/// evidence and are flagged as constant-payload loops.
+fn validate_self_emit_loop(
+    trait_def: &TraitDefinition,
+    orbital_name: &str,
+    base_path: &str,
+) -> ValidationResult {
+    fn collect_self_emits<'a>(event: &str, expr: &'a SExpression, out: &mut Vec<&'a SExpression>) {
+        let SExpression::Array(items) = expr else {
+            return;
+        };
+        if let [SExpression::String(op), SExpression::String(emitted), ..] = items.as_slice() {
+            if op == "emit" && emitted == event {
+                out.push(expr);
+            }
+        }
+        for item in items {
+            collect_self_emits(event, item, out);
+        }
+    }
+
+    fn tree_contains_binding(expr: &SExpression, binding: &str) -> bool {
+        match expr {
+            SExpression::String(s) => s == binding || s.starts_with(&format!("{binding}.")),
+            SExpression::Array(items) => items.iter().any(|e| tree_contains_binding(e, binding)),
+            SExpression::Object(map) => map.values().any(|e| tree_contains_binding(e, binding)),
+            _ => false,
+        }
+    }
+
+    /// Any `["set", "@entity" | "@entity.<field>", ...]` in the effects tree.
+    fn mutates_entity(expr: &SExpression) -> bool {
+        let SExpression::Array(items) = expr else {
+            return false;
+        };
+        if let [SExpression::String(op), SExpression::String(target), ..] = items.as_slice() {
+            if op == "set" && (target == "@entity" || target.starts_with("@entity.")) {
+                return true;
+            }
+        }
+        items.iter().any(mutates_entity)
+    }
+
+    let mut result = ValidationResult::new();
+
+    for (i, transition) in trait_def.state_machine.transitions.iter().enumerate() {
+        let Some(effects) = &transition.effects else {
+            continue;
+        };
+        // Hazard condition (2): an arm on the same event reachable at `to` —
+        // INCLUDING this arm itself when it is a self-transition (`from ==
+        // to`): a re-emitted X landing back in `from` re-fires THIS arm, which
+        // is exactly the std-snake RESTART loop (G-RUNTIME-020). A non-self
+        // arm whose `from` doesn't match `to` doesn't count, with no
+        // special-casing needed.
+        let reenterable = trait_def
+            .state_machine
+            .transitions
+            .iter()
+            .any(|t| t.event == transition.event && t.from.matches(&transition.to));
+        if !reenterable {
+            continue;
+        }
+        let arm_mutates_entity = effects.iter().any(mutates_entity);
+        for (j, effect) in effects.iter().enumerate() {
+            let mut self_emits = Vec::new();
+            collect_self_emits(&transition.event, effect, &mut self_emits);
+            for emit_expr in self_emits {
+                // Hazard condition (3): evidence the payload makes progress.
+                let SExpression::Array(items) = emit_expr else {
+                    continue;
+                };
+                if let Some(payload) = items.get(2) {
+                    if tree_contains_binding(payload, "@payload") {
+                        continue;
+                    }
+                    if arm_mutates_entity && tree_contains_binding(payload, "@entity") {
+                        continue;
+                    }
+                }
+                result.add_error(
+                    ValidationError::error(
+                        ErrorCode::CircuitSelfEmitLoop,
+                        format!("{}.stateMachine.transitions[{}].effects[{}]", base_path, i, j),
+                        format!(
+                            "'{}.{}': transition {}--[{}]-->{} re-emits its own trigger event '{}' with a constant payload and a same-event arm is reachable at the target state — the runtime path loops forever re-entering this arm",
+                            orbital_name, trait_def.name, transition.from, transition.event, transition.to, transition.event
+                        ),
+                    )
+                    .with_suggestion(
+                        "this arm re-emits its own trigger event and a same-event arm is reachable at the target state (this very arm, when it is a self-transition) with a constant payload — the runtime path loops forever re-entering this arm. Transition directly, emit a differently-named event, or make the payload derive from @payload / a mutated @entity so each hop makes progress.",
+                    ),
+                );
+            }
+        }
+    }
+
+    result
+}
+
 /// non-empty `stateMachine.transitions` but is absent from
 /// `client_bound_traits(orbital)` — no page declares it and no page's
 /// `@trait.X` embed closure reaches it, so the client never mounts a state
@@ -3404,6 +3526,191 @@ mod tests {
             result.errors[0].code,
             ErrorCode::CircuitLifecycleEmitUndelivered
         );
+    }
+
+    // --- ORB_CIRCUIT_SELF_EMIT_LOOP ---
+
+    /// The std-snake shape (G-RUNTIME-020): a SELF-arm `playing --RESTART-->
+    /// playing` re-emits RESTART with a constant payload and no other arm is
+    /// needed — the re-emitted event lands back in `from` and re-fires THIS
+    /// arm forever.
+    #[test]
+    fn self_emit_loop_hit_when_arm_reemits_own_event_with_constant_payload() {
+        let trait_def = trait_def_json(serde_json::json!({
+            "name": "TestTrait",
+            "linkedEntity": "Item",
+            "category": "interaction",
+            "stateMachine": {
+                "states": [{ "name": "playing", "isInitial": true }],
+                "transitions": [
+                    { "from": "playing", "to": "playing", "event": "RESTART",
+                      "effects": [["emit", "RESTART", { "id": "snake" }]] }
+                ]
+            }
+        }));
+        let result = validate_self_emit_loop(&trait_def, "TestOrbital", "test.path");
+        assert_eq!(result.errors.len(), 1, "{:?}", result.errors);
+        assert_eq!(result.errors[0].code, ErrorCode::CircuitSelfEmitLoop);
+    }
+
+    /// `A --X--> B` where only A has an X-arm: B has no same-event arm, and
+    /// this arm's own `from` (A) doesn't match `to` (B) — the broadcast is a
+    /// dead end, not a loop.
+    #[test]
+    fn self_emit_loop_silent_when_no_same_event_arm_at_to() {
+        let trait_def = trait_def_json(serde_json::json!({
+            "name": "TestTrait",
+            "linkedEntity": "Item",
+            "category": "interaction",
+            "stateMachine": {
+                "states": [
+                    { "name": "idle", "isInitial": true },
+                    { "name": "playing" },
+                    { "name": "over" }
+                ],
+                "transitions": [
+                    { "from": "playing", "to": "over", "event": "RESTART",
+                      "effects": [["emit", "RESTART", { "id": "x" }]] },
+                    { "from": "idle", "to": "playing", "event": "START" }
+                ]
+            }
+        }));
+        let result = validate_self_emit_loop(&trait_def, "TestOrbital", "test.path");
+        assert!(result.errors.is_empty(), "{:?}", result.errors);
+    }
+
+    #[test]
+    fn self_emit_loop_hit_when_the_emit_is_nested_inside_an_if() {
+        let trait_def = trait_def_json(serde_json::json!({
+            "name": "TestTrait",
+            "linkedEntity": "Item",
+            "category": "interaction",
+            "stateMachine": {
+                "states": [{ "name": "playing", "isInitial": true }],
+                "transitions": [
+                    { "from": "playing", "to": "playing", "event": "RESTART",
+                      "effects": [["if", true, [["emit", "RESTART"]], []]] },
+                    { "from": "playing", "to": "paused", "event": "RESTART" }
+                ]
+            }
+        }));
+        let result = validate_self_emit_loop(&trait_def, "TestOrbital", "test.path");
+        assert_eq!(result.errors.len(), 1, "{:?}", result.errors);
+        assert_eq!(result.errors[0].code, ErrorCode::CircuitSelfEmitLoop);
+    }
+
+    /// `@payload`-derived payloads make progress per hop (sentinel fan-out).
+    #[test]
+    fn self_emit_loop_silent_when_payload_derives_from_at_payload() {
+        let trait_def = trait_def_json(serde_json::json!({
+            "name": "TestTrait",
+            "linkedEntity": "Item",
+            "category": "interaction",
+            "stateMachine": {
+                "states": [{ "name": "playing", "isInitial": true }],
+                "transitions": [
+                    { "from": "playing", "to": "playing", "event": "FAN_OUT_STEP",
+                      "effects": [["emit", "FAN_OUT_STEP", { "remaining": ["-", "@payload.remaining", 1] }]] },
+                    { "from": "playing", "to": "paused", "event": "FAN_OUT_STEP" }
+                ]
+            }
+        }));
+        let result = validate_self_emit_loop(&trait_def, "TestOrbital", "test.path");
+        assert!(result.errors.is_empty(), "{:?}", result.errors);
+    }
+
+    /// Emitting a DIFFERENTLY-named event is a legitimate broadcast.
+    #[test]
+    fn self_emit_loop_silent_for_a_differently_named_event() {
+        let trait_def = trait_def_json(serde_json::json!({
+            "name": "TestTrait",
+            "linkedEntity": "Item",
+            "category": "interaction",
+            "stateMachine": {
+                "states": [{ "name": "playing", "isInitial": true }],
+                "transitions": [
+                    { "from": "playing", "to": "playing", "event": "RESTART",
+                      "effects": [["emit", "SAVED", { "id": "x" }]] },
+                    { "from": "playing", "to": "paused", "event": "RESTART" }
+                ]
+            }
+        }));
+        let result = validate_self_emit_loop(&trait_def, "TestOrbital", "test.path");
+        assert!(result.errors.is_empty(), "{:?}", result.errors);
+    }
+
+    /// `@entity`-derived payload + the arm mutates `@entity` each hop (the
+    /// project-friday `*_MARK_NEXT_ROW` import-loop shape) — progressing.
+    #[test]
+    fn self_emit_loop_silent_when_payload_derives_from_mutated_entity() {
+        let trait_def = trait_def_json(serde_json::json!({
+            "name": "TestTrait",
+            "linkedEntity": "Item",
+            "category": "interaction",
+            "stateMachine": {
+                "states": [{ "name": "marking", "isInitial": true }],
+                "transitions": [
+                    { "from": "marking", "to": "marking", "event": "MARK_NEXT_ROW",
+                      "effects": [
+                          ["persist", "update", "Item", "@entity"],
+                          ["set", "@entity.pendingMarks", ["array/drop", "@entity.pendingMarks", 1]],
+                          ["emit", "MARK_NEXT_ROW", { "remaining": ["array/len", "@entity.pendingMarks"] }]
+                      ] },
+                    { "from": "marking", "to": "done", "event": "MARK_NEXT_ROW" }
+                ]
+            }
+        }));
+        let result = validate_self_emit_loop(&trait_def, "TestOrbital", "test.path");
+        assert!(result.errors.is_empty(), "{:?}", result.errors);
+    }
+
+    /// `@entity`-derived payload but NO `@entity`-mutating `set` in the arm —
+    /// the entity never changes, so the payload is constant across hops.
+    #[test]
+    fn self_emit_loop_hit_when_entity_payload_but_no_mutation() {
+        let trait_def = trait_def_json(serde_json::json!({
+            "name": "TestTrait",
+            "linkedEntity": "Item",
+            "category": "interaction",
+            "stateMachine": {
+                "states": [{ "name": "marking", "isInitial": true }],
+                "transitions": [
+                    { "from": "marking", "to": "marking", "event": "MARK_NEXT_ROW",
+                      "effects": [
+                          ["emit", "MARK_NEXT_ROW", { "remaining": ["array/len", "@entity.pendingMarks"] }]
+                      ] },
+                    { "from": "marking", "to": "done", "event": "MARK_NEXT_ROW" }
+                ]
+            }
+        }));
+        let result = validate_self_emit_loop(&trait_def, "TestOrbital", "test.path");
+        assert_eq!(result.errors.len(), 1, "{:?}", result.errors);
+        assert_eq!(result.errors[0].code, ErrorCode::CircuitSelfEmitLoop);
+    }
+
+    /// Literal payload + `@entity`-mutating set: the mutation makes progress
+    /// for `@entity`-derived payloads, but THIS payload never changes.
+    #[test]
+    fn self_emit_loop_hit_when_literal_payload_despite_entity_mutation() {
+        let trait_def = trait_def_json(serde_json::json!({
+            "name": "TestTrait",
+            "linkedEntity": "Item",
+            "category": "interaction",
+            "stateMachine": {
+                "states": [{ "name": "marking", "isInitial": true }],
+                "transitions": [
+                    { "from": "marking", "to": "marking", "event": "MARK_NEXT_ROW",
+                      "effects": [
+                          ["set", "@entity.count", ["+", "@entity.count", 1]],
+                          ["emit", "MARK_NEXT_ROW", { "rowId": "x" }]
+                      ] },
+                    { "from": "marking", "to": "done", "event": "MARK_NEXT_ROW" }
+                ]
+            }
+        }));
+        let result = validate_self_emit_loop(&trait_def, "TestOrbital", "test.path");
+        assert_eq!(result.errors.len(), 1, "{:?}", result.errors);
+        assert_eq!(result.errors[0].code, ErrorCode::CircuitSelfEmitLoop);
     }
 
     // --- ORB_CIRCUIT_CLIENT_UNBOUND_STATE_MACHINE ---

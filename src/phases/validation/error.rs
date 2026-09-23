@@ -885,6 +885,15 @@ pub enum ErrorCode {
     /// (an explicit effect instead of a rendered affordance prop). Ported
     /// from the JS wiring lint's `dead-lifecycle-emit`. Error severity.
     CircuitLifecycleEmitUndelivered,
+    /// A transition arm re-emits its OWN trigger event (`X --X--> Y` whose
+    /// effects contain `(emit X ...)`), the `to` state has another arm on X,
+    /// and the re-emitted payload does not derive from `@payload` — the
+    /// runtime path re-enters an arm on the same event with unchanged payload
+    /// and loops forever (G-RUNTIME-020). Payloads derived from `@payload`
+    /// (sentinel fan-out counters) make progress per hop and are not flagged;
+    /// neither is a self-emit whose target state has no same-event arm (a
+    /// dead-end broadcast). Error severity.
+    CircuitSelfEmitLoop,
     /// An inline trait owns a non-empty `stateMachine.transitions` but is
     /// absent from `client_bound_traits(orbital)` — no page declares it and
     /// no page's `@trait.X` embed closure reaches it, so the client never
@@ -1387,6 +1396,7 @@ impl ErrorCode {
             ErrorCode::CircuitModalShellCloseDeaf => "ORB_CIRCUIT_MODAL_SHELL_CLOSE_DEAF",
             ErrorCode::CircuitSelfOverlayInShell => "ORB_CIRCUIT_SELF_OVERLAY_IN_SHELL",
             ErrorCode::CircuitLifecycleEmitUndelivered => "ORB_CIRCUIT_LIFECYCLE_EMIT_UNDELIVERED",
+            ErrorCode::CircuitSelfEmitLoop => "ORB_CIRCUIT_SELF_EMIT_LOOP",
             ErrorCode::CircuitClientUnboundStateMachine => {
                 "ORB_CIRCUIT_CLIENT_UNBOUND_STATE_MACHINE"
             }
@@ -1695,6 +1705,7 @@ impl ErrorCode {
             | ErrorCode::CircuitModalShellCloseDeaf
             | ErrorCode::CircuitSelfOverlayInShell
             | ErrorCode::CircuitLifecycleEmitUndelivered
+            | ErrorCode::CircuitSelfEmitLoop
             | ErrorCode::CircuitClientUnboundStateMachine
             | ErrorCode::CircuitDeadBodilessAction
             | ErrorCode::CircuitAsyncResultDeafTarget

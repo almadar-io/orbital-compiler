@@ -1,6 +1,6 @@
 // Auto-generated from @almadar/std canonical-operators.json by @almadar-io/almadar-pattern-sync.
 // DO NOT EDIT MANUALLY.
-// Total operators targeting Rust: 239
+// Total operators targeting Rust: 241
 
 /// Operator metadata derived from the canonical @almadar/std registry.
 #[derive(Debug, Clone)]
@@ -1119,6 +1119,26 @@ pub static CANONICAL_OPERATORS: &[OperatorMeta] = &[
         max_arity: Some(3),
         return_type: "number",
         description: "Linear interpolation between a and b by factor t",
+        has_side_effects: false,
+        return_semantics: None,
+    },
+    OperatorMeta {
+        name: "math/ln",
+        category: "std-math",
+        min_arity: 1,
+        max_arity: Some(1),
+        return_type: "number",
+        description: "Natural logarithm (base e)",
+        has_side_effects: false,
+        return_semantics: None,
+    },
+    OperatorMeta {
+        name: "math/log10",
+        category: "std-math",
+        min_arity: 1,
+        max_arity: Some(1),
+        return_type: "number",
+        description: "Base-10 logarithm",
         has_side_effects: false,
         return_semantics: None,
     },
@@ -2439,7 +2459,7 @@ mod tests {
 
     #[test]
     fn test_canonical_operators_count() {
-        assert_eq!(CANONICAL_OPERATORS.len(), 239);
+        assert_eq!(CANONICAL_OPERATORS.len(), 241);
     }
 
     #[test]
