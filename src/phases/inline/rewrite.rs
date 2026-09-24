@@ -4,8 +4,8 @@ use crate::embedded::get_pattern;
 use crate::phases::validation::sync::patterns::{PATTERN_EVENT_LIST_PROPS, PATTERN_EVENT_PROPS};
 use crate::phases::validation::user_identity::{user_field_of, EQUALITY_OPS};
 use orbital_core::schema::{
-    ConfigProvenanceRecord, EntityDefinition, EntityRef, ListenSource, Orbital, PayloadField,
-    SExpression, TraitDefinition, TraitReference,
+    ConfigField, ConfigProvenanceRecord, EntityDefinition, EntityRef, FieldDefinition, FieldType,
+    ListenSource, Orbital, PayloadField, SExpression, TraitDefinition, TraitReference,
 };
 use std::collections::{BTreeMap, HashMap, HashSet};
 
@@ -924,6 +924,71 @@ pub(crate) fn mark_literal_list_in_place(value: &mut SExpression, field_type: &s
     }
 }
 
+/// `mark_literal_list_in_place` applied through a config value's whole declared
+/// shape: the top-level slot, then every nested array/object member the typed
+/// carriers (`items` / `properties`) describe. A string-headed array nested in a
+/// struct (`sections: [{ fields: ["count", "slug"] }]`) is as ambiguous as a
+/// top-level one — unwrapped, `(count slug)` evaluates as a call.
+pub(crate) fn mark_config_literal_lists(value: &mut SExpression, field: &ConfigField) {
+    mark_literal_list_in_place(value, &field.field_type);
+    let Some(shape) = field.items.as_deref() else {
+        if let (Some(props), SExpression::Object(map)) = (&field.properties, value) {
+            mark_object_members(map, props);
+        }
+        return;
+    };
+    if field.field_type.starts_with("Map<") {
+        if let SExpression::Object(map) = value {
+            for entry in map.values_mut() {
+                mark_field_literal_lists(entry, shape);
+            }
+        }
+        return;
+    }
+    if let SExpression::Array(elems) = value {
+        for elem in literal_list_elements_mut(elems) {
+            mark_field_literal_lists(elem, shape);
+        }
+    }
+}
+
+fn mark_field_literal_lists(value: &mut SExpression, shape: &FieldDefinition) {
+    match shape.field_type {
+        FieldType::Array => {
+            mark_literal_list_in_place(value, "[]");
+            if let (Some(inner), SExpression::Array(elems)) = (shape.items.as_deref(), value) {
+                for elem in literal_list_elements_mut(elems) {
+                    mark_field_literal_lists(elem, inner);
+                }
+            }
+        }
+        FieldType::Object => {
+            if let (Some(props), SExpression::Object(map)) = (&shape.properties, value) {
+                mark_object_members(map, props);
+            }
+        }
+        _ => {}
+    }
+}
+
+fn mark_object_members(
+    map: &mut HashMap<String, SExpression>,
+    props: &HashMap<String, FieldDefinition>,
+) {
+    for (key, member) in map.iter_mut() {
+        if let Some(member_shape) = props.get(key) {
+            mark_field_literal_lists(member, member_shape);
+        }
+    }
+}
+
+fn literal_list_elements_mut(elems: &mut [SExpression]) -> &mut [SExpression] {
+    match elems.first() {
+        Some(SExpression::String(s)) if s == "list" => &mut elems[1..],
+        _ => elems,
+    }
+}
+
 /// Twin of `mark_literal_list_in_place`: literal readers (fetch `include`
 /// validation + OIR resolution) must accept the `["list", …]` constructor the
 /// wrap produces. The evaluators strip the head at eval time (ListOp); readers
@@ -967,7 +1032,7 @@ pub(crate) fn apply_inline_config_defaults(
         }
         if let Some(default) = field.default.as_ref() {
             let mut v = default.clone();
-            mark_literal_list_in_place(&mut v, &field.field_type);
+            mark_config_literal_lists(&mut v, field);
             effective_config.insert(k.clone(), v);
         }
     }
@@ -1454,9 +1519,18 @@ pub(crate) fn rewrite_entity_ref_ids(
     };
     let mut out: HashMap<String, String> = HashMap::with_capacity(refs.len());
     for (from, old_id) in refs {
-        let name = entity_subs.get(&from).cloned().unwrap_or(from);
-        let id = entity_ids.get(&name).cloned().unwrap_or(old_id);
-        out.insert(name, id);
+        let name = entity_subs.get(&from).cloned().unwrap_or_else(|| from.clone());
+        match entity_ids.get(&name) {
+            Some(id) => {
+                out.insert(name, id.clone());
+            }
+            // A renamed key never inherits its predecessor's id: the id-first
+            // reader would resolve it straight back to the pre-rename entity.
+            None if name == from => {
+                out.insert(name, old_id);
+            }
+            None => {}
+        }
     }
     trait_def.entity_ref_ids = (!out.is_empty()).then_some(out);
 }
@@ -2146,6 +2220,53 @@ mod literal_list_tests {
             }
             _ => panic!("expected array"),
         }
+    }
+
+    /// A rebind onto an entity whose id is not in scope must not keep the
+    /// atom's entity id under the new name (JS twin: reference-resolver
+    /// `rewriteEntityRefIds`; project-friday's imported chat rail resolved
+    /// back to `BrowseItem`).
+    #[test]
+    fn renamed_entity_ref_without_known_id_drops_the_predecessor_id() {
+        let mut t: TraitDefinition = serde_json::from_value(serde_json::json!({
+            "name": "Rail",
+            "stateMachine": { "states": [{ "name": "idle", "isInitial": true }], "transitions": [] },
+            "entityRefIds": { "BrowseItem": "ent_browse", "Other": "ent_other" }
+        }))
+        .expect("trait");
+        let subs: HashMap<String, String> = [("BrowseItem".to_string(), "ChannelMember".to_string())].into_iter().collect();
+        rewrite_entity_ref_ids(&mut t, &subs, &HashMap::new());
+        let refs = t.entity_ref_ids.expect("refs");
+        assert!(!refs.contains_key("ChannelMember"), "{refs:?}");
+        assert_eq!(refs.get("Other").map(String::as_str), Some("ent_other"));
+    }
+
+    /// §72: a string-headed array NESTED in a struct-typed config value is as
+    /// ambiguous as a top-level one — `["count", "slug"]` must reach the effect
+    /// body as data, not as a `(count slug)` call.
+    #[test]
+    fn nested_struct_array_members_are_marked_as_literal_lists() {
+        let field: ConfigField = serde_json::from_value(serde_json::json!({
+            "type": "[RecordSection]",
+            "items": {
+                "type": "object",
+                "properties": {
+                    "title": { "type": "string" },
+                    "fields": { "type": "array", "items": { "type": "string" } }
+                }
+            }
+        }))
+        .expect("config field");
+        let mut v: SExpression = serde_json::from_value(serde_json::json!([
+            { "title": "Meta", "fields": ["count", "slug"] }
+        ]))
+        .expect("value");
+        mark_config_literal_lists(&mut v, &field);
+        let SExpression::Array(sections) = &v else { panic!("expected array") };
+        let SExpression::Object(section) = &sections[0] else { panic!("expected object") };
+        let Some(SExpression::Array(fields)) = section.get("fields") else { panic!("expected fields array") };
+        assert_eq!(fields[0], SExpression::String("list".to_string()));
+        assert_eq!(fields[1], SExpression::String("count".to_string()));
     }
 
     #[test]

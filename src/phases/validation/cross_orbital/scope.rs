@@ -319,6 +319,7 @@ mod tests {
         let mut events_rename = HashMap::new();
         events_rename.insert("OPEN".to_string(), "ADD_ITEM".to_string());
         let composer_ref = TraitReference::Reference {
+            local: false,
             type_args: None,
             id: None,
             reference: Some("Lib.traits.Atom".to_string()),

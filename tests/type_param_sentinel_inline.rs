@@ -198,8 +198,26 @@ fn at_entity_self_reference_resolves_like_the_entity_default() {
 }
 
 #[test]
-fn at_entity_without_linked_entity_is_swept() {
+fn at_entity_on_an_unlinked_trait_resolves_to_the_host_entity() {
+    // An orbital's trait with no `linkedEntity` binds its host orbital's entity
+    // (owner ruling 2026-09-24), so its `@entity` is that entity's row.
     let mut schema = schema_with_at_entity(None);
+    inline_schema(&mut schema, &InlineConfig::default(), None).expect("inline must succeed");
+    let trait_def = thing_trait(&schema);
+    assert_eq!(trait_def.linked_entity.as_deref(), Some("Thing"));
+    let row = &trait_def.emits.as_ref().unwrap()[0]
+        .payload_schema
+        .as_ref()
+        .unwrap()[0];
+    assert_eq!(row.field_type, "object");
+    let mut ctx = ValidationContext::new();
+    type_param_sweep::validate_type_param_sentinels(&schema, &mut ctx);
+    assert!(ctx.result.errors.is_empty(), "{:?}", ctx.result.errors);
+}
+
+#[test]
+fn at_entity_bound_to_an_unknown_entity_is_swept() {
+    let mut schema = schema_with_at_entity(Some("Missing"));
     inline_schema(&mut schema, &InlineConfig::default(), None).expect("inline must succeed");
     let mut ctx = ValidationContext::new();
     type_param_sweep::validate_type_param_sentinels(&schema, &mut ctx);
@@ -366,18 +384,38 @@ fn a_payload_knob_with_no_event_knob_is_swept() {
 }
 
 #[test]
-fn bare_at_entity_in_config_without_a_linked_entity_is_swept() {
-    // The arity-0 arm's unresolvable half: no `linkedEntity`, so there is no
-    // bound row to read. Must keep the sentinel and be swept, never degrade to
-    // `object` — a `ConfigField` typed literally "object" is an unconditional
-    // ORB_T_CONFIG_OBJECT_ARRAY_FORBIDDEN, so a degrade would trade a silent
-    // wrong type for a confusing hard error at an unrelated gate.
+fn bare_at_entity_in_config_on_an_unlinked_trait_reads_the_host_row() {
     let mut schema = schema_with_sigils(Some("PAY_BILL"), true);
     {
         let TraitReference::Inline(td) = &mut schema.orbitals[0].traits[0] else {
             panic!("fixture trait must be inline");
         };
         td.linked_entity = None;
+    }
+    inline_schema(&mut schema, &InlineConfig::default(), None).expect("inline must succeed");
+    assert_ne!(knob_type(&schema, "boundRow"), "@entity");
+    let mut ctx = ValidationContext::new();
+    type_param_sweep::validate_type_param_sentinels(&schema, &mut ctx);
+    assert!(
+        !ctx.result.errors.iter().any(|e| e.path.contains("boundRow")),
+        "{:?}",
+        ctx.result.errors
+    );
+}
+
+#[test]
+fn bare_at_entity_in_config_bound_to_an_unknown_entity_is_swept() {
+    // The arity-0 arm's unresolvable half: no bound row to read. Must keep the
+    // sentinel and be swept, never degrade to `object` — a `ConfigField` typed
+    // literally "object" is an unconditional ORB_T_CONFIG_OBJECT_ARRAY_FORBIDDEN,
+    // so a degrade would trade a silent wrong type for a confusing hard error at
+    // an unrelated gate.
+    let mut schema = schema_with_sigils(Some("PAY_BILL"), true);
+    {
+        let TraitReference::Inline(td) = &mut schema.orbitals[0].traits[0] else {
+            panic!("fixture trait must be inline");
+        };
+        td.linked_entity = Some("Missing".to_string());
     }
     inline_schema(&mut schema, &InlineConfig::default(), None).expect("inline must succeed");
 

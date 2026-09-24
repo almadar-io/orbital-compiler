@@ -39,6 +39,7 @@
 pub(crate) mod async_results;
 pub mod binding;
 pub mod canonical_operators;
+pub(crate) mod client_tick_locality;
 pub mod closed_circuit;
 pub mod config_type;
 pub mod cross_emitter;
@@ -618,6 +619,9 @@ pub fn validate_comprehensive_full(
     // Almadar_Orbital_Import.md §4.5). Post-inline so every trait in the
     // flattened schema is visible as a candidate forwarder.
     ctx.merge(orbital_config::validate_orbital_config_forwarding(schema));
+
+    // Rung 2 (2026-09-24): client-ticked `[runtime]` frames need `local` traits.
+    ctx.merge(client_tick_locality::validate_client_tick_locality(schema));
 
     ctx.into_result()
 }

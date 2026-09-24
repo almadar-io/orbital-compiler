@@ -528,6 +528,7 @@ mod tests {
 
     fn reference_trait(reference: &str) -> TraitReference {
         TraitReference::Reference {
+            local: false,
             type_args: None,
             id: None,
             reference: Some(reference.to_string()),

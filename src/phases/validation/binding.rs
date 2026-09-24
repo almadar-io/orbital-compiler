@@ -27,7 +27,15 @@ pub const CORE_BINDING_ROOTS: &[&str] = &[
     "callsitePayload", // Call-site-captured event payload (resolved at the composing effect)
     "pages",           // Render-resolved schema sigil — the host orbital's pages (NavItem[])
     "currentTheme",    // Render-resolved schema sigil — the host orbital's data-theme key
+    "event",           // The delivery being processed: `{ event, payload, source }`
+    "prevEvents",      // Deliveries this trait already received this dispatch
+    "prevStates",      // States this trait left this dispatch
+    "fromState",       // The transition's source state
+    "toState",         // The transition's target state
 ];
+
+/// Roots that only exist while a delivery is being processed (Runtime Spec Clause 5.5).
+const DISPATCH_ROOTS: [&str; 5] = ["event", "prevEvents", "prevStates", "fromState", "toState"];
 
 /// Regex for valid binding format
 static BINDING_REGEX: LazyLock<Regex> = LazyLock::new(|| {
@@ -51,6 +59,67 @@ pub enum BindingContext {
     Tick,
     /// In a render_ui pattern prop
     RenderUI,
+}
+
+fn validate_dispatch_root(
+    root: &str,
+    rest: &[&str],
+    path: &str,
+    context: BindingContext,
+    result: &mut ValidationResult,
+) {
+    if context == BindingContext::Tick {
+        result.add_error(
+            ValidationError::error(
+                ErrorCode::BindingDispatchRootInTick,
+                path,
+                format!("@{root} is not available in a tick: a tick firing has no delivery"),
+            )
+            .with_suggestion("Read the trait's own state and entity in a tick"),
+        );
+        return;
+    }
+    if root != "event" {
+        if !rest.is_empty() {
+            result.add_error(
+                ValidationError::error(
+                    ErrorCode::BindingRootNoPath,
+                    path,
+                    format!("@{root} takes no path"),
+                )
+                .with_suggestion(format!("Use @{root} and read it with an operator")),
+            );
+        }
+        return;
+    }
+    let valid = match rest {
+        [] | ["event"] => true,
+        ["payload", ..] => true,
+        ["source"] => true,
+        ["source", field] => orbital_core::effects::BUS_EVENT_SOURCE_FIELDS.contains(field),
+        _ => false,
+    };
+    if !valid {
+        result.add_error(
+            ValidationError::error(
+                ErrorCode::BindingEventInvalidPath,
+                path,
+                format!("@event.{} does not follow the delivery record", rest.join(".")),
+            )
+            .with_suggestion("@event has `event`, `payload.<field>` and `source.<field>`")
+            .with_valid_values(
+                ["event", "payload", "source"]
+                    .into_iter()
+                    .map(str::to_string)
+                    .chain(
+                        orbital_core::effects::BUS_EVENT_SOURCE_FIELDS
+                            .iter()
+                            .map(|f| format!("source.{f}")),
+                    )
+                    .collect(),
+            ),
+        );
+    }
 }
 
 /// Validate all bindings in a schema
@@ -949,6 +1018,10 @@ pub fn validate_binding(
 
     // Validate binding root
     if CORE_BINDING_ROOTS.contains(&root) {
+        if DISPATCH_ROOTS.contains(&root) {
+            validate_dispatch_root(root, &parts[1..], path, context, &mut result);
+            return result;
+        }
         // Core binding
         match root {
             "payload" if context == BindingContext::Tick => {
@@ -2033,6 +2106,40 @@ fn collect_trait_refs(expr: &SExpression, out: &mut HashSet<String>) {
 mod tests {
     use super::*;
 
+    /// Twin of `@almadar/core` `__tests__/binding-roots.test.ts`: both lists are pinned to the author vocabulary.
+    #[test]
+    fn every_author_sigil_is_a_core_root_and_the_set_matches_the_ts_mirror() {
+        let en = &orbital_core::i18n::tables::definitions()["en"];
+        for sigil in en.sigils.keys() {
+            assert!(
+                CORE_BINDING_ROOTS.contains(&sigil.as_str()),
+                "i18n sigil `{sigil}` is not a validator root"
+            );
+        }
+        let mut roots: Vec<&str> = CORE_BINDING_ROOTS.to_vec();
+        roots.sort_unstable();
+        assert_eq!(
+            roots,
+            [
+                "callsitePayload",
+                "config",
+                "currentTheme",
+                "entity",
+                "event",
+                "fromState",
+                "now",
+                "pages",
+                "payload",
+                "prevEvents",
+                "prevStates",
+                "state",
+                "toState",
+                "trait",
+                "user"
+            ]
+        );
+    }
+
     #[test]
     fn test_valid_bindings() {
         let known_entities: HashSet<String> =
@@ -2061,6 +2168,63 @@ mod tests {
             &known_entities,
         );
         assert!(result.is_valid());
+    }
+
+    fn codes(binding: &str, context: BindingContext) -> Vec<ErrorCode> {
+        validate_binding(binding, "test", context, &HashSet::new())
+            .errors
+            .into_iter()
+            .map(|e| e.code)
+            .collect()
+    }
+
+    #[test]
+    fn the_dispatch_family_is_valid_in_guards_and_effects() {
+        for binding in [
+            "@event",
+            "@event.event",
+            "@event.payload.remaining",
+            "@event.source.tick",
+            "@event.source.originClientId",
+            "@prevEvents",
+            "@prevStates",
+            "@fromState",
+            "@toState",
+        ] {
+            for context in [BindingContext::Guard, BindingContext::Effect, BindingContext::RenderUI] {
+                assert!(codes(binding, context).is_empty(), "{binding} in {context:?}");
+            }
+        }
+    }
+
+    #[test]
+    fn a_tick_has_no_delivery_so_the_family_is_rejected_there() {
+        for binding in ["@event.event", "@prevEvents", "@prevStates", "@fromState", "@toState"] {
+            assert_eq!(
+                codes(binding, BindingContext::Tick),
+                vec![ErrorCode::BindingDispatchRootInTick],
+                "{binding}"
+            );
+        }
+    }
+
+    #[test]
+    fn the_state_and_log_roots_take_no_path() {
+        for binding in ["@fromState.x", "@toState.name", "@prevStates.length", "@prevEvents.event"] {
+            assert_eq!(codes(binding, BindingContext::Guard), vec![ErrorCode::BindingRootNoPath], "{binding}");
+        }
+    }
+
+    #[test]
+    fn an_event_path_must_follow_the_delivery_record() {
+        for binding in ["@event.name", "@event.source.tik", "@event.source", "@event.source.trait.x"] {
+            let found = codes(binding, BindingContext::Guard);
+            if binding == "@event.source" {
+                assert!(found.is_empty(), "{binding}: the whole envelope is a value");
+            } else {
+                assert_eq!(found, vec![ErrorCode::BindingEventInvalidPath], "{binding}");
+            }
+        }
     }
 
     #[test]

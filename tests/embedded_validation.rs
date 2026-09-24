@@ -78,6 +78,7 @@ fn make_trait_with_tick(effects: Vec<SExpression>) -> TraitDefinition {
         effects,
         applies_to: None,
         description: None,
+        background: false,
     }]);
     t
 }

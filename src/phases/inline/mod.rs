@@ -18,6 +18,7 @@ mod context;
 mod effect_row;
 mod entity;
 mod event_id_hygiene;
+mod host_entity;
 mod identity_normalize;
 mod orbital;
 mod page;
@@ -199,6 +200,24 @@ pub enum InlineError {
         /// Source-tagged path to the consuming orbital.
         path: String,
     },
+
+    #[error(
+        "Orbital import `listens` at {path} routes into '{target}', which is not a trait of the imported set (after omit/only)"
+    )]
+    OrbitalRefListenTargetUnknown {
+        /// The upstream trait name the route names as its target.
+        target: String,
+        /// Source-tagged path to the importing orbital.
+        path: String,
+    },
+
+    #[error("Duplicate import alias '{alias}' at {path} — each `uses` alias names one import")]
+    DuplicateUseAlias {
+        /// The alias declared more than once in one orbital's `uses`.
+        alias: String,
+        /// Source-tagged path to the repeated declaration.
+        path: String,
+    },
 }
 
 impl InlineError {
@@ -212,6 +231,8 @@ impl InlineError {
             InlineError::LambdaStatefulTrait { path, .. } => path,
             InlineError::EmitMergeConflict { path, .. } => path,
             InlineError::ConflictingTypeAlias { path, .. } => path,
+            InlineError::DuplicateUseAlias { path, .. } => path,
+            InlineError::OrbitalRefListenTargetUnknown { path, .. } => path,
             _ => "",
         }
     }
@@ -227,6 +248,8 @@ impl InlineError {
             InlineError::LambdaStatefulTrait { .. } => "ORB_T_LAMBDA_STATEFUL_TRAIT",
             InlineError::EmitMergeConflict { .. } => "ORB_T_EMIT_MERGE_CONFLICT",
             InlineError::ConflictingTypeAlias { .. } => "ORB_T_CONFLICTING_TYPE_ALIAS",
+            InlineError::DuplicateUseAlias { .. } => "ORB_O_DUPLICATE_USE_ALIAS",
+            InlineError::OrbitalRefListenTargetUnknown { .. } => "ORB_O_LISTEN_TARGET_UNKNOWN",
             InlineError::Loader(LoaderError::PackageNotInstalled { .. })
             | InlineError::Loader(LoaderError::BehaviorPackageNotInstalled { .. }) => {
                 "ORB_BEHAVIOR_PACKAGE_NOT_INSTALLED"
@@ -559,6 +582,9 @@ pub fn inline_schema_with_orbital_diagnostics(
 
     // An imported auxiliary entity never displaces a consumer's own entity.
     drop_unreferenced_colliding_auxiliaries(schema);
+
+    // Before sigil types, so `@entity <knob>` sees the binding.
+    host_entity::bind_unlinked_traits_to_host_entity(schema);
 
     // Sigil type constructors (`@payload <knob>`, `@entity <knob>`, `@user`)
     // resolve here: after every orbital has inlined, so a knob's value is the
@@ -1011,6 +1037,15 @@ fn inline_orbital(
     // top-level compilation target (atom-standalone codegen). When the
     // orbital is being loaded as an import, defer the substitution so
     // the consumer's overrides can replace `@config.X` strings first.
+    let mut aliases = HashSet::new();
+    for (i, decl) in orbital.uses.iter().flatten().enumerate() {
+        if !aliases.insert(decl.alias.as_str()) {
+            return Err(InlineError::DuplicateUseAlias {
+                alias: decl.alias.clone(),
+                path: format!("orbitals[name={}].uses[{}]", orbital.name, i),
+            });
+        }
+    }
     let uses = match &orbital.uses {
         Some(uses) if !uses.is_empty() => uses.clone(),
         _ => {
@@ -3141,6 +3176,7 @@ mod tests {
     /// `Modal.traits.ModalRecordModal` with optional overrides.
     fn modal_ref(name_override: Option<&str>, linked_entity: Option<&str>) -> TraitReference {
         TraitReference::Reference {
+            local: false,
             type_args: None,
             id: None,
             reference: Some("Modal.traits.ModalRecordModal".to_string()),
@@ -3155,6 +3191,38 @@ mod tests {
             linked_entity_id: None,
             ref_id: None,
         }
+    }
+
+    /// Call-site `[local]` (2026-09-24): the resolved trait dispatches
+    /// client-only whatever the atom declared; without it the atom's own
+    /// `local` stands.
+    #[test]
+    fn a_call_site_local_rebind_resolves_local() {
+        let ctx = make_modal_ctx();
+        let mut local_ref = modal_ref(Some("LocalModal"), Some("CartItem"));
+        if let TraitReference::Reference { local, .. } = &mut local_ref {
+            *local = true;
+        }
+        let traits = vec![local_ref, modal_ref(Some("PlainModal"), Some("CartItem"))];
+        let result = inline_traits(
+            &traits,
+            &ctx,
+            "<test>",
+            &HashMap::new(),
+            &mut Vec::new(),
+            None,
+            None,
+            &HashMap::new(),
+        )
+        .expect("inlines");
+        let local_of = |name: &str| {
+            result.0.iter().find_map(|t| match t {
+                TraitReference::Inline(td) if td.name == name => Some(td.local),
+                _ => None,
+            })
+        };
+        assert_eq!(local_of("LocalModal"), Some(true));
+        assert_eq!(local_of("PlainModal"), Some(false));
     }
 
     #[test]
@@ -5681,6 +5749,7 @@ mod tests {
             id: None,
         };
         let trait_ref = TraitReference::Reference {
+            local: false,
             type_args: None,
             id: None,
             reference: Some("Pickup.traits.Pickup".to_string()),
@@ -5730,6 +5799,65 @@ mod tests {
             schema_version: None,
             config: None,
         }
+    }
+
+    fn pickup_schema_with_uses(uses: &[(&str, &str)]) -> OrbitalSchema {
+        let mut schema = pickup_consumer_schema(None);
+        schema.orbitals[0].uses = Some(
+            uses.iter()
+                .map(|(alias, from)| orbital_core::schema::UseDeclaration {
+                    from: from.to_string(),
+                    alias: alias.to_string(),
+                    config: None,
+                })
+                .collect(),
+        );
+        schema
+    }
+
+    fn inline_pickup(schema: &mut OrbitalSchema, dir: &std::path::Path) -> Result<(), InlineError> {
+        let config = InlineConfig {
+            loader_config: LoaderConfig {
+                base_path: dir.to_path_buf(),
+                ..Default::default()
+            },
+            skip_inline: false,
+        };
+        inline_schema(schema, &config, None)
+    }
+
+    #[test]
+    fn duplicate_use_alias_is_rejected() {
+        // std-iram declared `uses UiCard from "std/behaviors/ui-card"` twice;
+        // the JS resolver rejects it ("Duplicate import alias") while inline
+        // silently kept the last — the two paths must agree.
+        let dir = tempfile::tempdir().expect("tempdir");
+        write_pickup_atom(dir.path());
+        for uses in [
+            vec![("Pickup", "./pickup.orb"), ("Pickup", "./pickup.orb")],
+            vec![("Pickup", "./pickup.orb"), ("Pickup", "./other.orb")],
+        ] {
+            let mut schema = pickup_schema_with_uses(&uses);
+            match inline_pickup(&mut schema, dir.path()) {
+                Err(e @ InlineError::DuplicateUseAlias { .. }) => {
+                    assert_eq!(e.structured_code(), "ORB_O_DUPLICATE_USE_ALIAS");
+                    assert_eq!(
+                        e.structured_path(),
+                        "orbitals[name=ConsumerOrbital].uses[1]"
+                    );
+                }
+                other => panic!("expected DuplicateUseAlias for {:?}, got {:?}", uses, other),
+            }
+        }
+    }
+
+    #[test]
+    fn one_file_under_two_aliases_is_accepted() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        write_pickup_atom(dir.path());
+        let mut schema =
+            pickup_schema_with_uses(&[("Pickup", "./pickup.orb"), ("PickupToo", "./pickup.orb")]);
+        inline_pickup(&mut schema, dir.path()).expect("distinct aliases must inline");
     }
 
     #[test]
@@ -5877,6 +6005,7 @@ mod tests {
     /// `linked_entity` when given (`None` composes without a rebind).
     fn toolkit_trait_ref(name: &str, linked_entity: Option<&str>) -> TraitReference {
         TraitReference::Reference {
+            local: false,
             type_args: None,
             id: None,
             reference: Some(format!("Toolkit.traits.{name}")),
@@ -6382,6 +6511,7 @@ mod tests {
 
     fn refs_trait_ref(name: &str, linked_entity: Option<&str>) -> TraitReference {
         TraitReference::Reference {
+            local: false,
             type_args: None,
             id: None,
             reference: Some(format!("Refs.traits.{name}")),

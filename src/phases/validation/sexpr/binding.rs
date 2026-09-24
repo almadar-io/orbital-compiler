@@ -32,8 +32,7 @@ pub(crate) fn validate_binding(
 
     // Validate binding root
     match root {
-        "entity" | "payload" | "state" | "now" | "config" | "trait" | "user"
-        | "callsitePayload" | "pages" | "currentTheme" => {
+        _ if crate::phases::validation::binding::CORE_BINDING_ROOTS.contains(&root) => {
             // Valid core binding root. `callsitePayload` is emitted by the
             // inline-trait hoisting phase (phases/inline/trait.rs) when an
             // extracted render block captures `@payload` — same contract the

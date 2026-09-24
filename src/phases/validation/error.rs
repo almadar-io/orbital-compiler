@@ -350,6 +350,9 @@ pub enum ErrorCode {
     RenderUIMissingAction,
     /// Nested field path references invalid relation or field
     RenderUIInvalidFieldPath,
+    /// A `form`-contract pattern offers an input for an `@intrinsic` entity
+    /// field — intrinsic fields are never persisted, so the input is discarded.
+    RenderUIFormFieldIntrinsic,
     /// Prop value type doesn't match expected type from registry
     RenderUIPropTypeMismatch,
     /// L2.1 keystone: render-ui prop bound to a `@payload.X` / `@entity.X`
@@ -522,6 +525,16 @@ pub enum ErrorCode {
     CrossOrbitalOrphanListener,
     /// Event emitted but never listened to
     CrossOrbitalUnusedEmission,
+    /// A trait emits an event (an `(emit …)` effect or an operator emit-config
+    /// result) that a SIBLING trait in the same orbital has an arm for, but no
+    /// declared `listens` route delivers it from that emitter. Events reach
+    /// another trait only through declared routes, so the intent terminates in
+    /// nothing (std-pong's PADDLE_MOVE, 2026-09-24).
+    EmitUnroutedToHandler,
+    /// A trait writing a client-held `[runtime]` frame from client ticks (or
+    /// bound to a `[shared]` one another trait ticks) is not `local`: its
+    /// dispatches post to a stateful host whose stale copy folds back.
+    ClientTickNotLocal,
     /// Circular dependency in event wiring
     CrossOrbitalCircularDependency,
     /// Event namespace collision
@@ -606,6 +619,12 @@ pub enum ErrorCode {
     BindingNowNoPath,
     /// @payload not available in tick context
     BindingPayloadInTick,
+    /// `@event`/`@prevEvents`/`@prevStates`/`@fromState`/`@toState` in a tick, which has no delivery
+    BindingDispatchRootInTick,
+    /// `@fromState`/`@toState`/`@prevStates`/`@prevEvents` written with a path
+    BindingRootNoPath,
+    /// `@event.<path>` that does not follow the `{ event, payload, source }` record
+    BindingEventInvalidPath,
     /// Unknown entity in @EntityName binding
     BindingUnknownEntity,
     /// Invalid field name in binding path
@@ -1249,6 +1268,7 @@ impl ErrorCode {
             ErrorCode::RenderUIUnknownItemActionProp => "ORB_RUI_UNKNOWN_ITEM_ACTION_PROP",
             ErrorCode::RenderUIMissingAction => "ORB_RUI_MISSING_ACTION",
             ErrorCode::RenderUIInvalidFieldPath => "ORB_RUI_INVALID_FIELD_PATH",
+            ErrorCode::RenderUIFormFieldIntrinsic => "ORB_RUI_FORM_FIELD_INTRINSIC",
             ErrorCode::RenderUIPropTypeMismatch => "ORB_RUI_PROP_TYPE_MISMATCH",
             ErrorCode::RenderUIBindingTypeMismatch => "ORB_RUI_BINDING_TYPE_MISMATCH",
             ErrorCode::RenderUIElementShapeMismatch => "ORB_RUI_ELEMENT_SHAPE_MISMATCH",
@@ -1308,6 +1328,8 @@ impl ErrorCode {
             ErrorCode::CrossOrbitalDuplicateEntity => "ORB_X_DUPLICATE_ENTITY",
             ErrorCode::CrossOrbitalOrphanListener => "ORB_X_ORPHAN_LISTENER",
             ErrorCode::CrossOrbitalUnusedEmission => "ORB_X_UNUSED_EMISSION",
+            ErrorCode::EmitUnroutedToHandler => "ORB_EMIT_UNROUTED_TO_HANDLER",
+            ErrorCode::ClientTickNotLocal => "ORB_T_CLIENT_TICK_NOT_LOCAL",
             ErrorCode::CrossOrbitalCircularDependency => "ORB_X_CIRCULAR_DEPENDENCY",
             ErrorCode::CrossOrbitalEventCollision => "ORB_X_EVENT_COLLISION",
             ErrorCode::CrossOrbitalMissingName => "ORB_X_MISSING_ORBITAL_NAME",
@@ -1331,6 +1353,9 @@ impl ErrorCode {
             ErrorCode::BindingStateNoPath => "ORB_BINDING_STATE_NO_PATH",
             ErrorCode::BindingNowNoPath => "ORB_BINDING_NOW_NO_PATH",
             ErrorCode::BindingPayloadInTick => "ORB_BINDING_PAYLOAD_IN_TICK",
+            ErrorCode::BindingDispatchRootInTick => "ORB_BINDING_DISPATCH_ROOT_IN_TICK",
+            ErrorCode::BindingRootNoPath => "ORB_BINDING_ROOT_NO_PATH",
+            ErrorCode::BindingEventInvalidPath => "ORB_BINDING_EVENT_INVALID_PATH",
             ErrorCode::BindingUnknownEntity => "ORB_BINDING_UNKNOWN_ENTITY",
             ErrorCode::BindingInvalidFieldName => "ORB_BINDING_INVALID_FIELD_NAME",
             ErrorCode::BindingSetTargetMissingPath => "ORB_BINDING_SET_TARGET_MISSING_PATH",
@@ -1577,6 +1602,7 @@ impl ErrorCode {
             | ErrorCode::RenderUIUnknownItemActionProp
             | ErrorCode::RenderUIMissingAction
             | ErrorCode::RenderUIInvalidFieldPath
+            | ErrorCode::RenderUIFormFieldIntrinsic
             | ErrorCode::RenderUIPropTypeMismatch
             | ErrorCode::RenderUIBindingTypeMismatch
             | ErrorCode::RenderUIElementShapeMismatch
@@ -1635,6 +1661,8 @@ impl ErrorCode {
             ErrorCode::CrossOrbitalDuplicateEntity
             | ErrorCode::CrossOrbitalOrphanListener
             | ErrorCode::CrossOrbitalUnusedEmission
+            | ErrorCode::EmitUnroutedToHandler
+            | ErrorCode::ClientTickNotLocal
             | ErrorCode::CrossOrbitalCircularDependency
             | ErrorCode::CrossOrbitalEventCollision
             | ErrorCode::CrossOrbitalMissingName
@@ -1656,6 +1684,9 @@ impl ErrorCode {
             | ErrorCode::BindingStateNoPath
             | ErrorCode::BindingNowNoPath
             | ErrorCode::BindingPayloadInTick
+            | ErrorCode::BindingDispatchRootInTick
+            | ErrorCode::BindingRootNoPath
+            | ErrorCode::BindingEventInvalidPath
             | ErrorCode::BindingUnknownEntity
             | ErrorCode::BindingInvalidFieldName
             | ErrorCode::BindingSetTargetMissingPath

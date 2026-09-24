@@ -1058,6 +1058,31 @@ fn init_fetch_targets(sm: &StateMachine) -> Vec<&str> {
     targets
 }
 
+/// Whether `expr` holds an `@entity` binding — the whole row or any path into it.
+fn mentions_entity_binding(expr: &SExpression) -> bool {
+    match expr {
+        SExpression::String(s) => {
+            s == "@entity" || s.starts_with("@entity.") || s.starts_with("@entity[")
+        }
+        SExpression::Array(items) => items.iter().any(mentions_entity_binding),
+        SExpression::Object(map) => map.values().any(mentions_entity_binding),
+        _ => false,
+    }
+}
+
+/// Whether a trait reads or writes its bound entity anywhere: guards, effects, ticks.
+fn trait_reads_its_entity(trait_def: &TraitDefinition) -> bool {
+    let transitions = trait_def.state_machine.transitions.iter().any(|t| {
+        t.guard.as_ref().is_some_and(mentions_entity_binding)
+            || t.effects.iter().flatten().any(mentions_entity_binding)
+    });
+    let ticks = trait_def.ticks.iter().flatten().any(|tick| {
+        tick.guard.as_ref().is_some_and(mentions_entity_binding)
+            || tick.effects.iter().any(mentions_entity_binding)
+    });
+    transitions || ticks
+}
+
 /// ORB_T_INIT_MISSING_FETCH, scoped per (orbital, persistent entity): fires
 /// once when interaction traits read a persistent entity but NO trait in the
 /// orbital fetches it on INIT — i.e. the orbital has no datasource for data
@@ -1087,6 +1112,9 @@ fn validate_orbital_init_fetch(
         let Some(linked) = &trait_def.linked_entity else {
             continue;
         };
+        if !trait_reads_its_entity(trait_def) {
+            continue;
+        }
         let is_persistent = entity_definitions
             .get(linked)
             .map(|e| matches!(e.persistence, None | Some(Persistence::Persistent)))
@@ -1642,6 +1670,7 @@ mod tests {
     #[test]
     fn test_trait_undefined_reference() {
         let trait_ref = TraitReference::Reference {
+            local: false,
             type_args: None,
             id: None,
             reference: Some("NonExistentTrait".to_string()),
@@ -1667,6 +1696,7 @@ mod tests {
     #[test]
     fn test_std_trait_reference() {
         let trait_ref = TraitReference::Reference {
+            local: false,
             type_args: None,
             id: None,
             reference: Some("std/Form".to_string()),
@@ -1696,6 +1726,7 @@ mod tests {
             events.insert(k.to_string(), v.to_string());
         }
         TraitReference::Reference {
+            local: false,
             type_args: None,
             id: None,
             reference: reference.map(str::to_string),
@@ -1790,11 +1821,54 @@ mod tests {
         }
     }
 
+    fn with_render(mut t: TraitDefinition, prop: &str) -> TraitDefinition {
+        let mut props = HashMap::new();
+        props.insert("type".to_string(), SExpression::String("stack".to_string()));
+        props.insert("children".to_string(), SExpression::String(prop.to_string()));
+        t.state_machine.transitions[0]
+            .effects
+            .get_or_insert_with(Vec::new)
+            .push(SExpression::Array(vec![
+                SExpression::String("render-ui".to_string()),
+                SExpression::String("main".to_string()),
+                SExpression::Object(props),
+            ]));
+        t
+    }
+
     fn make_consumer(name: &str) -> TraitDefinition {
         let mut t = create_valid_trait();
         t.name = name.to_string();
         t.linked_entity = Some("Item".to_string());
-        t
+        with_render(t, "@entity.name")
+    }
+
+    fn init_fetch_errors(orbital: &Orbital) -> usize {
+        validate_orbital_init_fetch(orbital, 0, &entity_defs())
+            .errors
+            .iter()
+            .filter(|e| e.code == ErrorCode::TraitInitMissingFetch)
+            .count()
+    }
+
+    #[test]
+    fn test_init_fetch_ignores_a_bound_trait_that_never_reads_its_entity() {
+        // A layout bound to the orbital's entity (explicitly, or by the host
+        // default) that only composes children displays no row of it.
+        let mut layout = create_valid_trait();
+        layout.name = "Layout".to_string();
+        layout.linked_entity = Some("Item".to_string());
+        let layout = with_render(layout, "@trait.Child");
+        assert_eq!(init_fetch_errors(&make_orbital(vec![layout])), 0);
+    }
+
+    #[test]
+    fn test_init_fetch_counts_a_whole_entity_read() {
+        let mut whole = create_valid_trait();
+        whole.name = "Whole".to_string();
+        whole.linked_entity = Some("Item".to_string());
+        let whole = with_render(whole, "@entity");
+        assert_eq!(init_fetch_errors(&make_orbital(vec![whole])), 1);
     }
 
     fn make_datasource(name: &str) -> TraitDefinition {

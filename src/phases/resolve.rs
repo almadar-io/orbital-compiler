@@ -1233,6 +1233,7 @@ impl<'a> Resolver<'a> {
         };
 
         let mut oir_tick = OirTick::new(&tick.name, interval);
+        oir_tick.background = tick.background;
 
         if let Some(guard) = &tick.guard {
             oir_tick.guard = Some(self.resolve_sexpr(guard)?);
@@ -2351,11 +2352,9 @@ impl<'a> Resolver<'a> {
                     None
                 };
 
-                // Extract limit
-                let limit = if let Some(SExpression::Number(n)) = obj.get("limit") {
-                    Some(*n as usize)
-                } else {
-                    None
+                let limit = match obj.get("limit") {
+                    None | Some(SExpression::Null) => None,
+                    Some(limit_expr) => Some(self.resolve_sexpr(limit_expr)?),
                 };
 
                 // Extract include array (accepting the `["list", …]` literal
@@ -3827,6 +3826,7 @@ mod tests {
             effects: vec![],
             applies_to: None,
             description: None,
+            background: false,
         }
     }
 

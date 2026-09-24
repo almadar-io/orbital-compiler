@@ -480,6 +480,45 @@ pub(crate) fn validate_pattern(
                     result.merge(validate_item_actions(item_actions, path));
                 }
 
+                if crate::pattern_registry::get_fields_contract(pattern_type) == Some("form") {
+                    if let (Some(SExpression::Array(fields)), Some(entity)) = (
+                        obj.get("fields"),
+                        linked_entity.and_then(|e| entity_definitions.get(e)),
+                    ) {
+                        let names = crate::phases::inline::rewrite::strip_literal_list_marker(fields)
+                            .iter()
+                            .filter_map(|f| match f {
+                                SExpression::String(name) => Some(name.as_str()),
+                                SExpression::Object(o) => match o.get("name") {
+                                    Some(SExpression::String(name)) => Some(name.as_str()),
+                                    _ => None,
+                                },
+                                _ => None,
+                            });
+                        for name in names {
+                            let intrinsic = entity.fields.iter().any(|f| {
+                                f.name.as_deref() == Some(name) && f.intrinsic == Some(true)
+                            });
+                            if intrinsic {
+                                result.add_error(
+                                    ValidationError::error(
+                                        ErrorCode::RenderUIFormFieldIntrinsic,
+                                        path,
+                                        format!(
+                                            "'{}' offers an input for '{}.{}', which is @intrinsic — intrinsic fields are never persisted, so whatever the user enters is discarded",
+                                            pattern_type, entity.name, name
+                                        ),
+                                    )
+                                    .with_suggestion(format!(
+                                        "Drop the @intrinsic annotation from '{}' if it is real data, or keep view-state in a separate @intrinsic field and leave it out of the form",
+                                        name
+                                    )),
+                                );
+                            }
+                        }
+                    }
+                }
+
                 // Validate nested field paths in 'fields' prop
                 if let Some(fields) = obj.get("fields") {
                     if let Some(SExpression::String(entity_name)) = obj.get("entity") {

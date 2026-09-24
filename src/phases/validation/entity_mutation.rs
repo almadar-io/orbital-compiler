@@ -830,31 +830,16 @@ fn find_async_operator_call(expr: &SExpression) -> Option<&str> {
 // C. Local trait dispatch contract (Wave 2)
 // ============================================================================
 
-/// Effect operators that never fire client-only — a `local` trait carrying
-/// one of these is mis-tagged, since `local` (`OirTrait::dispatch_mode`)
+/// True when `expr`'s tree calls an effect whose registry `runsOn` is `server`
+/// (`orbital_core::effects::runs_on`), at any depth — a `local` trait
+/// (`OirTrait::dispatch_mode`) carrying one is mis-tagged, since `local`
 /// declares its transitions never await a server round trip.
-const SERVER_BOUND_OPERATORS: &[&str] = &[
-    "fetch",
-    "persist",
-    "call-service",
-    "ref",
-    "deref",
-    "swap!",
-    "watch",
-    "atomic",
-    "fetch-stream",
-];
-
-/// True when `expr`'s tree contains a call to any operator in
-/// `SERVER_BOUND_OPERATORS`, at any depth (recurses through control-flow
-/// wrappers like `if`/`do`/`let` the same way `find_async_operator_call`
-/// does for the tick backstop).
 fn contains_server_bound_effect(expr: &SExpression) -> bool {
-    expr_calls_any_operator(expr, SERVER_BOUND_OPERATORS)
+    orbital_core::effects::sexpr_runs_server_effect(expr)
 }
 
 /// Effect operators that reach a server-owned resource — the subset of
-/// `SERVER_BOUND_OPERATORS` Rule 2b gates a mutation-authorization finding
+/// server-site effects Rule 2b gates a mutation-authorization finding
 /// on (a guard that reads an `@intrinsic` field AND `@user.*` is only a
 /// SECURITY concern when the transition it guards actually writes).
 const MUTATING_SERVER_OPERATORS: &[&str] = &["persist", "call-service"];
@@ -864,16 +849,20 @@ const MUTATING_SERVER_OPERATORS: &[&str] = &["persist", "call-service"];
 /// `find_async_operator_call` does for the tick backstop). Single walker
 /// shared by every "does this effect touch operator X" check in this module.
 fn expr_calls_any_operator(expr: &SExpression, ops: &[&str]) -> bool {
+    expr_calls_operator_where(expr, &|op| ops.contains(&op))
+}
+
+fn expr_calls_operator_where(expr: &SExpression, pred: &dyn Fn(&str) -> bool) -> bool {
     match expr {
         SExpression::Array(arr) => {
             if let Some(SExpression::String(op)) = arr.first() {
-                if ops.contains(&op.as_str()) {
+                if pred(op) {
                     return true;
                 }
             }
-            arr.iter().any(|item| expr_calls_any_operator(item, ops))
+            arr.iter().any(|item| expr_calls_operator_where(item, pred))
         }
-        SExpression::Object(obj) => obj.values().any(|v| expr_calls_any_operator(v, ops)),
+        SExpression::Object(obj) => obj.values().any(|v| expr_calls_operator_where(v, pred)),
         _ => false,
     }
 }
@@ -1863,6 +1852,7 @@ mod tests {
             effects,
             applies_to: None,
             description: None,
+            background: false,
         }]);
         t
     }
@@ -2621,6 +2611,42 @@ mod tests {
             "Expected TraitLocalTouchesServer error: {:?}",
             result.errors
         );
+    }
+
+    fn local_touches_server(op: &str) -> bool {
+        let effect = arr(vec![s(op), s("@entity.x")]);
+        let t = local_trait_with_guard("ChatComposer", "Message", None, vec![effect]);
+        let mut defs = HashMap::new();
+        defs.insert(
+            "Message".to_string(),
+            entity("Message", true, Some(Persistence::Persistent)),
+        );
+        validate_trait_local_dispatch(&t, "test", &defs)
+            .all_issues()
+            .any(|e| e.code == ErrorCode::TraitLocalTouchesServer)
+    }
+
+    #[test]
+    fn local_trait_server_check_follows_runs_on() {
+        for op in [
+            "swap!",
+            "atomic",
+            "fetch-stream",
+            "os/watch-files",
+            "call-service",
+        ] {
+            assert!(local_touches_server(op), "{op} runs on the server");
+        }
+        for op in [
+            "ref",
+            "deref",
+            "watch",
+            "emit",
+            "render-ui",
+            "browser/clipboard-read",
+        ] {
+            assert!(!local_touches_server(op), "{op} does not run on the server");
+        }
     }
 
     #[test]

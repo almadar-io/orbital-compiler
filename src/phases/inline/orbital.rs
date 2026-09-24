@@ -1139,6 +1139,7 @@ pub(crate) fn resolve_orbital_reference(
                 let traits = pd.traits.get_or_insert_with(Vec::new);
                 for name in mount_names {
                     traits.push(TraitReference::Reference {
+                        local: false,
                         reference: Some(name.clone()),
                         ref_id: None,
                         id: None,
@@ -1312,6 +1313,32 @@ pub(crate) fn resolve_orbital_reference(
     // function returns (`inline_orbital` calls `resolve_orbital_reference`
     // before its own `inline_traits` call — verified in `mod.rs`), exactly
     // like any other trait this orbital declares.
+    // `listens {}`: declared routes INTO the imported set. The target is an
+    // upstream trait name; the source is another imported trait (follows the
+    // prefix) or a host sibling (keeps its name). The trigger is written in
+    // the post-`events {}` vocabulary the author sees.
+    for entry in obj.listens.iter().flatten() {
+        let final_name = subs
+            .get(&entry.trait_name)
+            .filter(|n| kept.iter().any(|td| &td.name == *n))
+            .ok_or_else(|| InlineError::OrbitalRefListenTargetUnknown {
+                target: entry.trait_name.clone(),
+                path: diag_path.clone(),
+            })?;
+        let mut listen = entry.listen.clone();
+        if let Some(orbital_core::schema::ListenSource::Trait { trait_name, trait_id }) =
+            listen.source.as_mut()
+        {
+            if let Some(imported) = subs.get(trait_name.as_str()) {
+                *trait_name = imported.clone();
+                *trait_id = None;
+            }
+        }
+        if let Some(td) = kept.iter_mut().find(|td| &td.name == final_name) {
+            td.listens.get_or_insert_with(Vec::new).push(listen);
+        }
+    }
+
     let siblings = std::mem::take(&mut orbital.traits);
     orbital.traits = kept
         .into_iter()
@@ -2455,6 +2482,7 @@ mod tests {
             entities: None,
             mounts: None,
             extend: None,
+            listens: None,
         };
         let mut diagnostics = Vec::new();
         resolve_orbital_reference(
@@ -2496,6 +2524,7 @@ mod tests {
             entities: None,
             mounts: None,
             extend: None,
+            listens: None,
         };
         let mut diagnostics = Vec::new();
         resolve_orbital_reference(
@@ -2546,6 +2575,7 @@ mod tests {
             entities: None,
             mounts: None,
             extend: None,
+            listens: None,
         };
         let mut diagnostics = Vec::new();
         resolve_orbital_reference(
@@ -2620,6 +2650,7 @@ mod tests {
             entities: None,
             mounts: None,
             extend: None,
+            listens: None,
         };
         let mut diagnostics = Vec::new();
         resolve_orbital_reference(
@@ -2697,6 +2728,7 @@ mod tests {
             entities: None,
             mounts: None,
             extend: None,
+            listens: None,
         };
         let mut diagnostics = Vec::new();
         resolve_orbital_reference(
@@ -2771,6 +2803,7 @@ mod tests {
             entities: None,
             mounts: None,
             extend: None,
+            listens: None,
         };
         let mut diagnostics = Vec::new();
         resolve_orbital_reference(
@@ -2814,6 +2847,7 @@ mod tests {
             entities: None,
             mounts: None,
             extend: None,
+            listens: None,
         };
 
         let mut first = consumer_orbital("Local");
@@ -2879,6 +2913,7 @@ mod tests {
             entities: None,
             mounts: None,
             extend: None,
+            listens: None,
         };
         let mut orbital = consumer_orbital("Local");
         resolve_orbital_reference(
@@ -3029,6 +3064,7 @@ mod tests {
             entities: None,
             mounts: None,
             extend: None,
+            listens: None,
         };
         let mut diagnostics = Vec::new();
         resolve_orbital_reference(
@@ -3110,6 +3146,7 @@ mod tests {
             entities: None,
             mounts: None,
             extend: None,
+            listens: None,
         };
         let mut diagnostics = Vec::new();
         resolve_orbital_reference(
@@ -3181,6 +3218,7 @@ mod tests {
             entities: None,
             mounts: None,
             extend: None,
+            listens: None,
         };
         let mut diagnostics = Vec::new();
         resolve_orbital_reference(
@@ -3232,6 +3270,7 @@ mod tests {
             entities: None,
             mounts: None,
             extend: None,
+            listens: None,
         };
 
         let mut one = consumer_orbital("One");
@@ -3321,6 +3360,7 @@ mod tests {
             entities: None,
             mounts: None,
             extend: None,
+            listens: None,
         };
         let mut diagnostics = Vec::new();
         resolve_orbital_reference(
@@ -3410,6 +3450,7 @@ mod tests {
             entities: None,
             mounts: None,
             extend: None,
+            listens: None,
         };
         let mut diagnostics = Vec::new();
         resolve_orbital_reference(
@@ -3502,6 +3543,7 @@ mod tests {
             entities: None,
             mounts: None,
             extend: None,
+            listens: None,
         };
         let mut diagnostics = Vec::new();
         resolve_orbital_reference(
@@ -3838,6 +3880,7 @@ mod tests {
             entities: Some(entities),
             mounts: None,
             extend: None,
+            listens: None,
         };
         let mut consumer_ids = HashMap::new();
         consumer_ids.insert(
@@ -3995,6 +4038,7 @@ mod tests {
             entities: None,
             mounts: None,
             extend: None,
+            listens: None,
         };
         let mut diagnostics = Vec::new();
         resolve_orbital_reference(
@@ -4071,6 +4115,7 @@ mod tests {
                 }))
                 .unwrap(),
             ]),
+            listens: None,
         };
         let mut consumer_ids = HashMap::new();
         consumer_ids.insert(
@@ -4164,6 +4209,7 @@ mod tests {
             entities: None,
             mounts: None,
             extend: None,
+            listens: None,
         };
         let mut diagnostics = Vec::new();
         resolve_orbital_reference(
@@ -4209,6 +4255,7 @@ mod tests {
             entities: Some(entities),
             mounts: None,
             extend: None,
+            listens: None,
         };
         let mut consumer_ids = HashMap::new();
         consumer_ids.insert("ConsumerOther".to_string(), "ent_X".to_string());
@@ -4249,6 +4296,7 @@ mod tests {
             entities: Some(entities),
             mounts: None,
             extend: None,
+            listens: None,
         };
         let mut diagnostics = Vec::new();
         resolve_orbital_reference(
@@ -4290,6 +4338,7 @@ mod tests {
             entities: None,
             mounts: None,
             extend: None,
+            listens: None,
         };
         let mut diagnostics = Vec::new();
         resolve_orbital_reference(
@@ -4349,6 +4398,7 @@ mod tests {
             entities: None,
             mounts: None,
             extend: None,
+            listens: None,
         };
         let mut diagnostics = Vec::new();
         resolve_orbital_reference(
@@ -4394,6 +4444,7 @@ mod tests {
             entities: None,
             mounts: None,
             extend: None,
+            listens: None,
         };
         let mut diagnostics = Vec::new();
         resolve_orbital_reference(
@@ -4444,6 +4495,7 @@ mod tests {
             entities: None,
             mounts: None,
             extend: None,
+            listens: None,
         };
         let mut diagnostics = Vec::new();
         resolve_orbital_reference(
@@ -4503,6 +4555,7 @@ mod tests {
             entities: None,
             mounts: None,
             extend: None,
+            listens: None,
         };
         let mut diagnostics = Vec::new();
         resolve_orbital_reference(
@@ -4591,6 +4644,7 @@ mod tests {
             entities: Some(entities),
             mounts: Some(mounts),
             extend: None,
+            listens: None,
         };
         // The parity fixture must be a VALID consumer input (the JS twin
         // refuses `ORB_O_PAGE_UNKNOWN_PATH` at resolve time); only the
@@ -4655,6 +4709,92 @@ mod tests {
     /// (f): a knob declared `[RecordAction]`-shaped (element schema types a
     /// member `event`) has that member renamed via `events {}` — the struct
     /// twin of the scalar `event`-typed knob fold.
+    fn ref_with_listens(listens: serde_json::Value, omit: Option<Vec<String>>) -> OrbitalRefObject {
+        OrbitalRefObject {
+            reference: "Up.orbitals.UpOrbital".to_string(),
+            ref_id: None,
+            entity: None,
+            fields: None,
+            pages: None,
+            omit,
+            only: None,
+            config: None,
+            events: None,
+            roles: None,
+            entities: None,
+            mounts: None,
+            extend: None,
+            listens: Some(serde_json::from_value(listens).expect("listens fixture")),
+        }
+    }
+
+    fn resolve_with(obj: &OrbitalRefObject) -> Result<Orbital, InlineError> {
+        let ctx = ctx_with_upstream(None);
+        let mut orbital = consumer_orbital("Local");
+        let mut diagnostics = Vec::new();
+        resolve_orbital_reference(
+            &mut orbital,
+            obj,
+            &ctx,
+            &HashMap::new(),
+            &HashMap::new(),
+            &HashMap::new(),
+            None,
+            &mut diagnostics,
+            None,
+        )?;
+        Ok(orbital)
+    }
+
+    /// project-friday: `ProjectLifecycle` (a host sibling) hands its row to
+    /// the imported persistor — the route lands on the MATERIALIZED trait and
+    /// the host source keeps its own name.
+    #[test]
+    fn import_listens_route_a_host_sibling_into_an_imported_trait() {
+        let obj = ref_with_listens(
+            json!([{ "trait": "B", "event": "GO", "source": { "kind": "trait", "trait": "Host" }, "triggers": "PING" }]),
+            None,
+        );
+        let orbital = resolve_with(&obj).expect("resolves");
+        let b = kept_trait(&orbital, "LocalB");
+        let routed = b.listens.as_deref().unwrap_or(&[]).iter().any(|l| {
+            l.event == "GO"
+                && l.triggers.as_deref() == Some("PING")
+                && matches!(&l.source, Some(orbital_core::schema::ListenSource::Trait { trait_name, .. }) if trait_name == "Host")
+        });
+        assert!(routed, "{:?}", b.listens);
+    }
+
+    #[test]
+    fn import_listens_source_naming_an_imported_trait_follows_the_prefix() {
+        let obj = ref_with_listens(
+            json!([{ "trait": "B", "event": "OPEN", "source": { "kind": "trait", "trait": "A" }, "triggers": "PING" }]),
+            None,
+        );
+        let orbital = resolve_with(&obj).expect("resolves");
+        let b = kept_trait(&orbital, "LocalB");
+        assert!(b.listens.as_deref().unwrap_or(&[]).iter().any(|l| matches!(
+            &l.source,
+            Some(orbital_core::schema::ListenSource::Trait { trait_name, .. }) if trait_name == "LocalA"
+        )), "{:?}", b.listens);
+    }
+
+    #[test]
+    fn import_listens_target_outside_the_imported_set_is_an_error() {
+        for (target, omit) in [("Z", None), ("C", Some(vec!["C".to_string()]))] {
+            let obj = ref_with_listens(
+                json!([{ "trait": target, "event": "GO", "source": { "kind": "trait", "trait": "Host" }, "triggers": "PING" }]),
+                omit,
+            );
+            match resolve_with(&obj) {
+                Err(e @ InlineError::OrbitalRefListenTargetUnknown { .. }) => {
+                    assert_eq!(e.structured_code(), "ORB_O_LISTEN_TARGET_UNKNOWN")
+                }
+                other => panic!("{target}: expected OrbitalRefListenTargetUnknown, got {:?}", other.map(|_| ())),
+            }
+        }
+    }
+
     #[test]
     fn record_action_style_knob_event_member_is_renamed_via_events() {
         let mut upstream = upstream_orbital(None);
@@ -4695,6 +4835,7 @@ mod tests {
             entities: None,
             mounts: None,
             extend: None,
+            listens: None,
         };
         let mut diagnostics = Vec::new();
         resolve_orbital_reference(
@@ -4759,6 +4900,7 @@ mod tests {
                 json!("number"),
                 Some(json!(0)),
             )]),
+            listens: None,
         };
         let mut diagnostics = Vec::new();
         resolve_orbital_reference(
@@ -4850,6 +4992,7 @@ mod tests {
                 extend_field("workspaceId", json!("string"), None),
                 extend_field("orphan", json!("string"), None),
             ]),
+            listens: None,
         };
         let mut diagnostics = Vec::new();
         resolve_orbital_reference(
@@ -4926,6 +5069,7 @@ mod tests {
                 json!("number"),
                 Some(json!(0)),
             )]),
+            listens: None,
         };
         let mut diagnostics = Vec::new();
         resolve_orbital_reference(
@@ -4967,6 +5111,7 @@ mod tests {
             // `Widget` (the upstream primary entity, see `upstream_orbital`)
             // already declares `id`.
             extend: Some(vec![extend_field("id", json!("string"), None)]),
+            listens: None,
         };
         let mut diagnostics = Vec::new();
         resolve_orbital_reference(
@@ -5020,6 +5165,7 @@ mod tests {
             mounts: None,
             // `widgetId` is the RENAME TARGET `fields {}` just introduced.
             extend: Some(vec![extend_field("widgetId", json!("string"), None)]),
+            listens: None,
         };
         let mut diagnostics = Vec::new();
         resolve_orbital_reference(
@@ -5070,6 +5216,7 @@ mod tests {
                 "relation": { "entity": "Workspace", "cardinality": "one" }
             }))
             .unwrap()]),
+            listens: None,
         };
         let mut diagnostics = Vec::new();
         resolve_orbital_reference(

@@ -225,6 +225,9 @@ pub struct EmbeddedOperator {
     /// (e.g. `(array/reduce arr (fn …) init)`).
     #[serde(rename = "lambdaArgPosition", default)]
     pub lambda_arg_position: Option<u32>,
+    /// Execution site of an effect operator (`client`/`server`/`any`); absent on pure ones. Pinned to `orbital_core::effects::runs_on` by `tests/runs_on_drift.rs`.
+    #[serde(rename = "runsOn", default)]
+    pub runs_on: Option<String>,
 }
 
 /// Metadata for an operator category.
@@ -833,7 +836,20 @@ pub const BINDING_CONTEXT_RULES: &[(&str, &[&str])] = &[
     // for ownership / role-based gates (e.g. std-row-access-control).
     (
         "guard",
-        &["entity", "payload", "state", "now", "config", "user"],
+        &[
+            "entity",
+            "payload",
+            "state",
+            "now",
+            "config",
+            "user",
+            // The dispatch roots (Runtime Spec Clause 5.5); never in ticks, which have no delivery.
+            "event",
+            "prevEvents",
+            "prevStates",
+            "fromState",
+            "toState",
+        ],
     ),
     // `trait` here is the `@trait.X` intra-frame composition binding — it
     // appears inside render-ui children and is passed through server-side
@@ -864,6 +880,11 @@ pub const BINDING_CONTEXT_RULES: &[(&str, &[&str])] = &[
             // context because render-ui is validated here.
             "pages",
             "currentTheme",
+            "event",
+            "prevEvents",
+            "prevStates",
+            "fromState",
+            "toState",
         ],
     ),
     // Ticks have no @payload — they fire on a clock, not on an event.
@@ -1070,7 +1091,21 @@ mod tests {
     fn sigil_context_rules_present() {
         assert_eq!(
             allowed_sigils_for_context("guard"),
-            Some(&["entity", "payload", "state", "now", "config", "user"][..])
+            Some(
+                &[
+                    "entity",
+                    "payload",
+                    "state",
+                    "now",
+                    "config",
+                    "user",
+                    "event",
+                    "prevEvents",
+                    "prevStates",
+                    "fromState",
+                    "toState"
+                ][..]
+            )
         );
         assert_eq!(
             allowed_sigils_for_context("effect"),
@@ -1085,7 +1120,12 @@ mod tests {
                     "user",
                     "callsitePayload",
                     "pages",
-                    "currentTheme"
+                    "currentTheme",
+                    "event",
+                    "prevEvents",
+                    "prevStates",
+                    "fromState",
+                    "toState"
                 ][..]
             )
         );

@@ -1133,6 +1133,40 @@ mod tests {
         );
     }
 
+    /// G-RUNTIME-012 prevention: an `@intrinsic` field is never persisted, so a
+    /// `form`-contract pattern offering it as an input silently discards what
+    /// the user types (std-time-tracking TimeEntry.hours).
+    #[test]
+    fn form_input_on_intrinsic_field_is_rejected() {
+        let entity: EntityDefinition = serde_json::from_value(serde_json::json!({
+            "name": "Task",
+            "persistence": "persistent",
+            "fields": [
+                { "name": "id", "type": "string" },
+                { "name": "title", "type": "string" },
+                { "name": "hours", "type": "number", "intrinsic": true }
+            ]
+        }))
+        .expect("entity");
+        let mut entity_defs = HashMap::new();
+        entity_defs.insert("Task".to_string(), entity);
+        let form = |fields: serde_json::Value| -> SExpression {
+            serde_json::from_value(serde_json::json!(["render-ui", "modal", { "type": "form-section", "fields": fields }]))
+                .expect("effect")
+        };
+        let codes = |effect: &SExpression| -> Vec<ErrorCode> {
+            validate_render_ui_effect(effect, "test", &entity_defs, None, Some("Task"))
+                .errors
+                .iter()
+                .map(|e| e.code.clone())
+                .collect()
+        };
+        assert!(codes(&form(serde_json::json!(["title", "hours"]))).contains(&ErrorCode::RenderUIFormFieldIntrinsic));
+        assert!(codes(&form(serde_json::json!(["list", "title", "hours"]))).contains(&ErrorCode::RenderUIFormFieldIntrinsic));
+        assert!(codes(&form(serde_json::json!([{ "name": "hours" }]))).contains(&ErrorCode::RenderUIFormFieldIntrinsic));
+        assert!(!codes(&form(serde_json::json!(["title"]))).contains(&ErrorCode::RenderUIFormFieldIntrinsic));
+    }
+
     /// Helper to build a minimal TraitDefinition with given effects in a single INIT transition
     fn make_trait_with_effects(effects: Vec<SExpression>) -> TraitDefinition {
         use orbital_core::schema::{

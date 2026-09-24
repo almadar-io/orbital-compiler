@@ -4,7 +4,7 @@
 use super::context::{parse_reference, InlineContext, ParsedReference};
 use super::identity_normalize::rewrite_trait_embed_tokens;
 use super::rewrite::{
-    apply_inline_config_defaults, coerce_trait_knob_conditions, mark_literal_list_in_place,
+    apply_inline_config_defaults, coerce_trait_knob_conditions, mark_config_literal_lists,
     record_config_provenance, rewrite_config_bindings, rewrite_entity_field_paths,
     rewrite_entity_ref_ids, rewrite_entity_typed_config_values, rewrite_identifiers,
     rewrite_payload_entity_refs, rewrite_trait_event_fields, stale_entity_rebind_subs,
@@ -345,7 +345,7 @@ pub(crate) fn apply_overrides_to_trait(
     if let Some(declared) = trait_def.config.as_ref() {
         for (k, value) in effective_config.iter_mut() {
             if let Some(field) = declared.get(k) {
-                mark_literal_list_in_place(value, &field.field_type);
+                mark_config_literal_lists(value, field);
             }
         }
     }
@@ -1523,6 +1523,7 @@ pub(crate) fn inline_traits(
                 listens: listens_override,
                 emits_scope: emits_scope_override,
                 type_args: type_args_override,
+                local: call_site_local,
                 ..
             } => {
                 if let Some(ref_str) = reference {
@@ -1962,6 +1963,8 @@ pub(crate) fn inline_traits(
                                     // already relies on. That pass clears this
                                     // field after consuming it.
                                     trait_def.type_args = type_args_override.clone();
+                                    // Call-site `[local]`: client-only whatever the atom declared.
+                                    trait_def.local = trait_def.local || *call_site_local;
                                     owner_subs
                                         .entry(trait_def.name.clone())
                                         .or_default()

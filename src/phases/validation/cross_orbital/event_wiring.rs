@@ -1,4 +1,5 @@
 use crate::phases::validation::{ErrorCode, ValidationError, ValidationResult};
+use orbital_core::events::is_bus_excluded_event;
 use orbital_core::schema::{EventScope, OrbitalSchema, TraitDefinition, TraitReference};
 use std::collections::{HashMap, HashSet};
 
@@ -311,7 +312,151 @@ pub(crate) fn validate_event_wiring(schema: &OrbitalSchema) -> ValidationResult 
     // designed for a pre-Phase-4 model where emits flowed on bare
     // `UI:EVENT` keys; that model is gone.
 
+    validate_sibling_handlers_routed(schema, &mut result);
+
     result
+}
+
+/// Every event a trait fires from its own logic — `(emit …)` effects (nested
+/// in `when`/`if`/… too) and operator emit-config results — reaches another
+/// trait only through a declared route. A sibling trait in the same orbital
+/// with an arm for it and no route from this emitter is an intent that
+/// terminates in nothing. UI-control events (render-ui event props) are not
+/// in scope: the bus delivers those by name.
+fn validate_sibling_handlers_routed(schema: &OrbitalSchema, result: &mut ValidationResult) {
+    use orbital_core::schema::{ListenSource, SExpression};
+
+    fn walk_emits(expr: &SExpression, out: &mut HashSet<String>) {
+        if let Some(event) = extract_emit_event(expr) {
+            out.insert(event);
+        }
+        if let SExpression::Array(items) = expr {
+            for item in items {
+                walk_emits(item, out);
+            }
+        }
+    }
+
+    let ui_fired = crate::phases::validation::fired_events::collect_schema_fired_events(schema);
+    for orbital in &schema.orbitals {
+        let traits: Vec<&TraitDefinition> = orbital
+            .traits
+            .iter()
+            .filter_map(|t| match t {
+                TraitReference::Inline(def) => Some(def),
+                _ => None,
+            })
+            .collect();
+        let fired_by = |def: &TraitDefinition| -> HashSet<String> {
+            let mut fired = HashSet::new();
+            let mut async_results = HashSet::new();
+            for transition in &def.state_machine.transitions {
+                let effects = transition.effects.as_deref().unwrap_or(&[]);
+                for effect in effects {
+                    walk_emits(effect, &mut fired);
+                }
+                async_results.extend(collect_async_result_events(effects));
+            }
+            // A tick's emits travel the same declared routes.
+            for tick in def.ticks.as_deref().unwrap_or(&[]) {
+                for effect in &tick.effects {
+                    walk_emits(effect, &mut fired);
+                }
+            }
+            // Only emits that can fire: a branch folded statically false
+            // (`(if (not @config.loopRound) (emit …))` with `loopRound: true`)
+            // is the same dead producer ORB_X_LISTEN_SOURCE_NEVER_PRODUCES
+            // rejects a route to — the two checks read one walker.
+            fired.retain(|e| ui_fired.by_effect.contains(&(def.name.clone(), e.clone())));
+            fired.extend(async_results);
+            fired
+        };
+        let handles = |def: &TraitDefinition, event: &str| {
+            def.state_machine
+                .transitions
+                .iter()
+                .any(|t| t.event == event)
+        };
+        let routes_from = |handler: &TraitDefinition, event: &str, emitter: &TraitDefinition| {
+            handler.listens.as_deref().unwrap_or(&[]).iter().any(|l| {
+                l.event == event
+                    && match &l.source {
+                        None | Some(ListenSource::Any) => true,
+                        Some(ListenSource::Trait { trait_name, .. }) => trait_name == &emitter.name,
+                        Some(ListenSource::Orbital {
+                            orbital: o,
+                            trait_name,
+                            ..
+                        }) => o == &orbital.name && trait_name == &emitter.name,
+                    }
+            })
+        };
+        let fired: HashMap<&str, HashSet<String>> = traits
+            .iter()
+            .map(|t| (t.name.as_str(), fired_by(t)))
+            .collect();
+        for emitter in &traits {
+            let mut events: Vec<&String> = fired[emitter.name.as_str()].iter().collect();
+            events.sort();
+            for event in events {
+                if is_bus_excluded_event(event) {
+                    continue;
+                }
+                for handler in &traits {
+                    // Two instances of one atom each fire AND handle the event
+                    // themselves (same-trait continuation on both sides) —
+                    // neither is the other's audience.
+                    let both_self_consume =
+                        handles(emitter, event) && fired[handler.name.as_str()].contains(event);
+                    if handler.name == emitter.name || !handles(handler, event) || both_self_consume
+                    {
+                        continue;
+                    }
+                    // A handler that routes the event from some source has
+                    // chosen its audience (a lab's sim hears its own
+                    // transport, not the other instrument's) — it is owed
+                    // this emitter only when the emitter reaches no one.
+                    let has_audience = handler.listens.as_deref().unwrap_or(&[]).iter().any(|l| {
+                        l.triggers.as_deref().unwrap_or(&l.event) == event.as_str()
+                            && matches!(
+                                l.source,
+                                Some(ListenSource::Trait { .. })
+                                    | Some(ListenSource::Orbital { .. })
+                            )
+                    });
+                    // Likewise an arm fed by the handler's own on-screen
+                    // control is live without this emitter.
+                    let self_fed = ui_fired
+                        .by_control
+                        .contains(&(handler.name.clone(), event.clone()));
+                    if routes_from(handler, event, emitter)
+                        || ((has_audience || self_fed)
+                            && traits.iter().any(|t| {
+                                t.name != emitter.name
+                                    && handles(t, event)
+                                    && routes_from(t, event, emitter)
+                            }))
+                    {
+                        continue;
+                    }
+                    result.add_error(
+                        ValidationError::error(
+                            ErrorCode::EmitUnroutedToHandler,
+                            format!("orbitals.{}.traits.{}", orbital.name, emitter.name),
+                            format!(
+                                "Trait '{}' emits '{}' and trait '{}' has an arm for it, but no declared route delivers it — events reach another trait only through `listens`",
+                                emitter.name, event, handler.name
+                            ),
+                        )
+                        .with_suggestion(format!(
+                            "Add `listens {{ {}.{} -> {} }}` on '{}'",
+                            emitter.name, event, event, handler.name
+                        )),
+                    );
+                }
+            }
+        }
+    }
 }
 
 /// Collect events from a trait definition
@@ -1777,5 +1922,303 @@ mod async_result_collector_tests {
         ]);
         let got = collect_async_result_events(&[call_service, wrapped_fetch]);
         assert_eq!(got, HashSet::from(["Nested".to_string()]));
+    }
+}
+
+/// An intent a trait emits that a SIBLING trait in the same orbital handles
+/// must reach it through a declared route (owner ruling 2026-09-24: declared
+/// routes only). std-pong's `PongPlay` emitted `PADDLE_MOVE`, `PongMechanic`
+/// had the arm, nothing routed it — the keyboard moved nothing.
+#[cfg(test)]
+mod unrouted_handler_tests {
+    use super::*;
+
+    fn schema(mechanic_listens: serde_json::Value, play_emits_scope: &str) -> OrbitalSchema {
+        serde_json::from_value(serde_json::json!({
+            "name": "Pong",
+            "orbitals": [{
+                "name": "PongOrbital",
+                "entity": { "name": "PongGame", "persistence": "runtime", "fields": [{ "name": "id", "type": "string" }] },
+                "traits": [
+                    {
+                        "name": "PongPlay",
+                        "linkedEntity": "PongGame",
+                        "emits": [{ "event": "PADDLE_MOVE", "scope": play_emits_scope }],
+                        "stateMachine": {
+                            "states": [{ "name": "playing", "isInitial": true }],
+                            "transitions": [{ "from": "playing", "to": "playing", "event": "LEFT_UP",
+                                "effects": [["when", true, ["emit", "PADDLE_MOVE", { "dy": -1 }]]] }]
+                        }
+                    },
+                    {
+                        "name": "PongMechanic",
+                        "linkedEntity": "PongGame",
+                        "listens": mechanic_listens,
+                        "stateMachine": {
+                            "states": [{ "name": "active", "isInitial": true }],
+                            "transitions": [{ "from": "active", "to": "active", "event": "PADDLE_MOVE", "effects": [] }]
+                        }
+                    }
+                ]
+            }]
+        }))
+        .unwrap()
+    }
+
+    fn unrouted(schema: &OrbitalSchema) -> Vec<String> {
+        validate_event_wiring(schema)
+            .errors
+            .iter()
+            .filter(|e| e.code == ErrorCode::EmitUnroutedToHandler)
+            .map(|e| e.message.clone())
+            .collect()
+    }
+
+    #[test]
+    fn a_sibling_arm_with_no_route_is_an_error() {
+        for scope in ["external", "internal"] {
+            let found = unrouted(&schema(serde_json::Value::Null, scope));
+            assert_eq!(found.len(), 1, "scope {scope}: {found:?}");
+            assert!(
+                found[0].contains("PongPlay")
+                    && found[0].contains("PADDLE_MOVE")
+                    && found[0].contains("PongMechanic")
+            );
+        }
+    }
+
+    /// A mechanic's TICK emits (std-pong-rally's paddle-hit `BURST`) travel the
+    /// same declared routes as a transition's.
+    #[test]
+    fn a_tick_emit_to_a_sibling_arm_with_no_route_is_an_error() {
+        let mut s = schema(serde_json::Value::Null, "external");
+        if let TraitReference::Inline(play) = &mut s.orbitals[0].traits[0] {
+            play.state_machine.transitions[0].effects = Some(vec![]);
+            play.ticks = Some(vec![serde_json::from_value(serde_json::json!({
+                "name": "step", "interval": 100, "effects": [["emit", "PADDLE_MOVE", {}]]
+            }))
+            .unwrap()]);
+        }
+        assert_eq!(unrouted(&s).len(), 1);
+    }
+
+    /// std-tactics-board-2d: `PlayerIntent` handles `MOVE` (the tile click) and
+    /// forwards it with `(emit MOVE …)`; `Authority` only handles it. The
+    /// forward is an intent for the authority and needs a route.
+    #[test]
+    fn a_forwarding_emitter_still_needs_a_route_to_the_handler() {
+        let mut s = schema(serde_json::Value::Null, "external");
+        if let TraitReference::Inline(play) = &mut s.orbitals[0].traits[0] {
+            let mut own = play.state_machine.transitions[0].clone();
+            own.event = "PADDLE_MOVE".to_string();
+            play.state_machine.transitions.push(own);
+        }
+        assert_eq!(unrouted(&s).len(), 1);
+    }
+
+    #[test]
+    fn control_a_declared_route_delivers_it() {
+        let listens = serde_json::json!([{ "event": "PADDLE_MOVE", "source": { "kind": "trait", "trait": "PongPlay" }, "triggers": "PADDLE_MOVE" }]);
+        assert!(unrouted(&schema(listens, "external")).is_empty());
+    }
+
+    /// A lab: two instruments, each a transport firing `STEP` and a sim with
+    /// an arm for it. `sims` gives each sim's declared sources for `STEP`.
+    fn lab(sims: &[(&str, &[&str])]) -> OrbitalSchema {
+        let mut traits: Vec<serde_json::Value> = ["TransportA", "TransportB"]
+            .iter()
+            .map(|n| {
+                serde_json::json!({
+                    "name": n,
+                    "linkedEntity": "Scene",
+                    "stateMachine": {
+                        "states": [{ "name": "idle", "isInitial": true }],
+                        "transitions": [{ "from": "idle", "to": "idle", "event": "RUN", "effects": [["emit", "STEP", {}]] }]
+                    }
+                })
+            })
+            .collect();
+        for (name, sources) in sims {
+            let listens: Vec<serde_json::Value> = sources
+                .iter()
+                .map(|src| serde_json::json!({ "event": "STEP", "source": { "kind": "trait", "trait": src }, "triggers": "STEP" }))
+                .collect();
+            traits.push(serde_json::json!({
+                "name": name,
+                "linkedEntity": "Scene",
+                "listens": listens,
+                "stateMachine": {
+                    "states": [{ "name": "idle", "isInitial": true }],
+                    "transitions": [{ "from": "idle", "to": "idle", "event": "STEP", "effects": [] }]
+                }
+            }));
+        }
+        serde_json::from_value(serde_json::json!({
+            "name": "Lab",
+            "orbitals": [{
+                "name": "LabOrbital",
+                "entity": { "name": "Scene", "persistence": "runtime", "fields": [{ "name": "id", "type": "string" }] },
+                "traits": traits
+            }]
+        }))
+        .unwrap()
+    }
+
+    /// learning-astronomy-lab: each sim routes its OWN transport; the other
+    /// instrument's transport is not its audience.
+    #[test]
+    fn control_a_handler_with_a_declared_audience_is_not_owed_other_emitters() {
+        let s = lab(&[("SimA", &["TransportA"]), ("SimB", &["TransportB"])]);
+        assert!(unrouted(&s).is_empty(), "{:?}", unrouted(&s));
+    }
+
+    /// Both sims chose TransportA — TransportB's STEP reaches no one.
+    #[test]
+    fn an_emitter_routed_to_no_handler_is_an_error() {
+        let found = unrouted(&lab(&[
+            ("SimA", &["TransportA"]),
+            ("SimB", &["TransportA"]),
+        ]));
+        assert!(!found.is_empty());
+        assert!(found.iter().all(|m| m.contains("TransportB")), "{found:?}");
+    }
+
+    /// Mechanic -> Fx routed, Sound declares nothing for the event: Sound is
+    /// still owed its route even though the emitter reaches someone.
+    #[test]
+    fn a_handler_with_no_route_for_the_event_is_owed_every_emitter() {
+        let found = unrouted(&lab(&[
+            ("SimA", &["TransportA", "TransportB"]),
+            ("SimB", &[]),
+        ]));
+        assert_eq!(found.len(), 2, "{found:?}");
+        assert!(found.iter().all(|m| m.contains("SimB")), "{found:?}");
+    }
+
+    /// `lab` plus a `SimC` whose `STEP` arm is fed by its own on-screen button.
+    fn lab_with_self_fed(sims: &[(&str, &[&str])]) -> OrbitalSchema {
+        let mut s = lab(sims);
+        let sim_c: TraitDefinition = serde_json::from_value(serde_json::json!({
+            "name": "SimC",
+            "linkedEntity": "Scene",
+            "stateMachine": {
+                "states": [{ "name": "idle", "isInitial": true }],
+                "transitions": [
+                    { "from": "idle", "to": "idle", "event": "INIT",
+                      "effects": [["render-ui", "main", { "type": "button", "label": "Step", "action": "STEP" }]] },
+                    { "from": "idle", "to": "idle", "event": "STEP", "effects": [] }
+                ]
+            }
+        }))
+        .unwrap();
+        s.orbitals[0].traits.push(TraitReference::Inline(sim_c));
+        s
+    }
+
+    /// learning-physics-lab: Projectile3DPhysics's PAUSE reaches its own sim;
+    /// Orbit3DSim's PAUSE arm serves its own transport button.
+    #[test]
+    fn control_a_handler_fed_by_its_own_control_is_not_owed_a_reached_emitter() {
+        let s = lab_with_self_fed(&[("SimA", &["TransportA", "TransportB"])]);
+        assert!(unrouted(&s).is_empty(), "{:?}", unrouted(&s));
+    }
+
+    #[test]
+    fn a_self_fed_handler_is_still_owed_an_emitter_that_reaches_no_one() {
+        let found = unrouted(&lab_with_self_fed(&[]));
+        assert!(found.iter().any(|m| m.contains("SimC")), "{found:?}");
+    }
+
+    /// learning-logic-lab: std-learn-classify's `LEARN_ROUND_COMPLETE` sits
+    /// under `(if (not @config.loopRound) …)` and the call site sets
+    /// `loopRound: true` — a branch that never fires owes no route (and a route
+    /// to it would be ORB_X_LISTEN_SOURCE_NEVER_PRODUCES).
+    #[test]
+    fn control_an_emit_in_a_statically_dead_branch_owes_no_route() {
+        let mut s = schema(serde_json::Value::Null, "external");
+        if let TraitReference::Inline(play) = &mut s.orbitals[0].traits[0] {
+            play.state_machine.transitions[0].effects =
+                Some(vec![serde_json::from_value(serde_json::json!([
+                    "if",
+                    false,
+                    ["emit", "PADDLE_MOVE", {}],
+                    null
+                ]))
+                .unwrap()]);
+        }
+        assert!(unrouted(&s).is_empty(), "{:?}", unrouted(&s));
+    }
+
+    /// project-friday: `ProjectPersistor`'s `PROJECT_CREATE_REQUESTED` arm is
+    /// fed by `ProjectCreate.SAVE -> PROJECT_CREATE_REQUESTED` — a route that
+    /// TRIGGERS the arm is its audience, whatever the source event is called.
+    #[test]
+    fn control_an_arm_fed_by_a_renamed_route_has_an_audience() {
+        let mut s = lab(&[("SimA", &["TransportA", "TransportB"])]);
+        let sim_b: TraitDefinition = serde_json::from_value(serde_json::json!({
+            "name": "SimB",
+            "linkedEntity": "Scene",
+            "listens": [{ "event": "SAVE", "source": { "kind": "trait", "trait": "Form" }, "triggers": "STEP" }],
+            "stateMachine": {
+                "states": [{ "name": "idle", "isInitial": true }],
+                "transitions": [{ "from": "idle", "to": "idle", "event": "STEP", "effects": [] }]
+            }
+        }))
+        .unwrap();
+        s.orbitals[0].traits.push(TraitReference::Inline(sim_b));
+        assert!(unrouted(&s).is_empty(), "{:?}", unrouted(&s));
+    }
+
+    #[test]
+    fn control_a_route_from_another_source_does_not_count() {
+        let listens = serde_json::json!([{ "event": "PADDLE_MOVE", "source": { "kind": "trait", "trait": "Other" }, "triggers": "PADDLE_MOVE" }]);
+        assert_eq!(unrouted(&schema(listens, "external")).len(), 1);
+    }
+
+    /// Two instances of one fetch atom each consume their OWN `Loaded`
+    /// (same-trait continuation): neither is an intent for the other.
+    #[test]
+    fn control_self_consuming_instances_are_not_intents_for_each_other() {
+        let traits: Vec<serde_json::Value> = ["A", "B"]
+            .iter()
+            .map(|n| {
+                serde_json::json!({
+                    "name": n,
+                    "linkedEntity": "Row",
+                    "stateMachine": {
+                        "states": [{ "name": "loading", "isInitial": true }, { "name": "browsing" }],
+                        "transitions": [
+                            { "from": "loading", "to": "loading", "event": "INIT", "effects": [["emit", "Loaded", {}]] },
+                            { "from": "loading", "to": "browsing", "event": "Loaded", "effects": [] }
+                        ]
+                    }
+                })
+            })
+            .collect();
+        let s: OrbitalSchema = serde_json::from_value(serde_json::json!({
+            "name": "Lists",
+            "orbitals": [{
+                "name": "ListOrbital",
+                "entity": { "name": "Row", "persistence": "runtime", "fields": [{ "name": "id", "type": "string" }] },
+                "traits": traits
+            }]
+        }))
+        .unwrap();
+        assert!(unrouted(&s).is_empty());
+    }
+
+    #[test]
+    fn control_the_emitters_own_arm_is_same_trait_continuation() {
+        let mut s = schema(serde_json::Value::Null, "external");
+        if let TraitReference::Inline(mechanic) = &mut s.orbitals[0].traits[1] {
+            mechanic.state_machine.transitions.clear();
+        }
+        if let TraitReference::Inline(play) = &mut s.orbitals[0].traits[0] {
+            let mut own = play.state_machine.transitions[0].clone();
+            own.event = "PADDLE_MOVE".to_string();
+            own.effects = Some(vec![]);
+            play.state_machine.transitions.push(own);
+        }
+        assert!(unrouted(&s).is_empty());
     }
 }

@@ -26,7 +26,15 @@ use std::collections::{HashMap, HashSet};
 /// `data.content`). An entity-typed field (`PayloadField.entity`) is one
 /// leaf even though it flattens into `properties` — its value is a single
 /// entity instance, not a struct the route assembles field-by-field.
-fn required_leaf_paths(fields: &[PayloadField], prefix: &str, out: &mut Vec<String>) {
+///
+/// Each leaf carries its OPTIONAL ancestor paths: a required field inside an
+/// optional container is owed only when the route delivers that container.
+fn required_leaf_paths(
+    fields: &[PayloadField],
+    prefix: &str,
+    optional_ancestors: &[String],
+    out: &mut Vec<(String, Vec<String>)>,
+) {
     for field in fields {
         let path = if prefix.is_empty() {
             field.name.clone()
@@ -36,9 +44,13 @@ fn required_leaf_paths(fields: &[PayloadField], prefix: &str, out: &mut Vec<Stri
         let descends =
             field.entity.is_none() && field.properties.as_ref().is_some_and(|p| !p.is_empty());
         if descends {
-            required_leaf_paths(field.properties.as_ref().unwrap(), &path, out);
+            let mut ancestors = optional_ancestors.to_vec();
+            if field.required != Some(true) {
+                ancestors.push(path.clone());
+            }
+            required_leaf_paths(field.properties.as_ref().unwrap(), &path, &ancestors, out);
         } else if field.required == Some(true) {
-            out.push(path);
+            out.push((path, optional_ancestors.to_vec()));
         }
     }
 }
@@ -56,7 +68,9 @@ fn declares_path(fields: &[PayloadField], segments: &[&str]) -> bool {
     if rest.is_empty() {
         return true;
     }
-    let is_leaf = field.entity.is_some() || field.properties.as_ref().is_none_or(|p| p.is_empty());
+    // A declared struct (a `type` alias lowers with an `entity` marker AND its
+    // properties) produces the nested fields it lists.
+    let is_leaf = field.properties.as_ref().is_none_or(|p| p.is_empty());
     if is_leaf {
         false
     } else {
@@ -185,12 +199,12 @@ pub(crate) fn validate_listen_route_starves_required_field(
                 };
 
                 let mut required = Vec::new();
-                required_leaf_paths(trigger_payload, "", &mut required);
+                required_leaf_paths(trigger_payload, "", &[], &mut required);
 
-                for path in &required {
+                let produced = |path: &str| -> bool {
                     let top_key = path.split('.').next().unwrap();
                     let segments: Vec<&str> = path.split('.').collect();
-                    let produced = match &listen.payload_mapping {
+                    match &listen.payload_mapping {
                         // An explicit `with { }` REPLACES the delivered
                         // payload outright — only its own top-level keys
                         // land, regardless of what the source emits.
@@ -208,8 +222,12 @@ pub(crate) fn validate_listen_route_starves_required_field(
                                 definer_knob_companion_declares_path(source_td, knob, &segments)
                             })
                         }
-                    };
-                    if !produced {
+                    }
+                };
+                for (path, optional_ancestors) in &required {
+                    let top_key = path.split('.').next().unwrap();
+                    let owed = optional_ancestors.iter().all(|a| produced(a));
+                    if owed && !produced(path) {
                         result.add_error(
                             ValidationError::error(
                                 ErrorCode::ListenRouteStarvesRequiredField,
@@ -522,6 +540,40 @@ mod tests {
         );
     }
 
+    /// riya open world: `OwLevelMerger`'s RIYA_LEVEL_DATA contract lists every
+    /// level's optional containers (`baseCurves : [RiyaOwCurve]`, whose
+    /// samples require `x`/`y`); the plain level never sends `baseCurves`, so
+    /// nothing under it is owed. `starved_nested_required_field_errors_once`
+    /// is the control — a container the source DOES send owes its children.
+    #[test]
+    fn an_optional_container_the_source_never_sends_owes_nothing() {
+        let source = trait_with(
+            "PlainData",
+            Some(vec![emit("LEVEL_DATA", Some(vec![field("id", true)]))]),
+            None,
+            vec![],
+        );
+        let listener = trait_with(
+            "Merger",
+            None,
+            Some(vec![listen_from("LEVEL_DATA", "PlainData", "LEVEL_DATA")]),
+            vec![event_def(
+                "LEVEL_DATA",
+                Some(vec![
+                    field("id", true),
+                    object_field(
+                        "baseCurves",
+                        false,
+                        vec![object_field("samples", true, vec![field("x", true)])],
+                    ),
+                ]),
+            )],
+        );
+        let schema = schema_with(vec![orbital_with("World", vec![source, listener])]);
+        let result = validate_listen_route_starves_required_field(&schema);
+        assert!(result.errors.is_empty(), "{:?}", result.errors);
+    }
+
     /// A complete route (source declares every required leaf) is silent.
     #[test]
     fn complete_route_is_silent() {
@@ -630,6 +682,67 @@ mod tests {
 
         let result = validate_listen_route_starves_required_field(&schema);
         assert!(result.errors.is_empty(), "{:?}", result.errors);
+    }
+
+    /// std-pong's `PongMechanic.BURST -> BURST`: the rally atom lowers its
+    /// `particles : [Fx]` payload with an `entity: "Fx"` marker AND the alias's
+    /// properties; the fx listener's local contract requires `particles.id`.
+    /// The source declares the nested field, so it produces it.
+    #[test]
+    fn alias_marked_source_struct_produces_its_declared_nested_fields() {
+        let mut particles = entity_field("particles", true, "Fx");
+        particles.properties = Some(vec![field("id", true), field("ttl", true)]);
+        let source = trait_with(
+            "PongMechanic",
+            Some(vec![emit("BURST", Some(vec![particles]))]),
+            None,
+            vec![],
+        );
+        let listener = trait_with(
+            "PongFx",
+            None,
+            Some(vec![listen_from("BURST", "PongMechanic", "BURST")]),
+            vec![event_def(
+                "BURST",
+                Some(vec![object_field(
+                    "particles",
+                    true,
+                    vec![field("id", true), field("ttl", true)],
+                )]),
+            )],
+        );
+        let schema = schema_with(vec![orbital_with("PongOrbital", vec![source, listener])]);
+        let result = validate_listen_route_starves_required_field(&schema);
+        assert!(result.errors.is_empty(), "{:?}", result.errors);
+    }
+
+    /// Control: a nested field the source struct does NOT declare still starves.
+    #[test]
+    fn alias_marked_source_struct_missing_a_nested_field_still_starves() {
+        let mut particles = entity_field("particles", true, "Fx");
+        particles.properties = Some(vec![field("id", true)]);
+        let source = trait_with(
+            "PongMechanic",
+            Some(vec![emit("BURST", Some(vec![particles]))]),
+            None,
+            vec![],
+        );
+        let listener = trait_with(
+            "PongFx",
+            None,
+            Some(vec![listen_from("BURST", "PongMechanic", "BURST")]),
+            vec![event_def(
+                "BURST",
+                Some(vec![object_field(
+                    "particles",
+                    true,
+                    vec![field("id", true), field("ttl", true)],
+                )]),
+            )],
+        );
+        let schema = schema_with(vec![orbital_with("PongOrbital", vec![source, listener])]);
+        let result = validate_listen_route_starves_required_field(&schema);
+        assert_eq!(result.errors.len(), 1, "{:?}", result.errors);
     }
 
     /// The std-coding-academy shape: a composed `ui-button`'s `GENERATE`

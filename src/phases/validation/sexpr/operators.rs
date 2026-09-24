@@ -55,7 +55,6 @@ pub const CORE_OPERATORS: &[&str] = &[
     "path", // Build dot-separated path strings for dynamic field access
     // String namespaced (std library)
     "str/concat",
-    "str/length",
     "str/upper",
     "str/lower",
     "str/trim",
@@ -66,9 +65,7 @@ pub const CORE_OPERATORS: &[&str] = &[
     "str/includes",
     "str/startsWith",
     "str/endsWith",
-    "str/substring",
     "str/slice",
-    "str/indexOf",
     "str/padStart",
     "str/padEnd",
     "str/capitalize",
@@ -103,10 +100,8 @@ pub const CORE_OPERATORS: &[&str] = &[
     "array/first",
     "array/last",
     "array/nth",
-    "array/rest",
     "array/count",
-    "array/length",
-    "array/len", // GAP-V003: alias for array/length (used in i18n)
+    "array/len",
     "array/map",
     "array/filter",
     "array/reduce",
@@ -137,7 +132,6 @@ pub const CORE_OPERATORS: &[&str] = &[
     "array/range",
     "array/reject",
     "array/remove",
-    "array/repeat",
     "array/shuffle",
     "array/take",
     "array/takeLast",
@@ -416,5 +410,19 @@ mod tests {
             "expected 'camelCase' to hit 'str/camelCase'"
         );
         assert!(!has_namespace_hit("totally-not-an-operator"));
+    }
+
+    #[test]
+    fn suggestions_never_offer_a_name_the_registry_rejects() {
+        for name in known_operator_names() {
+            if name.contains('/') {
+                assert!(
+                    crate::embedded::is_known_operator(name),
+                    "'{name}' is offered as a suggestion but the cross-registry check rejects it"
+                );
+            }
+        }
+        let hint = suggest_operator("array/length").unwrap_or_default();
+        assert!(!hint.contains("'array/length'"), "{hint}");
     }
 }

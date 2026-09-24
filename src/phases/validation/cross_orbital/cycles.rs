@@ -8,103 +8,104 @@ use std::collections::{HashMap, HashSet};
 pub(crate) fn validate_circular_dependencies(schema: &OrbitalSchema) -> ValidationResult {
     let mut result = ValidationResult::new();
 
-    // Build dependency graph: trait -> [traits it depends on (via listen -> emit)]
+    // Event-level graph: a node is (trait, event its arm receives). An arm's
+    // emits reach the arms their routes trigger; only a chain that returns to
+    // an arm it left is a loop. Request/response between two traits on
+    // different events is not (std-platformer-board-2d: JUMP -> FELL).
     let mut dependencies: HashMap<String, HashSet<String>> = HashMap::new();
-    // event -> {(emitting trait, owning orbital)}
-    let mut emitters: HashMap<String, HashSet<(String, String)>> = HashMap::new();
     // (trait, event) pairs whose `emits` declaration is `scope: external`
     let mut external_emits: HashSet<(String, String)> = HashSet::new();
+    // (emitting trait, orbital, arm event, emitted event, arm guarded)
+    let mut arm_emits: Vec<(String, String, String, String, bool)> = Vec::new();
 
-    // Collect emitters from both declarations and transition effects
+    fn walk_emits(expr: &orbital_core::schema::SExpression, out: &mut HashSet<String>) {
+        if let Some(event) = extract_emit_event(expr) {
+            out.insert(event);
+        }
+        if let orbital_core::schema::SExpression::Array(items) = expr {
+            for item in items {
+                walk_emits(item, out);
+            }
+        }
+    }
+
     let all_traits = collect_all_traits(schema);
     for (orbital, trait_def) in &all_traits {
-        // From emits declarations
         if let Some(emits) = &trait_def.emits {
             for emit in emits {
-                emitters
-                    .entry(emit.event.clone())
-                    .or_default()
-                    .insert((trait_def.name.clone(), orbital.to_string()));
                 if emit.scope == Some(EventScope::External) {
                     external_emits.insert((trait_def.name.clone(), emit.event.clone()));
                 }
             }
         }
-        // From transition effects (["emit", "EVENT_NAME"])
         for transition in &trait_def.state_machine.transitions {
-            if let Some(effects) = &transition.effects {
-                for effect in effects {
-                    if let Some(event_name) = extract_emit_event(effect) {
-                        emitters
-                            .entry(event_name)
-                            .or_default()
-                            .insert((trait_def.name.clone(), orbital.to_string()));
-                    }
-                }
+            let effects = transition.effects.as_deref().unwrap_or(&[]);
+            let mut out = HashSet::new();
+            for effect in effects {
+                walk_emits(effect, &mut out);
+            }
+            out.extend(super::collect_async_result_events(effects));
+            for emitted in out {
+                arm_emits.push((
+                    trait_def.name.clone(),
+                    orbital.to_string(),
+                    transition.event.clone(),
+                    emitted,
+                    transition.guard.is_some(),
+                ));
             }
         }
     }
 
-    // Build dependency edges: trait A listens to event X → trait B emits X → A depends on B
-    //
-    // Skip listens whose `triggers` resolves to a lifecycle event (`INIT`,
-    // `LOAD`). Those represent a "reset/refresh on signal" pattern, not a
-    // data dependency: when ContactCreate emits CONTACT_CREATED and
-    // ContactBrowse responds with INIT (re-fetch its list), the state
-    // machine reset breaks the bus loop. Counting them as edges flagged
-    // every legitimate browse/create cycle as a dependency cycle, even
-    // though the runtime can't loop infinitely (INIT just re-fetches).
-    //
-    // Skip also when the emitting and listening traits are in different
-    // orbitals, UNLESS the event genuinely crosses: orbital scope isolates
-    // the bus key, so a non-external emit is never visible on another
-    // orbital's bus at runtime. An edge counts cross-orbital only when the
-    // emitter declares the event `scope: external`, or the listen itself is
-    // externally scoped / sourced at another orbital. Without this, two
-    // instances of one atom (e.g. std-mod-queue mounted in two orbitals)
-    // false-positive as a cycle on their shared event names.
+    // Lifecycle triggers (`INIT`, `LOAD`, `RESET`) are "reset/refresh on
+    // signal", not a data dependency: the state machine reset breaks the loop.
+    // An edge crosses orbitals only when the event genuinely crosses (the
+    // emitter declares it `scope: external`, or the listen is externally
+    // scoped / sourced at another orbital).
     let lifecycle_triggers: std::collections::HashSet<&str> =
         ["INIT", "LOAD", "RESET"].into_iter().collect();
     for (listener_orbital, trait_def) in &all_traits {
-        if let Some(listens) = &trait_def.listens {
-            for listen in listens {
-                let trigger = listen.triggers.as_deref().unwrap_or(&listen.event);
-                if lifecycle_triggers.contains(trigger) {
+        let Some(listens) = &trait_def.listens else {
+            continue;
+        };
+        for listen in listens {
+            let trigger = listen.triggers.as_deref().unwrap_or(&listen.event);
+            if lifecycle_triggers.contains(trigger) || !transition_can_propagate(trait_def, trigger)
+            {
+                continue;
+            }
+            for (emitter, emitter_orbital, arm, emitted, arm_guarded) in &arm_emits {
+                // A guarded edge names the loop's exit, so only unguarded edges can close an error cycle.
+                if *arm_guarded || listen.guard.is_some() {
                     continue;
                 }
-                // Skip terminal listens: if the trigger's transition
-                // produces no emit effects (and no emit declarations
-                // beyond the transition body), the edge can't propagate
-                // an event back into the source emitter's listens. The
-                // pagination pattern relies on this — Pagination listens
-                // to Browse.BrowseItemLoaded with an ITEMS_LOADED
-                // transition that only `set`s totalPages and renders the
-                // pagination control; nothing it does can drive a fire-
-                // loop, so flagging the structural cycle Browse↔Pagination
-                // would be a false positive.
-                if !transition_can_propagate(trait_def, trigger) {
+                if emitted != &listen.event || emitter == &trait_def.name {
                     continue;
                 }
-                if let Some(emitter_traits) = emitters.get(&listen.event) {
-                    for (emitter, emitter_orbital) in emitter_traits {
-                        if emitter == &trait_def.name {
-                            continue;
-                        }
-                        if emitter_orbital != listener_orbital {
-                            let crosses = external_emits
-                                .contains(&(emitter.clone(), listen.event.clone()))
-                                || listen.scope == Some(EventScope::External)
-                                || matches!(listen.source, Some(ListenSource::Orbital { .. }));
-                            if !crosses {
-                                continue;
-                            }
-                        }
-                        dependencies
-                            .entry(trait_def.name.clone())
-                            .or_default()
-                            .insert(emitter.clone());
+                let source_ok = match &listen.source {
+                    None | Some(ListenSource::Any) => true,
+                    Some(ListenSource::Trait { trait_name, .. }) => trait_name == emitter,
+                    Some(ListenSource::Orbital {
+                        orbital,
+                        trait_name,
+                        ..
+                    }) => orbital == emitter_orbital && trait_name == emitter,
+                };
+                if !source_ok {
+                    continue;
+                }
+                if emitter_orbital != listener_orbital {
+                    let crosses = external_emits.contains(&(emitter.clone(), listen.event.clone()))
+                        || listen.scope == Some(EventScope::External)
+                        || matches!(listen.source, Some(ListenSource::Orbital { .. }));
+                    if !crosses {
+                        continue;
                     }
                 }
+                dependencies
+                    .entry(format!("{emitter}.{arm}"))
+                    .or_default()
+                    .insert(format!("{}.{}", trait_def.name, trigger));
             }
         }
     }
@@ -242,7 +243,7 @@ mod tests {
                     guard: None,
                     effects: Some(vec![SExpression::Array(vec![
                         SExpression::String("emit".to_string()),
-                        SExpression::String("APPROVED".to_string()),
+                        SExpression::String("APPROVE".to_string()),
                     ])]),
                 }],
             },
@@ -407,5 +408,194 @@ mod tests {
             .errors
             .iter()
             .any(|e| e.code == ErrorCode::CrossOrbitalCircularDependency));
+    }
+
+    fn routed(json: serde_json::Value) -> OrbitalSchema {
+        serde_json::from_value(json).unwrap()
+    }
+
+    fn two_traits(intent_arm_emits: &str) -> OrbitalSchema {
+        routed(serde_json::json!({
+            "name": "Plat",
+            "orbitals": [{
+                "name": "PlatOrbital",
+                "entity": { "name": "Body", "persistence": "runtime", "fields": [{ "name": "id", "type": "string" }] },
+                "traits": [
+                    {
+                        "name": "Intent",
+                        "linkedEntity": "Body",
+                        "listens": [{ "event": "FELL", "source": { "kind": "trait", "trait": "Authority" }, "triggers": "FELL" }],
+                        "stateMachine": {
+                            "states": [{ "name": "s", "isInitial": true }],
+                            "transitions": [
+                                { "from": "s", "to": "s", "event": "KEY", "effects": [["emit", "JUMP", {}]] },
+                                { "from": "s", "to": "s", "event": "FELL", "effects": [["emit", intent_arm_emits, {}]] }
+                            ]
+                        }
+                    },
+                    {
+                        "name": "Authority",
+                        "linkedEntity": "Body",
+                        "listens": [{ "event": "JUMP", "source": { "kind": "trait", "trait": "Intent" }, "triggers": "JUMP" }],
+                        "stateMachine": {
+                            "states": [{ "name": "s", "isInitial": true }],
+                            "transitions": [{ "from": "s", "to": "s", "event": "JUMP", "effects": [["emit", "FELL", {}]] }]
+                        }
+                    }
+                ]
+            }]
+        }))
+    }
+
+    /// std-platformer-board-2d: the intent trait sends JUMP to the body
+    /// authority, which reports FELL back; the FELL arm raises something
+    /// else. Request/response on different events is not a loop.
+    #[test]
+    fn request_response_between_two_traits_is_not_a_cycle() {
+        let result = validate_circular_dependencies(&two_traits("BURST"));
+        assert!(result.is_valid(), "{:?}", result.errors);
+    }
+
+    /// Control: the FELL arm re-emits JUMP, so the chain closes into a real loop.
+    #[test]
+    fn an_event_chain_that_closes_is_a_cycle() {
+        let result = validate_circular_dependencies(&two_traits("JUMP"));
+        assert!(!result.is_valid());
+    }
+
+    #[derive(Clone, Copy, PartialEq)]
+    enum Exit {
+        Listen,
+        Arm,
+    }
+
+    /// Ring of `events.len()` traits: `T{i}` handles `events[i]` and emits the next event; `T{i+1}` listens it from `T{i}`.
+    /// `orbital_of(i)` places each trait; `guard` puts an exit on ring position `i`.
+    fn ring(
+        events: &[&str],
+        orbital_of: impl Fn(usize) -> usize,
+        guard: Option<(usize, Exit)>,
+    ) -> OrbitalSchema {
+        let n = events.len();
+        let when = serde_json::json!(["<", "@entity.attempts", 3]);
+        let mut orbitals: Vec<Vec<serde_json::Value>> = vec![vec![], vec![]];
+        for i in 0..n {
+            let prev = (i + n - 1) % n;
+            let next = events[(i + 1) % n];
+            let mut listen = serde_json::json!({
+                "event": events[i],
+                "triggers": events[i],
+                "source": if orbital_of(prev) == orbital_of(i) {
+                    serde_json::json!({ "kind": "trait", "trait": format!("T{prev}") })
+                } else {
+                    serde_json::json!({ "kind": "orbital", "orbital": format!("O{}", orbital_of(prev)), "trait": format!("T{prev}") })
+                }
+            });
+            let mut arm = serde_json::json!({ "from": "s", "to": "s", "event": events[i], "effects": [["emit", next, {}]] });
+            match guard {
+                Some((g, Exit::Listen)) if g == i => listen["guard"] = when.clone(),
+                Some((g, Exit::Arm)) if g == i => arm["guard"] = when.clone(),
+                _ => {}
+            }
+            orbitals[orbital_of(i)].push(serde_json::json!({
+                "name": format!("T{i}"),
+                "linkedEntity": "Job",
+                "emits": [{ "event": next, "scope": "external" }],
+                "listens": [listen],
+                "stateMachine": { "states": [{ "name": "s", "isInitial": true }], "transitions": [arm] }
+            }));
+        }
+        let orbitals: Vec<serde_json::Value> = orbitals
+            .into_iter()
+            .enumerate()
+            .filter(|(_, traits)| !traits.is_empty())
+            .map(|(o, traits)| serde_json::json!({
+                "name": format!("O{o}"),
+                "entity": { "name": "Job", "persistence": "runtime", "fields": [{ "name": "id", "type": "string" }] },
+                "traits": traits
+            }))
+            .collect();
+        routed(serde_json::json!({ "name": "Ring", "orbitals": orbitals }))
+    }
+
+    fn is_cycle(schema: &OrbitalSchema) -> bool {
+        validate_circular_dependencies(schema)
+            .errors
+            .iter()
+            .any(|e| e.code == ErrorCode::CrossOrbitalCircularDependency)
+    }
+
+    #[test]
+    fn an_unguarded_two_trait_loop_is_rejected() {
+        assert!(is_cycle(&ring(&["SEND", "ACK"], |_| 0, None)));
+    }
+
+    #[test]
+    fn a_listen_when_on_the_loop_names_its_exit_and_validates_silently() {
+        let result =
+            validate_circular_dependencies(&ring(&["SEND", "ACK"], |_| 0, Some((1, Exit::Listen))));
+        assert!(
+            result.errors.is_empty() && result.warnings.is_empty(),
+            "{result:?}"
+        );
+    }
+
+    #[test]
+    fn a_transition_guard_on_the_loop_names_its_exit_too() {
+        assert!(!is_cycle(&ring(
+            &["SEND", "ACK"],
+            |_| 0,
+            Some((0, Exit::Arm))
+        )));
+    }
+
+    #[test]
+    fn one_guarded_edge_is_enough_on_a_longer_loop_and_every_position_counts() {
+        let events = ["A", "B", "C", "D"];
+        assert!(is_cycle(&ring(&events, |_| 0, None)));
+        for i in 0..events.len() {
+            for exit in [Exit::Listen, Exit::Arm] {
+                assert!(
+                    !is_cycle(&ring(&events, |_| 0, Some((i, exit)))),
+                    "position {i}"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn a_guard_on_another_arm_of_the_same_event_does_not_exit_the_loop() {
+        let mut schema = ring(&["SEND", "ACK"], |_| 0, None);
+        let TraitReference::Inline(t) = &mut schema.orbitals[0].traits[1] else {
+            panic!("inline trait");
+        };
+        let mut guarded = t.state_machine.transitions[0].clone();
+        guarded.guard = Some(SExpression::Bool(false));
+        t.state_machine.transitions.push(guarded);
+        assert!(is_cycle(&schema), "the unguarded arm still closes the loop");
+    }
+
+    #[test]
+    fn a_loop_through_a_lifecycle_trigger_stays_exempt() {
+        assert!(!is_cycle(&ring(&["RESET", "ACK"], |_| 0, None)));
+        assert!(
+            is_cycle(&ring(&["RESTART", "ACK"], |_| 0, None)),
+            "only the three lifecycle names"
+        );
+    }
+
+    #[test]
+    fn a_trait_listening_to_its_own_emit_is_not_a_cross_trait_edge() {
+        assert!(!is_cycle(&ring(&["PING"], |_| 0, None)));
+    }
+
+    #[test]
+    fn a_cross_orbital_loop_follows_the_same_guard_rule() {
+        assert!(is_cycle(&ring(&["SEND", "ACK"], |i| i, None)));
+        assert!(!is_cycle(&ring(
+            &["SEND", "ACK"],
+            |i| i,
+            Some((0, Exit::Listen))
+        )));
     }
 }

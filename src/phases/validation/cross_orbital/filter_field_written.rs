@@ -562,6 +562,7 @@ mod tests {
             .iter()
             .filter_map(|t| match t {
                 TraitReference::Inline(td) => Some(TraitReference::Reference {
+                    local: false,
                     reference: Some(td.name.clone()),
                     ref_id: None,
                     id: None,
