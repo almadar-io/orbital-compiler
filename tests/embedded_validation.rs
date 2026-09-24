@@ -342,36 +342,31 @@ fn cross_registry_unknown_pattern_is_unknown() {
 
 #[test]
 fn sigil_rules_match_ts_source() {
-    // Read the TS source at test time and assert the embedded constant
-    // hasn't drifted. If the TS file changes, this test fails until the
-    // Rust constant is hand-updated to match. (Phase 3.4 deferred the
-    // automated bindings.json artifact to a future phase.)
+    // The baked TS `BINDING_CONTEXT_RULES` (from @almadar/core) and the Rust
+    // `embedded::BINDING_CONTEXT_RULES` must list the same roots per context.
+    // Compared against each other, never against a copy kept in this test.
     let ts_path = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src/baked/bindings.ts");
     let src = std::fs::read_to_string(&ts_path)
         .unwrap_or_else(|e| panic!("Failed to read {}: {}", ts_path.display(), e));
+    let rules_src = &src[src
+        .find("export const BINDING_CONTEXT_RULES")
+        .expect("bindings.ts declares BINDING_CONTEXT_RULES")..];
 
-    // Extremely simple substring check rather than a full TS parser.
-    // Looks for the canonical allowed-list arrays in BINDING_CONTEXT_RULES.
-    assert!(
-        src.contains("guard:")
-            && src.contains("['entity', 'payload', 'state', 'now', 'config', 'user']"),
-        "TS BINDING_CONTEXT_RULES.guard drifted from Rust embedded constant (expected \
-         `'entity', 'payload', 'state', 'now', 'config', 'user'` — `user` was added so \
-         atoms like std-row-access-control can author role/ownership guards like \
-         `when (in @user.role @config.visibleRoles)`)"
-    );
-    assert!(
-        src.contains("effect:")
-            && src.contains("'entity', 'payload', 'state', 'now', 'trait', 'config', 'user'"),
-        "TS BINDING_CONTEXT_RULES.effect drifted from Rust embedded constant (expected \
-         `'entity', 'payload', 'state', 'now', 'trait', 'config', 'user'` — `user` was \
-         added alongside the guard rule so role/ownership filters can run in effects \
-         (std-row-access-control filters @payload.data by @user.id ownership)"
-    );
-    assert!(
-        src.contains("tick:") && src.contains("['entity', 'state', 'now', 'config', 'user']"),
-        "TS BINDING_CONTEXT_RULES.tick drifted from Rust embedded constant (expected \
-         `'entity', 'state', 'now', 'config', 'user'` — `user` was added alongside the \
-         guard and effect rules for consistent role/ownership access in ticks)"
-    );
+    for (context, rust_roots) in embedded::BINDING_CONTEXT_RULES {
+        let block = &rules_src[rules_src
+            .find(&format!("  {context}: {{"))
+            .unwrap_or_else(|| panic!("bindings.ts has no `{context}` rule"))..];
+        let allowed =
+            &block[block.find("allowed: [").expect("rule has `allowed`") + "allowed: [".len()..];
+        let ts_roots: Vec<&str> = allowed[..allowed.find(']').expect("closed `allowed` list")]
+            .split(',')
+            .map(|r| r.trim().trim_matches('\''))
+            .filter(|r| !r.is_empty())
+            .collect();
+        assert_eq!(
+            ts_roots,
+            rust_roots.to_vec(),
+            "BINDING_CONTEXT_RULES.{context}: bindings.ts and embedded.rs list different roots"
+        );
+    }
 }
