@@ -2629,7 +2629,7 @@ mod tests {
     #[test]
     fn local_trait_server_check_follows_runs_on() {
         for op in [
-            "swap!",
+            "swap",
             "atomic",
             "fetch-stream",
             "os/watch-files",

@@ -96,6 +96,14 @@ pub fn validate_trait_effects(
             .get(&transition.event)
             .cloned()
             .unwrap_or_else(|| payload_field_types.clone());
+        if let Some(guard) = &transition.guard {
+            result.merge(set::validate_comparison_operands(
+                guard,
+                &format!("{}.stateMachine.transitions[{}].guard", path, i),
+                &entity_field_types,
+                &scoped_payload,
+            ));
+        }
         if let Some(effects) = &transition.effects {
             for (j, effect) in effects.iter().enumerate() {
                 let effect_path =
@@ -118,6 +126,12 @@ pub fn validate_trait_effects(
                 let emit_result =
                     validate_emit_against_declaration(effect, &effect_path, &declared_emits);
                 result.merge(emit_result);
+                result.merge(set::validate_comparison_operands(
+                    effect,
+                    &effect_path,
+                    &entity_field_types,
+                    &scoped_payload,
+                ));
 
                 result.merge(validate_set_required_field_from_optional_knob(
                     effect,
@@ -152,6 +166,12 @@ pub fn validate_trait_effects(
                 let emit_result =
                     validate_emit_against_declaration(effect, &effect_path, &declared_emits);
                 result.merge(emit_result);
+                result.merge(set::validate_comparison_operands(
+                    effect,
+                    &effect_path,
+                    &entity_field_types,
+                    &payload_field_types,
+                ));
 
                 result.merge(validate_set_required_field_from_optional_knob(
                     effect,

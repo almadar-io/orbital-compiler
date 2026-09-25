@@ -51,13 +51,13 @@ fn a_missing_site_and_a_stray_site_are_both_reported() {
     let mut registry = operators().clone();
     registry.get_mut("emit").unwrap().runs_on = None;
     registry.get_mut("math/ln").unwrap().runs_on = Some("any".into());
-    registry.remove("swap!");
+    registry.remove("swap");
     assert_eq!(
         drift(&registry),
         vec![
             "emit: effect with no runsOn".to_string(),
             "math/ln: pure operator declares runsOn any".to_string(),
-            "swap!: in orbital-core's table but not a registry effect".to_string(),
+            "swap: in orbital-core's table but not a registry effect".to_string(),
         ]
     );
 }

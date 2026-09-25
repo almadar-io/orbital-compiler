@@ -659,6 +659,11 @@ pub enum ErrorCode {
     /// operator `return_semantics` lattice; an unknowable result (`Json`) never
     /// rejects (Gap G-LOLO-SET-OP-RETURN).
     SetReturnTypeMismatch,
+    /// An ordering comparison (`<`, `<=`, `>`, `>=`) whose operands infer to a
+    /// number on one side and a string on the other. The JS runtime coerces,
+    /// the compiled TypeScript does not typecheck, and Rust compares kinds —
+    /// the paths disagree. Convert one side so both are the same kind.
+    ComparisonOperandTypeMismatch,
     /// `(set @entity.X @config.<knob>)` where the value is STILL the literal
     /// `@config.<knob>` token post-inline (no default resolved it, no
     /// call-site override supplied one) and `X` is a REQUIRED entity field.
@@ -747,6 +752,14 @@ pub enum ErrorCode {
     /// `BindingEntityFieldNeverSet` cannot see it. An unbound `id` resolves
     /// empty and the runtime refuses the write outright.
     BindingPersistRowIdNeverSet,
+    /// A transition writes `@entity.F` (or its whole row) and renders an
+    /// embedded trait (`@trait.X`, incl. a hoisted inline `<A.traits.T/>`)
+    /// whose call-site value reads that field of the same PERSISTENT entity.
+    /// The embed resolves `@entity` against its own frame at its own render
+    /// (its mount), so it shows the value from before this transition. Read
+    /// the value the transition used instead (a call-site capture, `?row.F`),
+    /// or route the host event to the embed's INIT.
+    BindingEmbedReadsArmWrite,
     /// `persist create E { ... }` with an explicit data literal whose key set
     /// lacks a field that `E.@create` compares (e.g. `@create sender ==
     /// @user.id` and the literal has no `sender`). The access policy will
@@ -1364,6 +1377,7 @@ impl ErrorCode {
             ErrorCode::SetValueTypeMismatch => "ORB_X_SET_VALUE_TYPE_MISMATCH",
             ErrorCode::EnumValueNotMember => "ORB_X_ENUM_VALUE_NOT_MEMBER",
             ErrorCode::SetReturnTypeMismatch => "ORB_X_SET_RETURN_TYPE_MISMATCH",
+            ErrorCode::ComparisonOperandTypeMismatch => "ORB_X_COMPARISON_OPERAND_TYPE_MISMATCH",
             ErrorCode::SetRequiredFieldFromOptionalKnob => {
                 "ORB_X_SET_REQUIRED_FIELD_FROM_OPTIONAL_KNOB"
             }
@@ -1383,6 +1397,7 @@ impl ErrorCode {
             }
             ErrorCode::BindingEntityFieldNotFound => "ORB_BINDING_ENTITY_FIELD_NOT_FOUND",
             ErrorCode::BindingEntityFieldNeverSet => "ORB_BINDING_ENTITY_FIELD_NEVER_SET",
+            ErrorCode::BindingEmbedReadsArmWrite => "ORB_BINDING_EMBED_READS_ARM_WRITE",
             ErrorCode::BindingPersistRowIdNeverSet => "ORB_BINDING_PERSIST_ROW_ID_NEVER_SET",
             ErrorCode::PersistCreateMissingPolicyField => "ORB_PERSIST_CREATE_MISSING_POLICY_FIELD",
             ErrorCode::BindingTraitMissingName => "ORB_BINDING_TRAIT_MISSING_NAME",
@@ -1635,6 +1650,7 @@ impl ErrorCode {
             | ErrorCode::SetValueTypeMismatch
             | ErrorCode::EnumValueNotMember
             | ErrorCode::SetReturnTypeMismatch
+            | ErrorCode::ComparisonOperandTypeMismatch
             | ErrorCode::SetRequiredFieldFromOptionalKnob
             | ErrorCode::EmitDeclaredButUnfired
             | ErrorCode::EmitConfigRefInvalid => "effect",
@@ -1702,6 +1718,7 @@ impl ErrorCode {
             | ErrorCode::BindingEntityFieldNotFound
             | ErrorCode::BindingEntityFieldNeverSet
             | ErrorCode::BindingPersistRowIdNeverSet
+            | ErrorCode::BindingEmbedReadsArmWrite
             | ErrorCode::BindingTraitMissingName
             | ErrorCode::BindingTraitInvalidFormat
             | ErrorCode::BindingTraitUnknown

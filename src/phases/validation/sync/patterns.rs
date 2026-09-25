@@ -2,7 +2,7 @@
 //!
 //! Source: packages/almadar-core/src/patterns/patterns-registry.json
 //!
-//! Last synced: 2026-09-21
+//! Last synced: 2026-09-25
 //! To regenerate: npx tsx tools/almadar-pattern-sync/index.ts
 //!
 //! DO NOT EDIT MANUALLY - changes will be overwritten on next sync.
@@ -20,7 +20,6 @@ pub static PATTERN_TYPES: LazyLock<HashSet<&'static str>> = LazyLock::new(|| {
         "animated-counter",
         "animated-graphic",
         "animated-reveal",
-        "article-section",
         "aside",
         "atlas-image",
         "atlas-panel",
@@ -34,12 +33,10 @@ pub static PATTERN_TYPES: LazyLock<HashSet<&'static str>> = LazyLock::new(|| {
         "checkbox",
         "code-block",
         "command-palette",
-        "community-links",
         "conditional-wrapper",
         "confetti-effect",
         "connection-block",
         "container",
-        "content-section",
         "date-range-picker",
         "day-cell",
         "doc-toc",
@@ -57,19 +54,18 @@ pub static PATTERN_TYPES: LazyLock<HashSet<&'static str>> = LazyLock::new(|| {
         "graph-view",
         "hstack",
         "icon",
+        "image",
         "import-preview-tree",
         "import-progress",
         "import-source-picker",
         "infinite-scroll-sentinel",
         "input",
-        "install-box",
         "label",
         "law-reference-tooltip",
         "lightbox",
         "likert-scale",
         "map-view",
         "markdown-content",
-        "marketing-footer",
         "matrix-question",
         "menu",
         "number-stepper",
@@ -79,7 +75,6 @@ pub static PATTERN_TYPES: LazyLock<HashSet<&'static str>> = LazyLock::new(|| {
         "presence",
         "progress-bar",
         "progress-dots",
-        "pull-quote",
         "pull-to-refresh",
         "qr-scanner",
         "quiz-block",
@@ -89,7 +84,6 @@ pub static PATTERN_TYPES: LazyLock<HashSet<&'static str>> = LazyLock::new(|| {
         "rich-text-editor",
         "scaled-diagram",
         "select",
-        "service-catalog",
         "side-panel",
         "simple-grid",
         "skeleton",
@@ -98,7 +92,6 @@ pub static PATTERN_TYPES: LazyLock<HashSet<&'static str>> = LazyLock::new(|| {
         "spinner",
         "stack",
         "star-rating",
-        "step-flow",
         "svg-branch",
         "svg-connection",
         "svg-flow",
@@ -112,7 +105,6 @@ pub static PATTERN_TYPES: LazyLock<HashSet<&'static str>> = LazyLock::new(|| {
         "svg-stack",
         "swipeable-row",
         "switch",
-        "tag-cloud",
         "text-highlight",
         "textarea",
         "theme-toggle",
@@ -134,14 +126,8 @@ pub static PATTERN_TYPES: LazyLock<HashSet<&'static str>> = LazyLock::new(|| {
         // Debug Patterns
         "runtime-debugger",
         // Display Patterns
-        "book-chapter-view",
-        "book-cover-page",
-        "book-table-of-contents",
-        "book-viewer",
         "branching-logic-builder",
         "calendar-grid",
-        "case-study-card",
-        "case-study-organism",
         "chart-legend",
         "chat-bar",
         "code-runner-panel",
@@ -156,35 +142,23 @@ pub static PATTERN_TYPES: LazyLock<HashSet<&'static str>> = LazyLock::new(|| {
         "entity-table",
         "feature-card",
         "feature-grid",
-        "feature-grid-organism",
         "flip-card",
         "jazari-state-machine",
         "line-chart",
-        "marketing-stat-card",
         "master-detail-layout",
         "module-card",
         "orbital-visualization",
-        "pricing-card",
-        "pricing-grid",
-        "pricing-organism",
         "reply-tree",
         "section",
         "segment-renderer",
-        "showcase-card",
-        "showcase-organism",
         "sortable-list",
         "stat-card",
         "stat-display",
         "state-machine-view",
-        "stats-grid",
-        "stats-organism",
         "status-dot",
-        "step-flow-organism",
         "subagent-trace-panel",
         "svg-grid",
         "table-view",
-        "team-card",
-        "team-organism",
         "timeline",
         "version-diff",
         // Filter Patterns
@@ -243,8 +217,6 @@ pub static PATTERN_TYPES: LazyLock<HashSet<&'static str>> = LazyLock::new(|| {
         "trait-slot",
         // Header Patterns
         "header",
-        "hero-organism",
-        "hero-section",
         "page-header",
         "section-header",
         // Layout Patterns
@@ -260,7 +232,6 @@ pub static PATTERN_TYPES: LazyLock<HashSet<&'static str>> = LazyLock::new(|| {
         "spacer",
         "split",
         "split-pane",
-        "split-section",
         "time-slot-cell",
         "toast-slot",
         "ui-slot-component",
@@ -276,9 +247,7 @@ pub static PATTERN_TYPES: LazyLock<HashSet<&'static str>> = LazyLock::new(|| {
         // Media Patterns
         "media-gallery",
         // Navigation Patterns
-        "book-nav-bar",
         "breadcrumb",
-        "cta-banner",
         "doc-breadcrumb",
         "doc-pagination",
         "doc-sidebar",
@@ -298,14 +267,10 @@ pub static PATTERN_TYPES: LazyLock<HashSet<&'static str>> = LazyLock::new(|| {
         "notification",
         "violation-alert",
         // Template Patterns
-        "about-page-template",
         "auth-layout",
         "counter-template",
         "dashboard-layout",
-        "feature-detail-page-template",
         "generic-app-template",
-        "landing-page-template",
-        "pricing-page-template",
         // Visualization Patterns
         "chart",
         "meter",
@@ -348,7 +313,6 @@ pub static PATTERN_TO_CATEGORY: LazyLock<HashMap<&'static str, &'static str>> =
             ("animated-counter", "component"),
             ("animated-graphic", "component"),
             ("animated-reveal", "component"),
-            ("article-section", "component"),
             ("aside", "component"),
             ("atlas-image", "component"),
             ("atlas-panel", "component"),
@@ -362,12 +326,10 @@ pub static PATTERN_TO_CATEGORY: LazyLock<HashMap<&'static str, &'static str>> =
             ("checkbox", "component"),
             ("code-block", "component"),
             ("command-palette", "component"),
-            ("community-links", "component"),
             ("conditional-wrapper", "component"),
             ("confetti-effect", "component"),
             ("connection-block", "component"),
             ("container", "component"),
-            ("content-section", "component"),
             ("date-range-picker", "component"),
             ("day-cell", "component"),
             ("doc-toc", "component"),
@@ -385,19 +347,18 @@ pub static PATTERN_TO_CATEGORY: LazyLock<HashMap<&'static str, &'static str>> =
             ("graph-view", "component"),
             ("hstack", "component"),
             ("icon", "component"),
+            ("image", "component"),
             ("import-preview-tree", "component"),
             ("import-progress", "component"),
             ("import-source-picker", "component"),
             ("infinite-scroll-sentinel", "component"),
             ("input", "component"),
-            ("install-box", "component"),
             ("label", "component"),
             ("law-reference-tooltip", "component"),
             ("lightbox", "component"),
             ("likert-scale", "component"),
             ("map-view", "component"),
             ("markdown-content", "component"),
-            ("marketing-footer", "component"),
             ("matrix-question", "component"),
             ("menu", "component"),
             ("number-stepper", "component"),
@@ -407,7 +368,6 @@ pub static PATTERN_TO_CATEGORY: LazyLock<HashMap<&'static str, &'static str>> =
             ("presence", "component"),
             ("progress-bar", "component"),
             ("progress-dots", "component"),
-            ("pull-quote", "component"),
             ("pull-to-refresh", "component"),
             ("qr-scanner", "component"),
             ("quiz-block", "component"),
@@ -417,7 +377,6 @@ pub static PATTERN_TO_CATEGORY: LazyLock<HashMap<&'static str, &'static str>> =
             ("rich-text-editor", "component"),
             ("scaled-diagram", "component"),
             ("select", "component"),
-            ("service-catalog", "component"),
             ("side-panel", "component"),
             ("simple-grid", "component"),
             ("skeleton", "component"),
@@ -426,7 +385,6 @@ pub static PATTERN_TO_CATEGORY: LazyLock<HashMap<&'static str, &'static str>> =
             ("spinner", "component"),
             ("stack", "component"),
             ("star-rating", "component"),
-            ("step-flow", "component"),
             ("svg-branch", "component"),
             ("svg-connection", "component"),
             ("svg-flow", "component"),
@@ -440,7 +398,6 @@ pub static PATTERN_TO_CATEGORY: LazyLock<HashMap<&'static str, &'static str>> =
             ("svg-stack", "component"),
             ("swipeable-row", "component"),
             ("switch", "component"),
-            ("tag-cloud", "component"),
             ("text-highlight", "component"),
             ("textarea", "component"),
             ("theme-toggle", "component"),
@@ -462,14 +419,8 @@ pub static PATTERN_TO_CATEGORY: LazyLock<HashMap<&'static str, &'static str>> =
             // Debug
             ("runtime-debugger", "debug"),
             // Display
-            ("book-chapter-view", "display"),
-            ("book-cover-page", "display"),
-            ("book-table-of-contents", "display"),
-            ("book-viewer", "display"),
             ("branching-logic-builder", "display"),
             ("calendar-grid", "display"),
-            ("case-study-card", "display"),
-            ("case-study-organism", "display"),
             ("chart-legend", "display"),
             ("chat-bar", "display"),
             ("code-runner-panel", "display"),
@@ -484,35 +435,23 @@ pub static PATTERN_TO_CATEGORY: LazyLock<HashMap<&'static str, &'static str>> =
             ("entity-table", "display"),
             ("feature-card", "display"),
             ("feature-grid", "display"),
-            ("feature-grid-organism", "display"),
             ("flip-card", "display"),
             ("jazari-state-machine", "display"),
             ("line-chart", "display"),
-            ("marketing-stat-card", "display"),
             ("master-detail-layout", "display"),
             ("module-card", "display"),
             ("orbital-visualization", "display"),
-            ("pricing-card", "display"),
-            ("pricing-grid", "display"),
-            ("pricing-organism", "display"),
             ("reply-tree", "display"),
             ("section", "display"),
             ("segment-renderer", "display"),
-            ("showcase-card", "display"),
-            ("showcase-organism", "display"),
             ("sortable-list", "display"),
             ("stat-card", "display"),
             ("stat-display", "display"),
             ("state-machine-view", "display"),
-            ("stats-grid", "display"),
-            ("stats-organism", "display"),
             ("status-dot", "display"),
-            ("step-flow-organism", "display"),
             ("subagent-trace-panel", "display"),
             ("svg-grid", "display"),
             ("table-view", "display"),
-            ("team-card", "display"),
-            ("team-organism", "display"),
             ("timeline", "display"),
             ("version-diff", "display"),
             // Filter
@@ -571,8 +510,6 @@ pub static PATTERN_TO_CATEGORY: LazyLock<HashMap<&'static str, &'static str>> =
             ("trait-slot", "game"),
             // Header
             ("header", "header"),
-            ("hero-organism", "header"),
-            ("hero-section", "header"),
             ("page-header", "header"),
             ("section-header", "header"),
             // Layout
@@ -588,7 +525,6 @@ pub static PATTERN_TO_CATEGORY: LazyLock<HashMap<&'static str, &'static str>> =
             ("spacer", "layout"),
             ("split", "layout"),
             ("split-pane", "layout"),
-            ("split-section", "layout"),
             ("time-slot-cell", "layout"),
             ("toast-slot", "layout"),
             ("ui-slot-component", "layout"),
@@ -604,9 +540,7 @@ pub static PATTERN_TO_CATEGORY: LazyLock<HashMap<&'static str, &'static str>> =
             // Media
             ("media-gallery", "media"),
             // Navigation
-            ("book-nav-bar", "navigation"),
             ("breadcrumb", "navigation"),
-            ("cta-banner", "navigation"),
             ("doc-breadcrumb", "navigation"),
             ("doc-pagination", "navigation"),
             ("doc-sidebar", "navigation"),
@@ -626,14 +560,10 @@ pub static PATTERN_TO_CATEGORY: LazyLock<HashMap<&'static str, &'static str>> =
             ("notification", "state"),
             ("violation-alert", "state"),
             // Template
-            ("about-page-template", "template"),
             ("auth-layout", "template"),
             ("counter-template", "template"),
             ("dashboard-layout", "template"),
-            ("feature-detail-page-template", "template"),
             ("generic-app-template", "template"),
-            ("landing-page-template", "template"),
-            ("pricing-page-template", "template"),
             // Visualization
             ("chart", "visualization"),
             ("meter", "visualization"),
@@ -659,23 +589,16 @@ pub static VALID_ITEM_ACTION_PROPS: LazyLock<HashSet<&'static str>> = LazyLock::
 pub static PATTERN_REQUIRED_PROPS: LazyLock<HashMap<&'static str, Vec<&'static str>>> =
     LazyLock::new(|| {
         [
-            ("about-page-template", vec!["entity"]),
             ("accordion", vec!["items"]),
             ("action-palette", vec!["actions"]),
             ("action-tile", vec!["action"]),
             ("activation-block", vec!["question"]),
             ("animated-counter", vec!["value"]),
             ("animated-reveal", vec!["children"]),
-            ("article-section", vec!["title", "children"]),
             ("behavior-view", vec!["data"]),
             ("bloom-quiz-block", vec!["level", "question", "answer"]),
-            ("book-chapter-view", vec!["chapter"]),
-            ("book-cover-page", vec!["title"]),
-            ("book-nav-bar", vec!["currentPage", "totalPages"]),
-            ("book-table-of-contents", vec!["parts"]),
             ("branching-logic-builder", vec!["questions", "rules"]),
             ("carousel", vec!["items"]),
-            ("case-study-card", vec!["title", "description", "category", "href"]),
             ("center", vec!["children"]),
             ("chart-legend", vec!["items"]),
             ("choice-button", vec!["text"]),
@@ -685,10 +608,8 @@ pub static PATTERN_REQUIRED_PROPS: LazyLock<HashMap<&'static str, Vec<&'static s
             ("confetti-effect", vec!["trigger"]),
             ("confirm-dialog", vec!["title"]),
             ("connection-block", vec!["content"]),
-            ("content-section", vec!["children"]),
             ("control-grid", vec!["kind"]),
             ("counter-template", vec!["entity"]),
-            ("cta-banner", vec!["title"]),
             ("dashboard-grid", vec!["cells"]),
             ("data-grid", vec!["entity"]),
             ("data-list", vec!["entity"]),
@@ -713,7 +634,6 @@ pub static PATTERN_REQUIRED_PROPS: LazyLock<HashMap<&'static str, Vec<&'static s
             ("entity-table", vec!["fields"]),
             ("error-boundary", vec!["children"]),
             ("feature-card", vec!["title", "description"]),
-            ("feature-detail-page-template", vec!["entity"]),
             ("feature-grid", vec!["items"]),
             ("filter-group", vec!["entity", "filters"]),
             ("flex", vec!["children"]),
@@ -733,19 +653,15 @@ pub static PATTERN_REQUIRED_PROPS: LazyLock<HashMap<&'static str, Vec<&'static s
             ("graph-view", vec!["nodes", "edges"]),
             ("grid", vec!["children"]),
             ("health-bar", vec!["current", "max"]),
-            ("hero-section", vec!["title", "subtitle"]),
+            ("image", vec!["src", "alt"]),
             ("import-preview-tree", vec!["units", "entityDisplay"]),
             ("import-progress", vec!["step"]),
             ("import-source-picker", vec!["sources"]),
             ("infinite-scroll-sentinel", vec!["loadMoreEvent"]),
-            ("install-box", vec!["command"]),
-            ("landing-page-template", vec!["entity"]),
             ("law-reference-tooltip", vec!["reference", "children"]),
             ("lightbox", vec!["images"]),
             ("line-chart", vec!["data"]),
             ("markdown-content", vec!["content"]),
-            ("marketing-footer", vec!["columns"]),
-            ("marketing-stat-card", vec!["value", "label"]),
             ("master-detail", vec!["masterFields"]),
             ("master-detail-layout", vec!["master", "detail"]),
             ("matrix-question", vec!["rows"]),
@@ -760,12 +676,8 @@ pub static PATTERN_REQUIRED_PROPS: LazyLock<HashMap<&'static str, Vec<&'static s
             ("popover", vec!["content", "children"]),
             ("positioned-canvas", vec!["items"]),
             ("presence", vec!["show", "children"]),
-            ("pricing-card", vec!["name", "price", "features", "action"]),
-            ("pricing-grid", vec!["plans"]),
-            ("pricing-page-template", vec!["entity"]),
             ("progress-bar", vec!["value"]),
             ("progress-dots", vec!["count", "currentIndex"]),
-            ("pull-quote", vec!["children"]),
             ("pull-to-refresh", vec!["refreshEvent", "children"]),
             ("quiz-block", vec!["question", "answer"]),
             ("reflection-block", vec!["prompt", "index"]),
@@ -778,8 +690,6 @@ pub static PATTERN_REQUIRED_PROPS: LazyLock<HashMap<&'static str, Vec<&'static s
             ("section-header", vec!["title"]),
             ("segment-renderer", vec!["segments"]),
             ("sequence-bar", vec!["slots", "maxSlots"]),
-            ("service-catalog", vec!["services"]),
-            ("showcase-card", vec!["title", "image"]),
             ("side-panel", vec!["title", "children", "isOpen", "onClose"]),
             ("sidebar", vec!["items"]),
             ("simple-grid", vec!["children"]),
@@ -788,20 +698,15 @@ pub static PATTERN_REQUIRED_PROPS: LazyLock<HashMap<&'static str, Vec<&'static s
             ("sparkline", vec!["data"]),
             ("split", vec!["children"]),
             ("split-pane", vec!["left", "right"]),
-            ("split-section", vec!["title", "description"]),
             ("stat-badge", vec!["label"]),
             ("stat-display", vec!["label", "value"]),
             ("state-graph", vec!["states"]),
             ("state-json-view", vec!["name", "initialState", "states", "transitions"]),
-            ("stats-grid", vec!["stats"]),
-            ("step-flow", vec!["steps"]),
             ("subagent-trace-panel", vec!["subagents", "disclosureLevel", "open"]),
             ("swipeable-row", vec!["children"]),
             ("tabbed-container", vec!["tabs"]),
             ("table-view", vec!["entity"]),
-            ("tag-cloud", vec!["tags"]),
             ("tag-input", vec!["value"]),
-            ("team-card", vec!["name", "role", "bio"]),
             ("text-highlight", vec!["highlightType", "children"]),
             ("time-slot-cell", vec!["time"]),
             ("timeline", vec!["fields"]),
@@ -826,7 +731,6 @@ pub static PATTERN_REQUIRED_PROPS: LazyLock<HashMap<&'static str, Vec<&'static s
 pub static PATTERN_PROPS_SCHEMA: LazyLock<HashMap<&'static str, HashSet<&'static str>>> =
     LazyLock::new(|| {
         [
-            ("about-page-template", ["className", "entity"].into_iter().collect()),
             (
                 "accordion",
                 [
@@ -948,7 +852,7 @@ pub static PATTERN_PROPS_SCHEMA: LazyLock<HashMap<&'static str, HashSet<&'static
                 .into_iter()
                 .collect(),
             ),
-            ("animated-counter", ["className", "duration", "format", "prefix", "suffix", "value"].into_iter().collect()),
+            ("animated-counter", ["className", "duration", "format", "label", "prefix", "suffix", "value"].into_iter().collect()),
             (
                 "animated-graphic",
                 [
@@ -986,7 +890,6 @@ pub static PATTERN_PROPS_SCHEMA: LazyLock<HashMap<&'static str, HashSet<&'static
                 .into_iter()
                 .collect(),
             ),
-            ("article-section", ["children", "className", "maxWidth", "title"].into_iter().collect()),
             ("aside", ["children", "className"].into_iter().collect()),
             (
                 "atlas-image",
@@ -1105,31 +1008,6 @@ pub static PATTERN_PROPS_SCHEMA: LazyLock<HashMap<&'static str, HashSet<&'static
                 .into_iter()
                 .collect(),
             ),
-            ("book-chapter-view", ["chapter", "className", "direction", "orbitalSchema"].into_iter().collect()),
-            ("book-cover-page", ["author", "className", "coverImageUrl", "direction", "subtitle", "title"].into_iter().collect()),
-            ("book-nav-bar", ["chapterTitle", "className", "currentPage", "direction", "totalPages"].into_iter().collect()),
-            ("book-table-of-contents", ["className", "currentChapterId", "direction", "parts"].into_iter().collect()),
-            (
-                "book-viewer",
-                [
-                    "activeFilters",
-                    "className",
-                    "entity",
-                    "error",
-                    "fieldMap",
-                    "initialPage",
-                    "isLoading",
-                    "page",
-                    "pageSize",
-                    "searchValue",
-                    "selectedIds",
-                    "sortBy",
-                    "sortDirection",
-                    "totalCount",
-                ]
-                .into_iter()
-                .collect(),
-            ),
             (
                 "box",
                 [
@@ -1141,6 +1019,7 @@ pub static PATTERN_PROPS_SCHEMA: LazyLock<HashMap<&'static str, HashSet<&'static
                     "children",
                     "className",
                     "data-theme",
+                    "dir",
                     "display",
                     "fullHeight",
                     "fullWidth",
@@ -1183,6 +1062,7 @@ pub static PATTERN_PROPS_SCHEMA: LazyLock<HashMap<&'static str, HashSet<&'static
                     "className",
                     "data-testid",
                     "disabled",
+                    "href",
                     "icon",
                     "iconAsset",
                     "iconRight",
@@ -1334,41 +1214,6 @@ pub static PATTERN_PROPS_SCHEMA: LazyLock<HashMap<&'static str, HashSet<&'static
                 .collect(),
             ),
             (
-                "case-study-card",
-                [
-                    "category",
-                    "categoryColor",
-                    "className",
-                    "description",
-                    "href",
-                    "linkLabel",
-                    "title",
-                ]
-                .into_iter()
-                .collect(),
-            ),
-            (
-                "case-study-organism",
-                [
-                    "activeFilters",
-                    "className",
-                    "entity",
-                    "error",
-                    "heading",
-                    "isLoading",
-                    "page",
-                    "pageSize",
-                    "searchValue",
-                    "selectedIds",
-                    "sortBy",
-                    "sortDirection",
-                    "subtitle",
-                    "totalCount",
-                ]
-                .into_iter()
-                .collect(),
-            ),
-            (
                 "center",
                 [
                     "as",
@@ -1423,6 +1268,7 @@ pub static PATTERN_PROPS_SCHEMA: LazyLock<HashMap<&'static str, HashSet<&'static
                     "page",
                     "pageSize",
                     "placeholder",
+                    "runningIndicator",
                     "searchValue",
                     "selectedIds",
                     "sortBy",
@@ -1539,7 +1385,6 @@ pub static PATTERN_PROPS_SCHEMA: LazyLock<HashMap<&'static str, HashSet<&'static
                 .into_iter()
                 .collect(),
             ),
-            ("community-links", ["className", "discord", "github", "heading", "subtitle", "twitter"].into_iter().collect()),
             ("conditional-wrapper", ["animate", "children", "condition", "context", "fallback"].into_iter().collect()),
             ("confetti-effect", ["className", "duration", "particleCount", "trigger"].into_iter().collect()),
             (
@@ -1587,7 +1432,6 @@ pub static PATTERN_PROPS_SCHEMA: LazyLock<HashMap<&'static str, HashSet<&'static
                 .into_iter()
                 .collect(),
             ),
-            ("content-section", ["background", "children", "className", "id", "padding"].into_iter().collect()),
             (
                 "control-button",
                 [
@@ -1645,20 +1489,6 @@ pub static PATTERN_PROPS_SCHEMA: LazyLock<HashMap<&'static str, HashSet<&'static
                     "size",
                     "title",
                     "variant",
-                ]
-                .into_iter()
-                .collect(),
-            ),
-            (
-                "cta-banner",
-                [
-                    "align",
-                    "background",
-                    "className",
-                    "primaryAction",
-                    "secondaryAction",
-                    "subtitle",
-                    "title",
                 ]
                 .into_iter()
                 .collect(),
@@ -2260,30 +2090,7 @@ pub static PATTERN_PROPS_SCHEMA: LazyLock<HashMap<&'static str, HashSet<&'static
                 .into_iter()
                 .collect(),
             ),
-            ("feature-detail-page-template", ["className", "entity"].into_iter().collect()),
             ("feature-grid", ["className", "columns", "gap", "items"].into_iter().collect()),
-            (
-                "feature-grid-organism",
-                [
-                    "activeFilters",
-                    "className",
-                    "columns",
-                    "entity",
-                    "error",
-                    "heading",
-                    "isLoading",
-                    "page",
-                    "pageSize",
-                    "searchValue",
-                    "selectedIds",
-                    "sortBy",
-                    "sortDirection",
-                    "subtitle",
-                    "totalCount",
-                ]
-                .into_iter()
-                .collect(),
-            ),
             (
                 "file-tree",
                 [
@@ -2726,48 +2533,6 @@ pub static PATTERN_PROPS_SCHEMA: LazyLock<HashMap<&'static str, HashSet<&'static
                 .collect(),
             ),
             (
-                "hero-organism",
-                [
-                    "activeFilters",
-                    "children",
-                    "className",
-                    "entity",
-                    "error",
-                    "isLoading",
-                    "page",
-                    "pageSize",
-                    "searchValue",
-                    "selectedIds",
-                    "sortBy",
-                    "sortDirection",
-                    "totalCount",
-                ]
-                .into_iter()
-                .collect(),
-            ),
-            (
-                "hero-section",
-                [
-                    "align",
-                    "background",
-                    "backgroundElement",
-                    "children",
-                    "className",
-                    "image",
-                    "imagePosition",
-                    "installCommand",
-                    "primaryAction",
-                    "secondaryAction",
-                    "subtitle",
-                    "tag",
-                    "tagVariant",
-                    "title",
-                    "titleAccent",
-                ]
-                .into_iter()
-                .collect(),
-            ),
-            (
                 "hstack",
                 [
                     "action",
@@ -2806,6 +2571,7 @@ pub static PATTERN_PROPS_SCHEMA: LazyLock<HashMap<&'static str, HashSet<&'static
                 .into_iter()
                 .collect(),
             ),
+            ("image", ["alt", "aspect", "bordered", "className", "fit", "loading", "rounded", "src"].into_iter().collect()),
             (
                 "import-preview-tree",
                 [
@@ -2886,7 +2652,6 @@ pub static PATTERN_PROPS_SCHEMA: LazyLock<HashMap<&'static str, HashSet<&'static
                 .into_iter()
                 .collect(),
             ),
-            ("install-box", ["className", "command", "label"].into_iter().collect()),
             (
                 "jazari-state-machine",
                 [
@@ -2903,7 +2668,6 @@ pub static PATTERN_PROPS_SCHEMA: LazyLock<HashMap<&'static str, HashSet<&'static
                 .collect(),
             ),
             ("label", ["className", "htmlFor", "required", "text"].into_iter().collect()),
-            ("landing-page-template", ["className", "entity", "featureColumns", "variant"].into_iter().collect()),
             ("law-reference-tooltip", ["children", "className", "position", "reference"].into_iter().collect()),
             (
                 "learning-canvas",
@@ -2997,8 +2761,6 @@ pub static PATTERN_PROPS_SCHEMA: LazyLock<HashMap<&'static str, HashSet<&'static
                 .collect(),
             ),
             ("markdown-content", ["className", "content", "direction"].into_iter().collect()),
-            ("marketing-footer", ["className", "columns", "copyright", "logo"].into_iter().collect()),
-            ("marketing-stat-card", ["className", "label", "size", "value"].into_iter().collect()),
             (
                 "master-detail",
                 [
@@ -3375,44 +3137,6 @@ pub static PATTERN_PROPS_SCHEMA: LazyLock<HashMap<&'static str, HashSet<&'static
             ),
             ("presence", ["children", "className", "show"].into_iter().collect()),
             (
-                "pricing-card",
-                [
-                    "action",
-                    "badge",
-                    "className",
-                    "description",
-                    "features",
-                    "highlighted",
-                    "name",
-                    "price",
-                ]
-                .into_iter()
-                .collect(),
-            ),
-            ("pricing-grid", ["className", "plans"].into_iter().collect()),
-            (
-                "pricing-organism",
-                [
-                    "activeFilters",
-                    "className",
-                    "entity",
-                    "error",
-                    "heading",
-                    "isLoading",
-                    "page",
-                    "pageSize",
-                    "searchValue",
-                    "selectedIds",
-                    "sortBy",
-                    "sortDirection",
-                    "subtitle",
-                    "totalCount",
-                ]
-                .into_iter()
-                .collect(),
-            ),
-            ("pricing-page-template", ["className", "entity"].into_iter().collect()),
-            (
                 "progress-bar",
                 [
                     "className",
@@ -3431,7 +3155,6 @@ pub static PATTERN_PROPS_SCHEMA: LazyLock<HashMap<&'static str, HashSet<&'static
                 .collect(),
             ),
             ("progress-dots", ["className", "count", "currentIndex", "getState", "onDotClick", "size"].into_iter().collect()),
-            ("pull-quote", ["children", "className"].into_iter().collect()),
             ("pull-to-refresh", ["children", "className", "refreshEvent", "refreshPayload", "threshold"].into_iter().collect()),
             (
                 "qr-scanner",
@@ -3656,30 +3379,6 @@ pub static PATTERN_PROPS_SCHEMA: LazyLock<HashMap<&'static str, HashSet<&'static
                 .into_iter()
                 .collect(),
             ),
-            ("service-catalog", ["className", "services"].into_iter().collect()),
-            ("showcase-card", ["accentColor", "badge", "className", "description", "href", "image", "title"].into_iter().collect()),
-            (
-                "showcase-organism",
-                [
-                    "activeFilters",
-                    "className",
-                    "columns",
-                    "entity",
-                    "error",
-                    "heading",
-                    "isLoading",
-                    "page",
-                    "pageSize",
-                    "searchValue",
-                    "selectedIds",
-                    "sortBy",
-                    "sortDirection",
-                    "subtitle",
-                    "totalCount",
-                ]
-                .into_iter()
-                .collect(),
-            ),
             (
                 "side-panel",
                 [
@@ -3790,21 +3489,6 @@ pub static PATTERN_PROPS_SCHEMA: LazyLock<HashMap<&'static str, HashSet<&'static
                     "resizable",
                     "right",
                     "rightClassName",
-                ]
-                .into_iter()
-                .collect(),
-            ),
-            (
-                "split-section",
-                [
-                    "background",
-                    "bullets",
-                    "children",
-                    "className",
-                    "description",
-                    "image",
-                    "imagePosition",
-                    "title",
                 ]
                 .into_iter()
                 .collect(),
@@ -3966,52 +3650,7 @@ pub static PATTERN_PROPS_SCHEMA: LazyLock<HashMap<&'static str, HashSet<&'static
                 .collect(),
             ),
             ("state-machine-view", ["className", "error", "isLoading", "layoutData", "renderStateNode"].into_iter().collect()),
-            ("stats-grid", ["className", "columns", "stats"].into_iter().collect()),
-            (
-                "stats-organism",
-                [
-                    "activeFilters",
-                    "className",
-                    "columns",
-                    "entity",
-                    "error",
-                    "isLoading",
-                    "page",
-                    "pageSize",
-                    "searchValue",
-                    "selectedIds",
-                    "sortBy",
-                    "sortDirection",
-                    "totalCount",
-                ]
-                .into_iter()
-                .collect(),
-            ),
             ("status-dot", ["className", "label", "pulse", "size", "status"].into_iter().collect()),
-            ("step-flow", ["className", "orientation", "showConnectors", "steps"].into_iter().collect()),
-            (
-                "step-flow-organism",
-                [
-                    "activeFilters",
-                    "className",
-                    "entity",
-                    "error",
-                    "heading",
-                    "isLoading",
-                    "orientation",
-                    "page",
-                    "pageSize",
-                    "searchValue",
-                    "selectedIds",
-                    "showConnectors",
-                    "sortBy",
-                    "sortDirection",
-                    "subtitle",
-                    "totalCount",
-                ]
-                .into_iter()
-                .collect(),
-            ),
             (
                 "subagent-trace-panel",
                 [
@@ -4326,7 +3965,6 @@ pub static PATTERN_PROPS_SCHEMA: LazyLock<HashMap<&'static str, HashSet<&'static
                 .into_iter()
                 .collect(),
             ),
-            ("tag-cloud", ["className", "tags", "variant"].into_iter().collect()),
             (
                 "tag-input",
                 [
@@ -4340,28 +3978,6 @@ pub static PATTERN_PROPS_SCHEMA: LazyLock<HashMap<&'static str, HashSet<&'static
                     "unique",
                     "value",
                     "variant",
-                ]
-                .into_iter()
-                .collect(),
-            ),
-            ("team-card", ["avatar", "bio", "className", "name", "nameAr", "role"].into_iter().collect()),
-            (
-                "team-organism",
-                [
-                    "activeFilters",
-                    "className",
-                    "entity",
-                    "error",
-                    "heading",
-                    "isLoading",
-                    "page",
-                    "pageSize",
-                    "searchValue",
-                    "selectedIds",
-                    "sortBy",
-                    "sortDirection",
-                    "subtitle",
-                    "totalCount",
                 ]
                 .into_iter()
                 .collect(),
@@ -4694,7 +4310,6 @@ pub static PATTERN_PROPS_SCHEMA: LazyLock<HashMap<&'static str, HashSet<&'static
 pub static PATTERN_PROP_TYPES: LazyLock<HashMap<&'static str, HashMap<&'static str, &'static [&'static str]>>> =
     LazyLock::new(|| {
         [
-            ("about-page-template", [("entity", &["object"] as &[&str]), ("className", &["string"] as &[&str])].into_iter().collect()),
             (
                 "accordion",
                 [
@@ -4829,7 +4444,8 @@ pub static PATTERN_PROP_TYPES: LazyLock<HashMap<&'static str, HashMap<&'static s
             (
                 "animated-counter",
                 [
-                    ("value", &["number", "string"] as &[&str]),
+                    ("value", &["string", "number"] as &[&str]),
+                    ("label", &["string"] as &[&str]),
                     ("duration", &["number"] as &[&str]),
                     ("prefix", &["string"] as &[&str]),
                     ("suffix", &["string"] as &[&str]),
@@ -4872,17 +4488,6 @@ pub static PATTERN_PROP_TYPES: LazyLock<HashMap<&'static str, HashMap<&'static s
                     ("animate", &["boolean"] as &[&str]),
                     ("easing", &["string"] as &[&str]),
                     ("children", &["node", "function"] as &[&str]),
-                ]
-                .into_iter()
-                .collect(),
-            ),
-            (
-                "article-section",
-                [
-                    ("title", &["string"] as &[&str]),
-                    ("children", &["node"] as &[&str]),
-                    ("maxWidth", &["string"] as &[&str]),
-                    ("className", &["string"] as &[&str]),
                 ]
                 .into_iter()
                 .collect(),
@@ -5017,78 +4622,11 @@ pub static PATTERN_PROP_TYPES: LazyLock<HashMap<&'static str, HashMap<&'static s
                 .collect(),
             ),
             (
-                "book-chapter-view",
-                [
-                    ("className", &["string"] as &[&str]),
-                    ("chapter", &["object"] as &[&str]),
-                    ("orbitalSchema", &["object"] as &[&str]),
-                    ("direction", &["string"] as &[&str]),
-                ]
-                .into_iter()
-                .collect(),
-            ),
-            (
-                "book-cover-page",
-                [
-                    ("className", &["string"] as &[&str]),
-                    ("title", &["string"] as &[&str]),
-                    ("subtitle", &["string"] as &[&str]),
-                    ("author", &["string"] as &[&str]),
-                    ("coverImageUrl", &["asset"] as &[&str]),
-                    ("direction", &["string"] as &[&str]),
-                ]
-                .into_iter()
-                .collect(),
-            ),
-            (
-                "book-nav-bar",
-                [
-                    ("className", &["string"] as &[&str]),
-                    ("currentPage", &["number"] as &[&str]),
-                    ("totalPages", &["number"] as &[&str]),
-                    ("chapterTitle", &["string"] as &[&str]),
-                    ("direction", &["string"] as &[&str]),
-                ]
-                .into_iter()
-                .collect(),
-            ),
-            (
-                "book-table-of-contents",
-                [
-                    ("className", &["string"] as &[&str]),
-                    ("parts", &["object", "array"] as &[&str]),
-                    ("currentChapterId", &["string"] as &[&str]),
-                    ("direction", &["string"] as &[&str]),
-                ]
-                .into_iter()
-                .collect(),
-            ),
-            (
-                "book-viewer",
-                [
-                    ("className", &["string"] as &[&str]),
-                    ("isLoading", &["boolean"] as &[&str]),
-                    ("error", &["object"] as &[&str]),
-                    ("sortBy", &["string"] as &[&str]),
-                    ("sortDirection", &["string"] as &[&str]),
-                    ("searchValue", &["string"] as &[&str]),
-                    ("page", &["number"] as &[&str]),
-                    ("pageSize", &["number"] as &[&str]),
-                    ("totalCount", &["number"] as &[&str]),
-                    ("activeFilters", &["object"] as &[&str]),
-                    ("selectedIds", &["array"] as &[&str]),
-                    ("entity", &["object", "array"] as &[&str]),
-                    ("initialPage", &["number"] as &[&str]),
-                    ("fieldMap", &["object", "string"] as &[&str]),
-                ]
-                .into_iter()
-                .collect(),
-            ),
-            (
                 "box",
                 [
                     ("className", &["string"] as &[&str]),
                     ("data-theme", &["string"] as &[&str]),
+                    ("dir", &["string"] as &[&str]),
                     ("padding", &["string"] as &[&str]),
                     ("paddingX", &["string"] as &[&str]),
                     ("paddingY", &["string"] as &[&str]),
@@ -5157,6 +4695,7 @@ pub static PATTERN_PROP_TYPES: LazyLock<HashMap<&'static str, HashMap<&'static s
                     ("actionPayload", &["object"] as &[&str]),
                     ("label", &["string"] as &[&str]),
                     ("disabled", &["boolean"] as &[&str]),
+                    ("href", &["string"] as &[&str]),
                     ("data-testid", &["string"] as &[&str]),
                 ]
                 .into_iter()
@@ -5300,41 +4839,6 @@ pub static PATTERN_PROP_TYPES: LazyLock<HashMap<&'static str, HashMap<&'static s
                 .collect(),
             ),
             (
-                "case-study-card",
-                [
-                    ("title", &["string"] as &[&str]),
-                    ("description", &["string"] as &[&str]),
-                    ("category", &["string"] as &[&str]),
-                    ("categoryColor", &["string"] as &[&str]),
-                    ("href", &["string"] as &[&str]),
-                    ("linkLabel", &["string"] as &[&str]),
-                    ("className", &["string"] as &[&str]),
-                ]
-                .into_iter()
-                .collect(),
-            ),
-            (
-                "case-study-organism",
-                [
-                    ("className", &["string"] as &[&str]),
-                    ("isLoading", &["boolean"] as &[&str]),
-                    ("error", &["object"] as &[&str]),
-                    ("sortBy", &["string"] as &[&str]),
-                    ("sortDirection", &["string"] as &[&str]),
-                    ("searchValue", &["string"] as &[&str]),
-                    ("page", &["number"] as &[&str]),
-                    ("pageSize", &["number"] as &[&str]),
-                    ("totalCount", &["number"] as &[&str]),
-                    ("activeFilters", &["object"] as &[&str]),
-                    ("selectedIds", &["array"] as &[&str]),
-                    ("entity", &["object", "array"] as &[&str]),
-                    ("heading", &["string"] as &[&str]),
-                    ("subtitle", &["string"] as &[&str]),
-                ]
-                .into_iter()
-                .collect(),
-            ),
-            (
                 "center",
                 [
                     ("inline", &["boolean"] as &[&str]),
@@ -5402,6 +4906,7 @@ pub static PATTERN_PROP_TYPES: LazyLock<HashMap<&'static str, HashMap<&'static s
                     ("status", &["string"] as &[&str]),
                     ("activeGate", &["string"] as &[&str]),
                     ("jepaValidity", &["number"] as &[&str]),
+                    ("runningIndicator", &["node"] as &[&str]),
                     ("placeholder", &["string"] as &[&str]),
                     ("context", &["string"] as &[&str]),
                 ]
@@ -5538,19 +5043,6 @@ pub static PATTERN_PROP_TYPES: LazyLock<HashMap<&'static str, HashMap<&'static s
                 .collect(),
             ),
             (
-                "community-links",
-                [
-                    ("github", &["object"] as &[&str]),
-                    ("discord", &["object"] as &[&str]),
-                    ("twitter", &["object"] as &[&str]),
-                    ("heading", &["string"] as &[&str]),
-                    ("subtitle", &["string"] as &[&str]),
-                    ("className", &["string"] as &[&str]),
-                ]
-                .into_iter()
-                .collect(),
-            ),
-            (
                 "conditional-wrapper",
                 [
                     ("condition", &["sexpr"] as &[&str]),
@@ -5632,18 +5124,6 @@ pub static PATTERN_PROP_TYPES: LazyLock<HashMap<&'static str, HashMap<&'static s
                 .collect(),
             ),
             (
-                "content-section",
-                [
-                    ("children", &["node"] as &[&str]),
-                    ("background", &["string"] as &[&str]),
-                    ("padding", &["string"] as &[&str]),
-                    ("id", &["string"] as &[&str]),
-                    ("className", &["string"] as &[&str]),
-                ]
-                .into_iter()
-                .collect(),
-            ),
-            (
                 "control-button",
                 [
                     ("assetUrl", &["object"] as &[&str]),
@@ -5700,20 +5180,6 @@ pub static PATTERN_PROP_TYPES: LazyLock<HashMap<&'static str, HashMap<&'static s
                     ("showReset", &["boolean"] as &[&str]),
                     ("size", &["string"] as &[&str]),
                     ("variant", &["string"] as &[&str]),
-                ]
-                .into_iter()
-                .collect(),
-            ),
-            (
-                "cta-banner",
-                [
-                    ("title", &["string"] as &[&str]),
-                    ("subtitle", &["string"] as &[&str]),
-                    ("primaryAction", &["object"] as &[&str]),
-                    ("secondaryAction", &["object"] as &[&str]),
-                    ("background", &["string"] as &[&str]),
-                    ("align", &["string"] as &[&str]),
-                    ("className", &["string"] as &[&str]),
                 ]
                 .into_iter()
                 .collect(),
@@ -6457,7 +5923,6 @@ pub static PATTERN_PROP_TYPES: LazyLock<HashMap<&'static str, HashMap<&'static s
                 .into_iter()
                 .collect(),
             ),
-            ("feature-detail-page-template", [("entity", &["object"] as &[&str]), ("className", &["string"] as &[&str])].into_iter().collect()),
             (
                 "feature-grid",
                 [
@@ -6465,28 +5930,6 @@ pub static PATTERN_PROP_TYPES: LazyLock<HashMap<&'static str, HashMap<&'static s
                     ("columns", &["number"] as &[&str]),
                     ("gap", &["string"] as &[&str]),
                     ("className", &["string"] as &[&str]),
-                ]
-                .into_iter()
-                .collect(),
-            ),
-            (
-                "feature-grid-organism",
-                [
-                    ("className", &["string"] as &[&str]),
-                    ("isLoading", &["boolean"] as &[&str]),
-                    ("error", &["object"] as &[&str]),
-                    ("sortBy", &["string"] as &[&str]),
-                    ("sortDirection", &["string"] as &[&str]),
-                    ("searchValue", &["string"] as &[&str]),
-                    ("page", &["number"] as &[&str]),
-                    ("pageSize", &["number"] as &[&str]),
-                    ("totalCount", &["number"] as &[&str]),
-                    ("activeFilters", &["object"] as &[&str]),
-                    ("selectedIds", &["array"] as &[&str]),
-                    ("entity", &["object", "array"] as &[&str]),
-                    ("columns", &["number"] as &[&str]),
-                    ("heading", &["string"] as &[&str]),
-                    ("subtitle", &["string"] as &[&str]),
                 ]
                 .into_iter()
                 .collect(),
@@ -7024,48 +6467,6 @@ pub static PATTERN_PROP_TYPES: LazyLock<HashMap<&'static str, HashMap<&'static s
                 .collect(),
             ),
             (
-                "hero-organism",
-                [
-                    ("className", &["string"] as &[&str]),
-                    ("isLoading", &["boolean"] as &[&str]),
-                    ("error", &["object"] as &[&str]),
-                    ("sortBy", &["string"] as &[&str]),
-                    ("sortDirection", &["string"] as &[&str]),
-                    ("searchValue", &["string"] as &[&str]),
-                    ("page", &["number"] as &[&str]),
-                    ("pageSize", &["number"] as &[&str]),
-                    ("totalCount", &["number"] as &[&str]),
-                    ("activeFilters", &["object"] as &[&str]),
-                    ("selectedIds", &["array"] as &[&str]),
-                    ("entity", &["object"] as &[&str]),
-                    ("children", &["node"] as &[&str]),
-                ]
-                .into_iter()
-                .collect(),
-            ),
-            (
-                "hero-section",
-                [
-                    ("tag", &["string"] as &[&str]),
-                    ("tagVariant", &["string"] as &[&str]),
-                    ("title", &["string"] as &[&str]),
-                    ("titleAccent", &["string"] as &[&str]),
-                    ("subtitle", &["string"] as &[&str]),
-                    ("primaryAction", &["object"] as &[&str]),
-                    ("secondaryAction", &["object"] as &[&str]),
-                    ("installCommand", &["string"] as &[&str]),
-                    ("image", &["object"] as &[&str]),
-                    ("imagePosition", &["string"] as &[&str]),
-                    ("background", &["string"] as &[&str]),
-                    ("align", &["string"] as &[&str]),
-                    ("backgroundElement", &["node"] as &[&str]),
-                    ("children", &["node"] as &[&str]),
-                    ("className", &["string"] as &[&str]),
-                ]
-                .into_iter()
-                .collect(),
-            ),
-            (
                 "hstack",
                 [
                     ("gap", &["string"] as &[&str]),
@@ -7100,6 +6501,21 @@ pub static PATTERN_PROP_TYPES: LazyLock<HashMap<&'static str, HashMap<&'static s
                     ("className", &["string"] as &[&str]),
                     ("strokeWidth", &["number"] as &[&str]),
                     ("style", &["object"] as &[&str]),
+                ]
+                .into_iter()
+                .collect(),
+            ),
+            (
+                "image",
+                [
+                    ("src", &["asset"] as &[&str]),
+                    ("alt", &["string"] as &[&str]),
+                    ("fit", &["string"] as &[&str]),
+                    ("aspect", &["string"] as &[&str]),
+                    ("rounded", &["string"] as &[&str]),
+                    ("bordered", &["boolean"] as &[&str]),
+                    ("loading", &["string"] as &[&str]),
+                    ("className", &["string"] as &[&str]),
                 ]
                 .into_iter()
                 .collect(),
@@ -7207,16 +6623,6 @@ pub static PATTERN_PROP_TYPES: LazyLock<HashMap<&'static str, HashMap<&'static s
                 .collect(),
             ),
             (
-                "install-box",
-                [
-                    ("command", &["string"] as &[&str]),
-                    ("label", &["string"] as &[&str]),
-                    ("className", &["string"] as &[&str]),
-                ]
-                .into_iter()
-                .collect(),
-            ),
-            (
                 "jazari-state-machine",
                 [
                     ("className", &["string"] as &[&str]),
@@ -7238,17 +6644,6 @@ pub static PATTERN_PROP_TYPES: LazyLock<HashMap<&'static str, HashMap<&'static s
                     ("text", &["string"] as &[&str]),
                     ("htmlFor", &["string"] as &[&str]),
                     ("required", &["boolean"] as &[&str]),
-                ]
-                .into_iter()
-                .collect(),
-            ),
-            (
-                "landing-page-template",
-                [
-                    ("entity", &["object"] as &[&str]),
-                    ("className", &["string"] as &[&str]),
-                    ("variant", &["string"] as &[&str]),
-                    ("featureColumns", &["number"] as &[&str]),
                 ]
                 .into_iter()
                 .collect(),
@@ -7370,28 +6765,6 @@ pub static PATTERN_PROP_TYPES: LazyLock<HashMap<&'static str, HashMap<&'static s
                 [
                     ("content", &["string"] as &[&str]),
                     ("direction", &["string"] as &[&str]),
-                    ("className", &["string"] as &[&str]),
-                ]
-                .into_iter()
-                .collect(),
-            ),
-            (
-                "marketing-footer",
-                [
-                    ("columns", &["array"] as &[&str]),
-                    ("copyright", &["string"] as &[&str]),
-                    ("logo", &["object"] as &[&str]),
-                    ("className", &["string"] as &[&str]),
-                ]
-                .into_iter()
-                .collect(),
-            ),
-            (
-                "marketing-stat-card",
-                [
-                    ("value", &["string"] as &[&str]),
-                    ("label", &["string"] as &[&str]),
-                    ("size", &["string"] as &[&str]),
                     ("className", &["string"] as &[&str]),
                 ]
                 .into_iter()
@@ -7836,44 +7209,6 @@ pub static PATTERN_PROP_TYPES: LazyLock<HashMap<&'static str, HashMap<&'static s
                 .collect(),
             ),
             (
-                "pricing-card",
-                [
-                    ("name", &["string"] as &[&str]),
-                    ("price", &["string"] as &[&str]),
-                    ("description", &["string"] as &[&str]),
-                    ("features", &["array"] as &[&str]),
-                    ("action", &["object"] as &[&str]),
-                    ("highlighted", &["boolean"] as &[&str]),
-                    ("badge", &["string"] as &[&str]),
-                    ("className", &["string"] as &[&str]),
-                ]
-                .into_iter()
-                .collect(),
-            ),
-            ("pricing-grid", [("plans", &["array"] as &[&str]), ("className", &["string"] as &[&str])].into_iter().collect()),
-            (
-                "pricing-organism",
-                [
-                    ("className", &["string"] as &[&str]),
-                    ("isLoading", &["boolean"] as &[&str]),
-                    ("error", &["object"] as &[&str]),
-                    ("sortBy", &["string"] as &[&str]),
-                    ("sortDirection", &["string"] as &[&str]),
-                    ("searchValue", &["string"] as &[&str]),
-                    ("page", &["number"] as &[&str]),
-                    ("pageSize", &["number"] as &[&str]),
-                    ("totalCount", &["number"] as &[&str]),
-                    ("activeFilters", &["object"] as &[&str]),
-                    ("selectedIds", &["array"] as &[&str]),
-                    ("entity", &["object", "array"] as &[&str]),
-                    ("heading", &["string"] as &[&str]),
-                    ("subtitle", &["string"] as &[&str]),
-                ]
-                .into_iter()
-                .collect(),
-            ),
-            ("pricing-page-template", [("entity", &["object"] as &[&str]), ("className", &["string"] as &[&str])].into_iter().collect()),
-            (
                 "progress-bar",
                 [
                     ("value", &["number"] as &[&str]),
@@ -7904,7 +7239,6 @@ pub static PATTERN_PROP_TYPES: LazyLock<HashMap<&'static str, HashMap<&'static s
                 .into_iter()
                 .collect(),
             ),
-            ("pull-quote", [("children", &["string"] as &[&str]), ("className", &["string"] as &[&str])].into_iter().collect()),
             (
                 "pull-to-refresh",
                 [
@@ -8197,43 +7531,6 @@ pub static PATTERN_PROP_TYPES: LazyLock<HashMap<&'static str, HashMap<&'static s
                 .into_iter()
                 .collect(),
             ),
-            ("service-catalog", [("services", &["array"] as &[&str]), ("className", &["string"] as &[&str])].into_iter().collect()),
-            (
-                "showcase-card",
-                [
-                    ("title", &["string"] as &[&str]),
-                    ("description", &["string"] as &[&str]),
-                    ("image", &["object"] as &[&str]),
-                    ("href", &["string"] as &[&str]),
-                    ("badge", &["string"] as &[&str]),
-                    ("accentColor", &["string"] as &[&str]),
-                    ("className", &["string"] as &[&str]),
-                ]
-                .into_iter()
-                .collect(),
-            ),
-            (
-                "showcase-organism",
-                [
-                    ("className", &["string"] as &[&str]),
-                    ("isLoading", &["boolean"] as &[&str]),
-                    ("error", &["object"] as &[&str]),
-                    ("sortBy", &["string"] as &[&str]),
-                    ("sortDirection", &["string"] as &[&str]),
-                    ("searchValue", &["string"] as &[&str]),
-                    ("page", &["number"] as &[&str]),
-                    ("pageSize", &["number"] as &[&str]),
-                    ("totalCount", &["number"] as &[&str]),
-                    ("activeFilters", &["object"] as &[&str]),
-                    ("selectedIds", &["array"] as &[&str]),
-                    ("entity", &["object", "array"] as &[&str]),
-                    ("columns", &["number"] as &[&str]),
-                    ("heading", &["string"] as &[&str]),
-                    ("subtitle", &["string"] as &[&str]),
-                ]
-                .into_iter()
-                .collect(),
-            ),
             (
                 "side-panel",
                 [
@@ -8412,21 +7709,6 @@ pub static PATTERN_PROP_TYPES: LazyLock<HashMap<&'static str, HashMap<&'static s
                 .collect(),
             ),
             (
-                "split-section",
-                [
-                    ("title", &["string"] as &[&str]),
-                    ("description", &["string", "node"] as &[&str]),
-                    ("bullets", &["array"] as &[&str]),
-                    ("image", &["object"] as &[&str]),
-                    ("imagePosition", &["string"] as &[&str]),
-                    ("background", &["string"] as &[&str]),
-                    ("children", &["node"] as &[&str]),
-                    ("className", &["string"] as &[&str]),
-                ]
-                .into_iter()
-                .collect(),
-            ),
-            (
                 "stack",
                 [
                     ("direction", &["string"] as &[&str]),
@@ -8595,36 +7877,6 @@ pub static PATTERN_PROP_TYPES: LazyLock<HashMap<&'static str, HashMap<&'static s
                 .collect(),
             ),
             (
-                "stats-grid",
-                [
-                    ("stats", &["array"] as &[&str]),
-                    ("columns", &["number"] as &[&str]),
-                    ("className", &["string"] as &[&str]),
-                ]
-                .into_iter()
-                .collect(),
-            ),
-            (
-                "stats-organism",
-                [
-                    ("className", &["string"] as &[&str]),
-                    ("isLoading", &["boolean"] as &[&str]),
-                    ("error", &["object"] as &[&str]),
-                    ("sortBy", &["string"] as &[&str]),
-                    ("sortDirection", &["string"] as &[&str]),
-                    ("searchValue", &["string"] as &[&str]),
-                    ("page", &["number"] as &[&str]),
-                    ("pageSize", &["number"] as &[&str]),
-                    ("totalCount", &["number"] as &[&str]),
-                    ("activeFilters", &["object"] as &[&str]),
-                    ("selectedIds", &["array"] as &[&str]),
-                    ("entity", &["object", "array"] as &[&str]),
-                    ("columns", &["number"] as &[&str]),
-                ]
-                .into_iter()
-                .collect(),
-            ),
-            (
                 "status-dot",
                 [
                     ("className", &["string"] as &[&str]),
@@ -8632,40 +7884,6 @@ pub static PATTERN_PROP_TYPES: LazyLock<HashMap<&'static str, HashMap<&'static s
                     ("pulse", &["boolean"] as &[&str]),
                     ("size", &["string"] as &[&str]),
                     ("label", &["string"] as &[&str]),
-                ]
-                .into_iter()
-                .collect(),
-            ),
-            (
-                "step-flow",
-                [
-                    ("steps", &["array"] as &[&str]),
-                    ("orientation", &["string"] as &[&str]),
-                    ("showConnectors", &["boolean"] as &[&str]),
-                    ("className", &["string"] as &[&str]),
-                ]
-                .into_iter()
-                .collect(),
-            ),
-            (
-                "step-flow-organism",
-                [
-                    ("className", &["string"] as &[&str]),
-                    ("isLoading", &["boolean"] as &[&str]),
-                    ("error", &["object"] as &[&str]),
-                    ("sortBy", &["string"] as &[&str]),
-                    ("sortDirection", &["string"] as &[&str]),
-                    ("searchValue", &["string"] as &[&str]),
-                    ("page", &["number"] as &[&str]),
-                    ("pageSize", &["number"] as &[&str]),
-                    ("totalCount", &["number"] as &[&str]),
-                    ("activeFilters", &["object"] as &[&str]),
-                    ("selectedIds", &["array"] as &[&str]),
-                    ("entity", &["object", "array"] as &[&str]),
-                    ("orientation", &["string"] as &[&str]),
-                    ("showConnectors", &["boolean"] as &[&str]),
-                    ("heading", &["string"] as &[&str]),
-                    ("subtitle", &["string"] as &[&str]),
                 ]
                 .into_iter()
                 .collect(),
@@ -9009,16 +8227,6 @@ pub static PATTERN_PROP_TYPES: LazyLock<HashMap<&'static str, HashMap<&'static s
                 .collect(),
             ),
             (
-                "tag-cloud",
-                [
-                    ("tags", &["array"] as &[&str]),
-                    ("variant", &["string"] as &[&str]),
-                    ("className", &["string"] as &[&str]),
-                ]
-                .into_iter()
-                .collect(),
-            ),
-            (
                 "tag-input",
                 [
                     ("value", &["array"] as &[&str]),
@@ -9031,40 +8239,6 @@ pub static PATTERN_PROP_TYPES: LazyLock<HashMap<&'static str, HashMap<&'static s
                     ("className", &["string"] as &[&str]),
                     ("addEvent", &["string"] as &[&str]),
                     ("removeEvent", &["string"] as &[&str]),
-                ]
-                .into_iter()
-                .collect(),
-            ),
-            (
-                "team-card",
-                [
-                    ("name", &["string"] as &[&str]),
-                    ("nameAr", &["string"] as &[&str]),
-                    ("role", &["string"] as &[&str]),
-                    ("bio", &["string"] as &[&str]),
-                    ("avatar", &["asset", "object"] as &[&str]),
-                    ("className", &["string"] as &[&str]),
-                ]
-                .into_iter()
-                .collect(),
-            ),
-            (
-                "team-organism",
-                [
-                    ("className", &["string"] as &[&str]),
-                    ("isLoading", &["boolean"] as &[&str]),
-                    ("error", &["object"] as &[&str]),
-                    ("sortBy", &["string"] as &[&str]),
-                    ("sortDirection", &["string"] as &[&str]),
-                    ("searchValue", &["string"] as &[&str]),
-                    ("page", &["number"] as &[&str]),
-                    ("pageSize", &["number"] as &[&str]),
-                    ("totalCount", &["number"] as &[&str]),
-                    ("activeFilters", &["object"] as &[&str]),
-                    ("selectedIds", &["array"] as &[&str]),
-                    ("entity", &["object", "array"] as &[&str]),
-                    ("heading", &["string"] as &[&str]),
-                    ("subtitle", &["string"] as &[&str]),
                 ]
                 .into_iter()
                 .collect(),
@@ -9470,7 +8644,6 @@ pub static PATTERN_PROP_ENUM_VALUES: LazyLock<HashMap<&'static str, HashMap<&'st
                 .into_iter()
                 .collect(),
             ),
-            ("article-section", [("maxWidth", &["sm", "md", "lg"] as &[&str])].into_iter().collect()),
             ("atlas-image", [("fit", &["contain", "cover", "fill"] as &[&str])].into_iter().collect()),
             ("atlas-panel", [("mode", &["nineSlice", "repeat"] as &[&str])].into_iter().collect()),
             (
@@ -9493,11 +8666,6 @@ pub static PATTERN_PROP_ENUM_VALUES: LazyLock<HashMap<&'static str, HashMap<&'st
             ),
             ("biology-canvas", [("mode", &["2d", "3d"] as &[&str]), ("stageStyle", &["timeline", "ring"] as &[&str])].into_iter().collect()),
             ("bloom-quiz-block", [("level", &["remember", "understand", "apply", "analyze", "evaluate", "create"] as &[&str])].into_iter().collect()),
-            ("book-chapter-view", [("direction", &["rtl", "ltr"] as &[&str])].into_iter().collect()),
-            ("book-cover-page", [("direction", &["rtl", "ltr"] as &[&str])].into_iter().collect()),
-            ("book-nav-bar", [("direction", &["rtl", "ltr"] as &[&str])].into_iter().collect()),
-            ("book-table-of-contents", [("direction", &["rtl", "ltr"] as &[&str])].into_iter().collect()),
-            ("book-viewer", [("sortDirection", &["asc", "desc"] as &[&str])].into_iter().collect()),
             (
                 "box",
                 [
@@ -9520,7 +8688,7 @@ pub static PATTERN_PROP_ENUM_VALUES: LazyLock<HashMap<&'static str, HashMap<&'st
             (
                 "button",
                 [
-                    ("variant", &["primary", "secondary", "ghost", "danger", "success", "warning", "default"] as &[&str]),
+                    ("variant", &["primary", "secondary", "ghost", "danger", "success", "warning", "default", "link"] as &[&str]),
                     ("size", &["sm", "md", "lg"] as &[&str]),
                 ]
                 .into_iter()
@@ -9556,7 +8724,6 @@ pub static PATTERN_PROP_ENUM_VALUES: LazyLock<HashMap<&'static str, HashMap<&'st
                 .into_iter()
                 .collect(),
             ),
-            ("case-study-organism", [("sortDirection", &["asc", "desc"] as &[&str])].into_iter().collect()),
             (
                 "chart",
                 [
@@ -9600,15 +8767,6 @@ pub static PATTERN_PROP_ENUM_VALUES: LazyLock<HashMap<&'static str, HashMap<&'st
             ),
             ("content-renderer", [("sortDirection", &["asc", "desc"] as &[&str]), ("direction", &["rtl", "ltr"] as &[&str])].into_iter().collect()),
             (
-                "content-section",
-                [
-                    ("background", &["default", "alt", "dark", "gradient"] as &[&str]),
-                    ("padding", &["sm", "md", "lg"] as &[&str]),
-                ]
-                .into_iter()
-                .collect(),
-            ),
-            (
                 "control-grid",
                 [
                     ("kind", &["dpad", "actions"] as &[&str]),
@@ -9620,15 +8778,6 @@ pub static PATTERN_PROP_ENUM_VALUES: LazyLock<HashMap<&'static str, HashMap<&'st
                 .collect(),
             ),
             ("counter-template", [("size", &["sm", "md", "lg"] as &[&str]), ("variant", &["minimal", "standard", "full"] as &[&str])].into_iter().collect()),
-            (
-                "cta-banner",
-                [
-                    ("background", &["default", "alt", "dark", "gradient", "primary"] as &[&str]),
-                    ("align", &["center", "left"] as &[&str]),
-                ]
-                .into_iter()
-                .collect(),
-            ),
             ("dashboard-grid", [("sortDirection", &["asc", "desc"] as &[&str]), ("gap", &["sm", "md", "lg"] as &[&str])].into_iter().collect()),
             ("dashboard-layout", [("layoutMode", &["sidebar", "topnav", "bottomnav", "minimal"] as &[&str])].into_iter().collect()),
             (
@@ -9761,7 +8910,6 @@ pub static PATTERN_PROP_ENUM_VALUES: LazyLock<HashMap<&'static str, HashMap<&'st
                 .collect(),
             ),
             ("feature-grid", [("gap", &["sm", "md", "lg"] as &[&str])].into_iter().collect()),
-            ("feature-grid-organism", [("sortDirection", &["asc", "desc"] as &[&str])].into_iter().collect()),
             ("file-tree", [("look", &["files", "nav"] as &[&str])].into_iter().collect()),
             (
                 "filter-group",
@@ -9878,18 +9026,6 @@ pub static PATTERN_PROP_ENUM_VALUES: LazyLock<HashMap<&'static str, HashMap<&'st
                 .into_iter()
                 .collect(),
             ),
-            ("hero-organism", [("sortDirection", &["asc", "desc"] as &[&str])].into_iter().collect()),
-            (
-                "hero-section",
-                [
-                    ("tagVariant", &["primary", "secondary", "accent"] as &[&str]),
-                    ("imagePosition", &["below", "right", "background"] as &[&str]),
-                    ("background", &["dark", "gradient", "subtle"] as &[&str]),
-                    ("align", &["center", "left"] as &[&str]),
-                ]
-                .into_iter()
-                .collect(),
-            ),
             (
                 "hstack",
                 [
@@ -9905,6 +9041,17 @@ pub static PATTERN_PROP_ENUM_VALUES: LazyLock<HashMap<&'static str, HashMap<&'st
                 [
                     ("size", &["xs", "sm", "md", "lg", "xl"] as &[&str]),
                     ("animation", &["spin", "pulse", "none"] as &[&str]),
+                ]
+                .into_iter()
+                .collect(),
+            ),
+            (
+                "image",
+                [
+                    ("fit", &["cover", "contain", "fill", "none"] as &[&str]),
+                    ("aspect", &["auto", "1/1", "4/3", "3/2", "16/9", "21/9"] as &[&str]),
+                    ("rounded", &["none", "sm", "md", "lg", "xl", "2xl", "full"] as &[&str]),
+                    ("loading", &["lazy", "eager"] as &[&str]),
                 ]
                 .into_iter()
                 .collect(),
@@ -9927,11 +9074,9 @@ pub static PATTERN_PROP_ENUM_VALUES: LazyLock<HashMap<&'static str, HashMap<&'st
                 .collect(),
             ),
             ("jazari-state-machine", [("direction", &["ltr", "rtl"] as &[&str])].into_iter().collect()),
-            ("landing-page-template", [("variant", &["product", "service", "platform"] as &[&str])].into_iter().collect()),
             ("law-reference-tooltip", [("position", &["top", "bottom", "left", "right"] as &[&str])].into_iter().collect()),
             ("likert-scale", [("size", &["sm", "md", "lg"] as &[&str]), ("variant", &["radios", "buttons"] as &[&str])].into_iter().collect()),
             ("markdown-content", [("direction", &["ltr", "rtl"] as &[&str])].into_iter().collect()),
-            ("marketing-stat-card", [("size", &["sm", "md", "lg"] as &[&str])].into_iter().collect()),
             ("master-detail", [("sortDirection", &["asc", "desc"] as &[&str])].into_iter().collect()),
             ("matrix-question", [("size", &["sm", "md"] as &[&str])].into_iter().collect()),
             (
@@ -9993,7 +9138,6 @@ pub static PATTERN_PROP_ENUM_VALUES: LazyLock<HashMap<&'static str, HashMap<&'st
                 .into_iter()
                 .collect(),
             ),
-            ("pricing-organism", [("sortDirection", &["asc", "desc"] as &[&str])].into_iter().collect()),
             (
                 "progress-bar",
                 [
@@ -10030,7 +9174,6 @@ pub static PATTERN_PROP_ENUM_VALUES: LazyLock<HashMap<&'static str, HashMap<&'st
             ),
             ("section-header", [("align", &["center", "left", "right"] as &[&str])].into_iter().collect()),
             ("sequence-bar", [("size", &["sm", "md", "lg"] as &[&str])].into_iter().collect()),
-            ("showcase-organism", [("sortDirection", &["asc", "desc"] as &[&str])].into_iter().collect()),
             ("side-panel", [("position", &["left", "right"] as &[&str])].into_iter().collect()),
             ("simple-grid", [("gap", &["none", "xs", "sm", "md", "lg", "xl"] as &[&str])].into_iter().collect()),
             ("skeleton", [("variant", &["header", "table", "form", "card", "text"] as &[&str])].into_iter().collect()),
@@ -10059,7 +9202,6 @@ pub static PATTERN_PROP_ENUM_VALUES: LazyLock<HashMap<&'static str, HashMap<&'st
                 .collect(),
             ),
             ("split-pane", [("direction", &["horizontal", "vertical"] as &[&str])].into_iter().collect()),
-            ("split-section", [("imagePosition", &["left", "right"] as &[&str]), ("background", &["default", "alt"] as &[&str])].into_iter().collect()),
             (
                 "stack",
                 [
@@ -10093,22 +9235,11 @@ pub static PATTERN_PROP_ENUM_VALUES: LazyLock<HashMap<&'static str, HashMap<&'st
                 .into_iter()
                 .collect(),
             ),
-            ("stats-organism", [("sortDirection", &["asc", "desc"] as &[&str])].into_iter().collect()),
             (
                 "status-dot",
                 [
                     ("status", &["online", "offline", "away", "busy", "warning", "critical"] as &[&str]),
                     ("size", &["sm", "md", "lg"] as &[&str]),
-                ]
-                .into_iter()
-                .collect(),
-            ),
-            ("step-flow", [("orientation", &["horizontal", "vertical"] as &[&str])].into_iter().collect()),
-            (
-                "step-flow-organism",
-                [
-                    ("sortDirection", &["asc", "desc"] as &[&str]),
-                    ("orientation", &["horizontal", "vertical"] as &[&str]),
                 ]
                 .into_iter()
                 .collect(),
@@ -10139,7 +9270,6 @@ pub static PATTERN_PROP_ENUM_VALUES: LazyLock<HashMap<&'static str, HashMap<&'st
                 .into_iter()
                 .collect(),
             ),
-            ("tag-cloud", [("variant", &["default", "primary", "accent"] as &[&str])].into_iter().collect()),
             (
                 "tag-input",
                 [
@@ -10148,7 +9278,6 @@ pub static PATTERN_PROP_ENUM_VALUES: LazyLock<HashMap<&'static str, HashMap<&'st
                 .into_iter()
                 .collect(),
             ),
-            ("team-organism", [("sortDirection", &["asc", "desc"] as &[&str])].into_iter().collect()),
             ("text-highlight", [("highlightType", &["question", "note"] as &[&str])].into_iter().collect()),
             ("theme-toggle", [("size", &["sm", "md", "lg"] as &[&str])].into_iter().collect()),
             ("timeline", [("look", &["vertical-compact", "vertical-spacious", "horizontal", "swimlane"] as &[&str])].into_iter().collect()),

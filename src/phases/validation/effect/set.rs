@@ -448,6 +448,80 @@ pub(crate) fn expr_return_incompatible(
     }
 }
 
+/// `ORB_X_COMPARISON_OPERAND_TYPE_MISMATCH`: an ordering comparison anywhere in
+/// `expr` whose operands infer to a number against a string. The JS runtime
+/// coerces, the compiled TypeScript does not typecheck, and Rust compares
+/// kinds, so the paths disagree. Operand types come from the one
+/// `infer_oir_expr_type` derivation; an unknowable side (`Json`, an unresolved
+/// binding) never rejects.
+pub(crate) fn validate_comparison_operands(
+    expr: &SExpression,
+    path: &str,
+    entity_field_types: &HashMap<String, EntityFieldMeta>,
+    payload_field_types: &HashMap<String, String>,
+) -> ValidationResult {
+    let mut result = ValidationResult::new();
+    let ctx = ExprReturnCtx {
+        entity: entity_field_types,
+        payload: payload_field_types,
+    };
+    collect_comparison_mismatches(expr, path, &ctx, &mut result);
+    result
+}
+
+fn collect_comparison_mismatches(
+    expr: &SExpression,
+    path: &str,
+    ctx: &ExprReturnCtx<'_>,
+    result: &mut ValidationResult,
+) {
+    let SExpression::Array(items) = expr else {
+        return;
+    };
+    if let [SExpression::String(op), left, right] = items.as_slice() {
+        if matches!(op.as_str(), "<" | "<=" | ">" | ">=") {
+            if let (Some(l), Some(r)) = (operand_kind(left, ctx), operand_kind(right, ctx)) {
+                if l != r {
+                    result.add_error(
+                        ValidationError::error(
+                            ErrorCode::ComparisonOperandTypeMismatch,
+                            path,
+                            format!("`({op} …)` compares a {l} with a {r}"),
+                        )
+                        .with_suggestion(
+                            "Compare the same kind on both sides: convert the string side to a number, or render the number as a string (e.g. zero-padded) first",
+                        ),
+                    );
+                }
+            }
+        }
+    }
+    for item in items {
+        collect_comparison_mismatches(item, path, ctx, result);
+    }
+}
+
+/// `number` / `string` for an operand whose inferred type is known to be one
+/// of those kinds; `None` for anything else (never rejects).
+fn operand_kind(operand: &SExpression, ctx: &ExprReturnCtx<'_>) -> Option<&'static str> {
+    use orbital_core::ir::OirType;
+    let ty = match operand {
+        SExpression::Number(_) => OirType::Number,
+        SExpression::String(v) if !v.starts_with('@') && !v.starts_with('?') => OirType::String,
+        _ => {
+            let oir = crate::phases::resolve::resolve_sexpr_standalone(operand).ok()?;
+            crate::type_infer::infer_oir_expr_type(&oir, ctx)
+        }
+    };
+    match ty {
+        OirType::Number | OirType::Integer => Some("number"),
+        OirType::String | OirType::Email | OirType::Url | OirType::Phone | OirType::Uuid => {
+            Some("string")
+        }
+        _ => None,
+    }
+}
+
 /// Binding-resolution context for expression-return inference (`set` + `emit`):
 /// resolves a single-segment `@entity.<f>` / `@payload.<f>` binding to its
 /// declared `OirType` from the validator's field-type maps. Deeper paths and
@@ -895,5 +969,120 @@ mod required_field_from_optional_knob_tests {
             &meta("string", true),
         );
         assert!(r.errors.is_empty());
+    }
+}
+
+#[cfg(test)]
+mod comparison_operand_tests {
+    use super::*;
+
+    fn field(name: &str, ty: &str) -> HashMap<String, EntityFieldMeta> {
+        let mut m = HashMap::new();
+        m.insert(
+            name.to_string(),
+            EntityFieldMeta {
+                field_type: ty.into(),
+                shape: orbital_core::compat_kind_oir(ty),
+                enum_values: vec![],
+                required: false,
+            },
+        );
+        m
+    }
+
+    // ── ORB_X_COMPARISON_OPERAND_TYPE_MISMATCH ───────────────────────────────
+
+    fn a(items: Vec<SExpression>) -> SExpression {
+        SExpression::Array(items)
+    }
+    fn st(v: &str) -> SExpression {
+        SExpression::String(v.into())
+    }
+    fn comparison_errors(expr: SExpression, entity: HashMap<String, EntityFieldMeta>) -> usize {
+        validate_comparison_operands(&expr, "p", &entity, &HashMap::new())
+            .errors
+            .iter()
+            .filter(|e| e.code == ErrorCode::ComparisonOperandTypeMismatch)
+            .count()
+    }
+
+    #[test]
+    fn number_compared_with_a_string_is_an_error() {
+        // std-notify-on-event quiet hours: (>= (time/hour @now) (str/slice … 0 2))
+        let slice = a(vec![
+            st("str/slice"),
+            st("@entity.q"),
+            SExpression::Number(0.0),
+            SExpression::Number(2.0),
+        ]);
+        let expr = a(vec![st(">="), a(vec![st("time/hour"), st("@now")]), slice]);
+        assert_eq!(comparison_errors(expr, field("q", "string")), 1);
+    }
+
+    #[test]
+    fn a_nested_comparison_is_found_once() {
+        let slice = a(vec![
+            st("str/slice"),
+            st("@entity.q"),
+            SExpression::Number(0.0),
+            SExpression::Number(2.0),
+        ]);
+        let cmp = a(vec![st("<"), a(vec![st("time/hour"), st("@now")]), slice]);
+        let expr = a(vec![
+            st("if"),
+            a(vec![st("and"), cmp, SExpression::Bool(true)]),
+            st("a"),
+            st("b"),
+        ]);
+        assert_eq!(comparison_errors(expr, field("q", "string")), 1);
+    }
+
+    #[test]
+    fn an_entity_number_against_a_string_literal_is_an_error() {
+        let expr = a(vec![st(">"), st("@entity.count"), st("22")]);
+        assert_eq!(comparison_errors(expr, field("count", "number")), 1);
+    }
+
+    #[test]
+    fn control_same_kind_operands_pass() {
+        let hour = a(vec![st("time/hour"), st("@now")]);
+        assert_eq!(
+            comparison_errors(
+                a(vec![st(">="), hour, SExpression::Number(22.0)]),
+                HashMap::new()
+            ),
+            0
+        );
+        let padded = a(vec![
+            st("str/padStart"),
+            a(vec![
+                st("str/concat"),
+                st(""),
+                a(vec![st("time/hour"), st("@now")]),
+            ]),
+            SExpression::Number(2.0),
+            st("0"),
+        ]);
+        let slice = a(vec![
+            st("str/slice"),
+            st("@entity.q"),
+            SExpression::Number(0.0),
+            SExpression::Number(2.0),
+        ]);
+        assert_eq!(
+            comparison_errors(a(vec![st(">="), padded, slice]), field("q", "string")),
+            0
+        );
+    }
+
+    #[test]
+    fn control_an_unknown_side_never_rejects() {
+        // `@config.quietStartHour` is not resolvable here → inferred Json → skipped.
+        let expr = a(vec![
+            st(">="),
+            a(vec![st("time/hour"), st("@now")]),
+            st("@config.quietStartHour"),
+        ]);
+        assert_eq!(comparison_errors(expr, HashMap::new()), 0);
     }
 }

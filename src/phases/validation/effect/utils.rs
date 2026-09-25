@@ -36,10 +36,10 @@ const EFFECT_POSITION_EXTRA: &[&str] = &[
     "os/watch-signal",
     "os/watch-env",
     "os/debounce",
-    // Resource operators (ref/deref/swap!/watch/atomic)
+    // Resource operators (ref/deref/swap/watch/atomic)
     "ref",    // Reactive entity subscription
     "deref",  // Snapshot read
-    "swap!",  // Atomic CAS read-modify-write
+    "swap",   // Atomic CAS read-modify-write
     "watch",  // Entity change callback
     "atomic", // Transaction group
     // ML effect operators (Gap 4: forward/train/evaluate/checkpoint)

@@ -1490,7 +1490,7 @@ impl<'a> Resolver<'a> {
             // Resource operators
             "ref" => self.resolve_ref_effect(args),
             "deref" => self.resolve_deref_effect(args),
-            "swap!" => self.resolve_swap_effect(args),
+            "swap" => self.resolve_swap_effect(args),
             "watch" => self.resolve_watch_effect(args),
             "atomic" => self.resolve_atomic_effect(args),
 
@@ -1679,6 +1679,42 @@ impl<'a> Resolver<'a> {
             // Post-normalization the shape is `[params, body]` (params = a string
             // for a single param or an array for the grouped form); the flat
             // `[p1, …, pN, body]` form is handled defensively.
+            // A pair's name is a binding, not a call, even when it spells an operator.
+            "let" => {
+                let Some(SExpression::Array(pairs)) = args.first() else {
+                    return Err(ResolveError::InvalidSExpr(
+                        "let requires a bindings list and a body".to_string(),
+                    ));
+                };
+                let mut bindings = Vec::with_capacity(pairs.len());
+                for pair in pairs {
+                    match pair {
+                        SExpression::Array(kv) if kv.len() == 2 => {
+                            let SExpression::String(name) = &kv[0] else {
+                                return Err(ResolveError::InvalidSExpr(format!(
+                                    "let binding name must be a string, got {:?}",
+                                    kv[0]
+                                )));
+                            };
+                            bindings.push(OirExpr::array(vec![
+                                OirExpr::string(name),
+                                self.resolve_sexpr(&kv[1])?,
+                            ]));
+                        }
+                        other => {
+                            return Err(ResolveError::InvalidSExpr(format!(
+                                "let binding must be [name, value], got {other:?}"
+                            )))
+                        }
+                    }
+                }
+                let mut resolved = vec![OirExpr::array(bindings)];
+                for body in &args[1..] {
+                    resolved.push(self.resolve_sexpr(body)?);
+                }
+                Ok(OirExpr::call("let", resolved))
+            }
+
             "fn" | "lambda" => {
                 if args.len() < 2 {
                     return Err(ResolveError::InvalidSExpr(format!(
@@ -2540,13 +2576,13 @@ impl<'a> Resolver<'a> {
     }
 
     fn resolve_swap_effect(&self, args: &[SExpression]) -> Result<OirExpr, ResolveError> {
-        // Format: ["swap!", "EntityType", idExpr, transformExpr]
+        // Format: ["swap", "EntityType", idExpr, transformExpr]
         if args.len() < 3 {
             return Err(ResolveError::InvalidSExpr(
-                "swap! requires entity type, id, and transform".to_string(),
+                "swap requires entity type, id, and transform".to_string(),
             ));
         }
-        let entity_type = self.sexpr_as_str(&args[0], "(swap! …) argument 1 — the entity type")?;
+        let entity_type = self.sexpr_as_str(&args[0], "(swap …) argument 1 — the entity type")?;
         let id = self.resolve_sexpr(&args[1])?;
         let transform = self.resolve_sexpr(&args[2])?;
         Ok(OirExpr::effect(OirEffect::swap(entity_type, id, transform)))
@@ -3939,6 +3975,34 @@ mod tests {
             msg.contains("vec/add") && msg.contains("at most 2"),
             "msg: {msg}"
         );
+    }
+
+    /// A `let` pair's name is a binding, never a call — even when it spells an
+    /// operator (`swap`, `max`) — and its value still resolves as an expression.
+    #[test]
+    fn let_binding_names_never_resolve_as_calls() {
+        for name in ["swap", "max", "total"] {
+            let sexpr: SExpression = serde_json::from_value(serde_json::json!(
+                ["let", [[name, [">", "@a", "@b"]]], ["+", format!("@{name}"), 1]]
+            ))
+            .unwrap();
+            let resolved = resolve_sexpr_standalone(&sexpr)
+                .unwrap_or_else(|e| panic!("`{name}` binding must resolve: {e}"));
+            let OirExpr::Call { function, args } = &resolved else {
+                panic!("let must stay a call, got {resolved:?}");
+            };
+            assert_eq!(function, "let");
+            assert_eq!(args.len(), 2, "{name}");
+            let OirExpr::Array { items } = &args[0] else {
+                panic!("bindings must stay an array, got {:?}", args[0]);
+            };
+            let OirExpr::Array { items: pair } = &items[0] else {
+                panic!("`{name}` pair must stay [name, value], got {:?}", items[0]);
+            };
+            assert!(matches!(&pair[0], OirExpr::String { value } if value == name), "{name}: {:?}", pair[0]);
+            assert!(matches!(&pair[1], OirExpr::BinaryOp { .. }), "{name} value: {:?}", pair[1]);
+            assert!(matches!(&args[1], OirExpr::BinaryOp { .. }), "{name} body: {:?}", args[1]);
+        }
     }
 
     #[test]

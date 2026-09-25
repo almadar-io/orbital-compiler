@@ -7,12 +7,13 @@ use super::canonical_operators::get_canonical_operator;
 use super::entity_mutation::collect_entity_mutators;
 use super::render_ui::is_render_ui_effect;
 use super::{trait_path, ErrorCode, ValidationContext, ValidationError, ValidationResult};
+use orbital_core::events::BUS_EXCLUDED_EVENTS;
 use orbital_core::schema::{
-    EntityDefinition, Orbital, OrbitalSchema, PayloadField, SExpression, TraitDefinition,
-    TraitReference,
+    EntityDefinition, Orbital, OrbitalSchema, PayloadField, Persistence, SExpression,
+    TraitDefinition, TraitReference,
 };
 use regex::Regex;
-use std::collections::{HashMap, HashSet};
+use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 use std::sync::LazyLock;
 
 /// Core binding roots
@@ -104,7 +105,10 @@ fn validate_dispatch_root(
             ValidationError::error(
                 ErrorCode::BindingEventInvalidPath,
                 path,
-                format!("@event.{} does not follow the delivery record", rest.join(".")),
+                format!(
+                    "@event.{} does not follow the delivery record",
+                    rest.join(".")
+                ),
             )
             .with_suggestion("@event has `event`, `payload.<field>` and `source.<field>`")
             .with_valid_values(
@@ -212,6 +216,14 @@ pub fn validate_all_bindings(schema: &OrbitalSchema, ctx: &mut ValidationContext
             &embed_parents_of,
         );
         ctx.merge(capture_result);
+
+        ctx.merge(validate_embed_reads_arm_writes(
+            orbital,
+            &format!("orbitals[{}]", i),
+            &embed_sites,
+            &embed_parents_of,
+            &ctx.entity_definitions,
+        ));
     }
 }
 
@@ -254,6 +266,8 @@ struct EmbedSite {
     event: String,
     /// `@entity.<field>` fields written by a `(set …)` on this transition.
     set_fields: HashSet<String>,
+    /// Each `(set @entity.<field> <value>)` on this transition, field → value.
+    set_sources: BTreeMap<String, SExpression>,
     /// This transition's event payload schema (from the parent trait's
     /// `stateMachine.events`), if declared.
     payload: Option<Vec<PayloadField>>,
@@ -321,12 +335,17 @@ fn build_embed_index(orbital: &Orbital) -> (Vec<EmbedSite>, HashMap<String, Vec<
                     );
                 }
             }
+            let mut set_sources = BTreeMap::new();
+            for effect in transition.effects.iter().flatten() {
+                collect_entity_set_sources(effect, &mut set_sources);
+            }
             let idx = sites.len();
             sites.push(EmbedSite {
                 parent_name: def.name.clone(),
                 parent_linked_entity: def.linked_entity.clone(),
                 event: transition.event.clone(),
                 set_fields,
+                set_sources,
                 payload: event_payloads
                     .get(transition.event.as_str())
                     .map(|p| p.to_vec()),
@@ -362,6 +381,191 @@ fn transitive_ancestor_sites(
                 result.push(i);
                 stack.push(sites[i].parent_name.clone());
             }
+        }
+    }
+    result
+}
+
+/// Every `(set @entity.<field> <value>)` in an effect tree, field → value.
+fn collect_entity_set_sources(expr: &SExpression, out: &mut BTreeMap<String, SExpression>) {
+    let SExpression::Array(items) = expr else {
+        return;
+    };
+    if let [SExpression::String(op), SExpression::String(target), value, ..] = items.as_slice() {
+        if op == "set" {
+            if let Some(field) = target.strip_prefix("@entity.") {
+                let field = field.split('.').next().unwrap_or(field);
+                out.insert(field.to_string(), value.clone());
+            }
+        }
+    }
+    for item in items {
+        collect_entity_set_sources(item, out);
+    }
+}
+
+/// `@entity.<field>` reads (first segment) in a call-site value, plus whether
+/// it reads the whole row (`@entity`).
+fn collect_entity_reads(expr: &SExpression, fields: &mut BTreeSet<String>, whole: &mut bool) {
+    match expr {
+        SExpression::String(v) if v == "@entity" => *whole = true,
+        SExpression::String(v) => {
+            if let Some(path) = v.strip_prefix("@entity.") {
+                fields.insert(path.split('.').next().unwrap_or(path).to_string());
+            }
+        }
+        SExpression::Array(items) => items
+            .iter()
+            .for_each(|i| collect_entity_reads(i, fields, whole)),
+        SExpression::Object(map) => map
+            .values()
+            .for_each(|v| collect_entity_reads(v, fields, whole)),
+        _ => {}
+    }
+}
+
+/// The call-site capture spelling of a payload read (`@payload.row.name` → `?row.name`).
+fn capture_spelling(value: &SExpression) -> Option<String> {
+    match value {
+        SExpression::String(v) => v.strip_prefix("@payload.").map(|p| format!("?{p}")),
+        _ => None,
+    }
+}
+
+/// `ORB_BINDING_EMBED_READS_ARM_WRITE` (see `ErrorCode::BindingEmbedReadsArmWrite`).
+/// An embedded trait's call-site value reading `@entity` resolves against the
+/// embed's own frame when the embed renders, which is its mount. A transition
+/// that writes the field and renders the embed cannot change what it shows.
+/// Entities the client resolves live (`[runtime]`, `[shared]`) are exempt, and
+/// so is a lifecycle arm (it runs at the same mount).
+fn validate_embed_reads_arm_writes(
+    orbital: &Orbital,
+    orbital_path: &str,
+    embed_sites: &[EmbedSite],
+    embed_parents_of: &HashMap<String, Vec<usize>>,
+    entity_definitions: &HashMap<String, EntityDefinition>,
+) -> ValidationResult {
+    let mut result = ValidationResult::new();
+    let bakes_at_mount = |entity: &str| {
+        entity_definitions.get(entity).is_some_and(|def| {
+            !def.shared
+                && def.persistence.as_ref().unwrap_or(&Persistence::Persistent)
+                    == &Persistence::Persistent
+        })
+    };
+    // A render-only trait (every transition a lifecycle event — a hoisted
+    // ui-* wrapper) renders once, at its mount. A stateful trait re-reads
+    // its entity and config on its own transitions, so it owns what it shows.
+    let defs: HashMap<&str, &TraitDefinition> = orbital
+        .traits
+        .iter()
+        .filter_map(|t| match t {
+            TraitReference::Inline(def) => Some((def.name.as_str(), def)),
+            TraitReference::Reference { .. } => None,
+        })
+        .collect();
+    let render_only = |name: &str| {
+        defs.get(name).is_some_and(|def| {
+            def.state_machine
+                .transitions
+                .iter()
+                .all(|t| BUS_EXCLUDED_EVENTS.contains(&t.event.as_str()))
+        })
+    };
+    for tr in &orbital.traits {
+        let TraitReference::Inline(child) = tr else {
+            continue;
+        };
+        let (Some(config), Some(entity)) = (child.config.as_ref(), child.linked_entity.as_deref())
+        else {
+            continue;
+        };
+        if !bakes_at_mount(entity) || !render_only(&child.name) {
+            continue;
+        }
+        let mut fields = BTreeSet::new();
+        let mut whole = false;
+        for field in config.values() {
+            if let Some(default) = field.default.as_ref() {
+                collect_entity_reads(default, &mut fields, &mut whole);
+            }
+        }
+        if fields.is_empty() && !whole {
+            continue;
+        }
+        // The composing transitions: walk up through render-only wrappers and
+        // stop at the first stateful trait, whose arm decides what is shown.
+        let mut composing: Vec<usize> = Vec::new();
+        let mut seen: HashSet<String> = HashSet::new();
+        let mut stack = vec![child.name.clone()];
+        while let Some(name) = stack.pop() {
+            if !seen.insert(name.clone()) {
+                continue;
+            }
+            for &i in embed_parents_of
+                .get(&name)
+                .map(Vec::as_slice)
+                .unwrap_or(&[])
+            {
+                composing.push(i);
+                if render_only(&embed_sites[i].parent_name) {
+                    stack.push(embed_sites[i].parent_name.clone());
+                }
+            }
+        }
+        let mut reported: HashSet<usize> = HashSet::new();
+        for i in composing {
+            let site = &embed_sites[i];
+            if !reported.insert(i)
+                || BUS_EXCLUDED_EVENTS.contains(&site.event.as_str())
+                || site.parent_linked_entity.as_deref() != Some(entity)
+            {
+                continue;
+            }
+            let stale: Vec<&String> = site
+                .set_sources
+                .keys()
+                .filter(|f| whole || fields.contains(*f))
+                .collect();
+            if stale.is_empty() {
+                continue;
+            }
+            let reads = stale
+                .iter()
+                .map(|f| format!("@entity.{f}"))
+                .collect::<Vec<_>>()
+                .join(", ");
+            let (host, event) = (&site.parent_name, &site.event);
+            let captures: Vec<(String, String)> = stale
+                .iter()
+                .filter_map(|f| {
+                    capture_spelling(&site.set_sources[*f]).map(|c| (format!("@entity.{f}"), c))
+                })
+                .collect();
+            let suggestion = if captures.len() == stale.len() {
+                let pairs = captures
+                    .iter()
+                    .map(|(r, c)| format!("{r} → {c}"))
+                    .collect::<Vec<_>>()
+                    .join(", ");
+                format!("Read what `{event}` used, as a call-site capture: {pairs}")
+            } else {
+                format!(
+                    "Re-render the embed explicitly: route `listens {{ {host}.{event} -> INIT }}` on a named `{}`, or pass the value through a call-site capture",
+                    child.name
+                )
+            };
+            result.add_error(
+                ValidationError::error(
+                    ErrorCode::BindingEmbedReadsArmWrite,
+                    format!("{orbital_path} (embeds {}: {reads})", child.name),
+                    format!(
+                        "`{host}.{event}` writes {reads} and renders {}, which reads it when it mounts: it shows the value from before `{event}`",
+                        child.name
+                    ),
+                )
+                .with_suggestion(suggestion),
+            );
         }
     }
     result
@@ -2191,15 +2395,28 @@ mod tests {
             "@fromState",
             "@toState",
         ] {
-            for context in [BindingContext::Guard, BindingContext::Effect, BindingContext::RenderUI] {
-                assert!(codes(binding, context).is_empty(), "{binding} in {context:?}");
+            for context in [
+                BindingContext::Guard,
+                BindingContext::Effect,
+                BindingContext::RenderUI,
+            ] {
+                assert!(
+                    codes(binding, context).is_empty(),
+                    "{binding} in {context:?}"
+                );
             }
         }
     }
 
     #[test]
     fn a_tick_has_no_delivery_so_the_family_is_rejected_there() {
-        for binding in ["@event.event", "@prevEvents", "@prevStates", "@fromState", "@toState"] {
+        for binding in [
+            "@event.event",
+            "@prevEvents",
+            "@prevStates",
+            "@fromState",
+            "@toState",
+        ] {
             assert_eq!(
                 codes(binding, BindingContext::Tick),
                 vec![ErrorCode::BindingDispatchRootInTick],
@@ -2210,14 +2427,28 @@ mod tests {
 
     #[test]
     fn the_state_and_log_roots_take_no_path() {
-        for binding in ["@fromState.x", "@toState.name", "@prevStates.length", "@prevEvents.event"] {
-            assert_eq!(codes(binding, BindingContext::Guard), vec![ErrorCode::BindingRootNoPath], "{binding}");
+        for binding in [
+            "@fromState.x",
+            "@toState.name",
+            "@prevStates.length",
+            "@prevEvents.event",
+        ] {
+            assert_eq!(
+                codes(binding, BindingContext::Guard),
+                vec![ErrorCode::BindingRootNoPath],
+                "{binding}"
+            );
         }
     }
 
     #[test]
     fn an_event_path_must_follow_the_delivery_record() {
-        for binding in ["@event.name", "@event.source.tik", "@event.source", "@event.source.trait.x"] {
+        for binding in [
+            "@event.name",
+            "@event.source.tik",
+            "@event.source",
+            "@event.source.trait.x",
+        ] {
             let found = codes(binding, BindingContext::Guard);
             if binding == "@event.source" {
                 assert!(found.is_empty(), "{binding}: the whole envelope is a value");
@@ -3736,5 +3967,283 @@ mod tests {
             "Non-shared entity must keep per-trait-only behavior — Trait B's setter must not satisfy Trait A: {:?}",
             result.errors
         );
+    }
+
+    // ── ORB_BINDING_EMBED_READS_ARM_WRITE ────────────────────────────────────
+
+    fn entity_defs(persistence: &str, shared: bool) -> HashMap<String, EntityDefinition> {
+        let def: EntityDefinition = serde_json::from_value(serde_json::json!({
+            "name": "E",
+            "persistence": persistence,
+            "shared": shared,
+            "fields": [{ "name": "id", "type": "string" }, { "name": "name", "type": "string" }, { "name": "count", "type": "number" }]
+        }))
+        .unwrap();
+        HashMap::from([("E".to_string(), def)])
+    }
+
+    /// A host arm `event` running `effects` then rendering `@trait.<embed>`.
+    fn host_arm(event: &str, mut effects: Vec<SExpression>, embed: &str) -> TraitDefinition {
+        effects.push(render_children(vec![&format!("@trait.{embed}")]));
+        build_trait_fixture("Host", Some("E"), vec![(event, effects)])
+    }
+
+    /// An embedded trait on `entity` whose call-site config carries `values`.
+    fn embed(name: &str, entity: &str, values: serde_json::Value) -> TraitDefinition {
+        use orbital_core::schema::ConfigField;
+        let mut child = build_trait_fixture(name, Some(entity), vec![]);
+        let cfg: HashMap<String, ConfigField> = serde_json::from_value(values).unwrap();
+        child.config = Some(cfg);
+        child
+    }
+
+    fn set_from_row(field: &str) -> SExpression {
+        arr(vec![
+            s("set"),
+            s(&format!("@entity.{field}")),
+            s(&format!("@payload.row.{field}")),
+        ])
+    }
+
+    fn embed_read_errors(
+        traits: Vec<TraitDefinition>,
+        defs: &HashMap<String, EntityDefinition>,
+    ) -> Vec<ValidationError> {
+        let orbital = orbital_with_traits(traits);
+        let (sites, parents_of) = build_embed_index(&orbital);
+        validate_embed_reads_arm_writes(&orbital, "orbitals[0]", &sites, &parents_of, defs)
+            .errors
+            .into_iter()
+            .filter(|e| e.code == ErrorCode::BindingEmbedReadsArmWrite)
+            .collect()
+    }
+
+    #[test]
+    fn embed_reading_a_field_its_arm_writes_is_an_error_naming_the_capture() {
+        let errors = embed_read_errors(
+            vec![
+                host_arm("OPEN", vec![set_from_row("name")], "Title"),
+                embed(
+                    "Title",
+                    "E",
+                    serde_json::json!({ "content": { "type": "string", "default": "@entity.name" } }),
+                ),
+            ],
+            &entity_defs("persistent", false),
+        );
+        assert_eq!(errors.len(), 1, "{errors:?}");
+        let e = &errors[0];
+        assert!(
+            e.message.contains("Host.OPEN")
+                && e.message.contains("Title")
+                && e.message.contains("@entity.name"),
+            "{}",
+            e.message
+        );
+        assert!(
+            e.suggestion.as_deref().unwrap_or("").contains("?row.name"),
+            "{:?}",
+            e.suggestion
+        );
+    }
+
+    #[test]
+    fn embed_reading_the_whole_row_its_arm_writes_is_an_error() {
+        let errors = embed_read_errors(
+            vec![
+                host_arm("OPEN", vec![set_from_row("name")], "Del"),
+                embed(
+                    "Del",
+                    "E",
+                    serde_json::json!({ "actionPayload": { "type": "unknown", "default": { "itemId": "@entity.id", "row": "@entity" } } }),
+                ),
+            ],
+            &entity_defs("persistent", false),
+        );
+        assert_eq!(errors.len(), 1, "{errors:?}");
+    }
+
+    #[test]
+    fn a_computed_write_points_to_an_explicit_route() {
+        let bump = arr(vec![
+            s("set"),
+            s("@entity.count"),
+            arr(vec![s("+"), s("@entity.count"), SExpression::Number(1.0)]),
+        ]);
+        let errors = embed_read_errors(
+            vec![
+                host_arm("BUMP", vec![bump], "Counter"),
+                embed(
+                    "Counter",
+                    "E",
+                    serde_json::json!({ "value": { "type": "number", "default": "@entity.count" } }),
+                ),
+            ],
+            &entity_defs("persistent", false),
+        );
+        assert_eq!(errors.len(), 1, "{errors:?}");
+        assert!(
+            errors[0]
+                .suggestion
+                .as_deref()
+                .unwrap_or("")
+                .contains("-> INIT"),
+            "{:?}",
+            errors[0].suggestion
+        );
+    }
+
+    #[test]
+    fn a_hoisted_wrapper_does_not_hide_the_host_arm() {
+        let wrapper = build_trait_fixture(
+            "Wrap",
+            Some("E"),
+            vec![("INIT", vec![render_children(vec!["@trait.Title"])])],
+        );
+        let errors = embed_read_errors(
+            vec![
+                host_arm("OPEN", vec![set_from_row("name")], "Wrap"),
+                wrapper,
+                embed(
+                    "Title",
+                    "E",
+                    serde_json::json!({ "content": { "type": "string", "default": "@entity.name" } }),
+                ),
+            ],
+            &entity_defs("persistent", false),
+        );
+        assert_eq!(errors.len(), 1, "{errors:?}");
+        assert!(
+            errors[0].message.contains("Host.OPEN"),
+            "{}",
+            errors[0].message
+        );
+    }
+
+    #[test]
+    fn control_a_call_site_capture_passes() {
+        let errors = embed_read_errors(
+            vec![
+                host_arm("OPEN", vec![set_from_row("name")], "Title"),
+                embed(
+                    "Title",
+                    "E",
+                    serde_json::json!({ "content": { "type": "string", "default": "@callsitePayload.row.name" } }),
+                ),
+            ],
+            &entity_defs("persistent", false),
+        );
+        assert!(errors.is_empty(), "{errors:?}");
+    }
+
+    #[test]
+    fn control_a_field_the_arm_does_not_write_passes() {
+        let errors = embed_read_errors(
+            vec![
+                host_arm("OPEN", vec![set_from_row("count")], "Title"),
+                embed(
+                    "Title",
+                    "E",
+                    serde_json::json!({ "content": { "type": "string", "default": "@entity.name" } }),
+                ),
+            ],
+            &entity_defs("persistent", false),
+        );
+        assert!(errors.is_empty(), "{errors:?}");
+    }
+
+    #[test]
+    fn edge_runtime_and_shared_entities_resolve_live_and_pass() {
+        for (persistence, shared) in [("runtime", false), ("persistent", true)] {
+            let errors = embed_read_errors(
+                vec![
+                    host_arm("OPEN", vec![set_from_row("name")], "Title"),
+                    embed(
+                        "Title",
+                        "E",
+                        serde_json::json!({ "content": { "type": "string", "default": "@entity.name" } }),
+                    ),
+                ],
+                &entity_defs(persistence, shared),
+            );
+            assert!(errors.is_empty(), "{persistence}/{shared}: {errors:?}");
+        }
+    }
+
+    #[test]
+    fn edge_the_lifecycle_arm_and_another_entity_pass() {
+        let lifecycle = embed_read_errors(
+            vec![
+                host_arm("INIT", vec![set_from_row("name")], "Title"),
+                embed(
+                    "Title",
+                    "E",
+                    serde_json::json!({ "content": { "type": "string", "default": "@entity.name" } }),
+                ),
+            ],
+            &entity_defs("persistent", false),
+        );
+        assert!(lifecycle.is_empty(), "{lifecycle:?}");
+        let other = embed_read_errors(
+            vec![
+                host_arm("OPEN", vec![set_from_row("name")], "Title"),
+                embed(
+                    "Title",
+                    "Other",
+                    serde_json::json!({ "content": { "type": "string", "default": "@entity.name" } }),
+                ),
+            ],
+            &entity_defs("persistent", false),
+        );
+        assert!(other.is_empty(), "{other:?}");
+    }
+
+    #[test]
+    fn control_a_stateful_embed_reads_its_own_frame_and_passes() {
+        let mut child = embed(
+            "Status",
+            "E",
+            serde_json::json!({ "content": { "type": "string", "default": "@entity.name" } }),
+        );
+        child.state_machine.transitions.push(
+            build_trait_fixture("x", Some("E"), vec![("SET_STATUS", vec![])])
+                .state_machine
+                .transitions
+                .remove(0),
+        );
+        let errors = embed_read_errors(
+            vec![
+                host_arm("OPEN", vec![set_from_row("name")], "Status"),
+                child,
+            ],
+            &entity_defs("persistent", false),
+        );
+        assert!(errors.is_empty(), "{errors:?}");
+    }
+
+    #[test]
+    fn control_a_stateful_composer_in_between_owns_the_render() {
+        let mut middle = build_trait_fixture(
+            "Middle",
+            Some("E"),
+            vec![
+                ("INIT", vec![render_children(vec!["@trait.Title"])]),
+                ("REFRESH", vec![]),
+            ],
+        );
+        middle.linked_entity = Some("E".to_string());
+        let errors = embed_read_errors(
+            vec![
+                host_arm("OPEN", vec![set_from_row("name")], "Middle"),
+                middle,
+                embed(
+                    "Title",
+                    "E",
+                    serde_json::json!({ "content": { "type": "string", "default": "@entity.name" } }),
+                ),
+            ],
+            &entity_defs("persistent", false),
+        );
+        assert!(errors.is_empty(), "{errors:?}");
     }
 }
