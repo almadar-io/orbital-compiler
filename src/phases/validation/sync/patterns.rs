@@ -2,7 +2,7 @@
 //!
 //! Source: packages/almadar-core/src/patterns/patterns-registry.json
 //!
-//! Last synced: 2026-09-25
+//! Last synced: 2026-09-26
 //! To regenerate: npx tsx tools/almadar-pattern-sync/index.ts
 //!
 //! DO NOT EDIT MANUALLY - changes will be overwritten on next sync.
@@ -54,6 +54,7 @@ pub static PATTERN_TYPES: LazyLock<HashSet<&'static str>> = LazyLock::new(|| {
         "graph-view",
         "hstack",
         "icon",
+        "icon-button",
         "image",
         "import-preview-tree",
         "import-progress",
@@ -256,6 +257,7 @@ pub static PATTERN_TYPES: LazyLock<HashSet<&'static str>> = LazyLock::new(|| {
         "sidebar",
         "tabbed-container",
         "tabs",
+        "top-nav-item",
         "wizard-container",
         "wizard-navigation",
         "wizard-progress",
@@ -347,6 +349,7 @@ pub static PATTERN_TO_CATEGORY: LazyLock<HashMap<&'static str, &'static str>> =
             ("graph-view", "component"),
             ("hstack", "component"),
             ("icon", "component"),
+            ("icon-button", "component"),
             ("image", "component"),
             ("import-preview-tree", "component"),
             ("import-progress", "component"),
@@ -549,6 +552,7 @@ pub static PATTERN_TO_CATEGORY: LazyLock<HashMap<&'static str, &'static str>> =
             ("sidebar", "navigation"),
             ("tabbed-container", "navigation"),
             ("tabs", "navigation"),
+            ("top-nav-item", "navigation"),
             ("wizard-container", "navigation"),
             ("wizard-navigation", "navigation"),
             ("wizard-progress", "navigation"),
@@ -653,6 +657,7 @@ pub static PATTERN_REQUIRED_PROPS: LazyLock<HashMap<&'static str, Vec<&'static s
             ("graph-view", vec!["nodes", "edges"]),
             ("grid", vec!["children"]),
             ("health-bar", vec!["current", "max"]),
+            ("icon-button", vec!["icon", "label"]),
             ("image", vec!["src", "alt"]),
             ("import-preview-tree", vec!["units", "entityDisplay"]),
             ("import-progress", vec!["step"]),
@@ -712,6 +717,7 @@ pub static PATTERN_REQUIRED_PROPS: LazyLock<HashMap<&'static str, Vec<&'static s
             ("timeline", vec!["fields"]),
             ("timer-display", vec!["seconds"]),
             ("tooltip", vec!["content", "children"]),
+            ("top-nav-item", vec!["item"]),
             ("trait-frame", vec!["traitName"]),
             ("trait-slot", vec!["slotNumber"]),
             ("typewriter-text", vec!["text"]),
@@ -1696,8 +1702,11 @@ pub static PATTERN_PROPS_SCHEMA: LazyLock<HashMap<&'static str, HashSet<&'static
                     "bottomPanelClassName",
                     "bottomPanelCollapsed",
                     "bottomPanelHeight",
+                    "bottomPanelIcon",
+                    "bottomPanelLabel",
                     "bottomPanelMinSize",
                     "className",
+                    "compact",
                     "main",
                     "mainClassName",
                     "onBottomPanelCollapsedChange",
@@ -1711,6 +1720,8 @@ pub static PATTERN_PROPS_SCHEMA: LazyLock<HashMap<&'static str, HashSet<&'static
                     "secondarySidebar",
                     "secondarySidebarClassName",
                     "secondarySidebarCollapsed",
+                    "secondarySidebarIcon",
+                    "secondarySidebarLabel",
                     "secondarySidebarWidth",
                     "sidebar",
                     "sidebarClassName",
@@ -1719,6 +1730,7 @@ pub static PATTERN_PROPS_SCHEMA: LazyLock<HashMap<&'static str, HashSet<&'static
                     "sidebarWidth",
                     "statusBar",
                     "statusBarClassName",
+                    "topBarActions",
                 ]
                 .into_iter()
                 .collect(),
@@ -2567,6 +2579,26 @@ pub static PATTERN_PROPS_SCHEMA: LazyLock<HashMap<&'static str, HashSet<&'static
                     "size",
                     "strokeWidth",
                     "style",
+                ]
+                .into_iter()
+                .collect(),
+            ),
+            (
+                "icon-button",
+                [
+                    "action",
+                    "actionPayload",
+                    "className",
+                    "data-testid",
+                    "disabled",
+                    "href",
+                    "icon",
+                    "iconAsset",
+                    "isLoading",
+                    "label",
+                    "size",
+                    "tooltipPosition",
+                    "variant",
                 ]
                 .into_iter()
                 .collect(),
@@ -4062,6 +4094,7 @@ pub static PATTERN_PROPS_SCHEMA: LazyLock<HashMap<&'static str, HashSet<&'static
                 .into_iter()
                 .collect(),
             ),
+            ("top-nav-item", ["activeHref", "className", "item", "tone"].into_iter().collect()),
             ("trait-frame", ["fallback", "traitName"].into_iter().collect()),
             (
                 "trait-slot",
@@ -5473,6 +5506,12 @@ pub static PATTERN_PROP_TYPES: LazyLock<HashMap<&'static str, HashMap<&'static s
                     ("bottomPanelMinSize", &["number"] as &[&str]),
                     ("secondarySidebarCollapsed", &["boolean"] as &[&str]),
                     ("onSecondarySidebarCollapsedChange", &["function"] as &[&str]),
+                    ("compact", &["boolean"] as &[&str]),
+                    ("secondarySidebarLabel", &["string"] as &[&str]),
+                    ("secondarySidebarIcon", &["icon", "string"] as &[&str]),
+                    ("bottomPanelLabel", &["string"] as &[&str]),
+                    ("bottomPanelIcon", &["icon", "string"] as &[&str]),
+                    ("topBarActions", &["node"] as &[&str]),
                     ("className", &["string"] as &[&str]),
                     ("railClassName", &["string"] as &[&str]),
                     ("sidebarClassName", &["string"] as &[&str]),
@@ -6501,6 +6540,26 @@ pub static PATTERN_PROP_TYPES: LazyLock<HashMap<&'static str, HashMap<&'static s
                     ("className", &["string"] as &[&str]),
                     ("strokeWidth", &["number"] as &[&str]),
                     ("style", &["object"] as &[&str]),
+                ]
+                .into_iter()
+                .collect(),
+            ),
+            (
+                "icon-button",
+                [
+                    ("className", &["string"] as &[&str]),
+                    ("variant", &["string"] as &[&str]),
+                    ("size", &["string"] as &[&str]),
+                    ("isLoading", &["boolean"] as &[&str]),
+                    ("iconAsset", &["object"] as &[&str]),
+                    ("action", &["string"] as &[&str]),
+                    ("actionPayload", &["object"] as &[&str]),
+                    ("disabled", &["boolean"] as &[&str]),
+                    ("href", &["string"] as &[&str]),
+                    ("data-testid", &["string"] as &[&str]),
+                    ("icon", &["icon", "string"] as &[&str]),
+                    ("label", &["string"] as &[&str]),
+                    ("tooltipPosition", &["string"] as &[&str]),
                 ]
                 .into_iter()
                 .collect(),
@@ -8355,6 +8414,17 @@ pub static PATTERN_PROP_TYPES: LazyLock<HashMap<&'static str, HashMap<&'static s
                 .into_iter()
                 .collect(),
             ),
+            (
+                "top-nav-item",
+                [
+                    ("item", &["object"] as &[&str]),
+                    ("activeHref", &["string"] as &[&str]),
+                    ("tone", &["string"] as &[&str]),
+                    ("className", &["string"] as &[&str]),
+                ]
+                .into_iter()
+                .collect(),
+            ),
             ("trait-frame", [("traitName", &["string"] as &[&str]), ("fallback", &["node"] as &[&str])].into_iter().collect()),
             (
                 "trait-slot",
@@ -9046,6 +9116,16 @@ pub static PATTERN_PROP_ENUM_VALUES: LazyLock<HashMap<&'static str, HashMap<&'st
                 .collect(),
             ),
             (
+                "icon-button",
+                [
+                    ("variant", &["primary", "secondary", "ghost", "danger", "success", "warning", "default", "link"] as &[&str]),
+                    ("size", &["sm", "md", "lg"] as &[&str]),
+                    ("tooltipPosition", &["top", "bottom", "left", "right"] as &[&str]),
+                ]
+                .into_iter()
+                .collect(),
+            ),
+            (
                 "image",
                 [
                     ("fit", &["cover", "contain", "fill", "none"] as &[&str]),
@@ -9284,6 +9364,7 @@ pub static PATTERN_PROP_ENUM_VALUES: LazyLock<HashMap<&'static str, HashMap<&'st
             ("timer-display", [("format", &["mm:ss", "ss", "countdown"] as &[&str]), ("size", &["sm", "md", "lg"] as &[&str])].into_iter().collect()),
             ("toast-slot", [("variant", &["success", "error", "info", "warning"] as &[&str])].into_iter().collect()),
             ("tooltip", [("position", &["top", "bottom", "left", "right"] as &[&str])].into_iter().collect()),
+            ("top-nav-item", [("tone", &["solid", "soft"] as &[&str])].into_iter().collect()),
             ("trait-slot", [("size", &["sm", "md", "lg"] as &[&str]), ("feedback", &["correct", "wrong"] as &[&str])].into_iter().collect()),
             ("trend-indicator", [("direction", &["up", "down", "flat"] as &[&str]), ("size", &["sm", "md", "lg"] as &[&str])].into_iter().collect()),
             (
@@ -9364,6 +9445,7 @@ pub static PATTERN_EVENT_PROPS: LazyLock<HashMap<&'static str, HashSet<&'static 
             ("form", ["cancelEvent"].into_iter().collect()),
             ("form-section", ["cancelEvent"].into_iter().collect()),
             ("hstack", ["action"].into_iter().collect()),
+            ("icon-button", ["action"].into_iter().collect()),
             ("infinite-scroll-sentinel", ["loadMoreEvent"].into_iter().collect()),
             ("overlay", ["action"].into_iter().collect()),
             ("pull-to-refresh", ["refreshEvent"].into_iter().collect()),
