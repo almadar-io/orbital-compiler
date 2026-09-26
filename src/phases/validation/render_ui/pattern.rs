@@ -134,10 +134,23 @@ fn is_operator_call(expr: &SExpression) -> bool {
 /// recursively, and a collection-callback tuple is left intact for
 /// `as_mapped_children` to claim. Bindings and other non-literal operands drop
 /// out — they carry no shape to check, exactly as they do when bound to a
-/// variable first.
+/// variable first. A conditional's condition is an expression, never a render
+/// node: only its `then`/`else` arms are expanded, and a conditional entry in a
+/// children list is kept intact for `validate_pattern`'s conditional arm.
 fn expand_children_operators(children: &SExpression) -> SExpression {
     if children.as_mapped_children().is_some() {
         return children.clone();
+    }
+    if let Some(cond) = children.as_conditional_node() {
+        let mut out: Vec<SExpression> = Vec::new();
+        for arm in std::iter::once(cond.then_node).chain(cond.else_node) {
+            match expand_children_operators(arm) {
+                SExpression::Array(inner) => out.extend(inner),
+                SExpression::Object(o) => out.push(SExpression::Object(o)),
+                _ => {}
+            }
+        }
+        return SExpression::Array(out);
     }
     if is_operator_call(children) {
         let SExpression::Array(items) = children else {
@@ -157,7 +170,10 @@ fn expand_children_operators(children: &SExpression) -> SExpression {
         if items.iter().any(is_operator_call) {
             let mut out: Vec<SExpression> = Vec::new();
             for item in items {
-                if is_operator_call(item) && item.as_mapped_children().is_none() {
+                if is_operator_call(item)
+                    && item.as_mapped_children().is_none()
+                    && item.as_conditional_node().is_none()
+                {
                     if let SExpression::Array(inner) = expand_children_operators(item) {
                         out.extend(inner);
                         continue;
@@ -778,21 +794,41 @@ pub(crate) fn validate_pattern(
             let cond = pattern
                 .as_conditional_node()
                 .expect("guard above proved this is a conditional node");
-            result.merge(validate_pattern(
-                cond.then_node,
-                &format!("{}.then", path),
-                entity_definitions,
-                extra_patterns,
-                linked_entity,
-            ));
-            if let Some(else_node) = cond.else_node {
-                result.merge(validate_pattern(
-                    else_node,
-                    &format!("{}.else", path),
-                    entity_definitions,
-                    extra_patterns,
-                    linked_entity,
-                ));
+            let arms = std::iter::once((cond.then_node, "then"))
+                .chain(cond.else_node.map(|node| (node, "else")));
+            for (arm, label) in arms {
+                let arm_path = format!("{}.{}", path, label);
+                if let Some(mc) = arm.as_mapped_children() {
+                    result.merge(validate_pattern(
+                        mc.item_node,
+                        &arm_path,
+                        entity_definitions,
+                        extra_patterns,
+                        linked_entity,
+                    ));
+                    continue;
+                }
+                // An arm may be a list (or list-producing operator) of nodes.
+                match expand_children_operators(arm) {
+                    SExpression::Array(nodes) if arm.as_conditional_node().is_none() => {
+                        for (i, node) in nodes.iter().enumerate() {
+                            result.merge(validate_pattern(
+                                node,
+                                &format!("{}[{}]", arm_path, i),
+                                entity_definitions,
+                                extra_patterns,
+                                linked_entity,
+                            ));
+                        }
+                    }
+                    _ => result.merge(validate_pattern(
+                        arm,
+                        &arm_path,
+                        entity_definitions,
+                        extra_patterns,
+                        linked_entity,
+                    )),
+                }
             }
         }
         _ => {

@@ -660,6 +660,180 @@ mod tests {
         );
     }
 
+    // A conditional's condition is an expression, never a render node. A
+    // condition over records — `(> (array/len @config.filters) 0)` once
+    // `@config.filters` is substituted with `[{field, label, …}]` — used to be
+    // flattened into the children list, so each record was reported as a
+    // pattern without a `type` (std-list / std-event-log with filters set).
+    fn record_condition() -> SExpression {
+        SExpression::Array(vec![
+            s(">"),
+            SExpression::Array(vec![
+                s("array/len"),
+                SExpression::Array(vec![obj(&[("field", s("status")), ("label", s("Status"))])]),
+            ]),
+            SExpression::Number(0.0),
+        ])
+    }
+
+    fn stack_with_children(children: SExpression) -> SExpression {
+        SExpression::Array(vec![
+            s("render-ui"),
+            s("main"),
+            obj(&[("type", s("stack")), ("children", children)]),
+        ])
+    }
+
+    fn render_errors(effect: &SExpression) -> Vec<ValidationError> {
+        validate_render_ui_effect(effect, "test", &HashMap::new(), None, None).errors
+    }
+
+    #[test]
+    fn conditional_condition_records_are_not_children() {
+        let entry = SExpression::Array(vec![
+            s("if"),
+            record_condition(),
+            obj(&[("type", s("stack"))]),
+        ]);
+        let errors = render_errors(&stack_with_children(SExpression::Array(vec![entry])));
+        assert!(
+            errors.is_empty(),
+            "the condition's records must not be walked as patterns: {:?}",
+            errors
+        );
+    }
+
+    #[test]
+    fn conditional_condition_records_are_not_children_with_else_arm() {
+        let entry = SExpression::Array(vec![
+            s("if"),
+            record_condition(),
+            obj(&[("type", s("stack"))]),
+            obj(&[("type", s("divider"))]),
+        ]);
+        let errors = render_errors(&stack_with_children(SExpression::Array(vec![entry])));
+        assert!(
+            errors.is_empty(),
+            "the condition's records must not be walked as patterns: {:?}",
+            errors
+        );
+    }
+
+    #[test]
+    fn conditional_children_value_condition_records_are_not_children() {
+        let value = SExpression::Array(vec![
+            s("if"),
+            record_condition(),
+            SExpression::Array(vec![obj(&[("type", s("stack"))])]),
+            SExpression::Array(vec![obj(&[("type", s("divider"))])]),
+        ]);
+        let errors = render_errors(&stack_with_children(value));
+        assert!(
+            errors.is_empty(),
+            "the condition's records must not be walked as patterns: {:?}",
+            errors
+        );
+    }
+
+    #[test]
+    fn conditional_condition_records_do_not_shift_sibling_paths() {
+        let entry = SExpression::Array(vec![
+            s("if"),
+            record_condition(),
+            obj(&[("type", s("stack"))]),
+        ]);
+        let bogus = obj(&[("type", s("definitely-not-a-real-pattern"))]);
+        let errors = render_errors(&stack_with_children(SExpression::Array(vec![entry, bogus])));
+        let invalid: Vec<&str> = errors
+            .iter()
+            .filter(|e| e.code == ErrorCode::RenderUIInvalidPattern)
+            .map(|e| e.path.as_str())
+            .collect();
+        assert_eq!(
+            invalid.len(),
+            1,
+            "exactly the bogus sibling is reported: {:?}",
+            errors
+        );
+        assert!(
+            invalid[0].ends_with("children[1]"),
+            "the bogus sibling keeps its own index: {:?}",
+            invalid
+        );
+    }
+
+    #[test]
+    fn conditional_arm_of_mapped_children_validates_the_item_node() {
+        let ok = SExpression::Array(vec![
+            s("if"),
+            record_condition(),
+            array_map(
+                "@entity.items",
+                "item",
+                obj(&[("type", s("badge")), ("label", s("@item.name"))]),
+            ),
+        ]);
+        let errors = render_errors(&stack_with_children(SExpression::Array(vec![ok])));
+        assert!(
+            errors.is_empty(),
+            "a mapped-children arm is one node producer: {:?}",
+            errors
+        );
+        let bad = SExpression::Array(vec![
+            s("if"),
+            record_condition(),
+            array_map(
+                "@entity.items",
+                "item",
+                obj(&[("type", s("definitely-not-a-real-pattern"))]),
+            ),
+        ]);
+        let errors = render_errors(&stack_with_children(SExpression::Array(vec![bad])));
+        assert!(
+            errors
+                .iter()
+                .any(|e| e.code == ErrorCode::RenderUIInvalidPattern),
+            "the mapped item node is still validated: {:?}",
+            errors
+        );
+    }
+
+    /// Control: a record-bearing condition does not excuse its branches.
+    #[test]
+    fn conditional_with_record_condition_still_validates_its_branches() {
+        let entry = SExpression::Array(vec![
+            s("if"),
+            record_condition(),
+            obj(&[("type", s("definitely-not-a-real-pattern"))]),
+        ]);
+        let errors = render_errors(&stack_with_children(SExpression::Array(vec![entry])));
+        assert!(
+            errors
+                .iter()
+                .any(|e| e.code == ErrorCode::RenderUIInvalidPattern),
+            "an unknown pattern inside the then arm must still be reported: {:?}",
+            errors
+        );
+    }
+
+    /// Control: operand splicing still applies to list-combining operators.
+    #[test]
+    fn array_concat_children_fragments_still_validated() {
+        let value = SExpression::Array(vec![
+            s("array/concat"),
+            s("@entity.buttons"),
+            SExpression::Array(vec![obj(&[("type", s("definitely-not-a-real-pattern"))])]),
+        ]);
+        let errors = render_errors(&stack_with_children(value));
+        assert!(
+            errors
+                .iter()
+                .any(|e| e.code == ErrorCode::RenderUIInvalidPattern),
+            "a bogus literal fragment of array/concat must still be reported: {:?}",
+            errors
+        );
+    }
+
     #[test]
     fn fc5_array_map_children_entry_not_rejected() {
         // A `children` array entry that is the dynamic-collection tuple must NOT
