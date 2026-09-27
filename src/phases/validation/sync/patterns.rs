@@ -1349,6 +1349,7 @@ pub static PATTERN_PROPS_SCHEMA: LazyLock<HashMap<&'static str, HashSet<&'static
                     "actions",
                     "className",
                     "code",
+                    "completions",
                     "diff",
                     "editable",
                     "editorId",
@@ -5080,6 +5081,7 @@ pub static PATTERN_PROP_TYPES: LazyLock<HashMap<&'static str, HashMap<&'static s
                     ("onSetMode", &["string"] as &[&str]),
                     ("motions", &["array"] as &[&str]),
                     ("operators", &["array"] as &[&str]),
+                    ("completions", &["function"] as &[&str]),
                 ]
                 .into_iter()
                 .collect(),

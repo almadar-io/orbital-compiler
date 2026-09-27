@@ -1908,7 +1908,9 @@ fn validate_dangling_config_refs(schema: &OrbitalSchema) -> ValidationResult {
             }
         }
 
-        let key_reachable = |owner: &str, key: &str| -> bool {
+        // `self_forward`: the key is the owner's own knob whose value is `@config.<key>` — that
+        // declaration can't supply itself, so it must be declared outside that knob.
+        let key_reachable = |owner: &str, key: &str, self_forward: bool| -> bool {
             if declared_keys.contains(key) {
                 return true;
             }
@@ -1918,7 +1920,8 @@ fn validate_dangling_config_refs(schema: &OrbitalSchema) -> ValidationResult {
                 if !seen.insert(name) {
                     continue;
                 }
-                if declared.get(name).is_some_and(|keys| keys.contains(key)) {
+                let own_forward = self_forward && name == owner;
+                if !own_forward && declared.get(name).is_some_and(|keys| keys.contains(key)) {
                     return true;
                 }
                 if let Some(neighbors) = adjacency.get(name) {
@@ -1948,9 +1951,18 @@ fn validate_dangling_config_refs(schema: &OrbitalSchema) -> ValidationResult {
                     collect_config_keys(effect, &mut used);
                 }
             }
+            let self_forwards: HashSet<&str> = td
+                .config
+                .iter()
+                .flat_map(|c| c.iter())
+                .filter(|(k, cf)| {
+                    matches!(&cf.default, Some(SExpression::String(v)) if config_key_of(v) == Some(k.as_str()))
+                })
+                .map(|(k, _)| k.as_str())
+                .collect();
             let mut dangling: Vec<&String> = used
                 .iter()
-                .filter(|key| !key_reachable(&td.name, key))
+                .filter(|key| !key_reachable(&td.name, key, self_forwards.contains(key.as_str())))
                 .collect();
             dangling.sort();
             for key in dangling {
@@ -2132,6 +2144,108 @@ mod dangling_config_tests {
             dangles(APP_DECLARED),
             0,
             "an app-level `config {{}}` knob is a declaring source"
+        );
+    }
+
+    /// The `app-1789833059828` crash: a knob whose value forwards to its own
+    /// key (`navItems: @config.navItems`) with nothing declaring `navItems`
+    /// outside that knob. The runtime renders the literal string and a
+    /// component calling `.map` on it crashes.
+    const SELF_FORWARD_UNDECLARED: &str = r#"{
+      "name": "t", "version": "1.0.0",
+      "orbitals": [{
+        "name": "O",
+        "entity": { "name": "W", "fields": [] },
+        "traits": [{
+          "name": "Layout",
+          "config": { "navItems": { "type": "unknown", "default": "@config.navItems" } },
+          "stateMachine": {
+            "states": [{ "name": "idle", "isInitial": true }],
+            "transitions": [{
+              "from": "idle", "to": "idle", "event": "INIT",
+              "effects": [["render-ui", "main", { "type": "dashboard-layout", "navItems": "@config.navItems" }]]
+            }]
+          }
+        }]
+      }]
+    }"#;
+
+    const SELF_FORWARD_APP_DECLARED: &str = r#"{
+      "name": "t", "version": "1.0.0",
+      "config": { "navItems": { "type": "json", "default": [] } },
+      "orbitals": [{
+        "name": "O",
+        "entity": { "name": "W", "fields": [] },
+        "traits": [{
+          "name": "Layout",
+          "config": { "navItems": { "type": "unknown", "default": "@config.navItems" } },
+          "stateMachine": {
+            "states": [{ "name": "idle", "isInitial": true }],
+            "transitions": [{
+              "from": "idle", "to": "idle", "event": "INIT",
+              "effects": [["render-ui", "main", { "type": "dashboard-layout", "navItems": "@config.navItems" }]]
+            }]
+          }
+        }]
+      }]
+    }"#;
+
+    const SELF_FORWARD_EMBEDDER_DECLARED: &str = r#"{
+      "name": "t", "version": "1.0.0",
+      "orbitals": [{
+        "name": "O",
+        "entity": { "name": "W", "fields": [] },
+        "traits": [
+          {
+            "name": "Layout",
+            "config": { "navItems": { "type": "unknown", "default": "@config.navItems" } },
+            "stateMachine": {
+              "states": [{ "name": "idle", "isInitial": true }],
+              "transitions": [{
+                "from": "idle", "to": "idle", "event": "INIT",
+                "effects": [["render-ui", "main", { "type": "dashboard-layout", "navItems": "@config.navItems" }]]
+              }]
+            }
+          },
+          {
+            "name": "Page",
+            "config": { "navItems": { "type": "json", "default": [] } },
+            "stateMachine": {
+              "states": [{ "name": "idle", "isInitial": true }],
+              "transitions": [{
+                "from": "idle", "to": "idle", "event": "INIT",
+                "effects": [["render-ui", "main", { "type": "stack", "children": ["@trait.Layout"] }]]
+              }]
+            }
+          }
+        ]
+      }]
+    }"#;
+
+    #[test]
+    fn flags_self_forward_with_no_outer_declaration() {
+        assert_eq!(
+            dangles(SELF_FORWARD_UNDECLARED),
+            1,
+            "a knob forwarding to its own key is not its own declaration"
+        );
+    }
+
+    #[test]
+    fn accepts_self_forward_declared_at_app_level() {
+        assert_eq!(
+            dangles(SELF_FORWARD_APP_DECLARED),
+            0,
+            "app `config {{}}` resolves the forward"
+        );
+    }
+
+    #[test]
+    fn accepts_self_forward_declared_by_another_trait() {
+        assert_eq!(
+            dangles(SELF_FORWARD_EMBEDDER_DECLARED),
+            0,
+            "another trait in the embed component declaring the key resolves the forward"
         );
     }
 

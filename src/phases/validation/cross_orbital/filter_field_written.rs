@@ -185,11 +185,12 @@ fn fold_comparand_literal(comparand: &SExpression, trait_def: &TraitDefinition) 
 
 /// Walk `expr` for every `(persist create|update <entity> <data>)` node
 /// (through `if`/`do`), recording which fields each call's data LITERAL
-/// supplies, or exempting the whole entity when the data arg is bare/
-/// computed (may supply anything). Mirrors `notePersistWrite`/
-/// `scanForPersistWrites`.
+/// supplies. A bare/computed data arg supplies the columns the written
+/// entity declares — rows carry no columns their entity does not have — and
+/// only an entity this schema does not define may supply anything.
 fn collect_persist_writes(
     expr: &SExpression,
+    entity_defs: &HashMap<&str, &EntityDefinition>,
     written: &mut HashMap<String, HashSet<String>>,
     any_data: &mut HashSet<String>,
     created: &mut HashSet<String>,
@@ -213,20 +214,28 @@ fn collect_persist_writes(
                                 .or_default()
                                 .extend(data.keys().cloned());
                         }
-                        Some(_) => {
-                            any_data.insert(entity.clone());
-                        }
+                        Some(_) => match entity_defs.get(entity.as_str()) {
+                            Some(def) => {
+                                written
+                                    .entry(entity.clone())
+                                    .or_default()
+                                    .extend(def.fields.iter().filter_map(|f| f.name.clone()));
+                            }
+                            None => {
+                                any_data.insert(entity.clone());
+                            }
+                        },
                         None => {}
                     }
                 }
             }
             for item in items {
-                collect_persist_writes(item, written, any_data, created);
+                collect_persist_writes(item, entity_defs, written, any_data, created);
             }
         }
         SExpression::Object(map) => {
             for v in map.values() {
-                collect_persist_writes(v, written, any_data, created);
+                collect_persist_writes(v, entity_defs, written, any_data, created);
             }
         }
         _ => {}
@@ -326,6 +335,7 @@ pub(crate) fn validate_filter_field_never_written(schema: &OrbitalSchema) -> Val
                 for effect in t.effects.iter().flatten() {
                     collect_persist_writes(
                         effect,
+                        &entity_defs,
                         &mut written_fields,
                         &mut any_data_entities,
                         &mut created_entities,
@@ -869,5 +879,98 @@ mod tests {
 
         let result = validate_filter_field_never_written(&schema);
         assert!(result.errors.is_empty(), "{:?}", result.errors);
+    }
+
+    fn pipeline_schema(
+        mate_fields: Vec<FieldDefinition>,
+        own_write: Option<serde_json::Value>,
+    ) -> OrbitalSchema {
+        let pipeline = entity_def(
+            "PipelineDeal",
+            Some("deals"),
+            vec![field("title", None), field("stage", None)],
+        );
+        let deal = entity_def("Deal", Some("deals"), mate_fields);
+        let fetch = effects_from(json!([
+            ["fetch", "PipelineDeal", { "filter": ["=", ["object/get", "@entity", "name"], "x"] }]
+        ]));
+        let mut browse = vec![transition_with("browsing", "browsing", "SEARCH", fetch)];
+        if let Some(write) = own_write {
+            browse.push(transition_with(
+                "browsing",
+                "browsing",
+                "SAVE",
+                effects_from(write),
+            ));
+        }
+        let pipeline_orbital = orbital_with(
+            EntityRef::Inline(pipeline),
+            None,
+            vec![trait_def_with("PipelineBrowse", None, browse)],
+        );
+        let create = effects_from(json!([
+            ["persist", "create", "Deal", ["object/merge", "@payload.data", { "owner": "@user.id" }]]
+        ]));
+        let deal_orbital = orbital_with(
+            EntityRef::Inline(deal),
+            None,
+            vec![trait_def_with(
+                "DealPersistor",
+                None,
+                vec![transition_with("idle", "idle", "CREATE", create)],
+            )],
+        );
+        schema_with(vec![pipeline_orbital, deal_orbital])
+    }
+
+    fn fires(schema: &OrbitalSchema) -> bool {
+        validate_filter_field_never_written(schema)
+            .errors
+            .iter()
+            .any(|e| e.code == ErrorCode::FilterFieldNeverWritten)
+    }
+
+    /// G-ORB-003: a computed write to a collection-mate supplies the columns that mate
+    /// declares, not any column — so a filter on a column no entity of the table
+    /// declares fires on the whole program, as it does on the orbital alone.
+    #[test]
+    fn hit_computed_write_to_a_mate_cannot_supply_an_undeclared_column() {
+        let mate = vec![
+            field("title", None),
+            field("stage", None),
+            field("owner", None),
+        ];
+        assert!(fires(&pipeline_schema(mate, None)));
+    }
+
+    #[test]
+    fn control_computed_write_to_a_mate_that_declares_the_column_supplies_it() {
+        let mate = vec![field("title", None), field("name", None)];
+        assert!(!fires(&pipeline_schema(mate, None)));
+    }
+
+    #[test]
+    fn edge_computed_write_to_the_fetched_entity_itself_supplies_only_its_declared_columns() {
+        let mate = vec![field("title", None)];
+        let own = json!([["persist", "update", "PipelineDeal", "@payload.data"]]);
+        assert!(fires(&pipeline_schema(mate, Some(own))));
+    }
+
+    #[test]
+    fn edge_computed_write_to_an_entity_the_schema_does_not_define_proves_nothing() {
+        let schema = pipeline_schema(vec![field("title", None)], None);
+        let mut schema = schema;
+        // The mate's definition is outside this program: its computed write may carry anything.
+        schema.orbitals[1].entity = EntityRef::Inline(entity_def("Other", None, vec![]));
+        let external = effects_from(json!([["persist", "create", "Deal", "@payload.data"]]));
+        schema.orbitals[1].traits = vec![trait_def_with(
+            "Ext",
+            None,
+            vec![transition_with("idle", "idle", "CREATE", external)],
+        )];
+        assert!(
+            fires(&schema),
+            "Deal is not defined here, so it is no collection-mate of PipelineDeal"
+        );
     }
 }

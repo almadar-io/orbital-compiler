@@ -47,7 +47,7 @@ pub use validation::{
 use crate::composition::ComposeError;
 use orbital_core::ir::OirModule;
 use orbital_core::schema::OrbitalSchema;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use thiserror::Error;
 
 /// Compiler error
@@ -138,8 +138,30 @@ impl CompilerOptions {
             Ok(packages) => opts.inline.loader_config.packages = packages,
             Err(e) => opts.discovery_error = Some(e),
         }
+        if let Some(root) = app_root(std::env::var("ORB_APP_ROOT").ok().as_deref(), &cwd) {
+            opts.inline
+                .loader_config
+                .scoped_paths
+                .insert(APP_SCOPE.to_string(), root);
+        }
         opts
     }
+}
+
+/// The import scope of the app being compiled: `uses X from "@app/blocks/<Name>"`
+/// resolves against the app's workspace root from any file in it.
+pub const APP_SCOPE: &str = "@app";
+
+/// The app's workspace root: `ORB_APP_ROOT` when a caller names it (a server
+/// validating a temp copy), else the nearest ancestor of `cwd` holding the
+/// workspace marker `.almadar/app-marker.json`.
+pub fn app_root(explicit: Option<&str>, cwd: &Path) -> Option<PathBuf> {
+    if let Some(root) = explicit.filter(|r| !r.is_empty()) {
+        return Some(PathBuf::from(root));
+    }
+    cwd.ancestors()
+        .find(|dir| dir.join(".almadar").join("app-marker.json").is_file())
+        .map(Path::to_path_buf)
 }
 
 /// Compile a schema file to OIR
@@ -307,6 +329,37 @@ pub fn compile_schema(
 ) -> CompileResult<OirModule> {
     // Delegate to the path-aware version with no source path
     compile_schema_with_path(schema, options, None)
+}
+
+#[cfg(test)]
+mod app_root_tests {
+    use super::*;
+
+    #[test]
+    fn an_explicit_root_wins_over_the_marker() {
+        let dir = tempfile::tempdir().expect("tmp");
+        std::fs::create_dir_all(dir.path().join(".almadar")).expect("mkdir");
+        std::fs::write(dir.path().join(".almadar/app-marker.json"), "{}").expect("marker");
+        assert_eq!(app_root(Some("/elsewhere"), dir.path()), Some(PathBuf::from("/elsewhere")));
+    }
+
+    #[test]
+    fn the_nearest_ancestor_with_the_workspace_marker_is_the_root() {
+        let dir = tempfile::tempdir().expect("tmp");
+        std::fs::create_dir_all(dir.path().join(".almadar")).expect("mkdir");
+        std::fs::write(dir.path().join(".almadar/app-marker.json"), "{}").expect("marker");
+        let inner = dir.path().join("orbitals/deep");
+        std::fs::create_dir_all(&inner).expect("mkdir");
+        assert_eq!(app_root(None, &inner), Some(dir.path().to_path_buf()));
+        assert_eq!(app_root(Some(""), &inner), Some(dir.path().to_path_buf()), "an empty value is unset");
+    }
+
+    #[test]
+    fn control_no_marker_and_no_explicit_root_is_no_app_scope() {
+        let dir = tempfile::tempdir().expect("tmp");
+        std::fs::create_dir_all(dir.path().join(".almadar")).expect("mkdir");
+        assert_eq!(app_root(None, dir.path()), None, "a .almadar without the marker is not a workspace");
+    }
 }
 
 #[cfg(test)]
