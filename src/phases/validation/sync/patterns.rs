@@ -2,7 +2,7 @@
 //!
 //! Source: packages/almadar-core/src/patterns/patterns-registry.json
 //!
-//! Last synced: 2026-09-26
+//! Last synced: 2026-09-27
 //! To regenerate: npx tsx tools/almadar-pattern-sync/index.ts
 //!
 //! DO NOT EDIT MANUALLY - changes will be overwritten on next sync.
@@ -33,6 +33,7 @@ pub static PATTERN_TYPES: LazyLock<HashSet<&'static str>> = LazyLock::new(|| {
         "checkbox",
         "code-block",
         "command-palette",
+        "commit-row",
         "conditional-wrapper",
         "confetti-effect",
         "connection-block",
@@ -129,6 +130,7 @@ pub static PATTERN_TYPES: LazyLock<HashSet<&'static str>> = LazyLock::new(|| {
         // Display Patterns
         "branching-logic-builder",
         "calendar-grid",
+        "change-list",
         "chart-legend",
         "chat-bar",
         "code-runner-panel",
@@ -328,6 +330,7 @@ pub static PATTERN_TO_CATEGORY: LazyLock<HashMap<&'static str, &'static str>> =
             ("checkbox", "component"),
             ("code-block", "component"),
             ("command-palette", "component"),
+            ("commit-row", "component"),
             ("conditional-wrapper", "component"),
             ("confetti-effect", "component"),
             ("connection-block", "component"),
@@ -424,6 +427,7 @@ pub static PATTERN_TO_CATEGORY: LazyLock<HashMap<&'static str, &'static str>> =
             // Display
             ("branching-logic-builder", "display"),
             ("calendar-grid", "display"),
+            ("change-list", "display"),
             ("chart-legend", "display"),
             ("chat-bar", "display"),
             ("code-runner-panel", "display"),
@@ -604,10 +608,12 @@ pub static PATTERN_REQUIRED_PROPS: LazyLock<HashMap<&'static str, Vec<&'static s
             ("branching-logic-builder", vec!["questions", "rules"]),
             ("carousel", vec!["items"]),
             ("center", vec!["children"]),
+            ("change-list", vec!["changes"]),
             ("chart-legend", vec!["items"]),
             ("choice-button", vec!["text"]),
             ("code-runner-panel", vec!["code", "language"]),
             ("command-palette", vec!["open", "onOpenChange", "commands"]),
+            ("commit-row", vec!["sha", "message"]),
             ("conditional-wrapper", vec!["context", "children"]),
             ("confetti-effect", vec!["trigger"]),
             ("confirm-dialog", vec!["title"]),
@@ -722,7 +728,6 @@ pub static PATTERN_REQUIRED_PROPS: LazyLock<HashMap<&'static str, Vec<&'static s
             ("trait-slot", vec!["slotNumber"]),
             ("typewriter-text", vec!["text"]),
             ("ui-slot-component", vec!["slot"]),
-            ("version-diff", vec!["revisions"]),
             ("violation-alert", vec!["violation"]),
             ("vote-stack", vec!["count"]),
             ("wizard-container", vec!["steps"]),
@@ -1236,6 +1241,7 @@ pub static PATTERN_PROPS_SCHEMA: LazyLock<HashMap<&'static str, HashSet<&'static
                 .into_iter()
                 .collect(),
             ),
+            ("change-list", ["changes", "className", "inspectEvent"].into_iter().collect()),
             (
                 "chart",
                 [
@@ -1387,6 +1393,25 @@ pub static PATTERN_PROPS_SCHEMA: LazyLock<HashMap<&'static str, HashSet<&'static
                     "onSelect",
                     "open",
                     "placeholder",
+                ]
+                .into_iter()
+                .collect(),
+            ),
+            (
+                "commit-row",
+                [
+                    "additions",
+                    "author",
+                    "className",
+                    "current",
+                    "deletions",
+                    "kind",
+                    "message",
+                    "restoreEvent",
+                    "selectEvent",
+                    "selected",
+                    "sha",
+                    "timestamp",
                 ]
                 .into_iter()
                 .collect(),
@@ -4207,6 +4232,7 @@ pub static PATTERN_PROPS_SCHEMA: LazyLock<HashMap<&'static str, HashSet<&'static
                     "afterId",
                     "beforeId",
                     "className",
+                    "hunks",
                     "language",
                     "onRevert",
                     "onSelectAfter",
@@ -4889,6 +4915,16 @@ pub static PATTERN_PROP_TYPES: LazyLock<HashMap<&'static str, HashMap<&'static s
                 .collect(),
             ),
             (
+                "change-list",
+                [
+                    ("changes", &["array", "object"] as &[&str]),
+                    ("inspectEvent", &["string"] as &[&str]),
+                    ("className", &["string"] as &[&str]),
+                ]
+                .into_iter()
+                .collect(),
+            ),
+            (
                 "chart",
                 [
                     ("title", &["string"] as &[&str]),
@@ -5070,6 +5106,25 @@ pub static PATTERN_PROP_TYPES: LazyLock<HashMap<&'static str, HashMap<&'static s
                     ("onSelect", &["function"] as &[&str]),
                     ("placeholder", &["string"] as &[&str]),
                     ("emptyLabel", &["string"] as &[&str]),
+                    ("className", &["string"] as &[&str]),
+                ]
+                .into_iter()
+                .collect(),
+            ),
+            (
+                "commit-row",
+                [
+                    ("sha", &["string"] as &[&str]),
+                    ("message", &["string"] as &[&str]),
+                    ("author", &["string"] as &[&str]),
+                    ("timestamp", &["string"] as &[&str]),
+                    ("kind", &["string"] as &[&str]),
+                    ("additions", &["number"] as &[&str]),
+                    ("deletions", &["number"] as &[&str]),
+                    ("selected", &["boolean"] as &[&str]),
+                    ("current", &["boolean"] as &[&str]),
+                    ("selectEvent", &["string"] as &[&str]),
+                    ("restoreEvent", &["string"] as &[&str]),
                     ("className", &["string"] as &[&str]),
                 ]
                 .into_iter()
@@ -8559,6 +8614,7 @@ pub static PATTERN_PROP_TYPES: LazyLock<HashMap<&'static str, HashMap<&'static s
                 "version-diff",
                 [
                     ("revisions", &["array", "object"] as &[&str]),
+                    ("hunks", &["array"] as &[&str]),
                     ("beforeId", &["string"] as &[&str]),
                     ("afterId", &["string"] as &[&str]),
                     ("view", &["string"] as &[&str]),
@@ -8816,6 +8872,7 @@ pub static PATTERN_PROP_ENUM_VALUES: LazyLock<HashMap<&'static str, HashMap<&'st
             ),
             ("chemistry-canvas", [("mode", &["2d", "3d"] as &[&str]), ("bondStyle", &["thick", "parallel"] as &[&str])].into_iter().collect()),
             ("code-block", [("mode", &["code", "diff"] as &[&str])].into_iter().collect()),
+            ("commit-row", [("kind", &["user", "agent", "restore", "undo", "redo", "snapshot"] as &[&str])].into_iter().collect()),
             (
                 "confirm-dialog",
                 [
