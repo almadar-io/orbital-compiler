@@ -2,7 +2,7 @@
 //!
 //! Source: packages/almadar-core/src/patterns/patterns-registry.json
 //!
-//! Last synced: 2026-09-27
+//! Last synced: 2026-09-28
 //! To regenerate: npx tsx tools/almadar-pattern-sync/index.ts
 //!
 //! DO NOT EDIT MANUALLY - changes will be overwritten on next sync.
@@ -24,6 +24,7 @@ pub static PATTERN_TYPES: LazyLock<HashSet<&'static str>> = LazyLock::new(|| {
         "atlas-image",
         "atlas-panel",
         "avatar",
+        "avl-glyph",
         "badge",
         "behavior-view",
         "bloom-quiz-block",
@@ -128,6 +129,7 @@ pub static PATTERN_TYPES: LazyLock<HashSet<&'static str>> = LazyLock::new(|| {
         // Debug Patterns
         "runtime-debugger",
         // Display Patterns
+        "avl-state-machine",
         "branching-logic-builder",
         "calendar-grid",
         "change-list",
@@ -321,6 +323,7 @@ pub static PATTERN_TO_CATEGORY: LazyLock<HashMap<&'static str, &'static str>> =
             ("atlas-image", "component"),
             ("atlas-panel", "component"),
             ("avatar", "component"),
+            ("avl-glyph", "component"),
             ("badge", "component"),
             ("behavior-view", "component"),
             ("bloom-quiz-block", "component"),
@@ -425,6 +428,7 @@ pub static PATTERN_TO_CATEGORY: LazyLock<HashMap<&'static str, &'static str>> =
             // Debug
             ("runtime-debugger", "debug"),
             // Display
+            ("avl-state-machine", "display"),
             ("branching-logic-builder", "display"),
             ("calendar-grid", "display"),
             ("change-list", "display"),
@@ -603,6 +607,8 @@ pub static PATTERN_REQUIRED_PROPS: LazyLock<HashMap<&'static str, Vec<&'static s
             ("activation-block", vec!["question"]),
             ("animated-counter", vec!["value"]),
             ("animated-reveal", vec!["children"]),
+            ("avl-glyph", vec!["kind"]),
+            ("avl-state-machine", vec!["trait"]),
             ("behavior-view", vec!["data"]),
             ("bloom-quiz-block", vec!["level", "question", "answer"]),
             ("branching-logic-builder", vec!["questions", "rules"]),
@@ -950,6 +956,42 @@ pub static PATTERN_PROPS_SCHEMA: LazyLock<HashMap<&'static str, HashSet<&'static
                     "size",
                     "src",
                     "status",
+                ]
+                .into_iter()
+                .collect(),
+            ),
+            (
+                "avl-glyph",
+                [
+                    "className",
+                    "effectType",
+                    "fieldType",
+                    "kind",
+                    "label",
+                    "namespace",
+                    "persistence",
+                    "showCaption",
+                    "size",
+                ]
+                .into_iter()
+                .collect(),
+            ),
+            (
+                "avl-state-machine",
+                [
+                    "activeState",
+                    "activeTransition",
+                    "className",
+                    "direction",
+                    "entityFields",
+                    "nodeShape",
+                    "pendingSourceState",
+                    "selectedState",
+                    "showHeader",
+                    "stateClickEvent",
+                    "trait",
+                    "transitionClickEvent",
+                    "visitedStates",
                 ]
                 .into_iter()
                 .collect(),
@@ -1347,9 +1389,13 @@ pub static PATTERN_PROPS_SCHEMA: LazyLock<HashMap<&'static str, HashSet<&'static
                 "code-block",
                 [
                     "actions",
+                    "assist",
                     "className",
                     "code",
                     "completions",
+                    "definitionAt",
+                    "diagnostics",
+                    "diagnosticsCode",
                     "diff",
                     "editable",
                     "editorId",
@@ -1359,6 +1405,7 @@ pub static PATTERN_PROPS_SCHEMA: LazyLock<HashMap<&'static str, HashSet<&'static
                     "foldable",
                     "isLoading",
                     "language",
+                    "lineNumbers",
                     "maxHeight",
                     "mode",
                     "motions",
@@ -1368,11 +1415,13 @@ pub static PATTERN_PROPS_SCHEMA: LazyLock<HashMap<&'static str, HashSet<&'static
                     "onChange",
                     "onEditorBlur",
                     "onEditorFocus",
+                    "onGoToDefinition",
                     "onInsertText",
                     "onMotion",
                     "onOperate",
                     "onSetMode",
                     "operators",
+                    "problems",
                     "showCopy",
                     "showCopyButton",
                     "showLanguageBadge",
@@ -2133,6 +2182,7 @@ pub static PATTERN_PROPS_SCHEMA: LazyLock<HashMap<&'static str, HashSet<&'static
                 "file-tree",
                 [
                     "className",
+                    "expandedPaths",
                     "indent",
                     "items",
                     "look",
@@ -2140,6 +2190,7 @@ pub static PATTERN_PROPS_SCHEMA: LazyLock<HashMap<&'static str, HashSet<&'static
                     "nodeActionLabel",
                     "onFileSelect",
                     "onNodeAction",
+                    "onNodeExpand",
                     "onNodeReorder",
                     "onNodeSelect",
                     "selectedId",
@@ -3707,7 +3758,28 @@ pub static PATTERN_PROPS_SCHEMA: LazyLock<HashMap<&'static str, HashSet<&'static
                 .into_iter()
                 .collect(),
             ),
-            ("state-machine-view", ["className", "error", "isLoading", "layoutData", "renderStateNode"].into_iter().collect()),
+            (
+                "state-machine-view",
+                [
+                    "activeState",
+                    "activeTransition",
+                    "className",
+                    "direction",
+                    "entityFields",
+                    "error",
+                    "isLoading",
+                    "nodeShape",
+                    "pendingSourceState",
+                    "selectedState",
+                    "showHeader",
+                    "stateClickEvent",
+                    "trait",
+                    "transitionClickEvent",
+                    "visitedStates",
+                ]
+                .into_iter()
+                .collect(),
+            ),
             ("status-dot", ["className", "label", "pulse", "size", "status"].into_iter().collect()),
             (
                 "subagent-trace-panel",
@@ -4617,6 +4689,42 @@ pub static PATTERN_PROP_TYPES: LazyLock<HashMap<&'static str, HashMap<&'static s
                 .collect(),
             ),
             (
+                "avl-glyph",
+                [
+                    ("kind", &["string"] as &[&str]),
+                    ("label", &["string"] as &[&str]),
+                    ("effectType", &["string"] as &[&str]),
+                    ("fieldType", &["object"] as &[&str]),
+                    ("persistence", &["object"] as &[&str]),
+                    ("namespace", &["object"] as &[&str]),
+                    ("size", &["string"] as &[&str]),
+                    ("showCaption", &["boolean"] as &[&str]),
+                    ("className", &["string"] as &[&str]),
+                ]
+                .into_iter()
+                .collect(),
+            ),
+            (
+                "avl-state-machine",
+                [
+                    ("trait", &["object"] as &[&str]),
+                    ("activeState", &["string"] as &[&str]),
+                    ("activeTransition", &["number"] as &[&str]),
+                    ("visitedStates", &["array"] as &[&str]),
+                    ("stateClickEvent", &["string"] as &[&str]),
+                    ("transitionClickEvent", &["string"] as &[&str]),
+                    ("selectedState", &["string"] as &[&str]),
+                    ("pendingSourceState", &["string"] as &[&str]),
+                    ("nodeShape", &["string"] as &[&str]),
+                    ("entityFields", &["array"] as &[&str]),
+                    ("direction", &["string"] as &[&str]),
+                    ("showHeader", &["boolean"] as &[&str]),
+                    ("className", &["string"] as &[&str]),
+                ]
+                .into_iter()
+                .collect(),
+            ),
+            (
                 "badge",
                 [
                     ("className", &["string"] as &[&str]),
@@ -5082,6 +5190,13 @@ pub static PATTERN_PROP_TYPES: LazyLock<HashMap<&'static str, HashMap<&'static s
                     ("motions", &["array"] as &[&str]),
                     ("operators", &["array"] as &[&str]),
                     ("completions", &["function"] as &[&str]),
+                    ("assist", &["function"] as &[&str]),
+                    ("problems", &["number"] as &[&str]),
+                    ("diagnostics", &["array"] as &[&str]),
+                    ("definitionAt", &["function"] as &[&str]),
+                    ("onGoToDefinition", &["function"] as &[&str]),
+                    ("diagnosticsCode", &["string"] as &[&str]),
+                    ("lineNumbers", &["boolean"] as &[&str]),
                 ]
                 .into_iter()
                 .collect(),
@@ -6039,6 +6154,8 @@ pub static PATTERN_PROP_TYPES: LazyLock<HashMap<&'static str, HashMap<&'static s
                     ("selectedId", &["string"] as &[&str]),
                     ("look", &["string"] as &[&str]),
                     ("onFileSelect", &["function"] as &[&str]),
+                    ("onNodeExpand", &["function"] as &[&str]),
+                    ("expandedPaths", &["array"] as &[&str]),
                     ("onNodeSelect", &["function"] as &[&str]),
                     ("onNodeAction", &["function"] as &[&str]),
                     ("nodeActionIcon", &["string"] as &[&str]),
@@ -7983,11 +8100,21 @@ pub static PATTERN_PROP_TYPES: LazyLock<HashMap<&'static str, HashMap<&'static s
             (
                 "state-machine-view",
                 [
+                    ("activeState", &["string"] as &[&str]),
+                    ("activeTransition", &["number"] as &[&str]),
+                    ("visitedStates", &["array"] as &[&str]),
+                    ("stateClickEvent", &["string"] as &[&str]),
+                    ("transitionClickEvent", &["string"] as &[&str]),
+                    ("selectedState", &["string"] as &[&str]),
+                    ("pendingSourceState", &["string"] as &[&str]),
+                    ("nodeShape", &["string"] as &[&str]),
+                    ("entityFields", &["array"] as &[&str]),
+                    ("direction", &["string"] as &[&str]),
+                    ("showHeader", &["boolean"] as &[&str]),
                     ("className", &["string"] as &[&str]),
+                    ("trait", &["object"] as &[&str]),
                     ("isLoading", &["boolean"] as &[&str]),
                     ("error", &["object"] as &[&str]),
-                    ("layoutData", &["object"] as &[&str]),
-                    ("renderStateNode", &["function"] as &[&str]),
                 ]
                 .into_iter()
                 .collect(),
@@ -8784,6 +8911,16 @@ pub static PATTERN_PROP_ENUM_VALUES: LazyLock<HashMap<&'static str, HashMap<&'st
                 .collect(),
             ),
             (
+                "avl-glyph",
+                [
+                    ("kind", &["application", "orbital", "entity", "trait", "page", "state", "transition", "event", "guard", "effect", "field", "fieldType", "binding", "bindingRef", "persistence", "operator", "sexpr", "literal"] as &[&str]),
+                    ("size", &["sm", "md", "lg"] as &[&str]),
+                ]
+                .into_iter()
+                .collect(),
+            ),
+            ("avl-state-machine", [("nodeShape", &["pill", "gear"] as &[&str]), ("direction", &["ltr", "rtl"] as &[&str])].into_iter().collect()),
+            (
                 "badge",
                 [
                     ("variant", &["default", "primary", "secondary", "success", "warning", "danger", "error", "info", "neutral"] as &[&str]),
@@ -9374,6 +9511,7 @@ pub static PATTERN_PROP_ENUM_VALUES: LazyLock<HashMap<&'static str, HashMap<&'st
                 .into_iter()
                 .collect(),
             ),
+            ("state-machine-view", [("nodeShape", &["pill", "gear"] as &[&str]), ("direction", &["ltr", "rtl"] as &[&str])].into_iter().collect()),
             (
                 "status-dot",
                 [
