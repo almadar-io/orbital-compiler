@@ -211,13 +211,13 @@ pub(crate) fn validate_pattern(
                     result.add_error(if crate::embedded::get_operator(pattern_type).is_some() {
                         super::super::error::collection_operator_as_pattern(
                             ErrorCode::RenderUIInvalidPattern,
-                            path,
+                            &format!("{path}.type"),
                             pattern_type,
                         )
                     } else {
                         ValidationError::error(
                             ErrorCode::RenderUIInvalidPattern,
-                            path,
+                            format!("{path}.type"),
                             format!("Unknown pattern type: '{}'", pattern_type),
                         )
                         .with_suggestion(
@@ -268,7 +268,7 @@ pub(crate) fn validate_pattern(
                             result.add_error(
                                 ValidationError::error(
                                     ErrorCode::RenderUIInvalidProp,
-                                    path,
+                                    &format!("{path}.{prop_name}"),
                                     format!(
                                         "Unknown prop '{}' for pattern '{}'",
                                         prop_name, pattern_type
@@ -341,7 +341,7 @@ pub(crate) fn validate_pattern(
                             result.add_error(
                                 ValidationError::error(
                                     ErrorCode::RenderUIPropTypeMismatch,
-                                    path,
+                                    &format!("{path}.{prop_name}"),
                                     format!(
                                         "Prop '{}' on '{}' was a string literal but expected one of: {} — a bare string cannot iterate as an array, use `@payload.X` / `@entity.X` (binding) or an array literal",
                                         prop_name,
@@ -430,7 +430,7 @@ pub(crate) fn validate_pattern(
                             result.add_error(
                                 ValidationError::error(
                                     ErrorCode::RenderUIPropTypeMismatch,
-                                    path,
+                                    &format!("{path}.{prop_name}"),
                                     format!(
                                         "Prop '{}' on '{}' has type '{}' but expected: {}",
                                         prop_name,
@@ -459,7 +459,7 @@ pub(crate) fn validate_pattern(
                                 result.add_error(
                                     ValidationError::error(
                                         ErrorCode::RenderUIPropTypeMismatch,
-                                        path,
+                                        &format!("{path}.{prop_name}"),
                                         format!(
                                             "Prop '{}' on '{}' has value '{}' but must be one of: {}",
                                             prop_name,
@@ -794,10 +794,11 @@ pub(crate) fn validate_pattern(
             let cond = pattern
                 .as_conditional_node()
                 .expect("guard above proved this is a conditional node");
-            let arms = std::iter::once((cond.then_node, "then"))
-                .chain(cond.else_node.map(|node| (node, "else")));
-            for (arm, label) in arms {
-                let arm_path = format!("{}.{}", path, label);
+            // `["if", cond, then, else?]`: the arms' IR positions are [2] and [3].
+            let arms = std::iter::once((cond.then_node, 2))
+                .chain(cond.else_node.map(|node| (node, 3)));
+            for (arm, index) in arms {
+                let arm_path = format!("{path}[{index}]");
                 if let Some(mc) = arm.as_mapped_children() {
                     result.merge(validate_pattern(
                         mc.item_node,

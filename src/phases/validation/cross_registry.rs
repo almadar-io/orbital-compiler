@@ -70,15 +70,15 @@ fn walk_for_references(expr: &SExpression, path: &str, result: &mut ValidationRe
 
                 // render-ui pattern existence check
                 if op == "render-ui" || op == "render_ui" {
-                    if let Some(pattern) = arr.iter().skip(1).find_map(|a| {
+                    if let Some((i, pattern)) = arr.iter().enumerate().skip(1).find_map(|(i, a)| {
                         if let SExpression::Object(obj) = a {
-                            Some(obj)
+                            Some((i, obj))
                         } else {
                             None
                         }
                     }) {
                         if let Some(SExpression::String(pattern_type)) = pattern.get("type") {
-                            check_pattern_reference(pattern_type, path, result);
+                            check_pattern_reference(pattern_type, &format!("{path}[{i}].type"), result);
                         }
                     }
                 }

@@ -243,9 +243,10 @@ pub fn validate_render_ui_effect(
             }
 
             if let Some(pattern) = arr.get(2) {
+                let pattern_path = format!("{path}[2]");
                 result.merge(validate_pattern(
                     pattern,
-                    path,
+                    &pattern_path,
                     entity_definitions,
                     extra_patterns,
                     linked_entity,
@@ -255,31 +256,36 @@ pub fn validate_render_ui_effect(
                 // misuse elsewhere (see `validate_trait_binding_positions`).
                 result.merge(validate_trait_binding_positions(
                     pattern,
-                    path,
+                    &pattern_path,
                     extra_patterns,
                 ));
             }
         }
         SExpression::Object(obj) => {
             // Object form: { render_ui: { slot: "main", pattern: { ... } } }
-            if let Some(SExpression::Object(rui_obj)) =
-                obj.get("render_ui").or_else(|| obj.get("render-ui"))
-            {
+            let rui = [("render_ui", obj.get("render_ui")), ("render-ui", obj.get("render-ui"))]
+                .into_iter()
+                .find_map(|(key, v)| match v {
+                    Some(SExpression::Object(o)) => Some((key, o)),
+                    _ => None,
+                });
+            if let Some((rui_key, rui_obj)) = rui {
                 if let Some(SExpression::String(slot)) = rui_obj.get("slot") {
                     result.merge(validate_slot(slot, path));
                 }
 
                 if let Some(pattern) = rui_obj.get("pattern") {
+                    let pattern_path = format!("{path}.{rui_key}.pattern");
                     result.merge(validate_pattern(
                         pattern,
-                        path,
+                        &pattern_path,
                         entity_definitions,
                         extra_patterns,
                         linked_entity,
                     ));
                     result.merge(validate_trait_binding_positions(
                         pattern,
-                        path,
+                        &pattern_path,
                         extra_patterns,
                     ));
                 }
@@ -756,7 +762,7 @@ mod tests {
             errors
         );
         assert!(
-            invalid[0].ends_with("children[1]"),
+            invalid[0].ends_with("children[1].type"),
             "the bogus sibling keeps its own index: {:?}",
             invalid
         );
