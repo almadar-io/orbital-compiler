@@ -75,6 +75,8 @@ pub enum ErrorCode {
     TraitMultipleInitialStates,
     /// Duplicate state name in state machine
     TraitDuplicateState,
+    /// An event declared, emitted or transitioned on has an empty name
+    TraitEmptyEventName,
     /// Transition references non-existent state
     TraitInvalidTransition,
     /// Duplicate transition (same from/event without guard)
@@ -1204,6 +1206,7 @@ impl ErrorCode {
             ErrorCode::TraitNoInitialState => "ORB_T_NO_INITIAL_STATE",
             ErrorCode::TraitMultipleInitialStates => "ORB_T_MULTIPLE_INITIAL_STATES",
             ErrorCode::TraitDuplicateState => "ORB_T_DUPLICATE_STATE",
+            ErrorCode::TraitEmptyEventName => "ORB_T_EMPTY_EVENT_NAME",
             ErrorCode::TraitInvalidTransition => "ORB_T_INVALID_TRANSITION",
             ErrorCode::TraitDuplicateTransition => "ORB_T_DUPLICATE_TRANSITION",
             ErrorCode::TraitMissingInitTransition => "ORB_T_MISSING_INIT_TRANSITION",
@@ -1540,6 +1543,7 @@ impl ErrorCode {
             | ErrorCode::TraitNoInitialState
             | ErrorCode::TraitMultipleInitialStates
             | ErrorCode::TraitDuplicateState
+            | ErrorCode::TraitEmptyEventName
             | ErrorCode::TraitInvalidTransition
             | ErrorCode::TraitDuplicateTransition
             | ErrorCode::TraitMissingInitTransition

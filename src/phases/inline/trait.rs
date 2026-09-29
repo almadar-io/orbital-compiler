@@ -827,7 +827,15 @@ pub(crate) fn resolve_config_ref_emit_names(
     if resolved_triples.is_empty() {
         return Vec::new();
     }
+    // A knob resolved to `""` is an unfulfilled optional event slot ("empty means no event"):
+    // it declares no event and fires no emit, so both entries go.
+    let unfulfilled = |name: &str| {
+        resolved_triples
+            .iter()
+            .any(|(_, from, to)| from == name && to.is_empty())
+    };
     if let Some(emits) = trait_def.emits.as_mut() {
+        emits.retain(|emit| !unfulfilled(&emit.event));
         for emit in emits.iter_mut() {
             if let Some((_, _, to)) = resolved_triples
                 .iter()
@@ -838,6 +846,7 @@ pub(crate) fn resolve_config_ref_emit_names(
         }
     }
     if let Some(events) = trait_def.state_machine.events.as_mut() {
+        events.retain(|ev| !unfulfilled(&ev.key));
         for ev in events.iter_mut() {
             if let Some((_, _, to)) = resolved_triples.iter().find(|(_, from, _)| from == &ev.key) {
                 ev.key = to.clone();
@@ -3350,5 +3359,87 @@ mod unbound_trait_knob_override_tests {
             Some(&SExpression::String("none".to_string())),
             "a string-typed knob's literal \"none\" override is an ordinary value, not the unbound sentinel"
         );
+    }
+}
+
+#[cfg(test)]
+mod config_ref_emit_name_tests {
+    use super::*;
+
+    /// A trait that emits `@config.onEventClick`, declared in its events registry too (as L1
+    /// lowering leaves it), with the knob defaulting to `""`: "empty means not clickable".
+    fn calendar_trait() -> TraitDefinition {
+        serde_json::from_value(serde_json::json!({
+            "name": "Calendar",
+            "linkedEntity": "Note",
+            "config": { "onEventClick": { "type": "event", "default": "" } },
+            "emits": [
+                { "event": "@config.onEventClick", "scope": "external" },
+                { "event": "DAY_SELECTED", "scope": "external" }
+            ],
+            "stateMachine": {
+                "states": [ { "name": "idle", "isInitial": true } ],
+                "events": [
+                    { "key": "@config.onEventClick", "name": "on event click" },
+                    { "key": "DAY_SELECTED", "name": "day selected" }
+                ],
+                "transitions": []
+            }
+        }))
+        .expect("trait deserializes")
+    }
+
+    #[test]
+    fn a_knob_resolved_to_empty_declares_no_event_and_no_emit() {
+        let mut td = calendar_trait();
+        let config = HashMap::from([(
+            "onEventClick".to_string(),
+            SExpression::String(String::new()),
+        )]);
+        resolve_config_ref_emit_names(&mut td, &config);
+        let emits: Vec<&str> = td
+            .emits
+            .as_ref()
+            .expect("emits")
+            .iter()
+            .map(|e| e.event.as_str())
+            .collect();
+        assert_eq!(emits, vec!["DAY_SELECTED"]);
+        let events: Vec<&str> = td
+            .state_machine
+            .events
+            .as_ref()
+            .expect("events")
+            .iter()
+            .map(|e| e.key.as_str())
+            .collect();
+        assert_eq!(events, vec!["DAY_SELECTED"]);
+    }
+
+    #[test]
+    fn control_a_knob_resolved_to_a_name_renames_both() {
+        let mut td = calendar_trait();
+        let config = HashMap::from([(
+            "onEventClick".to_string(),
+            SExpression::String("OPEN_NOTE".to_string()),
+        )]);
+        resolve_config_ref_emit_names(&mut td, &config);
+        let emits: Vec<&str> = td
+            .emits
+            .as_ref()
+            .expect("emits")
+            .iter()
+            .map(|e| e.event.as_str())
+            .collect();
+        assert_eq!(emits, vec!["OPEN_NOTE", "DAY_SELECTED"]);
+        let events: Vec<&str> = td
+            .state_machine
+            .events
+            .as_ref()
+            .expect("events")
+            .iter()
+            .map(|e| e.key.as_str())
+            .collect();
+        assert_eq!(events, vec!["OPEN_NOTE", "DAY_SELECTED"]);
     }
 }

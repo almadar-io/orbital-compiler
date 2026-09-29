@@ -630,6 +630,7 @@ impl<'a> Resolver<'a> {
 
         oir_field.intrinsic = field.intrinsic.unwrap_or(false);
         oir_field.merged_from = field.merged_from.clone();
+        oir_field.declared = serde_json::to_value(field).ok();
 
         // Add enum values
         oir_field.enum_values = field.values.clone();
@@ -2814,6 +2815,7 @@ fn payload_field_to_oir_type(
         let fields: Vec<OirField> = props
             .iter()
             .map(|p| OirField {
+                declared: None,
                 merged_from: None,
                 intrinsic: false,
                 name: p.name.clone(),
@@ -2925,6 +2927,7 @@ fn lookup_named_type_shape(name: &str, ctx: &NamedTypeCtx) -> Option<OirType> {
         let fields: Vec<OirField> = payload_fields
             .iter()
             .map(|p| OirField {
+                declared: None,
                 merged_from: None,
                 intrinsic: false,
                 name: p.name.clone(),

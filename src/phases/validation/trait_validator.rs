@@ -720,6 +720,43 @@ pub fn validate_state_machine(
         );
     }
 
+    // An event with no name can never be emitted, listened for or dispatched.
+    let empty_events = sm
+        .events
+        .iter()
+        .flatten()
+        .enumerate()
+        .filter(|(_, e)| e.key.is_empty())
+        .map(|(i, _)| format!("{}.events[{}].key", sm_path, i))
+        .chain(
+            trait_def
+                .emits
+                .iter()
+                .flatten()
+                .enumerate()
+                .filter(|(_, e)| e.event.is_empty())
+                .map(|(i, _)| format!("{}.emits[{}].event", path, i)),
+        )
+        .chain(
+            sm.transitions
+                .iter()
+                .enumerate()
+                .filter(|(_, t)| t.event.is_empty())
+                .map(|(i, _)| format!("{}.transitions[{}].event", sm_path, i)),
+        );
+    for empty_path in empty_events {
+        result.add_error(
+            ValidationError::error(
+                ErrorCode::TraitEmptyEventName,
+                empty_path,
+                "Event name is empty",
+            )
+            .with_suggestion(
+                "Name the event, or remove it; an unset optional event knob declares no event",
+            ),
+        );
+    }
+
     // Collect event names (using key field)
     let event_names: HashSet<&str> = sm
         .events
@@ -1179,6 +1216,57 @@ fn category_to_string(category: &TraitCategory) -> String {
         TraitCategory::GameCore => "game-core".to_string(),
         TraitCategory::GameEntity => "game-entity".to_string(),
         TraitCategory::GameUi => "game-ui".to_string(),
+    }
+}
+
+#[cfg(test)]
+mod empty_event_name_tests {
+    use super::*;
+
+    fn trait_with(events: serde_json::Value, emits: serde_json::Value) -> TraitDefinition {
+        serde_json::from_value(serde_json::json!({
+            "name": "Calendar",
+            "emits": emits,
+            "stateMachine": {
+                "states": [ { "name": "idle", "isInitial": true } ],
+                "events": events,
+                "transitions": []
+            }
+        }))
+        .expect("trait deserializes")
+    }
+
+    fn codes(td: &TraitDefinition) -> Vec<String> {
+        validate_state_machine(&td.state_machine, "traits[0]", td)
+            .errors
+            .iter()
+            .filter(|e| e.code == ErrorCode::TraitEmptyEventName)
+            .map(|e| e.path.clone())
+            .collect()
+    }
+
+    #[test]
+    fn an_empty_event_key_or_emit_name_is_an_error() {
+        let td = trait_with(
+            serde_json::json!([ { "key": "", "name": "on event click" } ]),
+            serde_json::json!([ { "event": "", "scope": "external" } ]),
+        );
+        assert_eq!(
+            codes(&td),
+            vec![
+                "traits[0].stateMachine.events[0].key",
+                "traits[0].emits[0].event"
+            ]
+        );
+    }
+
+    #[test]
+    fn control_named_events_pass() {
+        let td = trait_with(
+            serde_json::json!([ { "key": "OPEN", "name": "open" } ]),
+            serde_json::json!([ { "event": "OPEN", "scope": "external" } ]),
+        );
+        assert!(codes(&td).is_empty());
     }
 }
 
@@ -1824,7 +1912,10 @@ mod tests {
     fn with_render(mut t: TraitDefinition, prop: &str) -> TraitDefinition {
         let mut props = HashMap::new();
         props.insert("type".to_string(), SExpression::String("stack".to_string()));
-        props.insert("children".to_string(), SExpression::String(prop.to_string()));
+        props.insert(
+            "children".to_string(),
+            SExpression::String(prop.to_string()),
+        );
         t.state_machine.transitions[0]
             .effects
             .get_or_insert_with(Vec::new)
