@@ -343,8 +343,7 @@ impl<'a> Resolver<'a> {
                             if p.path.contains(':') || !seen.insert(p.path.clone()) {
                                 continue;
                             }
-                            let label =
-                                p.label.clone().unwrap_or_else(|| derive_nav_label(&p.name));
+                            let label = page_nav_label(p);
                             entries.push((p.path.clone(), label, p.icon.clone()));
                         }
                     }
@@ -381,17 +380,10 @@ impl<'a> Resolver<'a> {
 /// per-orbital `Orbital.theme`. A full `<base>-<variant>` registry key.
 const DEFAULT_THEME_KEY: &str = "minimalist-light";
 
-/// Derive a human nav label from a page's `name` when no `@label`
-/// annotation is present: strip a trailing `Page` suffix
-/// (`ContactsPage` → `Contacts`). The name is always present (the lowerer
-/// derives one from the path when `as` is omitted).
-fn derive_nav_label(name: &str) -> String {
-    if let Some(stripped) = name.strip_suffix("Page") {
-        if !stripped.is_empty() {
-            return stripped.to_string();
-        }
-    }
-    name.to_string()
+/// A page's nav label: its declared `@label`, else its `name` exactly as
+/// written (never derived — the runtime nav stack follows the same rule).
+fn page_nav_label(page: &PageDefinition) -> String {
+    page.label.clone().unwrap_or_else(|| page.name.clone())
 }
 
 /// Derive the `data-theme` selector-key string from an orbital's `Orbital.theme`.
@@ -1273,6 +1265,7 @@ impl<'a> Resolver<'a> {
     fn resolve_page(&self, page: &PageDefinition) -> Result<OirPage, ResolveError> {
         let mut oir_page = OirPage::new(&page.name, &page.path);
         oir_page.id = page.id.clone();
+        oir_page.label = page.label.clone();
 
         // Resolve sections if present
         if let Some(sections) = &page.sections {
@@ -3089,6 +3082,23 @@ mod tests {
             slots.contains("modal"),
             "a render-ui nested inside a conditional must still register its slot, got: {slots:?}"
         );
+    }
+
+    fn page_named(name: &str, label: Option<&str>) -> PageDefinition {
+        let mut page: PageDefinition = serde_json::from_value(serde_json::json!({ "name": name, "path": "/p" }))
+            .expect("minimal page");
+        page.label = label.map(str::to_string);
+        page
+    }
+
+    /// A nav entry shows the page's declared `@label`; with none it shows the
+    /// page name exactly as written — no English suffix stripping — so the
+    /// runtime and compiled paths agree and nothing is derived from a name.
+    #[test]
+    fn page_nav_label_is_the_declared_label_else_the_name_as_written() {
+        assert_eq!(page_nav_label(&page_named("ContactsPage", Some("جهات الاتصال"))), "جهات الاتصال");
+        assert_eq!(page_nav_label(&page_named("ContactsPage", None)), "ContactsPage");
+        assert_eq!(page_nav_label(&page_named("Page", None)), "Page");
     }
 
     /// A schema with no orbitals — every named-type test that doesn't
