@@ -190,7 +190,7 @@ pub static CANONICAL_OPERATORS: &[OperatorMeta] = &[
         return_type: "array",
         description: "Add item to end (returns new array)",
         has_side_effects: false,
-        return_semantics: None,
+        return_semantics: Some("union-of-args<0,1>"),
     },
     OperatorMeta {
         name: "array/avg",
@@ -210,7 +210,7 @@ pub static CANONICAL_OPERATORS: &[OperatorMeta] = &[
         return_type: "array",
         description: "Concatenate arrays",
         has_side_effects: false,
-        return_semantics: None,
+        return_semantics: Some("union-of-args"),
     },
     OperatorMeta {
         name: "array/cosine",
@@ -240,7 +240,7 @@ pub static CANONICAL_OPERATORS: &[OperatorMeta] = &[
         return_type: "array",
         description: "Skip first n elements",
         has_side_effects: false,
-        return_semantics: None,
+        return_semantics: Some("identity-of-arg<0>"),
     },
     OperatorMeta {
         name: "array/dropLast",
@@ -250,7 +250,7 @@ pub static CANONICAL_OPERATORS: &[OperatorMeta] = &[
         return_type: "array",
         description: "Skip last n elements",
         has_side_effects: false,
-        return_semantics: None,
+        return_semantics: Some("identity-of-arg<0>"),
     },
     OperatorMeta {
         name: "array/every",
@@ -350,7 +350,7 @@ pub static CANONICAL_OPERATORS: &[OperatorMeta] = &[
         return_type: "array",
         description: "Insert item at index (returns new array)",
         has_side_effects: false,
-        return_semantics: None,
+        return_semantics: Some("union-of-args<0,2>"),
     },
     OperatorMeta {
         name: "array/last",
@@ -440,7 +440,7 @@ pub static CANONICAL_OPERATORS: &[OperatorMeta] = &[
         return_type: "array",
         description: "Add item to start (returns new array)",
         has_side_effects: false,
-        return_semantics: None,
+        return_semantics: Some("union-of-args<0,1>"),
     },
     OperatorMeta {
         name: "array/range",
@@ -480,7 +480,7 @@ pub static CANONICAL_OPERATORS: &[OperatorMeta] = &[
         return_type: "array",
         description: "Remove item at index (returns new array)",
         has_side_effects: false,
-        return_semantics: None,
+        return_semantics: Some("identity-of-arg<0>"),
     },
     OperatorMeta {
         name: "array/removeItem",
@@ -490,7 +490,7 @@ pub static CANONICAL_OPERATORS: &[OperatorMeta] = &[
         return_type: "array",
         description: "Remove first matching item (returns new array)",
         has_side_effects: false,
-        return_semantics: None,
+        return_semantics: Some("identity-of-arg<0>"),
     },
     OperatorMeta {
         name: "array/reverse",
@@ -500,7 +500,7 @@ pub static CANONICAL_OPERATORS: &[OperatorMeta] = &[
         return_type: "array",
         description: "Reverse array order (returns new array)",
         has_side_effects: false,
-        return_semantics: None,
+        return_semantics: Some("identity-of-arg<0>"),
     },
     OperatorMeta {
         name: "array/shuffle",
@@ -510,7 +510,7 @@ pub static CANONICAL_OPERATORS: &[OperatorMeta] = &[
         return_type: "array",
         description: "Randomly shuffle array (returns new array)",
         has_side_effects: false,
-        return_semantics: None,
+        return_semantics: Some("identity-of-arg<0>"),
     },
     OperatorMeta {
         name: "array/slice",
@@ -520,7 +520,7 @@ pub static CANONICAL_OPERATORS: &[OperatorMeta] = &[
         return_type: "array",
         description: "Extract subarray",
         has_side_effects: false,
-        return_semantics: None,
+        return_semantics: Some("identity-of-arg<0>"),
     },
     OperatorMeta {
         name: "array/some",
@@ -540,7 +540,7 @@ pub static CANONICAL_OPERATORS: &[OperatorMeta] = &[
         return_type: "array",
         description: "Sort array (returns new array)",
         has_side_effects: false,
-        return_semantics: None,
+        return_semantics: Some("identity-of-arg<0>"),
     },
     OperatorMeta {
         name: "array/sum",
@@ -560,7 +560,7 @@ pub static CANONICAL_OPERATORS: &[OperatorMeta] = &[
         return_type: "array",
         description: "Take first n elements",
         has_side_effects: false,
-        return_semantics: None,
+        return_semantics: Some("identity-of-arg<0>"),
     },
     OperatorMeta {
         name: "array/takeLast",
@@ -570,7 +570,7 @@ pub static CANONICAL_OPERATORS: &[OperatorMeta] = &[
         return_type: "array",
         description: "Take last n elements",
         has_side_effects: false,
-        return_semantics: None,
+        return_semantics: Some("identity-of-arg<0>"),
     },
     OperatorMeta {
         name: "array/unique",
@@ -580,7 +580,7 @@ pub static CANONICAL_OPERATORS: &[OperatorMeta] = &[
         return_type: "array",
         description: "Remove duplicates (returns new array)",
         has_side_effects: false,
-        return_semantics: None,
+        return_semantics: Some("identity-of-arg<0>"),
     },
     OperatorMeta {
         name: "array/zip",
@@ -640,7 +640,7 @@ pub static CANONICAL_OPERATORS: &[OperatorMeta] = &[
         return_type: "any",
         description: "Sequential execution of multiple effects/expressions",
         has_side_effects: false,
-        return_semantics: None,
+        return_semantics: Some("last-of-args"),
     },
     OperatorMeta {
         name: "ease/apply",
@@ -970,7 +970,7 @@ pub static CANONICAL_OPERATORS: &[OperatorMeta] = &[
         return_type: "any",
         description: "Bind local variables for a body expression",
         has_side_effects: false,
-        return_semantics: None,
+        return_semantics: Some("identity-of-arg<1>"),
     },
     OperatorMeta {
         name: "list",

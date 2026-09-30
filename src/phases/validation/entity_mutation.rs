@@ -17,7 +17,7 @@ use super::render_ui::is_render_ui_effect;
 use super::{ErrorCode, Severity, ValidationContext, ValidationError, ValidationResult};
 use orbital_core::schema::{
     EntityDefinition, ListenSource, Orbital, OrbitalSchema, PageRef, Persistence, SExpression,
-    StringOrNumber, TraitDefinition, TraitReference,
+    StringOrNumber, TraitDefinition, TraitReference, TransitionDefinition,
 };
 use std::collections::{HashMap, HashSet};
 
@@ -1026,6 +1026,19 @@ fn schema_dispatch_is_client_only(
     entity_is_runtime || trait_def.local
 }
 
+/// A transition's server-bound effects in order — `render-ui` and every other
+/// client-side effect are dropped, so two arms that differ only in what they
+/// render compare equal.
+fn server_bound_effects(transition: &TransitionDefinition) -> Vec<&SExpression> {
+    transition
+        .effects
+        .as_deref()
+        .unwrap_or(&[])
+        .iter()
+        .filter(|e| contains_server_bound_effect(e))
+        .collect()
+}
+
 /// Run `ORB_AUTH_GUARD_CLIENT_ONLY` for every orbital in the schema.
 pub fn validate_all_auth_guard_client_only(schema: &OrbitalSchema, ctx: &mut ValidationContext) {
     for (trait_def, path) in super::inline_traits(schema) {
@@ -1056,13 +1069,26 @@ fn validate_trait_auth_guard_client_only(
         }
         // A client-only transition with no server-touching effect has no server
         // state to protect: the guard is a UX precondition, not a finding.
-        let has_server_effect = transition
-            .effects
-            .as_deref()
-            .unwrap_or(&[])
+        let server_effects = server_bound_effects(transition);
+        if server_effects.is_empty() {
+            continue;
+        }
+        // A guard that only chooses between arms of one (from, event) pair
+        // whose server-bound effects are identical selects a VIEW: whichever
+        // arm fires, the same server work runs, so the guard protects
+        // nothing. A lone guarded arm, or arms whose server work differs,
+        // still warn.
+        let siblings: Vec<&_> = trait_def
+            .state_machine
+            .transitions
             .iter()
-            .any(contains_server_bound_effect);
-        if !has_server_effect {
+            .filter(|t| t.from == transition.from && t.event == transition.event)
+            .collect();
+        if siblings.len() > 1
+            && siblings
+                .iter()
+                .all(|t| server_bound_effects(t) == server_effects)
+        {
             continue;
         }
         let message = format!(
@@ -3457,6 +3483,122 @@ mod tests {
             "A nested server-touching effect must still get the optimistic-advance message: {:?}",
             hit
         );
+    }
+
+    /// Adds a second arm on the same (from, event) as transition 0.
+    fn with_sibling_arm(
+        mut t: TraitDefinition,
+        guard: Option<SExpression>,
+        effects: Vec<SExpression>,
+    ) -> TraitDefinition {
+        let mut arm = t.state_machine.transitions[0].clone();
+        arm.guard = guard;
+        arm.effects = Some(effects);
+        t.state_machine.transitions.push(arm);
+        t
+    }
+
+    fn runtime_defs() -> HashMap<String, EntityDefinition> {
+        HashMap::from([(
+            "Message".to_string(),
+            entity("Message", false, Some(Persistence::Runtime)),
+        )])
+    }
+
+    fn user_role_guard(negate: bool) -> SExpression {
+        let g = arr(vec![s("=="), s("@user.role"), s("admin")]);
+        if negate {
+            arr(vec![s("not"), g])
+        } else {
+            g
+        }
+    }
+
+    fn fetch_effect() -> SExpression {
+        arr(vec![
+            s("fetch"),
+            s("Message"),
+            SExpression::Object(std::collections::HashMap::new()),
+        ])
+    }
+
+    fn persist_effect() -> SExpression {
+        arr(vec![
+            s("persist"),
+            s("update"),
+            s("Message"),
+            SExpression::Object(std::collections::HashMap::new()),
+        ])
+    }
+
+    fn auth_guard_warns(t: &TraitDefinition) -> bool {
+        validate_trait_auth_guard_client_only(t, "t", &runtime_defs())
+            .warnings
+            .iter()
+            .any(|e| e.code == ErrorCode::AuthGuardClientOnly)
+    }
+
+    #[test]
+    fn user_guard_choosing_between_render_only_arms_is_silent() {
+        let t = trait_with_guard(
+            "Layout",
+            "Message",
+            Some(user_role_guard(false)),
+            vec![render_ui_reading("a")],
+        );
+        let t = with_sibling_arm(t, Some(user_role_guard(true)), vec![render_ui_reading("b")]);
+        assert!(!auth_guard_warns(&t));
+    }
+
+    #[test]
+    fn user_guard_choosing_between_arms_with_identical_server_work_is_silent() {
+        let t = trait_with_guard(
+            "Layout",
+            "Message",
+            Some(user_role_guard(false)),
+            vec![fetch_effect(), render_ui_reading("a")],
+        );
+        let t = with_sibling_arm(
+            t,
+            Some(user_role_guard(true)),
+            vec![fetch_effect(), render_ui_reading("b")],
+        );
+        assert!(!auth_guard_warns(&t));
+    }
+
+    #[test]
+    fn user_guard_selecting_a_persist_arm_over_a_render_only_arm_warns() {
+        let t = trait_with_guard(
+            "Layout",
+            "Message",
+            Some(user_role_guard(false)),
+            vec![persist_effect(), render_ui_reading("a")],
+        );
+        let t = with_sibling_arm(t, Some(user_role_guard(true)), vec![render_ui_reading("b")]);
+        assert!(auth_guard_warns(&t));
+    }
+
+    #[test]
+    fn user_guard_arms_with_different_server_effects_warn() {
+        let t = trait_with_guard(
+            "Layout",
+            "Message",
+            Some(user_role_guard(false)),
+            vec![persist_effect()],
+        );
+        let t = with_sibling_arm(t, Some(user_role_guard(true)), vec![fetch_effect()]);
+        assert!(auth_guard_warns(&t));
+    }
+
+    #[test]
+    fn lone_user_guarded_fetch_arm_still_warns() {
+        let t = trait_with_guard(
+            "Layout",
+            "Message",
+            Some(user_role_guard(false)),
+            vec![fetch_effect(), render_ui_reading("a")],
+        );
+        assert!(auth_guard_warns(&t));
     }
 
     #[test]

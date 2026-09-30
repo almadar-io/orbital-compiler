@@ -30,6 +30,7 @@ use orbital_core::events::is_bus_excluded_event;
 use orbital_core::schema::{OrbitalSchema, SExpression, TraitDefinition, TraitReference};
 
 use crate::embedded::patterns;
+use crate::phases::validation::value_walk::live_sources;
 
 /// Every event name fired anywhere in the schema: transition effects, tick
 /// effects, and RESOLVED config defaults.
@@ -280,30 +281,6 @@ fn event_map_prop_names() -> &'static std::collections::HashSet<String> {
     })
 }
 
-/// Fold-aware sibling of `SExpression::conditional_leaf_values`, scoped to
-/// THIS consumer: a `["if", cond, then, else?]` whose `cond` provably never
-/// fires (`SExpression::is_statically_false`) contributes no leaf from its
-/// dead `then` branch. `conditional_leaf_values` itself stays all-branches —
-/// its other callers (renames, descriptor rewrites) need every branch's
-/// contribution even when dead, so this does not touch that shared method.
-fn fold_aware_event_prop_leaves(value: &SExpression) -> Vec<&SExpression> {
-    if let SExpression::Array(arr) = value {
-        if matches!(arr.first().and_then(|e| e.as_str()), Some("if")) && arr.len() >= 3 {
-            let condition = &arr[1];
-            let mut leaves = if condition.is_statically_false() {
-                vec![]
-            } else {
-                fold_aware_event_prop_leaves(&arr[2])
-            };
-            if let Some(else_branch) = arr.get(3) {
-                leaves.extend(fold_aware_event_prop_leaves(else_branch));
-            }
-            return leaves;
-        }
-    }
-    vec![value]
-}
-
 /// Recursively walk an SExpression collecting every event-name string
 /// fired by:
 ///
@@ -392,13 +369,12 @@ pub(crate) fn collect_fired_events_recursive(
             let event_keys = ui_event_prop_names();
             for (key, value) in obj.iter() {
                 if event_keys.contains(key) {
-                    // A conditional value contributes every branch's leaf
-                    // that can actually render — a branch whose condition
-                    // provably never fires contributes none (fold-aware
-                    // sibling of `conditional_leaf_values`; that one stays
-                    // all-branches for its OTHER callers — renames and
-                    // descriptor rewrites need every branch even when dead).
-                    for leaf in fold_aware_event_prop_leaves(value) {
+                    // A value contributes every declared source that can
+                    // actually render — a branch whose condition provably
+                    // never fires contributes none (`live_sources`; renames
+                    // and descriptor rewrites use `all_sources`, every branch
+                    // even when dead).
+                    for leaf in value.value_leaves(&live_sources()) {
                         if let SExpression::String(s) = leaf {
                             // Skip bindings (`@entity.X`, `@payload.Y`) —
                             // those resolve at runtime to event-name
@@ -425,7 +401,7 @@ pub(crate) fn collect_fired_events_recursive(
                 if event_map_prop_names().contains(key) {
                     if let SExpression::Object(map_values) = value {
                         for map_value in map_values.values() {
-                            for leaf in fold_aware_event_prop_leaves(map_value) {
+                            for leaf in map_value.value_leaves(&live_sources()) {
                                 if let SExpression::String(s) = leaf {
                                     if !s.starts_with('@') && !is_bus_excluded_event(s) {
                                         fired
@@ -697,23 +673,23 @@ mod tests {
     }
 
     #[test]
-    fn fold_aware_event_prop_leaves_skips_false_branch() {
+    fn live_sources_skips_false_branch() {
         let value = SExpression::Array(vec![s("if"), s(""), s("SAVE"), s("CANCEL")]);
-        let leaves = fold_aware_event_prop_leaves(&value);
+        let leaves = value.value_leaves(&live_sources());
         assert_eq!(leaves, vec![&s("CANCEL")]);
     }
 
     #[test]
-    fn fold_aware_event_prop_leaves_keeps_both_when_undecidable() {
+    fn live_sources_keeps_both_when_undecidable() {
         let value = SExpression::Array(vec![s("if"), s("@config.knob"), s("SAVE"), s("CANCEL")]);
-        let leaves = fold_aware_event_prop_leaves(&value);
+        let leaves = value.value_leaves(&live_sources());
         assert_eq!(leaves, vec![&s("SAVE"), &s("CANCEL")]);
     }
 
     #[test]
-    fn fold_aware_event_prop_leaves_returns_self_for_non_conditional() {
+    fn live_sources_returns_self_for_non_conditional() {
         let value = s("SAVE");
-        let leaves = fold_aware_event_prop_leaves(&value);
+        let leaves = value.value_leaves(&live_sources());
         assert_eq!(leaves, vec![&value]);
     }
 

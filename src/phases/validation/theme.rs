@@ -6,7 +6,9 @@
 use super::error::{ErrorCode, ValidationError, ValidationResult};
 use super::ValidationContext;
 use crate::embedded::builtin_theme_names;
-use orbital_core::schema::{OrbitalSchema, SExpression, ThemeDefinition, ThemeRef, TraitReference};
+use orbital_core::schema::{
+    OrbitalSchema, SExpression, ThemeDefinition, ThemeRef, TraitReference, TypeScaleTokens,
+};
 use regex::Regex;
 use std::collections::HashSet;
 use std::sync::LazyLock;
@@ -212,10 +214,23 @@ pub fn validate_theme_definition(theme: &ThemeDefinition, path: &str) -> Validat
         }
     }
 
+    check_font_stacks(
+        theme.tokens.type_scale.as_ref(),
+        theme.tokens.typography.as_ref(),
+        &format!("{}.tokens", path),
+        &mut result,
+    );
+
     // Validate variants
     if let Some(variants) = &theme.variants {
         for (variant_name, variant) in variants {
             let variant_path = format!("{}.variants.{}", path, variant_name);
+            check_font_stacks(
+                variant.type_scale.as_ref(),
+                variant.typography.as_ref(),
+                &variant_path,
+                &mut result,
+            );
 
             // Validate variant colors
             if let Some(colors) = &variant.colors {
@@ -234,6 +249,96 @@ pub fn validate_theme_definition(theme: &ThemeDefinition, path: &str) -> Validat
 
     result
 }
+
+/// Every font stack a theme declares (`typeScale` families, legacy
+/// `typography.font-family*`) must be well formed — a malformed stack voids
+/// the whole CSS declaration and the font silently falls back. Twin of
+/// `@almadar/core`'s `isWellFormedFontStack`.
+fn check_font_stacks(
+    type_scale: Option<&TypeScaleTokens>,
+    typography: Option<&std::collections::HashMap<String, String>>,
+    path: &str,
+    result: &mut ValidationResult,
+) {
+    let mut stacks: Vec<(String, &str)> = Vec::new();
+    if let Some(ts) = type_scale {
+        for (key, value) in [
+            ("displayFamily", &ts.display_family),
+            ("bodyFamily", &ts.body_family),
+            ("monoFamily", &ts.mono_family),
+        ] {
+            if let Some(v) = value {
+                stacks.push((format!("{}.typeScale.{}", path, key), v.as_str()));
+            }
+        }
+    }
+    if let Some(map) = typography {
+        for (key, value) in map {
+            if key.starts_with("font-family") {
+                stacks.push((format!("{}.typography.{}", path, key), value.as_str()));
+            }
+        }
+    }
+    for (at, stack) in stacks {
+        if !is_well_formed_font_stack(stack) {
+            result.add_error(ValidationError::error(
+                ErrorCode::InvalidValue,
+                at,
+                format!(
+                    "Malformed CSS font-family stack '{}' — separate every family with a comma and fully quote multi-word names",
+                    stack
+                ),
+            ));
+        }
+    }
+}
+
+/// See `check_font_stacks`. Items are comma-separated at paren depth 0; each is
+/// a fully quoted string, a bare identifier sequence, or a `var(...)`.
+fn is_well_formed_font_stack(stack: &str) -> bool {
+    let mut items: Vec<String> = Vec::new();
+    let mut current = String::new();
+    let mut quote: Option<char> = None;
+    let mut depth: i32 = 0;
+    for ch in stack.chars() {
+        if let Some(q) = quote {
+            current.push(ch);
+            if ch == q {
+                quote = None;
+            }
+            continue;
+        }
+        match ch {
+            '"' | '\'' => quote = Some(ch),
+            '(' => depth += 1,
+            ')' => depth -= 1,
+            _ => {}
+        }
+        if ch == ',' && depth == 0 {
+            items.push(current.trim().to_string());
+            current.clear();
+            continue;
+        }
+        current.push(ch);
+    }
+    if quote.is_some() || depth != 0 {
+        return false;
+    }
+    items.push(current.trim().to_string());
+    items.iter().all(|item| {
+        FONT_QUOTED_DOUBLE.is_match(item)
+            || FONT_QUOTED_SINGLE.is_match(item)
+            || FONT_BARE.is_match(item)
+            || FONT_VAR.is_match(item)
+    })
+}
+
+static FONT_QUOTED_DOUBLE: LazyLock<Regex> = LazyLock::new(|| Regex::new(r#"^"[^"]+"$"#).unwrap());
+static FONT_QUOTED_SINGLE: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"^'[^']+'$").unwrap());
+static FONT_BARE: LazyLock<Regex> =
+    LazyLock::new(|| Regex::new(r"^-?[A-Za-z][\w-]*( [A-Za-z0-9][\w-]*)*$").unwrap());
+static FONT_VAR: LazyLock<Regex> =
+    LazyLock::new(|| Regex::new(r"^var\(--[\w-]+(,.*)?\)$").unwrap());
 
 /// Check if a theme reference is valid: a built-in registry name, an
 /// orbital-declared inline theme name, or the legacy `Alias.theme` import
@@ -356,6 +461,7 @@ mod tests {
     fn test_validate_theme_definition() {
         let theme = ThemeDefinition {
             name: "ocean".to_string(),
+            display_name: None,
             tokens: ThemeTokens {
                 color: None,
                 colors: Some(
@@ -378,6 +484,7 @@ mod tests {
                 elevation: None,
                 geometry: None,
                 illustration: None,
+                surface: None,
             },
             variants: None,
         };
@@ -387,9 +494,59 @@ mod tests {
     }
 
     #[test]
+    fn font_stack_well_formedness() {
+        for ok in [
+            "\"Inter\", -apple-system, sans-serif",
+            "'Kenney Pixel', ui-sans-serif",
+            "Times New Roman, serif",
+            "var(--font-family-display, var(--font-family))",
+            "monospace",
+        ] {
+            assert!(is_well_formed_font_stack(ok), "should accept {ok}");
+        }
+        for bad in [
+            "\"Bangers\"\"Comic Sans MS\", cursive",
+            "\"MedievalSharp\"Georgia, serif",
+            "\"Inter\", , serif",
+            "\"Inter, serif",
+            "",
+            "\"Inter\",",
+            "var(--font-family",
+        ] {
+            assert!(!is_well_formed_font_stack(bad), "should reject {bad}");
+        }
+    }
+
+    #[test]
+    fn malformed_font_stack_in_a_theme_is_an_error_and_a_clean_one_is_not() {
+        let theme: ThemeDefinition = serde_json::from_value(serde_json::json!({
+            "name": "t",
+            "tokens": {
+                "typeScale": { "displayFamily": "\"Bangers\"\"Comic Sans MS\"" },
+                "typography": { "font-family": "\"Inter\", sans-serif", "letter-spacing": "\"x\"\"y\"" }
+            },
+            "variants": { "dark": { "typography": { "font-family": "\"A\"B" } } }
+        }))
+        .unwrap();
+        let paths: Vec<String> = validate_theme_definition(&theme, "theme")
+            .errors
+            .iter()
+            .map(|e| e.path.clone())
+            .collect();
+        assert_eq!(
+            paths,
+            vec![
+                "theme.tokens.typeScale.displayFamily".to_string(),
+                "theme.variants.dark.typography.font-family".to_string(),
+            ]
+        );
+    }
+
+    #[test]
     fn test_validate_theme_missing_name() {
         let theme = ThemeDefinition {
             name: "".to_string(),
+            display_name: None,
             tokens: ThemeTokens {
                 color: None,
                 colors: None,
@@ -404,6 +561,7 @@ mod tests {
                 elevation: None,
                 geometry: None,
                 illustration: None,
+                surface: None,
             },
             variants: None,
         };

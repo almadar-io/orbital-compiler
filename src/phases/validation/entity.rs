@@ -306,6 +306,31 @@ pub fn validate_field(
         );
     }
 
+    // The seeder uses an enum's `@mock` candidates as its values (they win over the
+    // rotation), so each candidate must be a member.
+    if let (Some(values), Some(declared)) = (field.values.as_ref(), field.mock.as_deref()) {
+        if field.field_type != FieldType::Union && !values.is_empty() {
+            let outside: Vec<&str> = orbital_core::runtime::seed::mock_candidates(declared)
+                .into_iter()
+                .filter(|c| !orbital_core::type_compat::enum_value_is_member(c, values))
+                .collect();
+            if !outside.is_empty() {
+                result.add_error(
+                    ValidationError::error(
+                        ErrorCode::EntityMockNotInEnum,
+                        format!("{}.mock", path),
+                        format!(
+                            "@mock candidate(s) {} are not values of this field",
+                            outside.join(", ")
+                        ),
+                    )
+                    .with_suggestion("Use only the field's declared values as @mock candidates")
+                    .with_valid_values(values.clone()),
+                );
+            }
+        }
+    }
+
     // A literal default on a semantic-domain field must satisfy that domain.
     // Routes through orbital-core's single owner so L1 (lolo) and L2 cannot drift
     // on what counts as a valid email/url/phone/uuid.
@@ -1032,5 +1057,66 @@ mod tests {
             .errors
             .iter()
             .any(|e| e.code == ErrorCode::SchemaSharedWithoutPersistenceMode));
+    }
+}
+
+#[cfg(test)]
+mod mock_enum_membership_tests {
+    use super::*;
+
+    // The seeder uses an enum's `@mock` candidates as its values, so a candidate that
+    // is not a member would seed an illegal row.
+    fn field(value: serde_json::Value) -> FieldDefinition {
+        serde_json::from_value(value).expect("field fixture must deserialize")
+    }
+
+    fn codes(f: &FieldDefinition) -> Vec<ErrorCode> {
+        validate_field(
+            f,
+            "entity.fields[0]",
+            &HashSet::new(),
+            &mut HashSet::new(),
+            true,
+        )
+        .errors
+        .into_iter()
+        .map(|e| e.code)
+        .collect()
+    }
+
+    #[test]
+    fn a_mock_candidate_outside_the_enum_is_an_error_naming_it() {
+        let f = field(serde_json::json!({
+            "name": "status", "type": "string", "values": ["draft", "paid"], "mock": "paid, refunded"
+        }));
+        let result = validate_field(
+            &f,
+            "entity.fields[0]",
+            &HashSet::new(),
+            &mut HashSet::new(),
+            true,
+        );
+        let err = result
+            .errors
+            .iter()
+            .find(|e| e.code == ErrorCode::EntityMockNotInEnum);
+        assert!(err.is_some(), "{:?}", result.errors);
+        assert!(err.map(|e| e.message.contains("refunded")).unwrap_or(false));
+    }
+
+    #[test]
+    fn control_member_candidates_are_accepted() {
+        let f = field(serde_json::json!({
+            "name": "status", "type": "string", "values": ["draft", "paid"], "mock": "paid, paid, draft"
+        }));
+        assert!(!codes(&f).contains(&ErrorCode::EntityMockNotInEnum));
+    }
+
+    #[test]
+    fn control_a_non_enum_field_keeps_free_form_mock() {
+        let f = field(
+            serde_json::json!({ "name": "client", "type": "string", "mock": "Acme Corp, Globex" }),
+        );
+        assert!(!codes(&f).contains(&ErrorCode::EntityMockNotInEnum));
     }
 }

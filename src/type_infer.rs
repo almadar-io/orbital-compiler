@@ -168,12 +168,19 @@ fn infer_call<C: TypeCtx>(function: &str, args: &[OirExpr], ctx: &C) -> OirType 
     };
     match meta.return_semantics {
         None => return_type_to_oir(meta.return_type),
-        Some(sem) => apply_return_semantics(sem, args, ctx),
+        Some(sem) => {
+            apply_return_semantics(sem, args, ctx, || return_type_to_oir(meta.return_type))
+        }
     }
 }
 
 /// The `return_semantics` lattice — a generic interpreter, no per-operator code.
-fn apply_return_semantics<C: TypeCtx>(sem: &str, args: &[OirExpr], ctx: &C) -> OirType {
+fn apply_return_semantics<C: TypeCtx>(
+    sem: &str,
+    args: &[OirExpr],
+    ctx: &C,
+    static_type: impl Fn() -> OirType,
+) -> OirType {
     let arg0 = || {
         args.first()
             .map(|a| infer_oir_expr_type(a, ctx))
@@ -192,6 +199,15 @@ fn apply_return_semantics<C: TypeCtx>(sem: &str, args: &[OirExpr], ctx: &C) -> O
         }
         // the arg<0> array passes through unchanged (filter/reject/sort/…)
         "identity-of-arg<0>" => arg0(),
+        // value-provenance kinds (`identity-of-arg<N>`, `union-of-args[<..>]`,
+        // `last-of-args`) trace which VALUES a result carries, not its type:
+        // the static `return_type` stays authoritative except `<0>` above.
+        kind if kind.starts_with("identity-of-arg<")
+            || kind.starts_with("union-of-args")
+            || kind == "last-of-args" =>
+        {
+            static_type()
+        }
         // union of the branches/args, or an open object-key lookup — unknowable.
         "branch-union"
         | "first-truthy-of-args"

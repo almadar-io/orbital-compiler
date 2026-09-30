@@ -356,7 +356,8 @@ pub(crate) fn apply_overrides_to_trait(
     //     behaviour); `forwarded_from` rides along with it (a resolved
     //     forward's provenance, or `None` for a plain concrete override —
     //     either way it replaces whatever the atom's own declared field
-    //     carried, since `default` itself just changed).
+    //     carried, since `default` itself just changed); so does
+    //     `nested_forwarded_from` (G-CROSS-024).
     //   - `label`/`description`/`synonyms`/`tier` when `Some` → overwrite
     //     the atom's declared value (organism wins). This is the NEW behaviour
     //     for annotated call-site entries; plain wiring entries (no annotations)
@@ -371,6 +372,7 @@ pub(crate) fn apply_overrides_to_trait(
                             v.clone(),
                         ));
                         field.forwarded_from = cf.forwarded_from.clone();
+                        field.nested_forwarded_from = cf.nested_forwarded_from.clone();
                     }
                     if cf.label.is_some() {
                         field.label = cf.label.clone();
@@ -1077,20 +1079,98 @@ pub(super) fn forwarded_sibling_config_from_tracked(
     mut schema_only_keys: Option<&mut HashSet<String>>,
 ) -> Option<HashMap<String, ConfigField>> {
     let declared = declared?;
+    let rungs = ForwardRungs {
+        embedder_chain,
+        orbital_config,
+        upstream_orbital_config,
+        upstream_schema_config,
+        schema_config,
+    };
     let mut out: HashMap<String, ConfigField> = HashMap::new();
     for (key, field) in declared.iter() {
-        let Some(SExpression::String(forward)) = field.default.as_ref() else {
-            continue;
-        };
-        let Some(knob) = forward.strip_prefix("@config.") else {
-            continue;
-        };
-        if knob.contains('.') {
-            continue;
+        match field.default.as_ref() {
+            Some(SExpression::String(forward)) => {
+                let Some(knob) = forward.strip_prefix("@config.") else {
+                    continue;
+                };
+                let Some(hit) = rungs.resolve(knob) else {
+                    continue;
+                };
+                if hit.schema_only {
+                    if let Some(set) = schema_only_keys.as_deref_mut() {
+                        set.insert(key.clone());
+                    }
+                }
+                let mut forwarded = field.clone();
+                forwarded.default = Some(hit.value.clone());
+                forwarded.forwarded_from = Some(hit.target);
+                out.insert(key.clone(), forwarded);
+            }
+            Some(value @ (SExpression::Array(_) | SExpression::Object(_))) => {
+                // G-CROSS-024: `@config.<knob>` tokens nested in the value
+                // resolve along the same chain; a knob this trait declares
+                // itself stays its own live read.
+                let mut tokens: Vec<String> = Vec::new();
+                let mut schema_only = false;
+                let Some(resolved) = substitute_nested_forwards(
+                    value,
+                    declared,
+                    &rungs,
+                    &mut tokens,
+                    &mut schema_only,
+                ) else {
+                    continue;
+                };
+                if schema_only {
+                    if let Some(set) = schema_only_keys.as_deref_mut() {
+                        set.insert(key.clone());
+                    }
+                }
+                let mut forwarded = field.clone();
+                forwarded.default = Some(resolved);
+                for token in tokens {
+                    if !forwarded.nested_forwarded_from.contains(&token) {
+                        forwarded.nested_forwarded_from.push(token);
+                    }
+                }
+                out.insert(key.clone(), forwarded);
+            }
+            _ => {}
+        }
+    }
+    (!out.is_empty()).then_some(out)
+}
+
+/// The rungs a `@config.<knob>` forward walks, innermost first: the embedder
+/// chain, the owning orbital, the upstream orbital and app (§8 trait-form
+/// references only), then the consumer's app config.
+struct ForwardRungs<'a> {
+    embedder_chain: &'a [&'a HashMap<String, ConfigField>],
+    orbital_config: Option<&'a HashMap<String, ConfigField>>,
+    upstream_orbital_config: Option<&'a HashMap<String, ConfigField>>,
+    upstream_schema_config: Option<&'a HashMap<String, ConfigField>>,
+    schema_config: Option<&'a HashMap<String, ConfigField>>,
+}
+
+struct ForwardHit<'a> {
+    value: &'a SExpression,
+    /// `@config.<key>` of the rung key the value was finally read from.
+    target: String,
+    /// Only the outermost app rung supplied it.
+    schema_only: bool,
+}
+
+impl<'a> ForwardRungs<'a> {
+    /// Walk `knob` through the rungs, following a rung that relays under
+    /// another whole `@config.<key>`. `None` for a dotted knob or when no
+    /// rung supplies a concrete value.
+    fn resolve(&self, knob: &str) -> Option<ForwardHit<'a>> {
+        if knob.is_empty() || knob.contains('.') {
+            return None;
         }
         let mut current_key = knob.to_string();
-        let mut resolved: Option<&SExpression> = None;
-        for rung in embedder_chain {
+        let mut resolved: Option<&'a SExpression> = None;
+        for rung in self.embedder_chain {
             let Some(value) = rung.get(&current_key).and_then(|f| f.default.as_ref()) else {
                 continue;
             };
@@ -1108,49 +1188,93 @@ pub(super) fn forwarded_sibling_config_from_tracked(
         let target = format!("@config.{current_key}");
         let is_still_forward =
             |v: &SExpression| matches!(v, SExpression::String(s) if s == &target);
+        let from = |c: Option<&'a HashMap<String, ConfigField>>| {
+            c.and_then(|c| c.get(&current_key))
+                .and_then(|f| f.default.as_ref())
+        };
         let mut value = resolved;
         if value.is_none_or(is_still_forward) {
-            value = orbital_config
-                .and_then(|c| c.get(&current_key))
-                .and_then(|f| f.default.as_ref());
+            value = from(self.orbital_config);
         }
         if value.is_none_or(is_still_forward) {
-            value = upstream_orbital_config
-                .and_then(|c| c.get(&current_key))
-                .and_then(|f| f.default.as_ref());
+            value = from(self.upstream_orbital_config);
         }
         if value.is_none_or(is_still_forward) {
-            value = upstream_schema_config
-                .and_then(|c| c.get(&current_key))
-                .and_then(|f| f.default.as_ref());
+            value = from(self.upstream_schema_config);
         }
-        // Every nearer rung (embedder/orbital/upstream) came up empty or
-        // self-forwarding — whatever the schema_config rung supplies next is
-        // ONLY reachable through it.
-        let reaches_schema_config_rung = value.is_none_or(is_still_forward);
-        if reaches_schema_config_rung {
-            value = schema_config
-                .and_then(|c| c.get(&current_key))
-                .and_then(|f| f.default.as_ref());
+        // Every nearer rung came up empty or self-forwarding — whatever the
+        // app rung supplies next is ONLY reachable through it.
+        let schema_only = value.is_none_or(is_still_forward);
+        if schema_only {
+            value = from(self.schema_config);
         }
-        let Some(value) = value else {
-            continue;
-        };
-        // Still a forward at the outermost rung — nothing left to resolve.
+        let value = value?;
         if is_still_forward(value) {
-            continue;
+            return None;
         }
-        if reaches_schema_config_rung {
-            if let Some(set) = schema_only_keys.as_deref_mut() {
-                set.insert(key.clone());
-            }
-        }
-        let mut forwarded = field.clone();
-        forwarded.default = Some(value.clone());
-        forwarded.forwarded_from = Some(target);
-        out.insert(key.clone(), forwarded);
+        Some(ForwardHit {
+            value,
+            target,
+            schema_only,
+        })
     }
-    (!out.is_empty()).then_some(out)
+}
+
+/// `expr` with every nested `@config.<knob>` leaf that `rungs` resolves
+/// replaced by its value — `None` when nothing changed. A knob `own`
+/// declares is the trait's own read and is never folded.
+fn substitute_nested_forwards(
+    expr: &SExpression,
+    own: &HashMap<String, ConfigField>,
+    rungs: &ForwardRungs<'_>,
+    tokens: &mut Vec<String>,
+    schema_only: &mut bool,
+) -> Option<SExpression> {
+    match expr {
+        SExpression::String(s) => {
+            let knob = s.strip_prefix("@config.")?;
+            if own.contains_key(knob) {
+                return None;
+            }
+            let hit = rungs.resolve(knob)?;
+            tokens.push(hit.target);
+            *schema_only |= hit.schema_only;
+            Some(hit.value.clone())
+        }
+        SExpression::Array(items) => {
+            let mut changed = false;
+            let next: Vec<SExpression> = items
+                .iter()
+                .map(|item| {
+                    match substitute_nested_forwards(item, own, rungs, tokens, schema_only) {
+                        Some(v) => {
+                            changed = true;
+                            v
+                        }
+                        None => item.clone(),
+                    }
+                })
+                .collect();
+            changed.then_some(SExpression::Array(next))
+        }
+        SExpression::Object(map) => {
+            let mut changed = false;
+            let next: HashMap<String, SExpression> = map
+                .iter()
+                .map(|(k, v)| {
+                    match substitute_nested_forwards(v, own, rungs, tokens, schema_only) {
+                        Some(nv) => {
+                            changed = true;
+                            (k.clone(), nv)
+                        }
+                        None => (k.clone(), v.clone()),
+                    }
+                })
+                .collect();
+            changed.then_some(SExpression::Object(next))
+        }
+        SExpression::Null | SExpression::Bool(_) | SExpression::Number(_) => None,
+    }
 }
 
 /// `@trait.<SiblingName>` into `out`. App atoms embed a curated variation as
@@ -2471,8 +2595,11 @@ fn sexpr_references_config(expr: &SExpression, token: &str) -> bool {
 }
 
 /// Payload fields that resolve in the CHILD's own scope for a given call-site
-/// knob: the union of `payloadSchema` fields of every event whose transition
-/// (in the child's own state machine) renders `@config.<knob>`. When the child
+/// knob: the INTERSECTION of the `payloadSchema` fields of every event whose
+/// transition (in the child's own state machine) renders `@config.<knob>`. A
+/// field the child reads locally must resolve in every arm that renders the
+/// knob; one missing from any rendering arm (a detail panel's INIT arms carry no
+/// `data`) can only be the composing host's capture (G-ORB-033). When the child
 /// renders the knob under `BrowseItemLoaded { data, totalCount }`, a
 /// `@payload.data` in the override reads the child's own loaded data — local,
 /// not a call-site capture. Empty when the child never renders the knob itself
@@ -2493,7 +2620,7 @@ fn local_payload_fields_for_knob(trait_def: &TraitDefinition, knob: &str) -> Has
         .unwrap_or_default();
 
     let token = format!("@config.{knob}");
-    let mut out = HashSet::new();
+    let mut local: Option<HashSet<String>> = None;
     for tr in &trait_def.state_machine.transitions {
         let renders = tr
             .effects
@@ -2502,11 +2629,16 @@ fn local_payload_fields_for_knob(trait_def: &TraitDefinition, knob: &str) -> Has
         if !renders {
             continue;
         }
-        if let Some(fields) = event_fields.get(tr.event.as_str()) {
-            out.extend(fields.iter().map(|f| f.name.clone()));
-        }
+        let declared: HashSet<String> = event_fields
+            .get(tr.event.as_str())
+            .map(|fields| fields.iter().map(|f| f.name.clone()).collect())
+            .unwrap_or_default();
+        local = Some(match local {
+            None => declared,
+            Some(prev) => prev.intersection(&declared).cloned().collect(),
+        });
     }
-    out
+    local.unwrap_or_default()
 }
 
 #[cfg(test)]
@@ -2600,6 +2732,93 @@ mod entity_id_reader_tests {
             entity_ref_ids: None,
             trait_embed_ids: None,
         }
+    }
+
+    /// A child trait whose transitions all render `@config.<knob>`, one per
+    /// `(event, declared payload fields)` entry — the shape of a detail panel
+    /// that paints its title under INIT (no payload) and under its own
+    /// `Loaded { data }` arm.
+    fn trait_rendering_knob_in_arms(knob: &str, arms: &[(&str, &[&str])]) -> TraitDefinition {
+        let mut td = trait_rendering_knob(knob, arms[0].0, None);
+        let mut events = Vec::new();
+        let mut transitions = Vec::new();
+        for (event, fields) in arms {
+            if !fields.is_empty() {
+                events.push(EventDefinition {
+                    key: event.to_string(),
+                    id: None,
+                    name: None,
+                    description: None,
+                    synonyms: None,
+                    tier: None,
+                    payload_schema: Some(fields.iter().map(|f| payload_field(f)).collect()),
+                    payload_entity: None,
+                });
+            }
+            let mut tr = td.state_machine.transitions[0].clone();
+            tr.event = event.to_string();
+            transitions.push(tr);
+        }
+        td.state_machine.events = Some(events);
+        td.state_machine.transitions = transitions;
+        td
+    }
+
+    #[test]
+    fn capture_named_like_a_loaded_field_stays_a_capture_when_an_init_arm_also_renders_it() {
+        // G-ORB-033: `title: ?data.name` on a detail panel. The panel renders
+        // `title` under INIT arms (no payload) AND under `Loaded { data }`.
+        // `data` does not resolve in the INIT arms, so the host's `?data` can
+        // only be the composing host's capture — never the child's own field.
+        let td = trait_rendering_knob_in_arms(
+            "title",
+            &[("INIT", &[]), ("INIT", &[]), ("Loaded", &["data"])],
+        );
+        let local = local_payload_fields_for_knob(&td, "title");
+        assert!(local.is_empty(), "data must stay a capture: {local:?}");
+    }
+
+    #[test]
+    fn field_declared_by_every_rendering_arm_is_local() {
+        // Paired control: a knob the child itself binds from its own payload in
+        // EVERY arm that renders it keeps resolving locally.
+        let td = trait_rendering_knob_in_arms(
+            "body",
+            &[("Loaded", &["data"]), ("Refreshed", &["data"])],
+        );
+        let local = local_payload_fields_for_knob(&td, "body");
+        assert_eq!(local, ["data".to_string()].into_iter().collect());
+    }
+
+    #[test]
+    fn only_the_field_every_arm_declares_is_local() {
+        // Edge: `data` is declared everywhere, `totalCount` only in one arm →
+        // only `data` is local; `totalCount` is a capture.
+        let td = trait_rendering_knob_in_arms(
+            "body",
+            &[
+                ("Loaded", &["data", "totalCount"]),
+                ("Refreshed", &["data"]),
+            ],
+        );
+        let local = local_payload_fields_for_knob(&td, "body");
+        assert!(local.contains("data") && !local.contains("totalCount"));
+    }
+
+    #[test]
+    fn arm_without_a_payload_schema_makes_every_field_a_capture() {
+        // Edge: an arm whose event declares no payload at all (or has no event
+        // entry) declares nothing, so the intersection is empty.
+        let td = trait_rendering_knob_in_arms("body", &[("Loaded", &["data"]), ("Idle", &[])]);
+        assert!(local_payload_fields_for_knob(&td, "body").is_empty());
+    }
+
+    #[test]
+    fn single_arm_render_is_unchanged() {
+        // Edge: one rendering arm behaves exactly as the old union did.
+        let td = trait_rendering_knob_in_arms("body", &[("Loaded", &["data", "row"])]);
+        let local = local_payload_fields_for_knob(&td, "body");
+        assert_eq!(local.len(), 2);
     }
 
     #[test]
@@ -3247,6 +3466,105 @@ mod forwarded_sibling_config_tests {
                 .get("label")
                 .and_then(|f| f.default.as_ref()),
             Some(&SExpression::String("App Widgets".to_string())),
+        );
+    }
+
+    /// G-CROSS-024: a `@config.<knob>` token NESTED in a field's value (an
+    /// object inside an array, `metrics[].target`) resolves along the same
+    /// embedder → orbital → app chain as a whole-value forward, and the
+    /// token is recorded in `nested_forwarded_from`.
+    #[test]
+    fn nested_config_token_resolves_through_the_app_rung() {
+        let stats = trait_with_config(
+            "WeeklyStats",
+            config_map(&[(
+                "metrics",
+                serde_json::json!([{ "label": "Wins", "target": "@config.weeklyWinTarget" }]),
+            )]),
+        );
+        let schema_config = config_map(&[("weeklyWinTarget", serde_json::json!(2))]);
+        let resolved = forwarded_sibling_config_from(
+            stats.config.as_ref(),
+            &[],
+            None,
+            None,
+            None,
+            Some(&schema_config),
+        )
+        .expect("the nested token must resolve against the app rung");
+        let metrics = resolved.get("metrics").expect("metrics resolved");
+        assert_eq!(
+            metrics.default,
+            Some(
+                serde_json::from_value::<SExpression>(
+                    serde_json::json!([{ "label": "Wins", "target": 2 }])
+                )
+                .expect("sexpr")
+            ),
+        );
+        assert_eq!(
+            metrics.nested_forwarded_from,
+            vec!["@config.weeklyWinTarget".to_string()]
+        );
+        assert_eq!(
+            metrics.forwarded_from, None,
+            "a nested resolution is not a whole-value forward"
+        );
+    }
+
+    /// Control: a nested token naming one of the trait's OWN declared knobs
+    /// is that trait's live read (the runtime evaluates it against its own
+    /// config), never folded from an outer rung.
+    #[test]
+    fn nested_token_naming_an_own_knob_is_left_alone() {
+        let stats = trait_with_config(
+            "WeeklyStats",
+            config_map(&[
+                ("title", serde_json::json!("Deals")),
+                (
+                    "body",
+                    serde_json::json!({ "type": "typography", "content": "@config.title" }),
+                ),
+            ]),
+        );
+        let schema_config = config_map(&[("title", serde_json::json!("App title"))]);
+        let resolved = forwarded_sibling_config_from(
+            stats.config.as_ref(),
+            &[],
+            None,
+            None,
+            None,
+            Some(&schema_config),
+        );
+        assert!(
+            resolved.as_ref().and_then(|r| r.get("body")).is_none(),
+            "an own-knob read must not be substituted: {resolved:?}"
+        );
+    }
+
+    /// Edges: an unresolvable nested token and a dotted `@config.a.b` path
+    /// stay as written, with no provenance recorded.
+    #[test]
+    fn nested_unresolved_and_dotted_tokens_stay_as_written() {
+        let stats = trait_with_config(
+            "WeeklyStats",
+            config_map(&[(
+                "metrics",
+                serde_json::json!([{ "target": "@config.nobodyDeclares", "max": "@config.limits.max" }]),
+            )]),
+        );
+        let schema_config = config_map(&[("limits", serde_json::json!({ "max": 5 }))]);
+        let resolved = forwarded_sibling_config_from(
+            stats.config.as_ref(),
+            &[],
+            None,
+            None,
+            None,
+            Some(&schema_config),
+        );
+        assert!(
+            resolved.as_ref().and_then(|r| r.get("metrics")).is_none(),
+            "nothing nested resolved, so the field is not in the delta: {resolved:?}"
         );
     }
 }

@@ -36,12 +36,26 @@ fn forwarded_knob(token: &str) -> Option<&str> {
         .filter(|knob| !knob.is_empty() && !knob.contains('.'))
 }
 
+/// Every `@config.<knob>` token a field carries: its whole `default`, any
+/// token nested in it, and the provenance of forwards the inline phase
+/// already folded (`forwarded_from`, `nested_forwarded_from`).
 fn field_forward_tokens(field: &ConfigField) -> impl Iterator<Item = &str> {
-    let default = match field.default.as_ref() {
-        Some(SExpression::String(s)) => Some(s.as_str()),
-        _ => None,
-    };
-    default.into_iter().chain(field.forwarded_from.as_deref())
+    let mut tokens: Vec<&str> = Vec::new();
+    if let Some(default) = field.default.as_ref() {
+        collect_config_tokens(default, &mut tokens);
+    }
+    tokens.extend(field.forwarded_from.as_deref());
+    tokens.extend(field.nested_forwarded_from.iter().map(String::as_str));
+    tokens.into_iter()
+}
+
+fn collect_config_tokens<'a>(expr: &'a SExpression, out: &mut Vec<&'a str>) {
+    match expr {
+        SExpression::String(s) if s.starts_with("@config.") => out.push(s.as_str()),
+        SExpression::Array(items) => items.iter().for_each(|i| collect_config_tokens(i, out)),
+        SExpression::Object(map) => map.values().for_each(|v| collect_config_tokens(v, out)),
+        _ => {}
+    }
 }
 
 /// Every knob some trait publishes: the knobs traits forward directly, closed

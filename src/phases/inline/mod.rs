@@ -66,8 +66,8 @@ pub use r#trait::TraitRefConfigDiagnostic;
 // Diagnostics collected while resolving `orbital X = Alias.orbitals.Y { … }`
 // references — re-exported so `phases::validation` (W4-R) can name them.
 use orbital::{
-    fold_declared_config_override, materialized_primary_entity, materialized_trait_subs,
-    resolve_orbital_reference, SiblingImportInfo,
+    effective_page_remap, fold_declared_config_override, materialized_primary_entity,
+    materialized_trait_subs, resolve_orbital_reference, SiblingImportInfo,
 };
 pub use orbital::{OrbitalRefDiagnostic, UsesConfigDiagnostic};
 use rewrite::{apply_inline_config_defaults, trait_ref_name};
@@ -939,11 +939,21 @@ fn precompute_reference_form_listen_targets(
             continue;
         };
         let trait_subs = materialized_trait_subs(upstream, reference, &orbital.name);
+        let key = (alias, name);
+        let mut page_remaps = out
+            .remove(&key)
+            .map(|prev: SiblingImportInfo| prev.page_remaps)
+            .unwrap_or_default();
+        let remap = effective_page_remap(upstream, reference);
+        if !remap.is_empty() {
+            page_remaps.push((orbital.name.clone(), remap));
+        }
         out.insert(
-            (alias, name),
+            key,
             SiblingImportInfo {
                 local_name: orbital.name.clone(),
                 trait_subs,
+                page_remaps,
             },
         );
     }

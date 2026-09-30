@@ -1065,6 +1065,7 @@ mod tests {
             traits,
             pages: vec![],
             themes: vec![],
+            default_theme: None,
             services: vec![],
             expected_entities: vec![],
             named_types: std::collections::BTreeMap::new(),

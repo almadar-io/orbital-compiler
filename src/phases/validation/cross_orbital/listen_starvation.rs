@@ -355,6 +355,7 @@ mod tests {
             required: None,
             ref_id: None,
             forwarded_from: None,
+            nested_forwarded_from: Vec::new(),
             payload_for: Some(knob.to_string()),
         }
     }

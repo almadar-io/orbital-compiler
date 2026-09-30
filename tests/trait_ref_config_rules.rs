@@ -379,3 +379,77 @@ fn genuinely_unknown_key_on_alias_still_fires_e1() {
         result.errors
     );
 }
+
+// G-ORB-030: a `!`-required `trait`-typed knob is a required knob like any
+// other — omitting it at the call site fires E2; supplying it is clean.
+const SLOT_ATOM_FIXTURE: &str = r#"{
+  "name": "test-required-trait-knob-atom",
+  "version": "1.0.0",
+  "orbitals": [
+    {
+      "name": "SlotOrbital",
+      "entity": {
+        "name": "Widget",
+        "persistence": "persistent",
+        "fields": [ { "name": "id", "type": "string", "required": true } ]
+      },
+      "traits": [
+        {
+          "name": "SlotHost",
+          "linkedEntity": "Widget",
+          "category": "interaction",
+          "config": { "slot": { "type": "trait", "required": true } },
+          "stateMachine": {
+            "states": [ { "name": "idle", "isInitial": true } ],
+            "events": [ { "key": "LOAD", "name": "Load" } ],
+            "transitions": [ { "from": "idle", "to": "idle", "event": "LOAD", "effects": [] } ]
+          }
+        }
+      ]
+    }
+  ]
+}"#;
+
+fn slot_diagnostics(
+    config_fragment: &str,
+) -> Vec<orbital_compiler::phases::inline::TraitRefConfigDiagnostic> {
+    let dir = tempfile::TempDir::new().expect("temp dir");
+    std::fs::write(dir.path().join("atom.orb"), SLOT_ATOM_FIXTURE).expect("write atom");
+    let composer = format!(
+        r#"{{
+  "name": "test-required-trait-knob-composer",
+  "version": "1.0.0",
+  "orbitals": [
+    {{
+      "name": "SlotComposer",
+      "uses": [ {{ "from": "./atom.orb", "as": "AtomAlias" }} ],
+      "entity": {{ "name": "Rec", "persistence": "runtime", "fields": [ {{ "name": "id", "type": "string", "required": true }} ] }},
+      "traits": [ {{ "ref": "AtomAlias.traits.SlotHost", "linkedEntity": "Rec"{config_fragment} }} ]
+    }}
+  ]
+}}"#
+    );
+    let path = dir.path().join("composer.orb");
+    std::fs::write(&path, composer).expect("write composer");
+    collect_diagnostics(&path)
+}
+
+#[test]
+fn omitted_required_trait_knob_fires_e2() {
+    let result = validate_trait_ref_config_diagnostics(&slot_diagnostics(""));
+    assert!(
+        result
+            .errors
+            .iter()
+            .any(|e| e.code == ErrorCode::TraitConfigMissingRequiredKey
+                && e.message.contains("slot")),
+        "{:#?}",
+        result.errors
+    );
+}
+
+#[test]
+fn control_supplied_required_trait_knob_is_clean() {
+    let fragment = r#", "config": { "slot": { "type": "unknown", "default": "@trait.Rec" } }"#;
+    assert!(slot_diagnostics(fragment).is_empty());
+}

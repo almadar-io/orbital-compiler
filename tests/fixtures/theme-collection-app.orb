@@ -1,0 +1,195 @@
+{
+  "ledger": {
+    "entries": {
+      "ent_01M3S618ARM4TRW5E72FBF5X9K": {
+        "bakedName": "Sample",
+        "curName": "Sample",
+        "id": "ent_01M3S618ARM4TRW5E72FBF5X9K",
+        "kind": "entity",
+        "owner": "workspace",
+        "renames": []
+      },
+      "evt_01M3S618ARC1G9BCCWS2Q60SME": {
+        "bakedName": "INIT",
+        "curName": "INIT",
+        "id": "evt_01M3S618ARC1G9BCCWS2Q60SME",
+        "kind": "event",
+        "owner": "workspace",
+        "parent": "trt_01M3S618AR9EV6NV80QV7MGYGN",
+        "renames": []
+      },
+      "orb_01M3S618ARBJTVFR6XZ9MJ71RR": {
+        "bakedName": "ThemeShowcase",
+        "curName": "ThemeShowcase",
+        "id": "orb_01M3S618ARBJTVFR6XZ9MJ71RR",
+        "kind": "orbital",
+        "owner": "workspace",
+        "renames": []
+      },
+      "pag_01M3S618AR3744RCQ4S8JZHCC0": {
+        "bakedName": "ShowcasePage",
+        "curName": "ShowcasePage",
+        "id": "pag_01M3S618AR3744RCQ4S8JZHCC0",
+        "kind": "page",
+        "owner": "workspace",
+        "renames": []
+      },
+      "trt_01M3S618AR9EV6NV80QV7MGYGN": {
+        "bakedName": "ShowcaseView",
+        "curName": "ShowcaseView",
+        "id": "trt_01M3S618AR9EV6NV80QV7MGYGN",
+        "kind": "trait",
+        "owner": "workspace",
+        "renames": []
+      }
+    },
+    "schemaVersion": 1
+  },
+  "name": "ThemeShowcase",
+  "orbitals": [
+    {
+      "entity": {
+        "collection": "samples",
+        "fields": [
+          {
+            "name": "id",
+            "required": true,
+            "type": "string"
+          }
+        ],
+        "id": "ent_01M3S618ARM4TRW5E72FBF5X9K",
+        "name": "Sample",
+        "persistence": "persistent"
+      },
+      "id": "orb_01M3S618ARBJTVFR6XZ9MJ71RR",
+      "name": "ThemeShowcase",
+      "pages": [
+        {
+          "id": "pag_01M3S618AR3744RCQ4S8JZHCC0",
+          "name": "ShowcasePage",
+          "path": "/",
+          "traits": [
+            {
+              "ref": "ShowcaseView",
+              "refId": "trt_01M3S618AR9EV6NV80QV7MGYGN"
+            }
+          ]
+        }
+      ],
+      "traits": [
+        {
+          "category": "interaction",
+          "effectRow": [
+            {
+              "kind": "render-ui",
+              "resource": "main"
+            }
+          ],
+          "entityRefIds": {
+            "Sample": "ent_01M3S618ARM4TRW5E72FBF5X9K"
+          },
+          "id": "trt_01M3S618AR9EV6NV80QV7MGYGN",
+          "linkedEntity": "Sample",
+          "linkedEntityId": "ent_01M3S618ARM4TRW5E72FBF5X9K",
+          "name": "ShowcaseView",
+          "scope": "instance",
+          "stateMachine": {
+            "events": [
+              {
+                "id": "evt_01M3S618ARC1G9BCCWS2Q60SME",
+                "key": "INIT",
+                "name": "Initialize"
+              }
+            ],
+            "states": [
+              {
+                "isInitial": true,
+                "name": "idle"
+              }
+            ],
+            "transitions": [
+              {
+                "effects": [
+                  [
+                    "render-ui",
+                    "main",
+                    {
+                      "children": [
+                        {
+                          "content": "Orbital Almanac",
+                          "type": "typography",
+                          "variant": "h1"
+                        },
+                        {
+                          "content": "Every theme reshapes type, corners, borders, shadows and surfaces, not just color.",
+                          "type": "typography",
+                          "variant": "body"
+                        },
+                        {
+                          "children": [
+                            {
+                              "children": [
+                                {
+                                  "content": "Mission control",
+                                  "type": "typography",
+                                  "variant": "h3"
+                                },
+                                {
+                                  "label": "Callsign",
+                                  "placeholder": "e.g. Kestrel",
+                                  "type": "input"
+                                },
+                                {
+                                  "children": [
+                                    {
+                                      "label": "On track",
+                                      "type": "badge",
+                                      "variant": "success"
+                                    },
+                                    {
+                                      "label": "3 open",
+                                      "type": "badge",
+                                      "variant": "warning"
+                                    }
+                                  ],
+                                  "direction": "horizontal",
+                                  "gap": "sm",
+                                  "type": "stack"
+                                }
+                              ],
+                              "direction": "vertical",
+                              "gap": "md",
+                              "type": "stack"
+                            }
+                          ],
+                          "subtitle": "Design review, Thursday",
+                          "title": "Quarterly launch",
+                          "type": "card"
+                        },
+                        {
+                          "message": "Theme tokens now carry heading voice, corner shape and surface material.",
+                          "title": "Heads up",
+                          "type": "alert",
+                          "variant": "info"
+                        }
+                      ],
+                      "className": "p-8 max-w-3xl",
+                      "direction": "vertical",
+                      "gap": "lg",
+                      "type": "stack"
+                    }
+                  ]
+                ],
+                "event": "INIT",
+                "eventId": "evt_01M3S618ARC1G9BCCWS2Q60SME",
+                "from": "idle",
+                "to": "idle"
+              }
+            ]
+          }
+        }
+      ]
+    }
+  ],
+  "schemaVersion": 1
+}

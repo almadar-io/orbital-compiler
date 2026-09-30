@@ -729,6 +729,58 @@ fn app_level_forwarded_knob_does_not_fire_dead_knob() {
     );
 }
 
+/// G-CROSS-024: an app knob read NESTED in a trait's config value
+/// (`metrics[].target`) publishes the knob — both once the inline phase has
+/// folded it (provenance in `nestedForwardedFrom`) and while the token is
+/// still in place.
+#[test]
+fn app_knob_read_nested_in_a_trait_config_value_does_not_fire_dead_knob() {
+    let app = json!({ "weeklyWinTarget": { "type": "number", "default": 2 } });
+    let resolved = schema_with(
+        Some(app.clone()),
+        None,
+        Some(json!({ "metrics": {
+            "type": "array",
+            "default": [ { "label": "Wins", "target": 2 } ],
+            "nestedForwardedFrom": [ "@config.weeklyWinTarget" ]
+        } })),
+    );
+    assert!(
+        !codes(&resolved).contains(&DEAD_KNOB.to_string()),
+        "the folded nested read must publish 'weeklyWinTarget'"
+    );
+    let unresolved = schema_with(
+        Some(app),
+        None,
+        Some(json!({ "metrics": {
+            "type": "array",
+            "default": [ { "label": "Wins", "target": "@config.weeklyWinTarget" } ]
+        } })),
+    );
+    assert!(
+        !codes(&unresolved).contains(&DEAD_KNOB.to_string()),
+        "an unfolded nested token must publish 'weeklyWinTarget' too"
+    );
+}
+
+/// Control: nested provenance naming a DIFFERENT knob publishes only that one.
+#[test]
+fn nested_provenance_for_another_knob_still_fires_dead_knob() {
+    let schema = schema_with(
+        Some(json!({ "weeklyWinTarget": { "type": "number", "default": 2 } })),
+        None,
+        Some(json!({ "metrics": {
+            "type": "array",
+            "default": [ { "target": 5 } ],
+            "nestedForwardedFrom": [ "@config.weeklyLeadTarget" ]
+        } })),
+    );
+    assert!(
+        codes(&schema).contains(&DEAD_KNOB.to_string()),
+        "'weeklyWinTarget' is read nowhere — must fire {DEAD_KNOB}"
+    );
+}
+
 #[test]
 fn app_knob_forwarded_through_an_imported_orbital_knob_does_not_fire_dead_knob() {
     // §107: the consumer folded its app knob into the imported orbital's knob

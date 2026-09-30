@@ -1637,20 +1637,30 @@ fn is_bare_config_forward(s: &str) -> bool {
     chars.all(|c| c.is_ascii_alphanumeric() || c == '_')
 }
 
-/// `true` when any config default in `config` contains an `@config.<key>`
-/// forward anywhere in its value tree — i.e. part of what the trait renders
-/// is decided by whoever embeds it. Rust twin of `traitDeclaresConfigForward`
+/// `true` when part of what the trait renders is decided by whoever embeds
+/// it: a knob whose whole default is an `@config.<key>` forward, or an
+/// `@config.<key>` nested in a value naming a knob the trait does NOT declare.
+/// A nested token naming one of its own knobs is the trait reading itself —
+/// the same for every embedder. Rust twin of `traitDeclaresConfigForward`
 /// (`packages/almadar-core/src/embedded-trait-config.ts`).
 fn trait_config_declares_forward(config: &HashMap<String, ConfigField>) -> bool {
-    fn walk(value: &SExpression) -> bool {
+    fn walk(value: &SExpression, own: &HashMap<String, ConfigField>) -> bool {
         match value {
-            SExpression::String(s) => is_bare_config_forward(s),
-            SExpression::Array(items) => items.iter().any(walk),
-            SExpression::Object(map) => map.values().any(walk),
+            SExpression::String(s) => {
+                is_bare_config_forward(s) && !own.contains_key(&s["@config.".len()..])
+            }
+            SExpression::Array(items) => items.iter().any(|v| walk(v, own)),
+            SExpression::Object(map) => map.values().any(|v| walk(v, own)),
             _ => false,
         }
     }
-    config.values().filter_map(|f| f.default.as_ref()).any(walk)
+    config
+        .values()
+        .filter_map(|f| f.default.as_ref())
+        .any(|default| match default {
+            SExpression::String(s) => is_bare_config_forward(s),
+            nested => walk(nested, config),
+        })
 }
 
 /// A trait embedded via `@trait.X` by ≥2 referrers that itself declares an
@@ -2323,6 +2333,53 @@ mod embed_config_forward_multi_referrer_tests {
         assert_eq!(errors.len(), 1);
         assert_eq!(errors[0].code, ErrorCode::EmbedConfigForwardMultiReferrer);
         assert!(errors[0].message.contains("Child"));
+    }
+
+    /// Two referrers; `Child` only READS its own knob (`title`) nested in
+    /// another knob's value — that renders the same for every embedder.
+    const TWO_REFERRERS_OWN_KNOB_READ: &str = r#"{
+      "name": "t", "version": "1.0.0",
+      "orbitals": [{
+        "name": "O",
+        "entity": { "name": "W", "fields": [] },
+        "traits": [
+          { "name": "Child", "config": {
+            "title": { "type": "string", "default": "Stats" },
+            "body": { "type": "unknown", "default": { "type": "typography", "content": "@config.title" } }
+          } },
+          { "name": "ParentA", "config": { "slotA": { "type": "string", "default": "@trait.Child" } } },
+          { "name": "ParentB", "config": { "slotB": { "type": "string", "default": "@trait.Child" } } }
+        ]
+      }]
+    }"#;
+
+    /// Edge: a nested token naming a knob `Child` does NOT declare is an
+    /// embedder forward — still flagged.
+    const TWO_REFERRERS_NESTED_FOREIGN: &str = r#"{
+      "name": "t", "version": "1.0.0",
+      "orbitals": [{
+        "name": "O",
+        "entity": { "name": "W", "fields": [] },
+        "traits": [
+          { "name": "Child", "config": {
+            "body": { "type": "unknown", "default": { "type": "typography", "content": "@config.heading" } }
+          } },
+          { "name": "ParentA", "config": { "slotA": { "type": "string", "default": "@trait.Child" } } },
+          { "name": "ParentB", "config": { "slotB": { "type": "string", "default": "@trait.Child" } } }
+        ]
+      }]
+    }"#;
+
+    #[test]
+    fn two_referrers_reading_only_own_knobs_is_silent() {
+        assert!(findings(TWO_REFERRERS_OWN_KNOB_READ).is_empty());
+    }
+
+    #[test]
+    fn two_referrers_with_a_nested_foreign_forward_errors() {
+        let errors = findings(TWO_REFERRERS_NESTED_FOREIGN);
+        assert_eq!(errors.len(), 1);
+        assert_eq!(errors[0].code, ErrorCode::EmbedConfigForwardMultiReferrer);
     }
 
     #[test]
@@ -3200,6 +3257,7 @@ mod recursive_type_literal_tests {
             required: None,
             ref_id: None,
             forwarded_from: None,
+            nested_forwarded_from: Vec::new(),
             payload_for: None,
         }
     }

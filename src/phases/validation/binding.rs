@@ -551,7 +551,7 @@ fn validate_embed_reads_arm_writes(
                 format!("Read what `{event}` used, as a call-site capture: {pairs}")
             } else {
                 format!(
-                    "Re-render the embed explicitly: route `listens {{ {host}.{event} -> INIT }}` on a named `{}`, or pass the value through a call-site capture",
+                    "Pass what `{event}` writes into `{}` through a call-site capture instead of reading it as `@entity`",
                     child.name
                 )
             };
@@ -1904,6 +1904,36 @@ pub fn validate_trait_binding_usage(
 ) -> ValidationResult {
     let mut result = ValidationResult::new();
 
+    // A `trait`-typed knob bound to `@trait.X` must name a trait of this
+    // orbital wherever the knob is consumed — including a knob no render-ui
+    // embeds directly (forwarded, guarded, or read only by a pulled sibling).
+    if let Some(config) = &trait_def.config {
+        let mut knobs: Vec<(&String, &str)> = config
+            .iter()
+            .filter(|(_, cf)| cf.field_type == "trait")
+            .filter_map(|(name, cf)| match &cf.default {
+                Some(SExpression::String(v)) if v.starts_with("@trait.") => {
+                    Some((name, v.as_str()))
+                }
+                _ => None,
+            })
+            .collect();
+        knobs.sort();
+        for (name, value) in knobs {
+            let bound = validate_trait_binding(
+                value,
+                &format!("{}.config.{}", path, name),
+                &trait_def.name,
+                known_traits,
+            );
+            for err in bound.errors {
+                if err.code == ErrorCode::BindingTraitUnknown {
+                    result.add_error(err);
+                }
+            }
+        }
+    }
+
     // Walk transitions (guards + effects) and ticks, collecting every
     // `@trait.*` binding string. `@trait.X` is a render-only binding: it's
     // permitted only inside a `render-ui` effect's pattern tree. In a guard,
@@ -2303,6 +2333,57 @@ fn collect_trait_refs(expr: &SExpression, out: &mut HashSet<String>) {
             }
         }
         _ => {}
+    }
+}
+
+#[cfg(test)]
+mod trait_knob_binding_tests {
+    //! G-ORB-030: a `trait`-typed knob bound to `@trait.X` names a trait of the
+    //! consuming orbital even when no render-ui embeds the knob.
+    use super::*;
+
+    fn trait_with_knob(field_type: &str, default: serde_json::Value) -> TraitDefinition {
+        serde_json::from_value(serde_json::json!({
+            "name": "Host",
+            "config": { "slot": { "type": field_type, "default": default } },
+            "stateMachine": { "states": [], "transitions": [] }
+        }))
+        .expect("trait")
+    }
+
+    fn known(names: &[&str]) -> HashSet<String> {
+        names.iter().map(|n| n.to_string()).collect()
+    }
+
+    fn codes(t: &TraitDefinition, known_traits: &HashSet<String>) -> Vec<ErrorCode> {
+        validate_trait_binding_usage(t, "t", known_traits)
+            .errors
+            .into_iter()
+            .map(|e| e.code)
+            .collect()
+    }
+
+    #[test]
+    fn a_trait_knob_bound_to_a_missing_trait_is_an_error() {
+        let t = trait_with_knob("trait", serde_json::json!("@trait.NoSuchTrait"));
+        assert_eq!(
+            codes(&t, &known(&["Host", "Inner"])),
+            vec![ErrorCode::BindingTraitUnknown]
+        );
+    }
+
+    #[test]
+    fn control_a_trait_knob_bound_to_a_sibling_trait_is_fine() {
+        let t = trait_with_knob("trait", serde_json::json!("@trait.Inner"));
+        assert!(codes(&t, &known(&["Host", "Inner"])).is_empty());
+    }
+
+    #[test]
+    fn edge_unbound_none_and_non_trait_knobs_are_not_checked() {
+        let none = trait_with_knob("trait", serde_json::Value::Null);
+        assert!(codes(&none, &known(&["Host"])).is_empty());
+        let string = trait_with_knob("string", serde_json::json!("@trait.NoSuchTrait"));
+        assert!(codes(&string, &known(&["Host"])).is_empty());
     }
 }
 
@@ -4082,15 +4163,15 @@ mod tests {
             &entity_defs("persistent", false),
         );
         assert_eq!(errors.len(), 1, "{errors:?}");
+        // A `listens { Host.Event -> INIT }` re-render reads the embed's own
+        // per-trait frame (kernel `frame_slot`), never the host's `set`, so the
+        // suggestion must not offer it (G-ORB-032).
+        let suggestion = errors[0].suggestion.as_deref().unwrap_or("");
         assert!(
-            errors[0]
-                .suggestion
-                .as_deref()
-                .unwrap_or("")
-                .contains("-> INIT"),
-            "{:?}",
-            errors[0].suggestion
+            !suggestion.contains("listens") && !suggestion.contains("-> INIT"),
+            "{suggestion}"
         );
+        assert!(suggestion.contains("call-site capture"), "{suggestion}");
     }
 
     #[test]

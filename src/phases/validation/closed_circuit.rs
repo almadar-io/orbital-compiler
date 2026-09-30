@@ -31,11 +31,11 @@ use crate::phases::page_content_owner::{
     is_content_main_writer, reduce_to_owners, resolve_page_content_owner, PageContentOwner,
 };
 use crate::phases::sexpr_json::sexpr_obj_to_json_map;
+use crate::phases::validation::value_walk::all_sources;
 use orbital_core::events::is_bus_excluded_event;
 use orbital_core::schema::{
-    json_conditional_leaf_values, ConfigField, Orbital, OrbitalSchema, PageDefinition, PageRef,
-    SExpression, StateMachine, StringOrArray, TraitDefinition, TraitReference,
-    TransitionDefinition,
+    json_value_leaves, ConfigField, Orbital, OrbitalSchema, PageDefinition, PageRef, SExpression,
+    StateMachine, StringOrArray, TraitDefinition, TraitReference, TransitionDefinition,
 };
 use orbital_core::slots::SELF_OVERLAY_PATTERN_TYPES;
 use std::collections::{HashMap, HashSet};
@@ -343,16 +343,20 @@ fn extract_item_actions(render_ui_effects: &[RenderUIInfo]) -> Vec<ItemActionInf
             let Some(actions_value) = props.get(action_prop) else {
                 continue;
             };
-            // A conditional (`if`-wrapped) actions config contributes the
-            // union of both branches — the runtime evaluates the condition
-            // at render time, so descriptors in either branch are live.
-            // Multi-leaf paths carry a `.branch[i]` suffix: only one branch
-            // renders at a time, so cross-branch repeats are not duplicates.
-            let leaves = json_conditional_leaf_values(actions_value);
+            // Every declared value source of an actions config contributes
+            // (both `if` branches, a sliced/sorted/concatenated list, a mapped
+            // lambda body) — the runtime evaluates it at render time, so a
+            // descriptor from any source is live. A source is a descriptor
+            // list or one descriptor. Multi-leaf paths carry a `.branch[i]`
+            // suffix: only one branch renders at a time, so cross-branch
+            // repeats are not duplicates.
+            let leaves = json_value_leaves(actions_value, &all_sources());
             let multi_leaf = leaves.len() > 1;
             for (leaf_idx, leaf) in leaves.into_iter().enumerate() {
-                let serde_json::Value::Array(actions) = leaf else {
-                    continue;
+                let actions = match leaf {
+                    serde_json::Value::Array(actions) => actions.as_slice(),
+                    serde_json::Value::Object(_) => std::slice::from_ref(leaf),
+                    _ => continue,
                 };
 
                 for action_value in actions {

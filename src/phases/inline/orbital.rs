@@ -25,7 +25,7 @@ use super::rewrite::{
     collect_entity_slots, collect_stale_field_name_literals, fold_event_typed_members,
     rewrite_bare_field_name_config_default, rewrite_entity_field_paths, rewrite_entity_ref_ids,
     rewrite_entity_typed_config_values, rewrite_identifiers, rewrite_payload_entity_refs,
-    rewrite_role_literals, rewrite_trait_event_fields,
+    rewrite_role_literals, rewrite_role_literals_in_config_lists, rewrite_trait_event_fields,
 };
 use super::InlineError;
 use crate::phases::validation::user_identity::{identity_entities_of, vocabulary};
@@ -225,6 +225,72 @@ pub(crate) struct SiblingImportInfo {
     pub local_name: String,
     /// upstream (pre-prefix) trait name -> (final local trait name, final derived id)
     pub trait_subs: HashMap<String, (String, String)>,
+    /// G-ORB-031: one `(local orbital name, upstream path -> local path)` per
+    /// import of this (alias, upstream orbital) that actually moves a page
+    /// (identity entries dropped). A `Vec` because two imports of one upstream
+    /// orbital share this map's key yet remap independently.
+    pub page_remaps: Vec<(String, HashMap<String, String>)>,
+}
+
+/// The upstream→local page remaps of every OTHER import from `alias`,
+/// restricted to paths this import's own upstream pages never declare (own
+/// remap always wins). A path every other import maps to the SAME local path
+/// is applied; a path they map DIFFERENTLY is ambiguous and left out — the
+/// sibling's target stays the upstream path and the unreachable-navigate
+/// check reports it, so no import is silently preferred over another.
+fn sibling_page_remaps(
+    alias: &str,
+    local_name: &str,
+    own_path_map: &HashMap<String, String>,
+    listen_source_targets: &HashMap<(String, String), SiblingImportInfo>,
+) -> HashMap<String, String> {
+    let mut targets: HashMap<String, HashSet<String>> = HashMap::new();
+    for ((a, _), info) in listen_source_targets {
+        if a != alias {
+            continue;
+        }
+        for (importer, remap) in &info.page_remaps {
+            if importer == local_name {
+                continue;
+            }
+            for (from, to) in remap {
+                if !own_path_map.contains_key(from) {
+                    targets.entry(from.clone()).or_default().insert(to.clone());
+                }
+            }
+        }
+    }
+    targets
+        .into_iter()
+        .filter_map(|(from, tos)| {
+            let mut it = tos.into_iter();
+            match (it.next(), it.next()) {
+                (Some(to), None) => Some((from, to)),
+                _ => None,
+            }
+        })
+        .collect()
+}
+
+/// `obj.pages` entries that name a real upstream page and move it.
+pub(crate) fn effective_page_remap(
+    upstream: &Orbital,
+    obj: &OrbitalRefObject,
+) -> HashMap<String, String> {
+    let mut out = HashMap::new();
+    let (Some(pages), Some(map)) = (&upstream.pages, obj.pages.as_ref()) else {
+        return out;
+    };
+    for p in pages {
+        if let PageRef::Inline(pd) = p {
+            if let Some(to) = map.get(&pd.path) {
+                if to != &pd.path {
+                    out.insert(pd.path.clone(), to.clone());
+                }
+            }
+        }
+    }
+    out
 }
 
 /// Every KEPT (post `omit`/`only`) upstream trait a reference-form orbital
@@ -842,6 +908,16 @@ pub(crate) fn resolve_orbital_reference(
             }
         }
     }
+    let nav_path_map: HashMap<String, String> = {
+        let mut m = path_map.clone();
+        m.extend(sibling_page_remaps(
+            &alias,
+            &local_name,
+            &path_map,
+            listen_source_targets,
+        ));
+        m
+    };
     let mut page_unknown_path: Vec<String> = Vec::new();
     if let Some(pages_map) = obj.pages.as_ref() {
         for k in pages_map.keys() {
@@ -909,8 +985,8 @@ pub(crate) fn resolve_orbital_reference(
             &alias,
             listen_source_targets,
         );
-        if !path_map.is_empty() {
-            rewrite_trait_navigate_targets(td, &path_map);
+        if !nav_path_map.is_empty() {
+            rewrite_trait_navigate_targets(td, &nav_path_map);
         }
         // Config forward: resolve against EVERY surviving embedder in
         // `kept`, in order, merging each embedder's delta into `td.config`
@@ -1005,7 +1081,8 @@ pub(crate) fn resolve_orbital_reference(
         // (D) config-held page-path literals (e.g. an AppLayout's
         // `navItems[].href`) sit outside the navigate-effect surface above —
         // moved here, after the config forward, per (i) above.
-        rewrite_trait_config_page_paths(td, &path_map, &schema_only_keys);
+        rewrite_trait_config_page_paths(td, &nav_path_map, &schema_only_keys);
+        rewrite_role_literals_in_config_lists(td, &role_fields, &roles, &schema_only_keys);
         if let Some(events) = obj.events.as_ref() {
             rename_events_in_trait(td, events, &subs);
         }
@@ -1326,8 +1403,10 @@ pub(crate) fn resolve_orbital_reference(
                 path: diag_path.clone(),
             })?;
         let mut listen = entry.listen.clone();
-        if let Some(orbital_core::schema::ListenSource::Trait { trait_name, trait_id }) =
-            listen.source.as_mut()
+        if let Some(orbital_core::schema::ListenSource::Trait {
+            trait_name,
+            trait_id,
+        }) = listen.source.as_mut()
         {
             if let Some(imported) = subs.get(trait_name.as_str()) {
                 *trait_name = imported.clone();
@@ -4790,7 +4869,10 @@ mod tests {
                 Err(e @ InlineError::OrbitalRefListenTargetUnknown { .. }) => {
                     assert_eq!(e.structured_code(), "ORB_O_LISTEN_TARGET_UNKNOWN")
                 }
-                other => panic!("{target}: expected OrbitalRefListenTargetUnknown, got {:?}", other.map(|_| ())),
+                other => panic!(
+                    "{target}: expected OrbitalRefListenTargetUnknown, got {:?}",
+                    other.map(|_| ())
+                ),
             }
         }
     }

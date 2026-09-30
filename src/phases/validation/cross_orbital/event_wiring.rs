@@ -594,6 +594,7 @@ pub(crate) fn collect_trait_events(
 ///
 /// `@`-prefixed values (unresolved bindings) are never credited.
 pub(crate) fn collect_effect_produced_events(trait_def: &TraitDefinition) -> HashSet<String> {
+    use crate::phases::validation::value_walk::all_sources;
     use orbital_core::schema::SExpression;
 
     fn credit(value: &SExpression, out: &mut HashSet<String>) {
@@ -645,22 +646,27 @@ pub(crate) fn collect_effect_produced_events(trait_def: &TraitDefinition) -> Has
                                     })
                             });
                         if is_event_prop {
-                            for leaf in v.conditional_leaf_values() {
+                            for leaf in v.value_leaves(&all_sources()) {
                                 credit(leaf, out);
                             }
                         }
                         if let Some(field) = list_props.and_then(|m| m.get(k.as_str())) {
-                            // A conditional (`if`-wrapped) event-list config
-                            // contributes the union of both branches — the
-                            // runtime picks one at render time, but either is
-                            // a legal listen source.
-                            for leaf in v.conditional_leaf_values() {
-                                if let SExpression::Array(descriptors) = leaf {
-                                    for descriptor in descriptors {
-                                        if let SExpression::Object(dm) = descriptor {
-                                            if let Some(ev) = dm.get(*field) {
-                                                credit(ev, out);
-                                            }
+                            // Every declared value source of an event-list
+                            // config contributes (both `if` branches, a
+                            // sliced/sorted/concatenated list, a mapped
+                            // lambda body): the runtime picks at render time,
+                            // but any of them is a legal listen source. A
+                            // source is a descriptor list or one descriptor.
+                            for leaf in v.value_leaves(&all_sources()) {
+                                let descriptors = match leaf {
+                                    SExpression::Array(items) => items.as_slice(),
+                                    SExpression::Object(_) => std::slice::from_ref(leaf),
+                                    _ => &[],
+                                };
+                                for descriptor in descriptors {
+                                    if let SExpression::Object(dm) = descriptor {
+                                        if let Some(ev) = dm.get(*field) {
+                                            credit(ev, out);
                                         }
                                     }
                                 }
@@ -1374,6 +1380,263 @@ mod tests {
         }
     }
 
+    /// `(array/filter <descriptors> (fn …))` only narrows its collection, so a
+    /// list bound through the filter credits exactly the events a bare list
+    /// does; the bare binding is the paired control.
+    #[test]
+    fn filtered_item_actions_credit_the_same_events_as_a_bare_binding() {
+        use std::collections::HashMap as Map;
+        let descriptor = |event: &str| {
+            let mut dm: Map<String, SExpression> = Map::new();
+            dm.insert("event".to_string(), SExpression::String(event.to_string()));
+            SExpression::Object(dm)
+        };
+        let bare = || SExpression::Array(vec![descriptor("EDIT"), descriptor("DELETE")]);
+        let filtered = SExpression::Array(vec![
+            SExpression::String("array/filter".to_string()),
+            bare(),
+            SExpression::Array(vec![
+                SExpression::String("fn".to_string()),
+                SExpression::String("item".to_string()),
+                SExpression::Bool(true),
+            ]),
+        ]);
+        let produced_bare = collect_effect_produced_events(&trait_with_effect(
+            "TaskList",
+            render_ui_with_item_actions("data-list", bare()),
+        ));
+        let produced_filtered = collect_effect_produced_events(&trait_with_effect(
+            "TaskList",
+            render_ui_with_item_actions("data-list", filtered),
+        ));
+        assert!(produced_bare.contains("EDIT") && produced_bare.contains("DELETE"));
+        assert_eq!(produced_filtered, produced_bare);
+    }
+
+    fn descriptor_list(events: &[&str]) -> SExpression {
+        use std::collections::HashMap as Map;
+        SExpression::Array(
+            events
+                .iter()
+                .map(|event| {
+                    let mut dm: Map<String, SExpression> = Map::new();
+                    dm.insert(
+                        "event".to_string(),
+                        SExpression::String((*event).to_string()),
+                    );
+                    SExpression::Object(dm)
+                })
+                .collect(),
+        )
+    }
+
+    fn call(op: &str, args: Vec<SExpression>) -> SExpression {
+        let mut items = vec![SExpression::String(op.to_string())];
+        items.extend(args);
+        SExpression::Array(items)
+    }
+
+    fn lambda(body: SExpression) -> SExpression {
+        call("fn", vec![SExpression::String("item".to_string()), body])
+    }
+
+    fn produced_through(item_actions: SExpression) -> HashSet<String> {
+        collect_effect_produced_events(&trait_with_effect(
+            "TaskList",
+            render_ui_with_item_actions("data-list", item_actions),
+        ))
+    }
+
+    fn set_of(events: &[&str]) -> HashSet<String> {
+        events.iter().map(|e| e.to_string()).collect()
+    }
+
+    /// Every operator whose registry entry declares `identity-of-arg<0>`
+    /// (subsets and reorders) is transparent: the list's events survive.
+    #[test]
+    fn identity_declared_operators_credit_the_wrapped_list() {
+        let n = || SExpression::Number(1.0);
+        for wrapped in [
+            call("array/slice", vec![descriptor_list(&["A", "B"]), n(), n()]),
+            call(
+                "array/sort",
+                vec![
+                    descriptor_list(&["A", "B"]),
+                    SExpression::String("k".into()),
+                ],
+            ),
+            call("array/take", vec![descriptor_list(&["A", "B"]), n()]),
+            call("array/reverse", vec![descriptor_list(&["A", "B"])]),
+            call("array/unique", vec![descriptor_list(&["A", "B"])]),
+            call(
+                "array/filter",
+                vec![
+                    descriptor_list(&["A", "B"]),
+                    lambda(SExpression::Bool(true)),
+                ],
+            ),
+        ] {
+            assert_eq!(
+                produced_through(wrapped.clone()),
+                set_of(&["A", "B"]),
+                "{wrapped:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn concat_credits_every_argument_list() {
+        let concat = call(
+            "array/concat",
+            vec![descriptor_list(&["A"]), descriptor_list(&["B", "C"])],
+        );
+        assert_eq!(produced_through(concat), set_of(&["A", "B", "C"]));
+    }
+
+    #[test]
+    fn append_and_prepend_credit_the_list_and_the_added_descriptor() {
+        let extra = descriptor_list(&["EXTRA"]).clone();
+        let SExpression::Array(mut one) = extra else {
+            unreachable!()
+        };
+        let element = one.remove(0);
+        for op in ["array/append", "array/prepend"] {
+            let call_expr = call(op, vec![descriptor_list(&["A"]), element.clone()]);
+            assert_eq!(produced_through(call_expr), set_of(&["A", "EXTRA"]), "{op}");
+        }
+        let insert = call(
+            "array/insert",
+            vec![descriptor_list(&["A"]), SExpression::Number(0.0), element],
+        );
+        assert_eq!(produced_through(insert), set_of(&["A", "EXTRA"]));
+    }
+
+    #[test]
+    fn do_and_let_credit_only_their_result() {
+        let effect = call(
+            "set",
+            vec![
+                SExpression::String("@entity.x".into()),
+                SExpression::Number(1.0),
+            ],
+        );
+        let sequenced = call("do", vec![effect, descriptor_list(&["A", "B"])]);
+        assert_eq!(produced_through(sequenced), set_of(&["A", "B"]));
+        let bound = call(
+            "let",
+            vec![
+                SExpression::Array(vec![SExpression::Array(vec![
+                    SExpression::String("x".into()),
+                    descriptor_list(&["IGNORED"]),
+                ])]),
+                descriptor_list(&["A"]),
+            ],
+        );
+        assert_eq!(produced_through(bound), set_of(&["A"]));
+    }
+
+    #[test]
+    fn nested_filter_inside_if_credits_every_branch() {
+        let filtered = call(
+            "array/filter",
+            vec![
+                descriptor_list(&["A", "B"]),
+                lambda(SExpression::Bool(true)),
+            ],
+        );
+        let cond = call(
+            "if",
+            vec![
+                SExpression::String("@user.role".into()),
+                filtered,
+                call(
+                    "array/sort",
+                    vec![descriptor_list(&["C"]), SExpression::String("k".into())],
+                ),
+            ],
+        );
+        assert_eq!(produced_through(cond), set_of(&["A", "B", "C"]));
+    }
+
+    /// Paired control: an operator that creates new elements declares nothing,
+    /// so the walk credits nothing through it — even around a real list.
+    #[test]
+    fn undeclared_operators_credit_nothing() {
+        for creating in [
+            call(
+                "array/zip",
+                vec![descriptor_list(&["A"]), descriptor_list(&["B"])],
+            ),
+            call("array/flatten", vec![descriptor_list(&["A"])]),
+            call(
+                "array/partition",
+                vec![descriptor_list(&["A"]), lambda(SExpression::Bool(true))],
+            ),
+            call(
+                "array/groupBy",
+                vec![descriptor_list(&["A"]), SExpression::String("k".into())],
+            ),
+            call(
+                "array/slice",
+                vec![
+                    call(
+                        "array/zip",
+                        vec![descriptor_list(&["A"]), descriptor_list(&["B"])],
+                    ),
+                    SExpression::Number(0.0),
+                ],
+            ),
+        ] {
+            assert!(
+                produced_through(creating.clone()).is_empty(),
+                "{creating:?}"
+            );
+        }
+    }
+
+    /// `array/map` is `lambda-result`: the events are the lambda body's
+    /// descriptors, not the mapped collection's.
+    #[test]
+    fn map_credits_the_lambda_body_leaves() {
+        let body = call(
+            "if",
+            vec![
+                SExpression::String("@item.done".into()),
+                descriptor_list(&["REOPEN"]),
+                descriptor_list(&["COMPLETE"]),
+            ],
+        );
+        let mapped = call(
+            "array/map",
+            vec![SExpression::String("@entity.items".into()), lambda(body)],
+        );
+        assert_eq!(produced_through(mapped), set_of(&["REOPEN", "COMPLETE"]));
+        let mapped_to_descriptor = call(
+            "array/map",
+            vec![
+                descriptor_list(&["NOT_THE_COLLECTION"]),
+                lambda(descriptor_list(&["ROW"]).clone()),
+            ],
+        );
+        assert_eq!(produced_through(mapped_to_descriptor), set_of(&["ROW"]));
+    }
+
+    /// A filter around an unresolved knob binding contributes nothing extra
+    /// (the leaf is a `@` string, never credited) — same as the bare binding.
+    #[test]
+    fn filtered_unresolved_binding_credits_nothing() {
+        let filtered = SExpression::Array(vec![
+            SExpression::String("array/filter".to_string()),
+            SExpression::String("@config.itemActions".to_string()),
+            SExpression::Null,
+        ]);
+        let produced = collect_effect_produced_events(&trait_with_effect(
+            "TaskList",
+            render_ui_with_item_actions("data-list", filtered),
+        ));
+        assert!(produced.is_empty(), "{produced:?}");
+    }
+
     /// End-to-end: a scoped listener on a branch-only emit (event fired only
     /// in the `if`'s else branch) resolves without `ORB_X_ORPHAN_LISTENER` —
     /// the full-schema counterpart of the derived-set test above.
@@ -1479,6 +1742,7 @@ mod tests {
                         required: None,
                         ref_id: None,
                         forwarded_from: None,
+                        nested_forwarded_from: Vec::new(),
                         payload_for: None,
                     },
                 )]

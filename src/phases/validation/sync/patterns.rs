@@ -2,7 +2,7 @@
 //!
 //! Source: packages/almadar-core/src/patterns/patterns-registry.json
 //!
-//! Last synced: 2026-09-28
+//! Last synced: 2026-09-30
 //! To regenerate: npx tsx tools/almadar-pattern-sync/index.ts
 //!
 //! DO NOT EDIT MANUALLY - changes will be overwritten on next sync.
@@ -692,7 +692,7 @@ pub static PATTERN_REQUIRED_PROPS: LazyLock<HashMap<&'static str, Vec<&'static s
             ("pagination", vec!["currentPage", "totalPages"]),
             ("popover", vec!["content", "children"]),
             ("positioned-canvas", vec!["items"]),
-            ("presence", vec!["show", "children"]),
+            ("presence", vec!["animation", "show", "children"]),
             ("progress-bar", vec!["value"]),
             ("progress-dots", vec!["count", "currentIndex"]),
             ("pull-to-refresh", vec!["refreshEvent", "children"]),
@@ -985,6 +985,7 @@ pub static PATTERN_PROPS_SCHEMA: LazyLock<HashMap<&'static str, HashSet<&'static
                     "direction",
                     "entityFields",
                     "nodeShape",
+                    "onTransitionClick",
                     "pendingSourceState",
                     "selectedState",
                     "showHeader",
@@ -1296,6 +1297,7 @@ pub static PATTERN_PROPS_SCHEMA: LazyLock<HashMap<&'static str, HashSet<&'static
                     "height",
                     "isLoading",
                     "look",
+                    "period",
                     "scatterData",
                     "series",
                     "showLegend",
@@ -1483,6 +1485,7 @@ pub static PATTERN_PROPS_SCHEMA: LazyLock<HashMap<&'static str, HashSet<&'static
                     "message",
                     "onClose",
                     "onConfirm",
+                    "onExited",
                     "size",
                     "title",
                     "variant",
@@ -1633,6 +1636,10 @@ pub static PATTERN_PROPS_SCHEMA: LazyLock<HashMap<&'static str, HashSet<&'static
                     "dndRoot",
                     "dragGroup",
                     "dropEvent",
+                    "emptyAction",
+                    "emptyDescription",
+                    "emptyIcon",
+                    "emptyTitle",
                     "entity",
                     "error",
                     "fields",
@@ -1671,7 +1678,11 @@ pub static PATTERN_PROPS_SCHEMA: LazyLock<HashMap<&'static str, HashSet<&'static
                     "dndRoot",
                     "dragGroup",
                     "dropEvent",
+                    "emptyAction",
+                    "emptyDescription",
+                    "emptyIcon",
                     "emptyMessage",
+                    "emptyTitle",
                     "entity",
                     "error",
                     "fields",
@@ -2017,9 +2028,11 @@ pub static PATTERN_PROPS_SCHEMA: LazyLock<HashMap<&'static str, HashSet<&'static
                     "closeEvent",
                     "closeOnEscape",
                     "closeOnOverlayClick",
+                    "contained",
                     "footer",
                     "isOpen",
                     "onClose",
+                    "onExited",
                     "position",
                     "showCloseButton",
                     "title",
@@ -3026,6 +3039,7 @@ pub static PATTERN_PROPS_SCHEMA: LazyLock<HashMap<&'static str, HashSet<&'static
                     "closeEvent",
                     "closeOnEscape",
                     "closeOnOverlayClick",
+                    "contained",
                     "footer",
                     "isOpen",
                     "look",
@@ -3137,6 +3151,7 @@ pub static PATTERN_PROPS_SCHEMA: LazyLock<HashMap<&'static str, HashSet<&'static
                     "children",
                     "className",
                     "error",
+                    "icon",
                     "isLoading",
                     "onTabChange",
                     "showBack",
@@ -3244,7 +3259,7 @@ pub static PATTERN_PROPS_SCHEMA: LazyLock<HashMap<&'static str, HashSet<&'static
                 .into_iter()
                 .collect(),
             ),
-            ("presence", ["children", "className", "show"].into_iter().collect()),
+            ("presence", ["animate", "animation", "children", "className", "onExited", "show"].into_iter().collect()),
             (
                 "progress-bar",
                 [
@@ -3769,6 +3784,7 @@ pub static PATTERN_PROPS_SCHEMA: LazyLock<HashMap<&'static str, HashSet<&'static
                     "error",
                     "isLoading",
                     "nodeShape",
+                    "onTransitionClick",
                     "pendingSourceState",
                     "selectedState",
                     "showHeader",
@@ -4053,7 +4069,11 @@ pub static PATTERN_PROPS_SCHEMA: LazyLock<HashMap<&'static str, HashSet<&'static
                     "dndRoot",
                     "dragGroup",
                     "dropEvent",
+                    "emptyAction",
+                    "emptyDescription",
+                    "emptyIcon",
                     "emptyMessage",
+                    "emptyTitle",
                     "entity",
                     "error",
                     "fields",
@@ -4276,6 +4296,7 @@ pub static PATTERN_PROPS_SCHEMA: LazyLock<HashMap<&'static str, HashSet<&'static
                     "includeFloating",
                     "includeHud",
                     "isLoading",
+                    "pageKey",
                     "suspense",
                 ]
                 .into_iter()
@@ -4713,6 +4734,7 @@ pub static PATTERN_PROP_TYPES: LazyLock<HashMap<&'static str, HashMap<&'static s
                     ("visitedStates", &["array"] as &[&str]),
                     ("stateClickEvent", &["string"] as &[&str]),
                     ("transitionClickEvent", &["string"] as &[&str]),
+                    ("onTransitionClick", &["function"] as &[&str]),
                     ("selectedState", &["string"] as &[&str]),
                     ("pendingSourceState", &["string"] as &[&str]),
                     ("nodeShape", &["string"] as &[&str]),
@@ -5048,6 +5070,7 @@ pub static PATTERN_PROP_TYPES: LazyLock<HashMap<&'static str, HashMap<&'static s
                     ("showValues", &["boolean"] as &[&str]),
                     ("stack", &["string"] as &[&str]),
                     ("timeAxis", &["boolean"] as &[&str]),
+                    ("period", &["string"] as &[&str]),
                     ("drillEvent", &["string"] as &[&str]),
                     ("actions", &["array"] as &[&str]),
                     ("isLoading", &["boolean"] as &[&str]),
@@ -5275,6 +5298,7 @@ pub static PATTERN_PROP_TYPES: LazyLock<HashMap<&'static str, HashMap<&'static s
                 [
                     ("isOpen", &["boolean"] as &[&str]),
                     ("onClose", &["function"] as &[&str]),
+                    ("onExited", &["function"] as &[&str]),
                     ("onConfirm", &["function"] as &[&str]),
                     ("title", &["string"] as &[&str]),
                     ("message", &["string", "node"] as &[&str]),
@@ -5447,6 +5471,10 @@ pub static PATTERN_PROP_TYPES: LazyLock<HashMap<&'static str, HashMap<&'static s
                     ("positionEvent", &["string"] as &[&str]),
                     ("dndItemIdField", &["string"] as &[&str]),
                     ("dndRoot", &["boolean"] as &[&str]),
+                    ("emptyIcon", &["icon", "string"] as &[&str]),
+                    ("emptyTitle", &["string"] as &[&str]),
+                    ("emptyDescription", &["string"] as &[&str]),
+                    ("emptyAction", &["object"] as &[&str]),
                     ("entity", &["object", "array"] as &[&str]),
                     ("fields", &["array"] as &[&str]),
                     ("columns", &["array"] as &[&str]),
@@ -5485,6 +5513,10 @@ pub static PATTERN_PROP_TYPES: LazyLock<HashMap<&'static str, HashMap<&'static s
                     ("positionEvent", &["string"] as &[&str]),
                     ("dndItemIdField", &["string"] as &[&str]),
                     ("dndRoot", &["boolean"] as &[&str]),
+                    ("emptyIcon", &["icon", "string"] as &[&str]),
+                    ("emptyTitle", &["string"] as &[&str]),
+                    ("emptyDescription", &["string"] as &[&str]),
+                    ("emptyAction", &["object"] as &[&str]),
                     ("entity", &["object", "array"] as &[&str]),
                     ("fields", &["array"] as &[&str]),
                     ("columns", &["array"] as &[&str]),
@@ -5924,6 +5956,8 @@ pub static PATTERN_PROP_TYPES: LazyLock<HashMap<&'static str, HashMap<&'static s
                 "drawer",
                 [
                     ("isOpen", &["boolean"] as &[&str]),
+                    ("onExited", &["function"] as &[&str]),
+                    ("contained", &["boolean"] as &[&str]),
                     ("onClose", &["function"] as &[&str]),
                     ("title", &["node"] as &[&str]),
                     ("children", &["node"] as &[&str]),
@@ -7180,6 +7214,7 @@ pub static PATTERN_PROP_TYPES: LazyLock<HashMap<&'static str, HashMap<&'static s
                     ("closeEvent", &["string"] as &[&str]),
                     ("swipeDownToClose", &["boolean"] as &[&str]),
                     ("look", &["string"] as &[&str]),
+                    ("contained", &["boolean"] as &[&str]),
                 ]
                 .into_iter()
                 .collect(),
@@ -7298,6 +7333,7 @@ pub static PATTERN_PROP_TYPES: LazyLock<HashMap<&'static str, HashMap<&'static s
                 "page-header",
                 [
                     ("title", &["string", "number"] as &[&str]),
+                    ("icon", &["icon", "string"] as &[&str]),
                     ("subtitle", &["string", "number"] as &[&str]),
                     ("showBack", &["boolean"] as &[&str]),
                     ("backEvent", &["string"] as &[&str]),
@@ -7434,6 +7470,9 @@ pub static PATTERN_PROP_TYPES: LazyLock<HashMap<&'static str, HashMap<&'static s
             (
                 "presence",
                 [
+                    ("animation", &["string"] as &[&str]),
+                    ("animate", &["boolean"] as &[&str]),
+                    ("onExited", &["function"] as &[&str]),
                     ("show", &["boolean"] as &[&str]),
                     ("className", &["string"] as &[&str]),
                     ("children", &["node"] as &[&str]),
@@ -8105,6 +8144,7 @@ pub static PATTERN_PROP_TYPES: LazyLock<HashMap<&'static str, HashMap<&'static s
                     ("visitedStates", &["array"] as &[&str]),
                     ("stateClickEvent", &["string"] as &[&str]),
                     ("transitionClickEvent", &["string"] as &[&str]),
+                    ("onTransitionClick", &["function"] as &[&str]),
                     ("selectedState", &["string"] as &[&str]),
                     ("pendingSourceState", &["string"] as &[&str]),
                     ("nodeShape", &["string"] as &[&str]),
@@ -8427,6 +8467,10 @@ pub static PATTERN_PROP_TYPES: LazyLock<HashMap<&'static str, HashMap<&'static s
                     ("positionEvent", &["string"] as &[&str]),
                     ("dndItemIdField", &["string"] as &[&str]),
                     ("dndRoot", &["boolean"] as &[&str]),
+                    ("emptyIcon", &["icon", "string"] as &[&str]),
+                    ("emptyTitle", &["string"] as &[&str]),
+                    ("emptyDescription", &["string"] as &[&str]),
+                    ("emptyAction", &["object"] as &[&str]),
                     ("entity", &["object", "array"] as &[&str]),
                     ("columns", &["array"] as &[&str]),
                     ("fields", &["array"] as &[&str]),
@@ -8697,7 +8741,7 @@ pub static PATTERN_PROP_TYPES: LazyLock<HashMap<&'static str, HashMap<&'static s
                     ("isLoading", &["boolean"] as &[&str]),
                     ("error", &["object"] as &[&str]),
                     ("entity", &["string"] as &[&str]),
-                    ("children", &["node"] as &[&str]),
+                    ("children", &["node", "function"] as &[&str]),
                     ("pattern", &["string"] as &[&str]),
                     ("sourceTrait", &["string"] as &[&str]),
                     ("fallback", &["node"] as &[&str]),
@@ -8717,6 +8761,7 @@ pub static PATTERN_PROP_TYPES: LazyLock<HashMap<&'static str, HashMap<&'static s
                     ("error", &["object"] as &[&str]),
                     ("entity", &["string"] as &[&str]),
                     ("suspense", &["boolean", "object"] as &[&str]),
+                    ("pageKey", &["string"] as &[&str]),
                 ]
                 .into_iter()
                 .collect(),
@@ -8995,6 +9040,7 @@ pub static PATTERN_PROP_ENUM_VALUES: LazyLock<HashMap<&'static str, HashMap<&'st
                     ("chartType", &["bar", "line", "pie", "area", "donut", "scatter", "histogram"] as &[&str]),
                     ("look", &["bar-vertical", "bar-horizontal", "line", "area", "pie", "donut", "scatter", "histogram"] as &[&str]),
                     ("stack", &["none", "stack", "normalize"] as &[&str]),
+                    ("period", &["day", "week", "month", "quarter", "year"] as &[&str]),
                 ]
                 .into_iter()
                 .collect(),
@@ -9011,7 +9057,7 @@ pub static PATTERN_PROP_ENUM_VALUES: LazyLock<HashMap<&'static str, HashMap<&'st
             ),
             ("chemistry-canvas", [("mode", &["2d", "3d"] as &[&str]), ("bondStyle", &["thick", "parallel"] as &[&str])].into_iter().collect()),
             ("code-block", [("mode", &["code", "diff"] as &[&str])].into_iter().collect()),
-            ("commit-row", [("kind", &["user", "agent", "restore", "undo", "redo", "snapshot"] as &[&str])].into_iter().collect()),
+            ("commit-row", [("kind", &["user", "agent", "restore", "undo", "redo", "snapshot", "merge"] as &[&str])].into_iter().collect()),
             (
                 "confirm-dialog",
                 [
@@ -9410,6 +9456,14 @@ pub static PATTERN_PROP_ENUM_VALUES: LazyLock<HashMap<&'static str, HashMap<&'st
                 [
                     ("position", &["top", "bottom", "left", "right"] as &[&str]),
                     ("trigger", &["click", "hover"] as &[&str]),
+                ]
+                .into_iter()
+                .collect(),
+            ),
+            (
+                "presence",
+                [
+                    ("animation", &["modal", "overlay", "slide-up", "drawer", "popover", "toast", "fade", "page"] as &[&str]),
                 ]
                 .into_iter()
                 .collect(),

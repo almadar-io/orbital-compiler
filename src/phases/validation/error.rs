@@ -48,6 +48,8 @@ pub enum ErrorCode {
     /// A literal default on a semantic-domain field does not satisfy that domain
     /// (`email : email = "not-an-email"`).
     EntitySemanticValueInvalid,
+    /// An enum field's `@mock` names a candidate that is not one of its values.
+    EntityMockNotInEnum,
     /// Phase F.3: an entity field declares `values: [...]` (literal-union)
     /// AND `default: <X>`, but X is not one of the declared values. Error.
     LiteralUnionDefaultMismatch,
@@ -603,6 +605,12 @@ pub enum ErrorCode {
     /// at the same dotted path either. The consumer's transition reads
     /// `?payload.<field>` as `undefined` at runtime.
     ListenRouteStarvesRequiredField,
+    /// A host trait's `listens { Child.EV -> EV }` route where `Child` is a trait the host
+    /// embeds (directly or transitively), `EV` is fired by a control inside `Child`'s subtree,
+    /// and the host already has a transition on `EV`. The control's emit bubbles to every scope
+    /// on the embed chain, so the host already hears it directly; the route is a second delivery
+    /// of the same physical event.
+    ListenRedundantEmbedRoute,
 
     // =========================================================================
     // Binding Errors (ORB_BINDING_*)
@@ -1196,6 +1204,7 @@ impl ErrorCode {
             ErrorCode::EntityInvalidRelation => "ORB_E_INVALID_RELATION",
             ErrorCode::EntityEmptyEnumValues => "ORB_E_EMPTY_ENUM_VALUES",
             ErrorCode::EntitySemanticValueInvalid => "ORB_E_SEMANTIC_VALUE_INVALID",
+            ErrorCode::EntityMockNotInEnum => "ORB_E_MOCK_NOT_IN_ENUM",
             ErrorCode::LiteralUnionDefaultMismatch => "ORB_E_LITERAL_UNION_DEFAULT_MISMATCH",
             ErrorCode::EntityDefaultTypeMismatch => "ORB_E_DEFAULT_TYPE_MISMATCH",
 
@@ -1360,6 +1369,7 @@ impl ErrorCode {
             ErrorCode::UnresolvedRelationTarget => "ORB_X_UNRESOLVED_RELATION_TARGET",
             ErrorCode::UnresolvedPatternFieldRef => "ORB_X_UNRESOLVED_PATTERN_FIELD_REF",
             ErrorCode::ListenRouteStarvesRequiredField => "ORB_LISTEN_ROUTE_STARVES_REQUIRED_FIELD",
+            ErrorCode::ListenRedundantEmbedRoute => "ORB_LISTEN_REDUNDANT_EMBED_ROUTE",
 
             // Binding
             ErrorCode::BindingInvalidFormat => "ORB_BINDING_INVALID_FORMAT",
@@ -1532,6 +1542,7 @@ impl ErrorCode {
             | ErrorCode::EntityInvalidRelation
             | ErrorCode::EntityEmptyEnumValues
             | ErrorCode::EntitySemanticValueInvalid
+            | ErrorCode::EntityMockNotInEnum
             | ErrorCode::EntityNameShadowsTraitUnion
             | ErrorCode::LiteralUnionDefaultMismatch
             | ErrorCode::EntityDefaultTypeMismatch
@@ -1694,6 +1705,7 @@ impl ErrorCode {
             | ErrorCode::UnresolvedRelationTarget
             | ErrorCode::UnresolvedPatternFieldRef
             | ErrorCode::ListenRouteStarvesRequiredField
+            | ErrorCode::ListenRedundantEmbedRoute
             | ErrorCode::CrossEmitterDeclaredPayloadMismatch
             | ErrorCode::FilterFieldNeverWritten => "cross",
 

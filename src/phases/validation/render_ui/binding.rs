@@ -9,12 +9,15 @@ use super::sync::patterns::get_prop_types;
 use super::{ErrorCode, ValidationContext, ValidationError};
 use crate::embedded::{get_pattern, EmbeddedPatternProp};
 use crate::phases::validation::render_ui_binding::{
-    resolve_binding_type, BindingContext, BindingType,
+    resolve_array_element_type, resolve_binding_type, BindingContext, BindingType,
 };
 use crate::phases::validation::trait_path;
 use orbital_core::schema::{
     resolve_payload_type_when, OrbitalSchema, PayloadField, SExpression, TraitDefinition,
     TraitReference,
+};
+use orbital_core::type_compat::{
+    bound_shape_of_payload_field, record_prop_binding_mismatch, BoundShape, RecordBindingMismatch,
 };
 use std::collections::HashMap;
 
@@ -216,9 +219,22 @@ fn walk_pattern_props(
             continue;
         }
 
-        // Skip when expected is "object" — too broad; the existing rule
-        // already documents this as deferred.
+        // "object" accepts any object/entity binding, so the general compare
+        // below is skipped for it. The one decidable violation is a collection
+        // bound into a prop that admits no array (a single record, e.g.
+        // `form-section.initialData`): it fails at runtime every time.
         if expected_types.contains(&"object") {
+            if !expected_types.contains(&"array") {
+                check_record_prop_binding(
+                    pat,
+                    prop_name,
+                    prop_value,
+                    expected_types,
+                    bctx,
+                    path,
+                    diagnostics,
+                );
+            }
             continue;
         }
         // Skip event-name bindings (kind: event-ref / callback / etc.) —
@@ -249,6 +265,9 @@ fn walk_pattern_props(
             // costly when ~half of bindings still resolve to Unknown
             // pending fuller IR coverage.
             continue;
+        }
+        if resolved == BindingType::Array && expected_types.contains(&"array") {
+            check_array_element_kind(pat, prop_name, prop_value, bctx, path, diagnostics);
         }
         let resolved_str = resolved.registry_type();
         // `entity` resolves to "object" — the prop's declared types
@@ -288,6 +307,145 @@ fn walk_pattern_props(
             );
         }
     }
+}
+
+/// An array bound into an array prop must carry elements of the kind the
+/// prop's `items` declares (`[FieldSpec]` structs into `string[]` render object
+/// cells). Compared only when both sides are resolved; anything else defers.
+fn check_array_element_kind(
+    pat: &str,
+    prop_name: &str,
+    prop_value: &SExpression,
+    bctx: &BindingContext,
+    path: &str,
+    diagnostics: &mut Vec<ValidationError>,
+) {
+    let Some(item_types) = get_pattern(pat)
+        .and_then(|p| p.props_schema.get(prop_name))
+        .and_then(|m| m.items.as_deref())
+        .map(|i| &i.types)
+        .filter(|t| !t.is_empty())
+    else {
+        return;
+    };
+    const KNOWN: [&str; 4] = ["string", "number", "boolean", "object"];
+    if !item_types.iter().all(|t| KNOWN.contains(&t.as_str())) {
+        return;
+    }
+    let element = resolve_array_element_type(prop_value, bctx);
+    if matches!(
+        element,
+        BindingType::Unknown | BindingType::TraitRef | BindingType::Array | BindingType::Null
+    ) {
+        return;
+    }
+    let element_str = element.registry_type();
+    if item_types.iter().any(|t| t == element_str) {
+        return;
+    }
+    diagnostics.push(
+        ValidationError::error(
+            ErrorCode::RenderUIBindingTypeMismatch,
+            path,
+            format!(
+                "Prop '{}' on '{}' is bound to an array of '{}' elements but the registry expects an array of: {}",
+                prop_name,
+                pat,
+                element_str,
+                item_types.join(", ")
+            ),
+        )
+        .with_suggestion(format!(
+            "Bind '{}' to an array whose elements are: {}",
+            prop_name,
+            item_types.join(" or ")
+        )),
+    );
+}
+
+/// A prop the registry declares object-only takes ONE record: a collection
+/// never fits it, and an `entity`-kind one renders the trait's linked entity,
+/// so a row of another entity does not either. The rule is `orbital_core::
+/// type_compat::record_prop_binding_mismatch`, shared with the lolo L1 check.
+fn check_record_prop_binding(
+    pat: &str,
+    prop_name: &str,
+    prop_value: &SExpression,
+    expected_types: &[&str],
+    bctx: &BindingContext,
+    path: &str,
+    diagnostics: &mut Vec<ValidationError>,
+) {
+    // A `@payload.X` read takes X's lowered declaration directly: the entity
+    // lives in its own `entity` slot (`"object"` + `Staff`), which the
+    // generic resolver folds away.
+    let payload_field = match prop_value {
+        SExpression::String(v) => v
+            .strip_prefix("@payload.")
+            .map(|rest| rest.split('.').next().unwrap_or(rest)),
+        _ => None,
+    };
+    let bound = if let Some(field) = payload_field.filter(|f| !f.is_empty()) {
+        let Some(declared) = bctx
+            .event_payload
+            .and_then(|p| p.iter().find(|d| d.name == field))
+        else {
+            return;
+        };
+        match bound_shape_of_payload_field(&declared.field_type, declared.entity.as_deref()) {
+            Some(shape) => shape,
+            None => return,
+        }
+    } else {
+        match resolve_binding_type(prop_value, bctx) {
+            BindingType::Array => BoundShape::Collection,
+            BindingType::Entity(name) => BoundShape::Record(Some(name)),
+            BindingType::Object => BoundShape::Record(None),
+            BindingType::Unknown | BindingType::TraitRef => return,
+            _ => BoundShape::Other,
+        }
+    };
+    let entity_kind = get_pattern(pat)
+        .and_then(|p| p.props_schema.get(prop_name))
+        .and_then(|m| m.kind.as_deref())
+        == Some("entity");
+    let expected = if entity_kind {
+        bctx.trait_def.linked_entity.as_deref()
+    } else {
+        None
+    };
+    let is_entity = |n: &str| bctx.entity_definitions.contains_key(n);
+    let Some(mismatch) = record_prop_binding_mismatch(&bound, expected, is_entity) else {
+        return;
+    };
+    let (message, suggestion) = match mismatch {
+        RecordBindingMismatch::CollectionIntoRecord => (
+            format!(
+                "Prop '{}' on '{}' takes a single record ({}) but is bound to a collection",
+                prop_name,
+                pat,
+                expected_types.join(", ")
+            ),
+            format!(
+                "Bind '{}' to one row (a by-id fetch's result, or the selected row), not a list",
+                prop_name
+            ),
+        ),
+        RecordBindingMismatch::WrongEntity { expected, actual } => (
+            format!(
+                "Prop '{}' on '{}' renders a {} record but is bound to a {} row",
+                prop_name, pat, expected, actual
+            ),
+            format!(
+                "Bind '{}' to a {} row, or render the {} row from a trait linked to {}",
+                prop_name, expected, actual, actual
+            ),
+        ),
+    };
+    diagnostics.push(
+        ValidationError::error(ErrorCode::RenderUIBindingTypeMismatch, path, message)
+            .with_suggestion(suggestion),
+    );
 }
 
 /// L2.2: when a render-ui prop with `kind: "event-ref"` (declarative
@@ -1061,5 +1219,246 @@ fn check_callback_arg_schema(
                 }
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod array_into_record_tests {
+    //! A collection (`[object]` payload field) bound into a prop the registry
+    //! declares object-only (`form-section.initialData`, cardinality record)
+    //! validated 0/0 and failed at runtime with "expected object, got array"
+    //! (2026-09-30: ui-form-section / ui-form / ui-detail-panel).
+    use super::*;
+    use orbital_core::schema::{EntityDefinition, PayloadField, TraitDefinition};
+
+    fn bare_trait() -> TraitDefinition {
+        serde_json::from_value(serde_json::json!({
+            "name": "FormSectionRender",
+            "stateMachine": { "states": [], "transitions": [] }
+        }))
+        .expect("minimal trait")
+    }
+
+    /// `data : Staff` lowers to `"object"` + entity `Staff`; `data : [Staff]`
+    /// to `"[object]"` + entity `Staff` — the fixture takes the source spelling.
+    fn payload(source_type: &str) -> Vec<PayloadField> {
+        let (field_type, entity) = match source_type {
+            t if t.starts_with('[') && t[1..].starts_with(|c: char| c.is_ascii_uppercase()) => (
+                "[object]".to_string(),
+                Some(t.trim_matches(|c| c == '[' || c == ']').to_string()),
+            ),
+            t if t.starts_with(|c: char| c.is_ascii_uppercase()) => {
+                ("object".to_string(), Some(t.to_string()))
+            }
+            t => (t.to_string(), None),
+        };
+        vec![PayloadField {
+            name: "data".to_string(),
+            field_type,
+            required: Some(true),
+            description: None,
+            properties: None,
+            type_when: None,
+            entity,
+        }]
+    }
+
+    fn pattern(ty: &str, prop: &str, value: &str) -> SExpression {
+        SExpression::Object(
+            [
+                ("type".to_string(), SExpression::String(ty.to_string())),
+                (prop.to_string(), SExpression::String(value.to_string())),
+            ]
+            .into_iter()
+            .collect(),
+        )
+    }
+
+    fn mismatches(ty: &str, prop: &str, value: &str, data_type: &str) -> Vec<ValidationError> {
+        let t = bare_trait();
+        let entities = HashMap::new();
+        let fields = payload(data_type);
+        let ctx = BindingContext {
+            trait_def: &t,
+            entity_definitions: &entities,
+            event_payload: Some(&fields),
+            sibling_trait_names: &[],
+        };
+        let mut out = Vec::new();
+        walk_pattern_props(&pattern(ty, prop, value), &ctx, "test", &mut out);
+        out.into_iter()
+            .filter(|e| e.code == ErrorCode::RenderUIBindingTypeMismatch)
+            .collect()
+    }
+
+    #[test]
+    fn collection_into_record_prop_is_an_error() {
+        let errs = mismatches("form-section", "initialData", "@payload.data", "[object]");
+        assert_eq!(errs.len(), 1, "{errs:?}");
+        assert!(errs[0].message.contains("initialData"));
+    }
+
+    #[test]
+    fn collection_into_record_entity_prop_is_an_error() {
+        let errs = mismatches("detail-panel", "entity", "@payload.data", "[object]");
+        assert_eq!(errs.len(), 1, "{errs:?}");
+    }
+
+    #[test]
+    fn control_record_into_record_prop_is_fine() {
+        assert!(mismatches("form-section", "initialData", "@payload.data", "object").is_empty());
+    }
+
+    #[test]
+    fn control_collection_into_object_or_array_prop_is_fine() {
+        assert!(mismatches("data-grid", "entity", "@payload.data", "[object]").is_empty());
+    }
+
+    #[test]
+    fn edge_unknown_payload_field_is_not_guessed() {
+        assert!(mismatches(
+            "form-section",
+            "initialData",
+            "@payload.missing",
+            "[object]"
+        )
+        .is_empty());
+    }
+
+    fn entity(name: &str) -> EntityDefinition {
+        serde_json::from_value(
+            serde_json::json!({ "name": name, "fields": [{ "name": "id", "type": "string" }] }),
+        )
+        .expect("minimal entity")
+    }
+
+    fn entity_mismatches(prop: &str, data_type: &str, linked: &str) -> Vec<ValidationError> {
+        let t: TraitDefinition = serde_json::from_value(serde_json::json!({
+            "name": "BookingDetail",
+            "linkedEntity": linked,
+            "stateMachine": { "states": [], "transitions": [] }
+        }))
+        .expect("trait");
+        let entities: HashMap<String, EntityDefinition> = ["Booking", "Staff"]
+            .into_iter()
+            .map(|n| (n.to_string(), entity(n)))
+            .collect();
+        let fields = payload(data_type);
+        let ctx = BindingContext {
+            trait_def: &t,
+            entity_definitions: &entities,
+            event_payload: Some(&fields),
+            sibling_trait_names: &[],
+        };
+        let mut out = Vec::new();
+        walk_pattern_props(
+            &pattern("detail-panel", prop, "@payload.data"),
+            &ctx,
+            "test",
+            &mut out,
+        );
+        out.into_iter()
+            .filter(|e| e.code == ErrorCode::RenderUIBindingTypeMismatch)
+            .collect()
+    }
+
+    #[test]
+    fn a_row_of_another_entity_into_a_record_entity_prop_is_an_error() {
+        let errs = entity_mismatches("entity", "Staff", "Booking");
+        assert_eq!(errs.len(), 1, "{errs:?}");
+        assert!(errs[0].message.contains("Staff") && errs[0].message.contains("Booking"));
+    }
+
+    #[test]
+    fn control_a_row_of_the_linked_entity_fits() {
+        assert!(entity_mismatches("entity", "Booking", "Booking").is_empty());
+    }
+
+    #[test]
+    fn edge_a_rebindable_trait_is_not_compared() {
+        assert!(entity_mismatches("entity", "Staff", "@rebindable").is_empty());
+    }
+}
+
+#[cfg(test)]
+mod array_element_kind_tests {
+    //! A `[FieldSpec]` config knob bound into `timeline.fields` (`string[]`)
+    //! validated 0/0 and rendered object cells (G-ORB-029).
+    use super::*;
+    use orbital_core::schema::{EntityDefinition, TraitDefinition};
+
+    fn trait_with_config(config: serde_json::Value) -> TraitDefinition {
+        serde_json::from_value(serde_json::json!({
+            "name": "Render",
+            "config": config,
+            "stateMachine": { "states": [], "transitions": [] }
+        }))
+        .expect("trait")
+    }
+
+    fn mismatches(t: &TraitDefinition, ty: &str, prop: &str, value: &str) -> Vec<ValidationError> {
+        let entities: HashMap<String, EntityDefinition> = HashMap::new();
+        let ctx = BindingContext {
+            trait_def: t,
+            entity_definitions: &entities,
+            event_payload: None,
+            sibling_trait_names: &[],
+        };
+        let pat = SExpression::Object(
+            [
+                ("type".to_string(), SExpression::String(ty.to_string())),
+                (prop.to_string(), SExpression::String(value.to_string())),
+            ]
+            .into_iter()
+            .collect(),
+        );
+        let mut out = Vec::new();
+        walk_pattern_props(&pat, &ctx, "test", &mut out);
+        out.into_iter()
+            .filter(|e| e.code == ErrorCode::RenderUIBindingTypeMismatch)
+            .collect()
+    }
+
+    fn struct_knob() -> serde_json::Value {
+        serde_json::json!({ "fields": {
+            "type": "[FieldSpec]",
+            "items": { "type": "object", "properties": { "label": { "type": "string" } } }
+        }})
+    }
+
+    #[test]
+    fn struct_array_knob_into_string_array_prop_is_an_error() {
+        let t = trait_with_config(struct_knob());
+        let errs = mismatches(&t, "timeline", "fields", "@config.fields");
+        assert_eq!(errs.len(), 1, "{errs:?}");
+        assert!(errs[0].message.contains("object"), "{errs:?}");
+    }
+
+    #[test]
+    fn control_string_array_knob_into_string_array_prop_is_fine() {
+        let t = trait_with_config(serde_json::json!({ "fields": { "type": "[string]" } }));
+        assert!(mismatches(&t, "timeline", "fields", "@config.fields").is_empty());
+    }
+
+    #[test]
+    fn control_struct_array_knob_into_object_array_prop_is_fine() {
+        let t = trait_with_config(struct_knob());
+        assert!(mismatches(&t, "entity-table", "columns", "@config.fields").is_empty());
+    }
+
+    #[test]
+    fn control_string_array_knob_into_object_array_prop_is_an_error() {
+        let t = trait_with_config(serde_json::json!({ "fields": { "type": "[string]" } }));
+        assert_eq!(
+            mismatches(&t, "entity-table", "columns", "@config.fields").len(),
+            1
+        );
+    }
+
+    #[test]
+    fn edge_unresolved_element_kind_defers() {
+        let t = trait_with_config(serde_json::json!({ "fields": { "type": "[FieldSpec]" } }));
+        assert!(mismatches(&t, "timeline", "fields", "@config.fields").is_empty());
+        assert!(mismatches(&t, "timeline", "fields", "@config.missing").is_empty());
     }
 }

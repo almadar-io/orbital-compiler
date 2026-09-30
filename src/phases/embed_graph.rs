@@ -31,36 +31,11 @@
 //! its own yet — every transition's guard + effects and every tick's guard +
 //! effects.
 
-use orbital_core::schema::{ConfigField, Orbital, PageRef, SExpression, TraitReference};
+use orbital_core::schema::{
+    collect_state_machine_trait_tokens, collect_trait_tokens, ConfigField, Orbital, PageRef,
+    SExpression, TraitReference,
+};
 use std::collections::{HashMap, HashSet};
-
-/// Collect every `@trait.<Name>` token appearing anywhere inside `expr`.
-/// Shared token-collection contract with `validation::config_type`'s
-/// `@config.<key>` collector (`collect_config_keys`) — same tree walk, a
-/// different sigil.
-fn collect_trait_tokens(expr: &SExpression, out: &mut HashSet<String>) {
-    match expr {
-        SExpression::String(s) => {
-            if let Some(rest) = s.strip_prefix("@trait.") {
-                let end = rest.find(['.', '[']).unwrap_or(rest.len());
-                if end > 0 {
-                    out.insert(rest[..end].to_string());
-                }
-            }
-        }
-        SExpression::Array(items) => {
-            for item in items {
-                collect_trait_tokens(item, out);
-            }
-        }
-        SExpression::Object(map) => {
-            for v in map.values() {
-                collect_trait_tokens(v, out);
-            }
-        }
-        _ => {}
-    }
-}
 
 /// Forward adjacency view shared by both `EmbedGraph` accessors below: trait
 /// name -> the trait names it embeds. Borrowed from one `EmbedGraph`, so both
@@ -116,22 +91,7 @@ impl EmbedGraph {
             // to `children` — this is the exact set `config_referrers` records.
             let config_children = children.clone();
             if let TraitReference::Inline(td) = trait_ref {
-                for transition in &td.state_machine.transitions {
-                    if let Some(guard) = transition.guard.as_ref() {
-                        collect_trait_tokens(guard, &mut children);
-                    }
-                    for effect in transition.effects.iter().flatten() {
-                        collect_trait_tokens(effect, &mut children);
-                    }
-                }
-                for tick in td.ticks.iter().flatten() {
-                    if let Some(guard) = tick.guard.as_ref() {
-                        collect_trait_tokens(guard, &mut children);
-                    }
-                    for effect in &tick.effects {
-                        collect_trait_tokens(effect, &mut children);
-                    }
-                }
+                collect_state_machine_trait_tokens(td, &mut children);
             }
             for child in &config_children {
                 if child != name {

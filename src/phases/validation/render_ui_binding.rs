@@ -186,6 +186,78 @@ fn resolve_binding_path(path: &str, ctx: &BindingContext) -> BindingType {
     }
 }
 
+/// Element kind of an array-typed `@`-binding, when the declaration pins it:
+/// a config knob's `items` (or `[string]`/`[number]`/`[object]` type tag), an
+/// entity array field's `items`, or a payload field's `[T]` tag. `Unknown`
+/// whenever the element kind is not declared, so callers defer.
+pub fn resolve_array_element_type(value: &SExpression, ctx: &BindingContext) -> BindingType {
+    let SExpression::String(s) = value else {
+        return BindingType::Unknown;
+    };
+    let Some(path) = s.strip_prefix('@') else {
+        return BindingType::Unknown;
+    };
+    let mut parts = path.splitn(2, '.');
+    let (Some(scope), Some(field)) = (parts.next(), parts.next()) else {
+        return BindingType::Unknown;
+    };
+    // Only a direct field reference: a deeper path is a different value.
+    if field.contains('.') {
+        return BindingType::Unknown;
+    }
+    match scope {
+        "config" => {
+            let Some(cf) = ctx.trait_def.config.as_ref().and_then(|c| c.get(field)) else {
+                return BindingType::Unknown;
+            };
+            if let Some(items) = &cf.items {
+                return field_definition_to_binding(items, ctx.entity_definitions);
+            }
+            array_tag_element(&cf.field_type)
+        }
+        "entity" => {
+            let Some(entity) = ctx
+                .trait_def
+                .linked_entity
+                .as_ref()
+                .and_then(|n| ctx.entity_definitions.get(n))
+            else {
+                return BindingType::Unknown;
+            };
+            match entity
+                .fields
+                .iter()
+                .find(|f| f.name.as_deref() == Some(field) && f.field_type == FieldType::Array)
+                .and_then(|f| f.items.as_deref())
+            {
+                Some(items) => field_definition_to_binding(items, ctx.entity_definitions),
+                None => BindingType::Unknown,
+            }
+        }
+        "payload" => {
+            let Some(declared) = ctx
+                .event_payload
+                .and_then(|p| p.iter().find(|d| d.name == field))
+            else {
+                return BindingType::Unknown;
+            };
+            array_tag_element(&declared.field_type)
+        }
+        _ => BindingType::Unknown,
+    }
+}
+
+/// Element kind of a `[T]` type tag with a primitive or `object` element.
+fn array_tag_element(tag: &str) -> BindingType {
+    match tag {
+        "[string]" => BindingType::String,
+        "[number]" => BindingType::Number,
+        "[boolean]" => BindingType::Boolean,
+        "[object]" => BindingType::Object,
+        _ => BindingType::Unknown,
+    }
+}
+
 /// Look up `field` in the triggering event's declared payload schema.
 fn resolve_payload_field(field: &str, ctx: &BindingContext) -> BindingType {
     let Some(payload) = ctx.event_payload else {
@@ -385,6 +457,9 @@ fn config_field_to_binding(cf: &ConfigField) -> BindingType {
         "number" => BindingType::Number,
         "boolean" => BindingType::Boolean,
         "array" | "[object]" | "[string]" | "[number]" => BindingType::Array,
+        // A named-element array (`[FieldSpec]`) is still an array; its element
+        // kind is read separately from the knob's `items`.
+        t if t.len() > 2 && t.starts_with('[') && t.ends_with(']') => BindingType::Array,
         "object" => BindingType::Object,
         "datetime" | "date" | "timestamp" => BindingType::Datetime,
         // Literal-union types like `"underline" | "default" | "pills"`

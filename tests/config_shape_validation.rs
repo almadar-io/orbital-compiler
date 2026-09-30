@@ -252,6 +252,7 @@ fn good_array_of_metricspec_passes() {
             required: None,
             ref_id: None,
             forwarded_from: None,
+            nested_forwarded_from: Vec::new(),
             payload_for: None,
         },
     );
@@ -286,6 +287,7 @@ fn string_value_where_number_expected_fails() {
             required: None,
             ref_id: None,
             forwarded_from: None,
+            nested_forwarded_from: Vec::new(),
             payload_for: None,
         },
     );
@@ -368,6 +370,7 @@ fn bare_string_in_array_of_objects_fails() {
             required: None,
             ref_id: None,
             forwarded_from: None,
+            nested_forwarded_from: Vec::new(),
             payload_for: None,
         },
     );
@@ -402,6 +405,7 @@ fn missing_required_field_fails() {
             required: None,
             ref_id: None,
             forwarded_from: None,
+            nested_forwarded_from: Vec::new(),
             payload_for: None,
         },
     );
@@ -445,6 +449,7 @@ fn enum_value_outside_allowed_set_fails() {
             required: None,
             ref_id: None,
             forwarded_from: None,
+            nested_forwarded_from: Vec::new(),
             payload_for: None,
         },
     );
@@ -488,6 +493,7 @@ fn binding_strings_pass_the_check() {
             required: None,
             ref_id: None,
             forwarded_from: None,
+            nested_forwarded_from: Vec::new(),
             payload_for: None,
         },
     );
@@ -533,6 +539,7 @@ fn computed_sexpr_call_for_array_items_defers() {
             required: None,
             ref_id: None,
             forwarded_from: None,
+            nested_forwarded_from: Vec::new(),
             payload_for: None,
         },
     );
@@ -579,6 +586,7 @@ fn computed_sexpr_call_nested_in_object_property_defers() {
             required: None,
             ref_id: None,
             forwarded_from: None,
+            nested_forwarded_from: Vec::new(),
             payload_for: None,
         },
     );
@@ -654,6 +662,7 @@ fn literal_wrong_shape_still_errors_alongside_computed_defer() {
             required: None,
             ref_id: None,
             forwarded_from: None,
+            nested_forwarded_from: Vec::new(),
             payload_for: None,
         },
     );
@@ -685,6 +694,7 @@ fn array_typed_slot_with_scalar_default_fails() {
             required: None,
             ref_id: None,
             forwarded_from: None,
+            nested_forwarded_from: Vec::new(),
             payload_for: None,
         },
     );
@@ -719,6 +729,7 @@ fn number_on_a_name_carrying_scalar_tag_fails() {
                 required: None,
                 ref_id: None,
                 forwarded_from: None,
+                nested_forwarded_from: Vec::new(),
             payload_for: None,
             },
         );
@@ -754,6 +765,7 @@ fn string_and_null_on_a_name_carrying_scalar_tag_pass() {
                 required: None,
                 ref_id: None,
                 forwarded_from: None,
+                nested_forwarded_from: Vec::new(),
             payload_for: None,
             },
         );
@@ -786,6 +798,7 @@ fn non_number_on_int_or_float_fails() {
                 required: None,
                 ref_id: None,
                 forwarded_from: None,
+                nested_forwarded_from: Vec::new(),
             payload_for: None,
             },
         );
@@ -837,6 +850,7 @@ fn map_knob(default: SExpression) -> OrbitalSchema {
             required: None,
             ref_id: None,
             forwarded_from: None,
+            nested_forwarded_from: Vec::new(),
             payload_for: None,
         },
     );
@@ -918,6 +932,7 @@ fn an_array_type_merely_starting_with_map_is_not_treated_as_a_map() {
             required: None,
             ref_id: None,
             forwarded_from: None,
+            nested_forwarded_from: Vec::new(),
             payload_for: None,
         },
     );
@@ -943,6 +958,7 @@ fn scalar_knob(default: SExpression) -> OrbitalSchema {
             required: None,
             ref_id: None,
             forwarded_from: None,
+            nested_forwarded_from: Vec::new(),
             payload_for: None,
         },
     );
@@ -1026,6 +1042,7 @@ fn map_of_scalar_accepts_mixed_primitive_values_but_not_nesting() {
             required: None,
             ref_id: None,
             forwarded_from: None,
+            nested_forwarded_from: Vec::new(),
             payload_for: None,
         },
     );
@@ -1055,6 +1072,7 @@ fn map_of_scalar_accepts_mixed_primitive_values_but_not_nesting() {
             required: None,
             ref_id: None,
             forwarded_from: None,
+            nested_forwarded_from: Vec::new(),
             payload_for: None,
         },
     );

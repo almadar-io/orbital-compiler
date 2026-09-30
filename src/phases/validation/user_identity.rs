@@ -229,6 +229,7 @@ pub fn validate_user_identity(schema: &OrbitalSchema, ctx: &mut ValidationContex
                 continue;
             };
             walk(&value, &path, identity, source, &mut result);
+            check_config_role_lists(trait_def, &path, identity, &mut result);
         }
 
         // Self-consistency: when a REAL roster won the type environment above,
@@ -275,6 +276,79 @@ pub fn validate_user_identity(schema: &OrbitalSchema, ctx: &mut ValidationContex
     }
 
     ctx.merge(result);
+}
+
+/// Every literal of a config-held role list (`allowedRoles`, nav-item / action
+/// `roles`, nested `children` roles) must be a declared member of the role field
+/// the trait tests it against. Sites come from the same detector the
+/// orbital-import remap uses (`inline::rewrite::role_list_sites`), so a list
+/// that is never compared to a role source is never checked.
+fn check_config_role_lists(
+    trait_def: &orbital_core::schema::TraitDefinition,
+    path: &str,
+    identity: &EntityDefinition,
+    result: &mut ValidationResult,
+) {
+    use crate::phases::inline::rewrite::{role_list_literals, role_list_sites};
+    use std::collections::HashMap;
+    let mut role_fields: HashMap<String, Vec<String>> = HashMap::new();
+    for field in &identity.fields {
+        if let (Some(name), Some(values)) = (field.name.as_ref(), vocabulary(field)) {
+            role_fields.insert(name.clone(), values.clone());
+        }
+    }
+    if role_fields.is_empty() {
+        return;
+    }
+    let Some(cfg) = trait_def.config.as_ref() else {
+        return;
+    };
+    for site in role_list_sites(trait_def, &role_fields) {
+        let Some(default) = cfg.get(&site.knob).and_then(|f| f.default.as_ref()) else {
+            continue;
+        };
+        let Some(vocab) = role_fields.get(&site.field) else {
+            continue;
+        };
+        for literal in role_list_literals(default, &site) {
+            if enum_value_is_member(&literal, vocab) {
+                continue;
+            }
+            result.add_error(role_literal_error(
+                &literal,
+                &site.field,
+                identity,
+                vocab,
+                &format!("{}.config.{}", path, site.knob),
+            ));
+        }
+    }
+}
+
+fn role_literal_error(
+    literal: &str,
+    field_name: &str,
+    identity: &EntityDefinition,
+    vocab: &[String],
+    path: &str,
+) -> ValidationError {
+    ValidationError::error(
+        ErrorCode::SchemaRoleLiteralNotMember,
+        path,
+        format!(
+            "\"{}\" is not a declared value of `@user.{}` on the [identity] entity `{}`. \
+             This comparison can never be true — the branch is dead.",
+            literal, field_name, identity.name
+        ),
+    )
+    .with_valid_values(vocab.to_vec())
+    .with_suggestion(format!(
+        "Use one of: {}, or add \"{}\" to `{}.{}`.",
+        vocab.join(", "),
+        literal,
+        identity.name,
+        field_name
+    ))
 }
 
 /// The implicit `@user` shape of a program with no `[identity]` entity.
@@ -537,25 +611,9 @@ pub(super) fn check_comparison(
         if enum_value_is_member(literal, vocab) {
             continue;
         }
-        result.add_error(
-            ValidationError::error(
-                ErrorCode::SchemaRoleLiteralNotMember,
-                path,
-                format!(
-                    "\"{}\" is not a declared value of `@user.{}` on the [identity] entity `{}`. \
-                     This comparison can never be true — the branch is dead.",
-                    literal, field_name, identity.name
-                ),
-            )
-            .with_valid_values(vocab.clone())
-            .with_suggestion(format!(
-                "Use one of: {}, or add \"{}\" to `{}.{}`.",
-                vocab.join(", "),
-                literal,
-                identity.name,
-                field_name
-            )),
-        );
+        result.add_error(role_literal_error(
+            literal, field_name, identity, vocab, path,
+        ));
     }
 }
 

@@ -259,11 +259,33 @@ impl<'a> Resolver<'a> {
             }
         }
 
-        // Collect themes from orbitals (only inline themes, skip duplicates)
+        // Collect every theme the program declares — app-level first, then
+        // each orbital's — deduped by name. An inline theme is carried as-is; a
+        // preset key (`"clay-dark"`) carries the baked preset definition, so the
+        // shells emit its CSS the same way they emit an inline theme's.
+        let presets = orbital_core::runtime::theme::ThemePresets::baked();
+        let declared = self
+            .schema
+            .theme
+            .iter()
+            .chain(self.schema.orbitals.iter().filter_map(|o| o.theme.as_ref()));
         let mut seen_themes = std::collections::HashSet::new();
-        for orbital in &self.schema.orbitals {
-            // Note: ThemeRef::Reference would be resolved by pre-processing
-            if let Some(ThemeRef::Inline(theme)) = &orbital.theme {
+        for theme_ref in declared {
+            let (definition, key) = match theme_ref {
+                ThemeRef::Inline(theme) => (Some(theme), format!("{}-light", theme.name)),
+                ThemeRef::Reference(key) if key.is_empty() => continue,
+                ThemeRef::Reference(key) => {
+                    let base = key
+                        .strip_suffix("-dark")
+                        .or_else(|| key.strip_suffix("-light"))
+                        .unwrap_or(key);
+                    (presets.get(base), key.clone())
+                }
+            };
+            if module.default_theme.is_none() {
+                module.default_theme = Some(key);
+            }
+            if let Some(theme) = definition {
                 if seen_themes.insert(theme.name.clone()) {
                     module.themes.push(theme.clone());
                 }
