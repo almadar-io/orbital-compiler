@@ -115,6 +115,11 @@ pub enum ErrorCode {
     /// knobs (A-UNIFY) skip this membership check — their value CREATES the
     /// event name — but still land here if the default isn't a plain string.
     TraitInvalidEventDefault,
+    TraitEventRefUnresolved,
+    TraitEventRefNotExternalInput,
+    /// A declared external input (`listens { EVENT -> external { … } }`) has no
+    /// transition from the trait's initial state: inputs are complete commands.
+    TraitExternalInputNotResting,
     /// Config field's default value doesn't match its declared structural
     /// shape (array vs scalar, object vs string, missing required, etc.).
     /// Fires after the typed-config carriers (`items` / `properties` /
@@ -352,6 +357,9 @@ pub enum ErrorCode {
     RenderUIUnknownItemActionProp,
     /// Button/link missing action prop
     RenderUIMissingAction,
+    /// A pattern that declares `@accessibleName` props has none of them, no
+    /// `aria-label`/`aria-labelledby`, and is not `aria-hidden`
+    A11yUnnamed,
     /// Nested field path references invalid relation or field
     RenderUIInvalidFieldPath,
     /// A `form`-contract pattern offers an input for an `@intrinsic` entity
@@ -1229,6 +1237,9 @@ impl ErrorCode {
             ErrorCode::TraitInvalidPatternDefault => "ORB_T_INVALID_PATTERN_DEFAULT",
             ErrorCode::TraitSecretDefaultNotString => "ORB_T_SECRET_DEFAULT_NOT_STRING",
             ErrorCode::TraitInvalidEventDefault => "ORB_T_INVALID_EVENT_DEFAULT",
+            ErrorCode::TraitEventRefUnresolved => "ORB_T_EVENT_REF_UNRESOLVED",
+            ErrorCode::TraitEventRefNotExternalInput => "ORB_T_EVENT_REF_NOT_EXTERNAL_INPUT",
+            ErrorCode::TraitExternalInputNotResting => "ORB_T_EXTERNAL_INPUT_NOT_RESTING",
             ErrorCode::TraitConfigShapeMismatch => "ORB_T_CONFIG_SHAPE_MISMATCH",
             ErrorCode::TraitConfigObjectArrayForbidden => "ORB_T_CONFIG_OBJECT_ARRAY_FORBIDDEN",
             ErrorCode::GenericTypeDeprecated => "ORB_T_GENERIC_TYPE_DEPRECATED",
@@ -1292,6 +1303,7 @@ impl ErrorCode {
             ErrorCode::RenderUIInvalidItemAction => "ORB_RUI_INVALID_ITEM_ACTION",
             ErrorCode::RenderUIUnknownItemActionProp => "ORB_RUI_UNKNOWN_ITEM_ACTION_PROP",
             ErrorCode::RenderUIMissingAction => "ORB_RUI_MISSING_ACTION",
+            ErrorCode::A11yUnnamed => "ORB_A11Y_UNNAMED",
             ErrorCode::RenderUIInvalidFieldPath => "ORB_RUI_INVALID_FIELD_PATH",
             ErrorCode::RenderUIFormFieldIntrinsic => "ORB_RUI_FORM_FIELD_INTRINSIC",
             ErrorCode::RenderUIPropTypeMismatch => "ORB_RUI_PROP_TYPE_MISMATCH",
@@ -1568,6 +1580,9 @@ impl ErrorCode {
             | ErrorCode::TraitInvalidPatternDefault
             | ErrorCode::TraitSecretDefaultNotString
             | ErrorCode::TraitInvalidEventDefault
+            | ErrorCode::TraitEventRefUnresolved
+            | ErrorCode::TraitEventRefNotExternalInput
+            | ErrorCode::TraitExternalInputNotResting
             | ErrorCode::TraitConfigShapeMismatch
             | ErrorCode::TraitConfigObjectArrayForbidden
             | ErrorCode::NodeFieldUncheckedContent
@@ -1631,6 +1646,7 @@ impl ErrorCode {
             | ErrorCode::RenderUIInvalidItemAction
             | ErrorCode::RenderUIUnknownItemActionProp
             | ErrorCode::RenderUIMissingAction
+            | ErrorCode::A11yUnnamed
             | ErrorCode::RenderUIInvalidFieldPath
             | ErrorCode::RenderUIFormFieldIntrinsic
             | ErrorCode::RenderUIPropTypeMismatch

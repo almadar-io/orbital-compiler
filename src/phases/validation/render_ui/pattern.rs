@@ -188,6 +188,22 @@ fn expand_children_operators(children: &SExpression) -> SExpression {
 }
 
 /// Validate a pattern
+/// True when an instance gives assistive technology no name: none of the
+/// pattern's declared name props, no `aria-label`/`aria-labelledby`, and not
+/// hidden (`aria-hidden` set to anything but a literal `false`). A present key
+/// counts even when empty (`alt: ""` declares a decorative image).
+pub(crate) fn lacks_accessible_name(
+    obj: &HashMap<String, SExpression>,
+    name_props: &[String],
+) -> bool {
+    let hidden =
+        matches!(obj.get("aria-hidden"), Some(v) if !matches!(v, SExpression::Bool(false)));
+    let named = name_props.iter().any(|p| obj.contains_key(p.as_str()))
+        || obj.contains_key("aria-label")
+        || obj.contains_key("aria-labelledby");
+    !hidden && !named
+}
+
 pub(crate) fn validate_pattern(
     pattern: &SExpression,
     path: &str,
@@ -633,6 +649,23 @@ pub(crate) fn validate_pattern(
                     entity_definitions,
                     linked_entity,
                 ));
+
+                if let Some(name_props) = crate::pattern_registry::get_accessible_name(pattern_type)
+                {
+                    if lacks_accessible_name(obj, name_props) {
+                        result.add_error(ValidationError::error(
+                            ErrorCode::A11yUnnamed,
+                            path,
+                            format!(
+                                "{} has no accessible name: screen readers announce it as an unlabeled control",
+                                pattern_type
+                            ),
+                        ).with_suggestion(format!(
+                            "set one of: {}, aria-label, aria-labelledby (or aria-hidden: true if it is decorative)",
+                            name_props.join(", ")
+                        )));
+                    }
+                }
 
                 // Check for action on button/link patterns using synced definition
                 if requires_action(pattern_type)
@@ -1597,5 +1630,87 @@ mod children_operator_tests {
             got.iter().any(|c| c == "ORB_RUI_INVALID_PATTERN"),
             "a bogus pattern inside the operands must still be reported: {got:?}"
         );
+    }
+}
+
+#[cfg(test)]
+mod accessible_name_tests {
+    use super::lacks_accessible_name;
+    use orbital_core::schema::SExpression;
+    use std::collections::HashMap;
+
+    fn obj(pairs: &[(&str, SExpression)]) -> HashMap<String, SExpression> {
+        pairs
+            .iter()
+            .map(|(k, v)| ((*k).to_string(), v.clone()))
+            .collect()
+    }
+    fn names(p: &[&str]) -> Vec<String> {
+        p.iter().map(|s| (*s).to_string()).collect()
+    }
+    fn s(v: &str) -> SExpression {
+        SExpression::String(v.to_string())
+    }
+
+    #[test]
+    fn icon_only_button_is_unnamed() {
+        let o = obj(&[
+            ("type", s("button")),
+            ("icon", s("x")),
+            ("action", s("CLOSE")),
+        ]);
+        assert!(lacks_accessible_name(&o, &names(&["label"])));
+    }
+
+    #[test]
+    fn control_labelled_button_is_named() {
+        let o = obj(&[
+            ("type", s("button")),
+            ("icon", s("x")),
+            ("label", s("Close")),
+        ]);
+        assert!(!lacks_accessible_name(&o, &names(&["label"])));
+    }
+
+    #[test]
+    fn aria_label_or_labelledby_names_it() {
+        let a = obj(&[("type", s("button")), ("aria-label", s("Close"))]);
+        let b = obj(&[
+            ("type", s("button")),
+            ("aria-labelledby", s("dialog-title")),
+        ]);
+        assert!(!lacks_accessible_name(&a, &names(&["label"])));
+        assert!(!lacks_accessible_name(&b, &names(&["label"])));
+    }
+
+    #[test]
+    fn edge_empty_alt_declares_decorative() {
+        let o = obj(&[("type", s("image")), ("src", s("a.png")), ("alt", s(""))]);
+        assert!(!lacks_accessible_name(&o, &names(&["alt"])));
+    }
+
+    #[test]
+    fn edge_aria_hidden_true_or_bound_exempts_but_literal_false_does_not() {
+        let hidden = obj(&[
+            ("type", s("image")),
+            ("aria-hidden", SExpression::Bool(true)),
+        ]);
+        let bound = obj(&[
+            ("type", s("image")),
+            ("aria-hidden", s("@config.decorative")),
+        ]);
+        let visible = obj(&[
+            ("type", s("image")),
+            ("aria-hidden", SExpression::Bool(false)),
+        ]);
+        assert!(!lacks_accessible_name(&hidden, &names(&["alt"])));
+        assert!(!lacks_accessible_name(&bound, &names(&["alt"])));
+        assert!(lacks_accessible_name(&visible, &names(&["alt"])));
+    }
+
+    #[test]
+    fn edge_any_declared_name_prop_suffices() {
+        let o = obj(&[("type", s("avatar")), ("name", s("@entity.name"))]);
+        assert!(!lacks_accessible_name(&o, &names(&["alt", "name"])));
     }
 }

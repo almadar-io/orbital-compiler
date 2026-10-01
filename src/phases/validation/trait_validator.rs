@@ -791,6 +791,36 @@ pub fn validate_state_machine(
         }
     }
 
+    // A declared external input is a complete command: the trait accepts it
+    // from its initial (resting) state, so an outside client never has to
+    // drive a UI-shaped flow to reach it.
+    if let (Some(events), Some(initial)) = (sm.events.as_ref(), initial_states.first()) {
+        for (i, ev) in events.iter().enumerate() {
+            if ev.external != Some(true) {
+                continue;
+            }
+            let handled = sm
+                .transitions
+                .iter()
+                .any(|t| t.event == ev.key && matches_state(&t.from, initial));
+            if !handled {
+                result.add_error(
+                    ValidationError::error(
+                        ErrorCode::TraitExternalInputNotResting,
+                        format!("{}.events[{}]", sm_path, i),
+                        format!(
+                            "External input '{}' is not accepted from the initial state '{}'",
+                            ev.key, initial
+                        ),
+                    )
+                    .with_suggestion(
+                        "Declare as external only a complete command the trait handles from its initial state (e.g. a persistor's DO_CREATE), or add that transition",
+                    ),
+                );
+            }
+        }
+    }
+
     // Reachability: every declared state must be reachable from the initial
     // state via some transition path. Mirrors the verifier's BFS exclusions —
     // skip `from == "*"` wildcards (they don't define real topology edges) and
@@ -1306,6 +1336,7 @@ mod tests {
                     tier: None,
                     payload_schema: None,
                     payload_entity: None,
+                    external: None,
                 },
                 EventDefinition {
                     id: None,
@@ -1316,6 +1347,7 @@ mod tests {
                     tier: None,
                     payload_schema: None,
                     payload_entity: None,
+                    external: None,
                 },
             ]),
             transitions: vec![

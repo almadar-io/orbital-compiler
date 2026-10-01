@@ -1412,6 +1412,17 @@ pub(crate) type InlinedTraits = (
     Vec<TraitRefConfigDiagnostic>,
 );
 
+/// A pending sibling pull: (alias, sibling, rebind target, pulling parent,
+/// owner, embedder atom's own entity).
+type SiblingPull = (
+    String,
+    String,
+    Option<String>,
+    String,
+    String,
+    Option<String>,
+);
+
 /// Inline trait references.
 ///
 /// For each `TraitReference::Reference { ref, linkedEntity, config, .. }`,
@@ -1500,11 +1511,12 @@ pub(crate) fn inline_traits(
     // hand-written sibling ref would have, keeping the sibling's original name
     // so `@trait.<SiblingName>` resolves.
     // (alias, sibling name, linkedEntity rebind, PULLING PARENT's final name,
-    // OWNER's final name). The parent name lets a name collision rewrite exactly
-    // that parent's `@trait.<Sibling>` tokens to the disambiguated pull name; the
-    // owner is the top-level consumer trait that started the chain, and is the
-    // unit a pulled sibling belongs to (see `pulled_as` below).
-    let mut sibling_pull_work: Vec<(String, String, Option<String>, String, String)> = Vec::new();
+    // OWNER's final name, the embedder atom's own entity the rebind replaces).
+    // The parent name lets a name collision rewrite exactly that parent's
+    // `@trait.<Sibling>` tokens to the disambiguated pull name; the owner is the
+    // top-level consumer trait that started the chain, and is the unit a pulled
+    // sibling belongs to (see `pulled_as` below).
+    let mut sibling_pull_work: Vec<SiblingPull> = Vec::new();
     // Explicitly declared Reference instances keyed by (alias, SOURCE trait
     // name, linkedEntity rebind) → final (post-`name`-override) name. A
     // sibling pull that matches one of these keys is satisfied by the
@@ -2013,6 +2025,7 @@ pub(crate) fn inline_traits(
                                     }
                                     let ref_config_arg = (!effective_ref_config.is_empty())
                                         .then_some(&effective_ref_config);
+                                    let source_linked_entity = trait_def.linked_entity.clone();
                                     apply_overrides_to_trait(
                                         &mut trait_def,
                                         linked_entity.as_ref(),
@@ -2169,6 +2182,7 @@ pub(crate) fn inline_traits(
                                             linked_entity.clone(),
                                             trait_def.name.clone(),
                                             trait_def.name.clone(),
+                                            source_linked_entity.clone(),
                                         ));
                                     }
                                     result.push(TraitReference::Inline(trait_def));
@@ -2290,7 +2304,9 @@ pub(crate) fn inline_traits(
                     }
                 }
             };
-        while let Some((alias, sibling_name, linked_entity, parent_name, owner)) = worklist.pop() {
+        while let Some((alias, sibling_name, linked_entity, parent_name, owner, rebind_from)) =
+            worklist.pop()
+        {
             // An explicit Reference to this same source trait, rebound to the
             // SAME entity, satisfies the pull no matter what local name the
             // consumer gave it — rewrite the pulling parent's `@trait.<Source>`
@@ -2379,9 +2395,15 @@ pub(crate) fn inline_traits(
                     schema_config,
                 )
             };
+            // The rebind replaces the embedder atom's own entity; a sibling bound
+            // to a different entity of the atom keeps its binding (G-ORB-042).
+            let sibling_rebind = match (&sibling_def.linked_entity, &rebind_from) {
+                (Some(own), Some(from)) if own != from => None,
+                _ => linked_entity.clone(),
+            };
             apply_overrides_to_trait(
                 &mut sibling_def,
-                linked_entity.as_ref(),
+                sibling_rebind.as_ref(),
                 entity_ids,
                 forwarded_config.as_ref(),
                 None,
@@ -2449,6 +2471,7 @@ pub(crate) fn inline_traits(
                     linked_entity.clone(),
                     final_name.clone(),
                     owner.clone(),
+                    rebind_from.clone(),
                 ));
             }
             pulled_as.insert(
@@ -2512,6 +2535,34 @@ pub(crate) fn inline_traits(
             let own_subs = pulled_owner
                 .get(&trait_def.name)
                 .and_then(|owner| owner_subs.get(owner));
+            // A `Trait.EVENT` config value is the same address as a sourced
+            // listen: it follows the host rename and the host's event renames.
+            crate::phases::inline::rewrite::map_config_event_addresses(
+                trait_def,
+                &mut |event, source| {
+                    let orbital_core::schema::ListenSource::Trait { trait_name, .. } = source
+                    else {
+                        return None;
+                    };
+                    let renamed = own_subs
+                        .and_then(|subs| subs.get(trait_name.as_str()))
+                        .or_else(|| rename_map.get(trait_name.as_str()))
+                        .cloned()
+                        .unwrap_or_else(|| trait_name.clone());
+                    let new_event = event_renames_by_trait
+                        .get(renamed.as_str())
+                        .and_then(|subs| subs.get(event))
+                        .cloned()
+                        .unwrap_or_else(|| event.to_string());
+                    Some((
+                        new_event,
+                        orbital_core::schema::ListenSource::Trait {
+                            trait_name: renamed,
+                            trait_id: None,
+                        },
+                    ))
+                },
+            );
             if let Some(listens) = trait_def.listens.as_mut() {
                 // Rewrite listen SOURCES through the consumer's rename map
                 // BEFORE the retain: a sub-trait pulled alongside a renamed
@@ -2683,6 +2734,7 @@ mod entity_id_reader_tests {
                 tier: None,
                 payload_schema: Some(vec![payload_field(f)]),
                 payload_entity: None,
+                external: None,
             }]
         });
         TraitDefinition {
@@ -2753,6 +2805,7 @@ mod entity_id_reader_tests {
                     tier: None,
                     payload_schema: Some(fields.iter().map(|f| payload_field(f)).collect()),
                     payload_entity: None,
+                    external: None,
                 });
             }
             let mut tr = td.state_machine.transitions[0].clone();

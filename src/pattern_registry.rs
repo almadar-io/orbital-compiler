@@ -142,6 +142,11 @@ pub struct RegistryPattern {
     /// codegen field-enrichment gates key on — never a pattern-name list.
     #[serde(default)]
     pub fields_contract: Option<String>,
+    /// Props that give the pattern its accessible name, from the component's
+    /// `@accessibleName` JSDoc tag. `ORB_A11Y_UNNAMED` requires one of them
+    /// (or `aria-label` / `aria-labelledby`) on every instance.
+    #[serde(default)]
+    pub accessible_name: Option<Vec<String>>,
 }
 
 /// Event payload schema.
@@ -242,6 +247,14 @@ pub fn get_fields_contract(pattern_type: &str) -> Option<&'static str> {
         .as_deref()
 }
 
+/// The pattern's declared accessible-name props (`@accessibleName`), or None
+/// when the pattern needs no name of its own.
+pub fn get_accessible_name(pattern_type: &str) -> Option<&'static [String]> {
+    get_pattern_definition(pattern_type)?
+        .accessible_name
+        .as_deref()
+}
+
 pub fn is_registered_pattern(pattern_type: &str) -> bool {
     component_mappings().contains_key(pattern_type)
 }
@@ -249,6 +262,17 @@ pub fn is_registered_pattern(pattern_type: &str) -> bool {
 /// Get all registered pattern types.
 pub fn get_all_patterns() -> Vec<&'static str> {
     component_mappings().keys().map(|s| s.as_str()).collect()
+}
+
+/// True when the pattern binds exactly one record: its `entity` prop declares
+/// `cardinality: "record"` (e.g. detail-panel). Declared registry data, never
+/// a pattern-name list.
+pub fn binds_single_record(pattern_type: &str) -> bool {
+    get_props_schema(pattern_type).is_some_and(|props| {
+        props.values().any(|p| {
+            p.kind.as_deref() == Some("entity") && p.cardinality.as_deref() == Some("record")
+        })
+    })
 }
 
 /// Get the props schema for a pattern type.

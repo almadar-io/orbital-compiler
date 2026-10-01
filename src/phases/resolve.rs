@@ -239,6 +239,11 @@ impl<'a> Resolver<'a> {
                 if let TraitReference::Inline(trait_def) = trait_ref {
                     let mut resolved = self.resolve_trait(trait_def)?;
                     resolved.orbital_name = orbital.name.clone();
+                    for ev in &mut resolved.events {
+                        if let Some(input) = ev.external.as_mut() {
+                            input.orbital = orbital.name.clone();
+                        }
+                    }
                     resolved.host_trait = embed_graph
                         .direct_host(&trait_def.name)
                         .map(|s| s.to_string());
@@ -965,6 +970,12 @@ impl<'a> Resolver<'a> {
                 }
                 let mut oir_event = OirEvent::new(event_key);
                 oir_event.description = event.name.clone();
+                // The owning orbital is stamped with `orbital_name` after this returns.
+                oir_event.external = orbital_core::runtime::external_inputs::external_input_of(
+                    "",
+                    &trait_def.name,
+                    event,
+                );
 
                 // Populate payload_schema from event's payload field.
                 // `field_type` is the string produced by the lolo lowerer
@@ -999,9 +1010,11 @@ impl<'a> Resolver<'a> {
                 // lists) duplicates the key (TS1117/TS2300).
                 match oir_trait.events.iter_mut().find(|e| e.key == oir_event.key) {
                     Some(existing) => {
+                        let external = oir_event.external.clone().or_else(|| existing.external.take());
                         if existing.payload_schema.is_none() && oir_event.payload_schema.is_some() {
                             *existing = oir_event;
                         }
+                        existing.external = external;
                     }
                     None => oir_trait.events.push(oir_event),
                 }

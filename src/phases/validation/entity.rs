@@ -392,7 +392,7 @@ pub fn validate_field(
                 field,
                 default,
                 &format!("{}.default", path),
-                &HashSet::new(),
+                &super::config_type::EventScope::default(),
                 &HashMap::new(),
                 true,
             );

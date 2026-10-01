@@ -385,6 +385,7 @@ mod tests {
             tier: None,
             payload_schema: payload,
             payload_entity: None,
+            external: None,
         }
     }
 

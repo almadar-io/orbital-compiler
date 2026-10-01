@@ -31,6 +31,17 @@ pub(crate) fn fold_event_typed_members(
     items: Option<&orbital_core::schema::FieldDefinition>,
     event_subs: &HashMap<String, String>,
 ) -> bool {
+    map_event_typed_members(value, items, &mut |current| event_subs.get(current).cloned())
+}
+
+/// Apply `f` to every literal value at an `event`-typed member of a config
+/// knob value; `f` returns the replacement, or `None` to keep it. `@`-bindings
+/// resolve elsewhere and `""` is the default-off outlet, so neither reaches `f`.
+pub(crate) fn map_event_typed_members(
+    value: &mut SExpression,
+    items: Option<&orbital_core::schema::FieldDefinition>,
+    f: &mut dyn FnMut(&str) -> Option<String>,
+) -> bool {
     let Some(schema) = items else {
         return false;
     };
@@ -38,7 +49,7 @@ pub(crate) fn fold_event_typed_members(
         SExpression::Array(entries) => {
             let mut touched = false;
             for entry in entries.iter_mut() {
-                touched |= fold_event_typed_members(entry, Some(schema), event_subs);
+                touched |= map_event_typed_members(entry, Some(schema), f);
             }
             touched
         }
@@ -50,11 +61,9 @@ pub(crate) fn fold_event_typed_members(
             for (member, decl) in properties.iter() {
                 if decl.field_type == orbital_core::schema::FieldType::Event {
                     if let Some(SExpression::String(current)) = map.get_mut(member.as_str()) {
-                        // `@`-bindings resolve elsewhere; "" is the
-                        // default-off outlet.
                         if !current.is_empty() && !current.starts_with('@') {
-                            if let Some(to) = event_subs.get(current.as_str()) {
-                                *current = to.clone();
+                            if let Some(to) = f(current.as_str()) {
+                                *current = to;
                                 touched = true;
                             }
                         }
@@ -64,14 +73,54 @@ pub(crate) fn fold_event_typed_members(
                 // A descriptor can hold descriptors.
                 if decl.items.is_some() {
                     if let Some(nested) = map.get_mut(member.as_str()) {
-                        touched |=
-                            fold_event_typed_members(nested, decl.items.as_deref(), event_subs);
+                        touched |= map_event_typed_members(nested, decl.items.as_deref(), f);
                     }
                 }
             }
             touched
         }
         _ => false,
+    }
+}
+
+/// Apply `f` to every `listens`-addressed event value (`Trait.EVENT`,
+/// `Orbital.Trait.EVENT`) in a trait's config — scalar `event` knobs and
+/// `event`-typed struct members alike. `f` gets the split address and returns
+/// the replacement source and event, or `None` to keep it.
+pub(crate) fn map_config_event_addresses(
+    td: &mut TraitDefinition,
+    f: &mut dyn FnMut(&str, &ListenSource) -> Option<(String, ListenSource)>,
+) {
+    use orbital_core::schema::{join_event_address, split_event_address};
+    let mut on_value = |current: &str| -> Option<String> {
+        let (event, Some(source)) = split_event_address(current) else {
+            return None;
+        };
+        if matches!(source, ListenSource::Any) {
+            return None;
+        }
+        let (event, source) = f(&event, &source)?;
+        Some(join_event_address(&event, Some(&source)))
+    };
+    let Some(cfg) = td.config.as_mut() else {
+        return;
+    };
+    for field in cfg.values_mut() {
+        if field.field_type == "event" {
+            if let Some(SExpression::String(current)) = field.default.as_mut() {
+                if !current.starts_with('@') {
+                    if let Some(to) = on_value(current) {
+                        *current = to;
+                    }
+                }
+            }
+        }
+        if field.items.is_some() {
+            let items = field.items.clone();
+            if let Some(default) = field.default.as_mut() {
+                map_event_typed_members(default, items.as_deref(), &mut on_value);
+            }
+        }
     }
 }
 
@@ -665,6 +714,12 @@ pub(crate) fn role_list_sites(
             .flat_map(|m| m.values())
             .for_each(&mut walk);
     }
+    // Role checks inside another knob's default — a detail-panel action's
+    // `when: (fn row (array/includes @config.K @config.viewerRole))` held in
+    // `detailActions` — reach the render through config folding.
+    cfg.values()
+        .filter_map(|field| field.default.as_ref())
+        .for_each(&mut walk);
     let mut unique: Vec<RoleListSite> = Vec::new();
     for site in sites {
         if !unique.contains(&site) {
@@ -3040,6 +3095,56 @@ mod role_literal_tests {
             knob(&td, "allowedRoles"),
             json!(["owner", "operations_director", "ghost"])
         );
+    }
+
+    /// A role knob read only inside ANOTHER knob's default — a detail-panel
+    /// action's `when: (fn row (array/includes @config.K @config.viewerRole))`
+    /// in `detailActions` — is a role-list site too, so the import remap
+    /// rewrites it before config folding copies it into the render.
+    fn action_gated_trait(roles: serde_json::Value, other: serde_json::Value) -> TraitDefinition {
+        serde_json::from_value(json!({
+            "name": "Ledger",
+            "linkedEntity": "Person",
+            "category": "interaction",
+            "config": {
+                "reconcileRoles": { "type": "unknown", "default": roles },
+                "otherList": { "type": "unknown", "default": other },
+                "viewerRole": { "type": "unknown", "default": "@user.role" },
+                "detailActions": { "type": "unknown", "default": [{
+                    "label": "Reconcile",
+                    "event": "RECONCILE",
+                    "when": ["fn", "row", ["or",
+                        ["=", ["array/len", "@config.reconcileRoles"], 0],
+                        ["array/includes", "@config.reconcileRoles", "@config.viewerRole"]]]
+                }] }
+            },
+            "stateMachine": {
+                "states": [ { "name": "idle", "isInitial": true } ],
+                "events": [ { "key": "INIT" } ],
+                "transitions": [ {
+                    "from": "idle", "to": "idle", "event": "INIT",
+                    "effects": [ ["render-ui", "main", { "type": "detail-panel", "actions": "@config.detailActions" }] ]
+                } ]
+            }
+        }))
+        .expect("valid trait fixture")
+    }
+
+    #[test]
+    fn role_knob_read_inside_an_action_when_is_remapped() {
+        let mut td = action_gated_trait(json!(["cfo", "hr-director"]), json!(["cfo"]));
+        rewrite_role_literals_in_config_lists(
+            &mut td,
+            &role_fields(),
+            &hr_roles(),
+            &HashSet::new(),
+        );
+        assert_eq!(
+            knob(&td, "reconcileRoles"),
+            json!(["owner", "operations_director"])
+        );
+        // Control: a list no role check reads is data, not a role list.
+        assert_eq!(knob(&td, "otherList"), json!(["cfo"]));
     }
 
     /// The `["list", …]` array-construction wrap keeps its marker.

@@ -275,6 +275,7 @@ mod tests {
                     entity: None,
                 }]),
                 payload_entity: None,
+                external: None,
             }]);
         }
         tr

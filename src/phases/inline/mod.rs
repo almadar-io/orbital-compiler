@@ -83,7 +83,7 @@ use rewrite::{rewrite_entity_refs, rewrite_identifiers, rewrite_trait_event_fiel
 
 use crate::loader::{ExternalOrbitalLoader, ImportChain, LoaderConfig, LoaderError};
 use orbital_core::schema::{
-    ConfigField, ConfigProvenanceRecord, EntityDefinition, EntityRef, ExpectDeclaration, Orbital,
+    ConfigField, ConfigProvenanceRecord, EntityDefinition, EntityRef, ExpectDeclaration, ListenSource, Orbital,
     OrbitalSchema, PayloadField, SchemaMetadata, ThemeRef, TraitDefinition, TraitReference,
 };
 use std::collections::{BTreeMap, HashMap, HashSet};
@@ -428,7 +428,7 @@ pub fn inline_schema_with_orbital_diagnostics(
     // any orbital in `schema` resolves, so a listen source naming ANY
     // reference-form orbital of this schema resolves regardless of
     // declaration order.
-    let listen_source_targets = precompute_reference_form_listen_targets(
+    let (listen_source_targets, imported_trait_names) = precompute_reference_form_listen_targets(
         &schema.orbitals,
         &mut loader,
         &mut chain,
@@ -536,6 +536,7 @@ pub fn inline_schema_with_orbital_diagnostics(
     if let Some(e) = first_error {
         return Err(e);
     }
+    address_imported_traits(&mut schema.orbitals, &imported_trait_names);
 
     // §52 schema-wide retry: every orbital has now inlined (every Gap #22
     // no-rebind auxiliary registered, every primary entity declared), so a
@@ -919,8 +920,9 @@ fn precompute_reference_form_listen_targets(
     loader: &mut ExternalOrbitalLoader,
     chain: &mut ImportChain,
     source_path: Option<&Path>,
-) -> HashMap<(String, String), SiblingImportInfo> {
+) -> (HashMap<(String, String), SiblingImportInfo>, ImportedTraitNames) {
     let mut out: HashMap<(String, String), SiblingImportInfo> = HashMap::new();
+    let mut by_local: ImportedTraitNames = HashMap::new();
     for orbital in orbitals {
         let Some(reference) = orbital.reference.as_ref() else {
             continue;
@@ -939,6 +941,7 @@ fn precompute_reference_form_listen_targets(
             continue;
         };
         let trait_subs = materialized_trait_subs(upstream, reference, &orbital.name);
+        by_local.insert(orbital.name.clone(), trait_subs.clone());
         let key = (alias, name);
         let mut page_remaps = out
             .remove(&key)
@@ -957,7 +960,77 @@ fn precompute_reference_form_listen_targets(
             },
         );
     }
-    out
+    (out, by_local)
+}
+
+/// Each reference-form orbital by its LOCAL name → upstream trait name →
+/// (materialized name, derived id).
+type ImportedTraitNames = HashMap<String, HashMap<String, (String, String)>>;
+
+/// A consumer addresses an imported orbital's trait by the import's local name
+/// and the trait's upstream name (`Things.ThingPersistor.SAVED`, or
+/// `ThingPersistor.SAVED` from a sibling authored in the import body); land
+/// every such `listens` source and event-typed config value on the
+/// materialized `<Local><Upstream>` trait. Runs once the orbitals are inlined.
+fn address_imported_traits(orbitals: &mut [Orbital], imported: &ImportedTraitNames) {
+    if imported.is_empty() {
+        return;
+    }
+    // A trait present under the exact name (one the consumer authored in the
+    // import body) is what that name means; only absent names map.
+    let present: HashSet<(String, String)> = orbitals
+        .iter()
+        .flat_map(|o| {
+            o.traits.iter().filter_map(|t| match t {
+                TraitReference::Inline(td) => Some((o.name.clone(), td.name.clone())),
+                _ => None,
+            })
+        })
+        .collect();
+    for orbital in orbitals.iter_mut() {
+        let own = orbital.name.clone();
+        let resolve = |source: &mut ListenSource| {
+            let (scope, trait_name, trait_id) = match source {
+                ListenSource::Trait {
+                    trait_name,
+                    trait_id,
+                } => (own.as_str(), trait_name, trait_id),
+                ListenSource::Orbital {
+                    orbital,
+                    trait_name,
+                    trait_id,
+                    ..
+                } => (orbital.as_str(), trait_name, trait_id),
+                ListenSource::Any => return,
+            };
+            if present.contains(&(scope.to_string(), trait_name.clone())) {
+                return;
+            }
+            if let Some((final_name, final_id)) =
+                imported.get(scope).and_then(|subs| subs.get(trait_name.as_str()))
+            {
+                *trait_name = final_name.clone();
+                *trait_id = Some(final_id.clone());
+            }
+        };
+        for tr in orbital.traits.iter_mut() {
+            let TraitReference::Inline(td) = tr else {
+                continue;
+            };
+            if let Some(listens) = td.listens.as_mut() {
+                for listen in listens.iter_mut() {
+                    if let Some(source) = listen.source.as_mut() {
+                        resolve(source);
+                    }
+                }
+            }
+            rewrite::map_config_event_addresses(td, &mut |event, source| {
+                let mut moved = source.clone();
+                resolve(&mut moved);
+                (moved != *source).then(|| (event.to_string(), moved))
+            });
+        }
+    }
 }
 
 /// A §52 rebind-merge whose target didn't resolve within its own orbital —
@@ -1206,7 +1279,8 @@ fn inline_orbital(
         // sibling-import listen source inside one of THEM resolves against
         // THEIR OWN reference-form orbitals, never the caller's. Recomputed
         // per alias load (cheap: `loader.load` inside it is a cache hit).
-        let nested_listen_source_targets = precompute_reference_form_listen_targets(
+        let (nested_listen_source_targets, nested_imported_trait_names) =
+            precompute_reference_form_listen_targets(
             &inlined_orbitals,
             loader,
             chain,
@@ -1231,6 +1305,7 @@ fn inline_orbital(
                 deferred_merges,
             )?;
         }
+        address_imported_traits(&mut inlined_orbitals, &nested_imported_trait_names);
 
         // The source label used in error messages is the `from` string from
         // the `uses` declaration (e.g. `"std/behaviors/std-arcade-game"`).
@@ -4310,6 +4385,7 @@ mod tests {
                         tier: None,
                         payload_schema: None,
                         payload_entity: None,
+                        external: None,
                     },
                     EventDefinition {
                         id: None,
@@ -4320,6 +4396,7 @@ mod tests {
                         tier: None,
                         payload_schema: None,
                         payload_entity: None,
+                        external: None,
                     },
                 ]),
                 transitions: vec![
@@ -4418,6 +4495,7 @@ mod tests {
                     tier: None,
                     payload_schema: None,
                     payload_entity: None,
+                    external: None,
                 }]),
                 transitions: vec![TransitionDefinition {
                     event_id: None,

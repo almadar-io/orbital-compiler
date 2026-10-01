@@ -68,8 +68,9 @@ struct ItemActionInfo {
     in_state: String,
     /// Slot where this action appears
     slot: String,
-    /// True when declared in an `itemActions` array (a per-row action on the
-    /// declaring component) rather than an `actions` button group.
+    /// True when the action is record-scoped (see [`is_record_scoped`]): a
+    /// per-row `itemActions` entry, or an `actions` entry on a pattern that
+    /// binds one record. Its event name carries no form or list semantics.
     from_item_actions: bool,
     /// Path for error reporting
     path: String,
@@ -384,7 +385,7 @@ fn extract_item_actions(render_ui_effects: &[RenderUIInfo]) -> Vec<ItemActionInf
                             pattern_type: pattern_type.clone(),
                             in_state: render_ui.to_state.clone(),
                             slot: render_ui.slot.clone(),
-                            from_item_actions: action_prop == "itemActions",
+                            from_item_actions: is_record_scoped(action_prop, &pattern_type),
                             path: if multi_leaf {
                                 format!(
                                     "{}.props.{}.branch[{}]",
@@ -619,6 +620,16 @@ fn validate_duplicate_events(item_actions: &[ItemActionInfo], _path: &str) -> Va
     result
 }
 
+/// A record-scoped action acts on one record — a list row's `itemActions`
+/// entry, or an `actions` entry on a pattern whose `entity` prop declares
+/// record cardinality (detail-panel). "Submit for approval" or "Cancel order"
+/// there is a lifecycle event of that record, so the form/list name checks
+/// below do not apply to it.
+fn is_record_scoped(action_prop: &str, pattern_type: &str) -> bool {
+    action_prop == "itemActions"
+        || (action_prop == "actions" && crate::pattern_registry::binds_single_record(pattern_type))
+}
+
 /// Detect action-component mismatches
 fn validate_action_component_match(
     item_actions: &[ItemActionInfo],
@@ -627,6 +638,9 @@ fn validate_action_component_match(
     let mut result = ValidationResult::new();
 
     for action in item_actions {
+        if action.from_item_actions {
+            continue;
+        }
         if is_action_invalid_for_component(&action.action, &action.pattern_type) {
             let valid_actions = get_valid_actions_for_component(&action.pattern_type);
             let invalid_actions = get_invalid_actions_for_component(&action.pattern_type);
@@ -2829,18 +2843,26 @@ mod tests {
 
     #[test]
     fn test_action_component_mismatch() {
+        // A non-record `actions` group: SAVE on an entity-table toolbar is the
+        // misplaced form button the affinity table catches.
         let item_actions = vec![ItemActionInfo {
-            action: "SAVE".to_string(), // SAVE is invalid on entity-table
+            action: "SAVE".to_string(),
             event: "SAVE".to_string(),
             pattern_type: "entity-table".to_string(),
             in_state: "idle".to_string(),
             slot: "main".to_string(),
-            from_item_actions: true,
+            from_item_actions: false,
             path: "test.path".to_string(),
         }];
+        assert!(!validate_action_component_match(&item_actions, "test").is_valid());
 
-        let result = validate_action_component_match(&item_actions, "test");
-        assert!(!result.is_valid()); // SAVE is invalid on entity-table
+        // The same name as a per-row action ("save this listing") is a record
+        // lifecycle event and passes.
+        let row = vec![ItemActionInfo {
+            from_item_actions: true,
+            ..item_actions[0].clone()
+        }];
+        assert!(validate_action_component_match(&row, "test").is_valid());
     }
 
     fn render_ui_info(pattern_type: &str, to_state: &str) -> RenderUIInfo {
@@ -2883,6 +2905,62 @@ mod tests {
         let renders = vec![render_ui_info("alert", "idle")];
         let result = validate_state_appropriate_actions(&actions, &renders, "test");
         assert!(result
+            .errors
+            .iter()
+            .any(|e| e.code == ErrorCode::CircuitActionComponentMismatch));
+    }
+
+    fn record_action(action: &str, pattern: &str, record_scoped: bool) -> ItemActionInfo {
+        ItemActionInfo {
+            action: action.to_string(),
+            event: action.to_string(),
+            pattern_type: pattern.to_string(),
+            in_state: "viewing".to_string(),
+            slot: "main".to_string(),
+            from_item_actions: record_scoped,
+            path: "test.path".to_string(),
+        }
+    }
+
+    #[test]
+    fn test_record_scope_is_declared_registry_data() {
+        // detail-panel's `entity` prop declares `cardinality: "record"`, so its
+        // `actions` act on that one record; an `actions` group on a pattern
+        // without a record-cardinality entity prop is not record-scoped.
+        assert!(is_record_scoped("itemActions", "data-list"));
+        assert!(is_record_scoped("actions", "detail-panel"));
+        assert!(!is_record_scoped("actions", "page-header"));
+        assert!(!is_record_scoped("actions", "alert"));
+    }
+
+    #[test]
+    fn test_detail_panel_lifecycle_actions_named_submit_or_cancel_pass() {
+        // "Submit for approval" / "Cancel order" on a record's detail panel are
+        // lifecycle events of that record, not form buttons.
+        let actions = vec![
+            record_action("SUBMIT", "detail-panel", true),
+            record_action("CANCEL", "detail-panel", true),
+        ];
+        let renders = vec![render_ui_info("detail-panel", "viewing")];
+        assert!(validate_action_component_match(&actions, "test").is_valid());
+        assert!(validate_state_appropriate_actions(&actions, &renders, "test").is_valid());
+    }
+
+    #[test]
+    fn test_row_action_named_cancel_passes_affinity_too() {
+        // The affinity table lists CANCEL as invalid on entity-list; a per-row
+        // "cancel this item" action must not trip it any more than the
+        // state-appropriateness check.
+        let actions = vec![record_action("CANCEL", "entity-list", true)];
+        assert!(validate_action_component_match(&actions, "test").is_valid());
+    }
+
+    #[test]
+    fn test_non_record_actions_group_keeps_affinity_check() {
+        // A page-header `actions` group is not record-scoped: SAVE there is
+        // still the misplaced form button the affinity table exists to catch.
+        let actions = vec![record_action("SAVE", "page-header", false)];
+        assert!(validate_action_component_match(&actions, "test")
             .errors
             .iter()
             .any(|e| e.code == ErrorCode::CircuitActionComponentMismatch));

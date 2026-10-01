@@ -1030,6 +1030,7 @@ mod tests {
                     description: None,
                     payload_schema: None,
                     payload_required_fields: std::collections::BTreeSet::new(),
+                    external: None,
                 },
                 OirEvent {
                     key: "STOP".to_string(),
@@ -1037,6 +1038,7 @@ mod tests {
                     description: None,
                     payload_schema: None,
                     payload_required_fields: std::collections::BTreeSet::new(),
+                    external: None,
                 },
             ],
             transitions: vec![

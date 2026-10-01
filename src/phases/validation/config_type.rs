@@ -112,6 +112,133 @@ fn trait_event_ctx(trait_def: &TraitDefinition) -> TraitEventCtx {
     }
 }
 
+/// The event vocabulary an `event`-typed struct member is checked against:
+/// the owning orbital's own events, plus the program-wide index that
+/// resolves a `listens`-addressed value. `refs: None` skips address checks.
+#[derive(Default)]
+pub(crate) struct EventScope<'a> {
+    pub(crate) events: HashSet<String>,
+    pub(crate) orbital: &'a str,
+    pub(crate) refs: Option<&'a EventRefIndex>,
+}
+
+/// An `event` value written with `listens` addressing (`Trait.EVENT`,
+/// `Orbital.Trait.EVENT`) rather than a bare own-trait name.
+fn is_event_address(value: &str) -> bool {
+    !value.starts_with('@') && value.contains('.')
+}
+
+/// Every inline trait of the program, by `(orbital, trait)`, with its
+/// declared external inputs — what a `listens`-addressed event value resolves
+/// against.
+pub(crate) struct EventRefIndex {
+    inputs_by_trait: HashMap<(String, String), Vec<String>>,
+}
+
+impl EventRefIndex {
+    fn of(schema: &OrbitalSchema) -> Self {
+        let mut inputs_by_trait: HashMap<(String, String), Vec<String>> = HashMap::new();
+        for orbital in &schema.orbitals {
+            for tr in &orbital.traits {
+                if let TraitReference::Inline(td) = tr {
+                    inputs_by_trait.entry((orbital.name.clone(), td.name.clone())).or_default();
+                }
+            }
+        }
+        for input in orbital_core::runtime::external_inputs::external_inputs_of(schema) {
+            inputs_by_trait
+                .entry((input.orbital, input.trait_name))
+                .or_default()
+                .push(input.event);
+        }
+        Self { inputs_by_trait }
+    }
+
+    /// Resolve `value` from a knob owned by `owner_orbital`: the addressed trait
+    /// must exist (a `Trait.EVENT` form within the owner's orbital) and the
+    /// event must be one of its declared external inputs.
+    fn check(&self, value: &str, owner_orbital: &str, path: &str) -> Vec<ValidationError> {
+        use orbital_core::schema::{join_event_address, split_event_address, ListenSource};
+        let (event, source) = split_event_address(value);
+        let (orbital, trait_name) = match &source {
+            Some(ListenSource::Trait { trait_name, .. }) => (owner_orbital.to_string(), trait_name.clone()),
+            Some(ListenSource::Orbital { orbital, trait_name, .. }) => (orbital.clone(), trait_name.clone()),
+            Some(ListenSource::Any) | None => {
+                return vec![ValidationError::error(
+                    ErrorCode::TraitEventRefUnresolved,
+                    path,
+                    format!("Event value '{}' does not address a trait", value),
+                )
+                .with_suggestion("Write `Trait.EVENT` or `Orbital.Trait.EVENT`")];
+            }
+        };
+        let Some(inputs) = self.inputs_by_trait.get(&(orbital.clone(), trait_name.clone())) else {
+            let mut err = ValidationError::error(
+                ErrorCode::TraitEventRefUnresolved,
+                path,
+                format!(
+                    "Event value '{}' addresses trait '{}.{}', which is not in this program",
+                    value, orbital, trait_name
+                ),
+            );
+            let sibling = matches!(source, Some(ListenSource::Trait { .. }))
+                .then(|| {
+                    let mut hits: Vec<&String> = self
+                        .inputs_by_trait
+                        .keys()
+                        .filter(|(o, t)| t == &trait_name && o != &orbital)
+                        .map(|(o, _)| o)
+                        .collect();
+                    hits.sort();
+                    hits.first().map(|o| (*o).clone())
+                })
+                .flatten();
+            err = match sibling {
+                Some(o) => err.with_suggestion(format!(
+                    "`Trait.EVENT` resolves within this orbital only; trait '{}' is in orbital '{}' — write `{}`",
+                    trait_name,
+                    o,
+                    join_event_address(
+                        &event,
+                        Some(&ListenSource::Orbital {
+                            orbital: o.clone(),
+                            orbital_id: None,
+                            trait_name: trait_name.clone(),
+                            trait_id: None,
+                        })
+                    )
+                )),
+                None => err.with_suggestion(
+                    "Import the behavior's orbital first (`orbital X = Alias.orbitals.Y`), then address it by its local name",
+                ),
+            };
+            return vec![err];
+        };
+        if inputs.contains(&event) {
+            return Vec::new();
+        }
+        let mut valid = inputs.clone();
+        valid.sort();
+        let declared = if valid.is_empty() {
+            "it declares no external inputs".to_string()
+        } else {
+            format!("its declared external inputs: {}", valid.join(", "))
+        };
+        vec![ValidationError::error(
+            ErrorCode::TraitEventRefNotExternalInput,
+            path,
+            format!(
+                "Event value '{}' names '{}' on '{}.{}', which is not a declared external input — {}",
+                value, event, orbital, trait_name, declared
+            ),
+        )
+        .with_suggestion(format!(
+            "Declare it on '{}': `listens {{ {} -> external {{ … }} }}`",
+            trait_name, event
+        ))]
+    }
+}
+
 /// What `check_reference_binding_type` needs to resolve a config knob's
 /// `@entity.X` / `@payload.X` default against the OWNING trait's own scope —
 /// built once per `TraitReference::Inline` trait (post-inline, see the call
@@ -399,6 +526,7 @@ pub fn validate_all_config_types(schema: &OrbitalSchema, ctx: &mut ValidationCon
     validate_groupby_enum_column_gap(schema, ctx, &mut result);
     validate_embed_config_forward_multi_referrer(schema, &mut result);
 
+    let event_refs = EventRefIndex::of(schema);
     for (oi, orbital) in schema.orbitals.iter().enumerate() {
         // Phase B (SCAN-EVENT-KNOB-2): orbital-wide event vocabulary for
         // struct-field `event` acceptance (e.g. `ItemAction.event`) — every
@@ -409,7 +537,7 @@ pub fn validate_all_config_types(schema: &OrbitalSchema, ctx: &mut ValidationCon
         // touch broader — CIRCUIT_ORPHAN_EVENT remains the precise, only
         // authoritative orphan detector; an honest double-report on the
         // same defect from both codes is fine, no dedup machinery here).
-        let orbital_events: HashSet<String> = orbital
+        let orbital_event_names: HashSet<String> = orbital
             .traits
             .iter()
             .filter_map(|tr| match tr {
@@ -424,6 +552,11 @@ pub fn validate_all_config_types(schema: &OrbitalSchema, ctx: &mut ValidationCon
                     .chain(td.emits.iter().flatten().map(|e| e.event.clone()))
             })
             .collect();
+        let orbital_events = EventScope {
+            events: orbital_event_names,
+            orbital: &orbital.name,
+            refs: Some(&event_refs),
+        };
 
         for (ti, trait_ref) in orbital.traits.iter().enumerate() {
             let path_prefix = super::trait_path(oi, &orbital.name, ti, trait_ref);
@@ -502,7 +635,7 @@ fn validate_config_field(
     field: &orbital_core::schema::ConfigField,
     path: &str,
     event_ctx: Option<(&TraitEventCtx, &str)>,
-    orbital_events: &HashSet<String>,
+    orbital_events: &EventScope<'_>,
     binding_ctx: Option<&ReferenceBindingCtx>,
 ) -> ValidationResult {
     let mut result = ValidationResult::new();
@@ -687,6 +820,23 @@ fn validate_config_field(
             let is_definer = ctx.definer_knobs.contains(knob_name);
             match &field.default {
                 None => {}
+                Some(SExpression::String(s)) if is_event_address(s) => {
+                    if is_definer {
+                        result.add_error(
+                            ValidationError::error(
+                                ErrorCode::TraitInvalidEventDefault,
+                                path,
+                                format!(
+                                    "Config field typed `event` holds the address '{}' but this knob names an event the trait emits — an emitted event is a bare name",
+                                    s
+                                ),
+                            )
+                            .with_suggestion("Use a bare event name here; `Trait.EVENT` addresses another trait's input"),
+                        );
+                    } else if let Some(refs) = orbital_events.refs {
+                        result.add_errors(refs.check(s, orbital_events.orbital, path));
+                    }
+                }
                 Some(SExpression::String(s)) => {
                     if !is_definer
                         && !s.is_empty()
@@ -796,7 +946,7 @@ fn check_config_default_shape(
     field: &ConfigField,
     default: &SExpression,
     path: &str,
-    orbital_events: &HashSet<String>,
+    orbital_events: &EventScope<'_>,
     binding_ctx: Option<&ReferenceBindingCtx>,
 ) -> ValidationResult {
     let mut result = ValidationResult::new();
@@ -1060,7 +1210,7 @@ pub(crate) fn check_field_def_shape(
     schema: &FieldDefinition,
     value: &SExpression,
     path: &str,
-    orbital_events: &HashSet<String>,
+    orbital_events: &EventScope<'_>,
     ancestors: &HashMap<String, &FieldDefinition>,
     skip_required_members: bool,
 ) -> ValidationResult {
@@ -1298,13 +1448,18 @@ pub(crate) fn check_field_def_shape(
             // always a genuine type violation.
             if schema.field_type == FieldType::Event {
                 match value {
+                    SExpression::String(s) if is_event_address(s) => {
+                        if let Some(refs) = orbital_events.refs {
+                            result.add_errors(refs.check(s, orbital_events.orbital, path));
+                        }
+                    }
                     SExpression::String(s) => {
                         if !s.is_empty()
                             && !s.starts_with('@')
-                            && !orbital_events.is_empty()
-                            && !orbital_events.contains(s)
+                            && !orbital_events.events.is_empty()
+                            && !orbital_events.events.contains(s)
                         {
-                            let mut valid: Vec<String> = orbital_events.iter().cloned().collect();
+                            let mut valid: Vec<String> = orbital_events.events.iter().cloned().collect();
                             valid.sort();
                             result.add_error(
                                 ValidationError::error(
@@ -2578,7 +2733,7 @@ mod node_config_tests {
             &field("node", default),
             "t.config.children",
             None,
-            &HashSet::new(),
+            &EventScope::default(),
             None,
         );
         assert!(result.errors.is_empty(), "{:?}", result.errors);
@@ -2594,7 +2749,7 @@ mod node_config_tests {
             &field("node", default),
             "t.config.overlay",
             None,
-            &HashSet::new(),
+            &EventScope::default(),
             None,
         );
         assert!(
@@ -2614,7 +2769,7 @@ mod node_config_tests {
             &field("node", default),
             "t.config.children",
             None,
-            &HashSet::new(),
+            &EventScope::default(),
             None,
         );
         assert!(!result.errors.is_empty());
@@ -2675,8 +2830,19 @@ mod event_config_tests {
     }
 
     #[test]
-    fn non_member_value_fails_with_valid_values() {
+    fn a_dotted_value_is_an_address_not_a_member_name() {
         let result = run(&event_trait_schema("note.search", "event"));
+        assert!(event_errors(&result).is_empty(), "{:?}", result.errors);
+        assert!(
+            result.errors.iter().any(|e| e.code == ErrorCode::TraitEventRefUnresolved),
+            "{:?}",
+            result.errors
+        );
+    }
+
+    #[test]
+    fn non_member_value_fails_with_valid_values() {
+        let result = run(&event_trait_schema("NOTE_SEARCH", "event"));
         let errs = event_errors(&result);
         assert_eq!(errs.len(), 1, "{:?}", result.errors);
         assert_eq!(errs[0].code, ErrorCode::TraitInvalidEventDefault);
@@ -3282,7 +3448,7 @@ mod recursive_type_literal_tests {
             &field,
             &SExpression::Array(vec![depth3]),
             "t.config.subMenu",
-            &events,
+            &EventScope { events: events.clone(), ..Default::default() },
             None,
         );
         assert!(
@@ -3311,7 +3477,7 @@ mod recursive_type_literal_tests {
             &field,
             &SExpression::Array(vec![depth3]),
             "t.config.subMenu",
-            &events,
+            &EventScope { events: events.clone(), ..Default::default() },
             None,
         );
         assert!(
@@ -3382,7 +3548,7 @@ mod skip_required_members_tests {
             &schema,
             &empty,
             "t.config.source",
-            &HashSet::new(),
+            &EventScope::default(),
             &HashMap::new(),
             false,
         );
@@ -3403,7 +3569,7 @@ mod skip_required_members_tests {
             &schema,
             &empty,
             "orbitals[0].entity.fields[1].default",
-            &HashSet::new(),
+            &EventScope::default(),
             &HashMap::new(),
             true,
         );

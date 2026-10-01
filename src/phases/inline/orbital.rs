@@ -2095,61 +2095,93 @@ fn rewrite_listen_sources(
     alias: &str,
     listen_source_targets: &HashMap<(String, String), SiblingImportInfo>,
 ) {
-    let Some(listens) = td.listens.as_mut() else {
-        return;
+    let rewrite = |source: &mut ListenSource| {
+        rewrite_import_source(
+            source,
+            subs,
+            id_by_name,
+            own_upstream_name,
+            own_local_name,
+            alias,
+            listen_source_targets,
+        )
     };
-    for listen in listens.iter_mut() {
-        match listen.source.as_mut() {
-            Some(ListenSource::Trait {
-                trait_name,
-                trait_id,
-            }) => {
-                if let Some(target) = subs.get(trait_name.as_str()) {
-                    if target != trait_name {
-                        *trait_id = id_by_name.get(target).cloned();
-                        *trait_name = target.clone();
-                    }
-                }
+    if let Some(listens) = td.listens.as_mut() {
+        for listen in listens.iter_mut() {
+            if let Some(source) = listen.source.as_mut() {
+                rewrite(source);
             }
-            Some(ListenSource::Orbital {
-                orbital,
-                trait_name,
-                trait_id,
-                orbital_id,
-            }) => {
-                if orbital.as_str() == own_upstream_name {
-                    let target = subs
-                        .get(trait_name.as_str())
-                        .cloned()
-                        .unwrap_or_else(|| trait_name.clone());
-                    *trait_id = id_by_name.get(&target).cloned();
-                    *trait_name = target;
-                    *orbital = own_local_name.to_string();
-                    // The old value named the UPSTREAM orbital; there is no
-                    // reliable local-orbital id to carry here, so clear the
-                    // dual-carry sibling (matches the JS twin, which never
-                    // emits `orbitalId` on this rewrite).
-                    *orbital_id = None;
-                } else if let Some(info) =
-                    listen_source_targets.get(&(alias.to_string(), orbital.clone()))
-                {
-                    match info.trait_subs.get(trait_name.as_str()) {
-                        Some((final_trait, final_id)) => {
-                            *trait_name = final_trait.clone();
-                            *trait_id = Some(final_id.clone());
-                        }
-                        // The target import exists but never kept a trait by
-                        // this name (e.g. `omit {}`'d) — no reliable id to
-                        // carry, so clear it, same as the self case above on
-                        // an unresolved trait name.
-                        None => *trait_id = None,
-                    }
-                    *orbital = info.local_name.clone();
-                    *orbital_id = None;
-                }
-            }
-            _ => {}
         }
+    }
+    // A `listens`-addressed event value in config is the same address.
+    super::rewrite::map_config_event_addresses(td, &mut |event, source| {
+        let mut moved = source.clone();
+        rewrite(&mut moved);
+        Some((event.to_string(), moved))
+    });
+}
+
+/// The one rewrite of a `listens` address (a listen source, or the source part
+/// of an event-typed config value) when its trait is materialized by import.
+fn rewrite_import_source(
+    source: &mut ListenSource,
+    subs: &HashMap<String, String>,
+    id_by_name: &HashMap<String, String>,
+    own_upstream_name: &str,
+    own_local_name: &str,
+    alias: &str,
+    listen_source_targets: &HashMap<(String, String), SiblingImportInfo>,
+) {
+    match source {
+        ListenSource::Trait {
+            trait_name,
+            trait_id,
+        } => {
+            if let Some(target) = subs.get(trait_name.as_str()) {
+                if target != trait_name {
+                    *trait_id = id_by_name.get(target).cloned();
+                    *trait_name = target.clone();
+                }
+            }
+        }
+        ListenSource::Orbital {
+            orbital,
+            trait_name,
+            trait_id,
+            orbital_id,
+        } => {
+            if orbital.as_str() == own_upstream_name {
+                let target = subs
+                    .get(trait_name.as_str())
+                    .cloned()
+                    .unwrap_or_else(|| trait_name.clone());
+                *trait_id = id_by_name.get(&target).cloned();
+                *trait_name = target;
+                *orbital = own_local_name.to_string();
+                // The old value named the UPSTREAM orbital; there is no
+                // reliable local-orbital id to carry here, so clear the
+                // dual-carry sibling (matches the JS twin, which never
+                // emits `orbitalId` on this rewrite).
+                *orbital_id = None;
+            } else if let Some(info) =
+                listen_source_targets.get(&(alias.to_string(), orbital.clone()))
+            {
+                match info.trait_subs.get(trait_name.as_str()) {
+                    Some((final_trait, final_id)) => {
+                        *trait_name = final_trait.clone();
+                        *trait_id = Some(final_id.clone());
+                    }
+                    // The target import exists but never kept a trait by
+                    // this name (e.g. `omit {}`'d) — no reliable id to
+                    // carry, so clear it, same as the self case above on
+                    // an unresolved trait name.
+                    None => *trait_id = None,
+                }
+                *orbital = info.local_name.clone();
+                *orbital_id = None;
+            }
+        }
+        ListenSource::Any => {}
     }
 }
 
@@ -2202,6 +2234,21 @@ fn rename_events_in_trait(
                 }
             }
         }
+    }
+    {
+        let kept_final_names: HashSet<&str> = subs.values().map(String::as_str).collect();
+        super::rewrite::map_config_event_addresses(td, &mut |event, source| {
+            let trait_name = match source {
+                ListenSource::Trait { trait_name, .. } | ListenSource::Orbital { trait_name, .. } => {
+                    trait_name
+                }
+                ListenSource::Any => return None,
+            };
+            if !kept_final_names.contains(trait_name.as_str()) {
+                return None;
+            }
+            event_subs.get(event).map(|to| (to.clone(), source.clone()))
+        });
     }
     let no_entities: HashMap<String, String> = HashMap::new();
     for t in td.state_machine.transitions.iter_mut() {
@@ -4942,6 +4989,94 @@ mod tests {
         let blob = serde_json::to_string(&actions).unwrap();
         assert!(blob.contains("EditRow"), "{blob}");
         assert!(!blob.contains("EDIT_ITEM"), "{blob}");
+    }
+
+    /// Import `UpOrbital` as `Local` with trait A holding `one : event = <one>`
+    /// and `tools : [{ event }] = [{ event: <tool> }]`; returns A's two values.
+    fn imported_event_values(
+        one: &str,
+        tool: &str,
+        events: Option<HashMap<String, String>>,
+    ) -> (String, String) {
+        let mut upstream = upstream_orbital(None);
+        if let TraitReference::Inline(a) = &mut upstream.traits[0] {
+            a.config = Some(HashMap::from([
+                (
+                    "one".to_string(),
+                    serde_json::from_value::<ConfigField>(json!({ "type": "event", "default": one }))
+                        .unwrap(),
+                ),
+                (
+                    "tools".to_string(),
+                    serde_json::from_value::<ConfigField>(json!({
+                        "type": "array",
+                        "default": [{ "event": tool }],
+                        "items": { "type": "object", "properties": { "event": { "type": "event" } } }
+                    }))
+                    .unwrap(),
+                ),
+            ]));
+        }
+        let mut ctx = InlineContext::new();
+        ctx.add_alias("Up", &upstream);
+        let mut orbital = consumer_orbital("Local");
+        let mut obj = ref_with_listens(json!([]), None);
+        obj.listens = None;
+        obj.events = events;
+        let mut diagnostics = Vec::new();
+        resolve_orbital_reference(
+            &mut orbital,
+            &obj,
+            &ctx,
+            &HashMap::new(),
+            &HashMap::new(),
+            &HashMap::new(),
+            None,
+            &mut diagnostics,
+            None,
+        )
+        .expect("resolves");
+        let cfg = kept_trait(&orbital, "LocalA").config.clone().unwrap_or_default();
+        let one = match cfg.get("one").and_then(|f| f.default.clone()) {
+            Some(SExpression::String(s)) => s,
+            other => panic!("one: {other:?}"),
+        };
+        let tool = cfg
+            .get("tools")
+            .and_then(|f| f.default.clone())
+            .and_then(|d| serde_json::to_value(d).ok())
+            .and_then(|v| v[0]["event"].as_str().map(str::to_string))
+            .expect("tools[0].event");
+        (one, tool)
+    }
+
+    #[test]
+    fn a_trait_addressed_event_value_follows_the_import_prefix() {
+        let (one, tool) = imported_event_values("B.PING", "B.PING", None);
+        assert_eq!(one, "LocalB.PING");
+        assert_eq!(tool, "LocalB.PING");
+    }
+
+    #[test]
+    fn an_orbital_addressed_event_value_naming_its_own_upstream_follows_the_import() {
+        let (one, tool) = imported_event_values("UpOrbital.B.PING", "UpOrbital.B.PING", None);
+        assert_eq!(one, "Local.LocalB.PING");
+        assert_eq!(tool, "Local.LocalB.PING");
+    }
+
+    #[test]
+    fn an_addressed_event_value_follows_an_events_rename_of_its_trait() {
+        let events = HashMap::from([("PING".to_string(), "Ping".to_string())]);
+        let (one, tool) = imported_event_values("B.PING", "UpOrbital.B.PING", Some(events));
+        assert_eq!(one, "LocalB.Ping");
+        assert_eq!(tool, "Local.LocalB.Ping");
+    }
+
+    #[test]
+    fn control_an_address_into_another_orbital_is_left_alone() {
+        let (one, tool) = imported_event_values("Elsewhere.B.PING", "Elsewhere.B.PING", None);
+        assert_eq!(one, "Elsewhere.B.PING");
+        assert_eq!(tool, "Elsewhere.B.PING");
     }
 
     // -------------------------------------------------------------------
