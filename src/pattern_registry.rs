@@ -122,6 +122,9 @@ pub struct PropSchema {
     /// names the component requires.
     #[serde(rename = "requiredFields", default)]
     pub required_fields: Option<Vec<String>>,
+    /// The prop's declared default (from the component's TS default / `@default`).
+    #[serde(default)]
+    pub default: Option<serde_json::Value>,
 }
 
 /// Pattern definition from registry.
@@ -296,7 +299,7 @@ mod tests {
     #[test]
     fn loads_component_mappings() {
         assert!(get_component_mapping("stat-card").is_some());
-        assert!(get_component_mapping("entity-table").is_some());
+        assert!(get_component_mapping("table-view").is_some());
         assert!(get_component_mapping("form-section").is_some());
     }
 
@@ -323,7 +326,7 @@ mod tests {
 
     #[test]
     fn props_schema_and_component_names() {
-        let schema = get_props_schema("entity-table").unwrap();
+        let schema = get_props_schema("table-view").unwrap();
         assert!(schema.contains_key("columns"));
         assert!(schema.contains_key("entity"));
         assert!(component_names().any(|n| n == "StatCard"));

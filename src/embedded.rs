@@ -718,7 +718,7 @@ pub struct EmbeddedPattern {
 
 static PATTERNS: OnceLock<HashMap<String, EmbeddedPattern>> = OnceLock::new();
 
-/// All patterns keyed by pattern type (e.g. `"entity-table"`, `"button"`).
+/// All patterns keyed by pattern type (e.g. `"table-view"`, `"button"`).
 pub fn patterns() -> &'static HashMap<String, EmbeddedPattern> {
     PATTERNS.get_or_init(|| {
         // patterns-registry.json shape: { version, exportedAt, patterns: { name: PatternEntry } }
@@ -1079,10 +1079,10 @@ mod tests {
 
     #[test]
     fn patterns_parse_and_lookup() {
-        assert!(is_known_pattern("entity-table"));
+        assert!(is_known_pattern("table-view"));
         assert!(is_known_pattern("button"));
         assert!(!is_known_pattern("definitely-not-a-pattern-xyz"));
-        let table = get_pattern("entity-table").unwrap();
+        let table = get_pattern("table-view").unwrap();
         assert_eq!(table.category, "display");
         assert!(table.props_schema.contains_key("entity"));
     }

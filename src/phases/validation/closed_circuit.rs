@@ -9,7 +9,7 @@
 //! This validator detects:
 //! - Orphan events (events emitted by UI with no handler)
 //! - Duplicate events (same event in same slot)
-//! - Action-component mismatches (e.g., SAVE on entity-table)
+//! - Action-component mismatches (e.g., SAVE on table-view)
 //! - State-inappropriate actions (e.g., form actions in browse state)
 //! - Dead-end components (interactive components with no actions)
 //!
@@ -2792,7 +2792,7 @@ mod tests {
         let item_actions = vec![ItemActionInfo {
             action: "VIEW".to_string(),
             event: "VIEW".to_string(),
-            pattern_type: "entity-table".to_string(),
+            pattern_type: "table-view".to_string(),
             in_state: "idle".to_string(),
             slot: "main".to_string(),
             from_item_actions: true,
@@ -2843,12 +2843,12 @@ mod tests {
 
     #[test]
     fn test_action_component_mismatch() {
-        // A non-record `actions` group: SAVE on an entity-table toolbar is the
+        // A non-record `actions` group: SAVE on an table-view toolbar is the
         // misplaced form button the affinity table catches.
         let item_actions = vec![ItemActionInfo {
             action: "SAVE".to_string(),
             event: "SAVE".to_string(),
-            pattern_type: "entity-table".to_string(),
+            pattern_type: "table-view".to_string(),
             in_state: "idle".to_string(),
             slot: "main".to_string(),
             from_item_actions: false,
@@ -2948,10 +2948,10 @@ mod tests {
 
     #[test]
     fn test_row_action_named_cancel_passes_affinity_too() {
-        // The affinity table lists CANCEL as invalid on entity-list; a per-row
+        // The affinity table lists CANCEL as invalid on data-list; a per-row
         // "cancel this item" action must not trip it any more than the
         // state-appropriateness check.
-        let actions = vec![record_action("CANCEL", "entity-list", true)];
+        let actions = vec![record_action("CANCEL", "data-list", true)];
         assert!(validate_action_component_match(&actions, "test").is_valid());
     }
 

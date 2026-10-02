@@ -320,6 +320,7 @@ pub const VALID_SLOTS: &[&str] = &[
     // App slots
     "main",
     "sidebar",
+    "dock",
     "modal",
     "drawer",
     "overlay",
@@ -842,6 +843,7 @@ mod tests {
         const CANONICAL: &[&str] = &[
             "main",
             "sidebar",
+            "dock",
             "modal",
             "drawer",
             "overlay",

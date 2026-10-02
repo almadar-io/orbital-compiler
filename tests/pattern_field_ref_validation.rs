@@ -20,7 +20,7 @@
 //!
 //! NOTE: Tests assume the embedded patterns-registry.json already carries
 //! the markers (`filter-group.filters` → `itemKind: field-ref`,
-//! `entity-cards.imageField` → `kind: field-ref`, etc.). The markers live in
+//! `data-grid.imageField` → `kind: field-ref`, etc.). The markers live in
 //! the submodule at `packages/almadar-patterns/src/patterns-registry.json`.
 
 use orbital_compiler::phases::validation::render_ui::validate_render_ui_effect;
@@ -285,7 +285,7 @@ fn pattern_prop_without_marker_is_not_validated() {
 // ============================================================================
 
 #[test]
-fn entity_cards_image_field_valid_scalar() {
+fn data_grid_image_field_valid_scalar() {
     let mut entity_defs = HashMap::new();
     entity_defs.insert(
         "Photo".to_string(),
@@ -299,7 +299,7 @@ fn entity_cards_image_field_valid_scalar() {
             [
                 (
                     "type".to_string(),
-                    SExpression::String("entity-cards".to_string()),
+                    SExpression::String("data-grid".to_string()),
                 ),
                 (
                     "entity".to_string(),
@@ -331,8 +331,8 @@ fn entity_cards_image_field_valid_scalar() {
 }
 
 #[test]
-#[ignore = "pre-existing: entity-cards.imageField not tagged kind:field-ref in patterns-registry.json — same root cause as filter_group_with_typo_warns."]
-fn entity_cards_image_field_invalid_scalar_warns() {
+#[ignore = "pre-existing: data-grid.imageField not tagged kind:field-ref in patterns-registry.json — same root cause as filter_group_with_typo_warns."]
+fn data_grid_image_field_invalid_scalar_warns() {
     let mut entity_defs = HashMap::new();
     entity_defs.insert(
         "Photo".to_string(),
@@ -346,7 +346,7 @@ fn entity_cards_image_field_invalid_scalar_warns() {
             [
                 (
                     "type".to_string(),
-                    SExpression::String("entity-cards".to_string()),
+                    SExpression::String("data-grid".to_string()),
                 ),
                 (
                     "entity".to_string(),

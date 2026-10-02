@@ -493,7 +493,7 @@ mod tests {
                 [
                     (
                         "type".to_string(),
-                        SExpression::String("entity-table".to_string()),
+                        SExpression::String("table-view".to_string()),
                     ),
                     (
                         "itemActions".to_string(),
@@ -931,7 +931,6 @@ mod tests {
         for pattern in [
             "data-list",
             "data-grid",
-            "entity-list",
             "carousel",
             "sortable-list",
             "table-view",
@@ -1204,7 +1203,7 @@ mod tests {
                 [
                     (
                         "type".to_string(),
-                        SExpression::String("entity-cards".to_string()),
+                        SExpression::String("data-grid".to_string()),
                     ),
                     (
                         "entity".to_string(),
@@ -1285,7 +1284,7 @@ mod tests {
                 [
                     (
                         "type".to_string(),
-                        SExpression::String("entity-cards".to_string()),
+                        SExpression::String("data-grid".to_string()),
                     ),
                     (
                         "entity".to_string(),
@@ -1408,7 +1407,7 @@ mod tests {
                 [
                     (
                         "type".to_string(),
-                        SExpression::String("entity-table".to_string()),
+                        SExpression::String("table-view".to_string()),
                     ),
                     (
                         "entity".to_string(),
@@ -1526,8 +1525,8 @@ mod tests {
     }
 
     #[test]
-    fn test_entity_table_entity_binding_accepted() {
-        // `entity-table.entity` is typed `["object", "array"]` in the registry
+    fn test_table_view_entity_binding_accepted() {
+        // `table-view.entity` is typed `["object", "array"]` in the registry
         // (the resolved record / rows the trait passes after a fetch — see the
         // prop description). A binding expression like `@entity` carries that
         // data, so the V-2 bare-string rule MUST NOT fire on it. (A bare string
@@ -1539,7 +1538,7 @@ mod tests {
                 [
                     (
                         "type".to_string(),
-                        SExpression::String("entity-table".to_string()),
+                        SExpression::String("table-view".to_string()),
                     ),
                     (
                         "entity".to_string(),
@@ -1559,7 +1558,7 @@ mod tests {
                 e.code == ErrorCode::RenderUIPropTypeMismatch
                     && e.message.contains("string literal")
             }),
-            "entity-table.entity = `@entity` is a binding to resolved records; the bare-string rule must not fire. Errors: {:?}",
+            "table-view.entity = `@entity` is a binding to resolved records; the bare-string rule must not fire. Errors: {:?}",
             result.errors
         );
     }
@@ -1579,7 +1578,7 @@ mod tests {
                     [
                         (
                             "type".to_string(),
-                            SExpression::String("entity-table".to_string()),
+                            SExpression::String("table-view".to_string()),
                         ),
                         (
                             "entity".to_string(),

@@ -653,6 +653,60 @@ mod tests {
         );
     }
 
+    fn call_service_with_emit(keys: &[(&str, &str)]) -> SExpression {
+        let params = SExpression::Object(
+            [
+                ("to".to_string(), SExpression::String("a@b.c".to_string())),
+                ("subject".to_string(), SExpression::String("s".to_string())),
+                ("body".to_string(), SExpression::String("b".to_string())),
+            ]
+            .into_iter()
+            .collect(),
+        );
+        let emit = SExpression::Object(
+            keys.iter()
+                .map(|(k, v)| (k.to_string(), SExpression::String(v.to_string())))
+                .collect(),
+        );
+        let envelope = SExpression::Object([("emit".to_string(), emit)].into_iter().collect());
+        SExpression::Array(vec![
+            SExpression::String("call-service".to_string()),
+            SExpression::String("email".to_string()),
+            SExpression::String("send".to_string()),
+            params,
+            envelope,
+        ])
+    }
+
+    #[test]
+    fn test_call_service_emit_on_message_is_a_valid_envelope_key() {
+        // A running call's live messages (`emit: { onMessage }`), as on fetch-stream.
+        let effect = call_service_with_emit(&[("onMessage", "STEP"), ("success", "SENT")]);
+        let result = run_effect(&effect, &email_registry());
+        assert!(
+            !result
+                .errors
+                .iter()
+                .any(|e| e.code == ErrorCode::EffectEmitKeyInvalid),
+            "onMessage must be accepted on call-service: {:?}",
+            result.errors
+        );
+    }
+
+    #[test]
+    fn test_call_service_emit_unknown_key_still_rejected() {
+        let effect = call_service_with_emit(&[("onProgress", "STEP"), ("success", "SENT")]);
+        let result = run_effect(&effect, &email_registry());
+        assert!(
+            result
+                .errors
+                .iter()
+                .any(|e| e.code == ErrorCode::EffectEmitKeyInvalid),
+            "an undeclared envelope key stays an error: {:?}",
+            result.errors
+        );
+    }
+
     #[test]
     fn test_nested_call_service_validated() {
         // I-8: a call-service nested inside another effect's args gets the

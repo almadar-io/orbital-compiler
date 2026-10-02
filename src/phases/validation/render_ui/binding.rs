@@ -1443,14 +1443,14 @@ mod array_element_kind_tests {
     #[test]
     fn control_struct_array_knob_into_object_array_prop_is_fine() {
         let t = trait_with_config(struct_knob());
-        assert!(mismatches(&t, "entity-table", "columns", "@config.fields").is_empty());
+        assert!(mismatches(&t, "table-view", "columns", "@config.fields").is_empty());
     }
 
     #[test]
     fn control_string_array_knob_into_object_array_prop_is_an_error() {
         let t = trait_with_config(serde_json::json!({ "fields": { "type": "[string]" } }));
         assert_eq!(
-            mismatches(&t, "entity-table", "columns", "@config.fields").len(),
+            mismatches(&t, "table-view", "columns", "@config.fields").len(),
             1
         );
     }

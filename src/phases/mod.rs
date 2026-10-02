@@ -17,6 +17,7 @@
 //! 4. **Inline**: Resolve `uses` declarations and inline external references
 //! 5. **Resolve**: Resolve all references and produce final OIR
 
+pub mod await_render;
 pub mod compose;
 pub mod cross_file_ids;
 pub(crate) mod embed_graph;

@@ -41,7 +41,18 @@ pub enum ResolveError {
 /// Resolve a schema to OIR
 pub fn resolve_to_oir(schema: &OrbitalSchema) -> Result<OirModule, ResolveError> {
     let mut resolver = Resolver::new(schema);
-    resolver.resolve()
+    let mut module = resolver.resolve()?;
+    let predictions = super::await_render::predict_await_renders(schema);
+    if !predictions.is_empty() {
+        for oir_trait in &mut module.traits {
+            for (idx, transition) in oir_trait.transitions.iter_mut().enumerate() {
+                if let Some(renders) = predictions.get(&(oir_trait.name.clone(), idx)) {
+                    transition.await_render = renders.clone();
+                }
+            }
+        }
+    }
+    Ok(module)
 }
 
 /// Lower a standalone EXPRESSION `SExpression` to `OirExpr` through the ONE
@@ -731,6 +742,11 @@ impl<'a> Resolver<'a> {
                     if v.name.is_empty() {
                         v.name = name.clone();
                     }
+                    // A member is never optional: the value IS one member or another.
+                    if let OirType::Optional { inner } = &v.field_type {
+                        v.field_type = (**inner).clone();
+                    }
+                    v.required = true;
                     variants.push(v);
                 }
                 if variants.is_empty() {
@@ -1192,6 +1208,7 @@ impl<'a> Resolver<'a> {
             event: trans.event.clone(),
             guard: None,
             effects: vec![],
+            await_render: vec![],
         };
 
         // Resolve guard
@@ -3178,6 +3195,41 @@ mod tests {
                 assert!(matches!(variants[2].field_type, OirType::Array { .. }));
             }
             other => panic!("expected a union, got {other:?}"),
+        }
+    }
+
+    /// A tagged-union entity field's members are never optional: the value IS
+    /// one member or another. A member shape declared without `required`
+    /// resolved through `resolve_field`'s optional wrapper, so every backend
+    /// rendered `A | null | B | null` (TS) / `.optional()` per member (Zod).
+    #[test]
+    fn tagged_union_entity_field_members_are_never_optional() {
+        let field: FieldDefinition = serde_json::from_value(serde_json::json!({
+            "name": "entry",
+            "type": "union",
+            "values": ["MessageEntry", "ErrorEntry"],
+            "properties": {
+                "MessageEntry": { "type": "object", "properties": { "type": { "type": "string", "required": true } } },
+                "ErrorEntry": { "type": "object", "required": true, "properties": { "type": { "type": "string", "required": true } } }
+            }
+        }))
+        .expect("field fixture must deserialize");
+        let schema = empty_schema();
+        let resolved = Resolver::new(&schema)
+            .resolve_field_shape(&field)
+            .expect("field resolves");
+        let OirType::Union { variants } = &resolved else {
+            panic!("expected a union, got {resolved:?}");
+        };
+        assert_eq!(variants.len(), 2);
+        for v in variants {
+            assert!(v.required, "member {} must not be optional", v.name);
+            assert!(
+                matches!(v.field_type, OirType::Struct { .. }),
+                "member {} must be its struct, got {:?}",
+                v.name,
+                v.field_type
+            );
         }
     }
 

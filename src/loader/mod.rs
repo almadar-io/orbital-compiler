@@ -11,6 +11,7 @@ use std::cell::RefCell;
 use std::collections::hash_map::Entry;
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
+use std::sync::OnceLock;
 use thiserror::Error;
 
 /// Canonicalize a path for use as a cycle-detection / cache key.
@@ -49,6 +50,9 @@ pub enum LoaderError {
 
     #[error("Invalid JSON in {0}: {1}")]
     InvalidJson(String, String),
+
+    #[error("Failed to lower {0}: {1}")]
+    SourceLowering(String, String),
 
     #[error("Invalid schema in {0}: {1}")]
     InvalidSchema(String, String),
@@ -380,6 +384,18 @@ pub fn map_browse_specifier(import_path: &str) -> BrowseMapping {
 // ============================================================================
 // External Orbital Loader
 // ============================================================================
+
+/// Lowers a `.lolo` source file to a schema. orbital-compiler cannot depend on
+/// orbital-lolo (they are siblings), so the binary that links both registers it.
+pub type SourceLowerer = fn(&Path) -> Result<OrbitalSchema, String>;
+
+static SOURCE_LOWERER: OnceLock<SourceLowerer> = OnceLock::new();
+
+/// Register the `.lolo` lowerer once per process. A relative import whose
+/// `<name>.orb` does not exist then loads `<name>.lolo` beside it (G-ORB-056).
+pub fn register_source_lowerer(lowerer: SourceLowerer) {
+    let _ = SOURCE_LOWERER.set(lowerer);
+}
 
 /// ExternalOrbitalLoader - Loads external .orb files with security and caching
 pub struct ExternalOrbitalLoader {
@@ -788,8 +804,19 @@ impl ExternalOrbitalLoader {
     }
 
     fn load_file(path: &Path, import_path: &str) -> Result<LoadedSchema, LoaderError> {
-        // Check file exists
         if !path.exists() {
+            // An `.orb` beside the importer wins; else its `.lolo` source, lowered.
+            let source = path.with_extension("lolo");
+            if let (Some(lower), true) = (SOURCE_LOWERER.get(), source.exists()) {
+                let mut schema = lower(&source)
+                    .map_err(|e| LoaderError::SourceLowering(source.display().to_string(), e))?;
+                orbital_core::stamp::ensure_stamped(&mut schema);
+                return Ok(LoadedSchema {
+                    schema,
+                    source_path: source,
+                    import_path: import_path.to_string(),
+                });
+            }
             return Err(LoaderError::FileNotFound(path.display().to_string()));
         }
 
@@ -1622,6 +1649,104 @@ mod tests {
         assert!(result.is_err());
         assert!(matches!(result.unwrap_err(), LoaderError::FileNotFound(_)));
     }
+
+    /// G-ORB-056: a relative import whose target exists only as `.lolo` is
+    /// lowered through the registered source lowerer. The stand-in lowerer
+    /// reads JSON, so these tests exercise the loader, not orbital-lolo.
+    fn json_lowerer(path: &Path) -> Result<OrbitalSchema, String> {
+        let text = std::fs::read_to_string(path).map_err(|e| e.to_string())?;
+        serde_json::from_str(&text).map_err(|e| e.to_string())
+    }
+
+    fn sibling_dir(tag: &str, files: &[(&str, &str)]) -> PathBuf {
+        let dir = std::env::temp_dir().join(format!(
+            "orb-loader-lolo-{tag}-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        std::fs::create_dir_all(&dir).unwrap();
+        for (name, body) in files {
+            std::fs::write(dir.join(name), body).unwrap();
+        }
+        dir
+    }
+
+    fn named(name: &str) -> String {
+        format!(r#"{{"name":"{name}","orbitals":[]}}"#)
+    }
+
+    fn sibling_loader(dir: &Path) -> ExternalOrbitalLoader {
+        register_source_lowerer(json_lowerer);
+        ExternalOrbitalLoader::new(LoaderConfig {
+            base_path: dir.to_path_buf(),
+            ..Default::default()
+        })
+    }
+
+    #[test]
+    fn relative_import_lowers_a_lolo_only_sibling() {
+        let dir = sibling_dir("only", &[("A.lolo", &named("FromLolo"))]);
+        let mut loader = sibling_loader(&dir);
+        let mut chain = ImportChain::new();
+        let loaded = loader
+            .load("./A", Some(&dir.join("B.lolo")), &mut chain)
+            .expect("a .lolo-only sibling loads");
+        assert_eq!(loaded.schema.name, "FromLolo");
+        assert_eq!(loaded.source_path, dir.join("A.lolo"));
+    }
+
+    #[test]
+    fn explicit_lolo_import_lowers_the_lolo() {
+        let dir = sibling_dir("explicit", &[("A.lolo", &named("FromLolo"))]);
+        let mut loader = sibling_loader(&dir);
+        let mut chain = ImportChain::new();
+        let loaded = loader
+            .load("./A.lolo", Some(&dir.join("B.lolo")), &mut chain)
+            .expect("an explicit ./A.lolo import loads");
+        assert_eq!(loaded.schema.name, "FromLolo");
+    }
+
+    #[test]
+    fn orb_sibling_wins_over_lolo() {
+        let dir = sibling_dir(
+            "both",
+            &[("A.orb", &named("FromOrb")), ("A.lolo", &named("FromLolo"))],
+        );
+        let mut loader = sibling_loader(&dir);
+        let mut chain = ImportChain::new();
+        let loaded = loader
+            .load("./A", Some(&dir.join("B.lolo")), &mut chain)
+            .expect("loads");
+        assert_eq!(loaded.schema.name, "FromOrb");
+    }
+
+    #[test]
+    fn missing_sibling_is_still_file_not_found() {
+        let dir = sibling_dir("none", &[]);
+        let mut loader = sibling_loader(&dir);
+        let mut chain = ImportChain::new();
+        let err = loader
+            .load("./A", Some(&dir.join("B.lolo")), &mut chain)
+            .expect_err("nothing to load");
+        assert!(matches!(err, LoaderError::FileNotFound(_)));
+    }
+
+    #[test]
+    fn lowering_failure_names_the_lolo_file() {
+        let dir = sibling_dir("broken", &[("A.lolo", "not json")]);
+        let mut loader = sibling_loader(&dir);
+        let mut chain = ImportChain::new();
+        let err = loader
+            .load("./A", Some(&dir.join("B.lolo")), &mut chain)
+            .expect_err("lowering fails");
+        match err {
+            LoaderError::SourceLowering(path, _) => assert!(path.ends_with("A.lolo")),
+            other => panic!("expected SourceLowering, got {other:?}"),
+        }
+    }
 }
 
 // ============================================================================
@@ -1664,12 +1789,12 @@ mod embedded_loader_tests {
     }
 
     #[test]
-    fn loads_std_list_from_installed_std() {
+    fn loads_std_browse_from_installed_std() {
         let mut loader = ExternalOrbitalLoader::new(std_loader_config());
         let mut chain = ImportChain::new();
-        let result = loader.load("std/behaviors/std-list", None, &mut chain);
+        let result = loader.load("std/behaviors/std-browse", None, &mut chain);
         assert!(result.is_ok());
-        assert_eq!(result.unwrap().schema.name, "std-list");
+        assert_eq!(result.unwrap().schema.name, "std-browse");
     }
 
     #[test]

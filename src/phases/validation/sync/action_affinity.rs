@@ -32,28 +32,21 @@ pub static ACTION_AFFINITY: LazyLock<HashMap<&'static str, ActionAffinity>> = La
 
     // Display components - view data and trigger navigation/editing
     map.insert(
-        "entity-table",
+        "table-view",
         ActionAffinity::new(
             &["VIEW", "EDIT", "DELETE", "SELECT", "SORT", "PAGE"],
             &["SAVE", "CANCEL", "SUBMIT", "CREATE", "CLOSE"],
         ),
     );
     map.insert(
-        "entity-list",
+        "data-list",
         ActionAffinity::new(
             &["VIEW", "EDIT", "DELETE", "SELECT"],
             &["SAVE", "CANCEL", "SUBMIT", "CREATE", "CLOSE"],
         ),
     );
     map.insert(
-        "entity-cards",
-        ActionAffinity::new(
-            &["VIEW", "EDIT", "DELETE", "SELECT"],
-            &["SAVE", "CANCEL", "SUBMIT", "CREATE", "CLOSE"],
-        ),
-    );
-    map.insert(
-        "card-grid",
+        "data-grid",
         ActionAffinity::new(
             &["VIEW", "EDIT", "DELETE", "SELECT"],
             &["SAVE", "CANCEL", "SUBMIT", "CREATE", "CLOSE"],
@@ -270,12 +263,10 @@ pub static ACTION_AFFINITY: LazyLock<HashMap<&'static str, ActionAffinity>> = La
     map
 });
 
-/// Interactive patterns that typically need itemActions
-pub static INTERACTIVE_PATTERNS: LazyLock<HashSet<&'static str>> = LazyLock::new(|| {
-    ["entity-table", "entity-list", "entity-cards", "card-grid"]
-        .into_iter()
-        .collect()
-});
+/// Interactive patterns that typically need itemActions. Empty since the
+/// entity-* patterns retired: gating data-list/data-grid/table-view is an
+/// owner decision (a read-only list is legitimate) — see G-ORB-053.
+pub static INTERACTIVE_PATTERNS: LazyLock<HashSet<&'static str>> = LazyLock::new(HashSet::new);
 
 /// Form-related patterns
 pub static FORM_PATTERNS: LazyLock<HashSet<&'static str>> = LazyLock::new(|| {
@@ -284,12 +275,8 @@ pub static FORM_PATTERNS: LazyLock<HashSet<&'static str>> = LazyLock::new(|| {
         .collect()
 });
 
-/// List/table patterns
-pub static LIST_PATTERNS: LazyLock<HashSet<&'static str>> = LazyLock::new(|| {
-    ["entity-table", "entity-list", "entity-cards", "card-grid"]
-        .into_iter()
-        .collect()
-});
+/// List/table patterns. Empty for the same reason as INTERACTIVE_PATTERNS (G-ORB-053).
+pub static LIST_PATTERNS: LazyLock<HashSet<&'static str>> = LazyLock::new(HashSet::new);
 
 /// Form-related actions
 pub static FORM_ACTIONS: LazyLock<HashSet<&'static str>> = LazyLock::new(|| {
@@ -370,14 +357,14 @@ mod tests {
 
     #[test]
     fn test_action_affinity() {
-        assert!(is_action_invalid_for_component("SAVE", "entity-table"));
-        assert!(!is_action_invalid_for_component("VIEW", "entity-table"));
+        assert!(is_action_invalid_for_component("SAVE", "table-view"));
+        assert!(!is_action_invalid_for_component("VIEW", "table-view"));
         assert!(is_action_invalid_for_component("DELETE", "form"));
     }
 
     #[test]
     fn test_valid_actions() {
-        let actions = get_valid_actions_for_component("entity-table");
+        let actions = get_valid_actions_for_component("table-view");
         assert!(actions.contains(&"VIEW"));
         assert!(actions.contains(&"EDIT"));
         assert!(actions.contains(&"DELETE"));
@@ -385,8 +372,8 @@ mod tests {
 
     #[test]
     fn test_interactive_patterns() {
-        assert!(is_interactive_pattern("entity-table"));
-        assert!(is_interactive_pattern("entity-list"));
+        assert!(!is_interactive_pattern("table-view"));
+        assert!(!is_interactive_pattern("data-list"));
         assert!(!is_interactive_pattern("form"));
     }
 
@@ -394,6 +381,6 @@ mod tests {
     fn test_form_patterns() {
         assert!(is_form_pattern("form"));
         assert!(is_form_pattern("form-section"));
-        assert!(!is_form_pattern("entity-table"));
+        assert!(!is_form_pattern("table-view"));
     }
 }

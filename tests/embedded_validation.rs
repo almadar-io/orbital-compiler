@@ -131,9 +131,9 @@ fn op_std_composition_compose_exists() {
 // ============================================================================
 
 #[test]
-fn pattern_display_entity_table_exists() {
-    let p = embedded::get_pattern("entity-table")
-        .expect("'entity-table' must exist in patterns-registry.json");
+fn pattern_display_table_view_exists() {
+    let p = embedded::get_pattern("table-view")
+        .expect("'table-view' must exist in patterns-registry.json");
     assert_eq!(p.category, "display");
 }
 

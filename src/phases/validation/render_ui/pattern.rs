@@ -1205,7 +1205,7 @@ mod entity_prop_contract_tests {
     /// baked registry won't carry this until a re-bake, so we build it here.
     fn pattern_with_required_fields() -> EmbeddedPattern {
         serde_json::from_value(serde_json::json!({
-            "type": "entity-cards",
+            "type": "data-grid",
             "category": "data",
             "propsSchema": {
                 "entity": {
@@ -1274,7 +1274,7 @@ mod entity_prop_contract_tests {
         let obj = pattern_obj(vec![("entity", SExpression::String("Article".to_string()))]);
 
         let result = validate_entity_prop_contract_inner(
-            "entity-cards",
+            "data-grid",
             &pattern_with_required_fields(),
             &obj,
             "test",
@@ -1311,7 +1311,7 @@ mod entity_prop_contract_tests {
         let obj = pattern_obj(vec![("entity", SExpression::String("Article".to_string()))]);
 
         let result = validate_entity_prop_contract_inner(
-            "entity-cards",
+            "data-grid",
             &pattern_with_required_fields(),
             &obj,
             "test",
@@ -1349,7 +1349,7 @@ mod entity_prop_contract_tests {
         ]);
 
         let result = validate_entity_prop_contract_inner(
-            "entity-cards",
+            "data-grid",
             &pattern_with_required_fields(),
             &obj,
             "test",
@@ -1384,7 +1384,7 @@ mod entity_prop_contract_tests {
         )]);
 
         let result = validate_entity_prop_contract_inner(
-            "entity-cards",
+            "data-grid",
             &pattern_with_required_fields(),
             &obj,
             "test",
@@ -1413,7 +1413,7 @@ mod entity_prop_contract_tests {
         )]);
 
         let result = validate_entity_prop_contract_inner(
-            "entity-cards",
+            "data-grid",
             &pattern_with_required_fields(),
             &obj,
             "test",
@@ -1443,7 +1443,7 @@ mod entity_prop_contract_tests {
         for binding in ["@entity.items", "@config.team", "@config.steps"] {
             let obj = pattern_obj(vec![("entity", SExpression::String(binding.to_string()))]);
             let result = validate_entity_prop_contract_inner(
-                "entity-cards",
+                "data-grid",
                 &pattern_with_required_fields(),
                 &obj,
                 "test",

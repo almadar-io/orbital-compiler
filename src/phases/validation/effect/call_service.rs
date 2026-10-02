@@ -328,7 +328,7 @@ pub(crate) fn validate_call_service(
             if let Some(emit_obj) = extract_emit_object_ref(options) {
                 result.merge(validate_emit_config(
                     emit_obj,
-                    &["success", "failure"],
+                    &["success", "failure", "on_message"],
                     declared_emits,
                     path,
                 ));
