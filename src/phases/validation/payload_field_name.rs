@@ -105,6 +105,7 @@ mod tests {
             properties: None,
             type_when: None,
             entity: None,
+            projected_from: None,
         }
     }
 

@@ -1,7 +1,7 @@
 // `orbital_core::effects::runs_on` must agree with the baked registry's `runsOn` for every operator; twin of `emit_contract_drift.rs`.
 
 use orbital_compiler::embedded::{operators, EmbeddedOperator};
-use orbital_core::effects::{runs_on, EFFECT_SITES};
+use orbital_core::effects::{entity_arg, runs_on, EFFECT_SITES, ENTITY_ARGS};
 use std::collections::HashMap;
 
 /// Every disagreement between the core table and `registry`, as readable lines.
@@ -18,6 +18,20 @@ fn drift(registry: &HashMap<String, EmbeddedOperator>) -> Vec<String> {
                 runs_on(name).as_str()
             )),
             _ => {}
+        }
+    }
+    for (name, op) in registry {
+        if op.entity_arg_position != entity_arg(name) {
+            out.push(format!(
+                "{name}: registry entityArgPosition {:?}, orbital-core {:?}",
+                op.entity_arg_position,
+                entity_arg(name)
+            ));
+        }
+    }
+    for (name, _) in ENTITY_ARGS {
+        if !registry.contains_key(*name) {
+            out.push(format!("{name}: in orbital-core's entity-argument table but not in the registry"));
         }
     }
     for (name, _) in EFFECT_SITES {
@@ -58,6 +72,20 @@ fn a_missing_site_and_a_stray_site_are_both_reported() {
             "emit: effect with no runsOn".to_string(),
             "math/ln: pure operator declares runsOn any".to_string(),
             "swap: in orbital-core's table but not a registry effect".to_string(),
+        ]
+    );
+}
+
+#[test]
+fn an_entity_argument_change_is_reported() {
+    let mut registry = operators().clone();
+    registry.get_mut("persist").unwrap().entity_arg_position = Some(2);
+    registry.get_mut("call-service").unwrap().entity_arg_position = Some(0);
+    assert_eq!(
+        drift(&registry),
+        vec![
+            "call-service: registry entityArgPosition Some(0), orbital-core None".to_string(),
+            "persist: registry entityArgPosition Some(2), orbital-core Some(1)".to_string(),
         ]
     );
 }

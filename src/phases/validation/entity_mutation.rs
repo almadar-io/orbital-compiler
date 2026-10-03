@@ -13,6 +13,7 @@
 //! entity by accident (should have been `[shared]`), and the inverse —
 //! `[shared]` traits fighting over one field or double-rendering.
 
+use orbital_core::effects::Residence;
 use super::render_ui::is_render_ui_effect;
 use super::{ErrorCode, Severity, ValidationContext, ValidationError, ValidationResult};
 use orbital_core::schema::{
@@ -834,8 +835,8 @@ fn find_async_operator_call(expr: &SExpression) -> Option<&str> {
 /// (`orbital_core::effects::runs_on`), at any depth — a `local` trait
 /// (`OirTrait::dispatch_mode`) carrying one is mis-tagged, since `local`
 /// declares its transitions never await a server round trip.
-fn contains_server_bound_effect(expr: &SExpression) -> bool {
-    orbital_core::effects::sexpr_runs_server_effect(expr)
+fn contains_server_bound_effect(expr: &SExpression, residence: &Residence) -> bool {
+    orbital_core::effects::sexpr_runs_server_effect(expr, residence)
 }
 
 /// Effect operators that reach a server-owned resource — the subset of
@@ -1017,25 +1018,27 @@ fn schema_dispatch_is_client_only(
     trait_def: &TraitDefinition,
     entity_definitions: &HashMap<String, EntityDefinition>,
 ) -> bool {
-    let entity_is_runtime = trait_def
+    let entity_is_client = trait_def
         .linked_entity
         .as_ref()
         .and_then(|e| entity_definitions.get(e))
-        .map(|e| matches!(e.persistence, Some(Persistence::Runtime)))
-        .unwrap_or(false);
-    entity_is_runtime || trait_def.local
+        .is_some_and(EntityDefinition::is_client_resident);
+    entity_is_client || trait_def.local
 }
 
 /// A transition's server-bound effects in order — `render-ui` and every other
 /// client-side effect are dropped, so two arms that differ only in what they
 /// render compare equal.
-fn server_bound_effects(transition: &TransitionDefinition) -> Vec<&SExpression> {
+fn server_bound_effects<'a>(
+    transition: &'a TransitionDefinition,
+    residence: &Residence,
+) -> Vec<&'a SExpression> {
     transition
         .effects
         .as_deref()
         .unwrap_or(&[])
         .iter()
-        .filter(|e| contains_server_bound_effect(e))
+        .filter(|e| contains_server_bound_effect(e, residence))
         .collect()
 }
 
@@ -1060,6 +1063,7 @@ fn validate_trait_auth_guard_client_only(
     if !schema_dispatch_is_client_only(trait_def, entity_definitions) {
         return result;
     }
+    let residence = Residence::of_entities(entity_definitions.values());
     for (i, transition) in trait_def.state_machine.transitions.iter().enumerate() {
         let Some(guard) = &transition.guard else {
             continue;
@@ -1069,7 +1073,7 @@ fn validate_trait_auth_guard_client_only(
         }
         // A client-only transition with no server-touching effect has no server
         // state to protect: the guard is a UX precondition, not a finding.
-        let server_effects = server_bound_effects(transition);
+        let server_effects = server_bound_effects(transition, &residence);
         if server_effects.is_empty() {
             continue;
         }
@@ -1087,7 +1091,7 @@ fn validate_trait_auth_guard_client_only(
         if siblings.len() > 1
             && siblings
                 .iter()
-                .all(|t| server_bound_effects(t) == server_effects)
+                .all(|t| server_bound_effects(t, &residence) == server_effects)
         {
             continue;
         }
@@ -1111,6 +1115,61 @@ fn validate_trait_auth_guard_client_only(
         });
     }
     result
+}
+
+/// The entities a tree's data effects (`fetch`/`persist`, by `ENTITY_ARGS`) target, at any depth.
+fn data_effect_entities<'a>(expr: &'a SExpression, out: &mut Vec<&'a str>) {
+    match expr {
+        SExpression::Array(arr) => {
+            if let Some(op) = arr.first().and_then(|h| h.as_str()) {
+                if let Some(entity) = orbital_core::effects::entity_arg(op)
+                    .and_then(|i| arr.get(i + 1))
+                    .and_then(|a| a.as_str())
+                    .filter(|e| !e.starts_with('@'))
+                {
+                    out.push(entity);
+                }
+            }
+            arr.iter().for_each(|e| data_effect_entities(e, out));
+        }
+        SExpression::Object(obj) => obj.values().for_each(|e| data_effect_entities(e, out)),
+        _ => {}
+    }
+}
+
+/// `ORB_X_MIXED_RESIDENCE`: one transition's data effects reach both
+/// browser-stored and server-stored entities. No single executor holds both,
+/// so the transition must be split (an emit + listen) — Runtime Spec 7.2.
+pub fn validate_all_mixed_residence(schema: &OrbitalSchema, ctx: &mut ValidationContext) {
+    let residence = Residence::of_entities(ctx.entity_definitions.values());
+    for (trait_def, path) in super::inline_traits(schema) {
+        for (i, transition) in trait_def.state_machine.transitions.iter().enumerate() {
+            let mut entities = Vec::new();
+            for effect in transition.effects.iter().flatten() {
+                data_effect_entities(effect, &mut entities);
+            }
+            let (browser, server): (Vec<&str>, Vec<&str>) =
+                entities.into_iter().partition(|e| residence.is_client(e));
+            if browser.is_empty() || server.is_empty() {
+                continue;
+            }
+            ctx.merge({
+                let mut result = ValidationResult::new();
+                result.add_error(
+                    ValidationError::error(
+                        ErrorCode::CrossMixedResidence,
+                        format!("{}.stateMachine.transitions[{}].effects", path, i),
+                        format!(
+                            "trait {:?} transition '{}' reads or writes browser-stored {:?} and server-stored {:?} in one transition — no single executor holds both",
+                            trait_def.name, transition.event, browser, server
+                        ),
+                    )
+                    .with_suggestion("Split the transition: do the browser-side work here and emit an event a trait on the server-stored entity listens to."),
+                );
+                result
+            });
+        }
+    }
 }
 
 /// Run the `local` trait dispatch-contract pair
@@ -1141,14 +1200,13 @@ fn validate_trait_local_dispatch(
     // is never persisted at all (`[runtime]`).
     if let Some(linked) = &trait_def.linked_entity {
         if let Some(entity_def) = entity_definitions.get(linked) {
-            let is_runtime = matches!(entity_def.persistence, Some(Persistence::Runtime));
-            if !entity_def.shared && !is_runtime {
+            if !entity_def.shared && !entity_def.is_client_resident() {
                 result.add_error(
                     ValidationError::error(
                         ErrorCode::TraitLocalOnNonSharedPersistent,
                         path,
                         format!(
-                            "trait {:?} is [local] but its linked entity {:?} is neither [shared] nor [runtime] — local dispatch would silently hide server-gated writes behind client-only optimism",
+                            "trait {:?} is [local] but its linked entity {:?} is neither [shared] nor client-resident ([runtime] or [persistent: x, local]) — local dispatch would silently hide server-gated writes behind client-only optimism",
                             trait_def.name, linked
                         ),
                     )
@@ -1163,6 +1221,7 @@ fn validate_trait_local_dispatch(
 
     // ORB_T_LOCAL_TRAIT_TOUCHES_SERVER — a local trait's transitions must
     // never touch the server or read viewer identity.
+    let residence = Residence::of_entities(entity_definitions.values());
     for (i, transition) in trait_def.state_machine.transitions.iter().enumerate() {
         if let Some(guard) = &transition.guard {
             if references_user_binding(guard) {
@@ -1183,7 +1242,7 @@ fn validate_trait_local_dispatch(
         }
         if let Some(effects) = &transition.effects {
             for (j, effect) in effects.iter().enumerate() {
-                if contains_server_bound_effect(effect) {
+                if contains_server_bound_effect(effect, &residence) {
                     result.add_error(
                         ValidationError::error(
                             ErrorCode::TraitLocalTouchesServer,
@@ -1204,7 +1263,7 @@ fn validate_trait_local_dispatch(
     if let Some(ticks) = &trait_def.ticks {
         for (i, tick) in ticks.iter().enumerate() {
             for (j, effect) in tick.effects.iter().enumerate() {
-                if contains_server_bound_effect(effect) {
+                if contains_server_bound_effect(effect, &residence) {
                     result.add_error(
                         ValidationError::error(
                             ErrorCode::TraitLocalTouchesServer,
@@ -1723,6 +1782,9 @@ mod tests {
         EntityDefinition {
             shared,
             identity: false,
+            local: false,
+            seed_mock: false,
+            locale_instances: None,
             read_policy: None,
             create_policy: None,
             update_policy: None,
@@ -1748,6 +1810,7 @@ mod tests {
                 intrinsic: None,
                 description: None,
                 synonyms: None,
+                projected_from: None,
             }],
             id: None,
         }
@@ -2816,6 +2879,7 @@ mod tests {
             intrinsic: Some(true),
             description: None,
             synonyms: None,
+            projected_from: None,
         });
         e
     }
@@ -2880,6 +2944,7 @@ mod tests {
                 properties: None,
                 type_when: None,
                 entity: None,
+                projected_from: None,
             }]),
             definer_knob: None,
             scope_overridden: None,
@@ -2936,9 +3001,11 @@ mod tests {
                     properties: None,
                     type_when: None,
                     entity: None,
+                    projected_from: None,
                 }]),
                 type_when: None,
                 entity: Some("Note".to_string()),
+                projected_from: None,
             }]),
             definer_knob: None,
             scope_overridden: None,
@@ -3644,6 +3711,7 @@ mod tests {
             intrinsic: None,
             description: None,
             synonyms: None,
+            projected_from: None,
         }
     }
 
@@ -3675,6 +3743,9 @@ mod tests {
 
     fn schema_of(orbitals: Vec<Orbital>) -> OrbitalSchema {
         OrbitalSchema {
+            public_dir: None,
+            locales: None,
+            lazy_pages: None,
             theme: None,
             name: "TestApp".to_string(),
             version: Some("1.0.0".to_string()),

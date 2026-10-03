@@ -1222,6 +1222,9 @@ mod entity_prop_contract_tests {
         EntityDefinition {
             shared: false,
             identity: false,
+            local: false,
+            seed_mock: false,
+            locale_instances: None,
             read_policy: None,
             create_policy: None,
             update_policy: None,
@@ -1246,6 +1249,7 @@ mod entity_prop_contract_tests {
                     intrinsic: None,
                     description: None,
                     synonyms: None,
+                    projected_from: None,
                 })
                 .collect(),
             collection: None,

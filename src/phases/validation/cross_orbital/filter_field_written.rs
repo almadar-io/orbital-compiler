@@ -535,6 +535,7 @@ mod tests {
             description: None,
             synonyms: None,
             merged_from: None,
+            projected_from: None,
         }
     }
 
@@ -552,6 +553,9 @@ mod tests {
             instances: None,
             shared: false,
             identity: false,
+            local: false,
+            seed_mock: false,
+            locale_instances: None,
             read_policy: None,
             create_policy: None,
             update_policy: None,
@@ -625,6 +629,9 @@ mod tests {
 
     fn schema_with(orbitals: Vec<Orbital>) -> OrbitalSchema {
         OrbitalSchema {
+            public_dir: None,
+            locales: None,
+            lazy_pages: None,
             theme: None,
             name: "TestApp".to_string(),
             version: Some("1.0.0".to_string()),

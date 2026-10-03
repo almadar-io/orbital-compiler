@@ -137,6 +137,7 @@ fn object_payload_fields(
                 properties,
                 type_when: None,
                 entity: None,
+                projected_from: None,
             }
         })
         .collect();
@@ -163,6 +164,7 @@ fn entity_payload_fields(entity: &EntityDefinition) -> Vec<PayloadField> {
             properties: None,
             type_when: None,
             entity: None,
+            projected_from: None,
         })
         .collect();
     out.sort_by(|a, b| a.name.cmp(&b.name));

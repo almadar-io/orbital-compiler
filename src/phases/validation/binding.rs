@@ -28,6 +28,7 @@ pub const CORE_BINDING_ROOTS: &[&str] = &[
     "callsitePayload", // Call-site-captured event payload (resolved at the composing effect)
     "pages",           // Render-resolved schema sigil — the host orbital's pages (NavItem[])
     "currentTheme",    // Render-resolved schema sigil — the host orbital's data-theme key
+    "locale",          // The active locale code — the catalog `i18n/t` reads
     "event",           // The delivery being processed: `{ event, payload, source }`
     "prevEvents",      // Deliveries this trait already received this dispatch
     "prevStates",      // States this trait left this dispatch
@@ -2412,6 +2413,7 @@ mod tests {
                 "entity",
                 "event",
                 "fromState",
+                "locale",
                 "now",
                 "pages",
                 "payload",
@@ -2625,6 +2627,7 @@ mod tests {
             properties: None,
             type_when: None,
             entity: None,
+            projected_from: None,
         }];
         let result = validate_payload_field_references(&expr, "test", Some(&fields), "READ");
         assert!(result
@@ -2644,6 +2647,7 @@ mod tests {
             properties: None,
             type_when: None,
             entity: None,
+            projected_from: None,
         }];
         let result = validate_payload_field_references(&expr, "test", Some(&fields), "READ");
         assert!(result.errors.is_empty());
@@ -2662,6 +2666,7 @@ mod tests {
             properties: None,
             type_when: None,
             entity: None,
+            projected_from: None,
         }];
         let result = validate_payload_field_references(&expr, "test", Some(&fields), "SLOT_CLICK");
         let err = result
@@ -2698,9 +2703,11 @@ mod tests {
                 properties: None,
                 type_when: None,
                 entity: None,
+                projected_from: None,
             }]),
             type_when: None,
             entity: None,
+            projected_from: None,
         }];
         let result = validate_payload_field_references(&expr, "test", Some(&fields), "READ");
         let err = result
@@ -2831,6 +2838,9 @@ mod tests {
         let entity_def = EntityDefinition {
             shared: false,
             identity: false,
+            local: false,
+            seed_mock: false,
+            locale_instances: None,
             read_policy: None,
             create_policy: None,
             update_policy: None,
@@ -2854,6 +2864,7 @@ mod tests {
                     intrinsic: None,
                     description: None,
                     synonyms: None,
+                    projected_from: None,
                 },
                 FieldDefinition {
                     mock: None,
@@ -2871,6 +2882,7 @@ mod tests {
                     intrinsic: None,
                     description: None,
                     synonyms: None,
+                    projected_from: None,
                 },
             ],
             collection: None,
@@ -2911,6 +2923,9 @@ mod tests {
         let entity_def = EntityDefinition {
             shared: false,
             identity: false,
+            local: false,
+            seed_mock: false,
+            locale_instances: None,
             read_policy: None,
             create_policy: None,
             update_policy: None,
@@ -2933,6 +2948,7 @@ mod tests {
                 intrinsic: None,
                 description: None,
                 synonyms: None,
+                projected_from: None,
             }],
             collection: None,
             persistence: None,
@@ -2956,6 +2972,9 @@ mod tests {
         let entity_def = EntityDefinition {
             shared: false,
             identity: false,
+            local: false,
+            seed_mock: false,
+            locale_instances: None,
             read_policy: None,
             create_policy: None,
             update_policy: None,
@@ -2978,6 +2997,7 @@ mod tests {
                 intrinsic: None,
                 description: None,
                 synonyms: None,
+                projected_from: None,
             }],
             collection: None,
             persistence: None,
@@ -3524,6 +3544,9 @@ mod tests {
         EntityDefinition {
             shared: true,
             identity: false,
+            local: false,
+            seed_mock: false,
+            locale_instances: None,
             read_policy: None,
             create_policy: None,
             update_policy: None,
@@ -4018,6 +4041,9 @@ mod tests {
             EntityDefinition {
                 shared: false,
                 identity: false,
+                local: false,
+                seed_mock: false,
+                locale_instances: None,
                 read_policy: None,
                 create_policy: None,
                 update_policy: None,

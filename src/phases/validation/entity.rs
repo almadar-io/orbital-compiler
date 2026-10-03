@@ -236,8 +236,181 @@ pub fn validate_entity(
         );
     }
 
+    validate_browser_storage(entity, path, &mut result);
+
     result
 }
+
+/// `[persistent: x, local]` / `mock` / `instances`: where an entity's rows live
+/// and what they start as, each decidable on the declaration.
+fn validate_browser_storage(entity: &EntityDefinition, path: &str, result: &mut ValidationResult) {
+    let persistent = !matches!(entity.persistence, Some(Persistence::Runtime));
+    if entity.local && !persistent {
+        result.add_error(
+            ValidationError::error(
+                ErrorCode::EntityLocalRequiresPersistent,
+                format!("{}.local", path),
+                format!(
+                    "Entity '{}' is [runtime, local] — a runtime entity's frame already lives in the client; `local` declares where PERSISTED rows live",
+                    entity.name
+                ),
+            )
+            .with_suggestion("Use `[persistent: <collection>, local]` for rows stored in the browser, or drop `local`."),
+        );
+    }
+    if entity.seed_mock && !entity.local {
+        result.add_error(
+            ValidationError::error(
+                ErrorCode::EntityMockSeedNotLocal,
+                format!("{}.seedMock", path),
+                format!(
+                    "Entity '{}' declares `mock` seeding but its rows are not browser-stored — a server's mock data is its own deployment mode",
+                    entity.name
+                ),
+            )
+            .with_suggestion("Add `local` (`[persistent: <collection>, local, mock]`) or drop `mock`."),
+        );
+    }
+    let has_rows = entity.instances.as_ref().is_some_and(|rows| !rows.is_empty())
+        || entity.locale_instances.as_ref().is_some_and(|m| !m.is_empty());
+    if entity.seed_mock && has_rows {
+        result.add_error(
+            ValidationError::error(
+                ErrorCode::EntitySeedSourceConflict,
+                format!("{}.instances", path),
+                format!(
+                    "Entity '{}' declares both `mock` seeding and written-out `instances` — exactly one seed source",
+                    entity.name
+                ),
+            )
+            .with_suggestion("Keep the written-out rows, or drop them and keep `mock`."),
+        );
+    }
+    if entity.identity && entity.local {
+        result.add_error(
+            ValidationError::error(
+                ErrorCode::EntityIdentityLocal,
+                format!("{}.local", path),
+                format!(
+                    "Entity '{}' is [identity] and `local` — the viewer directory is never browser-resident",
+                    entity.name
+                ),
+            )
+            .with_suggestion("Drop `local` from the identity entity."),
+        );
+    }
+    check_instance_rows(entity, entity.instances.iter().flatten(), &format!("{}.instances", path), result);
+}
+
+/// The checks every written-out row block gets: known fields, required fields,
+/// and (browser-stored) a stable `id`.
+fn check_instance_rows<'a>(
+    entity: &EntityDefinition,
+    rows: impl Iterator<Item = &'a std::collections::HashMap<String, orbital_core::schema::SExpression>>,
+    rows_path: &str,
+    result: &mut ValidationResult,
+) {
+    for (i, row) in rows.enumerate() {
+        let row_path = format!("{}[{}]", rows_path, i);
+        for key in row.keys() {
+            if !entity.fields.iter().any(|f| f.name.as_deref() == Some(key.as_str())) {
+                result.add_error(ValidationError::error(
+                    ErrorCode::EntityInstanceInvalid,
+                    format!("{}.{}", row_path, key),
+                    format!("Row {} of '{}' sets '{}', which is not a field of the entity", i, entity.name, key),
+                ));
+            }
+        }
+        for field in entity.fields.iter().filter(|f| f.required == Some(true) && f.default.is_none()) {
+            let Some(name) = field.name.as_deref() else { continue };
+            if !row.contains_key(name) {
+                result.add_error(ValidationError::error(
+                    ErrorCode::EntityInstanceInvalid,
+                    row_path.clone(),
+                    format!("Row {} of '{}' is missing required field '{}'", i, entity.name, name),
+                ));
+            }
+        }
+        if entity.local && !row.contains_key("id") {
+            result.add_error(
+                ValidationError::error(
+                    ErrorCode::EntityInstanceInvalid,
+                    row_path.clone(),
+                    format!("Row {} of browser-stored '{}' has no `id` — seeded rows need stable ids across reloads", i, entity.name),
+                )
+                .with_suggestion("Give every written-out row an `id`."),
+            );
+        }
+    }
+}
+
+/// Per-locale rows (`instances <lang> [ … ]`): browser-stored entities only, one
+/// block per declared non-default locale (the default locale's rows are
+/// `instances`), each checked like the default rows.
+pub fn validate_all_locale_instances(schema: &orbital_core::schema::OrbitalSchema, result: &mut ValidationResult) {
+    use orbital_core::schema::EntityRef;
+    let declared: Vec<String> = schema.locales.clone().unwrap_or_default();
+    for (oi, orbital) in schema.orbitals.iter().enumerate() {
+        let primary = std::iter::once((format!("orbitals[{}].entity", oi), &orbital.entity));
+        let aux = orbital.auxiliary_entities.iter().flatten().enumerate()
+            .map(|(ai, e)| (format!("orbitals[{}].auxiliaryEntities[{}]", oi, ai), e));
+        for (path, entity_ref) in primary.chain(aux) {
+            let EntityRef::Inline(entity) = entity_ref else { continue };
+            let Some(blocks) = entity.locale_instances.as_ref().filter(|m| !m.is_empty()) else { continue };
+            let blocks_path = format!("{}.localeInstances", path);
+            if !entity.local {
+                result.add_error(
+                    ValidationError::error(
+                        ErrorCode::EntityLocaleInstancesNotLocal,
+                        blocks_path.clone(),
+                        format!("Entity '{}' writes rows per locale but its rows are not browser-stored; a server's rows are shared by every viewer", entity.name),
+                    )
+                    .with_suggestion("Add `local` (`[persistent: <collection>, local]`) or keep one `instances` block."),
+                );
+            }
+            let default = declared.first();
+            for locale in blocks.keys() {
+                if !declared.contains(locale) || Some(locale) == default {
+                    result.add_error(
+                        ValidationError::error(
+                            ErrorCode::EntityLocaleInstancesUnknownLocale,
+                            format!("{}.{}", blocks_path, locale),
+                            match default {
+                                Some(d) if d == locale => format!("Entity '{}' writes `instances {}`, but '{}' is the default locale: its rows are the plain `instances` block", entity.name, locale, locale),
+                                _ => format!("Entity '{}' writes `instances {}`, but the app declares locales {:?}", entity.name, locale, declared),
+                            },
+                        )
+                        .with_suggestion("Write one block per declared locale other than the first; declare the locale in the app's `locales [ … ]`."),
+                    );
+                }
+            }
+            if !entity.instances.as_ref().is_some_and(|rows| !rows.is_empty()) {
+                result.add_error(
+                    ValidationError::error(
+                        ErrorCode::EntityLocaleInstancesIncomplete,
+                        format!("{}.instances", path),
+                        format!("Entity '{}' writes rows per locale but no default `instances` block for its default locale", entity.name),
+                    )
+                    .with_suggestion("Add `instances [ … ]` with the default locale's rows."),
+                );
+            }
+            for locale in declared.iter().skip(1).filter(|l| !blocks.contains_key(*l)) {
+                result.add_error(
+                    ValidationError::error(
+                        ErrorCode::EntityLocaleInstancesIncomplete,
+                        blocks_path.clone(),
+                        format!("Entity '{}' writes rows per locale but has no `instances {}` block", entity.name, locale),
+                    )
+                    .with_suggestion("Write a block for every declared locale once any is written."),
+                );
+            }
+            for (locale, rows) in blocks {
+                check_instance_rows(entity, rows.iter(), &format!("{}.{}", blocks_path, locale), result);
+            }
+        }
+    }
+}
+
 
 /// Validate a single field definition
 ///
@@ -512,6 +685,9 @@ mod tests {
         EntityDefinition {
             shared: false,
             identity: false,
+            local: false,
+            seed_mock: false,
+            locale_instances: None,
             read_policy: None,
             create_policy: None,
             update_policy: None,
@@ -536,6 +712,7 @@ mod tests {
                 intrinsic: None,
                 description: None,
                 synonyms: None,
+                projected_from: None,
             }],
             instances: None,
             id: None,
@@ -559,6 +736,7 @@ mod tests {
             intrinsic: None,
             description: None,
             synonyms: None,
+            projected_from: None,
         }
     }
 

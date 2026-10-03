@@ -557,6 +557,11 @@ fn rewrite_self_relation_target(
             rel.entity_id = new_id.map(str::to_string);
         }
     }
+    if let Some(projection) = field.projected_from.as_mut() {
+        if projection.type_name == old {
+            projection.type_name = new.to_string();
+        }
+    }
     if let Some(items) = field.items.as_mut() {
         rewrite_self_relation_target(items, old, new, new_id);
     }
@@ -640,6 +645,9 @@ mod render_ui_pattern_contract_reference_tests {
         EntityDefinition {
             shared: false,
             identity: false,
+            local: false,
+            seed_mock: false,
+            locale_instances: None,
             read_policy: None,
             create_policy: None,
             update_policy: None,
@@ -665,6 +673,7 @@ mod render_ui_pattern_contract_reference_tests {
                 intrinsic: None,
                 description: None,
                 synonyms: None,
+                projected_from: None,
             }],
             id: None,
         }

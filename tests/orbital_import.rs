@@ -569,12 +569,11 @@ fn an_import_with_no_local_id_still_gets_an_upstream_derived_id() {
     );
 }
 
-/// Gap (D): a config-default STRING that exactly equals an upstream page
-/// path (`ThingList.config.navItems[0].href == "/things"`) — outside any
-/// `(navigate …)` s-expression — must be remapped through the same
-/// upstream->local page-path map the navigate-literal rewrite uses.
+/// A config-default string equal to an upstream page path
+/// (`ThingList.config.navItems[0].href == "/things"`) is data: a `pages`
+/// remap never rewrites it. The call site overrides its own links.
 #[test]
-fn config_default_page_path_is_remapped_exact_match_only() {
+fn config_default_equal_to_a_remapped_page_path_stays_verbatim() {
     let schema = inline_consumer();
     let list = find_trait(&schema, 0, "FirstImportThingList");
     let nav_items = list
@@ -584,11 +583,17 @@ fn config_default_page_path_is_remapped_exact_match_only() {
         .and_then(|f| f.default.clone())
         .expect("navItems default carried");
     let blob = serde_json::to_string(&nav_items).unwrap();
-    assert!(blob.contains("/local-things"), "{blob}");
-    assert!(!blob.contains("\"/things\""), "{blob}");
-    // The sibling `label` value ("Things") merely CONTAINS no page path and
-    // must be left untouched — exact-match only, no substring rewriting.
-    assert!(blob.contains("Things"), "{blob}");
+    assert!(blob.contains("\"/things\""), "{blob}");
+    assert!(!blob.contains("/local-things"), "{blob}");
+}
+
+/// Control: on the same import the `(navigate …)` target IS remapped.
+#[test]
+fn control_navigate_target_on_the_same_import_is_remapped() {
+    let schema = inline_consumer();
+    let list = find_trait(&schema, 0, "FirstImportThingList");
+    let blob = serde_json::to_string(&list.state_machine.transitions).unwrap();
+    assert!(blob.contains("\"/local-things/:id\""), "{blob}");
 }
 
 /// The real-organism proof's acceptance bar, reproduced at fixture scale:
@@ -1060,10 +1065,10 @@ fn stage_b_entities_remap_through_the_real_loader() {
     assert!(!blob.contains("\"Other\""), "{blob}");
 }
 
-/// Page-path rewrite runs AFTER the config forward: `navItemsViaForward`'s
-/// `href` is only reachable once `@config.navItemsForward` resolves.
+/// A forwarded config value (`@config.navItemsForward`) carrying an upstream
+/// page path reaches the trait verbatim: no remap of config data.
 #[test]
-fn stage_b_page_path_rewrite_after_forward_through_the_real_loader() {
+fn stage_b_forwarded_config_page_path_stays_verbatim() {
     let (schema, _diagnostics) = inline_stage_b_consumer();
     let main = stage_b_local_main(&schema);
     let view = main
@@ -1081,8 +1086,8 @@ fn stage_b_page_path_rewrite_after_forward_through_the_real_loader() {
         .and_then(|f| f.default.clone())
         .expect("navItemsViaForward resolved");
     let blob = serde_json::to_string(&nav).unwrap();
-    assert!(blob.contains("/local-main"), "{blob}");
-    assert!(!blob.contains("\"/main\""), "{blob}");
+    assert!(blob.contains("\"/main\""), "{blob}");
+    assert!(!blob.contains("/local-main"), "{blob}");
 }
 
 /// The sibling `LocalSidebar` rides along un-prefixed and mounts on the

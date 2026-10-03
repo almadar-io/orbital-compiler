@@ -1835,6 +1835,11 @@ pub(crate) fn rewrite_payload_entity_refs(
                     field.entity = Some(renamed.clone());
                 }
             }
+            if let Some(projection) = field.projected_from.as_mut() {
+                if let Some(renamed) = entity_subs.get(&projection.type_name) {
+                    projection.type_name = renamed.clone();
+                }
+            }
             if let Some(props) = field.properties.as_mut() {
                 rewrite_fields(props, entity_subs);
             }
@@ -3414,6 +3419,24 @@ mod payload_entity_marker_tests {
         subs.insert("ConfirmAction".to_string(), "Note".to_string());
         rewrite_payload_entity_refs(&mut td, &subs);
         assert_eq!(payload_fields(&td)[0].entity.as_deref(), Some("Note"));
+    }
+
+    /// A `T.f` payload field (`tagId : Tag.id`) names `T` in `projectedFrom`;
+    /// it follows the rebind like the entity marker does. Control: a
+    /// projection of an entity the rebind does not touch stays put.
+    #[test]
+    fn projected_from_follows_rebind() {
+        let mut td = trait_with_payload_fields(json!([
+            { "name": "tagId", "type": "string", "projectedFrom": { "type": "ConfirmAction", "field": "id" } },
+            { "name": "other", "type": "string", "projectedFrom": { "type": "Elsewhere", "field": "id" } }
+        ]));
+        let mut subs = HashMap::new();
+        subs.insert("ConfirmAction".to_string(), "Note".to_string());
+        rewrite_payload_entity_refs(&mut td, &subs);
+        let fields = payload_fields(&td);
+        assert_eq!(fields[0].projected_from.as_ref().map(|p| p.type_name.as_str()), Some("Note"));
+        assert_eq!(fields[0].projected_from.as_ref().map(|p| p.field.as_str()), Some("id"));
+        assert_eq!(fields[1].projected_from.as_ref().map(|p| p.type_name.as_str()), Some("Elsewhere"));
     }
 
     /// A nested `properties` entity marker (an entity-typed field several

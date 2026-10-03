@@ -231,6 +231,20 @@ impl Default for ImportChain {
 // Cache
 // ============================================================================
 
+/// `to` relative to `from` (both canonical), `.` when equal.
+fn relative_dir(from: &Path, to: &Path) -> String {
+    let from: Vec<_> = from.components().collect();
+    let to: Vec<_> = to.components().collect();
+    let common = from.iter().zip(&to).take_while(|(a, b)| a == b).count();
+    let mut parts: Vec<String> = std::iter::repeat_n("..".to_string(), from.len() - common).collect();
+    parts.extend(to[common..].iter().map(|c| c.as_os_str().to_string_lossy().into_owned()));
+    if parts.is_empty() {
+        ".".to_string()
+    } else {
+        parts.join("/")
+    }
+}
+
 /// Cache for loaded schemas
 pub struct LoaderCache {
     cache: HashMap<PathBuf, LoadedSchema>,
@@ -846,6 +860,21 @@ impl ExternalOrbitalLoader {
         self.cache.len()
     }
 
+    /// Every behavior this loader loaded (plus the program at `root` itself,
+    /// named `root_name`): name → the folder of its source file, relative to
+    /// the program's folder. A program's message catalogs are found there.
+    pub fn message_sources(&self, root: &Path, root_name: &str) -> std::collections::BTreeMap<String, String> {
+        let base = root.parent().map(canonical_key).unwrap_or_default();
+        let mut sources = std::collections::BTreeMap::new();
+        sources.insert(root_name.to_string(), ".".to_string());
+        for loaded in self.cache.cache.values() {
+            if let Some(dir) = loaded.source_path.parent() {
+                sources.insert(loaded.schema.name.clone(), relative_dir(&base, &canonical_key(dir)));
+            }
+        }
+        sources
+    }
+
     /// Union of every loaded import's identity ledger (`id → row`). First
     /// writer wins on id collision (identical baked ids are byte-equal by
     /// construction). Used by the inline phase to preserve cross-file ids: a
@@ -928,6 +957,9 @@ mod tests {
 
         // Insert and retrieve
         let schema = OrbitalSchema {
+            public_dir: None,
+            locales: None,
+            lazy_pages: None,
             theme: None,
             name: "Test".to_string(),
             version: None,

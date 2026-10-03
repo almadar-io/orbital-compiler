@@ -65,6 +65,9 @@ pub fn resolve_to_oir(schema: &OrbitalSchema) -> Result<OirModule, ResolveError>
 /// the lowering rejects (the caller falls back to literal handling).
 pub fn resolve_sexpr_standalone(sexpr: &SExpression) -> Result<OirExpr, ResolveError> {
     let empty = OrbitalSchema {
+        public_dir: None,
+        locales: None,
+        lazy_pages: None,
         name: String::new(),
         version: None,
         description: None,
@@ -183,6 +186,7 @@ impl<'a> Resolver<'a> {
             .clone()
             .unwrap_or_else(|| "1.0.0".to_string());
         let mut module = OirModule::new(&self.schema.name, version);
+        module.locales = self.schema.locales.clone().unwrap_or_default();
         module.description = self.schema.description.clone();
 
         // Carry `expects` names into the IR so OIR-level existence checks can
@@ -591,6 +595,8 @@ impl<'a> Resolver<'a> {
 
         oir_entity.shared = entity.shared;
         oir_entity.identity = entity.identity;
+        oir_entity.local = entity.local;
+        oir_entity.seed_mock = entity.seed_mock;
 
         oir_entity.read_policy = entity
             .read_policy
@@ -3137,6 +3143,9 @@ mod tests {
     /// falls back to the containing-struct inference (the pre-Gap-A path).
     fn empty_schema() -> OrbitalSchema {
         OrbitalSchema {
+            public_dir: None,
+            locales: None,
+            lazy_pages: None,
             name: String::new(),
             version: None,
             description: None,
@@ -3163,6 +3172,7 @@ mod tests {
             properties: None,
             type_when: None,
             entity: None,
+            projected_from: None,
         };
         let field = orbital_core::schema::PayloadField {
             name: "value".to_string(),
@@ -3176,6 +3186,7 @@ mod tests {
             ]),
             type_when: None,
             entity: None,
+            projected_from: None,
         };
         let schema = empty_schema();
         let named_types = RefCell::new(BTreeMap::new());
@@ -3250,9 +3261,11 @@ mod tests {
                 properties: None,
                 type_when: None,
                 entity: None,
+                projected_from: None,
             }]),
             type_when: None,
             entity: None,
+            projected_from: None,
         };
         let schema = empty_schema();
         let named_types = RefCell::new(BTreeMap::new());
@@ -3295,9 +3308,11 @@ mod tests {
                 properties: None,
                 type_when: None,
                 entity: None,
+                projected_from: None,
             }]),
             type_when: None,
             entity: Some("Note".to_string()),
+            projected_from: None,
         };
         let schema = empty_schema();
         let named_types = RefCell::new(BTreeMap::new());
@@ -3341,9 +3356,11 @@ mod tests {
                 properties: None,
                 type_when: None,
                 entity: None,
+                projected_from: None,
             }]),
             type_when: None,
             entity: Some("Ghost".to_string()),
+            projected_from: None,
         };
         let schema = empty_schema();
         let named_types = RefCell::new(BTreeMap::new());
@@ -3384,6 +3401,7 @@ mod tests {
             properties: Some(vec![]), // the back-reference marker
             type_when: None,
             entity: None,
+            projected_from: None,
         };
         let row = orbital_core::schema::PayloadField {
             name: "row".to_string(),
@@ -3399,11 +3417,13 @@ mod tests {
                     properties: None,
                     type_when: None,
                     entity: None,
+                    projected_from: None,
                 },
                 sub_menu_backref,
             ]),
             type_when: None,
             entity: None,
+            projected_from: None,
         };
         let schema = empty_schema();
         let named_types = RefCell::new(BTreeMap::new());
@@ -3465,6 +3485,9 @@ mod tests {
         }))
         .expect("field fixture must deserialize");
         let schema = OrbitalSchema {
+            public_dir: None,
+            locales: None,
+            lazy_pages: None,
             name: String::new(),
             version: None,
             description: None,
@@ -3612,6 +3635,9 @@ mod tests {
         }))
         .expect("field fixture must deserialize");
         let schema = OrbitalSchema {
+            public_dir: None,
+            locales: None,
+            lazy_pages: None,
             name: String::new(),
             version: None,
             description: None,
@@ -3933,6 +3959,9 @@ mod tests {
     #[test]
     fn test_resolve_minimal_schema() {
         let schema = OrbitalSchema {
+            public_dir: None,
+            locales: None,
+            lazy_pages: None,
             theme: None,
             name: "TestApp".to_string(),
             version: Some("1.0.0".to_string()),
@@ -3969,6 +3998,9 @@ mod tests {
     fn empty_resolver() -> Resolver<'static> {
         static SCHEMA: std::sync::OnceLock<OrbitalSchema> = std::sync::OnceLock::new();
         let schema = SCHEMA.get_or_init(|| OrbitalSchema {
+            public_dir: None,
+            locales: None,
+            lazy_pages: None,
             theme: None,
             name: "Test".to_string(),
             version: None,

@@ -36,6 +36,9 @@ fn make_entity_with_fields(name: &str, field_names: &[&str]) -> EntityDefinition
     EntityDefinition {
         shared: false,
         identity: false,
+        local: false,
+        seed_mock: false,
+        locale_instances: None,
         read_policy: None,
         create_policy: None,
         update_policy: None,
@@ -60,6 +63,7 @@ fn make_entity_with_fields(name: &str, field_names: &[&str]) -> EntityDefinition
                 intrinsic: None,
                 description: None,
                 synonyms: None,
+                projected_from: None,
             })
             .collect(),
         collection: Some(format!("{}s", name.to_lowercase())),

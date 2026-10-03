@@ -23,6 +23,9 @@ pub mod cross_file_ids;
 pub(crate) mod embed_graph;
 pub mod enrich;
 pub mod inline;
+pub mod lazy;
+pub mod messages;
+pub mod public;
 pub mod nominalize;
 pub mod page_content_owner;
 pub mod parse;
@@ -183,6 +186,17 @@ pub fn compile_file(path: impl AsRef<Path>, options: &CompilerOptions) -> Compil
     compile_schema_with_path(schema, options, Some(path))
 }
 
+/// [`compile_file`] for a schema written somewhere other than its source (a
+/// lowered or translated copy): imports resolve against `source_path`.
+pub fn compile_file_with_source(
+    path: impl AsRef<Path>,
+    source_path: &Path,
+    options: &CompilerOptions,
+) -> CompileResult<OirModule> {
+    let schema = parse_file(path.as_ref())?;
+    compile_schema_with_path(schema, options, Some(source_path))
+}
+
 /// Resolve a parsed schema: run Inline → Compose → Enrich and return the
 /// fully-inlined `OrbitalSchema`. This is the pre-OIR "resolved" form — the
 /// same JSON shape authors write, but with every import expanded, every
@@ -239,10 +253,11 @@ pub fn resolve_schema_with_path(
 
 /// Compile a schema file to OIR with source path for resolving imports
 fn compile_schema_with_path(
-    schema: OrbitalSchema,
+    mut schema: OrbitalSchema,
     options: &CompilerOptions,
     source_path: Option<&Path>,
 ) -> CompileResult<OirModule> {
+    lazy::compile_lazy_as_routes(&mut schema);
     // Phases 2–3: Inline, Compose, Enrich.
     let mut schema = resolve_schema_with_path(schema, options, source_path)?;
 

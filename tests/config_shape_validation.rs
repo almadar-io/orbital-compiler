@@ -39,6 +39,7 @@ fn metric_spec_items() -> FieldDefinition {
             intrinsic: None,
             description: None,
             synonyms: None,
+            projected_from: None,
         },
     );
     props.insert(
@@ -59,6 +60,7 @@ fn metric_spec_items() -> FieldDefinition {
             intrinsic: None,
             description: None,
             synonyms: None,
+            projected_from: None,
         },
     );
     props.insert(
@@ -83,6 +85,7 @@ fn metric_spec_items() -> FieldDefinition {
             intrinsic: None,
             description: None,
             synonyms: None,
+            projected_from: None,
         },
     );
     FieldDefinition {
@@ -101,6 +104,7 @@ fn metric_spec_items() -> FieldDefinition {
         intrinsic: None,
         description: None,
         synonyms: None,
+        projected_from: None,
     }
 }
 
@@ -108,6 +112,9 @@ fn schema_with_config(config: HashMap<String, ConfigField>) -> OrbitalSchema {
     let entity = EntityDefinition {
         shared: false,
         identity: false,
+        local: false,
+        seed_mock: false,
+        locale_instances: None,
         read_policy: None,
         create_policy: None,
         update_policy: None,
@@ -132,6 +139,7 @@ fn schema_with_config(config: HashMap<String, ConfigField>) -> OrbitalSchema {
             intrinsic: None,
             description: None,
             synonyms: None,
+            projected_from: None,
         }],
         instances: None,
         id: None,
@@ -180,6 +188,9 @@ fn schema_with_config(config: HashMap<String, ConfigField>) -> OrbitalSchema {
         trait_embed_ids: None,
     };
     OrbitalSchema {
+        public_dir: None,
+        locales: None,
+        lazy_pages: None,
         theme: None,
         name: "TestApp".to_string(),
         version: Some("0.1.0".to_string()),
@@ -254,6 +265,7 @@ fn good_array_of_metricspec_passes() {
             forwarded_from: None,
             nested_forwarded_from: Vec::new(),
             payload_for: None,
+            projected_from: None,
         },
     );
     let schema = schema_with_config(config);
@@ -289,6 +301,7 @@ fn string_value_where_number_expected_fails() {
             forwarded_from: None,
             nested_forwarded_from: Vec::new(),
             payload_for: None,
+            projected_from: None,
         },
     );
     let schema = schema_with_config(config);
@@ -331,6 +344,7 @@ fn bare_string_in_array_of_objects_fails() {
                 intrinsic: None,
                 description: None,
                 synonyms: None,
+                projected_from: None,
             },
         );
     }
@@ -350,6 +364,7 @@ fn bare_string_in_array_of_objects_fails() {
         intrinsic: None,
         description: None,
         synonyms: None,
+        projected_from: None,
     };
     let mut config = HashMap::new();
     config.insert(
@@ -372,6 +387,7 @@ fn bare_string_in_array_of_objects_fails() {
             forwarded_from: None,
             nested_forwarded_from: Vec::new(),
             payload_for: None,
+            projected_from: None,
         },
     );
     let schema = schema_with_config(config);
@@ -407,6 +423,7 @@ fn missing_required_field_fails() {
             forwarded_from: None,
             nested_forwarded_from: Vec::new(),
             payload_for: None,
+            projected_from: None,
         },
     );
     let schema = schema_with_config(config);
@@ -451,6 +468,7 @@ fn enum_value_outside_allowed_set_fails() {
             forwarded_from: None,
             nested_forwarded_from: Vec::new(),
             payload_for: None,
+            projected_from: None,
         },
     );
     let schema = schema_with_config(config);
@@ -495,6 +513,7 @@ fn binding_strings_pass_the_check() {
             forwarded_from: None,
             nested_forwarded_from: Vec::new(),
             payload_for: None,
+            projected_from: None,
         },
     );
     let schema = schema_with_config(config);
@@ -541,6 +560,7 @@ fn computed_sexpr_call_for_array_items_defers() {
             forwarded_from: None,
             nested_forwarded_from: Vec::new(),
             payload_for: None,
+            projected_from: None,
         },
     );
     let schema = schema_with_config(config);
@@ -588,6 +608,7 @@ fn computed_sexpr_call_nested_in_object_property_defers() {
             forwarded_from: None,
             nested_forwarded_from: Vec::new(),
             payload_for: None,
+            projected_from: None,
         },
     );
     let schema = schema_with_config(config);
@@ -625,6 +646,7 @@ fn literal_wrong_shape_still_errors_alongside_computed_defer() {
             intrinsic: None,
             description: None,
             synonyms: None,
+            projected_from: None,
         },
     );
     let format_items = FieldDefinition {
@@ -643,6 +665,7 @@ fn literal_wrong_shape_still_errors_alongside_computed_defer() {
         intrinsic: None,
         description: None,
         synonyms: None,
+        projected_from: None,
     };
     let mut config = HashMap::new();
     config.insert(
@@ -664,6 +687,7 @@ fn literal_wrong_shape_still_errors_alongside_computed_defer() {
             forwarded_from: None,
             nested_forwarded_from: Vec::new(),
             payload_for: None,
+            projected_from: None,
         },
     );
     let schema = schema_with_config(config);
@@ -696,6 +720,7 @@ fn array_typed_slot_with_scalar_default_fails() {
             forwarded_from: None,
             nested_forwarded_from: Vec::new(),
             payload_for: None,
+            projected_from: None,
         },
     );
     let schema = schema_with_config(config);
@@ -731,6 +756,7 @@ fn number_on_a_name_carrying_scalar_tag_fails() {
                 forwarded_from: None,
                 nested_forwarded_from: Vec::new(),
             payload_for: None,
+            projected_from: None,
             },
         );
         let schema = schema_with_config(config);
@@ -767,6 +793,7 @@ fn string_and_null_on_a_name_carrying_scalar_tag_pass() {
                 forwarded_from: None,
                 nested_forwarded_from: Vec::new(),
             payload_for: None,
+            projected_from: None,
             },
         );
         let schema = schema_with_config(config);
@@ -800,6 +827,7 @@ fn non_number_on_int_or_float_fails() {
                 forwarded_from: None,
                 nested_forwarded_from: Vec::new(),
             payload_for: None,
+            projected_from: None,
             },
         );
         let schema = schema_with_config(config);
@@ -830,6 +858,7 @@ fn string_value_field() -> FieldDefinition {
         intrinsic: None,
         description: None,
         synonyms: None,
+        projected_from: None,
     }
 }
 
@@ -852,6 +881,7 @@ fn map_knob(default: SExpression) -> OrbitalSchema {
             forwarded_from: None,
             nested_forwarded_from: Vec::new(),
             payload_for: None,
+            projected_from: None,
         },
     );
     schema_with_config(config)
@@ -934,6 +964,7 @@ fn an_array_type_merely_starting_with_map_is_not_treated_as_a_map() {
             forwarded_from: None,
             nested_forwarded_from: Vec::new(),
             payload_for: None,
+            projected_from: None,
         },
     );
     let schema = schema_with_config(config);
@@ -960,6 +991,7 @@ fn scalar_knob(default: SExpression) -> OrbitalSchema {
             forwarded_from: None,
             nested_forwarded_from: Vec::new(),
             payload_for: None,
+            projected_from: None,
         },
     );
     schema_with_config(config)
@@ -1026,6 +1058,7 @@ fn map_of_scalar_accepts_mixed_primitive_values_but_not_nesting() {
         intrinsic: None,
         description: None,
         synonyms: None,
+        projected_from: None,
     };
     config.insert(
         "loadedRow".to_string(),
@@ -1044,6 +1077,7 @@ fn map_of_scalar_accepts_mixed_primitive_values_but_not_nesting() {
             forwarded_from: None,
             nested_forwarded_from: Vec::new(),
             payload_for: None,
+            projected_from: None,
         },
     );
     let schema = schema_with_config(config);
@@ -1074,6 +1108,7 @@ fn map_of_scalar_accepts_mixed_primitive_values_but_not_nesting() {
             forwarded_from: None,
             nested_forwarded_from: Vec::new(),
             payload_for: None,
+            projected_from: None,
         },
     );
     let schema2 = schema_with_config(config2);

@@ -1,6 +1,6 @@
 // Auto-generated from @almadar/std canonical-operators.json by @almadar-io/almadar-pattern-sync.
 // DO NOT EDIT MANUALLY.
-// Total operators targeting Rust: 241
+// Total operators targeting Rust: 242
 
 /// Operator metadata derived from the canonical @almadar/std registry.
 #[derive(Debug, Clone)]
@@ -929,6 +929,16 @@ pub static CANONICAL_OPERATORS: &[OperatorMeta] = &[
         max_arity: Some(2),
         return_type: "point",
         description: "Cell to world-space center point",
+        has_side_effects: false,
+        return_semantics: None,
+    },
+    OperatorMeta {
+        name: "i18n/t",
+        category: "std-i18n",
+        min_arity: 1,
+        max_arity: Some(2),
+        return_type: "string",
+        description: "The active locale's message for a catalog key, with {{placeholders}} filled from params",
         has_side_effects: false,
         return_semantics: None,
     },
@@ -2459,7 +2469,7 @@ mod tests {
 
     #[test]
     fn test_canonical_operators_count() {
-        assert_eq!(CANONICAL_OPERATORS.len(), 241);
+        assert_eq!(CANONICAL_OPERATORS.len(), 242);
     }
 
     #[test]

@@ -16,6 +16,14 @@ use orbital_core::schema::{
 
 pub(crate) fn validate_client_tick_locality(schema: &OrbitalSchema) -> ValidationResult {
     let mut result = ValidationResult::new();
+    let residence = orbital_core::effects::Residence::of_entities(schema.orbitals.iter().flat_map(|o| {
+        std::iter::once(&o.entity)
+            .chain(o.auxiliary_entities.iter().flatten())
+            .filter_map(|e| match e {
+                EntityRef::Inline(def) => Some(def),
+                _ => None,
+            })
+    }));
     for orbital in &schema.orbitals {
         let entities: Vec<_> = std::iter::once(&orbital.entity)
             .chain(orbital.auxiliary_entities.iter().flatten())
@@ -62,7 +70,7 @@ pub(crate) fn validate_client_tick_locality(schema: &OrbitalSchema) -> Validatio
             for t in &bound {
                 let writes_ticked_frame = entity.shared || ticks_on_client(t);
                 if !writes_ticked_frame
-                    || t.dispatch_mode(Some(entity)) != DispatchMode::RuntimeOptimistic
+                    || t.dispatch_mode(Some(entity), &residence) != DispatchMode::RuntimeOptimistic
                 {
                     continue;
                 }

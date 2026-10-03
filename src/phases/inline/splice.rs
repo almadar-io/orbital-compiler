@@ -502,6 +502,7 @@ mod tests {
                 properties: None,
                 type_when: None,
                 entity: None,
+                projected_from: None,
             }]),
             event_id: None,
             payload_entity: None,
@@ -523,6 +524,9 @@ mod tests {
             entity: EntityRef::Inline(EntityDefinition {
                 shared: false,
                 identity: false,
+                local: false,
+                seed_mock: false,
+                locale_instances: None,
                 read_policy: None,
                 create_policy: None,
                 update_policy: None,

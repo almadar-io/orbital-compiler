@@ -107,6 +107,7 @@ fn field_of(p: &PayloadField) -> FieldDefinition {
         intrinsic: None,
         description: p.description.clone(),
         synonyms: None,
+        projected_from: None,
     }
 }
 
@@ -353,6 +354,7 @@ pub(crate) fn payload_field_of(f: &FieldDefinition) -> PayloadField {
         properties: props,
         type_when: None,
         entity: None,
+        projected_from: None,
     }
 }
 

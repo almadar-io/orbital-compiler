@@ -2,7 +2,7 @@
 //!
 //! Source: packages/almadar-core/src/patterns/patterns-registry.json
 //!
-//! Last synced: 2026-10-02
+//! Last synced: 2026-10-03
 //! To regenerate: npx tsx tools/almadar-pattern-sync/index.ts
 //!
 //! DO NOT EDIT MANUALLY - changes will be overwritten on next sync.
@@ -4649,6 +4649,7 @@ pub static PATTERN_PROPS_SCHEMA: LazyLock<HashMap<&'static str, HashSet<&'static
                     "aria-live",
                     "aria-pressed",
                     "aria-selected",
+                    "brandHref",
                     "brandName",
                     "className",
                     "dir",
@@ -13003,6 +13004,7 @@ pub static PATTERN_PROP_TYPES: LazyLock<HashMap<&'static str, HashMap<&'static s
                     ("variant", &["string"] as &[&str]),
                     ("look", &["string"] as &[&str]),
                     ("onLogoClick", &["function"] as &[&str]),
+                    ("brandHref", &["string"] as &[&str]),
                     ("className", &["string"] as &[&str]),
                     ("isLoading", &["boolean"] as &[&str]),
                     ("error", &["object"] as &[&str]),

@@ -679,6 +679,7 @@ mod tests {
             properties: None,
             type_when: None,
             entity: None,
+            projected_from: None,
         }];
         let ctx = BindingContext {
             trait_def: &t,
@@ -709,6 +710,9 @@ mod tests {
             EntityDefinition {
                 shared: false,
                 identity: false,
+                local: false,
+                seed_mock: false,
+                locale_instances: None,
                 read_policy: None,
                 create_policy: None,
                 update_policy: None,
@@ -734,6 +738,7 @@ mod tests {
                     intrinsic: None,
                     description: None,
                     synonyms: None,
+                    projected_from: None,
                 }],
                 id: None,
             },
@@ -785,6 +790,9 @@ mod tests {
             EntityDefinition {
                 shared: false,
                 identity: true,
+                local: false,
+                seed_mock: false,
+                locale_instances: None,
                 read_policy: None,
                 create_policy: None,
                 update_policy: None,
@@ -810,6 +818,7 @@ mod tests {
                     intrinsic: None,
                     description: None,
                     synonyms: None,
+                    projected_from: None,
                 }],
                 id: None,
             },
@@ -898,6 +907,7 @@ mod tests {
             properties: None,
             type_when: None,
             entity: None,
+            projected_from: None,
         }];
         let ctx = BindingContext {
             trait_def: &t,

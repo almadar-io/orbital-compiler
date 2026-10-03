@@ -1612,6 +1612,9 @@ mod tests {
         EntityDefinition {
             shared: false,
             identity: false,
+            local: false,
+            seed_mock: false,
+            locale_instances: None,
             read_policy: None,
             create_policy: None,
             update_policy: None,
@@ -1638,6 +1641,7 @@ mod tests {
                     intrinsic: None,
                     description: None,
                     synonyms: None,
+                    projected_from: None,
                 })
                 .collect(),
             instances: None,

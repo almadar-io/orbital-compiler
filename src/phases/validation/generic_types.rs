@@ -199,6 +199,7 @@ mod tests {
             intrinsic: None,
             description: None,
             synonyms: None,
+            projected_from: None,
         }
     }
 
@@ -211,6 +212,7 @@ mod tests {
             properties,
             type_when: None,
             entity: None,
+            projected_from: None,
         }
     }
 

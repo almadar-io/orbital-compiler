@@ -95,6 +95,9 @@ pub(super) fn shape_as_identity_entity(name: &str, shape: &[FieldDefinition]) ->
     EntityDefinition {
         shared: false,
         identity: true,
+        local: false,
+        seed_mock: false,
+        locale_instances: None,
         read_policy: None,
         create_policy: None,
         update_policy: None,

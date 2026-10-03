@@ -218,6 +218,22 @@ pub enum InlineError {
         /// Source-tagged path to the repeated declaration.
         path: String,
     },
+
+    #[error(
+        "'{alias}' is imported with `uses lazy` at {path}, so only a whole page-bearing \
+         `orbital X = {alias}.orbitals.Y` can use it — its traits, entity and pages are not \
+         available to an eager orbital"
+    )]
+    LazyEagerRef { alias: String, path: String },
+
+    #[error("Orbital '{orbital}' is imported lazily but declares no pages, so nothing can ever load it")]
+    LazyNoPages { orbital: String },
+
+    #[error(
+        "Orbital '{orbital}' references a `uses lazy` import; split it out with \
+         `phases::lazy::split_lazy_and_resolve` before inlining"
+    )]
+    LazyNotSplit { orbital: String },
 }
 
 impl InlineError {
@@ -233,6 +249,7 @@ impl InlineError {
             InlineError::ConflictingTypeAlias { path, .. } => path,
             InlineError::DuplicateUseAlias { path, .. } => path,
             InlineError::OrbitalRefListenTargetUnknown { path, .. } => path,
+            InlineError::LazyEagerRef { path, .. } => path,
             _ => "",
         }
     }
@@ -250,6 +267,9 @@ impl InlineError {
             InlineError::ConflictingTypeAlias { .. } => "ORB_T_CONFLICTING_TYPE_ALIAS",
             InlineError::DuplicateUseAlias { .. } => "ORB_O_DUPLICATE_USE_ALIAS",
             InlineError::OrbitalRefListenTargetUnknown { .. } => "ORB_O_LISTEN_TARGET_UNKNOWN",
+            InlineError::LazyEagerRef { .. } => "ORB_LAZY_EAGER_REF",
+            InlineError::LazyNoPages { .. } => "ORB_LAZY_NO_PAGES",
+            InlineError::LazyNotSplit { .. } => "ORB_LAZY_NOT_SPLIT",
             InlineError::Loader(LoaderError::PackageNotInstalled { .. })
             | InlineError::Loader(LoaderError::BehaviorPackageNotInstalled { .. }) => {
                 "ORB_BEHAVIOR_PACKAGE_NOT_INSTALLED"
@@ -338,6 +358,12 @@ pub fn inline_schema_with_orbital_diagnostics(
 ) -> Result<(), InlineError> {
     if config.skip_inline {
         return Ok(());
+    }
+
+    if let Some(orbital) = schema.orbitals.iter().find(|o| super::lazy::is_lazy_reference(o)) {
+        return Err(InlineError::LazyNotSplit {
+            orbital: orbital.name.clone(),
+        });
     }
 
     // Intrinsic identity, belt-and-suspenders: `resolve_schema_with_path`
@@ -452,6 +478,14 @@ pub fn inline_schema_with_orbital_diagnostics(
     for (idx, orbital) in schema.orbitals.iter_mut().enumerate() {
         let mut pulled: Vec<String> = Vec::new();
         let mut provenance: Vec<ConfigProvenanceRecord> = Vec::new();
+        let lazy_aliases: HashSet<String> = orbital
+            .uses
+            .iter()
+            .flatten()
+            .filter(|u| u.lazy == Some(true))
+            .map(|u| u.alias.clone())
+            .collect();
+        let orbital_name = orbital.name.clone();
         if let Err(e) = inline_orbital(
             orbital,
             &mut loader,
@@ -469,6 +503,13 @@ pub fn inline_schema_with_orbital_diagnostics(
             Some(idx),
             &mut deferred_merges,
         ) {
+            let e = match e {
+                InlineError::UnknownAlias(alias) if lazy_aliases.contains(&alias) => InlineError::LazyEagerRef {
+                    path: format!("orbitals[name={orbital_name}]"),
+                    alias,
+                },
+                e => e,
+            };
             if first_error.is_none() {
                 first_error = Some(e);
             }
@@ -613,6 +654,7 @@ pub fn inline_schema_with_orbital_diagnostics(
             Some(meta) => meta.config_provenance = Some(all_provenance),
             None => {
                 schema.metadata = Some(SchemaMetadata {
+                    message_sources: None,
                     version: None,
                     created_at: None,
                     source: None,
@@ -620,6 +662,13 @@ pub fn inline_schema_with_orbital_diagnostics(
                     config_provenance: Some(all_provenance),
                 });
             }
+        }
+    }
+
+    if schema.locales.is_some() {
+        if let Some(root) = source_path {
+            let sources = loader.message_sources(root, &schema.name);
+            schema.metadata.get_or_insert_with(SchemaMetadata::default).message_sources = Some(sources);
         }
     }
 
@@ -1190,7 +1239,7 @@ fn inline_orbital(
     // (incorrectly) receiving before.
     let mut alias_schema_configs: HashMap<String, HashMap<String, ConfigField>> = HashMap::new();
 
-    for use_decl in &uses {
+    for use_decl in uses.iter().filter(|u| u.lazy != Some(true)) {
         // Phase F.10: recursive composition. The loaded orbital may itself
         // declare `uses[]` and reference traits from yet another orbital
         // (e.g. organism → molecule → atom). Without recursive inlining
@@ -3220,6 +3269,9 @@ mod tests {
             entity: EntityRef::Inline(EntityDefinition {
                 shared: false,
                 identity: false,
+                local: false,
+                seed_mock: false,
+                locale_instances: None,
                 read_policy: None,
                 create_policy: None,
                 update_policy: None,
@@ -3499,6 +3551,9 @@ mod tests {
             entity: EntityRef::Inline(EntityDefinition {
                 shared: false,
                 identity: false,
+                local: false,
+                seed_mock: false,
+                locale_instances: None,
                 read_policy: None,
                 create_policy: None,
                 update_policy: None,
@@ -3702,10 +3757,14 @@ mod tests {
             intrinsic: None,
             description: None,
             synonyms: None,
+            projected_from: None,
         };
         EntityDefinition {
             shared: false,
             identity: false,
+            local: false,
+            seed_mock: false,
+            locale_instances: None,
             read_policy: None,
             create_policy: None,
             update_policy: None,
@@ -3783,6 +3842,7 @@ mod tests {
             intrinsic: None,
             description: None,
             synonyms: None,
+            projected_from: None,
         }
     }
 
@@ -5066,6 +5126,9 @@ mod tests {
             entity: EntityRef::Inline(EntityDefinition {
                 shared: false,
                 identity: false,
+                local: false,
+                seed_mock: false,
+                locale_instances: None,
                 read_policy: None,
                 create_policy: None,
                 update_policy: None,
@@ -5114,6 +5177,9 @@ mod tests {
             entity: EntityRef::Inline(EntityDefinition {
                 shared: false,
                 identity: false,
+                local: false,
+                seed_mock: false,
+                locale_instances: None,
                 read_policy: None,
                 create_policy: None,
                 update_policy: None,
@@ -5181,6 +5247,7 @@ mod tests {
             intrinsic: None,
             description: None,
             synonyms: None,
+            projected_from: None,
         }
     }
 
@@ -5202,6 +5269,9 @@ mod tests {
         let mut caller = EntityDefinition {
             shared: false,
             identity: false,
+            local: false,
+            seed_mock: false,
+            locale_instances: None,
             read_policy: None,
             create_policy: None,
             update_policy: None,
@@ -5220,6 +5290,9 @@ mod tests {
         let imported = EntityDefinition {
             shared: false,
             identity: false,
+            local: false,
+            seed_mock: false,
+            locale_instances: None,
             read_policy: None,
             create_policy: None,
             update_policy: None,
@@ -5261,6 +5334,9 @@ mod tests {
         let mut caller = EntityDefinition {
             shared: false,
             identity: false,
+            local: false,
+            seed_mock: false,
+            locale_instances: None,
             read_policy: None,
             create_policy: None,
             update_policy: None,
@@ -5279,6 +5355,9 @@ mod tests {
         let imported = EntityDefinition {
             shared: false,
             identity: false,
+            local: false,
+            seed_mock: false,
+            locale_instances: None,
             read_policy: None,
             create_policy: None,
             update_policy: None,
@@ -5314,6 +5393,9 @@ mod tests {
         let mut caller = EntityDefinition {
             shared: false,
             identity: false,
+            local: false,
+            seed_mock: false,
+            locale_instances: None,
             read_policy: None,
             create_policy: None,
             update_policy: None,
@@ -5336,6 +5418,9 @@ mod tests {
         let imported = EntityDefinition {
             shared: false,
             identity: false,
+            local: false,
+            seed_mock: false,
+            locale_instances: None,
             read_policy: None,
             create_policy: None,
             update_policy: None,
@@ -5394,6 +5479,9 @@ mod tests {
         let mut caller = EntityDefinition {
             shared: false,
             identity: false,
+            local: false,
+            seed_mock: false,
+            locale_instances: None,
             read_policy: None,
             create_policy: None,
             update_policy: None,
@@ -5409,6 +5497,9 @@ mod tests {
         let import_browse = EntityDefinition {
             shared: false,
             identity: false,
+            local: false,
+            seed_mock: false,
+            locale_instances: None,
             read_policy: None,
             create_policy: None,
             update_policy: None,
@@ -5428,6 +5519,9 @@ mod tests {
         let import_modal = EntityDefinition {
             shared: false,
             identity: false,
+            local: false,
+            seed_mock: false,
+            locale_instances: None,
             read_policy: None,
             create_policy: None,
             update_policy: None,
@@ -5483,6 +5577,9 @@ mod tests {
         let caller = EntityDefinition {
             shared: false,
             identity: false,
+            local: false,
+            seed_mock: false,
+            locale_instances: None,
             read_policy: None,
             create_policy: None,
             update_policy: None,
@@ -5519,6 +5616,9 @@ mod tests {
         let mut caller = EntityDefinition {
             shared: false,
             identity: false,
+            local: false,
+            seed_mock: false,
+            locale_instances: None,
             read_policy: None,
             create_policy: None,
             update_policy: None,
@@ -5541,6 +5641,9 @@ mod tests {
         let imported = EntityDefinition {
             shared: false,
             identity: false,
+            local: false,
+            seed_mock: false,
+            locale_instances: None,
             read_policy: None,
             create_policy: None,
             update_policy: None,
@@ -5599,6 +5702,9 @@ mod tests {
         let mut caller = EntityDefinition {
             shared: false,
             identity: false,
+            local: false,
+            seed_mock: false,
+            locale_instances: None,
             read_policy: None,
             create_policy: None,
             update_policy: None,
@@ -5617,6 +5723,9 @@ mod tests {
         let imported = EntityDefinition {
             shared: false,
             identity: false,
+            local: false,
+            seed_mock: false,
+            locale_instances: None,
             read_policy: None,
             create_policy: None,
             update_policy: None,
@@ -5671,6 +5780,9 @@ mod tests {
             entity: EntityRef::Inline(EntityDefinition {
                 shared: false,
                 identity: false,
+                local: false,
+                seed_mock: false,
+                locale_instances: None,
                 read_policy: None,
                 create_policy: None,
                 update_policy: None,
@@ -5706,6 +5818,9 @@ mod tests {
             entity: EntityRef::Inline(EntityDefinition {
                 shared: false,
                 identity: false,
+                local: false,
+                seed_mock: false,
+                locale_instances: None,
                 read_policy: None,
                 create_policy: None,
                 update_policy: None,
@@ -5821,6 +5936,9 @@ mod tests {
         let host_entity = EntityDefinition {
             shared: false,
             identity: false,
+            local: false,
+            seed_mock: false,
+            locale_instances: None,
             read_policy: None,
             create_policy: None,
             update_policy: None,
@@ -5857,6 +5975,7 @@ mod tests {
             name: "ConsumerOrbital".to_string(),
             id: None,
             uses: Some(vec![orbital_core::schema::UseDeclaration {
+                lazy: None,
                 from: "./pickup.orb".to_string(),
                 alias: "Pickup".to_string(),
                 config: None,
@@ -5877,6 +5996,9 @@ mod tests {
             config: None,
         };
         OrbitalSchema {
+            public_dir: None,
+            locales: None,
+            lazy_pages: None,
             theme: None,
             name: "ConsumerModule".to_string(),
             version: None,
@@ -5894,6 +6016,7 @@ mod tests {
         schema.orbitals[0].uses = Some(
             uses.iter()
                 .map(|(alias, from)| orbital_core::schema::UseDeclaration {
+                    lazy: None,
                     from: from.to_string(),
                     alias: alias.to_string(),
                     config: None,
@@ -6112,6 +6235,7 @@ mod tests {
 
     fn toolkit_uses_decl() -> orbital_core::schema::UseDeclaration {
         orbital_core::schema::UseDeclaration {
+            lazy: None,
             from: "./toolkit.orb".to_string(),
             alias: "Toolkit".to_string(),
             config: None,
@@ -6122,6 +6246,9 @@ mod tests {
         EntityDefinition {
             shared: false,
             identity: false,
+            local: false,
+            seed_mock: false,
+            locale_instances: None,
             read_policy: None,
             create_policy: None,
             update_policy: None,
@@ -6173,6 +6300,9 @@ mod tests {
             config: None,
         };
         let mut schema = OrbitalSchema {
+            public_dir: None,
+            locales: None,
+            lazy_pages: None,
             theme: None,
             name: "ConsumerModule".to_string(),
             version: None,
@@ -6270,6 +6400,9 @@ mod tests {
             config: None,
         };
         let mut schema = OrbitalSchema {
+            public_dir: None,
+            locales: None,
+            lazy_pages: None,
             theme: None,
             name: "ConsumerModule".to_string(),
             version: None,
@@ -6344,6 +6477,9 @@ mod tests {
             config: None,
         };
         let mut schema = OrbitalSchema {
+            public_dir: None,
+            locales: None,
+            lazy_pages: None,
             theme: None,
             name: "ConsumerModule".to_string(),
             version: None,
@@ -6618,6 +6754,7 @@ mod tests {
 
     fn refs_uses_decl() -> orbital_core::schema::UseDeclaration {
         orbital_core::schema::UseDeclaration {
+            lazy: None,
             from: "./refs.orb".to_string(),
             alias: "Refs".to_string(),
             config: None,
@@ -6662,6 +6799,9 @@ mod tests {
             config: None,
         };
         let mut schema = OrbitalSchema {
+            public_dir: None,
+            locales: None,
+            lazy_pages: None,
             theme: None,
             name: "ConsumerModule".to_string(),
             version: None,
@@ -6730,6 +6870,9 @@ mod tests {
             config: None,
         };
         let mut schema = OrbitalSchema {
+            public_dir: None,
+            locales: None,
+            lazy_pages: None,
             theme: None,
             name: "ConsumerModule".to_string(),
             version: None,
@@ -6800,6 +6943,9 @@ mod tests {
             config: None,
         };
         OrbitalSchema {
+            public_dir: None,
+            locales: None,
+            lazy_pages: None,
             theme: None,
             name: "ConsumerModule".to_string(),
             version: None,

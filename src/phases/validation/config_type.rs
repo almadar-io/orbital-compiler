@@ -1116,6 +1116,7 @@ fn check_config_default_shape(
                 intrinsic: None,
                 description: None,
                 synonyms: None,
+                projected_from: None,
             };
             let ancestors = root_ancestor_map(field, Some(&root_struct));
             let mut probe = ValidationResult::new();
@@ -3355,6 +3356,7 @@ mod recursive_type_literal_tests {
             intrinsic: None,
             description: None,
             synonyms: None,
+            projected_from: None,
         };
         let sub_menu_array = FieldDefinition {
             mock: None,
@@ -3372,6 +3374,7 @@ mod recursive_type_literal_tests {
             intrinsic: None,
             description: None,
             synonyms: None,
+            projected_from: None,
         };
         let label = FieldDefinition {
             mock: None,
@@ -3389,6 +3392,7 @@ mod recursive_type_literal_tests {
             intrinsic: None,
             description: None,
             synonyms: None,
+            projected_from: None,
         };
         let mut props = HashMap::new();
         props.insert("label".to_string(), label);
@@ -3409,6 +3413,7 @@ mod recursive_type_literal_tests {
             intrinsic: None,
             description: None,
             synonyms: None,
+            projected_from: None,
         };
         ConfigField {
             field_type: "[MenuItem]".to_string(),
@@ -3425,6 +3430,7 @@ mod recursive_type_literal_tests {
             forwarded_from: None,
             nested_forwarded_from: Vec::new(),
             payload_for: None,
+            projected_from: None,
         }
     }
 
@@ -3515,6 +3521,7 @@ mod skip_required_members_tests {
             intrinsic: None,
             description: None,
             synonyms: None,
+            projected_from: None,
         };
         let mut props = HashMap::new();
         props.insert("id".to_string(), required_string("id"));
@@ -3535,6 +3542,7 @@ mod skip_required_members_tests {
             intrinsic: None,
             description: None,
             synonyms: None,
+            projected_from: None,
         }
     }
 

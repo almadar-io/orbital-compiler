@@ -291,6 +291,9 @@ mod tests {
             entity: EntityRef::Inline(EntityDefinition {
                 shared: false,
                 identity: false,
+                local: false,
+                seed_mock: false,
+                locale_instances: None,
                 read_policy: None,
                 create_policy: None,
                 update_policy: None,
@@ -338,6 +341,7 @@ mod tests {
             types: None,
             name: "Composer".to_string(),
             uses: Some(vec![orbital_core::schema::UseDeclaration {
+                lazy: None,
                 from: "local/does-not-matter".to_string(),
                 alias: "Lib".to_string(),
                 config: None,
@@ -348,6 +352,9 @@ mod tests {
             entity: EntityRef::Inline(EntityDefinition {
                 shared: false,
                 identity: false,
+                local: false,
+                seed_mock: false,
+                locale_instances: None,
                 read_policy: None,
                 create_policy: None,
                 update_policy: None,
@@ -374,6 +381,9 @@ mod tests {
         };
 
         OrbitalSchema {
+            public_dir: None,
+            locales: None,
+            lazy_pages: None,
             theme: None,
             name: "CompositionApp".to_string(),
             version: Some("1.0.0".to_string()),

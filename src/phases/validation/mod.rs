@@ -594,6 +594,12 @@ pub fn validate_comprehensive_full(
     entity_mutation::validate_all_merged_field_usage(schema, &mut ctx);
     entity_mutation::validate_all_tick_guards(schema, &mut ctx);
     entity_mutation::validate_all_local_trait_dispatch(schema, &mut ctx);
+    entity_mutation::validate_all_mixed_residence(schema, &mut ctx);
+    ctx.merge({
+        let mut result = ValidationResult::new();
+        entity::validate_all_locale_instances(schema, &mut result);
+        result
+    });
     entity_mutation::validate_all_set_column_without_row(schema, &mut ctx);
     entity_mutation::validate_all_guard_frame_field_authorization(schema, &mut ctx);
     entity_mutation::validate_all_auth_guard_client_only(schema, &mut ctx);
@@ -746,6 +752,14 @@ fn collect_names(schema: &OrbitalSchema, ctx: &mut ValidationContext) {
                 }
             }
         }
+    }
+
+    // `uses lazy` pages: declared routes whose behavior loads on navigation.
+    // Like an `expects page`, the path is known and the INIT payload belongs
+    // to the behavior that owns it.
+    for lazy in schema.lazy_pages.iter().flatten() {
+        ctx.page_paths.insert(lazy.path.clone());
+        ctx.page_init_payloads.entry(lazy.path.clone()).or_default();
     }
 
     // Ambiguous (duplicated-primary) definitions carry no field authority —

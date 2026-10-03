@@ -4,7 +4,7 @@
 //!
 //! This module provides the high-level API for generating code from Orbital schemas.
 
-use crate::phases::{compile_file, parse_file, resolve_schema_with_path, CompilerOptions};
+use crate::phases::{compile_file_with_source, parse_file, CompilerOptions};
 use orbital_core::ir::OirModule;
 use orbital_core::shell::{Shell, ShellError};
 use std::collections::HashMap;
@@ -71,6 +71,40 @@ where
     B: Backend,
 {
     let schema_path = schema_path.as_ref();
+    generate_from_file_with_source(schema_path, schema_path, output_dir, shell, backend, options)
+}
+
+/// [`generate_from_file`] for a schema written somewhere other than its
+/// source (a lowered `.lolo` or a translated copy): imports resolve against
+
+/// A program declaring browser-stored entities compiles only with a backend that
+/// generates their client-side data effects; any other backend is refused
+/// before it writes a file.
+fn ensure_backend_supports<B: Backend>(oir: &OirModule, backend: &B) -> GenerateResult<()> {
+    let local: Vec<&str> = oir.entities.iter().filter(|e| e.local).map(|e| e.name.as_str()).collect();
+    if local.is_empty() || backend.supports_browser_stored_entities() {
+        return Ok(());
+    }
+    Err(GenerateError::Backend(format!(
+        "ORB_SHELL_LOCAL_ENTITY_UNSUPPORTED: the {} shell does not generate browser-stored entities; {} declare `local`. Compile with --shell typescript, or drop `local`.",
+        backend.name(),
+        local.join(", ")
+    )))
+}
+
+/// `source_path`.
+pub fn generate_from_file_with_source<S, B>(
+    schema_path: &Path,
+    source_path: &Path,
+    output_dir: impl AsRef<Path>,
+    shell: &S,
+    backend: &B,
+    options: &GenerateOptions,
+) -> GenerateResult<GeneratedOutput>
+where
+    S: Shell,
+    B: Backend,
+{
     let output_dir = output_dir.as_ref();
 
     if options.verbose {
@@ -78,10 +112,44 @@ where
     }
 
     // Step 1: Compile schema to OIR
-    let oir = compile_file(schema_path, &options.compiler)?;
+    let oir = compile_file_with_source(schema_path, source_path, &options.compiler)?;
 
     // Generate code from OIR
     let result = generate_from_oir(&oir, output_dir, shell, backend, options)?;
+
+    // Every route the app serves, with its locale — the prerender walks it.
+    let routes: Vec<serde_json::Value> = oir
+        .pages
+        .iter()
+        .map(|page| {
+            serde_json::json!({
+                "path": page.path,
+                "page": page.name,
+                "locale": oir.locale_of_path(&page.path),
+            })
+        })
+        .collect();
+    std::fs::write(
+        output_dir.join("routes.json"),
+        serde_json::to_string_pretty(&routes).map_err(std::io::Error::other)?,
+    )?;
+
+    // A program with `locales` ships one merged catalog per locale, where
+    // the generated App imports it.
+    if !oir.locales.is_empty() {
+        let (resolved, lazy) = crate::phases::lazy::resolve_program_with_path(
+            parse_file(schema_path).map_err(crate::phases::CompilerError::from)?,
+            &options.compiler,
+            Some(source_path),
+        )?;
+        let program_dir = source_path.parent().unwrap_or(Path::new("."));
+        let locales_dir = output_dir.join("locales");
+        std::fs::create_dir_all(&locales_dir)?;
+        for (locale, messages) in crate::phases::messages::program_catalogs(&resolved, &lazy, program_dir) {
+            let json = serde_json::to_string_pretty(&messages).map_err(std::io::Error::other)?;
+            std::fs::write(locales_dir.join(format!("{locale}.json")), json)?;
+        }
+    }
 
     // Step 6: Copy source schema to output directory for reference
     let dest_schema = output_dir.join("schema.orb");
@@ -109,9 +177,20 @@ where
     // as a dedicated CLI subcommand for tooling that wants resolved
     // visibility without generating TSX.
     if let Ok(parsed) = parse_file(schema_path) {
-        if let Ok(resolved) = resolve_schema_with_path(parsed, &options.compiler, Some(schema_path))
+        if let Ok((resolved, lazy)) =
+            crate::phases::lazy::resolve_program_with_path(parsed, &options.compiler, Some(source_path))
         {
             let resolved_path = output_dir.join("resolved.orb");
+            let program_dir = source_path.parent().unwrap_or(Path::new("."));
+            if let Err(err) = crate::phases::lazy::write_lazy(output_dir, &lazy, program_dir, &|schema| {
+                serde_json::to_string_pretty(schema).map_err(std::io::Error::other)
+            }) {
+                eprintln!(
+                    "[generate_from_file] Failed to write lazy behaviors under {}: {}",
+                    output_dir.display(),
+                    err
+                );
+            }
             if let Ok(json) = serde_json::to_string_pretty(&resolved) {
                 if let Err(err) = std::fs::write(&resolved_path, json) {
                     eprintln!(
@@ -169,6 +248,7 @@ where
     if options.verbose {
         eprintln!("Generating code (mode: {:?})...", options.mode);
     }
+    ensure_backend_supports(oir, backend)?;
     let output = backend.generate_with_mode(oir, options.mode);
 
     // Cross-shell operator-completeness backstop: no emitted file may carry the
@@ -411,6 +491,51 @@ mod tests {
         fn name(&self) -> &'static str {
             "fixture"
         }
+    }
+
+    /// A backend declaring whether it generates browser-stored entities.
+    struct CapabilityBackend {
+        browser_storage: bool,
+    }
+
+    impl Backend for CapabilityBackend {
+        fn generate(&self, _module: &OirModule) -> GeneratedOutput {
+            GeneratedOutput { files: vec![GeneratedFile::new("a.ts", "export const a = 1;")], warnings: vec![] }
+        }
+        fn name(&self) -> &'static str {
+            "fixture"
+        }
+        fn supports_browser_stored_entities(&self) -> bool {
+            self.browser_storage
+        }
+    }
+
+    fn module_with_local_entity() -> OirModule {
+        let mut module = OirModule::new("Test", "0.1.0");
+        let mut invoice = orbital_core::ir::OirEntity::new("Invoice");
+        invoice.local = true;
+        module.entities.push(invoice);
+        module
+    }
+
+    #[test]
+    fn a_backend_without_browser_storage_refuses_a_local_entity() {
+        let tmp = tempfile::tempdir().expect("tempdir");
+        let options = GenerateOptions { copy_template: false, clean: false, ..Default::default() };
+        let err = generate_from_oir(&module_with_local_entity(), tmp.path(), &fixture_shell("generated"), &CapabilityBackend { browser_storage: false }, &options)
+            .unwrap_err()
+            .to_string();
+        assert!(err.contains("ORB_SHELL_LOCAL_ENTITY_UNSUPPORTED") && err.contains("Invoice"), "{err}");
+        assert!(!tmp.path().join("generated/a.ts").exists(), "nothing is written");
+    }
+
+    #[test]
+    fn control_a_backend_with_browser_storage_compiles_it() {
+        let tmp = tempfile::tempdir().expect("tempdir");
+        let options = GenerateOptions { copy_template: false, clean: false, ..Default::default() };
+        generate_from_oir(&module_with_local_entity(), tmp.path(), &fixture_shell("generated"), &CapabilityBackend { browser_storage: true }, &options)
+            .expect("compiles");
+        assert!(tmp.path().join("generated/a.ts").exists());
     }
 
     fn fixture_shell(generated_dir: &'static str) -> BaseShell {

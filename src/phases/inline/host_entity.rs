@@ -102,6 +102,7 @@ mod tests {
                     .as_deref()
                     .filter(|e| *e == frame.name)
                     .map(|_| frame),
+                &orbital_core::effects::Residence::of_entities([frame]),
             )
         };
         assert_eq!(mode("Pure"), DispatchMode::HybridClientOnly);

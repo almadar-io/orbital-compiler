@@ -228,6 +228,9 @@ pub struct EmbeddedOperator {
     /// Execution site of an effect operator (`client`/`server`/`any`); absent on pure ones. Pinned to `orbital_core::effects::runs_on` by `tests/runs_on_drift.rs`.
     #[serde(rename = "runsOn", default)]
     pub runs_on: Option<String>,
+    /// Argument naming a data effect's target entity; the effect runs where that entity's rows live. Pinned to `orbital_core::effects::ENTITY_ARGS` by `tests/runs_on_drift.rs`.
+    #[serde(rename = "entityArgPosition", default)]
+    pub entity_arg_position: Option<usize>,
 }
 
 /// Metadata for an operator category.
@@ -880,6 +883,7 @@ pub const BINDING_CONTEXT_RULES: &[(&str, &[&str])] = &[
             // context because render-ui is validated here.
             "pages",
             "currentTheme",
+            "locale",
             "event",
             "prevEvents",
             "prevStates",
@@ -1121,6 +1125,7 @@ mod tests {
                     "callsitePayload",
                     "pages",
                     "currentTheme",
+                    "locale",
                     "event",
                     "prevEvents",
                     "prevStates",

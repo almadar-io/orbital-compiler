@@ -1260,6 +1260,7 @@ mod array_into_record_tests {
             properties: None,
             type_when: None,
             entity,
+            projected_from: None,
         }]
     }
 

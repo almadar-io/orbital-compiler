@@ -41,6 +41,22 @@ pub enum ErrorCode {
     EntityInvalidFieldName,
     /// Persistent entity missing collection property
     EntityMissingCollection,
+    /// `local` on a non-persistent entity (ORB_E_LOCAL_REQUIRES_PERSISTENT)
+    EntityLocalRequiresPersistent,
+    /// `mock` seeding on an entity that is not `local` (ORB_E_MOCK_SEED_NOT_LOCAL)
+    EntityMockSeedNotLocal,
+    /// Both `mock` seeding and written-out `instances` (ORB_E_SEED_SOURCE_CONFLICT)
+    EntitySeedSourceConflict,
+    /// `[identity]` entity declared `local` (ORB_E_IDENTITY_LOCAL)
+    EntityIdentityLocal,
+    /// A written-out row with an unknown field, a missing required field, or (local) no id (ORB_E_INSTANCE_INVALID)
+    EntityInstanceInvalid,
+    /// `instances <lang>` on an entity whose rows are not browser-stored (ORB_E_LOCALE_INSTANCES_NOT_LOCAL)
+    EntityLocaleInstancesNotLocal,
+    /// `instances <lang>` for a locale the app does not declare, or for its default locale (ORB_E_LOCALE_INSTANCES_UNKNOWN_LOCALE)
+    EntityLocaleInstancesUnknownLocale,
+    /// Locale rows written without the default `instances`, or missing a declared locale (ORB_E_LOCALE_INSTANCES_INCOMPLETE)
+    EntityLocaleInstancesIncomplete,
     /// Relation target entity doesn't exist
     EntityInvalidRelation,
     /// Enum field has no values
@@ -533,6 +549,8 @@ pub enum ErrorCode {
     // =========================================================================
     /// Duplicate entity name across orbitals
     CrossOrbitalDuplicateEntity,
+    /// One transition's data effects touch both browser-stored and server-stored entities (ORB_X_MIXED_RESIDENCE)
+    CrossMixedResidence,
     /// Event listener without matching emitter
     CrossOrbitalOrphanListener,
     /// Event emitted but never listened to
@@ -1209,6 +1227,14 @@ impl ErrorCode {
             ErrorCode::EntityDuplicateField => "ORB_E_DUPLICATE_FIELD",
             ErrorCode::EntityInvalidFieldName => "ORB_E_INVALID_FIELD_NAME",
             ErrorCode::EntityMissingCollection => "ORB_E_MISSING_COLLECTION",
+            ErrorCode::EntityLocalRequiresPersistent => "ORB_E_LOCAL_REQUIRES_PERSISTENT",
+            ErrorCode::EntityMockSeedNotLocal => "ORB_E_MOCK_SEED_NOT_LOCAL",
+            ErrorCode::EntitySeedSourceConflict => "ORB_E_SEED_SOURCE_CONFLICT",
+            ErrorCode::EntityIdentityLocal => "ORB_E_IDENTITY_LOCAL",
+            ErrorCode::EntityInstanceInvalid => "ORB_E_INSTANCE_INVALID",
+            ErrorCode::EntityLocaleInstancesNotLocal => "ORB_E_LOCALE_INSTANCES_NOT_LOCAL",
+            ErrorCode::EntityLocaleInstancesUnknownLocale => "ORB_E_LOCALE_INSTANCES_UNKNOWN_LOCALE",
+            ErrorCode::EntityLocaleInstancesIncomplete => "ORB_E_LOCALE_INSTANCES_INCOMPLETE",
             ErrorCode::EntityInvalidRelation => "ORB_E_INVALID_RELATION",
             ErrorCode::EntityEmptyEnumValues => "ORB_E_EMPTY_ENUM_VALUES",
             ErrorCode::EntitySemanticValueInvalid => "ORB_E_SEMANTIC_VALUE_INVALID",
@@ -1363,6 +1389,7 @@ impl ErrorCode {
 
             // Cross-Orbital
             ErrorCode::CrossOrbitalDuplicateEntity => "ORB_X_DUPLICATE_ENTITY",
+            ErrorCode::CrossMixedResidence => "ORB_X_MIXED_RESIDENCE",
             ErrorCode::CrossOrbitalOrphanListener => "ORB_X_ORPHAN_LISTENER",
             ErrorCode::CrossOrbitalUnusedEmission => "ORB_X_UNUSED_EMISSION",
             ErrorCode::EmitUnroutedToHandler => "ORB_EMIT_UNROUTED_TO_HANDLER",
@@ -1551,6 +1578,14 @@ impl ErrorCode {
             | ErrorCode::EntityDuplicateField
             | ErrorCode::EntityInvalidFieldName
             | ErrorCode::EntityMissingCollection
+            | ErrorCode::EntityLocalRequiresPersistent
+            | ErrorCode::EntityMockSeedNotLocal
+            | ErrorCode::EntitySeedSourceConflict
+            | ErrorCode::EntityIdentityLocal
+            | ErrorCode::EntityInstanceInvalid
+            | ErrorCode::EntityLocaleInstancesNotLocal
+            | ErrorCode::EntityLocaleInstancesUnknownLocale
+            | ErrorCode::EntityLocaleInstancesIncomplete
             | ErrorCode::EntityInvalidRelation
             | ErrorCode::EntityEmptyEnumValues
             | ErrorCode::EntitySemanticValueInvalid
@@ -1705,7 +1740,8 @@ impl ErrorCode {
             | ErrorCode::ServiceUnknownType
             | ErrorCode::ServiceInvalidIntegrator => "service",
 
-            ErrorCode::CrossOrbitalDuplicateEntity
+            ErrorCode::CrossMixedResidence
+            | ErrorCode::CrossOrbitalDuplicateEntity
             | ErrorCode::CrossOrbitalOrphanListener
             | ErrorCode::CrossOrbitalUnusedEmission
             | ErrorCode::EmitUnroutedToHandler

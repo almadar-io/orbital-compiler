@@ -1061,13 +1061,8 @@ pub(super) fn forwarded_sibling_config_from(
 /// orbital import in the schema, as opposed to `embedder_chain`/
 /// `orbital_config`/`upstream_*`, each scoped to the one import/trait doing
 /// the resolving. Used by the orbital-import splice
-/// (`rewrite_trait_config_page_paths`, Gap (D)) to tell "this trait's own
-/// literal page-path data, safe to remap onto this import's local paths"
-/// (any other rung) apart from "the consumer's own unrelated, possibly
-/// multi-orbital data that happened to reach this trait via a bare
-/// `@config.<knob>` forward" (schema_config) — rewriting the latter by
-/// literal string match risks stomping an unrelated sibling's href that
-/// coincidentally equals this import's upstream path.
+/// (`rewrite_role_literals_in_config_lists`) to leave the consumer's own,
+/// possibly multi-orbital data alone.
 #[allow(clippy::too_many_arguments)]
 pub(super) fn forwarded_sibling_config_from_tracked(
     declared: Option<&HashMap<String, ConfigField>>,
@@ -2713,6 +2708,7 @@ mod entity_id_reader_tests {
             properties: None,
             type_when: None,
             entity: None,
+            projected_from: None,
         }
     }
 

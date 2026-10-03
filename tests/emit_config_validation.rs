@@ -47,6 +47,9 @@ fn schema_with_effects(
     let entity = EntityDefinition {
         shared: false,
         identity: false,
+        local: false,
+        seed_mock: false,
+        locale_instances: None,
         read_policy: None,
         create_policy: None,
         update_policy: None,
@@ -71,6 +74,7 @@ fn schema_with_effects(
             intrinsic: None,
             description: None,
             synonyms: None,
+            projected_from: None,
         }],
         instances: None,
         id: None,
@@ -125,6 +129,9 @@ fn schema_with_effects(
     };
 
     OrbitalSchema {
+        public_dir: None,
+        locales: None,
+        lazy_pages: None,
         theme: None,
         name: "TestApp".to_string(),
         version: Some("0.1.0".to_string()),

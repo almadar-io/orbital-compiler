@@ -265,6 +265,34 @@ pub(crate) fn validate_page_reachability(schema: &OrbitalSchema) -> ValidationRe
         }
     }
 
+    for (k, lazy) in schema.lazy_pages.iter().flatten().enumerate() {
+        if lazy.path.split('/').any(|segment| segment.starts_with(':')) {
+            continue;
+        }
+        let reached = signals.hrefs.contains(&lazy.path)
+            || signals.navigate_targets.contains(&lazy.path)
+            || signals
+                .navigate_targets
+                .iter()
+                .any(|target| target.len() > 1 && lazy.path.starts_with(target.as_str()));
+        if !reached {
+            result.add_error(
+                ValidationError::error(
+                    ErrorCode::PageUnreachable,
+                    format!("lazyPages[{k}]"),
+                    format!(
+                        "page '{}' is declared but appears in no link, navItems entry or navigate effect",
+                        lazy.path
+                    ),
+                )
+                .with_suggestion(format!(
+                    "add an href to a nav/footer/link component, or a navigate effect, targeting '{}', or remove the `uses lazy` page if nothing should reach it",
+                    lazy.path
+                )),
+            );
+        }
+    }
+
     result
 }
 
@@ -873,6 +901,45 @@ mod tests {
             ]
         }))
         .expect("reachability fixture must deserialize")
+    }
+
+    fn with_lazy_pages(mut schema: OrbitalSchema, paths: &[&str]) -> OrbitalSchema {
+        schema.lazy_pages = Some(
+            paths
+                .iter()
+                .map(|p| orbital_core::schema::LazyPage {
+                    path: p.to_string(),
+                    orbital: "BlogPost".into(),
+                    orb_ref: "lazy/BlogPost.orb".into(),
+                })
+                .collect(),
+        );
+        schema
+    }
+
+    #[test]
+    fn a_lazy_page_nothing_links_to_is_unreachable() {
+        let schema = with_lazy_pages(
+            schema_for_reachability(layout_trait_with_nav_href_array(&["/"]), serde_json::json!([
+                { "name": "HomePage", "path": "/", "traits": [ { "ref": "AppLayout" } ] }
+            ])),
+            &["/blog/why"],
+        );
+        assert_eq!(
+            reachability_messages(&schema),
+            vec!["page '/blog/why' is declared but appears in no link, navItems entry or navigate effect".to_string()]
+        );
+    }
+
+    #[test]
+    fn control_a_linked_lazy_page_is_reachable() {
+        let schema = with_lazy_pages(
+            schema_for_reachability(layout_trait_with_nav_href_array(&["/", "/blog/why"]), serde_json::json!([
+                { "name": "HomePage", "path": "/", "traits": [ { "ref": "AppLayout" } ] }
+            ])),
+            &["/blog/why"],
+        );
+        assert!(reachability_messages(&schema).is_empty());
     }
 
     fn reachability_messages(schema: &OrbitalSchema) -> Vec<String> {

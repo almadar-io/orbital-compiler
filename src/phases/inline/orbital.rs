@@ -1070,18 +1070,13 @@ pub(crate) fn resolve_orbital_reference(
         // JSX-hoisted render's `columns: @config.columns` resolving to its
         // embedder's declared array) that still names a PRE-rename field —
         // this trait's own field rewrite already ran, earlier in this same
-        // loop iteration, before the forward existed. Same "moved past the
-        // forward" fix (D) already applies to page paths, applied here to
-        // field renames — see `rewrite_entity_fields_in_config`'s doc.
+        // loop iteration, before the forward existed — see
+        // `rewrite_entity_fields_in_config`'s doc.
         if !field_subs.is_empty() {
             if let Some(cfg) = td.config.as_mut() {
                 rewrite_entity_fields_in_config(cfg, &field_subs);
             }
         }
-        // (D) config-held page-path literals (e.g. an AppLayout's
-        // `navItems[].href`) sit outside the navigate-effect surface above —
-        // moved here, after the config forward, per (i) above.
-        rewrite_trait_config_page_paths(td, &nav_path_map, &schema_only_keys);
         rewrite_role_literals_in_config_lists(td, &role_fields, &roles, &schema_only_keys);
         if let Some(events) = obj.events.as_ref() {
             rename_events_in_trait(td, events, &subs);
@@ -1655,8 +1650,6 @@ fn rename_entities_in_trait(
 /// `columns: @config.columns` forward pulled in `[{field: hourlyRate, key:
 /// hourlyRate, …}]` from its embedder's declared default, verbatim,
 /// AFTER `InlineTableViewRender6` itself had already been field-rewritten —
-/// exactly the ordering `rewrite_trait_config_page_paths` was already
-/// moved past the forward to fix for page paths; this is that same fix for
 /// field renames). Idempotent — re-running it on already-correct config is
 /// a no-op — so calling it twice in the loop is safe.
 fn rewrite_entity_fields_in_config(
@@ -1885,6 +1878,11 @@ fn rename_relation_targets_in_fields(
             if let Some(to) = entity_subs.get(&rel.entity) {
                 rel.entity = to.clone();
                 rel.entity_id = entity_ids.get(to).cloned();
+            }
+        }
+        if let Some(projection) = f.projected_from.as_mut() {
+            if let Some(to) = entity_subs.get(&projection.type_name) {
+                projection.type_name = to.clone();
             }
         }
         if let Some(items) = f.items.as_mut() {
@@ -2413,70 +2411,6 @@ fn rewrite_trait_navigate_targets(td: &mut TraitDefinition, path_map: &HashMap<S
         for tick in ticks.iter_mut() {
             for e in tick.effects.iter_mut() {
                 rewrite_navigate_targets(e, path_map);
-            }
-        }
-    }
-}
-
-/// Gap (D): rewrite a config-default STRING that EXACTLY equals an upstream
-/// page path to its local remapped path — the config-held twin of
-/// `rewrite_navigate_targets`'s literal-page-path rewrite, for values like an
-/// `AppLayout`'s `navItems[].href` that hold a bare upstream path OUTSIDE any
-/// `(navigate …)` s-expression (`std-notes.lolo:278-290`). Exact-match only —
-/// a string that merely CONTAINS a path (e.g. a sentence mentioning "/notes"
-/// in prose) is left alone; recurses through arrays/objects only, since a
-/// bare page path never appears anywhere else in an s-expression tree.
-fn rewrite_config_page_paths(expr: &mut SExpression, path_map: &HashMap<String, String>) {
-    match expr {
-        SExpression::String(s) => {
-            if let Some(to) = path_map.get(s.as_str()) {
-                *s = to.clone();
-            }
-        }
-        SExpression::Array(items) => {
-            for item in items.iter_mut() {
-                rewrite_config_page_paths(item, path_map);
-            }
-        }
-        SExpression::Object(map) => {
-            for v in map.values_mut() {
-                rewrite_config_page_paths(v, path_map);
-            }
-        }
-        _ => {}
-    }
-}
-
-/// Apply {@link rewrite_config_page_paths} across every declared config
-/// field's default value on one trait — but skip a field named in
-/// `schema_only_keys`: its value didn't come from anywhere scoped to THIS
-/// import (an embedder, the imported orbital's own `config {}`, or a §B4-R5
-/// upstream rung), it fell all the way through to `schema_config` — the
-/// CONSUMER's single app-level `config {}`, shared by every orbital import
-/// in the schema. `std-notes.lolo`'s own literal `navItems` (the case this
-/// rewrite exists for) resolves from the orbital's own config and is never
-/// in this set, so it's still rewritten as before. Without the exclusion,
-/// e.g. `project-friday.lolo`'s single shared `navItems` reaching every
-/// AppLayout via `navItems: @config.navItems` got its WHOLE shared
-/// structure walked and exact-string-matched against just this one import's
-/// upstream path, so an unrelated sibling nav entry whose href happened to
-/// equal it (two different imports each naming a page `/pipeline`) silently
-/// got stomped too — a page-path collision, not a rename.
-fn rewrite_trait_config_page_paths(
-    td: &mut TraitDefinition,
-    path_map: &HashMap<String, String>,
-    schema_only_keys: &HashSet<String>,
-) {
-    if path_map.is_empty() {
-        return;
-    }
-    if let Some(cfg) = td.config.as_mut() {
-        for (key, f) in cfg.iter_mut() {
-            if schema_only_keys.contains(key) {
-                continue;
-            }
-            if let Some(default) = f.default.as_mut() {
-                rewrite_config_page_paths(default, path_map);
             }
         }
     }
@@ -3865,6 +3799,7 @@ mod tests {
     ) -> (OrbitalSchema, HashMap<String, serde_json::Value>) {
         let mut consumer = pre.clone();
         consumer.uses = Some(vec![UseDeclaration {
+            lazy: None,
             from: STAGE_B_UPSTREAM_FROM.to_string(),
             alias: "Up".to_string(),
             config: None,
@@ -3899,6 +3834,9 @@ mod tests {
             orbitals.push(owner);
         }
         let schema = OrbitalSchema {
+            public_dir: None,
+            locales: None,
+            lazy_pages: None,
             name: consumer_name,
             version: None,
             description: None,
@@ -3986,6 +3924,7 @@ mod tests {
         // copy) so `expected.uses` in the parity fixture isn't spuriously
         // absent relative to the input `schema` the JS twin resolves.
         orbital.uses = Some(vec![UseDeclaration {
+            lazy: None,
             from: STAGE_B_UPSTREAM_FROM.to_string(),
             alias: "Up".to_string(),
             config: None,
@@ -4209,6 +4148,7 @@ mod tests {
         let ctx = stage_b_ctx();
         let mut orbital = consumer_orbital("Local");
         orbital.uses = Some(vec![UseDeclaration {
+            lazy: None,
             from: STAGE_B_UPSTREAM_FROM.to_string(),
             alias: "Up".to_string(),
             config: None,
@@ -4546,12 +4486,10 @@ mod tests {
         );
     }
 
-    /// Page-path rewrite must happen AFTER the config forward (planning
-    /// find i): `AppLayoutTrait.navItems` only HOLDS its literal `href`
-    /// once `@config.navItems` resolves against the orbital's own default —
-    /// rewriting page paths first (the old order) would have missed it.
+    /// A forwarded `navItems` holding an upstream page path is config data:
+    /// the `pages` remap leaves it verbatim.
     #[test]
-    fn page_path_rewrite_happens_after_the_config_forward() {
+    fn forwarded_config_page_path_is_not_rewritten_by_the_pages_remap() {
         let ctx = stage_b_ctx();
         let mut orbital = consumer_orbital("Local");
         let mut pages = HashMap::new();
@@ -4596,8 +4534,8 @@ mod tests {
             .and_then(|f| f.default.clone())
             .expect("navItems default resolved");
         let blob = serde_json::to_string(&nav_items).unwrap();
-        assert!(blob.contains("/local-main"), "{blob}");
-        assert!(!blob.contains("\"/main\""), "{blob}");
+        assert!(blob.contains("\"/main\""), "{blob}");
+        assert!(!blob.contains("/local-main"), "{blob}");
     }
 
     /// Every surviving embedder forwards its OWN knob to the shared
@@ -4720,6 +4658,7 @@ mod tests {
         // result keeps it — set it here to match `stage_b_fixture_inputs`'s
         // synthesized `schema` copy.
         orbital.uses = Some(vec![UseDeclaration {
+            lazy: None,
             from: STAGE_B_UPSTREAM_FROM.to_string(),
             alias: "Up".to_string(),
             config: None,

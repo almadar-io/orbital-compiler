@@ -127,6 +127,9 @@ mod tests {
 
     fn create_minimal_schema() -> OrbitalSchema {
         OrbitalSchema {
+            public_dir: None,
+            locales: None,
+            lazy_pages: None,
             theme: None,
             name: "TestApp".to_string(),
             version: Some("1.0.0".to_string()),
@@ -141,6 +144,9 @@ mod tests {
                 entity: EntityRef::Inline(EntityDefinition {
                     shared: false,
                     identity: false,
+                    local: false,
+                    seed_mock: false,
+                    locale_instances: None,
                     read_policy: None,
                     create_policy: None,
                     update_policy: None,
@@ -194,6 +200,9 @@ mod tests {
             entity: EntityRef::Inline(EntityDefinition {
                 shared: false,
                 identity: false,
+                local: false,
+                seed_mock: false,
+                locale_instances: None,
                 read_policy: None,
                 create_policy: None,
                 update_policy: None,
@@ -240,6 +249,7 @@ mod tests {
                 intrinsic: None,
                 description: None,
                 synonyms: None,
+                projected_from: None,
             });
         }
 
@@ -282,6 +292,7 @@ mod tests {
                 intrinsic: None,
                 description: None,
                 synonyms: None,
+                projected_from: None,
             });
         }
 
@@ -340,11 +351,13 @@ mod tests {
                     intrinsic: None,
                     description: None,
                     synonyms: None,
+                    projected_from: None,
                 })),
                 properties: None,
                 intrinsic: None,
                 description: None,
                 synonyms: None,
+                projected_from: None,
             });
         }
 

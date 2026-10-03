@@ -21,7 +21,7 @@
 //! never a guess.
 
 use crate::pattern_registry::get_props_schema;
-use orbital_core::effects::runs_on::{runs_on, RunsOn};
+use orbital_core::effects::runs_on::RunsOn;
 use orbital_core::ir::{AwaitRender, SkeletonNode, SkeletonShape, SKELETON_VARIANTS};
 use orbital_core::schema::{
     ConfigField, OrbitalSchema, SExpression, StringOrArray, TraitDefinition, TraitReference,
@@ -42,10 +42,19 @@ pub fn predict_await_renders(schema: &OrbitalSchema) -> AwaitRenderMap {
         })
         .collect();
 
+    let residence = orbital_core::effects::Residence::of_entities(schema.orbitals.iter().flat_map(|o| {
+        std::iter::once(&o.entity)
+            .chain(o.auxiliary_entities.iter().flatten())
+            .filter_map(|e| match e {
+                orbital_core::schema::EntityRef::Inline(def) => Some(def),
+                _ => None,
+            })
+    }));
     let mut out = AwaitRenderMap::new();
     for seed in &traits {
         for (idx, transition) in seed.state_machine.transitions.iter().enumerate() {
-            let success_events = server_success_events(transition.effects.as_deref().unwrap_or(&[]));
+            let success_events =
+                server_success_events(transition.effects.as_deref().unwrap_or(&[]), &residence);
             if success_events.is_empty() {
                 continue;
             }
@@ -125,13 +134,14 @@ fn op(expr: &SExpression) -> Option<&str> {
     }
 }
 
-/// `success` event names of every `runsOn: server` effect, at any nesting depth.
-fn server_success_events(effects: &[SExpression]) -> Vec<String> {
+/// `success` event names of every server-run effect, at any nesting depth. A data
+/// effect on a browser-stored entity runs locally, so it awaits no server render.
+fn server_success_events(effects: &[SExpression], residence: &orbital_core::effects::Residence) -> Vec<String> {
     let mut out = Vec::new();
     for effect in effects {
         walk(effect, &mut |e| {
             if let (Some(name), SExpression::Array(items)) = (op(e), e) {
-                if runs_on(name) == RunsOn::Server {
+                if orbital_core::effects::effect_site(name, &items[1..], residence) == RunsOn::Server {
                     for arg in items.iter().skip(1) {
                         if let Some(success) = emit_success(arg) {
                             if !out.contains(&success) {
@@ -336,6 +346,19 @@ mod tests {
         ]), serde_json::json!([]))]));
         let p = predict_await_renders(&s);
         assert_eq!(p.get(&("Browse".to_string(), 0)).unwrap(), &vec![AwaitRender { trait_name: "Browse".into(), slot: "main".into(), skeleton: shape("grid") }]);
+    }
+
+    #[test]
+    fn a_fetch_of_a_browser_stored_entity_predicts_no_server_skeleton() {
+        let mut s = schema(serde_json::json!([trait_def("Browse", serde_json::json!([
+            { "from": "idle", "to": "loading", "event": "INIT", "effects": [["fetch", "Item", { "emit": { "success": "LOADED" } }]] },
+            { "from": "loading", "to": "ready", "event": "LOADED", "effects": [["render-ui", "main", { "type": "data-grid", "skeleton": "grid" }]] }
+        ]), serde_json::json!([]))]));
+        if let orbital_core::schema::EntityRef::Inline(item) = &mut s.orbitals[0].entity {
+            item.local = true;
+            item.collection = Some("items".into());
+        }
+        assert!(predict_await_renders(&s).get(&("Browse".to_string(), 0)).is_none());
     }
 
     #[test]

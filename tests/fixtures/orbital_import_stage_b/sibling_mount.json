@@ -254,7 +254,7 @@
           "navItems": {
             "default": [
               {
-                "href": "/local-main",
+                "href": "/main",
                 "label": "Main"
               }
             ],

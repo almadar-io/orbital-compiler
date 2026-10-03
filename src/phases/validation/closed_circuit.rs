@@ -4120,6 +4120,9 @@ mod tests {
 
     fn schema_of(orbital: Orbital) -> OrbitalSchema {
         OrbitalSchema {
+            public_dir: None,
+            locales: None,
+            lazy_pages: None,
             theme: None,
             name: "TestApp".to_string(),
             version: Some("1.0.0".to_string()),

@@ -33,6 +33,7 @@ fn payload_field(name: &str, ty: &str, required: bool) -> PayloadField {
         properties: None,
         type_when: None,
         entity: None,
+        projected_from: None,
     }
 }
 
@@ -59,6 +60,9 @@ fn task_entity() -> EntityDefinition {
     EntityDefinition {
         shared: false,
         identity: false,
+        local: false,
+        seed_mock: false,
+        locale_instances: None,
         read_policy: None,
         create_policy: None,
         update_policy: None,
@@ -83,6 +87,7 @@ fn task_entity() -> EntityDefinition {
             intrinsic: None,
             description: None,
             synonyms: None,
+            projected_from: None,
         }],
         instances: None,
         id: None,
@@ -165,6 +170,9 @@ fn schema_for_f1(strict_target_event: &str) -> OrbitalSchema {
     };
 
     OrbitalSchema {
+        public_dir: None,
+        locales: None,
+        lazy_pages: None,
         theme: None,
         name: "TestApp".to_string(),
         version: Some("0.1.0".to_string()),
@@ -336,6 +344,9 @@ fn schema_with_two_emitters_and_listener_source(
         config: None,
     };
     OrbitalSchema {
+        public_dir: None,
+        locales: None,
+        lazy_pages: None,
         theme: None,
         name: "TestApp".to_string(),
         version: Some("0.1.0".to_string()),
@@ -709,6 +720,9 @@ fn schema_with_render_action_payload(
         config: None,
     };
     OrbitalSchema {
+        public_dir: None,
+        locales: None,
+        lazy_pages: None,
         theme: None,
         name: "TestApp".to_string(),
         version: Some("0.1.0".to_string()),
@@ -803,6 +817,9 @@ fn schema_with_default(field: FieldDefinition) -> OrbitalSchema {
     let entity = EntityDefinition {
         shared: false,
         identity: false,
+        local: false,
+        seed_mock: false,
+        locale_instances: None,
         read_policy: None,
         create_policy: None,
         update_policy: None,
@@ -828,6 +845,7 @@ fn schema_with_default(field: FieldDefinition) -> OrbitalSchema {
                 intrinsic: None,
                 description: None,
                 synonyms: None,
+                projected_from: None,
             },
             field,
         ],
@@ -835,6 +853,9 @@ fn schema_with_default(field: FieldDefinition) -> OrbitalSchema {
         id: None,
     };
     OrbitalSchema {
+        public_dir: None,
+        locales: None,
+        lazy_pages: None,
         theme: None,
         name: "TestApp".to_string(),
         version: Some("0.1.0".to_string()),
@@ -884,6 +905,7 @@ fn f3_default_outside_values_errors() {
         intrinsic: None,
         description: None,
         synonyms: None,
+        projected_from: None,
     };
     let schema = schema_with_default(field);
     let result = run(&schema);
@@ -916,6 +938,7 @@ fn f3_default_inside_values_passes() {
         intrinsic: None,
         description: None,
         synonyms: None,
+        projected_from: None,
     };
     let schema = schema_with_default(field);
     let result = run(&schema);
@@ -949,6 +972,7 @@ fn f3_no_values_passes() {
         intrinsic: None,
         description: None,
         synonyms: None,
+        projected_from: None,
     };
     let schema = schema_with_default(field);
     let result = run(&schema);

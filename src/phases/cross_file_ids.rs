@@ -518,6 +518,9 @@ mod tests {
             instances: None,
             shared: false,
             identity: false,
+            local: false,
+            seed_mock: false,
+            locale_instances: None,
             read_policy: None,
             create_policy: None,
             update_policy: None,
@@ -551,6 +554,7 @@ mod tests {
             name: "Consumer".to_string(),
             id: None,
             uses: Some(vec![UseDeclaration {
+                lazy: None,
                 from: from.to_string(),
                 alias: alias.to_string(),
                 config: None,
@@ -578,6 +582,9 @@ mod tests {
     #[test]
     fn resolves_dotted_trait_ref_from_imported_ledger() {
         let mut schema = OrbitalSchema {
+            public_dir: None,
+            locales: None,
+            lazy_pages: None,
             theme: None,
             name: "Test".to_string(),
             version: None,
@@ -618,6 +625,9 @@ mod tests {
     #[test]
     fn leaves_unresolvable_dotted_ref_none_without_panic() {
         let mut schema = OrbitalSchema {
+            public_dir: None,
+            locales: None,
+            lazy_pages: None,
             theme: None,
             name: "Test".to_string(),
             version: None,
@@ -658,6 +668,9 @@ mod tests {
     #[test]
     fn leaves_unknown_alias_ref_none() {
         let mut schema = OrbitalSchema {
+            public_dir: None,
+            locales: None,
+            lazy_pages: None,
             theme: None,
             name: "Test".to_string(),
             version: None,
@@ -767,6 +780,9 @@ mod tests {
         std::fs::write(dir.path().join("frame.orb"), FRAME_ORB).expect("write frame.orb");
 
         let mut schema = OrbitalSchema {
+            public_dir: None,
+            locales: None,
+            lazy_pages: None,
             theme: None,
             name: "Test".to_string(),
             version: None,
@@ -832,6 +848,9 @@ mod tests {
         std::fs::write(dir.path().join("b.orb"), b_orb).expect("write b.orb");
 
         let mut schema = OrbitalSchema {
+            public_dir: None,
+            locales: None,
+            lazy_pages: None,
             theme: None,
             name: "Test".to_string(),
             version: None,

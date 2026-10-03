@@ -137,8 +137,9 @@ fn sibling_import_navigate_follows_the_remap_of_another_import_from_the_same_ups
         "param route prefix: {json}"
     );
     assert!(!json.contains(r#"["navigate","/channels"]"#), "{json}");
+    // A config string is data, not a page reference: the remap never rewrites it.
     assert!(
-        json.contains(r#""href":"/chat/channels""#),
+        json.contains(r#""href":"/channels""#),
         "config href: {json}"
     );
 }
