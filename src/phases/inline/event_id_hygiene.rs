@@ -63,8 +63,20 @@ pub(super) fn uniquify_instance_event_ids(schema: &mut OrbitalSchema) {
             },
         );
     }
+    // Collisions are per orbital; the ledger is the whole program's. A retired
+    // id another orbital's instance still declares keeps its row.
+    let mut still_declared: HashSet<String> = HashSet::new();
+    for orbital in schema.orbitals.iter() {
+        for_each_inline_trait(orbital, &mut |td| {
+            declared_event_ids(td, &mut |id| {
+                still_declared.insert(id.to_string());
+            });
+        });
+    }
     for id in retired_ids {
-        ledger.entries.remove(&id);
+        if !still_declared.contains(&id) {
+            ledger.entries.remove(&id);
+        }
     }
 }
 
@@ -367,6 +379,40 @@ mod tests {
             TraitReference::Inline(td) => td,
             _ => panic!("inline"),
         }
+    }
+
+    /// The collision is per orbital, the ledger is program-wide: a second
+    /// orbital whose one instance still declares the shared id keeps it, and
+    /// its listen keeps resolving through the ledger row.
+    #[test]
+    fn a_shared_id_still_declared_in_another_orbital_keeps_its_ledger_row() {
+        let mut v = two_instance_json();
+        v["orbitals"].as_array_mut().unwrap().push(json!({
+            "name": "P",
+            "entity": { "name": "Tag", "fields": [], "id": "ent_b" },
+            "traits": [{
+                "name": "TagLayout", "id": "trt_b1", "linkedEntity": "Tag",
+                "listens": [{ "event": "SEARCH", "triggers": "SEARCH", "triggersId": "evt_shared", "source": { "kind": "any" } }],
+                "stateMachine": {
+                    "states": [{ "name": "idle", "isInitial": true }],
+                    "transitions": [{ "from": "idle", "to": "idle", "event": "SEARCH", "eventId": "evt_shared" }],
+                    "events": [{ "key": "SEARCH", "id": "evt_shared" }]
+                }
+            }]
+        }));
+        let mut s = schema(v);
+        uniquify_instance_event_ids(&mut s);
+        let entries = &s.ledger.as_ref().unwrap().entries;
+        assert!(entries.contains_key("evt_shared"), "still declared by P.TagLayout");
+        let TraitReference::Inline(tag) = &s.orbitals[1].traits[0] else { panic!("inline") };
+        assert_eq!(tag.listens.as_ref().unwrap()[0].triggers_id.as_deref(), Some("evt_shared"));
+    }
+
+    #[test]
+    fn control_a_shared_id_declared_nowhere_after_hygiene_is_retired() {
+        let mut s = schema(two_instance_json());
+        uniquify_instance_event_ids(&mut s);
+        assert!(!s.ledger.as_ref().unwrap().entries.contains_key("evt_shared"));
     }
 
     #[test]

@@ -83,13 +83,31 @@ struct ReachabilitySignals {
     navigate_targets: HashSet<String>,
 }
 
+/// An href's path when it is known without evaluation: a literal string, or a
+/// `str/concat` of literal strings (an imported page's `"/ar"` + `"/blog/x"`).
+fn literal_href(expr: &SExpression) -> Option<String> {
+    let path = match expr {
+        SExpression::String(s) if !s.starts_with('@') => s.clone(),
+        SExpression::Array(items) => match items.split_first() {
+            Some((SExpression::String(op), parts)) if op == "str/concat" => parts
+                .iter()
+                .map(|p| match p {
+                    SExpression::String(s) if !s.starts_with('@') => Some(s.as_str()),
+                    _ => None,
+                })
+                .collect::<Option<String>>()?,
+            _ => return None,
+        },
+        _ => return None,
+    };
+    (!path.is_empty()).then_some(path)
+}
+
 fn collect_href_strings(expr: &SExpression, out: &mut HashSet<String>) {
     match expr {
         SExpression::Object(map) => {
-            if let Some(SExpression::String(s)) = map.get("href") {
-                if !s.is_empty() && !s.starts_with('@') {
-                    out.insert(s.clone());
-                }
+            if let Some(path) = map.get("href").and_then(literal_href) {
+                out.insert(path);
             }
             for v in map.values() {
                 collect_href_strings(v, out);
@@ -138,6 +156,15 @@ fn collect_navigate_targets(expr: &SExpression, out: &mut HashSet<String>) {
             collect_navigate_targets(v, out);
         }
     }
+}
+
+/// Every link and navigate target in `schema`, sorted; recorded on a lazy page so links between lazy pages count.
+pub(crate) fn reachability_targets(schema: &OrbitalSchema) -> Vec<String> {
+    let signals = collect_reachability_signals(schema);
+    let mut targets: Vec<String> = signals.hrefs.into_iter().chain(signals.navigate_targets).collect();
+    targets.sort();
+    targets.dedup();
+    targets
 }
 
 fn collect_reachability_signals(schema: &OrbitalSchema) -> ReachabilitySignals {
@@ -265,16 +292,38 @@ pub(crate) fn validate_page_reachability(schema: &OrbitalSchema) -> ValidationRe
         }
     }
 
-    for (k, lazy) in schema.lazy_pages.iter().flatten().enumerate() {
+    // A lazy page is reached by the program's own links, or by the links inside a lazy page that is
+    // itself reached; walk that to a fixpoint so an unreached page's links reach nothing.
+    let mut hrefs = signals.hrefs.clone();
+    let mut navigate_targets = signals.navigate_targets.clone();
+    let lazy_pages: Vec<&orbital_core::schema::LazyPage> = schema.lazy_pages.iter().flatten().collect();
+    let is_reached = |path: &str, hrefs: &HashSet<String>, targets: &HashSet<String>| {
+        hrefs.contains(path)
+            || targets.contains(path)
+            || targets.iter().any(|target| target.len() > 1 && path.starts_with(target.as_str()))
+    };
+    let mut expanded = vec![false; lazy_pages.len()];
+    loop {
+        let mut grew = false;
+        for (k, lazy) in lazy_pages.iter().enumerate() {
+            if expanded[k] || !is_reached(&lazy.path, &hrefs, &navigate_targets) {
+                continue;
+            }
+            expanded[k] = true;
+            for link in &lazy.links {
+                grew |= hrefs.insert(link.clone());
+            }
+        }
+        if !grew {
+            break;
+        }
+    }
+
+    for (k, lazy) in lazy_pages.iter().enumerate() {
         if lazy.path.split('/').any(|segment| segment.starts_with(':')) {
             continue;
         }
-        let reached = signals.hrefs.contains(&lazy.path)
-            || signals.navigate_targets.contains(&lazy.path)
-            || signals
-                .navigate_targets
-                .iter()
-                .any(|target| target.len() > 1 && lazy.path.starts_with(target.as_str()));
+        let reached = is_reached(&lazy.path, &hrefs, &navigate_targets);
         if !reached {
             result.add_error(
                 ValidationError::error(
@@ -623,6 +672,71 @@ mod tests {
         p
     }
 
+    fn href_obj(href: SExpression) -> SExpression {
+        let mut m = std::collections::HashMap::new();
+        m.insert("href".to_string(), href);
+        SExpression::Object(m.into_iter().collect())
+    }
+
+    fn concat(parts: &[SExpression]) -> SExpression {
+        let mut items = vec![SExpression::String("str/concat".to_string())];
+        items.extend(parts.iter().cloned());
+        SExpression::Array(items)
+    }
+
+    #[test]
+    fn href_built_from_literal_strings_counts_as_that_path() {
+        let mut out = HashSet::new();
+        let expr = href_obj(concat(&[
+            SExpression::String("/ar".into()),
+            SExpression::String("/blog/x".into()),
+        ]));
+        collect_href_strings(&expr, &mut out);
+        assert!(out.contains("/ar/blog/x"), "{out:?}");
+    }
+
+    #[test]
+    fn control_a_plain_string_href_still_counts() {
+        let mut out = HashSet::new();
+        collect_href_strings(&href_obj(SExpression::String("/blog".into())), &mut out);
+        assert!(out.contains("/blog"));
+    }
+
+    #[test]
+    fn edge_a_concat_with_a_binding_is_not_a_literal_path() {
+        let mut out = HashSet::new();
+        let expr = href_obj(concat(&[
+            SExpression::String("@config.pathPrefix".into()),
+            SExpression::String("/blog".into()),
+        ]));
+        collect_href_strings(&expr, &mut out);
+        assert!(out.is_empty(), "{out:?}");
+    }
+
+    #[test]
+    fn edge_a_concat_with_a_nested_expression_is_not_a_literal_path() {
+        let mut out = HashSet::new();
+        let nested = SExpression::Array(vec![
+            SExpression::String("str/upper".into()),
+            SExpression::String("/x".into()),
+        ]);
+        collect_href_strings(
+            &href_obj(concat(&[SExpression::String("/ar".into()), nested])),
+            &mut out,
+        );
+        assert!(out.is_empty(), "{out:?}");
+    }
+
+    #[test]
+    fn edge_an_empty_concat_counts_as_nothing() {
+        let mut out = HashSet::new();
+        collect_href_strings(
+            &href_obj(concat(&[SExpression::String(String::new())])),
+            &mut out,
+        );
+        assert!(out.is_empty(), "{out:?}");
+    }
+
     #[test]
     fn test_valid_page() {
         let page = create_valid_page();
@@ -911,10 +1025,66 @@ mod tests {
                     path: p.to_string(),
                     orbital: "BlogPost".into(),
                     orb_ref: "lazy/BlogPost.orb".into(),
+                    links: Vec::new(),
                 })
                 .collect(),
         );
         schema
+    }
+
+    /// Lazy pages from separate behaviors, each with the links its own resolved behavior carries.
+    fn with_linked_lazy_pages(mut schema: OrbitalSchema, pages: &[(&str, &[&str])]) -> OrbitalSchema {
+        schema.lazy_pages = Some(
+            pages
+                .iter()
+                .map(|(path, links)| orbital_core::schema::LazyPage {
+                    path: path.to_string(),
+                    orbital: format!("Doc{}", path.replace('/', "_")),
+                    orb_ref: format!("lazy/Doc{}.orb", path.replace('/', "_")),
+                    links: links.iter().map(|l| l.to_string()).collect(),
+                })
+                .collect(),
+        );
+        schema
+    }
+
+    #[test]
+    fn a_lazy_page_linked_only_from_a_reached_lazy_page_is_reachable() {
+        let schema = with_linked_lazy_pages(
+            schema_for_reachability(layout_trait_with_nav_href_array(&["/", "/docs"]), serde_json::json!([
+                { "name": "HomePage", "path": "/", "traits": [ { "ref": "AppLayout" } ] }
+            ])),
+            &[("/docs", &["/docs/intro"]), ("/docs/intro", &["/docs/traits"]), ("/docs/traits", &[])],
+        );
+        assert!(reachability_messages(&schema).is_empty());
+    }
+
+    #[test]
+    fn control_links_inside_an_unreached_lazy_page_reach_nothing() {
+        let schema = with_linked_lazy_pages(
+            schema_for_reachability(layout_trait_with_nav_href_array(&["/"]), serde_json::json!([
+                { "name": "HomePage", "path": "/", "traits": [ { "ref": "AppLayout" } ] }
+            ])),
+            &[("/docs", &["/docs/intro"]), ("/docs/intro", &[])],
+        );
+        assert_eq!(
+            reachability_messages(&schema),
+            vec![
+                "page '/docs' is declared but appears in no link, navItems entry or navigate effect".to_string(),
+                "page '/docs/intro' is declared but appears in no link, navItems entry or navigate effect".to_string(),
+            ]
+        );
+    }
+
+    #[test]
+    fn edge_a_lazy_page_linking_to_itself_does_not_reach_itself() {
+        let schema = with_linked_lazy_pages(
+            schema_for_reachability(layout_trait_with_nav_href_array(&["/"]), serde_json::json!([
+                { "name": "HomePage", "path": "/", "traits": [ { "ref": "AppLayout" } ] }
+            ])),
+            &[("/docs", &["/docs"])],
+        );
+        assert_eq!(reachability_messages(&schema).len(), 1);
     }
 
     #[test]

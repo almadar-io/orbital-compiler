@@ -541,6 +541,27 @@ pub(crate) fn resolve_orbital_reference(
     // whatever is left unresolved).
     if let Some(folded) = folded_config.as_mut() {
         forward_consumer_app_knobs(folded, consumer_schema_config);
+        // G-CROSS-046: a consumer address (`Local.UpstreamTrait.EVENT`) in the
+        // override lands on the sibling import's materialized trait HERE, so the
+        // copy every `@config.<knob>` effect substitutes below is already final.
+        super::rewrite::map_config_fields_event_addresses(folded, &mut |event, source| {
+            let ListenSource::Orbital { orbital, trait_name, .. } = source else {
+                return None;
+            };
+            let (final_name, final_id) = listen_source_targets
+                .values()
+                .find(|info| info.local_name == *orbital)
+                .and_then(|info| info.trait_subs.get(trait_name.as_str()))?;
+            Some((
+                event.to_string(),
+                ListenSource::Orbital {
+                    orbital: orbital.clone(),
+                    trait_name: final_name.clone(),
+                    orbital_id: None,
+                    trait_id: Some(final_id.clone()),
+                },
+            ))
+        });
     }
 
     // 4. Ids: every cloned node (trait AND entity) gets a FRESH derived id

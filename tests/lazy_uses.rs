@@ -110,7 +110,7 @@ fn a_lazy_reference_is_split_out_and_its_pages_stay_on_the_importer() {
     assert_eq!(schema.orbitals.iter().map(|o| o.name.as_str()).collect::<Vec<_>>(), vec!["Home"]);
     assert_eq!(
         schema.lazy_pages,
-        Some(vec![LazyPage { path: "/blog/why".into(), orbital: "BlogWhy".into(), orb_ref: "lazy/BlogWhy.orb".into() }])
+        Some(vec![LazyPage { path: "/blog/why".into(), orbital: "BlogWhy".into(), orb_ref: "lazy/BlogWhy.orb".into(), links: Vec::new() }])
     );
     assert_eq!(lazy.len(), 1);
     assert_eq!(lazy[0].orb_ref, "lazy/BlogWhy.orb");

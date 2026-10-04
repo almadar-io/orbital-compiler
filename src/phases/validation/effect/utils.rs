@@ -328,6 +328,7 @@ mod tests {
         ]);
 
         let service_registry = crate::embedded::ServiceRegistryData {
+            runtimes: HashMap::new(),
             actions: [(
                 "email".to_string(),
                 ["send".to_string()].into_iter().collect(),
@@ -364,6 +365,7 @@ mod tests {
         ]);
 
         let service_registry = crate::embedded::ServiceRegistryData {
+            runtimes: HashMap::new(),
             actions: [(
                 "email".to_string(),
                 ["send".to_string()].into_iter().collect(),
@@ -400,6 +402,7 @@ mod tests {
         ]);
 
         let service_registry = crate::embedded::ServiceRegistryData {
+            runtimes: HashMap::new(),
             actions: [("migration".to_string(), HashSet::new())]
                 .into_iter()
                 .collect(),
@@ -429,8 +432,10 @@ mod tests {
             name: name.to_string(),
             param_type: ty.to_string(),
             required,
+            items: None,
         };
         ServiceRegistryData {
+            runtimes: HashMap::new(),
             actions: [(
                 "email".to_string(),
                 ["send".to_string()].into_iter().collect(),
@@ -494,6 +499,7 @@ mod tests {
         ]);
         let known_services: HashSet<String> = ["api".to_string()].into_iter().collect();
         let registry = crate::embedded::ServiceRegistryData {
+            runtimes: HashMap::new(),
             actions: [(
                 "email".to_string(),
                 ["send".to_string()].into_iter().collect(),

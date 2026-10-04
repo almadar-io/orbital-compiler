@@ -83,13 +83,16 @@ pub(crate) fn map_event_typed_members(
     }
 }
 
+/// Maps a split event address to its replacement event and source, or `None` to keep it.
+pub(crate) type AddressMap<'a> = dyn FnMut(&str, &ListenSource) -> Option<(String, ListenSource)> + 'a;
+
 /// Apply `f` to every `listens`-addressed event value (`Trait.EVENT`,
 /// `Orbital.Trait.EVENT`) in a trait's config — scalar `event` knobs and
 /// `event`-typed struct members alike. `f` gets the split address and returns
 /// the replacement source and event, or `None` to keep it.
 pub(crate) fn map_config_event_addresses(
     td: &mut TraitDefinition,
-    f: &mut dyn FnMut(&str, &ListenSource) -> Option<(String, ListenSource)>,
+    f: &mut AddressMap<'_>,
 ) {
     use orbital_core::schema::{join_event_address, split_event_address};
     let mut on_value = |current: &str| -> Option<String> {
@@ -105,6 +108,33 @@ pub(crate) fn map_config_event_addresses(
     let Some(cfg) = td.config.as_mut() else {
         return;
     };
+    map_fields_event_values(cfg, &mut on_value);
+}
+
+/// [`map_config_event_addresses`] over a bare knob map: an import's folded
+/// orbital-level config, before its values are substituted into effects.
+pub(crate) fn map_config_fields_event_addresses(
+    cfg: &mut HashMap<String, orbital_core::schema::ConfigField>,
+    f: &mut AddressMap<'_>,
+) {
+    use orbital_core::schema::{join_event_address, split_event_address};
+    let mut on_value = |current: &str| -> Option<String> {
+        let (event, Some(source)) = split_event_address(current) else {
+            return None;
+        };
+        if matches!(source, ListenSource::Any) {
+            return None;
+        }
+        let (event, source) = f(&event, &source)?;
+        Some(join_event_address(&event, Some(&source)))
+    };
+    map_fields_event_values(cfg, &mut on_value);
+}
+
+fn map_fields_event_values(
+    cfg: &mut HashMap<String, orbital_core::schema::ConfigField>,
+    on_value: &mut dyn FnMut(&str) -> Option<String>,
+) {
     for field in cfg.values_mut() {
         if field.field_type == "event" {
             if let Some(SExpression::String(current)) = field.default.as_mut() {
@@ -118,7 +148,7 @@ pub(crate) fn map_config_event_addresses(
         if field.items.is_some() {
             let items = field.items.clone();
             if let Some(default) = field.default.as_mut() {
-                map_event_typed_members(default, items.as_deref(), &mut on_value);
+                map_event_typed_members(default, items.as_deref(), &mut *on_value);
             }
         }
     }

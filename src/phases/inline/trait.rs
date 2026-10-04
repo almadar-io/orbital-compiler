@@ -66,6 +66,7 @@ pub(crate) fn apply_overrides_to_trait(
     defer_config_subst: bool,
     recorder: &mut Vec<ConfigProvenanceRecord>,
 ) {
+    let original_name = trait_def.name.clone();
     // 1. Direct name rename — applied first so all subsequent operations
     //    refer to the final name in any error messages.
     if let Some(new_name) = name {
@@ -190,6 +191,30 @@ pub(crate) fn apply_overrides_to_trait(
     //     the still-raw "@config.action" token. Gated the same as the body
     //     substitution below: a deferred import load leaves the reference
     //     live for the downstream consumer's own resolution pass.
+    // An `event` knob addressing the atom's OWN trait (`PageWatch.ITEM_FOUND`)
+    // follows the rename and the event renames before `@config` reaches effects.
+    if trait_def.name != original_name {
+        let new_name = trait_def.name.clone();
+        super::rewrite::map_config_event_addresses(trait_def, &mut |event, source| {
+            let orbital_core::schema::ListenSource::Trait { trait_name, .. } = source else {
+                return None;
+            };
+            if *trait_name != original_name {
+                return None;
+            }
+            let event = event_subs
+                .get(event)
+                .cloned()
+                .unwrap_or_else(|| event.to_string());
+            Some((
+                event,
+                orbital_core::schema::ListenSource::Trait {
+                    trait_name: new_name.clone(),
+                    trait_id: None,
+                },
+            ))
+        });
+    }
     let mut effective_config: HashMap<String, SExpression> = HashMap::new();
     if let Some(declared) = trait_def.config.as_ref() {
         for (k, field) in declared.iter() {

@@ -128,6 +128,95 @@ fn is_event_address(value: &str) -> bool {
     !value.starts_with('@') && value.contains('.')
 }
 
+/// G-CROSS-046 rung 2: an `EventAddress`-typed member of a `call-service` arg
+/// (per the services registry) must name a declared external input of the
+/// resolved program. A value baked into an effect is checked here, where an
+/// import rename that missed the copy would otherwise reach runtime.
+fn validate_call_service_event_addresses(
+    schema: &OrbitalSchema,
+    registry: &crate::embedded::ServiceRegistryData,
+    refs: &EventRefIndex,
+    result: &mut ValidationResult,
+) {
+    for (oi, orbital) in schema.orbitals.iter().enumerate() {
+        for tr in &orbital.traits {
+            let TraitReference::Inline(td) = tr else { continue };
+            for (ti, transition) in td.state_machine.transitions.iter().enumerate() {
+                for (ei, effect) in transition.effects.iter().flatten().enumerate() {
+                    let path = format!(
+                        "orbitals[{oi}].traits[{}].stateMachine.transitions[{ti}].effects[{ei}]",
+                        td.name
+                    );
+                    check_event_address_args(effect, &orbital.name, &path, registry, refs, result);
+                }
+            }
+            for (ki, tick) in td.ticks.iter().flatten().enumerate() {
+                for (ei, effect) in tick.effects.iter().enumerate() {
+                    let path = format!("orbitals[{oi}].traits[{}].ticks[{ki}].effects[{ei}]", td.name);
+                    check_event_address_args(effect, &orbital.name, &path, registry, refs, result);
+                }
+            }
+        }
+    }
+}
+
+fn check_event_address_args(
+    expr: &SExpression,
+    owner_orbital: &str,
+    path: &str,
+    registry: &crate::embedded::ServiceRegistryData,
+    refs: &EventRefIndex,
+    result: &mut ValidationResult,
+) {
+    use crate::embedded::EVENT_ADDRESS_TYPE;
+    let SExpression::Array(items) = expr else { return };
+    let head = match items.first() {
+        Some(SExpression::String(h)) => h.as_str(),
+        _ => "",
+    };
+    if head == "call-service" || head == "call_service" {
+        if let (Some(SExpression::String(service)), Some(SExpression::String(action)), Some(SExpression::Object(args))) =
+            (items.get(1), items.get(2), items.get(3))
+        {
+            let declared = registry.params.get(service).and_then(|a| a.get(action));
+            for param in declared.into_iter().flatten() {
+                if param.param_type == EVENT_ADDRESS_TYPE {
+                    if let Some(SExpression::String(value)) = args.get(&param.name) {
+                        if !(value.starts_with('@') || value.starts_with('?') || value.starts_with('$')) {
+                            let at = format!("{path}.{}", param.name);
+                            for err in refs.check(value, owner_orbital, &at) {
+                                result.add_error(err);
+                            }
+                        }
+                    }
+                    continue;
+                }
+                let Some(members) = param.items.as_ref() else { continue };
+                let Some(SExpression::Array(entries)) = args.get(&param.name) else { continue };
+                for (k, entry) in entries.iter().enumerate() {
+                    let SExpression::Object(fields) = entry else { continue };
+                    for (member, decl) in &members.properties {
+                        if decl.member_type != EVENT_ADDRESS_TYPE {
+                            continue;
+                        }
+                        let Some(SExpression::String(value)) = fields.get(member) else { continue };
+                        if value.starts_with('@') || value.starts_with('?') || value.starts_with('$') {
+                            continue;
+                        }
+                        let at = format!("{path}.{}[{k}].{member}", param.name);
+                        for err in refs.check(value, owner_orbital, &at) {
+                            result.add_error(err);
+                        }
+                    }
+                }
+            }
+        }
+    }
+    for child in items.iter().skip(1) {
+        check_event_address_args(child, owner_orbital, path, registry, refs, result);
+    }
+}
+
 /// Every inline trait of the program, by `(orbital, trait)`, with its
 /// declared external inputs — what a `listens`-addressed event value resolves
 /// against.
@@ -527,6 +616,7 @@ pub fn validate_all_config_types(schema: &OrbitalSchema, ctx: &mut ValidationCon
     validate_embed_config_forward_multi_referrer(schema, &mut result);
 
     let event_refs = EventRefIndex::of(schema);
+    validate_call_service_event_addresses(schema, &ctx.service_registry, &event_refs, &mut result);
     for (oi, orbital) in schema.orbitals.iter().enumerate() {
         // Phase B (SCAN-EVENT-KNOB-2): orbital-wide event vocabulary for
         // struct-field `event` acceptance (e.g. `ItemAction.event`) — every
@@ -3586,5 +3676,168 @@ mod skip_required_members_tests {
             "an entity default must not enforce struct-member completeness: {:?}",
             result.errors
         );
+    }
+}
+
+#[cfg(test)]
+mod effect_event_address_tests {
+    use super::*;
+
+    const REGISTRY: &str = r#"{ "services": { "llm": { "actions": [ { "name": "call-tools", "params": [
+        { "name": "tools", "type": "AgentTool[]", "required": true,
+          "items": { "type": "AgentTool", "properties": { "event": { "type": "EventAddress" }, "read": { "type": "string" } } } }
+    ] } ] } } }"#;
+
+    fn run(tool_event: &str) -> ValidationResult {
+        let json = format!(
+            r#"{{
+      "name": "t", "version": "1.0.0",
+      "orbitals": [
+        {{
+          "name": "TaskOrbital",
+          "entity": {{ "name": "Task", "persistence": "persistent", "fields": [] }},
+          "traits": [{{
+            "name": "TaskOrbitalTaskPersistor",
+            "stateMachine": {{
+              "states": [{{ "name": "idle", "isInitial": true }}],
+              "events": [{{ "key": "DO_CREATE", "external": true }}],
+              "transitions": [{{ "from": "idle", "to": "idle", "event": "DO_CREATE", "effects": [] }}]
+            }}
+          }}]
+        }},
+        {{
+          "name": "AssistantOrbital",
+          "entity": {{ "name": "AssistantState", "persistence": "runtime", "fields": [] }},
+          "traits": [{{
+            "name": "AssistantLoop",
+            "stateMachine": {{
+              "states": [{{ "name": "idle", "isInitial": true }}],
+              "events": [{{ "key": "ASK" }}],
+              "transitions": [{{ "from": "idle", "to": "idle", "event": "ASK", "effects": [
+                ["call-service", "llm", "call-tools", {{ "tools": [ {{ "event": "{tool_event}" }}, {{ "read": "Task" }} ] }}]
+              ] }}]
+            }}
+          }}]
+        }}
+      ]
+    }}"#
+        );
+        let schema: OrbitalSchema = serde_json::from_str(&json).expect("fixture parses");
+        let mut ctx = ValidationContext::new();
+        ctx.service_registry = crate::embedded::parse_service_registry_data(REGISTRY).expect("registry parses");
+        validate_all_config_types(&schema, &mut ctx);
+        ctx.result
+    }
+
+    fn address_errors(result: &ValidationResult) -> Vec<&ValidationError> {
+        result
+            .errors
+            .iter()
+            .filter(|e| matches!(e.code, ErrorCode::TraitEventRefUnresolved | ErrorCode::TraitEventRefNotExternalInput))
+            .collect()
+    }
+
+    #[test]
+    fn a_stale_address_in_a_call_service_arg_is_an_error() {
+        let result = run("TaskOrbital.TaskPersistor.DO_CREATE");
+        let errs = address_errors(&result);
+        assert_eq!(errs.len(), 1, "{:?}", result.errors);
+        assert_eq!(errs[0].code, ErrorCode::TraitEventRefUnresolved);
+    }
+
+    #[test]
+    fn control_an_address_naming_a_declared_input_passes() {
+        let result = run("TaskOrbital.TaskOrbitalTaskPersistor.DO_CREATE");
+        assert!(address_errors(&result).is_empty(), "{:?}", result.errors);
+    }
+
+    #[test]
+    fn edge_an_undeclared_event_on_a_real_trait_is_not_an_external_input() {
+        let result = run("TaskOrbital.TaskOrbitalTaskPersistor.DO_DELETE");
+        let errs = address_errors(&result);
+        assert_eq!(errs.len(), 1, "{:?}", result.errors);
+        assert_eq!(errs[0].code, ErrorCode::TraitEventRefNotExternalInput);
+    }
+
+    #[test]
+    fn edge_a_binding_is_left_for_runtime() {
+        let result = run("@config.tool");
+        assert!(address_errors(&result).is_empty(), "{:?}", result.errors);
+    }
+}
+
+#[cfg(test)]
+mod top_level_event_address_tests {
+    use super::*;
+
+    const REGISTRY: &str = r#"{ "services": { "page": { "actions": [ { "name": "watch", "params": [
+        { "name": "match", "type": "string", "required": true },
+        { "name": "event", "type": "EventAddress", "required": true }
+    ] }, { "name": "query", "params": [
+        { "name": "event", "type": "string", "required": false }
+    ] } ] } } }"#;
+
+    fn run(action: &str, event: &str) -> ValidationResult {
+        let json = format!(
+            r#"{{
+      "name": "t", "version": "1.0.0",
+      "orbitals": [{{
+        "name": "FeedOrbital",
+        "entity": {{ "name": "Seen", "persistence": "runtime", "fields": [] }},
+        "traits": [{{
+          "name": "FeedWatch",
+          "stateMachine": {{
+            "states": [{{ "name": "idle", "isInitial": true }}],
+            "events": [{{ "key": "INIT" }}, {{ "key": "ITEM_SEEN", "external": true }}],
+            "transitions": [
+              {{ "from": "idle", "to": "idle", "event": "INIT", "effects": [
+                ["call-service", "page", "{action}", {{ "match": "https://example.com/*", "event": "{event}" }}]
+              ] }},
+              {{ "from": "idle", "to": "idle", "event": "ITEM_SEEN", "effects": [] }}
+            ]
+          }}
+        }}]
+      }}]
+    }}"#
+        );
+        let schema: OrbitalSchema = serde_json::from_str(&json).expect("fixture parses");
+        let mut ctx = ValidationContext::new();
+        ctx.service_registry = crate::embedded::parse_service_registry_data(REGISTRY).expect("registry parses");
+        validate_all_config_types(&schema, &mut ctx);
+        ctx.result
+    }
+
+    fn codes(result: &ValidationResult) -> Vec<ErrorCode> {
+        result
+            .errors
+            .iter()
+            .filter(|e| matches!(e.code, ErrorCode::TraitEventRefUnresolved | ErrorCode::TraitEventRefNotExternalInput))
+            .map(|e| e.code)
+            .collect()
+    }
+
+    #[test]
+    fn a_misspelled_top_level_event_address_is_not_an_external_input() {
+        assert_eq!(codes(&run("watch", "FeedWatch.ITEM_SEN")), vec![ErrorCode::TraitEventRefNotExternalInput]);
+    }
+
+    #[test]
+    fn control_a_top_level_address_naming_a_declared_input_passes() {
+        assert!(codes(&run("watch", "FeedWatch.ITEM_SEEN")).is_empty());
+    }
+
+    #[test]
+    fn edge_a_bare_top_level_event_is_rejected_like_every_event_address() {
+        assert_eq!(codes(&run("watch", "ITEM_SEEN")), vec![ErrorCode::TraitEventRefUnresolved]);
+    }
+
+    #[test]
+    fn edge_a_binding_is_left_for_runtime() {
+        assert!(codes(&run("watch", "@config.itemEvent")).is_empty());
+    }
+
+    #[test]
+    fn control_a_param_not_typed_event_address_is_not_checked() {
+        assert!(codes(&run("query", "NOT_AN_INPUT")).is_empty());
     }
 }

@@ -409,27 +409,7 @@ pub fn inline_schema_with_orbital_diagnostics(
     // entity is excluded by construction, which is exactly right: its real
     // entity doesn't exist yet at this point, so it can't be a valid
     // `entities {}` target anyway.
-    let mut consumer_entity_ids: HashMap<String, String> = schema
-        .orbitals
-        .iter()
-        .flat_map(|o| {
-            let primary = match &o.entity {
-                EntityRef::Inline(def) => Some((def.name.clone(), def.id.clone())),
-                _ => None,
-            };
-            let aux: Vec<(String, Option<String>)> = o
-                .auxiliary_entities
-                .iter()
-                .flatten()
-                .filter_map(|e| match e {
-                    EntityRef::Inline(def) => Some((def.name.clone(), def.id.clone())),
-                    _ => None,
-                })
-                .collect();
-            primary.into_iter().chain(aux)
-        })
-        .filter_map(|(name, id)| id.map(|id| (name, id)))
-        .collect();
+    let mut consumer_entity_ids: HashMap<String, String> = inline_entity_ids(&schema.orbitals);
 
     // (B) fix: the build above excludes reference-form orbitals BY
     // CONSTRUCTION (their real primary entity doesn't exist until THEY
@@ -1012,6 +992,31 @@ fn precompute_reference_form_listen_targets(
     (out, by_local)
 }
 
+/// Entity name → id over a batch of orbitals' inline entities (primary and
+/// auxiliary); a reference-form orbital's unresolved placeholder doesn't count.
+fn inline_entity_ids(orbitals: &[Orbital]) -> HashMap<String, String> {
+    orbitals
+        .iter()
+        .flat_map(|o| {
+            let primary = match &o.entity {
+                EntityRef::Inline(def) => Some((def.name.clone(), def.id.clone())),
+                _ => None,
+            };
+            let aux: Vec<(String, Option<String>)> = o
+                .auxiliary_entities
+                .iter()
+                .flatten()
+                .filter_map(|e| match e {
+                    EntityRef::Inline(def) => Some((def.name.clone(), def.id.clone())),
+                    _ => None,
+                })
+                .collect();
+            primary.into_iter().chain(aux)
+        })
+        .filter_map(|(name, id)| id.map(|id| (name, id)))
+        .collect()
+}
+
 /// Each reference-form orbital by its LOCAL name → upstream trait name →
 /// (materialized name, derived id).
 type ImportedTraitNames = HashMap<String, HashMap<String, (String, String)>>;
@@ -1335,6 +1340,9 @@ fn inline_orbital(
             chain,
             Some(&loaded_source),
         );
+        // The alias's own `entities {}` targets name ITS entities, never the
+        // importing program's.
+        let nested_entity_ids = inline_entity_ids(&inlined_orbitals);
         for inlined_orbital in &mut inlined_orbitals {
             inline_orbital(
                 inlined_orbital,
@@ -1346,7 +1354,7 @@ fn inline_orbital(
                 recorder,
                 config_diagnostics,
                 loaded_schema_config.as_ref(),
-                consumer_entity_ids,
+                &nested_entity_ids,
                 &nested_listen_source_targets,
                 orbital_ref_diagnostics,
                 uses_config_diagnostics,

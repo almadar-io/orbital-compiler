@@ -125,6 +125,7 @@ pub fn record_lazy_pages(
     artifact: &LazyArtifact,
     resolved: &OrbitalSchema,
 ) -> Result<(), InlineError> {
+    let links = crate::phases::validation::page::reachability_targets(resolved);
     let pages: Vec<LazyPage> = resolved
         .orbitals
         .iter()
@@ -134,6 +135,7 @@ pub fn record_lazy_pages(
                 path: def.path.clone(),
                 orbital: artifact.orbital.clone(),
                 orb_ref: artifact.orb_ref.clone(),
+                links: links.clone(),
             }),
             _ => None,
         })
