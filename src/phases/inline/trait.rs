@@ -1153,6 +1153,8 @@ pub(super) fn forwarded_sibling_config_from_tracked(
                         forwarded.nested_forwarded_from.push(token);
                     }
                 }
+                // The tokens arrive in the value's map-walk order; sorted, the output is reproducible.
+                forwarded.nested_forwarded_from.sort();
                 out.insert(key.clone(), forwarded);
             }
             _ => {}

@@ -1122,7 +1122,12 @@ fn data_effect_entities<'a>(expr: &'a SExpression, out: &mut Vec<&'a str>) {
     match expr {
         SExpression::Array(arr) => {
             if let Some(op) = arr.first().and_then(|h| h.as_str()) {
-                if let Some(entity) = orbital_core::effects::entity_arg(op)
+                let batch_ops = (op == "persist")
+                    .then(|| orbital_core::effects::persist_batch::batch_ops_arg(&arr[1..]))
+                    .flatten();
+                if let Some(ops) = batch_ops {
+                    out.extend(orbital_core::effects::persist_batch::batch_entities(ops));
+                } else if let Some(entity) = orbital_core::effects::entity_arg(op)
                     .and_then(|i| arr.get(i + 1))
                     .and_then(|a| a.as_str())
                     .filter(|e| !e.starts_with('@'))
@@ -1295,9 +1300,18 @@ fn validate_trait_local_dispatch(
 fn expr_persists_entity_create_or_update(expr: &SExpression, entity_name: &str) -> bool {
     match expr {
         SExpression::Array(items) => {
-            let hit = matches!(items.first(), Some(SExpression::String(op)) if op == "persist")
-                && matches!(items.get(1), Some(SExpression::String(action)) if action == "create" || action == "update")
-                && matches!(items.get(2), Some(SExpression::String(name)) if name == entity_name);
+            let is_persist = matches!(items.first(), Some(SExpression::String(op)) if op == "persist");
+            let batch_hit = is_persist
+                && matches!(items.get(1), Some(SExpression::String(a)) if a == "batch")
+                && items.get(2).is_some_and(|ops| {
+                    orbital_core::effects::persist_batch::batch_writes(ops)
+                        .iter()
+                        .any(|w| w.entity == entity_name && w.action != "delete")
+                });
+            let hit = batch_hit
+                || (is_persist
+                    && matches!(items.get(1), Some(SExpression::String(action)) if action == "create" || action == "update")
+                    && matches!(items.get(2), Some(SExpression::String(name)) if name == entity_name));
             hit || items
                 .iter()
                 .any(|item| expr_persists_entity_create_or_update(item, entity_name))

@@ -43,6 +43,7 @@ pub(crate) fn success_emit_key(op_name: &str) -> &'static str {
 fn call_site_entity(op_name: &str, args: &[SExpression]) -> Option<String> {
     let idx = match op_name {
         "persist" => match args.get(1) {
+            Some(SExpression::String(op)) if op == "batch" => return None,
             Some(SExpression::String(op)) if op == "create" || op == "update" || op == "delete" => {
                 2
             }
@@ -61,7 +62,9 @@ fn call_site_entity(op_name: &str, args: &[SExpression]) -> Option<String> {
 /// (which carries no action keyword and must not be guessed at).
 fn persist_action(args: &[SExpression]) -> Option<&str> {
     match args.get(1) {
-        Some(SExpression::String(op)) if op == "create" || op == "update" || op == "delete" => {
+        Some(SExpression::String(op))
+            if op == "create" || op == "update" || op == "delete" || op == "batch" =>
+        {
             Some(op.as_str())
         }
         _ => None,
@@ -83,6 +86,7 @@ fn narrow<'a>(
         let idx = match persist_action(args)? {
             "create" | "update" => 0,
             "delete" => 1,
+            "batch" => 2,
             _ => return None,
         };
         return of.get(idx);

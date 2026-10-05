@@ -1119,3 +1119,82 @@ fn map_of_scalar_accepts_mixed_primitive_values_but_not_nesting() {
         shape_errors(&schema2)
     );
 }
+
+// ============================================================================
+// G-ORB-093: an `SExpr`-typed slot holds any S-expression — atoms included
+// ============================================================================
+
+fn sexpr_args_slot(item_type: FieldType, default: Vec<SExpression>) -> OrbitalSchema {
+    let item = FieldDefinition {
+        mock: None,
+        merged_from: None,
+        name: None,
+        field_type: item_type,
+        required: None,
+        primary_key: None,
+        unique: None,
+        default: None,
+        values: None,
+        relation: None,
+        items: None,
+        properties: None,
+        intrinsic: None,
+        description: None,
+        synonyms: None,
+        projected_from: None,
+    };
+    let mut config = HashMap::new();
+    config.insert(
+        "args".to_string(),
+        ConfigField {
+            field_type: "[SExpr]".to_string(),
+            default: Some(SExpression::Array(default)),
+            label: None,
+            description: None,
+            synonyms: None,
+            tier: None,
+            values: None,
+            items: Some(Box::new(item)),
+            properties: None,
+            required: None,
+            ref_id: None,
+            forwarded_from: None,
+            nested_forwarded_from: Vec::new(),
+            payload_for: None,
+            projected_from: None,
+        },
+    );
+    schema_with_config(config)
+}
+
+fn persist_args() -> Vec<SExpression> {
+    let mut opts = HashMap::new();
+    opts.insert("emit".to_string(), SExpression::String("SAVED".to_string()));
+    vec![
+        SExpression::String("update".to_string()),
+        SExpression::String("Order".to_string()),
+        SExpression::String("@entity".to_string()),
+        SExpression::Number(0.0),
+        SExpression::Bool(true),
+        SExpression::Null,
+        SExpression::Array(vec![SExpression::String("object/get".to_string()), SExpression::String("@entity".to_string()), SExpression::String("total".to_string())]),
+        SExpression::Object(opts),
+    ]
+}
+
+#[test]
+fn sexpr_slot_accepts_atoms_lists_and_option_objects() {
+    let errs = shape_errors(&sexpr_args_slot(FieldType::SExpr, persist_args()));
+    assert!(errs.is_empty(), "every S-expression form is legal in an SExpr slot: {errs:?}");
+}
+
+#[test]
+fn control_shapeless_object_slot_still_rejects_a_string() {
+    let errs = shape_errors(&sexpr_args_slot(FieldType::Object, vec![SExpression::String("update".to_string())]));
+    assert_eq!(errs.len(), 1, "an object slot still wants an object: {errs:?}");
+}
+
+#[test]
+fn edge_empty_sexpr_list_is_legal() {
+    assert!(shape_errors(&sexpr_args_slot(FieldType::SExpr, vec![])).is_empty());
+}

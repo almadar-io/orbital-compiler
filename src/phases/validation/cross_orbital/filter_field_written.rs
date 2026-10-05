@@ -183,6 +183,41 @@ fn fold_comparand_literal(comparand: &SExpression, trait_def: &TraitDefinition) 
     Evaluator::new().evaluate(comparand, &ctx).ok()
 }
 
+/// Record one persist write (`create`/`update`) of `entity` with data argument `data`.
+fn record_persist_write(
+    action: &str,
+    entity: &str,
+    data: Option<&SExpression>,
+    entity_defs: &HashMap<&str, &EntityDefinition>,
+    written: &mut HashMap<String, HashSet<String>>,
+    any_data: &mut HashSet<String>,
+    created: &mut HashSet<String>,
+) {
+    if action == "create" {
+        created.insert(entity.to_string());
+    }
+    match data {
+        Some(SExpression::Object(data)) => {
+            written
+                .entry(entity.to_string())
+                .or_default()
+                .extend(data.keys().cloned());
+        }
+        Some(_) => match entity_defs.get(entity) {
+            Some(def) => {
+                written
+                    .entry(entity.to_string())
+                    .or_default()
+                    .extend(def.fields.iter().filter_map(|f| f.name.clone()));
+            }
+            None => {
+                any_data.insert(entity.to_string());
+            }
+        },
+        None => {}
+    }
+}
+
 /// Walk `expr` for every `(persist create|update <entity> <data>)` node
 /// (through `if`/`do`), recording which fields each call's data LITERAL
 /// supplies. A bare/computed data arg supplies the columns the written
@@ -197,36 +232,21 @@ fn collect_persist_writes(
 ) {
     match expr {
         SExpression::Array(items) => {
-            if let (
-                Some(SExpression::String(op)),
-                Some(SExpression::String(action)),
-                Some(SExpression::String(entity)),
-            ) = (items.first(), items.get(1), items.get(2))
+            if let (Some(SExpression::String(op)), Some(SExpression::String(action))) =
+                (items.first(), items.get(1))
             {
-                if op == "persist" && (action == "create" || action == "update") {
-                    if action == "create" {
-                        created.insert(entity.clone());
-                    }
-                    match items.get(3) {
-                        Some(SExpression::Object(data)) => {
-                            written
-                                .entry(entity.clone())
-                                .or_default()
-                                .extend(data.keys().cloned());
+                if op == "persist" && action == "batch" {
+                    if let Some(ops) = items.get(2) {
+                        for w in orbital_core::effects::persist_batch::batch_writes(ops) {
+                            if w.action != "delete" {
+                                record_persist_write(w.action, w.entity, w.data, entity_defs, written, any_data, created);
+                            }
                         }
-                        Some(_) => match entity_defs.get(entity.as_str()) {
-                            Some(def) => {
-                                written
-                                    .entry(entity.clone())
-                                    .or_default()
-                                    .extend(def.fields.iter().filter_map(|f| f.name.clone()));
-                            }
-                            None => {
-                                any_data.insert(entity.clone());
-                            }
-                        },
-                        None => {}
                     }
+                } else if let (Some(SExpression::String(entity)), true) =
+                    (items.get(2), op == "persist" && (action == "create" || action == "update"))
+                {
+                    record_persist_write(action, entity, items.get(3), entity_defs, written, any_data, created);
                 }
             }
             for item in items {

@@ -545,7 +545,12 @@ pub(crate) fn resolve_orbital_reference(
         // override lands on the sibling import's materialized trait HERE, so the
         // copy every `@config.<knob>` effect substitutes below is already final.
         super::rewrite::map_config_fields_event_addresses(folded, &mut |event, source| {
-            let ListenSource::Orbital { orbital, trait_name, .. } = source else {
+            let ListenSource::Orbital {
+                orbital,
+                trait_name,
+                ..
+            } = source
+            else {
                 return None;
             };
             let (final_name, final_id) = listen_source_targets
@@ -636,7 +641,7 @@ pub(crate) fn resolve_orbital_reference(
     // A name that never appears here (only ever an aux, materialized by
     // descent from some atom) is "aux-only" and auto-clones below.
     let mut primary_anywhere: HashSet<String> = HashSet::new();
-    for other in &alias_entry.orbitals {
+    for other in alias_entry.orbitals.iter() {
         if other.name == upstream.name {
             continue;
         }
@@ -800,6 +805,13 @@ pub(crate) fn resolve_orbital_reference(
     }
     let mut entity_unknown_key: Vec<String> = Vec::new();
     let mut entity_target_unknown: Vec<(String, String)> = Vec::new();
+    // A target a sibling orbital declares, promised by this orbital's `expects entity`:
+    // the rename applies (no id — an expectation carries none); compose link-checks it.
+    let expected_targets: HashSet<String> =
+        crate::phases::validation::expectations::expected_entity_names(orbital)
+            .into_iter()
+            .map(str::to_string)
+            .collect();
     if let Some(entities_map) = obj.entities.as_ref() {
         for (up_name, target) in entities_map {
             if !upstream_universe.contains(up_name.as_str()) {
@@ -813,6 +825,9 @@ pub(crate) fn resolve_orbital_reference(
                     // a special case downstream, it is one more `subs` entry.
                     subs.insert(up_name.clone(), target.clone());
                     entity_ids.insert(target.clone(), id.clone());
+                }
+                None if expected_targets.contains(target) => {
+                    subs.insert(up_name.clone(), target.clone());
                 }
                 None => entity_target_unknown.push((up_name.clone(), target.clone())),
             }
@@ -2258,9 +2273,8 @@ fn rename_events_in_trait(
         let kept_final_names: HashSet<&str> = subs.values().map(String::as_str).collect();
         super::rewrite::map_config_event_addresses(td, &mut |event, source| {
             let trait_name = match source {
-                ListenSource::Trait { trait_name, .. } | ListenSource::Orbital { trait_name, .. } => {
-                    trait_name
-                }
+                ListenSource::Trait { trait_name, .. }
+                | ListenSource::Orbital { trait_name, .. } => trait_name,
                 ListenSource::Any => return None,
             };
             if !kept_final_names.contains(trait_name.as_str()) {
@@ -4996,7 +5010,10 @@ mod tests {
             None,
         )
         .expect("resolves");
-        let cfg = kept_trait(&orbital, "LocalA").config.clone().unwrap_or_default();
+        let cfg = kept_trait(&orbital, "LocalA")
+            .config
+            .clone()
+            .unwrap_or_default();
         let one = match cfg.get("one").and_then(|f| f.default.clone()) {
             Some(SExpression::String(s)) => s,
             other => panic!("one: {other:?}"),

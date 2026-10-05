@@ -580,7 +580,7 @@ pub(crate) fn collect_trait_events(
 
 /// Events a trait can PRODUCE beyond `emits` declarations and literal
 /// `["emit", X]` arrays:
-/// - effect emit-option maps — `emit: {success|failure|on_message|on_change}`
+/// - effect emit-option maps — `emit: {success|failure|on_message|on_change|cancelled}`
 ///   on fetch / persist / call-service / ref / os-watch / set effects (the
 ///   slot-key universe of every `validate_emit_config` call site), plus the
 ///   string form `emit: "X"`. A `[lifecycle]` fetcher whose only production
@@ -618,7 +618,7 @@ pub(crate) fn collect_effect_produced_events(trait_def: &TraitDefinition) -> Has
                         for (slot, slot_v) in emit_map {
                             if matches!(
                                 slot.as_str(),
-                                "success" | "failure" | "on_message" | "on_change"
+                                "success" | "failure" | "on_message" | "on_change" | "cancelled"
                             ) {
                                 credit(slot_v, out);
                             }

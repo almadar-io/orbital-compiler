@@ -9,7 +9,7 @@ use orbital_core::behavior_packages::BehaviorPackage;
 use orbital_core::schema::OrbitalSchema;
 use std::cell::RefCell;
 use std::collections::hash_map::Entry;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 use std::sync::OnceLock;
 use thiserror::Error;
@@ -193,7 +193,11 @@ impl ImportChain {
     /// Try to add a path to the chain
     /// Returns error message if circular, None if OK
     pub fn push(&mut self, path: &Path) -> Option<String> {
-        let canonical = canonical_key(path);
+        self.push_canonical(canonical_key(path))
+    }
+
+    /// [`Self::push`] for a path the caller already canonicalized.
+    fn push_canonical(&mut self, canonical: PathBuf) -> Option<String> {
         if self.chain.contains(&canonical) {
             let cycle: Vec<String> = self
                 .chain
@@ -283,6 +287,22 @@ impl LoaderCache {
             Entry::Occupied(e) => Ok(e.into_mut()),
             Entry::Vacant(e) => Ok(e.insert(produce()?)),
         }
+    }
+
+    /// [`Self::get_or_insert_with`] for a path the caller already canonicalized.
+    fn get_or_insert_canonical<E>(
+        &mut self,
+        canonical: PathBuf,
+        produce: impl FnOnce() -> Result<LoadedSchema, E>,
+    ) -> Result<&LoadedSchema, E> {
+        match self.cache.entry(canonical) {
+            Entry::Occupied(e) => Ok(e.into_mut()),
+            Entry::Vacant(e) => Ok(e.insert(produce()?)),
+        }
+    }
+
+    fn get_canonical(&self, canonical: &Path) -> Option<&LoadedSchema> {
+        self.cache.get(canonical)
     }
 
     pub fn clear(&mut self) {
@@ -420,6 +440,16 @@ pub struct ExternalOrbitalLoader {
     /// on every `uses` hop made a project-friday resolve spend >80% of its
     /// wall time in `stat`/`getdirentries` (Compiler_Gaps §106).
     registry_index: RefCell<HashMap<PathBuf, HashMap<String, PathBuf>>>,
+    /// Path → canonical path, once per path: canonicalizing on every load was
+    /// a large share of a big program's resolve (`getattrlist` per hop).
+    canonical_paths: HashMap<PathBuf, PathBuf>,
+    /// The files the current schema loaded. One loader can serve several
+    /// schemas (a program and its lazy behaviors); `begin_schema` resets this,
+    /// so per-schema answers (message sources, ledger union) see only them.
+    touched: HashSet<PathBuf>,
+    /// Open recordings: every load is also added to each, so a caller can learn
+    /// which files one piece of work loaded (`begin_recording`/`end_recording`).
+    recordings: Vec<HashSet<PathBuf>>,
 }
 
 impl ExternalOrbitalLoader {
@@ -428,7 +458,51 @@ impl ExternalOrbitalLoader {
             config,
             cache: LoaderCache::new(),
             registry_index: RefCell::new(HashMap::new()),
+            canonical_paths: HashMap::new(),
+            touched: HashSet::new(),
+            recordings: Vec::new(),
         }
+    }
+
+    /// Start a new schema on this loader: the files loaded so far stay cached,
+    /// but no longer count as this schema's.
+    pub fn begin_schema(&mut self) {
+        self.touched.clear();
+    }
+
+    /// Start recording which files are loaded until the matching [`Self::end_recording`].
+    pub fn begin_recording(&mut self) {
+        self.recordings.push(HashSet::new());
+    }
+
+    /// The files loaded since the matching [`Self::begin_recording`].
+    pub fn end_recording(&mut self) -> HashSet<PathBuf> {
+        self.recordings.pop().unwrap_or_default()
+    }
+
+    /// Count files as loaded by the current schema (and any open recording)
+    /// without loading them again — they come from a reused result.
+    pub fn mark_loaded(&mut self, files: &HashSet<PathBuf>) {
+        for file in files {
+            self.note_loaded(file);
+        }
+    }
+
+    fn note_loaded(&mut self, canonical: &Path) {
+        self.touched.insert(canonical.to_path_buf());
+        for recording in &mut self.recordings {
+            recording.insert(canonical.to_path_buf());
+        }
+    }
+
+    /// The canonical form of `path`, computed once per path for this loader.
+    pub fn canonical(&mut self, path: &Path) -> PathBuf {
+        if let Some(canonical) = self.canonical_paths.get(path) {
+            return canonical.clone();
+        }
+        let canonical = canonical_key(path);
+        self.canonical_paths.insert(path.to_path_buf(), canonical.clone());
+        canonical
     }
 
     /// `<name>.orb` under `root`, through the per-root index.
@@ -450,14 +524,18 @@ impl ExternalOrbitalLoader {
         import_path: &str,
         chain: &mut ImportChain,
     ) -> Result<&LoadedSchema, LoaderError> {
-        if let Some(error) = chain.push(&absolute_path) {
+        let canonical = self.canonical(&absolute_path);
+        if let Some(error) = chain.push_canonical(canonical.clone()) {
             return Err(LoaderError::CircularImport(error));
         }
-        let result = self.cache.get_or_insert_with(&absolute_path, || {
-            Self::load_file(&absolute_path, import_path)
-        });
+        let loaded = self
+            .cache
+            .get_or_insert_canonical(canonical.clone(), || Self::load_file(&absolute_path, import_path))
+            .map(|_| ());
         chain.pop();
-        result
+        loaded?;
+        self.note_loaded(&canonical);
+        Ok(self.cache.get_canonical(&canonical).expect("inserted above"))
     }
 
     /// `std/behaviors/<name>` resolution (Almadar_Behavior_Packages.md Phase
@@ -867,7 +945,7 @@ impl ExternalOrbitalLoader {
         let base = root.parent().map(canonical_key).unwrap_or_default();
         let mut sources = std::collections::BTreeMap::new();
         sources.insert(root_name.to_string(), ".".to_string());
-        for loaded in self.cache.cache.values() {
+        for loaded in self.touched.iter().filter_map(|p| self.cache.get_canonical(p)) {
             if let Some(dir) = loaded.source_path.parent() {
                 sources.insert(loaded.schema.name.clone(), relative_dir(&base, &canonical_key(dir)));
             }
@@ -882,7 +960,7 @@ impl ExternalOrbitalLoader {
     /// copied into the consumer schema.
     pub fn source_ledger_union(&self) -> HashMap<String, orbital_core::identity::LedgerEntry> {
         let mut union: HashMap<String, orbital_core::identity::LedgerEntry> = HashMap::new();
-        let schemas = self.cache.schemas();
+        let schemas = self.touched.iter().filter_map(|p| self.cache.get_canonical(p)).map(|l| &l.schema);
         for schema in schemas {
             if let Some(ledger) = &schema.ledger {
                 for (id, row) in &ledger.entries {

@@ -36,6 +36,7 @@ fn return_type_to_oir(rt: &str) -> OirType {
         "string" => OirType::String,
         "number" | "integer" => OirType::Number,
         "boolean" => OirType::Boolean,
+        "sexpr" => OirType::SExpr,
         "date" => OirType::Date,
         "datetime" => OirType::DateTime,
         "array" => OirType::Array {
@@ -115,7 +116,7 @@ pub fn infer_oir_expr_type<C: TypeCtx>(expr: &OirExpr, ctx: &C) -> OirType {
 /// / `@config.x` infers to `Json` (unknown). Used by the guard check so bare
 /// binding guards (intentional truthy checks, e.g. `@entity.running`) are
 /// never false-positive-flagged.
-struct NoBindingCtx;
+pub(crate) struct NoBindingCtx;
 impl TypeCtx for NoBindingCtx {
     fn binding_type(&self, _binding: &OirBinding) -> Option<OirType> {
         None
@@ -265,6 +266,13 @@ mod tests {
             ),
             OirType::String
         );
+    }
+
+    /// G-CROSS-041: `(quote x)` is S-expression data, not an opaque `json`.
+    #[test]
+    fn quote_infers_sexpr() {
+        let body = OirExpr::String { value: "[\">\",1,0]".into() };
+        assert_eq!(infer_oir_expr_type(&call("quote", vec![body]), &NoCtx), OirType::SExpr);
     }
 
     #[test]

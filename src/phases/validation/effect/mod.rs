@@ -19,7 +19,9 @@ mod r#ref;
 mod set;
 mod utils;
 
-pub(crate) use call_service::{validate_call_service, validate_call_service_object};
+pub(crate) use call_service::{
+    validate_call_service, validate_call_service_object, validate_cancel_calls_have_a_keyed_call,
+};
 pub(crate) use emit::{extract_emit_object_ref, validate_emit, validate_emit_config};
 pub(crate) use emit_declaration::{
     collect_declared_emits, validate_effect, validate_emit_against_declaration,
@@ -56,6 +58,7 @@ pub fn validate_all_effects(schema: &OrbitalSchema, ctx: &mut ValidationContext)
         );
         ctx.merge(result);
     }
+    ctx.merge(validate_cancel_calls_have_a_keyed_call(schema));
 }
 
 /// Validate all effects in a trait definition

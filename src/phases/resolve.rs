@@ -1538,6 +1538,7 @@ impl<'a> Resolver<'a> {
             "notify" => self.resolve_notify_effect(args),
             "log" => self.resolve_log_effect(args),
             "call-service" | "call_service" => self.resolve_call_service_effect(args),
+            "cancel-call" => self.resolve_cancel_call_effect(args),
 
             // Resource operators
             "ref" => self.resolve_ref_effect(args),
@@ -1879,7 +1880,64 @@ impl<'a> Resolver<'a> {
         }))
     }
 
+    /// `["persist", "batch", <ops>, { emit }?]`. Op tuples written out in `<ops>`
+    /// (literal list elements, or the tuple an `array/map` lambda returns) are
+    /// wrapped in the `["list", …]` literal constructor so they resolve as array
+    /// values, never as calls to a `create`/`update`/`delete` operator.
+    fn resolve_persist_batch_effect(&self, args: &[SExpression]) -> Result<OirExpr, ResolveError> {
+        use orbital_core::effects::persist_batch::{batch_entities, classify_ops, is_op_tuple, BatchOps};
+        let ops = args.get(1).ok_or_else(|| {
+            ResolveError::InvalidSExpr("persist batch requires an operations argument".to_string())
+        })?;
+        let entities: Vec<String> = batch_entities(ops).into_iter().map(str::to_string).collect();
+
+        fn as_list(tuple: &SExpression) -> SExpression {
+            let mut items = vec![SExpression::String("list".to_string())];
+            if let SExpression::Array(t) = tuple {
+                items.extend(t.iter().cloned());
+            }
+            SExpression::Array(items)
+        }
+        let mut ops_expr = ops.clone();
+        if let SExpression::Array(items) = &mut ops_expr {
+            match classify_ops(ops) {
+                BatchOps::Literal(_) => {
+                    let start = usize::from(items.first().and_then(|h| h.as_str()) == Some("list"));
+                    for element in items.iter_mut().skip(start) {
+                        if is_op_tuple(element) {
+                            *element = as_list(element);
+                        }
+                    }
+                }
+                BatchOps::Mapped(_) => {
+                    if let Some(SExpression::Array(lambda)) = items.get_mut(2) {
+                        if let Some(body) = lambda.last_mut() {
+                            *body = as_list(body);
+                        }
+                    }
+                }
+                BatchOps::Expression => {}
+            }
+        }
+                let ops_oir = self.resolve_sexpr(&ops_expr)?;
+
+        let mut emit_cfg: Option<OirEmitConfig> = None;
+        if let Some(SExpression::Object(obj)) = args.get(2) {
+            if obj.contains_key("emit") {
+                emit_cfg = self.extract_emit_config(obj)?;
+            }
+        }
+        Ok(OirExpr::effect(OirEffect::PersistBatch {
+            ops: ops_oir,
+            entities,
+            emit: emit_cfg,
+        }))
+    }
+
     fn resolve_persist_effect(&self, args: &[SExpression]) -> Result<OirExpr, ResolveError> {
+        if args.first().and_then(|a| a.as_str()) == Some("batch") {
+            return self.resolve_persist_batch_effect(args);
+        }
         // Format: ["persist", operation, entity, ...args]
         // Examples:
         //   ["persist", "create", "Task", "@payload.data"]
@@ -2367,16 +2425,21 @@ impl<'a> Resolver<'a> {
         let method =
             self.sexpr_as_str(&args[1], "(call-service …) argument 2 — the action name")?;
 
-        // Detect trailing options object carrying `emit:`. Only pulled out
-        // of the args list if it actually carries an `emit:` key — a plain
+        // Detect trailing options object carrying `emit:` and/or `key:`. Only
+        // pulled out of the args list if it carries one of them — a plain
         // trailing object is still treated as the call's args payload.
         let mut args_end = args.len();
         let mut emit_cfg: Option<OirEmitConfig> = None;
+        let mut key: Option<OirExpr> = None;
 
         if args.len() > 3 {
             if let SExpression::Object(obj) = &args[args.len() - 1] {
-                if obj.contains_key("emit") {
+                if obj.contains_key("emit") || obj.contains_key("key") {
                     emit_cfg = self.extract_emit_config(obj)?;
+                    key = match obj.get("key") {
+                        None | Some(SExpression::Null) => None,
+                        Some(k) => Some(self.resolve_sexpr(k)?),
+                    };
                     args_end -= 1;
                 }
             }
@@ -2390,12 +2453,27 @@ impl<'a> Resolver<'a> {
 
         let mut effect = OirEffect::call_service(service, method, call_args);
         if let OirEffect::CallService {
-            emit: ref mut em, ..
+            emit: ref mut em,
+            key: ref mut k,
+            ..
         } = effect
         {
             *em = emit_cfg;
+            *k = key;
         }
         Ok(OirExpr::effect(effect))
+    }
+
+    fn resolve_cancel_call_effect(&self, args: &[SExpression]) -> Result<OirExpr, ResolveError> {
+        // Format: ["cancel-call", keyExpr]
+        let [key] = args else {
+            return Err(ResolveError::InvalidSExpr(
+                "cancel-call takes exactly one argument — the key expression".to_string(),
+            ));
+        };
+        Ok(OirExpr::effect(OirEffect::cancel_call(
+            self.resolve_sexpr(key)?,
+        )))
     }
 
     fn resolve_ref_effect(&self, args: &[SExpression]) -> Result<OirExpr, ResolveError> {
@@ -2511,7 +2589,7 @@ impl<'a> Resolver<'a> {
     ///
     /// Accepts both snake_case (`on_change`, `on_message`) and camelCase
     /// (`onChange`, `onMessage`) keys — lolo-authored source uses the former;
-    /// JSON-authored `.orb` uses the latter. All four keys are optional; the
+    /// JSON-authored `.orb` uses the latter. All five keys (with `cancelled`) are optional; the
     /// validator enforces which ones are allowed per operator.
     ///
     /// Returns `None` if no `emit:` key is present, so the caller stores
@@ -2550,6 +2628,7 @@ impl<'a> Resolver<'a> {
             failure: read_str("failure")?,
             on_change,
             on_message,
+            cancelled: read_str("cancelled")?,
         };
 
         if cfg.is_empty() {
@@ -3118,6 +3197,83 @@ mod tests {
             slots.contains("modal"),
             "a render-ui nested inside a conditional must still register its slot, got: {slots:?}"
         );
+    }
+
+    fn resolved_call_service(json: &str) -> OirEffect {
+        let sexpr: SExpression = serde_json::from_str(json).expect("sexpr");
+        match resolve_sexpr_standalone(&sexpr).expect("resolve") {
+            OirExpr::Effect { effect } => *effect,
+            other => panic!("expected an effect, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn call_service_options_resolve_key_and_cancelled() {
+        let effect = resolved_call_service(
+            r#"["call-service", "llm", "classifyMany", {"items": "@entity.items"},
+                {"key": "@entity.batchId", "emit": {"success": "OK", "failure": "BAD", "cancelled": "STOPPED"}}]"#,
+        );
+        let OirEffect::CallService {
+            key, emit, args, ..
+        } = effect
+        else {
+            panic!("expected CallService");
+        };
+        assert!(matches!(key, Some(OirExpr::Binding { .. })), "{key:?}");
+        assert!(matches!(args, OirExpr::Object { .. }));
+        let emit = emit.expect("emit");
+        assert_eq!(emit.cancelled.as_deref(), Some("STOPPED"));
+        assert_eq!(emit.success.as_deref(), Some("OK"));
+    }
+
+    #[test]
+    fn call_service_key_without_emit_is_still_options_not_args() {
+        let effect = resolved_call_service(
+            r#"["call-service", "llm", "generate", {"userPrompt": "hi"}, {"key": "k1"}]"#,
+        );
+        let OirEffect::CallService {
+            key, emit, args, ..
+        } = effect
+        else {
+            panic!("expected CallService");
+        };
+        assert!(matches!(key, Some(OirExpr::String { .. })), "{key:?}");
+        assert!(emit.is_none());
+        let OirExpr::Object { fields } = args else {
+            panic!("args must stay the payload");
+        };
+        assert!(fields.contains_key("userPrompt") && !fields.contains_key("key"));
+    }
+
+    #[test]
+    fn call_service_three_arg_object_with_key_field_stays_the_payload() {
+        let effect =
+            resolved_call_service(r#"["call-service", "redis", "get", {"key": "@entity.key"}]"#);
+        let OirEffect::CallService { key, args, .. } = effect else {
+            panic!("expected CallService");
+        };
+        assert!(key.is_none());
+        let OirExpr::Object { fields } = args else {
+            panic!("expected object args");
+        };
+        assert!(fields.contains_key("key"));
+    }
+
+    #[test]
+    fn cancel_call_resolves_its_key_expression() {
+        let effect = resolved_call_service(r#"["cancel-call", "@entity.batchId"]"#);
+        let OirEffect::CancelCall { key } = effect else {
+            panic!("expected CancelCall");
+        };
+        assert!(matches!(key, OirExpr::Binding { .. }), "{key:?}");
+    }
+
+    #[test]
+    fn cancel_call_requires_exactly_one_argument() {
+        let none: SExpression = serde_json::from_str(r#"["cancel-call"]"#).unwrap();
+        assert!(resolve_sexpr_standalone(&none).is_err());
+        let two: SExpression = serde_json::from_str(r#"["cancel-call", "a", "b"]"#).unwrap();
+        assert!(resolve_sexpr_standalone(&two).is_err());
     }
 
     fn page_named(name: &str, label: Option<&str>) -> PageDefinition {

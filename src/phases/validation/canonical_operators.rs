@@ -1,6 +1,6 @@
 // Auto-generated from @almadar/std canonical-operators.json by @almadar-io/almadar-pattern-sync.
 // DO NOT EDIT MANUALLY.
-// Total operators targeting Rust: 242
+// Total operators targeting Rust: 243
 
 /// Operator metadata derived from the canonical @almadar/std registry.
 #[derive(Debug, Clone)]
@@ -1543,6 +1543,16 @@ pub static CANONICAL_OPERATORS: &[OperatorMeta] = &[
         return_semantics: None,
     },
     OperatorMeta {
+        name: "quote",
+        category: "control",
+        min_arity: 1,
+        max_arity: Some(1),
+        return_type: "sexpr",
+        description: "Holds an S-expression as data: nothing inside it is evaluated, and its bindings are not resolved (a guard or effect handed to a diagram)",
+        has_side_effects: false,
+        return_semantics: None,
+    },
+    OperatorMeta {
         name: "str/camelCase",
         category: "std-str",
         min_arity: 1,
@@ -2469,7 +2479,7 @@ mod tests {
 
     #[test]
     fn test_canonical_operators_count() {
-        assert_eq!(CANONICAL_OPERATORS.len(), 242);
+        assert_eq!(CANONICAL_OPERATORS.len(), 243);
     }
 
     #[test]

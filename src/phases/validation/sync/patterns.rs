@@ -2,7 +2,7 @@
 //!
 //! Source: packages/almadar-core/src/patterns/patterns-registry.json
 //!
-//! Last synced: 2026-10-04
+//! Last synced: 2026-10-05
 //! To regenerate: npx tsx tools/almadar-pattern-sync/index.ts
 //!
 //! DO NOT EDIT MANUALLY - changes will be overwritten on next sync.
@@ -28,6 +28,7 @@ pub static PATTERN_TYPES: LazyLock<HashSet<&'static str>> = LazyLock::new(|| {
         "atlas-panel",
         "avatar",
         "avl-glyph",
+        "avl-transition-explainer",
         "badge",
         "behavior-view",
         "bloom-quiz-block",
@@ -326,6 +327,7 @@ pub static PATTERN_TO_CATEGORY: LazyLock<HashMap<&'static str, &'static str>> =
             ("atlas-panel", "component"),
             ("avatar", "component"),
             ("avl-glyph", "component"),
+            ("avl-transition-explainer", "component"),
             ("badge", "component"),
             ("behavior-view", "component"),
             ("bloom-quiz-block", "component"),
@@ -606,6 +608,7 @@ pub static PATTERN_REQUIRED_PROPS: LazyLock<HashMap<&'static str, Vec<&'static s
             ("animated-reveal", vec!["children"]),
             ("avl-glyph", vec!["kind"]),
             ("avl-state-machine", vec!["trait"]),
+            ("avl-transition-explainer", vec!["orbitalName", "traitName", "transition"]),
             ("behavior-view", vec!["data"]),
             ("bloom-quiz-block", vec!["level", "question", "answer"]),
             ("branching-logic-builder", vec!["questions", "rules"]),
@@ -698,7 +701,6 @@ pub static PATTERN_REQUIRED_PROPS: LazyLock<HashMap<&'static str, Vec<&'static s
             ("score-display", vec!["value"]),
             ("section", vec!["children"]),
             ("section-header", vec!["title"]),
-            ("segment-renderer", vec!["segments"]),
             ("sequence-bar", vec!["slots", "maxSlots"]),
             ("side-panel", vec!["title", "children", "isOpen", "onClose"]),
             ("sidebar", vec!["items"]),
@@ -1298,6 +1300,7 @@ pub static PATTERN_PROPS_SCHEMA: LazyLock<HashMap<&'static str, HashSet<&'static
                 [
                     "activeState",
                     "activeTransition",
+                    "annotations",
                     "aria-busy",
                     "aria-current",
                     "aria-describedby",
@@ -1327,6 +1330,35 @@ pub static PATTERN_PROPS_SCHEMA: LazyLock<HashMap<&'static str, HashSet<&'static
                     "trait",
                     "transitionClickEvent",
                     "visitedStates",
+                ]
+                .into_iter()
+                .collect(),
+            ),
+            (
+                "avl-transition-explainer",
+                [
+                    "annotations",
+                    "aria-busy",
+                    "aria-current",
+                    "aria-describedby",
+                    "aria-expanded",
+                    "aria-hidden",
+                    "aria-label",
+                    "aria-labelledby",
+                    "aria-live",
+                    "aria-pressed",
+                    "aria-selected",
+                    "className",
+                    "dir",
+                    "enter",
+                    "enterDelay",
+                    "lang",
+                    "orbitalName",
+                    "role",
+                    "skeleton",
+                    "tabIndex",
+                    "traitName",
+                    "transition",
                 ]
                 .into_iter()
                 .collect(),
@@ -5355,6 +5387,8 @@ pub static PATTERN_PROPS_SCHEMA: LazyLock<HashMap<&'static str, HashSet<&'static
             (
                 "markdown-content",
                 [
+                    "annotationEvent",
+                    "annotations",
                     "aria-busy",
                     "aria-current",
                     "aria-describedby",
@@ -5365,6 +5399,8 @@ pub static PATTERN_PROPS_SCHEMA: LazyLock<HashMap<&'static str, HashSet<&'static
                     "aria-live",
                     "aria-pressed",
                     "aria-selected",
+                    "askEvent",
+                    "askLabel",
                     "className",
                     "content",
                     "dir",
@@ -5372,6 +5408,8 @@ pub static PATTERN_PROPS_SCHEMA: LazyLock<HashMap<&'static str, HashSet<&'static
                     "enter",
                     "enterDelay",
                     "lang",
+                    "noteEvent",
+                    "noteLabel",
                     "role",
                     "skeleton",
                     "tabIndex",
@@ -5684,6 +5722,7 @@ pub static PATTERN_PROPS_SCHEMA: LazyLock<HashMap<&'static str, HashSet<&'static
             (
                 "module-card",
                 [
+                    "annotations",
                     "aria-busy",
                     "aria-current",
                     "aria-describedby",
@@ -6778,6 +6817,9 @@ pub static PATTERN_PROPS_SCHEMA: LazyLock<HashMap<&'static str, HashSet<&'static
             (
                 "segment-renderer",
                 [
+                    "activationSaveEvent",
+                    "annotationEvent",
+                    "annotations",
                     "aria-busy",
                     "aria-current",
                     "aria-describedby",
@@ -6788,14 +6830,21 @@ pub static PATTERN_PROPS_SCHEMA: LazyLock<HashMap<&'static str, HashSet<&'static
                     "aria-live",
                     "aria-pressed",
                     "aria-selected",
+                    "askEvent",
+                    "askLabel",
+                    "bloomAnswerEvent",
                     "className",
                     "containerClassName",
                     "dir",
                     "enter",
                     "enterDelay",
                     "lang",
+                    "lesson",
+                    "noteEvent",
+                    "noteLabel",
                     "onRenderVisualization",
                     "onRunCodeSimulation",
+                    "reflectionSaveEvent",
                     "role",
                     "segments",
                     "skeleton",
@@ -7542,6 +7591,7 @@ pub static PATTERN_PROPS_SCHEMA: LazyLock<HashMap<&'static str, HashSet<&'static
                 [
                     "activeState",
                     "activeTransition",
+                    "annotations",
                     "aria-busy",
                     "aria-current",
                     "aria-describedby",
@@ -8793,6 +8843,7 @@ pub static PATTERN_PROPS_SCHEMA: LazyLock<HashMap<&'static str, HashSet<&'static
                     "maxFiles",
                     "maxSize",
                     "onFiles",
+                    "readAs",
                     "role",
                     "skeleton",
                     "tabIndex",
@@ -9639,6 +9690,36 @@ pub static PATTERN_PROP_TYPES: LazyLock<HashMap<&'static str, HashMap<&'static s
                     ("entityFields", &["array"] as &[&str]),
                     ("direction", &["string"] as &[&str]),
                     ("showHeader", &["boolean"] as &[&str]),
+                    ("annotations", &["object"] as &[&str]),
+                    ("className", &["string"] as &[&str]),
+                    ("enter", &["string"] as &[&str]),
+                    ("enterDelay", &["number"] as &[&str]),
+                    ("skeleton", &["string", "object"] as &[&str]),
+                    ("aria-label", &["string"] as &[&str]),
+                    ("aria-labelledby", &["string"] as &[&str]),
+                    ("aria-describedby", &["string"] as &[&str]),
+                    ("aria-live", &["string"] as &[&str]),
+                    ("aria-current", &["string"] as &[&str]),
+                    ("aria-pressed", &["string"] as &[&str]),
+                    ("aria-expanded", &["boolean"] as &[&str]),
+                    ("aria-selected", &["boolean"] as &[&str]),
+                    ("aria-hidden", &["boolean"] as &[&str]),
+                    ("aria-busy", &["boolean"] as &[&str]),
+                    ("role", &["string"] as &[&str]),
+                    ("lang", &["string"] as &[&str]),
+                    ("dir", &["string"] as &[&str]),
+                    ("tabIndex", &["number"] as &[&str]),
+                ]
+                .into_iter()
+                .collect(),
+            ),
+            (
+                "avl-transition-explainer",
+                [
+                    ("orbitalName", &["string"] as &[&str]),
+                    ("traitName", &["string"] as &[&str]),
+                    ("transition", &["object"] as &[&str]),
+                    ("annotations", &["object"] as &[&str]),
                     ("className", &["string"] as &[&str]),
                     ("enter", &["string"] as &[&str]),
                     ("enterDelay", &["number"] as &[&str]),
@@ -13725,6 +13806,12 @@ pub static PATTERN_PROP_TYPES: LazyLock<HashMap<&'static str, HashMap<&'static s
                 [
                     ("content", &["string"] as &[&str]),
                     ("direction", &["string"] as &[&str]),
+                    ("askEvent", &["string"] as &[&str]),
+                    ("noteEvent", &["string"] as &[&str]),
+                    ("askLabel", &["string"] as &[&str]),
+                    ("noteLabel", &["string"] as &[&str]),
+                    ("annotations", &["array"] as &[&str]),
+                    ("annotationEvent", &["string"] as &[&str]),
                     ("className", &["string"] as &[&str]),
                     ("enter", &["string"] as &[&str]),
                     ("enterDelay", &["number"] as &[&str]),
@@ -14053,6 +14140,7 @@ pub static PATTERN_PROP_TYPES: LazyLock<HashMap<&'static str, HashMap<&'static s
                 "module-card",
                 [
                     ("data", &["object"] as &[&str]),
+                    ("annotations", &["object"] as &[&str]),
                     ("aria-label", &["string"] as &[&str]),
                     ("aria-labelledby", &["string"] as &[&str]),
                     ("aria-describedby", &["string"] as &[&str]),
@@ -15147,6 +15235,16 @@ pub static PATTERN_PROP_TYPES: LazyLock<HashMap<&'static str, HashMap<&'static s
                 "segment-renderer",
                 [
                     ("segments", &["array"] as &[&str]),
+                    ("lesson", &["string"] as &[&str]),
+                    ("activationSaveEvent", &["string"] as &[&str]),
+                    ("reflectionSaveEvent", &["string"] as &[&str]),
+                    ("bloomAnswerEvent", &["string"] as &[&str]),
+                    ("askEvent", &["string"] as &[&str]),
+                    ("noteEvent", &["string"] as &[&str]),
+                    ("askLabel", &["string"] as &[&str]),
+                    ("noteLabel", &["string"] as &[&str]),
+                    ("annotations", &["array"] as &[&str]),
+                    ("annotationEvent", &["string"] as &[&str]),
                     ("className", &["string"] as &[&str]),
                     ("containerClassName", &["string"] as &[&str]),
                     ("userProgress", &["object"] as &[&str]),
@@ -15920,6 +16018,7 @@ pub static PATTERN_PROP_TYPES: LazyLock<HashMap<&'static str, HashMap<&'static s
                     ("entityFields", &["array"] as &[&str]),
                     ("direction", &["string"] as &[&str]),
                     ("showHeader", &["boolean"] as &[&str]),
+                    ("annotations", &["object"] as &[&str]),
                     ("className", &["string"] as &[&str]),
                     ("trait", &["object"] as &[&str]),
                     ("isLoading", &["boolean"] as &[&str]),
@@ -17143,6 +17242,7 @@ pub static PATTERN_PROP_TYPES: LazyLock<HashMap<&'static str, HashMap<&'static s
                     ("description", &["string"] as &[&str]),
                     ("icon", &["icon", "string"] as &[&str]),
                     ("disabled", &["boolean"] as &[&str]),
+                    ("readAs", &["string"] as &[&str]),
                     ("action", &["string"] as &[&str]),
                     ("actionPayload", &["object"] as &[&str]),
                     ("onFiles", &["function"] as &[&str]),
@@ -17694,6 +17794,20 @@ pub static PATTERN_PROP_ENUM_VALUES: LazyLock<HashMap<&'static str, HashMap<&'st
                 .collect(),
             ),
             (
+                "avl-transition-explainer",
+                [
+                    ("enter", &["none", "fade", "rise", "scale", "slide"] as &[&str]),
+                    ("skeleton", &["header", "table", "list", "grid", "detail", "stats", "form", "card", "text", "none"] as &[&str]),
+                    ("aria-live", &["off", "polite", "assertive"] as &[&str]),
+                    ("aria-current", &["page", "step", "location", "date", "time", "true", "false"] as &[&str]),
+                    ("aria-pressed", &["true", "false", "mixed"] as &[&str]),
+                    ("role", &["alert", "alertdialog", "application", "article", "banner", "blockquote", "button", "caption", "cell", "checkbox", "code", "columnheader", "combobox", "complementary", "contentinfo", "definition", "deletion", "dialog", "document", "emphasis", "feed", "figure", "form", "generic", "grid", "gridcell", "group", "heading", "img", "insertion", "link", "list", "listbox", "listitem", "log", "main", "marquee", "math", "menu", "menubar", "menuitem", "menuitemcheckbox", "menuitemradio", "meter", "navigation", "none", "note", "option", "paragraph", "presentation", "progressbar", "radio", "radiogroup", "region", "row", "rowgroup", "rowheader", "scrollbar", "search", "searchbox", "separator", "slider", "spinbutton", "status", "strong", "subscript", "superscript", "switch", "tab", "table", "tablist", "tabpanel", "term", "textbox", "time", "timer", "toolbar", "tooltip", "tree", "treegrid", "treeitem"] as &[&str]),
+                    ("dir", &["ltr", "rtl", "auto"] as &[&str]),
+                ]
+                .into_iter()
+                .collect(),
+            ),
+            (
                 "badge",
                 [
                     ("variant", &["default", "primary", "secondary", "success", "warning", "danger", "error", "info", "neutral"] as &[&str]),
@@ -18225,7 +18339,7 @@ pub static PATTERN_PROP_ENUM_VALUES: LazyLock<HashMap<&'static str, HashMap<&'st
                 .into_iter()
                 .collect(),
             ),
-            ("dashboard-layout", [("layoutMode", &["sidebar", "topnav", "bottomnav", "minimal"] as &[&str])].into_iter().collect()),
+            ("dashboard-layout", [("layoutMode", &["sidebar", "topnav", "bottomnav", "minimal", "drawer"] as &[&str])].into_iter().collect()),
             (
                 "data-grid",
                 [
@@ -20879,6 +20993,7 @@ pub static PATTERN_PROP_ENUM_VALUES: LazyLock<HashMap<&'static str, HashMap<&'st
             (
                 "upload-drop-zone",
                 [
+                    ("readAs", &["dataUrl", "text"] as &[&str]),
                     ("enter", &["none", "fade", "rise", "scale", "slide"] as &[&str]),
                     ("skeleton", &["header", "table", "list", "grid", "detail", "stats", "form", "card", "text", "none"] as &[&str]),
                     ("aria-live", &["off", "polite", "assertive"] as &[&str]),

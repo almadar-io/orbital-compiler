@@ -110,7 +110,8 @@ pub(crate) fn parse_reference(reference: &str) -> Result<ParsedReference, Inline
 /// needs to know which imported behavior is missing the symbol.
 #[derive(Clone)]
 pub(crate) struct AliasEntry {
-    pub(crate) orbitals: Vec<Orbital>,
+    /// Shared: one inlined import serves every orbital that uses it.
+    pub(crate) orbitals: std::rc::Rc<Vec<Orbital>>,
     pub(crate) source_label: String,
 }
 
@@ -149,7 +150,7 @@ impl InlineContext {
         self.aliases.insert(
             alias.to_string(),
             AliasEntry {
-                orbitals: vec![orbital.clone()],
+                orbitals: std::rc::Rc::new(vec![orbital.clone()]),
                 source_label: label,
             },
         );
@@ -162,13 +163,13 @@ impl InlineContext {
     pub(crate) fn add_alias_multi(
         &mut self,
         alias: &str,
-        orbitals: Vec<Orbital>,
+        orbitals: impl Into<std::rc::Rc<Vec<Orbital>>>,
         source_label: String,
     ) {
         self.aliases.insert(
             alias.to_string(),
             AliasEntry {
-                orbitals,
+                orbitals: orbitals.into(),
                 source_label,
             },
         );
@@ -201,7 +202,7 @@ impl InlineContext {
         let entry = self.aliases.get(alias)?;
 
         if let Some(want_id) = trait_ref_id {
-            for orbital in &entry.orbitals {
+            for orbital in entry.orbitals.iter() {
                 let has_trait = orbital.traits.iter().any(|tr| match tr {
                     TraitReference::Inline(def) => def.id.as_deref() == Some(want_id),
                     TraitReference::Reference {
@@ -217,7 +218,7 @@ impl InlineContext {
             }
         }
 
-        for orbital in &entry.orbitals {
+        for orbital in entry.orbitals.iter() {
             let has_trait = orbital.traits.iter().any(|tr| match tr {
                 TraitReference::Inline(def) => def.name == trait_name,
                 TraitReference::Reference { name: Some(n), .. } => n == trait_name,
@@ -262,7 +263,7 @@ impl InlineContext {
                 .collect()
         };
         if let Some(want_id) = trait_ref_id {
-            for orbital in &entry.orbitals {
+            for orbital in entry.orbitals.iter() {
                 let has_trait = orbital.traits.iter().any(|tr| match tr {
                     TraitReference::Inline(def) => def.id.as_deref() == Some(want_id),
                     TraitReference::Reference {
@@ -275,7 +276,7 @@ impl InlineContext {
                 }
             }
         }
-        for orbital in &entry.orbitals {
+        for orbital in entry.orbitals.iter() {
             let has_trait = orbital.traits.iter().any(|tr| match tr {
                 TraitReference::Inline(def) => def.name == trait_name,
                 TraitReference::Reference { name: Some(n), .. } => n == trait_name,
@@ -409,7 +410,7 @@ impl InlineContext {
         trait_ref_id: Option<&str>,
     ) -> Option<(&'a Orbital, &'a TraitReference)> {
         if let Some(want_id) = trait_ref_id {
-            for orbital in &entry.orbitals {
+            for orbital in entry.orbitals.iter() {
                 let matched = orbital.traits.iter().find(|tr| match tr {
                     TraitReference::Inline(def) => def.id.as_deref() == Some(want_id),
                     TraitReference::Reference {
@@ -422,7 +423,7 @@ impl InlineContext {
                 }
             }
         }
-        for orbital in &entry.orbitals {
+        for orbital in entry.orbitals.iter() {
             let matched = orbital.traits.iter().find(|tr| match tr {
                 TraitReference::Inline(def) => def.name == trait_name,
                 TraitReference::Reference { name: Some(n), .. } => n == trait_name,
@@ -445,7 +446,7 @@ impl InlineContext {
     /// name unchanged; this never replaces the name path.
     pub(crate) fn get_trait_by_ref_id(&self, alias: &str, ref_id: &str) -> Option<TraitReference> {
         let entry = self.aliases.get(alias)?;
-        for orbital in &entry.orbitals {
+        for orbital in entry.orbitals.iter() {
             for trait_ref in &orbital.traits {
                 match trait_ref {
                     TraitReference::Inline(trait_def) => {
@@ -475,7 +476,7 @@ impl InlineContext {
     /// `get_page` by name unchanged.
     pub(crate) fn get_page_by_ref_id(&self, alias: &str, ref_id: &str) -> Option<PageRef> {
         let entry = self.aliases.get(alias)?;
-        for orbital in &entry.orbitals {
+        for orbital in entry.orbitals.iter() {
             if let Some(pages) = &orbital.pages {
                 for page_ref in pages {
                     if let PageRef::Inline(page_def) = page_ref {
@@ -499,7 +500,7 @@ impl InlineContext {
         extends_id: &str,
     ) -> Option<EntityDefinition> {
         let entry = self.aliases.get(alias)?;
-        for orbital in &entry.orbitals {
+        for orbital in entry.orbitals.iter() {
             if let EntityRef::Inline(e) = &orbital.entity {
                 if e.id.as_deref() == Some(extends_id) {
                     return Some(e.clone());
@@ -553,7 +554,7 @@ impl InlineContext {
         entity_name: &str,
     ) -> Option<EntityDefinition> {
         let entry = self.aliases.get(alias)?;
-        for orbital in &entry.orbitals {
+        for orbital in entry.orbitals.iter() {
             if let EntityRef::Inline(e) = &orbital.entity {
                 if e.name == entity_name {
                     return Some(e.clone());
@@ -608,7 +609,7 @@ impl InlineContext {
         // Iterate every orbital of the imported behavior. Traits with a given
         // name are unique across a single behavior's orbitals by convention;
         // the first match wins if duplicates somehow appear.
-        for orbital in &entry.orbitals {
+        for orbital in entry.orbitals.iter() {
             for trait_ref in &orbital.traits {
                 match trait_ref {
                     TraitReference::Inline(trait_def) => {
@@ -648,7 +649,7 @@ impl InlineContext {
 
         // Iterate every orbital — pages, like traits, may live in orbital
         // 1+ of a multi-orbital behavior.
-        for orbital in &entry.orbitals {
+        for orbital in entry.orbitals.iter() {
             if let Some(pages) = &orbital.pages {
                 for page_ref in pages {
                     match page_ref {
@@ -685,7 +686,7 @@ impl InlineContext {
         // Theme lives at the schema level in `.orb` files, but the loader
         // currently surfaces each orbital individually. Search every orbital
         // for an inline theme; the first match wins.
-        for orbital in &entry.orbitals {
+        for orbital in entry.orbitals.iter() {
             match &orbital.theme {
                 Some(ThemeRef::Inline(theme)) => return Ok(ThemeRef::Inline(theme.clone())),
                 _ => continue,
@@ -699,7 +700,7 @@ impl InlineContext {
 
         // Iterate every orbital — services, like traits/pages, may live in
         // orbital 1+ of a multi-orbital behavior.
-        for orbital in &entry.orbitals {
+        for orbital in entry.orbitals.iter() {
             if let Some(services) = &orbital.services {
                 for service_ref in services {
                     match service_ref {

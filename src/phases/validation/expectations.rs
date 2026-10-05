@@ -69,7 +69,7 @@ pub(super) fn entity_expectation<'a>(
 /// ELOLO_DUPLICATE_EXPECTATION — `deriveExpectations` folds the entity
 /// declaration into the identity one, so identity is the only spelling a
 /// derived slice can carry for its identity-entity relation targets.
-pub(super) fn expected_entity_names(orbital: &Orbital) -> Vec<&str> {
+pub(crate) fn expected_entity_names(orbital: &Orbital) -> Vec<&str> {
     orbital
         .expects
         .as_ref()
@@ -183,6 +183,14 @@ fn check_persist_payload(
     if !matches!(arr.first(), Some(SExpression::String(op)) if op == "persist") || arr.len() < 3 {
         return;
     }
+    if matches!(&arr[1], SExpression::String(op) if op == "batch") {
+        for w in orbital_core::effects::persist_batch::batch_writes(&arr[2]) {
+            if let Some(SExpression::Object(payload)) = w.data {
+                check_persist_payload_keys(w.entity, payload, path, orbital, result);
+            }
+        }
+        return;
+    }
     // Mirror effect/persist.rs's format detection.
     let entity_index = if matches!(&arr[1], SExpression::String(op) if op == "create" || op == "update" || op == "delete")
     {
@@ -193,9 +201,6 @@ fn check_persist_payload(
     let Some(SExpression::String(entity_name)) = arr.get(entity_index) else {
         return;
     };
-    let Some(Some(shape)) = entity_expectation(orbital, entity_name) else {
-        return; // no expectation, or existence-only: as unchecked as today
-    };
     let Some(SExpression::Object(payload)) = arr.get(entity_index + 1) else {
         return; // binding/computed payload: nothing static to check
     };
@@ -204,6 +209,19 @@ fn check_persist_payload(
     if entity_index + 1 == arr.len() - 1 && payload.contains_key("emit") {
         return;
     }
+    check_persist_payload_keys(entity_name, payload, path, orbital, result);
+}
+
+fn check_persist_payload_keys(
+    entity_name: &str,
+    payload: &std::collections::HashMap<String, SExpression>,
+    path: &str,
+    orbital: &Orbital,
+    result: &mut ValidationResult,
+) {
+    let Some(Some(shape)) = entity_expectation(orbital, entity_name) else {
+        return; // no expectation, or existence-only: as unchecked as today
+    };
     for key in payload.keys() {
         if shape
             .iter()

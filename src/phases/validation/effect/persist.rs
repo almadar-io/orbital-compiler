@@ -18,6 +18,193 @@ pub(crate) fn persist_entity_index(arr: &[SExpression]) -> usize {
     }
 }
 
+/// `batch` is the action word of `["persist", "batch", <ops>, { emit }?]`.
+fn is_batch(arr: &[SExpression]) -> bool {
+    matches!(arr.get(1), Some(SExpression::String(a)) if a == "batch")
+}
+
+/// Validate `["persist", "batch", <ops>, { emit }?]`.
+///
+/// Statically-readable op tuples (a literal list, or the tuple an `array/map`
+/// lambda returns) go through [`validate_persist`] as the equivalent single op,
+/// so the entity and per-op rules are the single forms' own. A tuple the shape
+/// reader cannot place (any other expression) only has to be array-typed.
+fn validate_persist_batch(
+    arr: &[SExpression],
+    path: &str,
+    known_entities: &HashSet<String>,
+    entity_definitions: &HashMap<String, EntityDefinition>,
+    declared_emits: Option<&[DeclaredEmit]>,
+) -> ValidationResult {
+    use orbital_core::effects::persist_batch::{
+        batch_entities, batch_op_arity, classify_ops, is_op_tuple, mapped_body, BatchOps,
+        BatchPlacement,
+    };
+    let mut result = ValidationResult::new();
+
+    let Some(ops) = arr.get(2) else {
+        result.add_error(
+            ValidationError::error(
+                ErrorCode::PersistBatchOpsNotArray,
+                path,
+                "persist batch requires an operations argument",
+            )
+            .with_suggestion("Use: [\"persist\", \"batch\", [[\"create\", \"Entity\", data], …]]"),
+        );
+        return result;
+    };
+
+    let single = |tuple: &[SExpression], op_path: &str, result: &mut ValidationResult| {
+        let mut single = vec![
+            SExpression::String("persist".to_string()),
+            tuple[0].clone(),
+            tuple[1].clone(),
+        ];
+        if tuple[0].as_str() != Some("delete") {
+            single.extend(tuple.last().cloned());
+        }
+        result.merge(validate_persist(
+            &single,
+            op_path,
+            known_entities,
+            entity_definitions,
+            None,
+        ));
+    };
+
+    let bad_op = |op_path: &str, what: String, result: &mut ValidationResult| {
+        result.add_error(
+            ValidationError::error(ErrorCode::PersistBatchBadOp, op_path, what).with_suggestion(
+                "Each op is [\"create\", Entity, data], [\"update\", Entity, id, data] or [\"delete\", Entity, id]",
+            ),
+        );
+    };
+
+    let check_tuple = |tuple: &[SExpression], op_path: &str, result: &mut ValidationResult| {
+        let action = tuple.first().and_then(|a| a.as_str()).unwrap_or("");
+        match batch_op_arity(action) {
+            Some(arity) if tuple.len() == arity => single(tuple, op_path, result),
+            Some(arity) => bad_op(
+                op_path,
+                format!(
+                    "batch op '{action}' takes {} argument(s) after the action, found {}",
+                    arity - 1,
+                    tuple.len() - 1
+                ),
+                result,
+            ),
+            None => bad_op(
+                op_path,
+                format!("batch op action '{action}' is not one of create, update, delete"),
+                result,
+            ),
+        }
+    };
+
+    match classify_ops(ops) {
+        BatchOps::Literal(elements) => {
+            for (i, element) in elements.iter().enumerate() {
+                let op_path = format!("{path}.ops[{i}]");
+                match element {
+                    SExpression::Array(tuple) => match tuple.first().and_then(|h| h.as_str()) {
+                        Some(_) if is_op_tuple(element) => {
+                            check_tuple(tuple, &op_path, &mut result);
+                        }
+                        Some(head) if crate::phases::validation::sexpr::operators::is_known_operator(head) => {}
+                        Some(head) => bad_op(
+                            &op_path,
+                            format!("batch op action '{head}' is not one of create, update, delete"),
+                            &mut result,
+                        ),
+                        None => bad_op(&op_path, "batch op must start with an action".to_string(), &mut result),
+                    },
+                    _ => bad_op(&op_path, "batch op must be a [action, Entity, …] tuple".to_string(), &mut result),
+                }
+            }
+        }
+        BatchOps::Mapped(tuple) => check_tuple(tuple, &format!("{path}.ops"), &mut result),
+        BatchOps::Expression => {
+            let op_path = format!("{path}.ops");
+            let body_head = mapped_body(ops)
+                .and_then(|b| match b {
+                    SExpression::Array(items) => items.first().and_then(|h| h.as_str()),
+                    _ => None,
+                });
+            match body_head {
+                Some(head) if !crate::phases::validation::sexpr::operators::is_known_operator(head) => {
+                    bad_op(
+                        &op_path,
+                        format!("batch op action '{head}' is not one of create, update, delete"),
+                        &mut result,
+                    );
+                }
+                _ => {
+                    let non_array = match ops {
+                        SExpression::Object(_) | SExpression::Null => true,
+                        other => crate::phases::resolve::resolve_sexpr_standalone(other)
+                            .map(|oir| {
+                                !matches!(
+                                    crate::type_infer::infer_oir_expr_type(
+                                        &oir,
+                                        &crate::type_infer::NoBindingCtx
+                                    ),
+                                    orbital_core::ir::OirType::Array { .. }
+                                        | orbital_core::ir::OirType::Json
+                                )
+                            })
+                            .unwrap_or(false),
+                    };
+                    if non_array {
+                        result.add_error(
+                            ValidationError::error(
+                                ErrorCode::PersistBatchOpsNotArray,
+                                op_path,
+                                "persist batch operations must evaluate to an array of [action, Entity, …] tuples",
+                            )
+                            .with_suggestion(
+                                "Pass a list of op tuples, or (array/map rows (fn r [\"update\", \"Entity\", id, data]))",
+                            ),
+                        );
+                    }
+                }
+            }
+        }
+    }
+
+    let residence = orbital_core::effects::Residence::of_entities(entity_definitions.values());
+    if orbital_core::effects::persist_batch::batch_placement(ops, &residence) == BatchPlacement::Mixed {
+        let mut browser: Vec<&str> = Vec::new();
+        let mut server: Vec<&str> = Vec::new();
+        for entity in batch_entities(ops) {
+            if residence.is_client(entity) { browser.push(entity) } else { server.push(entity) }
+        }
+        result.add_error(
+            ValidationError::error(
+                ErrorCode::PersistBatchMixedPlacement,
+                path,
+                format!(
+                    "persist batch writes browser-stored {browser:?} and server-stored {server:?} in one effect — no single executor holds both"
+                ),
+            )
+            .with_suggestion("Split into one batch per placement, on separate transitions joined by an emit and a listen."),
+        );
+    }
+
+    if arr.len() > 3 {
+        if let SExpression::Object(options) = &arr[arr.len() - 1] {
+            if let Some(emit_obj) = extract_emit_object_ref(options) {
+                result.merge(validate_emit_config(
+                    emit_obj,
+                    &["success", "failure"],
+                    declared_emits,
+                    path,
+                ));
+            }
+        }
+    }
+    result
+}
+
 /// Validate persist effect (array form)
 pub(crate) fn validate_persist(
     arr: &[SExpression],
@@ -26,6 +213,9 @@ pub(crate) fn validate_persist(
     entity_definitions: &HashMap<String, EntityDefinition>,
     declared_emits: Option<&[DeclaredEmit]>,
 ) -> ValidationResult {
+    if is_batch(arr) {
+        return validate_persist_batch(arr, path, known_entities, entity_definitions, declared_emits);
+    }
     let mut result = ValidationResult::new();
 
     // Expected formats:

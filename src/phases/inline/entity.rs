@@ -513,6 +513,21 @@ fn collect_fetch_persist_fields(
                     }
                 }
             }
+            Some(SExpression::String(op))
+                if op == "persist"
+                    && matches!(arr.get(1), Some(SExpression::String(a)) if a == "batch") =>
+            {
+                if let Some(ops) = arr.get(2) {
+                    for w in orbital_core::effects::persist_batch::batch_writes(ops) {
+                        if w.entity == entity_def.name {
+                            *matched = true;
+                            if let Some(SExpression::Object(data_fields)) = w.data {
+                                out.extend(data_fields.keys().cloned());
+                            }
+                        }
+                    }
+                }
+            }
             Some(SExpression::String(op)) if op == "persist" => {
                 let entity_index = persist_entity_index(arr);
                 if let Some(SExpression::String(entity_name)) = arr.get(entity_index) {

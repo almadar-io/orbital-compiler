@@ -9,8 +9,8 @@
 use super::super::{ErrorCode, ValidationError, ValidationResult};
 use super::{extract_emit_object_ref, validate_emit_config, DeclaredEmit};
 use crate::embedded::ServiceRegistryData;
-use orbital_core::schema::SExpression;
-use std::collections::HashSet;
+use orbital_core::schema::{OrbitalSchema, SExpression};
+use std::collections::{HashMap, HashSet};
 
 /// Envelope keys the call-service form itself owns; never param-checked.
 const RESERVED_OPTION_KEYS: [&str; 4] = ["emit", "onSuccess", "onError", "timeout"];
@@ -234,6 +234,66 @@ fn check_params(
     result
 }
 
+/// The trailing options object of a `call-service` array (head included): the
+/// 5th element, an object carrying `emit` and/or `key`. Mirrors the resolver's
+/// split — a plain trailing object is the args payload, not options.
+fn trailing_options(arr: &[SExpression]) -> Option<&HashMap<String, SExpression>> {
+    if arr.len() <= 4 {
+        return None;
+    }
+    match arr.last() {
+        Some(SExpression::Object(opts))
+            if opts.contains_key("emit") || opts.contains_key("key") =>
+        {
+            Some(opts)
+        }
+        _ => None,
+    }
+}
+
+fn declared_key(options: &HashMap<String, SExpression>) -> Option<&SExpression> {
+    match options.get("key") {
+        None | Some(SExpression::Null) => None,
+        Some(k) => Some(k),
+    }
+}
+
+/// `key` must be string-typed: a non-string literal can never name a call;
+/// expressions (bindings, calls) are not decidable here and pass.
+fn check_key_and_cancelled(options: &HashMap<String, SExpression>, path: &str) -> ValidationResult {
+    let mut result = ValidationResult::new();
+    let key = declared_key(options);
+    if let Some(kind) = key.and_then(literal_kind) {
+        if kind != "string" {
+            result.add_error(
+                ValidationError::error(
+                    ErrorCode::CallServiceKeyType,
+                    path,
+                    format!("call-service `key` must be a string, got a {kind} literal"),
+                )
+                .with_suggestion(
+                    "Use a string literal or a string-typed expression such as @entity.batchId",
+                ),
+            );
+        }
+    }
+    let declares_cancelled = matches!(
+        extract_emit_object_ref(options).and_then(|e| e.get("cancelled")),
+        Some(v) if !matches!(v, SExpression::Null)
+    );
+    if declares_cancelled && key.is_none() {
+        result.add_error(
+            ValidationError::error(
+                ErrorCode::CallServiceCancelledWithoutKey,
+                path,
+                "emit.cancelled is declared but the call has no `key` — nothing can cancel an unkeyed call",
+            )
+            .with_suggestion("Add `key: <string expression>` to the call-service options, and cancel it with (cancel-call <key>)"),
+        );
+    }
+    result
+}
+
 /// The shared name/action/param core for an array-form call site. `arr`
 /// includes the operator head. Mirrors the resolver's arg reading exactly:
 /// params = the last non-envelope arg (an object carrying `emit` in trailing
@@ -275,22 +335,23 @@ fn check_array_call(
     result.merge(check_action(service_name, action, path, registry));
 
     // Resolver truth (resolve_call_service_effect): args_end walks back over
-    // a trailing `{ emit: … }` object only past 4 total args; params is the
+    // a trailing `{ emit: …, key: … }` object only past 4 total args; params is the
     // arg just before args_end, absent → empty payload.
-    let mut args_end = arr.len();
-    if arr.len() > 4 {
-        if let Some(SExpression::Object(last)) = arr.last() {
-            if last.contains_key("emit") {
-                args_end -= 1;
-            }
-        }
-    }
+    let options = trailing_options(arr);
+    let args_end = if options.is_some() {
+        arr.len() - 1
+    } else {
+        arr.len()
+    };
     let params = if args_end > 3 {
         arr.get(args_end - 1)
     } else {
         None
     };
     result.merge(check_params(service_name, action, params, path, registry));
+    if let Some(options) = options {
+        result.merge(check_key_and_cancelled(options, path));
+    }
 
     result
 }
@@ -328,7 +389,7 @@ pub(crate) fn validate_call_service(
             if let Some(emit_obj) = extract_emit_object_ref(options) {
                 result.merge(validate_emit_config(
                     emit_obj,
-                    &["success", "failure", "on_message"],
+                    &["success", "failure", "on_message", "cancelled"],
                     declared_emits,
                     path,
                 ));
@@ -440,6 +501,73 @@ pub(crate) fn walk_nested_call_services(
             }
         }
         _ => {}
+    }
+    result
+}
+
+/// `ORB_CANCEL_CALL_NO_KEYED_CALL`: a `cancel-call` aborts a call by key, so an
+/// app that runs one while no `call-service` anywhere carries a `key` has a
+/// cancel that can never reach anything.
+pub(crate) fn validate_cancel_calls_have_a_keyed_call(schema: &OrbitalSchema) -> ValidationResult {
+    fn scan(expr: &SExpression, path: &str, keyed: &mut bool, cancels: &mut Vec<String>) {
+        match expr {
+            SExpression::Array(arr) => {
+                if let Some(SExpression::String(head)) = arr.first() {
+                    match head.as_str() {
+                        "call-service" | "call_service" => {
+                            if trailing_options(arr).is_some_and(|o| declared_key(o).is_some()) {
+                                *keyed = true;
+                            }
+                        }
+                        "cancel-call" => cancels.push(path.to_string()),
+                        _ => {}
+                    }
+                }
+                for item in arr {
+                    scan(item, path, keyed, cancels);
+                }
+            }
+            SExpression::Object(obj) => {
+                for v in obj.values() {
+                    scan(v, path, keyed, cancels);
+                }
+            }
+            _ => {}
+        }
+    }
+
+    let mut keyed = false;
+    let mut cancels: Vec<String> = Vec::new();
+    for (trait_def, path) in super::super::inline_traits(schema) {
+        for (i, transition) in trait_def.state_machine.transitions.iter().enumerate() {
+            for (j, effect) in transition.effects.iter().flatten().enumerate() {
+                let effect_path =
+                    format!("{}.stateMachine.transitions[{}].effects[{}]", path, i, j);
+                scan(effect, &effect_path, &mut keyed, &mut cancels);
+            }
+        }
+        for (i, tick) in trait_def.ticks.iter().flatten().enumerate() {
+            for (j, effect) in tick.effects.iter().enumerate() {
+                let effect_path = format!("{}.ticks[{}].effects[{}]", path, i, j);
+                scan(effect, &effect_path, &mut keyed, &mut cancels);
+            }
+        }
+    }
+    let mut result = ValidationResult::new();
+    if keyed {
+        return result;
+    }
+    for path in cancels {
+        result.add_error(
+            ValidationError::error(
+                ErrorCode::CancelCallNoKeyedCall,
+                path,
+                "cancel-call has nothing to cancel: no call-service in this app carries a `key`",
+            )
+            .with_suggestion(
+                "Add `key: <string expression>` to the call-service options of the call to cancel",
+            ),
+        );
     }
     result
 }

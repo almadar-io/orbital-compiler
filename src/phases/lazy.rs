@@ -6,7 +6,8 @@
 //! pages.
 
 use super::inline::InlineError;
-use super::{resolve_schema_with_path, CompileResult, CompilerOptions};
+use super::inline::InlineConfig;
+use super::{resolve_schema_with_inline, CompileResult, CompilerOptions};
 use orbital_core::schema::{LazyPage, Orbital, OrbitalSchema, PageRef};
 use std::path::Path;
 
@@ -158,11 +159,28 @@ pub fn split_lazy_and_resolve(
     options: &CompilerOptions,
     source_path: Option<&Path>,
 ) -> CompileResult<Vec<ResolvedLazy>> {
+    split_lazy_and_resolve_in(schema, options, &program_inline(options), source_path)
+}
+
+/// One inline session for a whole program: every lazy behavior (and the
+/// importer) reuses the files loaded and the behaviors inlined before it.
+fn program_inline(options: &CompilerOptions) -> InlineConfig {
+    let mut inline = options.inline.clone();
+    inline.session.get_or_insert_with(Default::default);
+    inline
+}
+
+fn split_lazy_and_resolve_in(
+    schema: &mut OrbitalSchema,
+    options: &CompilerOptions,
+    inline: &InlineConfig,
+    source_path: Option<&Path>,
+) -> CompileResult<Vec<ResolvedLazy>> {
     let mut resolved = Vec::new();
     for artifact in split_lazy(schema) {
         let mut child = artifact.schema.clone();
-        let nested = split_lazy_and_resolve(&mut child, options, source_path)?;
-        let child = resolve_schema_with_path(child, options, source_path)?;
+        let nested = split_lazy_and_resolve_in(&mut child, options, inline, source_path)?;
+        let child = resolve_schema_with_inline(child, options, inline, source_path)?;
         record_lazy_pages(schema, &artifact, &child)?;
         resolved.push(ResolvedLazy {
             orbital: artifact.orbital,
@@ -181,8 +199,9 @@ pub fn resolve_program_with_path(
     options: &CompilerOptions,
     source_path: Option<&Path>,
 ) -> CompileResult<(OrbitalSchema, Vec<ResolvedLazy>)> {
-    let lazy = split_lazy_and_resolve(&mut schema, options, source_path)?;
-    let schema = resolve_schema_with_path(schema, options, source_path)?;
+    let inline = program_inline(options);
+    let lazy = split_lazy_and_resolve_in(&mut schema, options, &inline, source_path)?;
+    let schema = resolve_schema_with_inline(schema, options, &inline, source_path)?;
     Ok((schema, lazy))
 }
 

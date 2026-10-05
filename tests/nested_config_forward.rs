@@ -103,3 +103,28 @@ fn control_an_override_that_never_reads_the_app_knob_leaves_it_dead() {
         .collect();
     assert!(codes.contains(&"ORB_O_CONFIG_DEAD_KNOB".to_string()), "{codes:?}");
 }
+
+fn inlined_with_knobs(metrics: &str) -> orbital_core::schema::OrbitalSchema {
+    let dir = tempfile::TempDir::new().expect("temp dir");
+    std::fs::write(dir.path().join("atom.orb"), ATOM).expect("atom");
+    let path = dir.path().join("composer.orb");
+    let body = composer(metrics).replace(
+        r#""config": { "weeklyWinTarget": { "type": "number", "default": 2 } }"#,
+        r#""config": { "alpha": { "type": "number", "default": 1 }, "bravo": { "type": "number", "default": 2 }, "charlie": { "type": "number", "default": 3 }, "delta": { "type": "number", "default": 4 } }"#,
+    );
+    std::fs::write(&path, body).expect("composer");
+    let mut schema = parse_file(&path).expect("parse");
+    inline_schema(&mut schema, &InlineConfig::default(), Some(&path)).expect("inline");
+    schema
+}
+
+/// Resolve output must be reproducible: the provenance of several nested knobs
+/// comes out in one fixed order, not the order a hash map happened to walk.
+#[test]
+fn several_nested_knobs_are_recorded_in_a_stable_order() {
+    let metrics = r#"{ "w": "@config.delta", "x": "@config.charlie", "y": "@config.bravo", "z": "@config.alpha" }"#;
+    let expected: Vec<String> = ["@config.alpha", "@config.bravo", "@config.charlie", "@config.delta"].iter().map(|s| s.to_string()).collect();
+    for _ in 0..8 {
+        assert_eq!(metrics_field(&inlined_with_knobs(metrics)).nested_forwarded_from, expected);
+    }
+}

@@ -322,7 +322,13 @@ pub(crate) fn payload_field_of(f: &FieldDefinition) -> PayloadField {
             };
             let v: Vec<PayloadField> = ordered
                 .into_iter()
-                .filter_map(|k| m.get(k).map(payload_field_of))
+                .filter_map(|k| {
+                    // A member's name is its key; the IR's per-member `name` is optional.
+                    m.get(k).map(|member| PayloadField {
+                        name: k.clone(),
+                        ..payload_field_of(member)
+                    })
+                })
                 .collect();
             (!v.is_empty()).then_some(v)
         }),
@@ -388,4 +394,56 @@ fn pascal(s: &str) -> String {
             }
         })
         .collect()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::payload_field_of;
+    use orbital_core::schema::{FieldDefinition, PayloadField};
+
+    fn field(json: serde_json::Value) -> FieldDefinition {
+        serde_json::from_value(json).expect("FieldDefinition")
+    }
+
+    fn names(p: &PayloadField) -> Vec<String> {
+        p.properties
+            .as_ref()
+            .map(|ps| ps.iter().map(|m| m.name.clone()).collect())
+            .unwrap_or_default()
+    }
+
+    /// A struct member's name is its `properties` key; the IR's per-member
+    /// `name` is optional (implied by the parent).
+    #[test]
+    fn struct_members_are_named_by_their_key() {
+        let f = field(serde_json::json!({
+            "name": "address", "type": "object",
+            "properties": { "street": { "type": "string" }, "zip": { "type": "string" } }
+        }));
+        assert_eq!(names(&payload_field_of(&f)), vec!["street", "zip"]);
+    }
+
+    #[test]
+    fn array_of_struct_members_are_named_by_their_key() {
+        let f = field(serde_json::json!({
+            "name": "exercises", "type": "array",
+            "items": { "type": "object", "properties": {
+                "name": { "type": "string", "required": true },
+                "sets": { "type": "number" }
+            } }
+        }));
+        let p = payload_field_of(&f);
+        assert_eq!(p.field_type, "[object]");
+        assert_eq!(names(&p), vec!["name", "sets"]);
+    }
+
+    /// Control: the `.lolo` lowering stamps each member's name — unchanged.
+    #[test]
+    fn named_members_keep_their_name() {
+        let f = field(serde_json::json!({
+            "name": "address", "type": "object",
+            "properties": { "street": { "name": "street", "type": "string" } }
+        }));
+        assert_eq!(names(&payload_field_of(&f)), vec!["street"]);
+    }
 }

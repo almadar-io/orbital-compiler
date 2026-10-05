@@ -87,7 +87,7 @@ use orbital_core::schema::{
     OrbitalSchema, PayloadField, SchemaMetadata, ThemeRef, TraitDefinition, TraitReference,
 };
 use std::collections::{BTreeMap, HashMap, HashSet};
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use thiserror::Error;
 
 // orbital_core schema types referenced only by the `tests` module via
@@ -295,7 +295,45 @@ pub struct InlineConfig {
     pub loader_config: LoaderConfig,
     /// Whether to skip inlining (for testing)
     pub skip_inline: bool,
+    /// Shared across every schema of one program (the program and its lazy
+    /// behaviors): loaded files and each imported behavior's inlined result.
+    /// `None` gives each inline call its own.
+    pub session: Option<InlineSession>,
 }
+
+/// One program's inline state, shared by clones: the loader (parsed files)
+/// and each imported behavior's inlined result, so a behavior imported in many
+/// places is loaded and inlined once.
+#[derive(Clone, Default)]
+pub struct InlineSession(std::rc::Rc<std::cell::RefCell<InlineSessionState>>);
+
+impl std::fmt::Debug for InlineSession {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("InlineSession")
+    }
+}
+
+#[derive(Default)]
+struct InlineSessionState {
+    loader: Option<ExternalOrbitalLoader>,
+    imports: ImportMemo,
+}
+
+/// An imported behavior inlined once (keyed by its canonical file): its
+/// orbitals as `inline_orbital` left them, plus everything that work reported
+/// and loaded, replayed on reuse so each use reports exactly what it did before.
+#[derive(Clone)]
+struct InlinedImport {
+    orbitals: std::rc::Rc<Vec<Orbital>>,
+    provenance: Vec<ConfigProvenanceRecord>,
+    config_diagnostics: Vec<r#trait::TraitRefConfigDiagnostic>,
+    orbital_ref_diagnostics: Vec<orbital::OrbitalRefDiagnostic>,
+    uses_config_diagnostics: Vec<orbital::UsesConfigDiagnostic>,
+    deferred_merges: Vec<DeferredMerge>,
+    loaded_files: HashSet<PathBuf>,
+}
+
+type ImportMemo = HashMap<PathBuf, InlinedImport>;
 
 /// Inline all external references in a schema
 pub fn inline_schema(
@@ -387,7 +425,11 @@ pub fn inline_schema_with_orbital_diagnostics(
     // tokens (`rebindInlineTraitEntity` / `applyTraitRenames`).
     normalize_identity_tokens(schema);
 
-    let mut loader = ExternalOrbitalLoader::new(config.loader_config.clone());
+    let session = config.session.clone().unwrap_or_default();
+    let mut session_state = session.0.borrow_mut();
+    let InlineSessionState { loader, imports } = &mut *session_state;
+    let loader = loader.get_or_insert_with(|| ExternalOrbitalLoader::new(config.loader_config.clone()));
+    loader.begin_schema();
     let mut chain = ImportChain::new();
 
     // If we have a source path, add it to the chain
@@ -424,7 +466,7 @@ pub fn inline_schema_with_orbital_diagnostics(
     // itself) — the shallow pre-pass below only ever adds NEW keys.
     consumer_entity_ids.extend(precompute_reference_form_primary_ids(
         schema,
-        &mut loader,
+        loader,
         &mut chain,
         source_path,
     ));
@@ -436,7 +478,7 @@ pub fn inline_schema_with_orbital_diagnostics(
     // declaration order.
     let (listen_source_targets, imported_trait_names) = precompute_reference_form_listen_targets(
         &schema.orbitals,
-        &mut loader,
+        loader,
         &mut chain,
         source_path,
     );
@@ -468,7 +510,7 @@ pub fn inline_schema_with_orbital_diagnostics(
         let orbital_name = orbital.name.clone();
         if let Err(e) = inline_orbital(
             orbital,
-            &mut loader,
+            loader,
             &mut chain,
             source_path,
             true,
@@ -482,6 +524,7 @@ pub fn inline_schema_with_orbital_diagnostics(
             uses_config_diagnostics,
             Some(idx),
             &mut deferred_merges,
+            imports,
         ) {
             let e = match e {
                 InlineError::UnknownAlias(alias) if lazy_aliases.contains(&alias) => InlineError::LazyEagerRef {
@@ -1101,6 +1144,7 @@ fn address_imported_traits(orbitals: &mut [Orbital], imported: &ImportedTraitNam
 /// schema-wide retry is simply never merged — `ORB_T_REBIND_TARGET_UNRESOLVED`
 /// (`validation::trait_validator::validate_entity_rebind`) reports it; there
 /// is no fallback landing site left.
+#[derive(Clone)]
 struct DeferredMerge {
     target: String,
     imported: EntityDefinition,
@@ -1163,6 +1207,7 @@ fn inline_orbital(
     // after every orbital has inlined sees ALL of them, not just the
     // top-level orbital's own. See `DeferredMerge`.
     deferred_merges: &mut Vec<DeferredMerge>,
+    imports: &mut ImportMemo,
 ) -> Result<(), InlineError> {
     // Skip the import-loading + reference-substitution machinery when
     // the orbital has no `uses[]` declarations (e.g. an atom compiled
@@ -1266,7 +1311,7 @@ fn inline_orbital(
         // "Trait X not found in orbital Y". We now clone ALL orbitals and
         // stash them in the context, so `get_trait` / `get_page` /
         // `get_service` can iterate every orbital.
-        let (mut inlined_orbitals, loaded_source, loaded_schema_config) = {
+        let (loaded_source, loaded_schema_config) = {
             let loaded = loader.load(&use_decl.from, source_path, chain)?;
             if loaded.schema.orbitals.is_empty() {
                 // Defensive: a valid imported `.orb` always has at least one
@@ -1274,11 +1319,7 @@ fn inline_orbital(
                 // should be unreachable. Skip the alias rather than panic.
                 continue;
             }
-            (
-                loaded.schema.orbitals.clone(),
-                loaded.source_path.clone(),
-                loaded.schema.config.clone(),
-            )
+            (loaded.source_path.clone(), loaded.schema.config.clone())
         };
 
         // `uses A from "…" { config { … } }` — a call-site override of a
@@ -1328,41 +1369,83 @@ fn inline_orbital(
             alias_schema_configs.insert(use_decl.alias.clone(), folded);
         }
 
-        // G1 (`docs/Almadar_Compiler_Gaps.md` §82): this loaded alias's OWN
-        // orbitals are a DIFFERENT `uses`-namespace than the caller's — a
-        // sibling-import listen source inside one of THEM resolves against
-        // THEIR OWN reference-form orbitals, never the caller's. Recomputed
-        // per alias load (cheap: `loader.load` inside it is a cache hit).
-        let (nested_listen_source_targets, nested_imported_trait_names) =
-            precompute_reference_form_listen_targets(
-            &inlined_orbitals,
-            loader,
-            chain,
-            Some(&loaded_source),
-        );
-        // The alias's own `entities {}` targets name ITS entities, never the
-        // importing program's.
-        let nested_entity_ids = inline_entity_ids(&inlined_orbitals);
-        for inlined_orbital in &mut inlined_orbitals {
-            inline_orbital(
-                inlined_orbital,
-                loader,
-                chain,
-                Some(&loaded_source),
-                false,
-                None,
-                recorder,
-                config_diagnostics,
-                loaded_schema_config.as_ref(),
-                &nested_entity_ids,
-                &nested_listen_source_targets,
-                orbital_ref_diagnostics,
-                uses_config_diagnostics,
-                None,
-                deferred_merges,
-            )?;
-        }
-        address_imported_traits(&mut inlined_orbitals, &nested_imported_trait_names);
+        // An imported behavior inlines the same way wherever it is used (its
+        // inputs are all its own), so it is inlined once per program and reused.
+        let import_key = loader.canonical(&loaded_source);
+        let inlined_orbitals: std::rc::Rc<Vec<Orbital>> = if let Some(done) = imports.get(&import_key) {
+            recorder.extend(done.provenance.iter().cloned());
+            config_diagnostics.extend(done.config_diagnostics.iter().cloned());
+            orbital_ref_diagnostics.extend(done.orbital_ref_diagnostics.iter().cloned());
+            uses_config_diagnostics.extend(done.uses_config_diagnostics.iter().cloned());
+            deferred_merges.extend(done.deferred_merges.iter().cloned());
+            loader.mark_loaded(&done.loaded_files);
+            std::rc::Rc::clone(&done.orbitals)
+        } else {
+            let mut inlined_orbitals = loader.load(&use_decl.from, source_path, chain)?.schema.orbitals.clone();
+            let marks = (
+                recorder.len(),
+                config_diagnostics.len(),
+                orbital_ref_diagnostics.len(),
+                uses_config_diagnostics.len(),
+                deferred_merges.len(),
+            );
+            loader.begin_recording();
+            let inlined: Result<(), InlineError> = (|| {
+                // G1 (`docs/Almadar_Compiler_Gaps.md` §82): this loaded alias's OWN
+                // orbitals are a DIFFERENT `uses`-namespace than the caller's — a
+                // sibling-import listen source inside one of THEM resolves against
+                // THEIR OWN reference-form orbitals, never the caller's. Recomputed
+                // per alias load (cheap: `loader.load` inside it is a cache hit).
+                let (nested_listen_source_targets, nested_imported_trait_names) =
+                    precompute_reference_form_listen_targets(
+                    &inlined_orbitals,
+                    loader,
+                    chain,
+                    Some(&loaded_source),
+                );
+                // The alias's own `entities {}` targets name ITS entities, never the
+                // importing program's.
+                let nested_entity_ids = inline_entity_ids(&inlined_orbitals);
+                for inlined_orbital in &mut inlined_orbitals {
+                    inline_orbital(
+                        inlined_orbital,
+                        loader,
+                        chain,
+                        Some(&loaded_source),
+                        false,
+                        None,
+                        recorder,
+                        config_diagnostics,
+                        loaded_schema_config.as_ref(),
+                        &nested_entity_ids,
+                        &nested_listen_source_targets,
+                        orbital_ref_diagnostics,
+                        uses_config_diagnostics,
+                        None,
+                        deferred_merges,
+                        imports,
+                    )?;
+                }
+                address_imported_traits(&mut inlined_orbitals, &nested_imported_trait_names);
+                Ok(())
+            })();
+            let loaded_files = loader.end_recording();
+            inlined?;
+            let inlined_orbitals = std::rc::Rc::new(inlined_orbitals);
+            imports.insert(
+                import_key,
+                InlinedImport {
+                    orbitals: std::rc::Rc::clone(&inlined_orbitals),
+                    provenance: recorder[marks.0..].to_vec(),
+                    config_diagnostics: config_diagnostics[marks.1..].to_vec(),
+                    orbital_ref_diagnostics: orbital_ref_diagnostics[marks.2..].to_vec(),
+                    uses_config_diagnostics: uses_config_diagnostics[marks.3..].to_vec(),
+                    deferred_merges: deferred_merges[marks.4..].to_vec(),
+                    loaded_files,
+                },
+            );
+            inlined_orbitals
+        };
 
         // The source label used in error messages is the `from` string from
         // the `uses` declaration (e.g. `"std/behaviors/std-arcade-game"`).
@@ -6041,6 +6124,7 @@ mod tests {
                 ..Default::default()
             },
             skip_inline: false,
+            session: None,
         };
         inline_schema(schema, &config, None)
     }
@@ -6102,6 +6186,7 @@ mod tests {
                 ..Default::default()
             },
             skip_inline: false,
+            session: None,
         };
         inline_schema(&mut schema, &config, None).expect("inline must succeed");
 
@@ -6132,6 +6217,7 @@ mod tests {
                 ..Default::default()
             },
             skip_inline: false,
+            session: None,
         };
         inline_schema(&mut schema, &config, None).expect("inline must succeed");
 
@@ -6328,6 +6414,7 @@ mod tests {
                 ..Default::default()
             },
             skip_inline: false,
+            session: None,
         };
         inline_schema(&mut schema, &config, None).expect("inline must succeed");
 
@@ -6428,6 +6515,7 @@ mod tests {
                 ..Default::default()
             },
             skip_inline: false,
+            session: None,
         };
         inline_schema(&mut schema, &config, None).expect("inline must succeed");
 
@@ -6505,6 +6593,7 @@ mod tests {
                 ..Default::default()
             },
             skip_inline: false,
+            session: None,
         };
         inline_schema(&mut schema, &config, None).expect("inline must succeed");
 
@@ -6827,6 +6916,7 @@ mod tests {
                 ..Default::default()
             },
             skip_inline: false,
+            session: None,
         };
         inline_schema(&mut schema, &config, None).expect("inline must succeed");
 
@@ -6898,6 +6988,7 @@ mod tests {
                 ..Default::default()
             },
             skip_inline: false,
+            session: None,
         };
         inline_schema(&mut schema, &config, None).expect("inline must succeed");
 
@@ -6973,6 +7064,7 @@ mod tests {
                 ..Default::default()
             },
             skip_inline: false,
+            session: None,
         };
         inline_schema(schema, &config, None).expect("inline must succeed");
     }

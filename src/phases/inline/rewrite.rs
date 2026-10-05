@@ -211,8 +211,8 @@ pub(crate) fn rewrite_identifiers(
 /// the substring up to the first `.`, so a differently-spelled name can never
 /// partially match), `["ref", "EntityName"]`, `["fetch", "EntityName", …]`,
 /// and `["persist", "create"|"update"|"delete", "EntityName", …]`
-/// (GAP-COMP-11 — `batch`'s position-2 is a rows array, not a bare name, so
-/// it is left alone). Shared by the RENAME walk (`rewrite_identifiers_inner`,
+/// (GAP-COMP-11), and the entity of each op tuple a `["persist", "batch", <ops>]`
+/// writes out (a literal list element, or the tuple an `array/map` lambda returns). Shared by the RENAME walk (`rewrite_identifiers_inner`,
 /// via `f` that substitutes through a rename map) and the read-only
 /// COLLECTOR (`collect_entity_slots`, via `f` that just records membership) —
 /// one position rule, no second copy to drift apart. Never recurses into
@@ -249,6 +249,11 @@ pub(crate) fn visit_entity_slots(expr: &mut SExpression, f: &mut dyn FnMut(&mut 
                             f(name);
                         }
                     }
+                    "persist" if matches!(items.get(1), Some(SExpression::String(a)) if a == "batch") => {
+                        if let Some(ops) = items.get_mut(2) {
+                            visit_batch_op_entities(ops, f);
+                        }
+                    }
                     "persist" => {
                         let is_single_record = matches!(
                             items.get(1),
@@ -266,6 +271,41 @@ pub(crate) fn visit_entity_slots(expr: &mut SExpression, f: &mut dyn FnMut(&mut 
             }
         }
         _ => {}
+    }
+}
+
+/// Apply `f` to the entity name of every op tuple a batch's `<ops>` writes out.
+fn visit_batch_op_entities(ops: &mut SExpression, f: &mut dyn FnMut(&mut String)) {
+    use orbital_core::effects::persist_batch::is_op_tuple;
+    fn tuple(t: &mut SExpression, f: &mut dyn FnMut(&mut String)) {
+        if !is_op_tuple(t) {
+            return;
+        }
+        if let SExpression::Array(items) = t {
+            if let Some(SExpression::String(name)) = items.get_mut(1) {
+                f(name);
+            }
+        }
+    }
+    let SExpression::Array(items) = ops else {
+        return;
+    };
+    match items.first() {
+        Some(SExpression::String(head)) if head == "array/map" && items.len() == 3 => {
+            if let SExpression::Array(lambda) = &mut items[2] {
+                let is_fn = matches!(lambda.first(), Some(SExpression::String(h)) if h == "fn" || h == "lambda");
+                if is_fn && lambda.len() >= 3 {
+                    if let Some(body) = lambda.last_mut() {
+                        tuple(body, f);
+                    }
+                }
+            }
+        }
+        Some(SExpression::String(head)) if head == "list" => {
+            items[1..].iter_mut().for_each(|e| tuple(e, f))
+        }
+        Some(SExpression::String(_)) => {}
+        _ => items.iter_mut().for_each(|e| tuple(e, f)),
     }
 }
 
@@ -908,7 +948,7 @@ fn rewrite_identifiers_inner(
             for (k, v) in map.iter_mut() {
                 // 0) Effect emit-options map. fetch/persist/call-service/ref/
                 //    os-watch/set effects carry `emit: {success|failure|
-                //    on_message|on_change: "EVENT"}` (the slot-key universe of
+                //    on_message|on_change|cancelled: "EVENT"}` (the slot-key universe of
                 //    every `validate_emit_config` call site) and the string
                 //    form `emit: "EVENT"`. A call-site `events {OLD: NEW}`
                 //    rename that skips these leaves the atom's fetch success
@@ -926,7 +966,11 @@ fn rewrite_identifiers_inner(
                             for (slot, slot_v) in emit_map.iter_mut() {
                                 if matches!(
                                     slot.as_str(),
-                                    "success" | "failure" | "on_message" | "on_change"
+                                    "success"
+                                        | "failure"
+                                        | "on_message"
+                                        | "on_change"
+                                        | "cancelled"
                                 ) {
                                     if let SExpression::String(ev) = slot_v {
                                         if let Some(to) = event_subs.get(ev) {
@@ -3366,6 +3410,23 @@ mod entity_slot_tests {
         assert!(out.contains("Other"));
     }
 
+    /// A batch's literal op tuples and an `array/map` lambda's tuple name entities that
+    /// rename with the rest of the program; entity-less shapes are left alone.
+    #[test]
+    fn persist_batch_op_tuples_are_entity_slots() {
+        let mut subs = HashMap::new();
+        subs.insert("Other".to_string(), "Renamed".to_string());
+        let mut literal = sexpr(json!(["persist", "batch", [["create", "Other", {}], ["delete", "Other", "i"]]]));
+        rewrite_identifiers(&mut literal, &subs, &HashMap::new());
+        assert_eq!(literal, sexpr(json!(["persist", "batch", [["create", "Renamed", {}], ["delete", "Renamed", "i"]]])));
+        let mut mapped = sexpr(json!(["persist", "batch", ["array/map", "@payload.rows", ["fn", "r", ["update", "Other", "@r", {}]]]]));
+        rewrite_identifiers(&mut mapped, &subs, &HashMap::new());
+        assert_eq!(mapped, sexpr(json!(["persist", "batch", ["array/map", "@payload.rows", ["fn", "r", ["update", "Renamed", "@r", {}]]]])));
+        let mut out = HashSet::new();
+        collect_entity_slots(&sexpr(json!(["persist", "batch", [["create", "Other", {}]]])), &candidates(), &mut out);
+        assert!(out.contains("Other"));
+    }
+
     /// The rename walker and the collector agree: renaming then re-collecting
     /// with the ORIGINAL candidate finds nothing left (it was renamed away).
     #[test]
@@ -3815,5 +3876,33 @@ mod payload_entity_marker_tests {
             .map(|f| f.name.as_str())
             .collect();
         assert_eq!(names, vec!["hourlyRate"]);
+    }
+}
+
+#[cfg(test)]
+mod cancelled_event_rename_tests {
+    use super::*;
+    use serde_json::json;
+
+    #[test]
+    fn events_rename_reaches_the_cancelled_emit_slot() {
+        let mut effect: SExpression = serde_json::from_value(json!([
+            "call-service", "svc", "run", {},
+            { "key": "k", "emit": { "success": "DONE", "cancelled": "STOPPED" } }
+        ]))
+        .unwrap();
+        let event_subs: HashMap<String, String> = [
+            ("DONE".to_string(), "FINISHED".to_string()),
+            ("STOPPED".to_string(), "ABORTED".to_string()),
+        ]
+        .into_iter()
+        .collect();
+        rewrite_identifiers(&mut effect, &HashMap::new(), &event_subs);
+        let expected: SExpression = serde_json::from_value(json!([
+            "call-service", "svc", "run", {},
+            { "key": "k", "emit": { "success": "FINISHED", "cancelled": "ABORTED" } }
+        ]))
+        .unwrap();
+        assert_eq!(effect, expected);
     }
 }

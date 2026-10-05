@@ -428,6 +428,7 @@ fn field_type_to_binding(ft: &FieldType) -> BindingType {
         // compare — the same posture this file already takes for a leaf it
         // cannot resolve. A narrower answer would invent findings.
         FieldType::Scalar => BindingType::Unknown,
+        FieldType::SExpr => BindingType::Unknown,
         // Every variant is an object, so a union binds like one.
         FieldType::Union => BindingType::Object,
     }

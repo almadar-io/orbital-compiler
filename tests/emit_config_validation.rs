@@ -429,3 +429,277 @@ fn camel_case_on_message_alias_accepted() {
         result.errors
     );
 }
+
+// ============================================================================
+// Tests — call-service `key` / `emit.cancelled` / `cancel-call`
+// ============================================================================
+
+fn options(entries: Vec<(&str, SExpression)>) -> SExpression {
+    SExpression::Object(
+        entries
+            .into_iter()
+            .map(|(k, v)| (k.to_string(), v))
+            .collect::<HashMap<_, _>>(),
+    )
+}
+
+fn str_expr(s: &str) -> SExpression {
+    SExpression::String(s.to_string())
+}
+
+fn keyed_call_service(opts: SExpression) -> SExpression {
+    SExpression::Array(vec![
+        str_expr("call-service"),
+        str_expr("svc"),
+        str_expr("run"),
+        options(vec![]),
+        opts,
+    ])
+}
+
+fn cancel_call(key: SExpression) -> SExpression {
+    SExpression::Array(vec![str_expr("cancel-call"), key])
+}
+
+fn has_code(effects: Vec<SExpression>, emits: Vec<EmitDefinition>, code: ErrorCode) -> bool {
+    validate_comprehensive(&schema_with_effects(effects, emits))
+        .errors
+        .iter()
+        .any(|e| e.code == code)
+}
+
+fn cancelled_emit_declared() -> Vec<EmitDefinition> {
+    vec![
+        declared_emit("DONE", false),
+        declared_emit("FAILED", false),
+        declared_emit("STOPPED", false),
+    ]
+}
+
+#[test]
+fn keyed_call_with_cancelled_and_a_cancel_call_has_no_cancel_errors() {
+    let effects = vec![
+        keyed_call_service(options(vec![
+            ("key", str_expr("@entity.id")),
+            (
+                "emit",
+                emit_object(&[
+                    ("success", "DONE"),
+                    ("failure", "FAILED"),
+                    ("cancelled", "STOPPED"),
+                ]),
+            ),
+        ])),
+        cancel_call(str_expr("@entity.id")),
+    ];
+    let result = validate_comprehensive(&schema_with_effects(effects, cancelled_emit_declared()));
+    assert!(
+        !result.errors.iter().any(|e| matches!(
+            e.code,
+            ErrorCode::CallServiceCancelledWithoutKey
+                | ErrorCode::CancelCallNoKeyedCall
+                | ErrorCode::CallServiceKeyType
+                | ErrorCode::EffectEmitKeyInvalid
+                | ErrorCode::EffectUnknownType
+        )),
+        "got: {:?}",
+        result.errors
+    );
+}
+
+#[test]
+fn cancelled_without_key_is_an_error() {
+    let effects = vec![keyed_call_service(options(vec![(
+        "emit",
+        emit_object(&[("success", "DONE"), ("cancelled", "STOPPED")]),
+    )]))];
+    assert!(has_code(
+        effects,
+        cancelled_emit_declared(),
+        ErrorCode::CallServiceCancelledWithoutKey
+    ));
+}
+
+#[test]
+fn a_null_key_does_not_count_as_a_key() {
+    let effects = vec![keyed_call_service(options(vec![
+        ("key", SExpression::Null),
+        ("emit", emit_object(&[("cancelled", "STOPPED")])),
+    ]))];
+    assert!(has_code(
+        effects,
+        cancelled_emit_declared(),
+        ErrorCode::CallServiceCancelledWithoutKey
+    ));
+}
+
+#[test]
+fn cancelled_with_a_key_is_not_reported() {
+    let effects = vec![keyed_call_service(options(vec![
+        ("key", str_expr("batch")),
+        ("emit", emit_object(&[("cancelled", "STOPPED")])),
+    ]))];
+    assert!(!has_code(
+        effects,
+        cancelled_emit_declared(),
+        ErrorCode::CallServiceCancelledWithoutKey
+    ));
+}
+
+#[test]
+fn an_undeclared_cancelled_event_is_validated_like_success_and_failure() {
+    let effects = vec![keyed_call_service(options(vec![
+        ("key", str_expr("batch")),
+        ("emit", emit_object(&[("cancelled", "NOWHERE")])),
+    ]))];
+    assert!(has_code(
+        effects,
+        cancelled_emit_declared(),
+        ErrorCode::EffectEmitUndeclaredEvent
+    ));
+}
+
+#[test]
+fn a_malformed_cancelled_event_name_is_rejected() {
+    let effects = vec![keyed_call_service(options(vec![
+        ("key", str_expr("batch")),
+        ("emit", emit_object(&[("cancelled", "not valid!")])),
+    ]))];
+    assert!(has_code(
+        effects,
+        cancelled_emit_declared(),
+        ErrorCode::EffectEmitInvalidName
+    ));
+}
+
+#[test]
+fn cancelled_is_not_an_emit_key_of_fetch() {
+    let effects = vec![SExpression::Array(vec![
+        str_expr("fetch"),
+        str_expr("Patient"),
+        options_with_emit(emit_object(&[("cancelled", "STOPPED")])),
+    ])];
+    assert!(has_code(
+        effects,
+        cancelled_emit_declared(),
+        ErrorCode::EffectEmitKeyInvalid
+    ));
+}
+
+#[test]
+fn cancel_call_with_no_keyed_call_anywhere_is_an_error() {
+    let effects = vec![
+        keyed_call_service(options(vec![("emit", emit_object(&[("success", "DONE")]))])),
+        cancel_call(str_expr("@entity.id")),
+    ];
+    assert!(has_code(
+        effects,
+        cancelled_emit_declared(),
+        ErrorCode::CancelCallNoKeyedCall
+    ));
+}
+
+#[test]
+fn cancel_call_with_no_call_service_at_all_is_an_error() {
+    assert!(has_code(
+        vec![cancel_call(str_expr("k"))],
+        vec![],
+        ErrorCode::CancelCallNoKeyedCall
+    ));
+}
+
+#[test]
+fn cancel_call_is_satisfied_by_a_keyed_call_in_another_trait_of_the_app() {
+    let mut schema = schema_with_effects(vec![cancel_call(str_expr("k"))], vec![]);
+    let keyed = schema_with_effects(
+        vec![keyed_call_service(options(vec![
+            ("key", str_expr("k")),
+            ("emit", emit_object(&[("success", "DONE")])),
+        ]))],
+        vec![declared_emit("DONE", false)],
+    );
+    let mut other = keyed.orbitals.into_iter().next().unwrap();
+    other.name = "OtherOrbital".to_string();
+    schema.orbitals.push(other);
+    let result = validate_comprehensive(&schema);
+    assert!(
+        !result
+            .errors
+            .iter()
+            .any(|e| e.code == ErrorCode::CancelCallNoKeyedCall),
+        "got: {:?}",
+        result.errors
+    );
+}
+
+#[test]
+fn cancel_call_inside_a_conditional_is_still_found() {
+    let nested = SExpression::Array(vec![
+        str_expr("if"),
+        SExpression::Bool(true),
+        cancel_call(str_expr("k")),
+    ]);
+    assert!(has_code(
+        vec![nested],
+        vec![],
+        ErrorCode::CancelCallNoKeyedCall
+    ));
+}
+
+#[test]
+fn non_string_key_literals_are_an_error() {
+    for bad in [
+        SExpression::Number(7.0),
+        SExpression::Bool(true),
+        options(vec![("a", str_expr("b"))]),
+        SExpression::Array(vec![SExpression::Number(1.0)]),
+    ] {
+        let effects = vec![keyed_call_service(options(vec![
+            ("key", bad.clone()),
+            ("emit", emit_object(&[("success", "DONE")])),
+        ]))];
+        assert!(
+            has_code(
+                effects,
+                cancelled_emit_declared(),
+                ErrorCode::CallServiceKeyType
+            ),
+            "{bad:?} must be rejected"
+        );
+    }
+}
+
+#[test]
+fn string_literal_and_expression_keys_are_accepted() {
+    for good in [
+        str_expr("batch-1"),
+        str_expr("@entity.id"),
+        SExpression::Array(vec![
+            str_expr("str/concat"),
+            str_expr("a"),
+            str_expr("@entity.id"),
+        ]),
+    ] {
+        let effects = vec![keyed_call_service(options(vec![
+            ("key", good.clone()),
+            ("emit", emit_object(&[("success", "DONE")])),
+        ]))];
+        assert!(
+            !has_code(
+                effects,
+                cancelled_emit_declared(),
+                ErrorCode::CallServiceKeyType
+            ),
+            "{good:?} must be accepted"
+        );
+    }
+}
+
+#[test]
+fn key_only_options_are_read_as_options_not_params() {
+    let effects = vec![keyed_call_service(options(vec![(
+        "key",
+        SExpression::Number(1.0),
+    )]))];
+    assert!(has_code(effects, vec![], ErrorCode::CallServiceKeyType));
+}

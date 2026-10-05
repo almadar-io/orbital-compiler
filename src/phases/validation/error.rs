@@ -451,6 +451,13 @@ pub enum ErrorCode {
     EffectCallServiceMissingParam,
     /// call_service literal param value contradicts the contract's param type
     EffectCallServiceParamType,
+    /// call-service declares `emit.cancelled` but no `key` — nothing can
+    /// cancel an unkeyed call
+    CallServiceCancelledWithoutKey,
+    /// call-service `key` is a non-string literal (number/bool/object/array)
+    CallServiceKeyType,
+    /// the app runs `cancel-call` but no `call-service` anywhere carries a `key`
+    CancelCallNoKeyedCall,
     /// set effect using invalid binding
     EffectSetInvalidBinding,
     /// set effect using @payload (should use @entity)
@@ -459,6 +466,12 @@ pub enum ErrorCode {
     EffectFetchInvalidEntity,
     /// fetch effect include references non-existent or non-relation field
     EffectFetchInvalidInclude,
+    /// `persist batch` ops expression is not array-typed
+    PersistBatchOpsNotArray,
+    /// `persist batch` op tuple with an unknown action or the wrong arity
+    PersistBatchBadOp,
+    /// `persist batch` ops name both browser-stored and server-stored entities
+    PersistBatchMixedPlacement,
     /// Multiple render_ui effects targeting same slot
     EffectSlotConflict,
     /// Unknown effect type
@@ -1349,10 +1362,16 @@ impl ErrorCode {
             ErrorCode::EffectCallServiceUnknownParam => "ORB_EFF_CALL_SERVICE_UNKNOWN_PARAM",
             ErrorCode::EffectCallServiceMissingParam => "ORB_EFF_CALL_SERVICE_MISSING_PARAM",
             ErrorCode::EffectCallServiceParamType => "ORB_EFF_CALL_SERVICE_PARAM_TYPE",
+            ErrorCode::CallServiceCancelledWithoutKey => "ORB_CALL_SERVICE_CANCELLED_WITHOUT_KEY",
+            ErrorCode::CallServiceKeyType => "ORB_CALL_SERVICE_KEY_TYPE",
+            ErrorCode::CancelCallNoKeyedCall => "ORB_CANCEL_CALL_NO_KEYED_CALL",
             ErrorCode::EffectSetInvalidBinding => "ORB_EFF_SET_INVALID_BINDING",
             ErrorCode::EffectSetPayloadNotAllowed => "ORB_EFF_SET_PAYLOAD_NOT_ALLOWED",
             ErrorCode::EffectFetchInvalidEntity => "ORB_EFF_FETCH_INVALID_ENTITY",
             ErrorCode::EffectFetchInvalidInclude => "ORB_EFF_FETCH_INVALID_INCLUDE",
+            ErrorCode::PersistBatchOpsNotArray => "ORB_PERSIST_BATCH_OPS_NOT_ARRAY",
+            ErrorCode::PersistBatchBadOp => "ORB_PERSIST_BATCH_BAD_OP",
+            ErrorCode::PersistBatchMixedPlacement => "ORB_PERSIST_BATCH_MIXED_PLACEMENT",
             ErrorCode::EffectSlotConflict => "ORB_EFF_SLOT_CONFLICT",
             ErrorCode::EffectUnknownType => "ORB_EFF_UNKNOWN_TYPE",
             ErrorCode::EffectNotifyRetired => "ORB_EFF_NOTIFY_RETIRED",
@@ -1699,11 +1718,17 @@ impl ErrorCode {
             | ErrorCode::EffectCallServiceUnknownParam
             | ErrorCode::EffectCallServiceMissingParam
             | ErrorCode::EffectCallServiceParamType
+            | ErrorCode::CallServiceCancelledWithoutKey
+            | ErrorCode::CallServiceKeyType
+            | ErrorCode::CancelCallNoKeyedCall
             | ErrorCode::EffectNotifyRetired
             | ErrorCode::EffectSetInvalidBinding
             | ErrorCode::EffectSetPayloadNotAllowed
             | ErrorCode::EffectFetchInvalidEntity
             | ErrorCode::EffectFetchInvalidInclude
+            | ErrorCode::PersistBatchOpsNotArray
+            | ErrorCode::PersistBatchBadOp
+            | ErrorCode::PersistBatchMixedPlacement
             | ErrorCode::EffectSlotConflict
             | ErrorCode::EffectUnknownType
             | ErrorCode::EffectNavigateMissingPayload

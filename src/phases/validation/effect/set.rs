@@ -653,6 +653,7 @@ fn field_type_str(ft: &FieldType) -> &'static str {
         FieldType::Node => "node",
         FieldType::Event => "event",
         FieldType::Scalar => "scalar",
+        FieldType::SExpr => "SExpr",
         FieldType::Union => "union",
     }
 }

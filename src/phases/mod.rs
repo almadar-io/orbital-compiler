@@ -213,8 +213,20 @@ pub fn compile_file_with_source(
 /// Skips Validate and Resolve-to-OIR on purpose — those happen inside
 /// `compile_schema_with_path` which calls this helper first, then finishes.
 pub fn resolve_schema_with_path(
+    schema: OrbitalSchema,
+    options: &CompilerOptions,
+    source_path: Option<&Path>,
+) -> CompileResult<OrbitalSchema> {
+    resolve_schema_with_inline(schema, options, &options.inline, source_path)
+}
+
+/// [`resolve_schema_with_path`] inlining with `inline` instead of
+/// `options.inline` — how a program shares one inline session across itself
+/// and its lazy behaviors.
+pub(crate) fn resolve_schema_with_inline(
     mut schema: OrbitalSchema,
     options: &CompilerOptions,
+    inline: &inline::InlineConfig,
     source_path: Option<&Path>,
 ) -> CompileResult<OrbitalSchema> {
     // Intrinsic identity: a raw/name-only `.orb` reaching the compiler (e.g.
@@ -233,7 +245,7 @@ pub fn resolve_schema_with_path(
     if options.verbose {
         eprintln!("  Phase 2: Inlining...");
     }
-    inline_schema(&mut schema, &options.inline, source_path)?;
+    inline_schema(&mut schema, inline, source_path)?;
 
     // Phase 2.5: Compose (depends on inline having resolved aliases)
     if options.verbose {
