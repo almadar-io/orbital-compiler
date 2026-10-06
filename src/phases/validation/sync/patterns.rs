@@ -2,7 +2,7 @@
 //!
 //! Source: packages/almadar-core/src/patterns/patterns-registry.json
 //!
-//! Last synced: 2026-10-05
+//! Last synced: 2026-10-06
 //! To regenerate: npx tsx tools/almadar-pattern-sync/index.ts
 //!
 //! DO NOT EDIT MANUALLY - changes will be overwritten on next sync.
@@ -2764,6 +2764,7 @@ pub static PATTERN_PROPS_SCHEMA: LazyLock<HashMap<&'static str, HashSet<&'static
                     "fields",
                     "gap",
                     "groupBy",
+                    "groupFormat",
                     "hasMore",
                     "infiniteScroll",
                     "isLoading",
@@ -11143,6 +11144,7 @@ pub static PATTERN_PROP_TYPES: LazyLock<HashMap<&'static str, HashMap<&'static s
                     ("gap", &["string"] as &[&str]),
                     ("variant", &["string"] as &[&str]),
                     ("groupBy", &["string"] as &[&str]),
+                    ("groupFormat", &["string"] as &[&str]),
                     ("senderField", &["string"] as &[&str]),
                     ("senderLabelField", &["string"] as &[&str]),
                     ("currentUser", &["string"] as &[&str]),
@@ -18362,6 +18364,7 @@ pub static PATTERN_PROP_ENUM_VALUES: LazyLock<HashMap<&'static str, HashMap<&'st
                 [
                     ("gap", &["none", "sm", "md", "lg"] as &[&str]),
                     ("variant", &["default", "card", "compact", "message"] as &[&str]),
+                    ("groupFormat", &["date", "time", "datetime", "currency", "number", "boolean", "percent"] as &[&str]),
                     ("skeleton", &["header", "table", "list", "grid", "detail", "stats", "form", "card", "text", "none"] as &[&str]),
                     ("sortDirection", &["asc", "desc"] as &[&str]),
                     ("look", &["dense", "spacious", "striped", "borderless", "card-rows"] as &[&str]),

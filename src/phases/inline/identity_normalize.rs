@@ -364,6 +364,19 @@ pub(super) fn rewrite_trait_embed_tokens(
 /// Rewrite `@trait.<from>` embed roots to `@trait.<to>` in an S-expression tree.
 /// Boundary-checked (next char `.`/`[`/end) so `@trait.FooBar` is not matched by
 /// a `Foo` sub.
+/// `@trait.<X>` embeds inside config defaults (a composed trait's call-site
+/// `config {}` override, e.g. an `AppLayout`'s `contentTrait`).
+pub(super) fn rewrite_config_embed_tokens(
+    config: &mut HashMap<String, ConfigField>,
+    trait_subs: &HashMap<String, String>,
+) {
+    for cf in config.values_mut() {
+        if let Some(default) = cf.default.as_mut() {
+            rewrite_trait_embed_in_sexpr(default, trait_subs);
+        }
+    }
+}
+
 fn rewrite_trait_embed_in_sexpr(expr: &mut SExpression, subs: &HashMap<String, String>) {
     match expr {
         SExpression::String(s) => {

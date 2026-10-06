@@ -31,7 +31,9 @@ pub(crate) fn fold_event_typed_members(
     items: Option<&orbital_core::schema::FieldDefinition>,
     event_subs: &HashMap<String, String>,
 ) -> bool {
-    map_event_typed_members(value, items, &mut |current| event_subs.get(current).cloned())
+    map_event_typed_members(value, items, &mut |current| {
+        event_subs.get(current).cloned()
+    })
 }
 
 /// Apply `f` to every literal value at an `event`-typed member of a config
@@ -84,16 +86,14 @@ pub(crate) fn map_event_typed_members(
 }
 
 /// Maps a split event address to its replacement event and source, or `None` to keep it.
-pub(crate) type AddressMap<'a> = dyn FnMut(&str, &ListenSource) -> Option<(String, ListenSource)> + 'a;
+pub(crate) type AddressMap<'a> =
+    dyn FnMut(&str, &ListenSource) -> Option<(String, ListenSource)> + 'a;
 
 /// Apply `f` to every `listens`-addressed event value (`Trait.EVENT`,
 /// `Orbital.Trait.EVENT`) in a trait's config — scalar `event` knobs and
 /// `event`-typed struct members alike. `f` gets the split address and returns
 /// the replacement source and event, or `None` to keep it.
-pub(crate) fn map_config_event_addresses(
-    td: &mut TraitDefinition,
-    f: &mut AddressMap<'_>,
-) {
+pub(crate) fn map_config_event_addresses(td: &mut TraitDefinition, f: &mut AddressMap<'_>) {
     use orbital_core::schema::{join_event_address, split_event_address};
     let mut on_value = |current: &str| -> Option<String> {
         let (event, Some(source)) = split_event_address(current) else {
@@ -3416,14 +3416,48 @@ mod entity_slot_tests {
     fn persist_batch_op_tuples_are_entity_slots() {
         let mut subs = HashMap::new();
         subs.insert("Other".to_string(), "Renamed".to_string());
-        let mut literal = sexpr(json!(["persist", "batch", [["create", "Other", {}], ["delete", "Other", "i"]]]));
+        let mut literal = sexpr(json!([
+            "persist",
+            "batch",
+            [["create", "Other", {}], ["delete", "Other", "i"]]
+        ]));
         rewrite_identifiers(&mut literal, &subs, &HashMap::new());
-        assert_eq!(literal, sexpr(json!(["persist", "batch", [["create", "Renamed", {}], ["delete", "Renamed", "i"]]])));
-        let mut mapped = sexpr(json!(["persist", "batch", ["array/map", "@payload.rows", ["fn", "r", ["update", "Other", "@r", {}]]]]));
+        assert_eq!(
+            literal,
+            sexpr(json!([
+                "persist",
+                "batch",
+                [["create", "Renamed", {}], ["delete", "Renamed", "i"]]
+            ]))
+        );
+        let mut mapped = sexpr(json!([
+            "persist",
+            "batch",
+            [
+                "array/map",
+                "@payload.rows",
+                ["fn", "r", ["update", "Other", "@r", {}]]
+            ]
+        ]));
         rewrite_identifiers(&mut mapped, &subs, &HashMap::new());
-        assert_eq!(mapped, sexpr(json!(["persist", "batch", ["array/map", "@payload.rows", ["fn", "r", ["update", "Renamed", "@r", {}]]]])));
+        assert_eq!(
+            mapped,
+            sexpr(json!([
+                "persist",
+                "batch",
+                [
+                    "array/map",
+                    "@payload.rows",
+                    ["fn", "r", ["update", "Renamed", "@r", {}]]
+                ]
+            ]))
+        );
         let mut out = HashSet::new();
-        collect_entity_slots(&sexpr(json!(["persist", "batch", [["create", "Other", {}]]])), &candidates(), &mut out);
+        collect_entity_slots(
+            &sexpr(json!(["persist", "batch", [["create", "Other", {}]]])),
+            &candidates(),
+            &mut out,
+        );
         assert!(out.contains("Other"));
     }
 
@@ -3525,9 +3559,24 @@ mod payload_entity_marker_tests {
         subs.insert("ConfirmAction".to_string(), "Note".to_string());
         rewrite_payload_entity_refs(&mut td, &subs);
         let fields = payload_fields(&td);
-        assert_eq!(fields[0].projected_from.as_ref().map(|p| p.type_name.as_str()), Some("Note"));
-        assert_eq!(fields[0].projected_from.as_ref().map(|p| p.field.as_str()), Some("id"));
-        assert_eq!(fields[1].projected_from.as_ref().map(|p| p.type_name.as_str()), Some("Elsewhere"));
+        assert_eq!(
+            fields[0]
+                .projected_from
+                .as_ref()
+                .map(|p| p.type_name.as_str()),
+            Some("Note")
+        );
+        assert_eq!(
+            fields[0].projected_from.as_ref().map(|p| p.field.as_str()),
+            Some("id")
+        );
+        assert_eq!(
+            fields[1]
+                .projected_from
+                .as_ref()
+                .map(|p| p.type_name.as_str()),
+            Some("Elsewhere")
+        );
     }
 
     /// A nested `properties` entity marker (an entity-typed field several

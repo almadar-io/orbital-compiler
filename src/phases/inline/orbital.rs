@@ -19,7 +19,7 @@
 
 use super::collect_sibling_trait_refs;
 use super::context::{parse_reference, InlineContext, ParsedReference};
-use super::identity_normalize::rewrite_trait_embed_tokens;
+use super::identity_normalize::{rewrite_config_embed_tokens, rewrite_trait_embed_tokens};
 use super::r#trait::forwarded_sibling_config_from_tracked;
 use super::rewrite::{
     collect_entity_slots, collect_stale_field_name_literals, fold_event_typed_members,
@@ -309,8 +309,8 @@ pub(crate) fn materialized_trait_subs(
     obj: &OrbitalRefObject,
     local_name: &str,
 ) -> HashMap<String, (String, String)> {
-    let only_set: Option<HashSet<&str>> = obj
-        .only
+    let only_closed: Option<HashSet<String>> = obj.only.as_ref().map(|v| only_closure(upstream, v));
+    let only_set: Option<HashSet<&str>> = only_closed
         .as_ref()
         .map(|v| v.iter().map(String::as_str).collect());
     let omit_set: HashSet<&str> = obj
@@ -436,8 +436,9 @@ pub(crate) fn resolve_orbital_reference(
 
     // 1. Trim the trait set (omit/only) BEFORE the unconditional prefix —
     // `subs` below only ever maps survivors. Names here are still upstream's.
-    let only_set: Option<HashSet<&str>> = obj
-        .only
+    let only_closed: Option<HashSet<String>> =
+        obj.only.as_ref().map(|v| only_closure(&upstream, v));
+    let only_set: Option<HashSet<&str>> = only_closed
         .as_ref()
         .map(|v| v.iter().map(String::as_str).collect());
     let omit_set: HashSet<&str> = obj
@@ -464,6 +465,67 @@ pub(crate) fn resolve_orbital_reference(
             removed_names.insert(td.name.clone());
         }
     }
+
+    // A trait removed by `omit`/`only` takes along what only it embedded (its
+    // render children, which the emitter also mounts on the page): a kept
+    // trait whose every embedder is removed is removed too — to a fixed point.
+    if !removed_names.is_empty() {
+        loop {
+            let mut embedders: HashMap<String, Vec<String>> = HashMap::new();
+            for tr in &upstream.traits {
+                let TraitReference::Inline(td) = tr else {
+                    continue;
+                };
+                for child in embedded_trait_refs_of(td) {
+                    embedders.entry(child).or_default().push(td.name.clone());
+                }
+            }
+            let orphaned: Vec<String> = kept
+                .iter()
+                .filter(|td| {
+                    embedders
+                        .get(&td.name)
+                        .is_some_and(|es| es.iter().all(|e| removed_names.contains(e)))
+                })
+                .map(|td| td.name.clone())
+                .collect();
+            if orphaned.is_empty() {
+                break;
+            }
+            kept.retain(|td| !orphaned.contains(&td.name));
+            removed_names.extend(orphaned);
+        }
+    }
+    // Merged fields (`mergedFrom`) only removed traits referenced leave with
+    // them; authored fields and any a kept trait references stay.
+    let removed_only_merged_fields: HashSet<String> = if removed_names.is_empty() {
+        HashSet::new()
+    } else {
+        let refs_of = |td: &TraitDefinition| {
+            let own = td
+                .linked_entity
+                .as_deref()
+                .is_none_or(|le| le == upstream_entity.name.as_str());
+            super::entity::trait_referenced_fields_of_entity(td, &upstream_entity, own)
+        };
+        let kept_refs: HashSet<String> = kept.iter().flat_map(refs_of).collect();
+        upstream
+            .traits
+            .iter()
+            .filter_map(|tr| match tr {
+                TraitReference::Inline(td) if removed_names.contains(&td.name) => Some(td),
+                _ => None,
+            })
+            .flat_map(refs_of)
+            .filter(|f| !kept_refs.contains(f))
+            .filter(|f| {
+                upstream_entity
+                    .fields
+                    .iter()
+                    .any(|fd| fd.name.as_deref() == Some(f.as_str()) && fd.merged_from.is_some())
+            })
+            .collect()
+    };
 
     // `ORB_O_OMIT_EMBEDDED_TRAIT`: a surviving trait's `@trait.<X>` embed
     // names a trait `omit`/`only` just dropped.
@@ -969,6 +1031,19 @@ pub(crate) fn resolve_orbital_reference(
             }
         }
     }
+    // `omit { "/path" }` drops that upstream page (a quoted entry names a page).
+    let omitted_pages: HashSet<&str> = obj
+        .omit
+        .iter()
+        .flatten()
+        .map(String::as_str)
+        .filter(|e| e.starts_with('/'))
+        .collect();
+    for path in &omitted_pages {
+        if !known_paths.contains(*path) {
+            page_unknown_path.push((*path).to_string());
+        }
+    }
     // Snapshot every kept trait's declared config, keyed by its FINAL
     // (post-rename) name, for the step-6 embedder lookup below — a clone
     // taken before the loop starts iter_mut over `kept`, since the loop
@@ -1174,6 +1249,9 @@ pub(crate) fn resolve_orbital_reference(
             let PageRef::Inline(page_def) = p else {
                 continue;
             };
+            if omitted_pages.contains(page_def.path.as_str()) {
+                continue;
+            }
             let mut pd = page_def.clone();
             pd.path = path_map
                 .get(&pd.path)
@@ -1244,8 +1322,38 @@ pub(crate) fn resolve_orbital_reference(
             // `orbital-lolo`'s own page lowering already produces —
             // `reference: Some(name)`, no alias qualification).
             if let Some(mount_names) = obj.mounts.as_ref().and_then(|m| m.get(&page_def.path)) {
+                let sibling_names: HashSet<&str> = orbital
+                    .traits
+                    .iter()
+                    .filter_map(|t| match t {
+                        TraitReference::Inline(td) => Some(td.name.as_str()),
+                        TraitReference::Reference { name, .. } => name.as_deref(),
+                    })
+                    .collect();
                 let traits = pd.traits.get_or_insert_with(Vec::new);
                 for name in mount_names {
+                    // A mount naming a kept imported trait follows its prefix; a sibling keeps its name.
+                    let name = match subs.get(name.as_str()) {
+                        Some(to)
+                            if !sibling_names.contains(name.as_str())
+                                && kept.iter().any(|td| &td.name == to) =>
+                        {
+                            to.clone()
+                        }
+                        _ => name.clone(),
+                    };
+                    let already = traits.iter().any(|t| match t {
+                        TraitReference::Reference {
+                            reference, name: n, ..
+                        } => {
+                            reference.as_deref() == Some(name.as_str())
+                                || n.as_deref() == Some(name.as_str())
+                        }
+                        TraitReference::Inline(td) => td.name == name,
+                    });
+                    if already {
+                        continue;
+                    }
                     traits.push(TraitReference::Reference {
                         local: false,
                         reference: Some(name.clone()),
@@ -1401,6 +1509,19 @@ pub(crate) fn resolve_orbital_reference(
         }
     }
 
+    if !removed_only_merged_fields.is_empty() {
+        primary_entity.fields.retain(|f| {
+            f.merged_from.is_none()
+                || f.name.as_deref().is_none_or(|n| {
+                    let upstream_name = field_subs
+                        .iter()
+                        .find(|(_, to)| to.as_str() == n)
+                        .map(|(from, _)| from.as_str())
+                        .unwrap_or(n);
+                    !removed_only_merged_fields.contains(upstream_name)
+                })
+        });
+    }
     orbital.entity = EntityRef::Inline(primary_entity);
     orbital.auxiliary_entities = if final_aux_entities.is_empty() {
         None
@@ -1449,7 +1570,50 @@ pub(crate) fn resolve_orbital_reference(
         }
     }
 
-    let siblings = std::mem::take(&mut orbital.traits);
+    let mut siblings = std::mem::take(&mut orbital.traits);
+    let imported: HashSet<&str> = kept.iter().map(|td| td.name.as_str()).collect();
+    let sibling_names: HashSet<String> = siblings
+        .iter()
+        .filter_map(|t| match t {
+            TraitReference::Inline(td) => Some(td.name.clone()),
+            TraitReference::Reference { name, .. } => name.clone(),
+        })
+        .collect();
+    let embed_subs: HashMap<String, String> = subs
+        .iter()
+        .filter(|(from, to)| imported.contains(to.as_str()) && !sibling_names.contains(*from))
+        .map(|(from, to)| (from.clone(), to.clone()))
+        .collect();
+    for sibling in siblings.iter_mut() {
+        match sibling {
+            TraitReference::Inline(td) => rewrite_trait_embed_tokens(td, &embed_subs),
+            TraitReference::Reference { config, .. } => {
+                if let Some(config) = config.as_mut() {
+                    rewrite_config_embed_tokens(config, &embed_subs);
+                }
+            }
+        }
+    }
+    for sibling in siblings.iter_mut() {
+        let listens = match sibling {
+            TraitReference::Inline(td) => td.listens.as_mut(),
+            TraitReference::Reference { listens, .. } => listens.as_mut(),
+        };
+        for listen in listens.into_iter().flatten() {
+            if let Some(orbital_core::schema::ListenSource::Trait {
+                trait_name,
+                trait_id,
+            }) = listen.source.as_mut()
+            {
+                if let Some(to) = subs.get(trait_name.as_str()) {
+                    if imported.contains(to.as_str()) {
+                        *trait_name = to.clone();
+                        *trait_id = None;
+                    }
+                }
+            }
+        }
+    }
     orbital.traits = kept
         .into_iter()
         .map(TraitReference::Inline)
@@ -1467,6 +1631,61 @@ pub(crate) fn resolve_orbital_reference(
     orbital.emits = None;
     orbital.listens = None;
     orbital.exposes = None;
+    // The imported traits still read what the upstream declared it reads, so the
+    // composing program owes the same — its expectations travel with the import.
+    if let Some(upstream_expects) = upstream.expects.as_ref() {
+        let own = orbital.expects.get_or_insert_with(Vec::new);
+        for expect in upstream_expects {
+            let mut expect = expect.clone();
+            if let orbital_core::schema::ExpectDeclaration::Entity { name, .. } = &mut expect {
+                if let Some(local) = obj.entities.as_ref().and_then(|m| m.get(name.as_str())) {
+                    *name = local.clone();
+                }
+            }
+            // The import's `roles {}` remap carries the upstream role vocabulary into the consumer's.
+            if let orbital_core::schema::ExpectDeclaration::Identity {
+                shape: Some(fields),
+                ..
+            } = &mut expect
+            {
+                if let Some(role_remap) = obj.roles.as_ref() {
+                    for field in fields.iter_mut() {
+                        if let Some(values) = field.values.as_mut() {
+                            let mut mapped: Vec<String> = Vec::new();
+                            for value in values.iter() {
+                                for target in role_remap
+                                    .get(value)
+                                    .cloned()
+                                    .unwrap_or_else(|| vec![value.clone()])
+                                {
+                                    if !mapped.contains(&target) {
+                                        mapped.push(target);
+                                    }
+                                }
+                            }
+                            *values = mapped;
+                        }
+                    }
+                }
+            }
+            if let orbital_core::schema::ExpectDeclaration::Identity {
+                name: Some(upstream_name),
+                ..
+            } = &expect
+            {
+                if let Some(orbital_core::schema::ExpectDeclaration::Identity {
+                    name: own_name @ None,
+                    ..
+                }) = own
+                    .iter_mut()
+                    .find(|e| matches!(e, orbital_core::schema::ExpectDeclaration::Identity { .. }))
+                {
+                    *own_name = Some(upstream_name.clone());
+                }
+            }
+            super::merge_expectation(own, expect);
+        }
+    }
     // (C) the LOCAL placeholder orbital is its own ledgered node — the
     // id-stamping phase (post-lowering, pre-inline) already gave it an id
     // that the ledger has a row for. Only its CONTENTS are derived from
@@ -1529,7 +1748,7 @@ pub(crate) fn resolve_orbital_reference(
 /// real id used to get a `trt_` id regardless. JS twin: `deriveMaterializedId`
 /// (`reference-resolver.ts:1547`) threads the same explicit kind through
 /// `asEntityId`/`asPageId`/`asTraitId`.
-fn derive_materialized_id(
+pub(crate) fn derive_materialized_id(
     source_id: Option<&str>,
     upstream_orbital_id: Option<&str>,
     source_name: &str,
@@ -1581,6 +1800,29 @@ fn embedder_chain_via_first_hop<'a>(
         }
     }
     chain
+}
+
+/// `only { … }` keeps the named traits and everything they embed (their render
+/// children), transitively — a kept view without its children renders nothing.
+pub(crate) fn only_closure(upstream: &Orbital, only: &[String]) -> HashSet<String> {
+    let mut keep: HashSet<String> = only.iter().cloned().collect();
+    loop {
+        let mut grew = false;
+        for tr in &upstream.traits {
+            let TraitReference::Inline(td) = tr else {
+                continue;
+            };
+            if !keep.contains(&td.name) {
+                continue;
+            }
+            for child in embedded_trait_refs_of(td) {
+                grew |= keep.insert(child);
+            }
+        }
+        if !grew {
+            return keep;
+        }
+    }
 }
 
 /// `@trait.<Sibling>` refs a trait carries, scanned across the same surface

@@ -66,8 +66,9 @@ pub use r#trait::TraitRefConfigDiagnostic;
 // Diagnostics collected while resolving `orbital X = Alias.orbitals.Y { … }`
 // references — re-exported so `phases::validation` (W4-R) can name them.
 use orbital::{
-    effective_page_remap, fold_declared_config_override, materialized_primary_entity,
-    materialized_trait_subs, resolve_orbital_reference, SiblingImportInfo,
+    derive_materialized_id, effective_page_remap, fold_declared_config_override,
+    materialized_primary_entity, materialized_trait_subs, only_closure, resolve_orbital_reference,
+    SiblingImportInfo,
 };
 pub use orbital::{OrbitalRefDiagnostic, UsesConfigDiagnostic};
 use rewrite::{apply_inline_config_defaults, trait_ref_name};
@@ -992,7 +993,10 @@ fn precompute_reference_form_listen_targets(
     loader: &mut ExternalOrbitalLoader,
     chain: &mut ImportChain,
     source_path: Option<&Path>,
-) -> (HashMap<(String, String), SiblingImportInfo>, ImportedTraitNames) {
+) -> (
+    HashMap<(String, String), SiblingImportInfo>,
+    ImportedTraitNames,
+) {
     let mut out: HashMap<(String, String), SiblingImportInfo> = HashMap::new();
     let mut by_local: ImportedTraitNames = HashMap::new();
     for orbital in orbitals {
@@ -1009,17 +1013,48 @@ fn precompute_reference_form_listen_targets(
         let Ok(loaded) = loader.load(&use_decl.from, source_path, chain) else {
             continue;
         };
-        let Some(upstream) = loaded.schema.orbitals.iter().find(|o| o.name == name) else {
+        let Some(upstream) = loaded
+            .schema
+            .orbitals
+            .iter()
+            .find(|o| o.name == name)
+            .cloned()
+        else {
             continue;
         };
-        let trait_subs = materialized_trait_subs(upstream, reference, &orbital.name);
+        let upstream_path = loaded.source_path.clone();
+        let mut trait_subs = materialized_trait_subs(&upstream, reference, &orbital.name);
+        // An upstream that is itself an import carries only its body traits until
+        // it flattens; address what it will carry, with the ids inlining gives it.
+        if upstream.reference.is_some() {
+            let only_kept = reference.only.as_ref().map(|v| only_closure(&upstream, v));
+            let (flattened, upstream_id) =
+                flattened_traits(&upstream, loader, chain, Some(&upstream_path), 0);
+            trait_subs = flattened
+                .into_iter()
+                .filter(|(n, _)| match &only_kept {
+                    Some(only) => only.contains(n),
+                    None => !reference.omit.iter().flatten().any(|o| o == n),
+                })
+                .map(|(n, id)| {
+                    let final_id = derive_materialized_id(
+                        id.as_deref(),
+                        upstream_id.as_deref(),
+                        &n,
+                        &orbital.name,
+                        orbital_core::identity::IdKind::Trait,
+                    );
+                    (n.clone(), (format!("{}{n}", orbital.name), final_id))
+                })
+                .collect();
+        }
         by_local.insert(orbital.name.clone(), trait_subs.clone());
         let key = (alias, name);
         let mut page_remaps = out
             .remove(&key)
             .map(|prev: SiblingImportInfo| prev.page_remaps)
             .unwrap_or_default();
-        let remap = effective_page_remap(upstream, reference);
+        let remap = effective_page_remap(&upstream, reference);
         if !remap.is_empty() {
             page_remaps.push((orbital.name.clone(), remap));
         }
@@ -1033,6 +1068,82 @@ fn precompute_reference_form_listen_targets(
         );
     }
     (out, by_local)
+}
+
+/// The traits an orbital carries once its own import (if any) flattens — its
+/// body traits, plus every surviving upstream trait as `<orbital><upstream>` —
+/// each with the id inlining gives it, and the orbital's own effective id.
+/// Recursive through an import of an import; mirrors `resolve_orbital_reference`.
+fn flattened_traits(
+    orbital: &Orbital,
+    loader: &mut ExternalOrbitalLoader,
+    chain: &mut ImportChain,
+    source_path: Option<&Path>,
+    depth: usize,
+) -> (Vec<(String, Option<String>)>, Option<String>) {
+    const MAX_IMPORT_DEPTH: usize = 16;
+    let mut traits: Vec<(String, Option<String>)> = orbital
+        .traits
+        .iter()
+        .filter_map(|t| match t {
+            TraitReference::Inline(td) => Some((td.name.clone(), td.id.clone())),
+            TraitReference::Reference {
+                name: Some(n), id, ..
+            } => Some((n.clone(), id.clone())),
+            TraitReference::Reference { .. } => None,
+        })
+        .collect();
+    let own_id = orbital.id.clone();
+    let Some(reference) = orbital.reference.as_ref() else {
+        return (traits, own_id);
+    };
+    if depth >= MAX_IMPORT_DEPTH {
+        return (traits, own_id);
+    }
+    let Ok(ParsedReference::Orbital { alias, name }) = parse_reference(&reference.reference) else {
+        return (traits, own_id);
+    };
+    let Some(use_decl) = orbital.uses.iter().flatten().find(|u| u.alias == alias) else {
+        return (traits, own_id);
+    };
+    let Ok(loaded) = loader.load(&use_decl.from, source_path, chain) else {
+        return (traits, own_id);
+    };
+    let Some(upstream) = loaded
+        .schema
+        .orbitals
+        .iter()
+        .find(|o| o.name == name)
+        .cloned()
+    else {
+        return (traits, own_id);
+    };
+    let upstream_path = loaded.source_path.clone();
+    let only_kept = reference.only.as_ref().map(|v| only_closure(&upstream, v));
+    let (upstream_traits, upstream_id) =
+        flattened_traits(&upstream, loader, chain, Some(&upstream_path), depth + 1);
+    for (n, id) in upstream_traits {
+        let kept = match &only_kept {
+            Some(only) => only.contains(&n),
+            None => !reference.omit.iter().flatten().any(|o| o == &n),
+        };
+        if kept {
+            let final_id = derive_materialized_id(
+                id.as_deref(),
+                upstream_id.as_deref(),
+                &n,
+                &orbital.name,
+                orbital_core::identity::IdKind::Trait,
+            );
+            traits.push((format!("{}{n}", orbital.name), Some(final_id)));
+        }
+    }
+    let effective_id = own_id.or_else(|| {
+        upstream_id
+            .as_deref()
+            .map(|uid| orbital_core::identity::derive_id(uid, &orbital.name))
+    });
+    (traits, effective_id)
 }
 
 /// Entity name → id over a batch of orbitals' inline entities (primary and
@@ -2006,102 +2117,6 @@ fn inline_orbital(
         }
     }
 
-    /// Union one imported expectation into a consuming orbital's `expects` list.
-    ///
-    /// The `.lolo` parser rejects duplicates (`expects_duplicate`): two
-    /// `expects identity` — bare included — or two `expects entity X` are a parse
-    /// error. So propagated declarations must MERGE with any same-target entry
-    /// rather than append, or the composed `.orb` would carry a shape the language
-    /// itself forbids.
-    ///
-    /// Field union rules: a field contributed by any party is required if ANY
-    /// contributor marks it required (the strictest need must be satisfiable), and
-    /// an existing field's declaration wins on type so a consumer's own hand-written
-    /// expectation is never silently retyped by an import.
-    fn merge_expectation(into: &mut Vec<ExpectDeclaration>, incoming: ExpectDeclaration) {
-        fn union_shape(
-            existing: &mut Option<Vec<orbital_core::schema::FieldDefinition>>,
-            incoming: Option<Vec<orbital_core::schema::FieldDefinition>>,
-        ) {
-            let Some(add) = incoming else { return };
-            let target = existing.get_or_insert_with(Vec::new);
-            for field in add {
-                let Some(name) = field.name.as_deref() else {
-                    continue;
-                };
-                match target.iter_mut().find(|f| f.name.as_deref() == Some(name)) {
-                    Some(existing_field) => {
-                        // Strictest wins: any contributor needing it required makes
-                        // it required for the provider.
-                        if field.required == Some(true) {
-                            existing_field.required = Some(true);
-                        }
-                    }
-                    None => target.push(field),
-                }
-            }
-        }
-
-        match incoming {
-            ExpectDeclaration::Identity { name, shape } => {
-                // At most ONE identity expectation per orbital — `@user` is a single
-                // viewer, and the parser enforces it. Merge into whichever exists.
-                if let Some(ExpectDeclaration::Identity {
-                    name: existing_name,
-                    shape: existing_shape,
-                }) = into
-                    .iter_mut()
-                    .find(|d| matches!(d, ExpectDeclaration::Identity { .. }))
-                {
-                    if existing_name.is_none() {
-                        // A named expectation is more specific than a bare one, but
-                        // an unnamed one resolves to whatever the host tagged
-                        // [identity] — keep the bare form, which is what lets a
-                        // composed app satisfy imports from several organisms whose
-                        // rosters have different names.
-                        let _ = &name;
-                    }
-                    union_shape(existing_shape, shape);
-                } else {
-                    into.push(ExpectDeclaration::Identity { name, shape });
-                }
-            }
-            ExpectDeclaration::Entity { name, shape } => {
-                if let Some(ExpectDeclaration::Entity {
-                    shape: existing_shape,
-                    ..
-                }) = into
-                    .iter_mut()
-                    .find(|d| matches!(d, ExpectDeclaration::Entity { name: n, .. } if *n == name))
-                {
-                    union_shape(existing_shape, shape);
-                } else {
-                    into.push(ExpectDeclaration::Entity { name, shape });
-                }
-            }
-            // Phase 2 construct with no validation effect yet; dedup by (trait, event).
-            ExpectDeclaration::Event { trait_name, event } => {
-                let dup = into.iter().any(|d| {
-                    matches!(d, ExpectDeclaration::Event { trait_name: t, event: e }
-                         if *t == trait_name && *e == event)
-                });
-                if !dup {
-                    into.push(ExpectDeclaration::Event { trait_name, event });
-                }
-            }
-            // A route has no shape to union — the path IS the declaration, so
-            // dedup by path and keep the first.
-            ExpectDeclaration::Page { path } => {
-                let dup = into
-                    .iter()
-                    .any(|d| matches!(d, ExpectDeclaration::Page { path: p } if *p == path));
-                if !dup {
-                    into.push(ExpectDeclaration::Page { path });
-                }
-            }
-        }
-    }
-
     // Inline entity
     orbital.entity = inline_entity(&orbital.entity, &ctx)?;
 
@@ -2700,6 +2715,102 @@ fn collect_referenced_ids(schema: &OrbitalSchema) -> HashSet<String> {
 // ============================================================================
 // Tests
 // ============================================================================
+
+/// Union one imported expectation into a consuming orbital's `expects` list.
+///
+/// The `.lolo` parser rejects duplicates (`expects_duplicate`): two
+/// `expects identity` — bare included — or two `expects entity X` are a parse
+/// error. So propagated declarations must MERGE with any same-target entry
+/// rather than append, or the composed `.orb` would carry a shape the language
+/// itself forbids.
+///
+/// Field union rules: a field contributed by any party is required if ANY
+/// contributor marks it required (the strictest need must be satisfiable), and
+/// an existing field's declaration wins on type so a consumer's own hand-written
+/// expectation is never silently retyped by an import.
+pub(super) fn merge_expectation(into: &mut Vec<ExpectDeclaration>, incoming: ExpectDeclaration) {
+    fn union_shape(
+        existing: &mut Option<Vec<orbital_core::schema::FieldDefinition>>,
+        incoming: Option<Vec<orbital_core::schema::FieldDefinition>>,
+    ) {
+        let Some(add) = incoming else { return };
+        let target = existing.get_or_insert_with(Vec::new);
+        for field in add {
+            let Some(name) = field.name.as_deref() else {
+                continue;
+            };
+            match target.iter_mut().find(|f| f.name.as_deref() == Some(name)) {
+                Some(existing_field) => {
+                    // Strictest wins: any contributor needing it required makes
+                    // it required for the provider.
+                    if field.required == Some(true) {
+                        existing_field.required = Some(true);
+                    }
+                }
+                None => target.push(field),
+            }
+        }
+    }
+
+    match incoming {
+        ExpectDeclaration::Identity { name, shape } => {
+            // At most ONE identity expectation per orbital — `@user` is a single
+            // viewer, and the parser enforces it. Merge into whichever exists.
+            if let Some(ExpectDeclaration::Identity {
+                name: existing_name,
+                shape: existing_shape,
+            }) = into
+                .iter_mut()
+                .find(|d| matches!(d, ExpectDeclaration::Identity { .. }))
+            {
+                if existing_name.is_none() {
+                    // A named expectation is more specific than a bare one, but
+                    // an unnamed one resolves to whatever the host tagged
+                    // [identity] — keep the bare form, which is what lets a
+                    // composed app satisfy imports from several organisms whose
+                    // rosters have different names.
+                    let _ = &name;
+                }
+                union_shape(existing_shape, shape);
+            } else {
+                into.push(ExpectDeclaration::Identity { name, shape });
+            }
+        }
+        ExpectDeclaration::Entity { name, shape } => {
+            if let Some(ExpectDeclaration::Entity {
+                shape: existing_shape,
+                ..
+            }) = into
+                .iter_mut()
+                .find(|d| matches!(d, ExpectDeclaration::Entity { name: n, .. } if *n == name))
+            {
+                union_shape(existing_shape, shape);
+            } else {
+                into.push(ExpectDeclaration::Entity { name, shape });
+            }
+        }
+        // Phase 2 construct with no validation effect yet; dedup by (trait, event).
+        ExpectDeclaration::Event { trait_name, event } => {
+            let dup = into.iter().any(|d| {
+                matches!(d, ExpectDeclaration::Event { trait_name: t, event: e }
+                     if *t == trait_name && *e == event)
+            });
+            if !dup {
+                into.push(ExpectDeclaration::Event { trait_name, event });
+            }
+        }
+        // A route has no shape to union — the path IS the declaration, so
+        // dedup by path and keep the first.
+        ExpectDeclaration::Page { path } => {
+            let dup = into
+                .iter()
+                .any(|d| matches!(d, ExpectDeclaration::Page { path: p } if *p == path));
+            if !dup {
+                into.push(ExpectDeclaration::Page { path });
+            }
+        }
+    }
+}
 
 #[cfg(test)]
 mod tests {

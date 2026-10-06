@@ -1806,6 +1806,34 @@ fn validate_self_emit_loop(
     result
 }
 
+/// The `.lolo` page line for the page at `path` with `trait_name` joined to its `->` list.
+fn page_decl_with(orbital: &Orbital, path: &str, trait_name: &str) -> Option<String> {
+    orbital.pages.iter().flatten().find_map(|page_ref| {
+        let PageRef::Inline(page) = page_ref else {
+            return None;
+        };
+        if page.path != path {
+            return None;
+        }
+        let mut names = vec![trait_name.to_string()];
+        for trait_ref in page.traits.iter().flatten() {
+            match trait_ref {
+                TraitReference::Inline(td) => names.push(td.name.clone()),
+                TraitReference::Reference {
+                    reference: Some(r), ..
+                } => names.push(r.clone()),
+                _ => {}
+            }
+        }
+        Some(format!(
+            "page \"{}\" as {} -> {}",
+            page.path,
+            page.name,
+            names.join(", ")
+        ))
+    })
+}
+
 /// non-empty `stateMachine.transitions` but is absent from
 /// `client_bound_traits(orbital)` — no page declares it and no page's
 /// `@trait.X` embed closure reaches it, so the client never mounts a state
@@ -1838,16 +1866,23 @@ fn validate_client_bound_state_machines(
         // `@trait.X` children (mirrors the JS's own `childPages`), since
         // that page is the natural place to also add this trait.
         let child_pages = pages_embedding_children_of(orbital, &trait_def.name);
+        let decls: Vec<String> = child_pages
+            .iter()
+            .filter_map(|path| page_decl_with(orbital, path, &trait_def.name))
+            .collect();
         let suggestion = if child_pages.is_empty() {
             format!(
-                "declare {} on a page or embed it via @trait.{}",
-                trait_def.name, trait_def.name
+                "declare {name} on a page — its traits follow `->`, comma-separated, e.g. \
+                 `page \"/path\" as SomePage -> {name}` — or embed it in a mounted trait's \
+                 render-ui as @trait.{name}",
+                name = trait_def.name
             )
         } else {
             format!(
-                "add {} to the page decl already mounting one of its embedded children ({})",
+                "add {} to the page decl already mounting one of its embedded children ({}): {}",
                 trait_def.name,
-                child_pages.join(", ")
+                child_pages.join(", "),
+                decls.join("; ")
             )
         };
         result.add_error(
@@ -3934,6 +3969,37 @@ mod tests {
             hit.suggestion
                 .as_deref()
                 .is_some_and(|s| s.contains("/home")),
+            "{:?}",
+            hit.suggestion
+        );
+        // The exact `.lolo` page line to write: the trait joins the page's `->` list.
+        assert!(
+            hit.suggestion
+                .as_deref()
+                .is_some_and(|s| s.contains("page \"/home\" as Home -> Wrapper, Child")),
+            "{:?}",
+            hit.suggestion
+        );
+    }
+
+    /// Control: with no page mounting a child, the suggestion still spells the page syntax.
+    #[test]
+    fn client_unbound_state_machine_suggestion_spells_page_syntax_without_a_child_page() {
+        let orbital = orbital_json(
+            vec![inline_trait_with_a_transition("Orphan")],
+            serde_json::json!([{ "name": "Home", "path": "/home" }]),
+        );
+        let bound = client_bound_traits(&orbital);
+        let result = validate_client_bound_state_machines(0, &orbital, &bound);
+        let hit = result
+            .errors
+            .iter()
+            .find(|e| e.code == ErrorCode::CircuitClientUnboundStateMachine)
+            .unwrap_or_else(|| panic!("expected a finding: {:?}", result.errors));
+        assert!(
+            hit.suggestion
+                .as_deref()
+                .is_some_and(|s| s.contains("-> Orphan") && s.contains("@trait.Orphan")),
             "{:?}",
             hit.suggestion
         );

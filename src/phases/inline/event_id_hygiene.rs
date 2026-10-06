@@ -403,16 +403,29 @@ mod tests {
         let mut s = schema(v);
         uniquify_instance_event_ids(&mut s);
         let entries = &s.ledger.as_ref().unwrap().entries;
-        assert!(entries.contains_key("evt_shared"), "still declared by P.TagLayout");
-        let TraitReference::Inline(tag) = &s.orbitals[1].traits[0] else { panic!("inline") };
-        assert_eq!(tag.listens.as_ref().unwrap()[0].triggers_id.as_deref(), Some("evt_shared"));
+        assert!(
+            entries.contains_key("evt_shared"),
+            "still declared by P.TagLayout"
+        );
+        let TraitReference::Inline(tag) = &s.orbitals[1].traits[0] else {
+            panic!("inline")
+        };
+        assert_eq!(
+            tag.listens.as_ref().unwrap()[0].triggers_id.as_deref(),
+            Some("evt_shared")
+        );
     }
 
     #[test]
     fn control_a_shared_id_declared_nowhere_after_hygiene_is_retired() {
         let mut s = schema(two_instance_json());
         uniquify_instance_event_ids(&mut s);
-        assert!(!s.ledger.as_ref().unwrap().entries.contains_key("evt_shared"));
+        assert!(!s
+            .ledger
+            .as_ref()
+            .unwrap()
+            .entries
+            .contains_key("evt_shared"));
     }
 
     #[test]
