@@ -59,9 +59,34 @@ pub(crate) fn map_event_typed_members(
             let Some(properties) = schema.properties.as_ref() else {
                 return false;
             };
+            // A union's `properties` are its VARIANTS; each element carries one
+            // variant's members, so walk every variant's members, each key once.
+            if schema.field_type == orbital_core::schema::FieldType::Union {
+                let mut seen: std::collections::HashSet<String> = std::collections::HashSet::new();
+                let mut touched = false;
+                for variant in properties.values() {
+                    let Some(members) = variant.properties.as_ref() else {
+                        continue;
+                    };
+                    for (member, decl) in members.iter() {
+                        if !is_event_typed(&decl.field_type) || !seen.insert(member.clone()) {
+                            continue;
+                        }
+                        if let Some(SExpression::String(current)) = map.get_mut(member.as_str()) {
+                            if !current.is_empty() && !current.starts_with('@') {
+                                if let Some(to) = f(current.as_str()) {
+                                    *current = to;
+                                    touched = true;
+                                }
+                            }
+                        }
+                    }
+                }
+                return touched;
+            }
             let mut touched = false;
             for (member, decl) in properties.iter() {
-                if decl.field_type == orbital_core::schema::FieldType::Event {
+                if is_event_typed(&decl.field_type) {
                     if let Some(SExpression::String(current)) = map.get_mut(member.as_str()) {
                         if !current.is_empty() && !current.starts_with('@') {
                             if let Some(to) = f(current.as_str()) {
@@ -83,6 +108,13 @@ pub(crate) fn map_event_typed_members(
         }
         _ => false,
     }
+}
+
+fn is_event_typed(ft: &orbital_core::schema::FieldType) -> bool {
+    matches!(
+        ft,
+        orbital_core::schema::FieldType::Event | orbital_core::schema::FieldType::EventAddress
+    )
 }
 
 /// Maps a split event address to its replacement event and source, or `None` to keep it.
@@ -3953,5 +3985,77 @@ mod cancelled_event_rename_tests {
         ]))
         .unwrap();
         assert_eq!(effect, expected);
+    }
+}
+
+#[cfg(test)]
+mod event_typed_union_fold_tests {
+    use super::*;
+
+    fn def(json: serde_json::Value) -> orbital_core::schema::FieldDefinition {
+        serde_json::from_value(json).expect("field definition")
+    }
+
+    fn agent_tool_items() -> orbital_core::schema::FieldDefinition {
+        def(
+            serde_json::json!({ "type": "union", "values": ["Scope", "Input", "Read"], "properties": {
+            "Scope": { "name": "Scope", "type": "object", "properties": {
+                "scope": { "name": "scope", "type": "string", "required": true, "values": ["declared"] } } },
+            "Input": { "name": "Input", "type": "object", "properties": {
+                "event": { "name": "event", "type": "EventAddress", "required": true } } },
+            "Read": { "name": "Read", "type": "object", "properties": {
+                "read": { "name": "read", "type": "string", "required": true } } }
+        } }),
+        )
+    }
+
+    fn entry(k: &str, v: &str) -> SExpression {
+        let mut m = HashMap::new();
+        m.insert(k.to_string(), SExpression::String(v.to_string()));
+        SExpression::Object(m)
+    }
+
+    fn get(value: &SExpression, i: usize, k: &str) -> String {
+        match value {
+            SExpression::Array(a) => match &a[i] {
+                SExpression::Object(m) => match m.get(k) {
+                    Some(SExpression::String(s)) => s.clone(),
+                    _ => String::new(),
+                },
+                _ => String::new(),
+            },
+            _ => String::new(),
+        }
+    }
+
+    #[test]
+    fn an_event_address_inside_a_union_element_is_folded_once() {
+        let items = agent_tool_items();
+        let mut value = SExpression::Array(vec![
+            entry("event", "Proposal.PROPOSE"),
+            entry("scope", "declared"),
+            entry("read", "Task"),
+        ]);
+        let mut calls = 0;
+        let touched = map_event_typed_members(&mut value, Some(&items), &mut |cur| {
+            calls += 1;
+            Some(format!("ImportEN.{cur}"))
+        });
+        assert!(touched);
+        assert_eq!(calls, 1);
+        assert_eq!(get(&value, 0, "event"), "ImportEN.Proposal.PROPOSE");
+        assert_eq!(get(&value, 1, "scope"), "declared");
+        assert_eq!(get(&value, 2, "read"), "Task");
+    }
+
+    #[test]
+    fn control_an_event_member_of_a_plain_struct_is_still_folded() {
+        let items = def(serde_json::json!({ "type": "object", "properties": {
+            "event": { "name": "event", "type": "event" } } }));
+        let mut value = SExpression::Array(vec![entry("event", "SAVE")]);
+        map_event_typed_members(&mut value, Some(&items), &mut |cur| {
+            Some(format!("{cur}_X"))
+        });
+        assert_eq!(get(&value, 0, "event"), "SAVE_X");
     }
 }

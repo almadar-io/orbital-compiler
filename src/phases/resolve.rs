@@ -63,6 +63,35 @@ pub fn resolve_to_oir(schema: &OrbitalSchema) -> Result<OirModule, ResolveError>
 /// never read it; only the effect arms (`emit`/`persist`/`fetch`/…) do, and
 /// effects never appear in an expression-valued prop. Returns `Err` for shapes
 /// the lowering rejects (the caller falls back to literal handling).
+/// A callback written as a raw body (`(array/filter xs (== @item.v 1))`, no `(fn …)`) is
+/// evaluated with the operator's raw-callback names bound (orbital-core
+/// `raw_callback_params`). Lower it to that lambda so every backend emits a real function.
+/// A raw value binding none of those names is evaluated once and applied if it yields a
+/// function, so it stays a value.
+fn lower_raw_callback(op: &str, args: &[SExpression], resolved: &mut [OirExpr]) {
+    let Some(params) = orbital_core::evaluator::raw_callback_params(op) else {
+        return;
+    };
+    let Some(pos) = crate::embedded::get_operator(op).and_then(|m| m.lambda_arg_position) else {
+        return;
+    };
+    let pos = pos as usize;
+    let (Some(raw), Some(body)) = (args.get(pos), resolved.get_mut(pos)) else {
+        return;
+    };
+    let is_lambda_form = matches!(raw, SExpression::Array(form)
+        if matches!(form.first(), Some(SExpression::String(head)) if head == "fn" || head == "lambda"));
+    let binds_element = body
+        .collect_bindings()
+        .iter()
+        .any(|b| matches!(&b.root, OirBindingRoot::Local(name) if params.contains(&name.as_str())));
+    if is_lambda_form || !binds_element {
+        return;
+    }
+    let raw_body = std::mem::replace(body, OirExpr::Null);
+    *body = OirExpr::lambda(params.iter().map(|p| p.to_string()).collect(), raw_body);
+}
+
 pub fn resolve_sexpr_standalone(sexpr: &SExpression) -> Result<OirExpr, ResolveError> {
     let empty = OrbitalSchema {
         public_dir: None,
@@ -720,6 +749,14 @@ impl<'a> Resolver<'a> {
     /// Reads `field.items`/`field.properties` so arrays-of-structs and inline
     /// objects keep their shape in OIR (`OirType::Struct { fields }`).
     fn resolve_field_shape(&self, field: &FieldDefinition) -> Result<OirType, ResolveError> {
+        if field.field_type == FieldType::Tuple {
+            let items = field
+                .tuple_slots()
+                .into_iter()
+                .map(|slot| self.resolve_field_shape(slot))
+                .collect::<Result<Vec<_>, _>>()?;
+            return Ok(OirType::Tuple { items });
+        }
         match &field.field_type {
             // Tagged union: `values` holds the variant names in DECLARATION
             // order, `properties` their shapes. Iterating `values` (not the
@@ -825,6 +862,19 @@ impl<'a> Resolver<'a> {
     /// rules so a typed config slot's TS shape parallels what entity fields
     /// emit.
     fn resolve_config_field_shape(&self, field: &orbital_core::schema::ConfigField) -> OirType {
+        // Tuple slot: `[T1, T2, …]` with each slot's shape riding `properties` by index.
+        if orbital_core::type_compat::tuple_type_slots(&field.field_type).is_some() {
+            let slots = orbital_core::schema::tuple_slots_of(field.properties.as_ref());
+            if !slots.is_empty() {
+                return OirType::Tuple {
+                    items: slots
+                        .into_iter()
+                        .map(|slot| self.resolve_field_shape(slot).unwrap_or(OirType::Json))
+                        .collect(),
+                };
+            }
+            return self.type_string_to_oir(&field.field_type);
+        }
         // Map slot: `params : Map string SimParam` lowers to
         // `field_type: "Map<string,SimParam>"` plus `items: FieldDefinition`
         // carrying the VALUE's resolved shape (reusing the array `items`
@@ -894,6 +944,9 @@ impl<'a> Resolver<'a> {
     /// the inner base type, and `[T]` form (lolo array notation).
     fn type_string_to_oir(&self, type_str: &str) -> OirType {
         let trimmed = type_str.trim();
+        if let Some(slots) = orbital_core::type_compat::tuple_type_slots(trimmed) {
+            return OirType::Tuple { items: slots.into_iter().map(|t| self.type_string_to_oir(t)).collect() };
+        }
         if let Some(base) = trimmed.strip_suffix("[]") {
             return OirType::array(self.type_string_to_oir(base));
         }
@@ -1798,10 +1851,11 @@ impl<'a> Resolver<'a> {
             }
 
             _ => {
-                let resolved_args = args
+                let mut resolved_args = args
                     .iter()
                     .map(|a| self.resolve_sexpr(a))
                     .collect::<Result<Vec<_>, _>>()?;
+                lower_raw_callback(op, args, &mut resolved_args);
                 Ok(OirExpr::call(op, resolved_args))
             }
         }
@@ -3077,6 +3131,9 @@ fn lookup_named_type_shape(name: &str, ctx: &NamedTypeCtx) -> Option<OirType> {
 
 fn parse_payload_field_type(field_type: &str) -> OirType {
     let trimmed = field_type.trim();
+    if let Some(slots) = orbital_core::type_compat::tuple_type_slots(trimmed) {
+        return OirType::Tuple { items: slots.into_iter().map(parse_payload_field_type).collect() };
+    }
     // Array: `[X]` where X may itself be a compound expression.
     if let Some(inner) = trimmed.strip_prefix('[').and_then(|s| s.strip_suffix(']')) {
         return OirType::array(parse_payload_field_type(inner));
@@ -3830,6 +3887,37 @@ mod tests {
         );
     }
 
+    /// `.lolo` `[number, number, number]` is a tuple in both type-string parsers (payload
+    /// fields and declared config/struct types); `[T]` stays an array.
+    #[test]
+    fn a_tuple_type_string_resolves_to_a_tuple() {
+        let n3 = OirType::Tuple { items: vec![OirType::Number, OirType::Number, OirType::Number] };
+        assert_eq!(parse_payload_field_type("[number, number, number]"), n3);
+        assert_eq!(parse_payload_field_type("[number]"), OirType::array(OirType::Number));
+        let schema: OrbitalSchema = serde_json::from_value(serde_json::json!({ "name": "T", "orbitals": [] })).unwrap();
+        let resolver = Resolver::new(&schema);
+        assert_eq!(resolver.type_string_to_oir("[number, number, number]"), n3);
+        assert_eq!(
+            resolver.type_string_to_oir("[string, number]"),
+            OirType::Tuple { items: vec![OirType::String, OirType::Number] }
+        );
+        assert_eq!(resolver.type_string_to_oir("[number]"), OirType::array(OirType::Number));
+    }
+
+    /// A tuple's slots ride `properties` by index; resolution must read them as slots, not
+    /// as a struct with fields `0`, `1`, `2` (member and knob alike).
+    #[test]
+    fn a_tuple_field_and_knob_resolve_to_tuples() {
+        let n3 = OirType::Tuple { items: vec![OirType::Number, OirType::Number, OirType::Number] };
+        let slots = serde_json::json!({ "0": { "type": "number" }, "1": { "type": "number" }, "2": { "type": "number" } });
+        let schema: OrbitalSchema = serde_json::from_value(serde_json::json!({ "name": "T", "orbitals": [] })).unwrap();
+        let resolver = Resolver::new(&schema);
+        let member: FieldDefinition = serde_json::from_value(serde_json::json!({ "name": "position", "type": "tuple", "properties": slots })).unwrap();
+        assert_eq!(resolver.resolve_field_shape(&member).expect("resolves"), n3);
+        let knob: orbital_core::schema::ConfigField = serde_json::from_value(serde_json::json!({ "type": "[number, number, number]", "properties": slots })).unwrap();
+        assert_eq!(resolver.resolve_config_field_shape(&knob), n3);
+    }
+
     #[test]
     fn parse_payload_field_type_primitives() {
         assert_eq!(parse_payload_field_type("string"), OirType::String);
@@ -4414,5 +4502,92 @@ mod tests {
             .expect("valid trait definition");
         let oir_trait = resolver.resolve_trait(&trait_def).expect("resolves");
         assert!(!oir_trait.local);
+    }
+
+    fn resolve_json(value: serde_json::Value) -> OirExpr {
+        let sexpr: SExpression = serde_json::from_value(value).unwrap();
+        resolve_sexpr_standalone(&sexpr).unwrap()
+    }
+
+    fn callback_arg(resolved: &OirExpr, op: &str, pos: usize) -> OirExpr {
+        let OirExpr::Call { function, args } = resolved else {
+            panic!("{op} must stay a call, got {resolved:?}");
+        };
+        assert_eq!(function, op);
+        args[pos].clone()
+    }
+
+    fn lambda_params(expr: &OirExpr) -> Option<Vec<String>> {
+        match expr {
+            OirExpr::Lambda { params, .. } => Some(params.clone()),
+            _ => None,
+        }
+    }
+
+    /// A callback written as a raw body (no `(fn …)`) is evaluated with `@item`/`@index`
+    /// (`@acc`/`@item` for reduce) bound. Resolve lowers it to that same lambda, so a
+    /// backend never sees a body whose `@item` it has no binding for (std-algo-gameoflife:
+    /// the compiled page threw `item is not defined`).
+    #[test]
+    fn raw_body_callbacks_lower_to_the_lambda_the_evaluator_binds() {
+        let filter = resolve_json(serde_json::json!(
+            ["array/filter", "@entity.cells", ["==", ["object/get", "@item", "value"], 1]]
+        ));
+        assert_eq!(lambda_params(&callback_arg(&filter, "array/filter", 1)), Some(vec!["item".to_string()]));
+
+        let map = resolve_json(serde_json::json!(
+            ["array/map", "@entity.cells", ["let", [["r", ["object/get", "@item", "row"]]], ["+", "@r", "@index"]]]
+        ));
+        assert_eq!(
+            lambda_params(&callback_arg(&map, "array/map", 1)),
+            Some(vec!["item".to_string(), "index".to_string()])
+        );
+
+        let reduce = resolve_json(serde_json::json!(["array/reduce", "@entity.cells", 0, ["+", "@acc", "@item"]]));
+        assert_eq!(
+            lambda_params(&callback_arg(&reduce, "array/reduce", 2)),
+            Some(vec!["acc".to_string(), "item".to_string()])
+        );
+
+        let count = resolve_json(serde_json::json!(["array/count", "@entity.cells", [">", "@index", 0]]));
+        assert_eq!(
+            lambda_params(&callback_arg(&count, "array/count", 1)),
+            Some(vec!["item".to_string(), "index".to_string()])
+        );
+    }
+
+    #[test]
+    fn an_explicit_lambda_keeps_its_own_params() {
+        let filter = resolve_json(serde_json::json!(["array/filter", "@entity.cells", ["fn", "cell", ["==", "@cell.value", 1]]]));
+        assert_eq!(lambda_params(&callback_arg(&filter, "array/filter", 1)), Some(vec!["cell".to_string()]));
+    }
+
+    /// A raw value that binds no per-element name is evaluated once and applied when it
+    /// yields a function (std-stats' configurable predicate slot), so it stays a value.
+    #[test]
+    fn a_raw_callback_value_that_binds_no_element_name_stays_a_value() {
+        let filter = resolve_json(serde_json::json!(["array/filter", "@entity.rows", ["object/get", "@config", "pred"]]));
+        assert_eq!(lambda_params(&callback_arg(&filter, "array/filter", 1)), None);
+    }
+
+    #[test]
+    fn a_raw_body_is_lowered_only_in_the_callback_slot() {
+        // The array slot references @item from an enclosing lambda; it is not a callback.
+        let filter = resolve_json(serde_json::json!(["array/filter", ["object/get", "@item", "children"], ["fn", "c", true]]));
+        assert_eq!(lambda_params(&callback_arg(&filter, "array/filter", 0)), None);
+        // findIndex takes only a real lambda; its raw body is not given one.
+        let find_index = resolve_json(serde_json::json!(["array/findIndex", "@entity.cells", [">", "@item", 1]]));
+        assert_eq!(lambda_params(&callback_arg(&find_index, "array/findIndex", 1)), None);
+    }
+
+    #[test]
+    fn nested_raw_bodies_each_bind_their_own_item() {
+        let map = resolve_json(serde_json::json!(
+            ["array/map", "@entity.rows", ["array/len", ["array/filter", "@entity.rows", ["==", "@item", 1]]]]
+        ));
+        assert_eq!(lambda_params(&callback_arg(&map, "array/map", 1)), Some(vec!["item".to_string(), "index".to_string()]));
+        let OirExpr::Lambda { body, .. } = callback_arg(&map, "array/map", 1) else { unreachable!() };
+        let OirExpr::Call { args: len_args, .. } = *body else { panic!("array/len call expected") };
+        assert_eq!(lambda_params(&callback_arg(&len_args[0], "array/filter", 1)), Some(vec!["item".to_string()]));
     }
 }

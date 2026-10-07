@@ -271,8 +271,14 @@ fn validate_browser_storage(entity: &EntityDefinition, path: &str, result: &mut 
             .with_suggestion("Add `local` (`[persistent: <collection>, local, mock]`) or drop `mock`."),
         );
     }
-    let has_rows = entity.instances.as_ref().is_some_and(|rows| !rows.is_empty())
-        || entity.locale_instances.as_ref().is_some_and(|m| !m.is_empty());
+    let has_rows = entity
+        .instances
+        .as_ref()
+        .is_some_and(|rows| !rows.is_empty())
+        || entity
+            .locale_instances
+            .as_ref()
+            .is_some_and(|m| !m.is_empty());
     if entity.seed_mock && has_rows {
         result.add_error(
             ValidationError::error(
@@ -299,7 +305,12 @@ fn validate_browser_storage(entity: &EntityDefinition, path: &str, result: &mut 
             .with_suggestion("Drop `local` from the identity entity."),
         );
     }
-    check_instance_rows(entity, entity.instances.iter().flatten(), &format!("{}.instances", path), result);
+    check_instance_rows(
+        entity,
+        entity.instances.iter().flatten(),
+        &format!("{}.instances", path),
+        result,
+    );
 }
 
 /// The checks every written-out row block gets: known fields, required fields,
@@ -313,21 +324,37 @@ fn check_instance_rows<'a>(
     for (i, row) in rows.enumerate() {
         let row_path = format!("{}[{}]", rows_path, i);
         for key in row.keys() {
-            if !entity.fields.iter().any(|f| f.name.as_deref() == Some(key.as_str())) {
+            if !entity
+                .fields
+                .iter()
+                .any(|f| f.name.as_deref() == Some(key.as_str()))
+            {
                 result.add_error(ValidationError::error(
                     ErrorCode::EntityInstanceInvalid,
                     format!("{}.{}", row_path, key),
-                    format!("Row {} of '{}' sets '{}', which is not a field of the entity", i, entity.name, key),
+                    format!(
+                        "Row {} of '{}' sets '{}', which is not a field of the entity",
+                        i, entity.name, key
+                    ),
                 ));
             }
         }
-        for field in entity.fields.iter().filter(|f| f.required == Some(true) && f.default.is_none()) {
-            let Some(name) = field.name.as_deref() else { continue };
+        for field in entity
+            .fields
+            .iter()
+            .filter(|f| f.required == Some(true) && f.default.is_none())
+        {
+            let Some(name) = field.name.as_deref() else {
+                continue;
+            };
             if !row.contains_key(name) {
                 result.add_error(ValidationError::error(
                     ErrorCode::EntityInstanceInvalid,
                     row_path.clone(),
-                    format!("Row {} of '{}' is missing required field '{}'", i, entity.name, name),
+                    format!(
+                        "Row {} of '{}' is missing required field '{}'",
+                        i, entity.name, name
+                    ),
                 ));
             }
         }
@@ -347,16 +374,27 @@ fn check_instance_rows<'a>(
 /// Per-locale rows (`instances <lang> [ … ]`): browser-stored entities only, one
 /// block per declared non-default locale (the default locale's rows are
 /// `instances`), each checked like the default rows.
-pub fn validate_all_locale_instances(schema: &orbital_core::schema::OrbitalSchema, result: &mut ValidationResult) {
+pub fn validate_all_locale_instances(
+    schema: &orbital_core::schema::OrbitalSchema,
+    result: &mut ValidationResult,
+) {
     use orbital_core::schema::EntityRef;
     let declared: Vec<String> = schema.locales.clone().unwrap_or_default();
     for (oi, orbital) in schema.orbitals.iter().enumerate() {
         let primary = std::iter::once((format!("orbitals[{}].entity", oi), &orbital.entity));
-        let aux = orbital.auxiliary_entities.iter().flatten().enumerate()
+        let aux = orbital
+            .auxiliary_entities
+            .iter()
+            .flatten()
+            .enumerate()
             .map(|(ai, e)| (format!("orbitals[{}].auxiliaryEntities[{}]", oi, ai), e));
         for (path, entity_ref) in primary.chain(aux) {
-            let EntityRef::Inline(entity) = entity_ref else { continue };
-            let Some(blocks) = entity.locale_instances.as_ref().filter(|m| !m.is_empty()) else { continue };
+            let EntityRef::Inline(entity) = entity_ref else {
+                continue;
+            };
+            let Some(blocks) = entity.locale_instances.as_ref().filter(|m| !m.is_empty()) else {
+                continue;
+            };
             let blocks_path = format!("{}.localeInstances", path);
             if !entity.local {
                 result.add_error(
@@ -384,7 +422,11 @@ pub fn validate_all_locale_instances(schema: &orbital_core::schema::OrbitalSchem
                     );
                 }
             }
-            if !entity.instances.as_ref().is_some_and(|rows| !rows.is_empty()) {
+            if !entity
+                .instances
+                .as_ref()
+                .is_some_and(|rows| !rows.is_empty())
+            {
                 result.add_error(
                     ValidationError::error(
                         ErrorCode::EntityLocaleInstancesIncomplete,
@@ -399,18 +441,27 @@ pub fn validate_all_locale_instances(schema: &orbital_core::schema::OrbitalSchem
                     ValidationError::error(
                         ErrorCode::EntityLocaleInstancesIncomplete,
                         blocks_path.clone(),
-                        format!("Entity '{}' writes rows per locale but has no `instances {}` block", entity.name, locale),
+                        format!(
+                            "Entity '{}' writes rows per locale but has no `instances {}` block",
+                            entity.name, locale
+                        ),
                     )
-                    .with_suggestion("Write a block for every declared locale once any is written."),
+                    .with_suggestion(
+                        "Write a block for every declared locale once any is written.",
+                    ),
                 );
             }
             for (locale, rows) in blocks {
-                check_instance_rows(entity, rows.iter(), &format!("{}.{}", blocks_path, locale), result);
+                check_instance_rows(
+                    entity,
+                    rows.iter(),
+                    &format!("{}.{}", blocks_path, locale),
+                    result,
+                );
             }
         }
     }
 }
-
 
 /// Validate a single field definition
 ///
@@ -662,7 +713,7 @@ fn field_type_to_string(field_type: &FieldType) -> String {
         FieldType::Image => "image".to_string(),
         FieldType::Money => "money".to_string(),
         FieldType::File => "file".to_string(),
-        FieldType::Array => "array".to_string(),
+        FieldType::Array | FieldType::Tuple => "array".to_string(),
         FieldType::Object => "object".to_string(),
         FieldType::Enum => "enum".to_string(),
         FieldType::Relation => "relation".to_string(),
@@ -671,6 +722,7 @@ fn field_type_to_string(field_type: &FieldType) -> String {
         FieldType::Pattern => "pattern".to_string(),
         FieldType::Node => "node".to_string(),
         FieldType::Event => "event".to_string(),
+        FieldType::EventAddress => "EventAddress".to_string(),
         FieldType::Scalar => "scalar".to_string(),
         FieldType::SExpr => "SExpr".to_string(),
         FieldType::Union => "union".to_string(),

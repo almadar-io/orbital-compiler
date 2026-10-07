@@ -2042,6 +2042,31 @@ pub fn validate_page_content_ownership(schema: &OrbitalSchema, ctx: &mut Validat
                 }
             }
 
+            if let PageContentOwner::Ambiguous(names) = &owner {
+                let rivals: Vec<&str> = names
+                    .iter()
+                    .map(String::as_str)
+                    .filter(|n| !claimed_by_bound.contains(n))
+                    .collect();
+                if rivals.len() > 1 {
+                    ctx.add_error(
+                        ValidationError::error(
+                            ErrorCode::PageAmbiguousContentOwner,
+                            format!("orbitals[{}].pages[{}]", i, page_index),
+                            format!(
+                                "page \"{}\": {} each render a content body into slot 'main' and none composes the others — the page has no single content owner, so a shell that designates one turns the rest into second bodies",
+                                page.path,
+                                rivals.join(", ")
+                            ),
+                        )
+                        .with_suggestion(format!(
+                            "make one trait the page's composer — it embeds the others (<trait.X/> or @trait.X in its render) — and mount only it on the page; candidates: {}",
+                            rivals.join(", ")
+                        )),
+                    );
+                }
+            }
+
             if matches!(
                 owner,
                 PageContentOwner::Channel(_) | PageContentOwner::Ambiguous(_)
@@ -4761,5 +4786,95 @@ mod tests {
         });
         let orbital = orbital_json(vec![catalog], page_with(&["Catalog"]));
         assert!(second_content_body_hits(orbital).is_empty());
+    }
+
+    // --- ORB_PAGE_AMBIGUOUS_CONTENT_OWNER (G-ORB-128) ---
+
+    fn main_writer(name: &str, body: serde_json::Value) -> serde_json::Value {
+        serde_json::json!({
+            "name": name, "linkedEntity": "Item", "category": "interaction",
+            "stateMachine": {
+                "states": [{ "name": "idle", "isInitial": true }],
+                "transitions": [{ "from": "idle", "to": "idle", "event": "INIT", "effects": [["render-ui", "main", body]] }]
+            }
+        })
+    }
+
+    fn ambiguous_owner_hits(orbital: Orbital) -> Vec<ValidationError> {
+        let schema = schema_of(orbital);
+        let mut ctx = ValidationContext::new();
+        validate_page_content_ownership(&schema, &mut ctx);
+        ctx.result
+            .errors
+            .into_iter()
+            .filter(|e| e.code == ErrorCode::PageAmbiguousContentOwner)
+            .collect()
+    }
+
+    /// std-marketing-site's shape: a header trait and a content trait both
+    /// paint `main`, neither composes the other, no shell designates one.
+    /// Alone it renders stacked; under any shell that names one
+    /// `contentTrait` the other becomes a second body — report it here.
+    #[test]
+    fn ambiguous_owner_fires_for_two_unrelated_page_writers() {
+        let nav = main_writer(
+            "Nav",
+            serde_json::json!({ "type": "data-grid", "entity": "?data" }),
+        );
+        let content = main_writer(
+            "Content",
+            serde_json::json!({ "type": "data-grid", "entity": "?data" }),
+        );
+        let hits = ambiguous_owner_hits(orbital_json(
+            vec![nav, content],
+            page_with(&["Nav", "Content"]),
+        ));
+        assert_eq!(hits.len(), 1, "{:?}", hits);
+        assert!(hits[0].message.contains("Nav") && hits[0].message.contains("Content"));
+    }
+
+    /// The fix the error suggests: one composer embedding the other.
+    #[test]
+    fn ambiguous_owner_silent_when_one_writer_composes_the_other() {
+        let nav = main_writer(
+            "Nav",
+            serde_json::json!({ "type": "stack", "children": ["@trait.Content"] }),
+        );
+        let content = main_writer(
+            "Content",
+            serde_json::json!({ "type": "data-grid", "entity": "?data" }),
+        );
+        assert!(ambiguous_owner_hits(orbital_json(
+            vec![nav, content],
+            page_with(&["Nav", "Content"])
+        ))
+        .is_empty());
+    }
+
+    /// A shell channelling one writer leaves no ambiguity — a rival there is
+    /// `ORB_PAGE_SECOND_CONTENT_BODY`'s, not this error's.
+    #[test]
+    fn ambiguous_owner_silent_under_a_channel_owner() {
+        let shell = serde_json::json!({
+            "name": "Shell", "linkedEntity": "Item", "category": "interaction",
+            "config": { "contentTrait": { "type": "trait", "default": "@trait.Catalog" } },
+            "stateMachine": {
+                "states": [{ "name": "idle", "isInitial": true }],
+                "transitions": [{ "from": "idle", "to": "idle", "event": "INIT", "effects": [["render-ui", "modal", null]] }]
+            }
+        });
+        let catalog = main_writer(
+            "Catalog",
+            serde_json::json!({ "type": "data-grid", "entity": "?data" }),
+        );
+        let stray = main_writer(
+            "Stray",
+            serde_json::json!({ "type": "data-grid", "entity": "?data" }),
+        );
+        assert!(ambiguous_owner_hits(orbital_json(
+            vec![shell, catalog, stray],
+            page_with(&["Shell", "Catalog", "Stray"])
+        ))
+        .is_empty());
     }
 }

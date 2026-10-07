@@ -408,7 +408,7 @@ fn field_type_to_binding(ft: &FieldType) -> BindingType {
         // {name, url, mimeType, sizeBytes} struct value).
         FieldType::Money => BindingType::Number,
         FieldType::File => BindingType::Object,
-        FieldType::Array => BindingType::Array,
+        FieldType::Array | FieldType::Tuple => BindingType::Array,
         FieldType::Object => BindingType::Object,
         FieldType::Enum => BindingType::String,
         FieldType::Relation => BindingType::Object,
@@ -419,7 +419,9 @@ fn field_type_to_binding(ft: &FieldType) -> BindingType {
         // does `event` (Phase B struct-field carrier) — an event name is a
         // string at the render-binding lattice, same as the scalar
         // config-knob `event` type.
-        FieldType::Slot | FieldType::Pattern | FieldType::Event => BindingType::String,
+        FieldType::Slot | FieldType::Pattern | FieldType::Event | FieldType::EventAddress => {
+            BindingType::String
+        }
         // Renderable content binds like an object (a pattern tree) — and the
         // prop-compat rule already accepts anything where `node` is expected.
         FieldType::Node => BindingType::Object,

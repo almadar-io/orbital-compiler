@@ -190,6 +190,32 @@ fn the_compiled_path_compiles_the_lazy_pages_into_the_program() {
     assert_eq!(paths, vec!["/", "/blog/why"], "each page is its own route chunk in the compiled app");
 }
 
+/// A compiled client's own runtime (the browser store for `[persistent, local]` entities)
+/// runs the program the compiled path compiled — lazy behaviors included — or a
+/// browser-stored entity on a lazy page has no orbital to run (orb.almadar.io's docs
+/// examples loaded forever).
+#[test]
+fn the_compiled_program_schema_carries_the_lazy_orbitals() {
+    let s = site(&[home(LAZY_USE, ""), blog(LAZY_USE, REMAP)], true);
+    let schema = parse_file(&s.path).expect("site parses");
+    let program = orbital_compiler::phases::resolve_compiled_program_with_path(schema, &CompilerOptions::default(), Some(&s.path))
+        .expect("resolve");
+    let mut names: Vec<&str> = program.orbitals.iter().map(|o| o.name.as_str()).collect();
+    names.sort();
+    assert_eq!(names, vec!["BlogWhy", "Home"]);
+    assert_eq!(program.lazy_pages, None, "nothing is left to load separately");
+}
+
+#[test]
+fn control_the_compiled_program_schema_is_unchanged_without_lazy_uses() {
+    let s = site(&[home(EAGER_USE, ""), blog(EAGER_USE, REMAP)], true);
+    let schema = parse_file(&s.path).expect("site parses");
+    let program = orbital_compiler::phases::resolve_compiled_program_with_path(schema, &CompilerOptions::default(), Some(&s.path))
+        .expect("resolve");
+    assert_eq!(program.orbitals.len(), 2);
+    assert_eq!(program.lazy_pages, None);
+}
+
 #[test]
 fn control_the_compiled_path_is_unchanged_without_lazy_uses() {
     let s = site(&[home(EAGER_USE, ""), blog(EAGER_USE, REMAP)], true);

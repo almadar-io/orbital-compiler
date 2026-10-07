@@ -263,12 +263,14 @@ pub(crate) fn resolve_schema_with_inline(
     Ok(schema)
 }
 
-/// Compile a schema file to OIR with source path for resolving imports
-fn compile_schema_with_path(
+/// The program exactly as the compiled path compiles it: lazy behaviors compiled in
+/// as route chunks, then Inline, Compose, Enrich. What a compiled client's own
+/// runtime (the browser store for `[persistent, local]` entities) runs.
+pub fn resolve_compiled_program_with_path(
     mut schema: OrbitalSchema,
     options: &CompilerOptions,
     source_path: Option<&Path>,
-) -> CompileResult<OirModule> {
+) -> CompileResult<OrbitalSchema> {
     lazy::compile_lazy_as_routes(&mut schema);
     // Phases 2–3: Inline, Compose, Enrich.
     let mut schema = resolve_schema_with_path(schema, options, source_path)?;
@@ -277,6 +279,16 @@ fn compile_schema_with_path(
     // the lolo lowerer) is normalized before validation + codegen, and inlined
     // reference traits are caught too.
     orbital_core::schema::normalize_fn_shapes(&mut schema);
+    Ok(schema)
+}
+
+/// Compile a schema file to OIR with source path for resolving imports
+fn compile_schema_with_path(
+    mut schema: OrbitalSchema,
+    options: &CompilerOptions,
+    source_path: Option<&Path>,
+) -> CompileResult<OirModule> {
+    let schema = resolve_compiled_program_with_path(schema, options, source_path)?;
 
     // Phase 4: Validate (runs on the fully inlined + enriched schema so reference
     //           checks and collection-presence checks are accurate)

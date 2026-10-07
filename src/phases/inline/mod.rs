@@ -84,8 +84,9 @@ use rewrite::{rewrite_entity_refs, rewrite_identifiers, rewrite_trait_event_fiel
 
 use crate::loader::{ExternalOrbitalLoader, ImportChain, LoaderConfig, LoaderError};
 use orbital_core::schema::{
-    ConfigField, ConfigProvenanceRecord, EntityDefinition, EntityRef, ExpectDeclaration, ListenSource, Orbital,
-    OrbitalSchema, PayloadField, SchemaMetadata, ThemeRef, TraitDefinition, TraitReference,
+    ConfigField, ConfigProvenanceRecord, EntityDefinition, EntityRef, ExpectDeclaration,
+    ListenSource, Orbital, OrbitalSchema, PayloadField, SchemaMetadata, ThemeRef, TraitDefinition,
+    TraitReference,
 };
 use std::collections::{BTreeMap, HashMap, HashSet};
 use std::path::{Path, PathBuf};
@@ -227,7 +228,9 @@ pub enum InlineError {
     )]
     LazyEagerRef { alias: String, path: String },
 
-    #[error("Orbital '{orbital}' is imported lazily but declares no pages, so nothing can ever load it")]
+    #[error(
+        "Orbital '{orbital}' is imported lazily but declares no pages, so nothing can ever load it"
+    )]
     LazyNoPages { orbital: String },
 
     #[error(
@@ -399,7 +402,11 @@ pub fn inline_schema_with_orbital_diagnostics(
         return Ok(());
     }
 
-    if let Some(orbital) = schema.orbitals.iter().find(|o| super::lazy::is_lazy_reference(o)) {
+    if let Some(orbital) = schema
+        .orbitals
+        .iter()
+        .find(|o| super::lazy::is_lazy_reference(o))
+    {
         return Err(InlineError::LazyNotSplit {
             orbital: orbital.name.clone(),
         });
@@ -429,7 +436,8 @@ pub fn inline_schema_with_orbital_diagnostics(
     let session = config.session.clone().unwrap_or_default();
     let mut session_state = session.0.borrow_mut();
     let InlineSessionState { loader, imports } = &mut *session_state;
-    let loader = loader.get_or_insert_with(|| ExternalOrbitalLoader::new(config.loader_config.clone()));
+    let loader =
+        loader.get_or_insert_with(|| ExternalOrbitalLoader::new(config.loader_config.clone()));
     loader.begin_schema();
     let mut chain = ImportChain::new();
 
@@ -477,12 +485,8 @@ pub fn inline_schema_with_orbital_diagnostics(
     // any orbital in `schema` resolves, so a listen source naming ANY
     // reference-form orbital of this schema resolves regardless of
     // declaration order.
-    let (listen_source_targets, imported_trait_names) = precompute_reference_form_listen_targets(
-        &schema.orbitals,
-        loader,
-        &mut chain,
-        source_path,
-    );
+    let (listen_source_targets, imported_trait_names) =
+        precompute_reference_form_listen_targets(&schema.orbitals, loader, &mut chain, source_path);
 
     // Process each orbital, recording the names the auto-pull loop added and
     // the config→knob provenance for substituted render-ui props.
@@ -528,10 +532,12 @@ pub fn inline_schema_with_orbital_diagnostics(
             imports,
         ) {
             let e = match e {
-                InlineError::UnknownAlias(alias) if lazy_aliases.contains(&alias) => InlineError::LazyEagerRef {
-                    path: format!("orbitals[name={orbital_name}]"),
-                    alias,
-                },
+                InlineError::UnknownAlias(alias) if lazy_aliases.contains(&alias) => {
+                    InlineError::LazyEagerRef {
+                        path: format!("orbitals[name={orbital_name}]"),
+                        alias,
+                    }
+                }
                 e => e,
             };
             if first_error.is_none() {
@@ -557,7 +563,12 @@ pub fn inline_schema_with_orbital_diagnostics(
         // orbital's own names still win within itself via
         // `collect_orbital_entity_ids` layered on top inside
         // `inline_orbital` — this only widens what LATER orbitals see.
-        consumer_entity_ids.extend(collect_orbital_entity_ids(orbital));
+        // First id wins: an entity name keeps the id the schema established first (an owner's
+        // primary, or an import's precomputed one) — a later orbital's pulled same-named copy
+        // never re-points it to a foreign id.
+        for (name, id) in collect_orbital_entity_ids(orbital) {
+            consumer_entity_ids.entry(name).or_insert(id);
+        }
         // Increment 3-I (`docs/Almadar_LOLO.md` ~line 315/1387): now that this
         // orbital's traits are fully inlined — every `linkedEntity` rebind,
         // sibling-pull, and auxiliary-entity import resolved — monomorphize
@@ -602,6 +613,12 @@ pub fn inline_schema_with_orbital_diagnostics(
         return Err(e);
     }
     address_imported_traits(&mut schema.orbitals, &imported_trait_names);
+
+    // An entity another orbital owns as its primary is that entity: a copy pulled in as an
+    // auxiliary (a sibling trait still bound to its source behavior's same-named entity) would
+    // shadow it by name and drop the fields only the owner carries. Before the retry, so merges
+    // land on the owner.
+    drop_shadowed_auxiliaries(&mut schema.orbitals);
 
     // §52 schema-wide retry: every orbital has now inlined (every Gap #22
     // no-rebind auxiliary registered, every primary entity declared), so a
@@ -692,7 +709,10 @@ pub fn inline_schema_with_orbital_diagnostics(
     if schema.locales.is_some() {
         if let Some(root) = source_path {
             let sources = loader.message_sources(root, &schema.name);
-            schema.metadata.get_or_insert_with(SchemaMetadata::default).message_sources = Some(sources);
+            schema
+                .metadata
+                .get_or_insert_with(SchemaMetadata::default)
+                .message_sources = Some(sources);
         }
     }
 
@@ -1050,10 +1070,11 @@ fn precompute_reference_form_listen_targets(
         }
         by_local.insert(orbital.name.clone(), trait_subs.clone());
         let key = (alias, name);
-        let mut page_remaps = out
+        let (mut page_remaps, mut imports) = out
             .remove(&key)
-            .map(|prev: SiblingImportInfo| prev.page_remaps)
+            .map(|prev: SiblingImportInfo| (prev.page_remaps, prev.imports))
             .unwrap_or_default();
+        imports.push((orbital.name.clone(), trait_subs.clone()));
         let remap = effective_page_remap(&upstream, reference);
         if !remap.is_empty() {
             page_remaps.push((orbital.name.clone(), remap));
@@ -1064,6 +1085,7 @@ fn precompute_reference_form_listen_targets(
                 local_name: orbital.name.clone(),
                 trait_subs,
                 page_remaps,
+                imports,
             },
         );
     }
@@ -1214,8 +1236,9 @@ fn address_imported_traits(orbitals: &mut [Orbital], imported: &ImportedTraitNam
             if present.contains(&(scope.to_string(), trait_name.clone())) {
                 return;
             }
-            if let Some((final_name, final_id)) =
-                imported.get(scope).and_then(|subs| subs.get(trait_name.as_str()))
+            if let Some((final_name, final_id)) = imported
+                .get(scope)
+                .and_then(|subs| subs.get(trait_name.as_str()))
             {
                 *trait_name = final_name.clone();
                 *trait_id = Some(final_id.clone());
@@ -1483,80 +1506,85 @@ fn inline_orbital(
         // An imported behavior inlines the same way wherever it is used (its
         // inputs are all its own), so it is inlined once per program and reused.
         let import_key = loader.canonical(&loaded_source);
-        let inlined_orbitals: std::rc::Rc<Vec<Orbital>> = if let Some(done) = imports.get(&import_key) {
-            recorder.extend(done.provenance.iter().cloned());
-            config_diagnostics.extend(done.config_diagnostics.iter().cloned());
-            orbital_ref_diagnostics.extend(done.orbital_ref_diagnostics.iter().cloned());
-            uses_config_diagnostics.extend(done.uses_config_diagnostics.iter().cloned());
-            deferred_merges.extend(done.deferred_merges.iter().cloned());
-            loader.mark_loaded(&done.loaded_files);
-            std::rc::Rc::clone(&done.orbitals)
-        } else {
-            let mut inlined_orbitals = loader.load(&use_decl.from, source_path, chain)?.schema.orbitals.clone();
-            let marks = (
-                recorder.len(),
-                config_diagnostics.len(),
-                orbital_ref_diagnostics.len(),
-                uses_config_diagnostics.len(),
-                deferred_merges.len(),
-            );
-            loader.begin_recording();
-            let inlined: Result<(), InlineError> = (|| {
-                // G1 (`docs/Almadar_Compiler_Gaps.md` §82): this loaded alias's OWN
-                // orbitals are a DIFFERENT `uses`-namespace than the caller's — a
-                // sibling-import listen source inside one of THEM resolves against
-                // THEIR OWN reference-form orbitals, never the caller's. Recomputed
-                // per alias load (cheap: `loader.load` inside it is a cache hit).
-                let (nested_listen_source_targets, nested_imported_trait_names) =
-                    precompute_reference_form_listen_targets(
-                    &inlined_orbitals,
-                    loader,
-                    chain,
-                    Some(&loaded_source),
+        let inlined_orbitals: std::rc::Rc<Vec<Orbital>> =
+            if let Some(done) = imports.get(&import_key) {
+                recorder.extend(done.provenance.iter().cloned());
+                config_diagnostics.extend(done.config_diagnostics.iter().cloned());
+                orbital_ref_diagnostics.extend(done.orbital_ref_diagnostics.iter().cloned());
+                uses_config_diagnostics.extend(done.uses_config_diagnostics.iter().cloned());
+                deferred_merges.extend(done.deferred_merges.iter().cloned());
+                loader.mark_loaded(&done.loaded_files);
+                std::rc::Rc::clone(&done.orbitals)
+            } else {
+                let mut inlined_orbitals = loader
+                    .load(&use_decl.from, source_path, chain)?
+                    .schema
+                    .orbitals
+                    .clone();
+                let marks = (
+                    recorder.len(),
+                    config_diagnostics.len(),
+                    orbital_ref_diagnostics.len(),
+                    uses_config_diagnostics.len(),
+                    deferred_merges.len(),
                 );
-                // The alias's own `entities {}` targets name ITS entities, never the
-                // importing program's.
-                let nested_entity_ids = inline_entity_ids(&inlined_orbitals);
-                for inlined_orbital in &mut inlined_orbitals {
-                    inline_orbital(
-                        inlined_orbital,
-                        loader,
-                        chain,
-                        Some(&loaded_source),
-                        false,
-                        None,
-                        recorder,
-                        config_diagnostics,
-                        loaded_schema_config.as_ref(),
-                        &nested_entity_ids,
-                        &nested_listen_source_targets,
-                        orbital_ref_diagnostics,
-                        uses_config_diagnostics,
-                        None,
-                        deferred_merges,
-                        imports,
-                    )?;
-                }
-                address_imported_traits(&mut inlined_orbitals, &nested_imported_trait_names);
-                Ok(())
-            })();
-            let loaded_files = loader.end_recording();
-            inlined?;
-            let inlined_orbitals = std::rc::Rc::new(inlined_orbitals);
-            imports.insert(
-                import_key,
-                InlinedImport {
-                    orbitals: std::rc::Rc::clone(&inlined_orbitals),
-                    provenance: recorder[marks.0..].to_vec(),
-                    config_diagnostics: config_diagnostics[marks.1..].to_vec(),
-                    orbital_ref_diagnostics: orbital_ref_diagnostics[marks.2..].to_vec(),
-                    uses_config_diagnostics: uses_config_diagnostics[marks.3..].to_vec(),
-                    deferred_merges: deferred_merges[marks.4..].to_vec(),
-                    loaded_files,
-                },
-            );
-            inlined_orbitals
-        };
+                loader.begin_recording();
+                let inlined: Result<(), InlineError> = (|| {
+                    // G1 (`docs/Almadar_Compiler_Gaps.md` §82): this loaded alias's OWN
+                    // orbitals are a DIFFERENT `uses`-namespace than the caller's — a
+                    // sibling-import listen source inside one of THEM resolves against
+                    // THEIR OWN reference-form orbitals, never the caller's. Recomputed
+                    // per alias load (cheap: `loader.load` inside it is a cache hit).
+                    let (nested_listen_source_targets, nested_imported_trait_names) =
+                        precompute_reference_form_listen_targets(
+                            &inlined_orbitals,
+                            loader,
+                            chain,
+                            Some(&loaded_source),
+                        );
+                    // The alias's own `entities {}` targets name ITS entities, never the
+                    // importing program's.
+                    let nested_entity_ids = inline_entity_ids(&inlined_orbitals);
+                    for inlined_orbital in &mut inlined_orbitals {
+                        inline_orbital(
+                            inlined_orbital,
+                            loader,
+                            chain,
+                            Some(&loaded_source),
+                            false,
+                            None,
+                            recorder,
+                            config_diagnostics,
+                            loaded_schema_config.as_ref(),
+                            &nested_entity_ids,
+                            &nested_listen_source_targets,
+                            orbital_ref_diagnostics,
+                            uses_config_diagnostics,
+                            None,
+                            deferred_merges,
+                            imports,
+                        )?;
+                    }
+                    address_imported_traits(&mut inlined_orbitals, &nested_imported_trait_names);
+                    Ok(())
+                })();
+                let loaded_files = loader.end_recording();
+                inlined?;
+                let inlined_orbitals = std::rc::Rc::new(inlined_orbitals);
+                imports.insert(
+                    import_key,
+                    InlinedImport {
+                        orbitals: std::rc::Rc::clone(&inlined_orbitals),
+                        provenance: recorder[marks.0..].to_vec(),
+                        config_diagnostics: config_diagnostics[marks.1..].to_vec(),
+                        orbital_ref_diagnostics: orbital_ref_diagnostics[marks.2..].to_vec(),
+                        uses_config_diagnostics: uses_config_diagnostics[marks.3..].to_vec(),
+                        deferred_merges: deferred_merges[marks.4..].to_vec(),
+                        loaded_files,
+                    },
+                );
+                inlined_orbitals
+            };
 
         // The source label used in error messages is the `from` string from
         // the `uses` declaration (e.g. `"std/behaviors/std-arcade-game"`).
@@ -1908,6 +1936,12 @@ fn inline_orbital(
                     for aux_entity in
                         ctx.get_aux_entities_for_trait_orbital(&alias, &name, ref_id.as_deref())
                     {
+                        // An explicit rebind names the entity this trait binds — the consumer's
+                        // own or a sibling's, resolved by the rebind merge above. A same-named
+                        // source copy must not travel: it would shadow that entity by name.
+                        if linked_entity.as_deref() == Some(aux_entity.name.as_str()) {
+                            continue;
+                        }
                         let is_own_entity =
                             effective_bound_name.as_deref() == Some(aux_entity.name.as_str());
                         let travel_result = resolved_trait_def.as_ref().map(|td| {
@@ -7309,5 +7343,104 @@ mod tests {
             !cross.contains("note"),
             "cross-entity must NOT pick up @entity.* reads; got {cross:?}"
         );
+    }
+}
+
+/// Drop every auxiliary copy that is a narrower view of an entity some orbital owns as its primary.
+pub(crate) fn drop_shadowed_auxiliaries(orbitals: &mut [Orbital]) {
+    let owned: HashMap<String, EntityDefinition> = orbitals
+        .iter()
+        .filter_map(|o| match &o.entity {
+            EntityRef::Inline(e) => Some((e.name.clone(), e.clone())),
+            _ => None,
+        })
+        .collect();
+    // A narrower view of the owner's entity: every field it declares is the owner's, same type,
+    // same collection. A copy with a shape the owner lacks is a real conflict and stays reported.
+    let narrower_view = |copy: &EntityDefinition, owner: &EntityDefinition| -> bool {
+        copy.collection.is_none() == owner.collection.is_none()
+            && copy.collection == owner.collection
+            && copy.fields.iter().all(|f| {
+                owner
+                    .fields
+                    .iter()
+                    .any(|o| o.name == f.name && o.field_type == f.field_type)
+            })
+    };
+    for orbital in orbitals.iter_mut() {
+        let Some(aux) = orbital.auxiliary_entities.as_mut() else {
+            continue;
+        };
+        aux.retain(|a| {
+            !matches!(a, EntityRef::Inline(e) if owned.get(&e.name).is_some_and(|owner| narrower_view(e, owner)))
+        });
+        if aux.is_empty() {
+            orbital.auxiliary_entities = None;
+        }
+    }
+}
+
+#[cfg(test)]
+mod shadowed_auxiliary_tests {
+    use super::*;
+
+    fn orbitals() -> Vec<Orbital> {
+        serde_json::from_value(serde_json::json!([
+            { "name": "OrderDesk", "entity": { "name": "OrderRecord", "fields": [
+                { "name": "id", "type": "string" }, { "name": "title", "type": "string" }, { "name": "stage", "type": "string" } ] },
+              "traits": [] },
+            { "name": "MyOrdersPage", "entity": { "name": "Visit", "fields": [ { "name": "id", "type": "string" } ] },
+              "auxiliaryEntities": [
+                { "name": "OrderRecord", "fields": [ { "name": "id", "type": "string" }, { "name": "title", "type": "string" } ] },
+                { "name": "ExportPanel", "fields": [ { "name": "id", "type": "string" } ] }
+              ],
+              "traits": [] }
+        ]))
+        .expect("orbitals")
+    }
+
+    fn aux_names(o: &Orbital) -> Vec<String> {
+        o.auxiliary_entities
+            .iter()
+            .flatten()
+            .filter_map(|e| match e {
+                EntityRef::Inline(d) => Some(d.name.clone()),
+                _ => None,
+            })
+            .collect()
+    }
+
+    #[test]
+    fn an_auxiliary_copy_of_an_entity_another_orbital_owns_is_dropped() {
+        let mut o = orbitals();
+        drop_shadowed_auxiliaries(&mut o);
+        assert_eq!(aux_names(&o[1]), vec!["ExportPanel".to_string()]);
+    }
+
+    #[test]
+    fn control_a_copy_with_a_shape_the_owner_lacks_is_a_real_conflict_and_kept() {
+        let mut o = orbitals();
+        if let Some(EntityRef::Inline(copy)) =
+            o[1].auxiliary_entities.as_mut().and_then(|a| a.first_mut())
+        {
+            copy.fields.push(
+                serde_json::from_value(
+                    serde_json::json!({ "name": "importedOnly", "type": "string" }),
+                )
+                .expect("field"),
+            );
+        }
+        drop_shadowed_auxiliaries(&mut o);
+        assert!(aux_names(&o[1]).contains(&"OrderRecord".to_string()));
+    }
+
+    #[test]
+    fn control_owners_and_unowned_auxiliaries_are_untouched() {
+        let mut o = orbitals();
+        drop_shadowed_auxiliaries(&mut o);
+        assert!(
+            matches!(&o[0].entity, EntityRef::Inline(d) if d.name == "OrderRecord" && d.fields.len() == 3)
+        );
+        assert!(aux_names(&o[1]).contains(&"ExportPanel".to_string()));
     }
 }

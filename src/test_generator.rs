@@ -729,7 +729,7 @@ fn default_value_for_type(ty: &orbital_core::ir::OirType) -> &'static str {
         // TS renders `scalar` as the real union, so a string member is valid.
         OirType::Scalar => "'test'",
         OirType::Union { .. } => "{}",
-        OirType::Array { .. } => "[]",
+        OirType::Array { .. } | OirType::Tuple { .. } => "[]",
         OirType::Map { .. } => "{}",
         OirType::Optional { .. } => "null",
         OirType::Reference { .. } => "'ref-id'",
@@ -764,7 +764,7 @@ fn rust_default_value(ty: &orbital_core::ir::OirType) -> &'static str {
         // legal member of the scalar union AND a legal Value.
         OirType::Scalar => "serde_json::Value::Null",
         OirType::Union { .. } => "serde_json::Value::Null",
-        OirType::Array { .. } => "vec![]",
+        OirType::Array { .. } | OirType::Tuple { .. } => "vec![]",
         OirType::Map { .. } => "Default::default()",
         OirType::Optional { .. } => "None",
         OirType::Reference { .. } => "String::new()",
@@ -795,7 +795,7 @@ fn python_default_value(ty: &orbital_core::ir::OirType) -> &'static str {
         // scalar and is what the seeder samples.
         OirType::Scalar => "\"test\"",
         OirType::Union { .. } => "{}",
-        OirType::Array { .. } => "[]",
+        OirType::Array { .. } | OirType::Tuple { .. } => "[]",
         OirType::Map { .. } => "{}",
         OirType::Optional { .. } => "None",
         OirType::Reference { .. } => "\"ref-id\"",

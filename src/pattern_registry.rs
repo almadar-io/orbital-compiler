@@ -79,6 +79,9 @@ pub struct PropTypeSchema {
     /// component's named recursive type.
     #[serde(default)]
     pub cyclic: bool,
+    /// A member typed `T | null` without `?`: `.orb` data omits it, the TS type needs `null`.
+    #[serde(default)]
+    pub nullable: bool,
 }
 
 /// Prop type definition.

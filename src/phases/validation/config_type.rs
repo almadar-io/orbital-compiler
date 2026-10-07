@@ -140,7 +140,9 @@ fn validate_call_service_event_addresses(
 ) {
     for (oi, orbital) in schema.orbitals.iter().enumerate() {
         for tr in &orbital.traits {
-            let TraitReference::Inline(td) = tr else { continue };
+            let TraitReference::Inline(td) = tr else {
+                continue;
+            };
             for (ti, transition) in td.state_machine.transitions.iter().enumerate() {
                 for (ei, effect) in transition.effects.iter().flatten().enumerate() {
                     let path = format!(
@@ -152,7 +154,10 @@ fn validate_call_service_event_addresses(
             }
             for (ki, tick) in td.ticks.iter().flatten().enumerate() {
                 for (ei, effect) in tick.effects.iter().enumerate() {
-                    let path = format!("orbitals[{oi}].traits[{}].ticks[{ki}].effects[{ei}]", td.name);
+                    let path = format!(
+                        "orbitals[{oi}].traits[{}].ticks[{ki}].effects[{ei}]",
+                        td.name
+                    );
                     check_event_address_args(effect, &orbital.name, &path, registry, refs, result);
                 }
             }
@@ -169,20 +174,28 @@ fn check_event_address_args(
     result: &mut ValidationResult,
 ) {
     use crate::embedded::EVENT_ADDRESS_TYPE;
-    let SExpression::Array(items) = expr else { return };
+    let SExpression::Array(items) = expr else {
+        return;
+    };
     let head = match items.first() {
         Some(SExpression::String(h)) => h.as_str(),
         _ => "",
     };
     if head == "call-service" || head == "call_service" {
-        if let (Some(SExpression::String(service)), Some(SExpression::String(action)), Some(SExpression::Object(args))) =
-            (items.get(1), items.get(2), items.get(3))
+        if let (
+            Some(SExpression::String(service)),
+            Some(SExpression::String(action)),
+            Some(SExpression::Object(args)),
+        ) = (items.get(1), items.get(2), items.get(3))
         {
             let declared = registry.params.get(service).and_then(|a| a.get(action));
             for param in declared.into_iter().flatten() {
                 if param.param_type == EVENT_ADDRESS_TYPE {
                     if let Some(SExpression::String(value)) = args.get(&param.name) {
-                        if !(value.starts_with('@') || value.starts_with('?') || value.starts_with('$')) {
+                        if !(value.starts_with('@')
+                            || value.starts_with('?')
+                            || value.starts_with('$'))
+                        {
                             let at = format!("{path}.{}", param.name);
                             for err in refs.check(value, owner_orbital, &at) {
                                 result.add_error(err);
@@ -191,16 +204,27 @@ fn check_event_address_args(
                     }
                     continue;
                 }
-                let Some(members) = param.items.as_ref() else { continue };
-                let Some(SExpression::Array(entries)) = args.get(&param.name) else { continue };
+                let Some(members) = param.items.as_ref() else {
+                    continue;
+                };
+                let Some(SExpression::Array(entries)) = args.get(&param.name) else {
+                    continue;
+                };
                 for (k, entry) in entries.iter().enumerate() {
-                    let SExpression::Object(fields) = entry else { continue };
+                    let SExpression::Object(fields) = entry else {
+                        continue;
+                    };
                     for (member, decl) in &members.properties {
                         if decl.member_type != EVENT_ADDRESS_TYPE {
                             continue;
                         }
-                        let Some(SExpression::String(value)) = fields.get(member) else { continue };
-                        if value.starts_with('@') || value.starts_with('?') || value.starts_with('$') {
+                        let Some(SExpression::String(value)) = fields.get(member) else {
+                            continue;
+                        };
+                        if value.starts_with('@')
+                            || value.starts_with('?')
+                            || value.starts_with('$')
+                        {
                             continue;
                         }
                         let at = format!("{path}.{}[{k}].{member}", param.name);
@@ -230,7 +254,9 @@ impl EventRefIndex {
         for orbital in &schema.orbitals {
             for tr in &orbital.traits {
                 if let TraitReference::Inline(td) = tr {
-                    inputs_by_trait.entry((orbital.name.clone(), td.name.clone())).or_default();
+                    inputs_by_trait
+                        .entry((orbital.name.clone(), td.name.clone()))
+                        .or_default();
                 }
             }
         }
@@ -250,8 +276,14 @@ impl EventRefIndex {
         use orbital_core::schema::{join_event_address, split_event_address, ListenSource};
         let (event, source) = split_event_address(value);
         let (orbital, trait_name) = match &source {
-            Some(ListenSource::Trait { trait_name, .. }) => (owner_orbital.to_string(), trait_name.clone()),
-            Some(ListenSource::Orbital { orbital, trait_name, .. }) => (orbital.clone(), trait_name.clone()),
+            Some(ListenSource::Trait { trait_name, .. }) => {
+                (owner_orbital.to_string(), trait_name.clone())
+            }
+            Some(ListenSource::Orbital {
+                orbital,
+                trait_name,
+                ..
+            }) => (orbital.clone(), trait_name.clone()),
             Some(ListenSource::Any) | None => {
                 return vec![ValidationError::error(
                     ErrorCode::TraitEventRefUnresolved,
@@ -261,7 +293,10 @@ impl EventRefIndex {
                 .with_suggestion("Write `Trait.EVENT` or `Orbital.Trait.EVENT`")];
             }
         };
-        let Some(inputs) = self.inputs_by_trait.get(&(orbital.clone(), trait_name.clone())) else {
+        let Some(inputs) = self
+            .inputs_by_trait
+            .get(&(orbital.clone(), trait_name.clone()))
+        else {
             let mut err = ValidationError::error(
                 ErrorCode::TraitEventRefUnresolved,
                 path,
@@ -1113,6 +1148,11 @@ fn check_config_default_shape(
         }
         return result;
     }
+    // Tuple slot — `field_type` is `[T1, T2, …]`; the slots ride `properties` by index.
+    if orbital_core::type_compat::tuple_type_slots(&field.field_type).is_some() {
+        let slots = orbital_core::schema::tuple_slots_of(field.properties.as_ref());
+        return check_tuple_shape(&slots, default, path, orbital_events, &HashMap::new(), false);
+    }
     // Array slot — `field_type` is `[T]` (string tag) and `items` carries
     // the per-element shape. Verify the value is an array, then recurse
     // each element through the `FieldDefinition` validator.
@@ -1297,6 +1337,52 @@ fn root_ancestor_map<'a>(
 /// below while still checking every member's KIND. Trait config keeps the
 /// full literal (`false`) — a config default has no later persist step to
 /// defer completeness to.
+/// A tuple value: an array of exactly the tuple's arity, each element checked against
+/// its own slot.
+fn check_tuple_shape(
+    slots: &[&FieldDefinition],
+    value: &SExpression,
+    path: &str,
+    orbital_events: &EventScope<'_>,
+    ancestors: &HashMap<String, &FieldDefinition>,
+    skip_required_members: bool,
+) -> ValidationResult {
+    let mut result = ValidationResult::new();
+    let SExpression::Array(items) = value else {
+        result.add_error(
+            ValidationError::error(
+                ErrorCode::TraitConfigShapeMismatch,
+                path,
+                format!("expected a tuple of {} values, got {}", slots.len(), super::sexpr::render_sexpr_brief(value)),
+            )
+            .with_suggestion(format!("supply `[ … ]` with exactly {} values", slots.len())),
+        );
+        return result;
+    };
+    if items.len() != slots.len() {
+        result.add_error(
+            ValidationError::error(
+                ErrorCode::TraitConfigShapeMismatch,
+                path,
+                format!("expected a tuple of {} values, got {}", slots.len(), items.len()),
+            )
+            .with_suggestion(format!("supply exactly {} values", slots.len())),
+        );
+        return result;
+    }
+    for (i, (elem, slot)) in items.iter().zip(slots).enumerate() {
+        result.merge(check_field_def_shape(
+            slot,
+            elem,
+            &format!("{}[{}]", path, i),
+            orbital_events,
+            ancestors,
+            skip_required_members,
+        ));
+    }
+    result
+}
+
 pub(crate) fn check_field_def_shape(
     schema: &FieldDefinition,
     value: &SExpression,
@@ -1387,18 +1473,38 @@ pub(crate) fn check_field_def_shape(
                     }
                 }
                 VariantChoice::Deferred => {}
+                VariantChoice::Ambiguous(fitting) => {
+                    result.add_error(ValidationError::error(
+                        ErrorCode::TraitConfigShapeMismatch,
+                        path,
+                        format!(
+                            "value fits several union variants ({}) equally — give them a discriminator field",
+                            fitting.join(", ")
+                        ),
+                    ));
+                }
                 VariantChoice::NoMatch => {
                     result.add_error(ValidationError::error(
                         ErrorCode::TraitConfigShapeMismatch,
                         path,
                         format!(
-                            "value matches none of the union variants ({}) — no variant's discriminator agrees with this value's tag",
+                            "value matches none of the union variants ({}) — no variant's discriminator agrees with this value's tag, and no untagged variant's closed shape fits its keys",
                             names.join(" | ")
                         ),
                     ));
                 }
             }
             return result;
+        }
+        FieldType::Tuple => {
+            return check_tuple_shape(
+                &schema.tuple_slots(),
+                value,
+                path,
+                orbital_events,
+                ancestors,
+                skip_required_members,
+            );
         }
         FieldType::Array => {
             let SExpression::Array(items) = value else {
@@ -1550,7 +1656,8 @@ pub(crate) fn check_field_def_shape(
                             && !orbital_events.events.is_empty()
                             && !orbital_events.events.contains(s)
                         {
-                            let mut valid: Vec<String> = orbital_events.events.iter().cloned().collect();
+                            let mut valid: Vec<String> =
+                                orbital_events.events.iter().cloned().collect();
                             valid.sort();
                             result.add_error(
                                 ValidationError::error(
@@ -1574,6 +1681,35 @@ pub(crate) fn check_field_def_shape(
                                 "Struct field typed `event` must hold a string event name",
                             )
                             .with_suggestion("Use a string event key, e.g. `event: SEARCH`, or \"\" for a default-off outlet"),
+                        );
+                    }
+                }
+                return result;
+            }
+            // An `EventAddress` must ADDRESS a declared external input — the
+            // same rule the `EventAddress` service param enforces; a bare name
+            // addresses no trait. `""` is the default-off outlet and `@`/`?`/`$`
+            // values resolve elsewhere.
+            if schema.field_type == FieldType::EventAddress {
+                match value {
+                    SExpression::String(s)
+                        if s.is_empty()
+                            || s.starts_with('@')
+                            || s.starts_with('?')
+                            || s.starts_with('$') => {}
+                    SExpression::String(s) => {
+                        if let Some(refs) = orbital_events.refs {
+                            result.add_errors(refs.check(s, orbital_events.orbital, path));
+                        }
+                    }
+                    _ => {
+                        result.add_error(
+                            ValidationError::error(
+                                ErrorCode::TraitInvalidEventDefault,
+                                path,
+                                "Struct field typed `EventAddress` must hold a string address",
+                            )
+                            .with_suggestion("Write `Trait.EVENT` or `Orbital.Trait.EVENT`"),
                         );
                     }
                 }
@@ -1695,10 +1831,13 @@ pub(crate) fn check_field_def_shape(
 /// is data-driven rather than positional: reordering the union in source cannot
 /// change which variant a value selects.
 ///
-/// Returns `None` when nothing matches, which is a real finding — a value whose
-/// tag names no declared variant.
+/// A value carrying no variant's tag selects by SHAPE among the untagged variants:
+/// the one whose closed shape fits (every key declared; on a tie, every required
+/// member present). Zero fits is `NoMatch`; several is `Ambiguous` — never a guess.
 enum VariantChoice<'a> {
     Matched(&'a FieldDefinition),
+    /// Several untagged variants fit the value equally; the union needs a discriminator.
+    Ambiguous(Vec<String>),
     /// A discriminator's value is a late-bound reference (`@config.shape`), so
     /// which variant applies is not decidable here. Deferring is mandatory:
     /// reporting "matches no variant" for a binding would flag 35 correct
@@ -1712,7 +1851,7 @@ fn select_union_variant<'a>(
     names: &[String],
     variants: &'a HashMap<String, FieldDefinition>,
 ) -> VariantChoice<'a> {
-    let mut fallback: Option<&FieldDefinition> = None;
+    let mut untagged: Vec<&FieldDefinition> = Vec::new();
     let mut deferred = false;
     for name in names {
         let Some(variant) = variants.get(name) else {
@@ -1740,19 +1879,52 @@ fn select_union_variant<'a>(
         if discriminators > 0 && agreed == discriminators {
             return VariantChoice::Matched(variant);
         }
-        // A variant with NO discriminator can't be selected by tag; remember the
-        // first as a last resort so an untagged union still checks against
-        // something rather than reporting a spurious "matches no variant".
-        if discriminators == 0 && fallback.is_none() {
-            fallback = Some(variant);
+        if discriminators == 0 {
+            untagged.push(variant);
         }
     }
     if deferred {
         return VariantChoice::Deferred;
     }
-    match fallback {
-        Some(v) => VariantChoice::Matched(v),
-        None => VariantChoice::NoMatch,
+    let fits: Vec<&FieldDefinition> = untagged
+        .into_iter()
+        .filter(|v| {
+            v.properties
+                .as_ref()
+                .is_some_and(|props| value.keys().all(|k| props.contains_key(k)))
+        })
+        .collect();
+    let fits = if fits.len() > 1 {
+        let complete: Vec<&FieldDefinition> = fits
+            .iter()
+            .copied()
+            .filter(|v| {
+                v.properties.as_ref().is_some_and(|props| {
+                    props
+                        .iter()
+                        .all(|(k, d)| d.required != Some(true) || value.contains_key(k))
+                })
+            })
+            .collect();
+        if complete.is_empty() {
+            fits
+        } else {
+            complete
+        }
+    } else {
+        fits
+    };
+    match fits.as_slice() {
+        [] => VariantChoice::NoMatch,
+        [one] => VariantChoice::Matched(one),
+        many => {
+            let mut names: Vec<String> = many
+                .iter()
+                .map(|v| v.name.clone().unwrap_or_default())
+                .collect();
+            names.sort_unstable();
+            VariantChoice::Ambiguous(names)
+        }
     }
 }
 
@@ -2925,7 +3097,10 @@ mod event_config_tests {
         let result = run(&event_trait_schema("note.search", "event"));
         assert!(event_errors(&result).is_empty(), "{:?}", result.errors);
         assert!(
-            result.errors.iter().any(|e| e.code == ErrorCode::TraitEventRefUnresolved),
+            result
+                .errors
+                .iter()
+                .any(|e| e.code == ErrorCode::TraitEventRefUnresolved),
             "{:?}",
             result.errors
         );
@@ -3544,7 +3719,10 @@ mod recursive_type_literal_tests {
             &field,
             &SExpression::Array(vec![depth3]),
             "t.config.subMenu",
-            &EventScope { events: events.clone(), ..Default::default() },
+            &EventScope {
+                events: events.clone(),
+                ..Default::default()
+            },
             None,
         );
         assert!(
@@ -3573,7 +3751,10 @@ mod recursive_type_literal_tests {
             &field,
             &SExpression::Array(vec![depth3]),
             "t.config.subMenu",
-            &EventScope { events: events.clone(), ..Default::default() },
+            &EventScope {
+                events: events.clone(),
+                ..Default::default()
+            },
             None,
         );
         assert!(
@@ -3724,7 +3905,8 @@ mod effect_event_address_tests {
         );
         let schema: OrbitalSchema = serde_json::from_str(&json).expect("fixture parses");
         let mut ctx = ValidationContext::new();
-        ctx.service_registry = crate::embedded::parse_service_registry_data(REGISTRY).expect("registry parses");
+        ctx.service_registry =
+            crate::embedded::parse_service_registry_data(REGISTRY).expect("registry parses");
         validate_all_config_types(&schema, &mut ctx);
         ctx.result
     }
@@ -3733,7 +3915,12 @@ mod effect_event_address_tests {
         result
             .errors
             .iter()
-            .filter(|e| matches!(e.code, ErrorCode::TraitEventRefUnresolved | ErrorCode::TraitEventRefNotExternalInput))
+            .filter(|e| {
+                matches!(
+                    e.code,
+                    ErrorCode::TraitEventRefUnresolved | ErrorCode::TraitEventRefNotExternalInput
+                )
+            })
             .collect()
     }
 
@@ -3802,7 +3989,8 @@ mod top_level_event_address_tests {
         );
         let schema: OrbitalSchema = serde_json::from_str(&json).expect("fixture parses");
         let mut ctx = ValidationContext::new();
-        ctx.service_registry = crate::embedded::parse_service_registry_data(REGISTRY).expect("registry parses");
+        ctx.service_registry =
+            crate::embedded::parse_service_registry_data(REGISTRY).expect("registry parses");
         validate_all_config_types(&schema, &mut ctx);
         ctx.result
     }
@@ -3811,14 +3999,22 @@ mod top_level_event_address_tests {
         result
             .errors
             .iter()
-            .filter(|e| matches!(e.code, ErrorCode::TraitEventRefUnresolved | ErrorCode::TraitEventRefNotExternalInput))
+            .filter(|e| {
+                matches!(
+                    e.code,
+                    ErrorCode::TraitEventRefUnresolved | ErrorCode::TraitEventRefNotExternalInput
+                )
+            })
             .map(|e| e.code)
             .collect()
     }
 
     #[test]
     fn a_misspelled_top_level_event_address_is_not_an_external_input() {
-        assert_eq!(codes(&run("watch", "FeedWatch.ITEM_SEN")), vec![ErrorCode::TraitEventRefNotExternalInput]);
+        assert_eq!(
+            codes(&run("watch", "FeedWatch.ITEM_SEN")),
+            vec![ErrorCode::TraitEventRefNotExternalInput]
+        );
     }
 
     #[test]
@@ -3828,7 +4024,10 @@ mod top_level_event_address_tests {
 
     #[test]
     fn edge_a_bare_top_level_event_is_rejected_like_every_event_address() {
-        assert_eq!(codes(&run("watch", "ITEM_SEEN")), vec![ErrorCode::TraitEventRefUnresolved]);
+        assert_eq!(
+            codes(&run("watch", "ITEM_SEEN")),
+            vec![ErrorCode::TraitEventRefUnresolved]
+        );
     }
 
     #[test]
@@ -3839,5 +4038,209 @@ mod top_level_event_address_tests {
     #[test]
     fn control_a_param_not_typed_event_address_is_not_checked() {
         assert!(codes(&run("query", "NOT_AN_INPUT")).is_empty());
+    }
+}
+
+#[cfg(test)]
+mod union_variant_selection_tests {
+    use super::*;
+
+    fn def(json: serde_json::Value) -> FieldDefinition {
+        serde_json::from_value(json).expect("field definition")
+    }
+
+    /// `{ scope: "declared"! } | { event: event! } | { read: string! }` — one tagged, two untagged.
+    fn agent_tool() -> HashMap<String, FieldDefinition> {
+        let mut v = HashMap::new();
+        v.insert("Scope".to_string(), def(serde_json::json!({ "name": "Scope", "type": "object", "properties": {
+            "scope": { "name": "scope", "type": "string", "required": true, "values": ["declared"] } } })));
+        v.insert(
+            "Input".to_string(),
+            def(
+                serde_json::json!({ "name": "Input", "type": "object", "properties": {
+            "event": { "name": "event", "type": "string", "required": true } } }),
+            ),
+        );
+        v.insert(
+            "Read".to_string(),
+            def(
+                serde_json::json!({ "name": "Read", "type": "object", "properties": {
+            "read": { "name": "read", "type": "string", "required": true } } }),
+            ),
+        );
+        v
+    }
+
+    fn names(order: &[&str]) -> Vec<String> {
+        order.iter().map(|s| s.to_string()).collect()
+    }
+
+    fn value(pairs: &[(&str, &str)]) -> HashMap<String, SExpression> {
+        pairs
+            .iter()
+            .map(|(k, v)| (k.to_string(), SExpression::String(v.to_string())))
+            .collect()
+    }
+
+    fn chosen<'a>(c: VariantChoice<'a>) -> Option<&'a str> {
+        match c {
+            VariantChoice::Matched(d) => d.name.as_deref(),
+            _ => None,
+        }
+    }
+
+    #[test]
+    fn a_tagged_variant_is_still_selected_by_its_tag() {
+        let v = agent_tool();
+        assert_eq!(
+            chosen(select_union_variant(
+                &value(&[("scope", "declared")]),
+                &names(&["Input", "Read", "Scope"]),
+                &v
+            )),
+            Some("Scope")
+        );
+    }
+
+    #[test]
+    fn an_untagged_value_selects_the_one_variant_its_closed_shape_fits() {
+        let v = agent_tool();
+        let order = names(&["Scope", "Input", "Read"]);
+        assert_eq!(
+            chosen(select_union_variant(
+                &value(&[("read", "Product")]),
+                &order,
+                &v
+            )),
+            Some("Read")
+        );
+        assert_eq!(
+            chosen(select_union_variant(
+                &value(&[("event", "Shop.ADD")]),
+                &order,
+                &v
+            )),
+            Some("Input")
+        );
+    }
+
+    #[test]
+    fn source_order_cannot_change_the_untagged_choice() {
+        let v = agent_tool();
+        for order in [
+            names(&["Input", "Read", "Scope"]),
+            names(&["Read", "Input", "Scope"]),
+        ] {
+            assert_eq!(
+                chosen(select_union_variant(
+                    &value(&[("read", "Product")]),
+                    &order,
+                    &v
+                )),
+                Some("Read")
+            );
+        }
+    }
+
+    #[test]
+    fn a_value_merging_two_variants_fits_none() {
+        let v = agent_tool();
+        assert!(matches!(
+            select_union_variant(
+                &value(&[("event", "Shop.ADD"), ("read", "Product")]),
+                &names(&["Scope", "Input", "Read"]),
+                &v
+            ),
+            VariantChoice::NoMatch
+        ));
+    }
+
+    #[test]
+    fn two_untagged_variants_the_value_fits_equally_are_ambiguous() {
+        let mut v = HashMap::new();
+        v.insert(
+            "A".to_string(),
+            def(
+                serde_json::json!({ "name": "A", "type": "object", "properties": {
+            "x": { "name": "x", "type": "string" } } }),
+            ),
+        );
+        v.insert(
+            "B".to_string(),
+            def(
+                serde_json::json!({ "name": "B", "type": "object", "properties": {
+            "x": { "name": "x", "type": "string" }, "y": { "name": "y", "type": "string" } } }),
+            ),
+        );
+        assert!(matches!(
+            select_union_variant(&value(&[("x", "1")]), &names(&["A", "B"]), &v),
+            VariantChoice::Ambiguous(_)
+        ));
+    }
+
+    #[test]
+    fn control_required_members_break_a_key_subset_tie() {
+        let mut v = HashMap::new();
+        v.insert(
+            "A".to_string(),
+            def(
+                serde_json::json!({ "name": "A", "type": "object", "properties": {
+            "x": { "name": "x", "type": "string", "required": true } } }),
+            ),
+        );
+        v.insert("B".to_string(), def(serde_json::json!({ "name": "B", "type": "object", "properties": {
+            "x": { "name": "x", "type": "string" }, "y": { "name": "y", "type": "string", "required": true } } })));
+        assert_eq!(
+            chosen(select_union_variant(
+                &value(&[("x", "1")]),
+                &names(&["B", "A"]),
+                &v
+            )),
+            Some("A")
+        );
+    }
+
+    #[test]
+    fn control_a_late_bound_tag_still_defers() {
+        let v = agent_tool();
+        assert!(matches!(
+            select_union_variant(
+                &value(&[("scope", "@config.scope")]),
+                &names(&["Scope", "Input", "Read"]),
+                &v
+            ),
+            VariantChoice::Deferred
+        ));
+    }
+}
+
+#[cfg(test)]
+mod tuple_shape_tests {
+    use super::*;
+
+    fn nums(values: &[f64]) -> SExpression {
+        SExpression::Array(values.iter().map(|n| SExpression::Number(*n)).collect())
+    }
+
+    fn slots() -> serde_json::Value {
+        serde_json::json!({ "0": { "type": "number" }, "1": { "type": "number" }, "2": { "type": "number" } })
+    }
+
+    /// A tuple value has the tuple's arity and each slot's type — a struct member
+    /// (`Light.position : [number, number, number]`) and a knob typed `[number, number, number]`.
+    #[test]
+    fn a_tuple_value_is_checked_for_arity_and_slot_types() {
+        let member: FieldDefinition = serde_json::from_value(serde_json::json!({ "type": "tuple", "properties": slots() })).unwrap();
+        let check = |v: &SExpression| check_field_def_shape(&member, v, "p", &EventScope::default(), &HashMap::new(), false);
+        assert!(check(&nums(&[1.0, 2.0, 3.0])).errors.is_empty());
+        assert!(!check(&nums(&[1.0, 2.0])).errors.is_empty(), "wrong arity");
+        assert!(!check(&SExpression::Array(vec![SExpression::Number(1.0), SExpression::String("x".into()), SExpression::Number(3.0)])).errors.is_empty(), "wrong slot type");
+        assert!(!check(&SExpression::String("x".into())).errors.is_empty(), "not an array");
+
+        let knob: ConfigField = serde_json::from_value(serde_json::json!({ "type": "[number, number, number]", "properties": slots() })).unwrap();
+        let check_knob = |v: &SExpression| check_config_default_shape(&knob, v, "k", &EventScope::default(), None);
+        assert!(check_knob(&nums(&[4.0, 5.0, 6.0])).errors.is_empty());
+        assert!(!check_knob(&nums(&[4.0, 5.0])).errors.is_empty(), "knob: wrong arity");
+        assert!(!check_knob(&SExpression::Array(vec![SExpression::String("a".into()), SExpression::Number(5.0), SExpression::Number(6.0)])).errors.is_empty(), "knob: wrong slot type");
     }
 }

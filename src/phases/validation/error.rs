@@ -326,6 +326,11 @@ pub enum ErrorCode {
     /// `unclaimed-main-writer` (warning there; error here per the owner's Q3
     /// ruling).
     PageSecondContentBody,
+    /// A page whose content owner is ambiguous: two or more page-declared
+    /// `main` writers, none composing the others, no shell channel naming
+    /// one. Renders stacked alone, but any shell that designates one
+    /// `contentTrait` turns the rest into second bodies (G-ORB-128).
+    PageAmbiguousContentOwner,
 
     // =========================================================================
     // Slot Errors (ORB_SLOT_*)
@@ -1246,7 +1251,9 @@ impl ErrorCode {
             ErrorCode::EntityIdentityLocal => "ORB_E_IDENTITY_LOCAL",
             ErrorCode::EntityInstanceInvalid => "ORB_E_INSTANCE_INVALID",
             ErrorCode::EntityLocaleInstancesNotLocal => "ORB_E_LOCALE_INSTANCES_NOT_LOCAL",
-            ErrorCode::EntityLocaleInstancesUnknownLocale => "ORB_E_LOCALE_INSTANCES_UNKNOWN_LOCALE",
+            ErrorCode::EntityLocaleInstancesUnknownLocale => {
+                "ORB_E_LOCALE_INSTANCES_UNKNOWN_LOCALE"
+            }
             ErrorCode::EntityLocaleInstancesIncomplete => "ORB_E_LOCALE_INSTANCES_INCOMPLETE",
             ErrorCode::EntityInvalidRelation => "ORB_E_INVALID_RELATION",
             ErrorCode::EntityEmptyEnumValues => "ORB_E_EMPTY_ENUM_VALUES",
@@ -1321,6 +1328,7 @@ impl ErrorCode {
             ErrorCode::PageInvalidViewType => "ORB_P_INVALID_VIEW_TYPE",
             ErrorCode::PageUnreachable => "ORB_PAGE_UNREACHABLE",
             ErrorCode::PageSecondContentBody => "ORB_PAGE_SECOND_CONTENT_BODY",
+            ErrorCode::PageAmbiguousContentOwner => "ORB_PAGE_AMBIGUOUS_CONTENT_OWNER",
 
             // Slot
             ErrorCode::SlotMainNotCovered => "ORB_SLOT_MAIN_NOT_COVERED",
@@ -1680,7 +1688,8 @@ impl ErrorCode {
             | ErrorCode::PageInvalidTraitRef
             | ErrorCode::PageInvalidViewType
             | ErrorCode::PageUnreachable
-            | ErrorCode::PageSecondContentBody => "page",
+            | ErrorCode::PageSecondContentBody
+            | ErrorCode::PageAmbiguousContentOwner => "page",
 
             ErrorCode::SlotMainNotCovered
             | ErrorCode::SlotContention

@@ -230,6 +230,9 @@ pub(crate) struct SiblingImportInfo {
     /// (identity entries dropped). A `Vec` because two imports of one upstream
     /// orbital share this map's key yet remap independently.
     pub page_remaps: Vec<(String, HashMap<String, String>)>,
+    /// Every import of this (alias, upstream orbital), by local orbital name,
+    /// with its own trait subs — `local_name`/`trait_subs` hold only the last.
+    pub imports: Vec<(String, HashMap<String, (String, String)>)>,
 }
 
 /// The upstream→local page remaps of every OTHER import from `alias`,
@@ -617,8 +620,9 @@ pub(crate) fn resolve_orbital_reference(
             };
             let (final_name, final_id) = listen_source_targets
                 .values()
-                .find(|info| info.local_name == *orbital)
-                .and_then(|info| info.trait_subs.get(trait_name.as_str()))?;
+                .flat_map(|info| info.imports.iter())
+                .find(|(local, _)| local == orbital)
+                .and_then(|(_, subs)| subs.get(trait_name.as_str()))?;
             Some((
                 event.to_string(),
                 ListenSource::Orbital {
