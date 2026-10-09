@@ -195,6 +195,20 @@ pub fn validate_all_bindings(schema: &OrbitalSchema, ctx: &mut ValidationContext
                 // orbital + the current trait's own name (to catch self-ref).
                 let trait_result = validate_trait_binding_usage(trait_def, &path, known_traits);
                 ctx.merge(trait_result);
+                if let Some(entity) = trait_def
+                    .linked_entity
+                    .as_ref()
+                    .and_then(|e| ctx.entity_definitions.get(e))
+                {
+                    let embeds = super::trait_validator::validate_unbound_trait_field_embeds(
+                        trait_def, entity, &path,
+                    );
+                    let orbital_embeds = super::trait_validator::validate_orbital_field_embeds(
+                        trait_def, entity, &path,
+                    );
+                    ctx.merge(embeds);
+                    ctx.merge(orbital_embeds);
+                }
             }
         }
 
@@ -2619,7 +2633,7 @@ mod tests {
     #[test]
     fn test_payload_field_undeclared_missing_field() {
         let expr = SExpression::String("@payload.unknownField".to_string());
-        let fields = vec![PayloadField {
+        let fields = vec![PayloadField { values: None,
             name: "rawData".to_string(),
             field_type: "array".to_string(),
             required: Some(true),
@@ -2639,7 +2653,7 @@ mod tests {
     #[test]
     fn test_payload_field_declared() {
         let expr = SExpression::String("@payload.rawData".to_string());
-        let fields = vec![PayloadField {
+        let fields = vec![PayloadField { values: None,
             name: "rawData".to_string(),
             field_type: "array".to_string(),
             required: Some(true),
@@ -2658,7 +2672,7 @@ mod tests {
         // `?payload.date` lowers to `@payload.payload.date` — the suggestion
         // must name the sigil mistake, not "add a field named payload".
         let expr = SExpression::String("@payload.payload.date".to_string());
-        let fields = vec![PayloadField {
+        let fields = vec![PayloadField { values: None,
             name: "date".to_string(),
             field_type: "string".to_string(),
             required: Some(true),
@@ -2690,12 +2704,12 @@ mod tests {
         // A schema that DOES declare a field named `payload` is not the hybrid
         // mistake — deeper misses under it keep the generic suggestion.
         let expr = SExpression::String("@payload.payload.missing".to_string());
-        let fields = vec![PayloadField {
+        let fields = vec![PayloadField { values: None,
             name: "payload".to_string(),
             field_type: "object".to_string(),
             required: Some(true),
             description: None,
-            properties: Some(vec![PayloadField {
+            properties: Some(vec![PayloadField { values: None,
                 name: "present".to_string(),
                 field_type: "string".to_string(),
                 required: Some(true),

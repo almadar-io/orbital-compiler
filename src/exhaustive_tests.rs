@@ -1060,6 +1060,7 @@ mod tests {
 
     fn create_test_module(traits: Vec<OirTrait>) -> OirModule {
         OirModule {
+            site: None,
             locales: vec![],
             name: "Test".to_string(),
             version: "1.0.0".to_string(),

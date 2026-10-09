@@ -352,7 +352,7 @@ pub(crate) fn payload_field_of(f: &FieldDefinition) -> PayloadField {
         _ => tag,
     };
 
-    PayloadField {
+    PayloadField { values: None,
         name: f.name.clone().unwrap_or_default(),
         field_type: tag,
         required: f.required,

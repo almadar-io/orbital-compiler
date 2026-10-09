@@ -1,6 +1,6 @@
 // Auto-generated from @almadar/std canonical-operators.json by @almadar-io/almadar-pattern-sync.
 // DO NOT EDIT MANUALLY.
-// Total operators targeting Rust: 243
+// Total operators targeting Rust: 246
 
 /// Operator metadata derived from the canonical @almadar/std registry.
 #[derive(Debug, Clone)]
@@ -591,6 +591,16 @@ pub static CANONICAL_OPERATORS: &[OperatorMeta] = &[
         description: "Pair elements from two arrays",
         has_side_effects: false,
         return_semantics: None,
+    },
+    OperatorMeta {
+        name: "behavior/apply",
+        category: "std-behavior-value",
+        min_arity: 2,
+        max_arity: Some(2),
+        return_type: "any",
+        description: "Record overrides on a behavior value and return the new value of the same kind. A trait value takes the §8 trait-reference surface (config, events and fields merge key-wise, the later value winning; listens, emitsScope and linkedEntity replace); an orbital value takes the §8b import body (maps merge key-wise, traits per trait, extend and retype by field name, the rest replaces). Nothing is resolved until the value is bound or evaluated.",
+        has_side_effects: false,
+        return_semantics: Some("identity-of-arg<0>"),
     },
     OperatorMeta {
         name: "behavior/compose",
@@ -1543,6 +1553,16 @@ pub static CANONICAL_OPERATORS: &[OperatorMeta] = &[
         return_semantics: None,
     },
     OperatorMeta {
+        name: "quasiquote",
+        category: "control",
+        min_arity: 1,
+        max_arity: None,
+        return_type: "sexpr",
+        description: "A quoted template with live holes: the template is held as data like `quote`, and each `(unquote e)` inside it is replaced by the value of `e` (a program built from values the trait holds, for `program/eval`)",
+        has_side_effects: false,
+        return_semantics: None,
+    },
+    OperatorMeta {
         name: "quote",
         category: "control",
         min_arity: 1,
@@ -2073,6 +2093,16 @@ pub static CANONICAL_OPERATORS: &[OperatorMeta] = &[
         return_semantics: None,
     },
     OperatorMeta {
+        name: "unquote",
+        category: "control",
+        min_arity: 1,
+        max_arity: Some(1),
+        return_type: "any",
+        description: "A live hole inside `(quasiquote …)`: its expression is evaluated and spliced into the template. Legal only inside a quasiquote",
+        has_side_effects: false,
+        return_semantics: None,
+    },
+    OperatorMeta {
         name: "validate/array",
         category: "std-validate",
         min_arity: 1,
@@ -2479,7 +2509,7 @@ mod tests {
 
     #[test]
     fn test_canonical_operators_count() {
-        assert_eq!(CANONICAL_OPERATORS.len(), 243);
+        assert_eq!(CANONICAL_OPERATORS.len(), 246);
     }
 
     #[test]

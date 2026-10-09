@@ -121,6 +121,7 @@ fn resolved(path: &Path) -> OrbitalSchema {
 fn without_ids(value: serde_json::Value) -> serde_json::Value {
     fn is_identity_key(k: &str) -> bool {
         k == "id"
+            || k == "sourcePage"
             || k == "ledger"
             || k == "schemaVersion"
             || k.ends_with("Id")

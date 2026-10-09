@@ -204,7 +204,7 @@ mod tests {
     }
 
     fn payload(field_type: &str, properties: Option<Vec<PayloadField>>) -> PayloadField {
-        PayloadField {
+        PayloadField { values: None,
             name: "value".to_string(),
             field_type: field_type.to_string(),
             required: None,

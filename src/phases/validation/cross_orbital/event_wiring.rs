@@ -722,7 +722,10 @@ pub(crate) fn collect_failure_events(
             return;
         };
         if let Some(SExpression::String(op)) = items.first() {
-            if op == "fetch" || op == "persist" || op == "call-service" {
+            if matches!(
+                op.as_str(),
+                "fetch" | "persist" | "call-service" | "program/eval" | "program/compose"
+            ) {
                 for item in items {
                     if let SExpression::Object(map) = item {
                         if let Some(SExpression::Object(emit_map)) = map.get("emit") {
@@ -931,6 +934,7 @@ mod tests {
 
     fn create_minimal_schema() -> OrbitalSchema {
         OrbitalSchema {
+            site: None,
             public_dir: None,
             locales: None,
             lazy_pages: None,

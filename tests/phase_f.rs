@@ -25,7 +25,7 @@ fn s(s: &str) -> SExpression {
 }
 
 fn payload_field(name: &str, ty: &str, required: bool) -> PayloadField {
-    PayloadField {
+    PayloadField { values: None,
         name: name.to_string(),
         field_type: ty.to_string(),
         required: if required { Some(true) } else { None },
@@ -170,6 +170,7 @@ fn schema_for_f1(strict_target_event: &str) -> OrbitalSchema {
     };
 
     OrbitalSchema {
+        site: None,
         public_dir: None,
         locales: None,
         lazy_pages: None,
@@ -344,6 +345,7 @@ fn schema_with_two_emitters_and_listener_source(
         config: None,
     };
     OrbitalSchema {
+        site: None,
         public_dir: None,
         locales: None,
         lazy_pages: None,
@@ -720,6 +722,7 @@ fn schema_with_render_action_payload(
         config: None,
     };
     OrbitalSchema {
+        site: None,
         public_dir: None,
         locales: None,
         lazy_pages: None,
@@ -853,6 +856,7 @@ fn schema_with_default(field: FieldDefinition) -> OrbitalSchema {
         id: None,
     };
     OrbitalSchema {
+        site: None,
         public_dir: None,
         locales: None,
         lazy_pages: None,

@@ -59,6 +59,178 @@ pub fn validate_all_pages(schema: &OrbitalSchema, ctx: &mut ValidationContext) {
 
     ctx.merge(validate_page_path_uniqueness(schema));
     ctx.merge(validate_page_reachability(schema));
+    ctx.merge(validate_page_modifiers(schema));
+}
+
+fn inline_pages_of(schema: &OrbitalSchema) -> Vec<&PageDefinition> {
+    schema
+        .orbitals
+        .iter()
+        .flat_map(|o| o.pages.iter().flatten())
+        .filter_map(|p| p.as_inline())
+        .collect()
+}
+
+/// No page may sit on the host's own sign-in route, and the app's `signIn` route
+/// is either that route or a page of the WHOLE program (its eager pages or its
+/// recorded `uses lazy` pages) that anonymous viewers can open.
+/// Run on the top-level program after its lazy children are recorded — a lazy
+/// child alone cannot see the route.
+pub fn validate_sign_in_route(schema: &OrbitalSchema) -> ValidationResult {
+    use orbital_core::schema::{is_host_sign_in_route, PageAccess, HOST_SIGN_IN_ROUTE};
+    let mut result = ValidationResult::new();
+    let reserved = inline_pages_of(schema)
+        .into_iter()
+        .map(|p| p.path.clone())
+        .chain(schema.lazy_pages.iter().flatten().map(|p| p.path.clone()))
+        .filter(|path| is_host_sign_in_route(path));
+    for path in reserved {
+        result.add_error(
+            ValidationError::error(
+                ErrorCode::PageHostReservedRoute,
+                path.clone(),
+                format!("'{path}' is the host's own sign-in route; no page may be declared on it"),
+            )
+            .with_suggestion(format!(
+                "move this page to another route; name `signIn: \"{HOST_SIGN_IN_ROUTE}\"` to send viewers to the host's sign-in"
+            )),
+        );
+    }
+    let Some(sign_in) = schema.site.as_ref().and_then(|s| s.sign_in.as_ref()) else {
+        return result;
+    };
+    if is_host_sign_in_route(sign_in) {
+        return result;
+    }
+    let target = normalize_page_path(sign_in);
+    let page = inline_pages_of(schema)
+        .into_iter()
+        .find(|p| normalize_page_path(&p.path) == target);
+    let lazy = schema
+        .lazy_pages
+        .iter()
+        .flatten()
+        .any(|p| normalize_page_path(&p.path) == target);
+    let problem = match page {
+        Some(p) if p.access == Some(PageAccess::Authenticated) => Some(format!(
+            "the `signIn` route '{sign_in}' is itself `access: authenticated`"
+        )),
+        Some(_) => None,
+        None if lazy => None,
+        None => Some(format!(
+            "the `signIn` route '{sign_in}' is no page of this app"
+        )),
+    };
+    if let Some(message) = problem {
+        result.add_error(
+            ValidationError::error(
+                ErrorCode::PageSignInUnknownRoute,
+                "site.signIn".to_string(),
+                message,
+            )
+            .with_suggestion("point `signIn:` at a page anonymous viewers can open"),
+        );
+    }
+    result
+}
+
+/// Page `access` / `indexing` declarations: an indexable page is public,
+/// titled and described (the deploying app's `origin` is checked when its
+/// route manifest is built — a reusable page atom has none of its own); an
+/// authenticated page has a `signIn` route to send a non-admitted viewer to.
+pub fn validate_page_modifiers(schema: &OrbitalSchema) -> ValidationResult {
+    use orbital_core::schema::{PageAccess, PageIndexing};
+    let mut result = ValidationResult::new();
+    let site = schema.site.clone().unwrap_or_default();
+    let pages: Vec<(String, &PageDefinition)> = schema
+        .orbitals
+        .iter()
+        .enumerate()
+        .flat_map(|(i, o)| {
+            o.pages.iter().flatten().enumerate().filter_map(move |(j, p)| {
+                p.as_inline().map(|p| (format!("orbitals[{i}].pages[{j}]"), p))
+            })
+        })
+        .collect();
+    for (location, page) in &pages {
+        if page.indexing == Some(PageIndexing::Index) {
+            let mut missing = Vec::new();
+            if page.access != Some(PageAccess::Public) {
+                missing.push("`access: public`");
+            }
+            if page.title.is_none() {
+                missing.push("`title:`");
+            }
+            if page.description.is_none() {
+                missing.push("`description:`");
+            }
+            if !missing.is_empty() {
+                result.add_error(
+                    ValidationError::error(
+                        ErrorCode::PageIndexRequiresPublic,
+                        location.clone(),
+                        format!(
+                            "page '{}' ({}) declares `indexing: index` but lacks {}",
+                            page.name,
+                            page.path,
+                            missing.join(", ")
+                        ),
+                    )
+                    .with_suggestion(
+                        "an indexed page is public, titled and described; otherwise declare `indexing: noindex`",
+                    ),
+                );
+            }
+            if page.path.split('/').any(|seg| seg.starts_with(':')) {
+                result.add_error(
+                    ValidationError::error(
+                        ErrorCode::PageIndexParamRoute,
+                        location.clone(),
+                        format!(
+                            "page '{}' ({}) is a parameter route; it cannot be `indexing: index` because its concrete URLs are not declared",
+                            page.name, page.path
+                        ),
+                    )
+                    .with_suggestion("declare `indexing: noindex` on parameter routes"),
+                );
+            }
+        }
+        if page.access == Some(PageAccess::Authenticated) && site.sign_in.is_none() {
+            result.add_error(
+                ValidationError::error(
+                    ErrorCode::PageAuthNoSignIn,
+                    location.clone(),
+                    format!(
+                        "page '{}' ({}) is `access: authenticated` but the app declares no `signIn:` route",
+                        page.name, page.path
+                    ),
+                )
+                .with_suggestion("add `signIn: \"/<route>\"` to the app bracket — the page a non-admitted viewer is sent to"),
+            );
+        }
+    }
+
+    let locales = schema.locales.clone().unwrap_or_default();
+    for (group, locale, paths) in orbital_core::messages::duplicate_translation_locales(
+        pages
+            .iter()
+            .map(|(_, p)| (p.path.as_str(), p.translation_of.as_deref())),
+        &locales,
+    ) {
+        result.add_error(
+            ValidationError::error(
+                ErrorCode::PageTranslationDuplicateLocale,
+                paths[1].clone(),
+                format!(
+                    "translation group '{group}' holds {} pages in locale '{locale}' ({}); each locale may hold one",
+                    paths.len(),
+                    paths.join(", ")
+                ),
+            )
+            .with_suggestion("give each page its own locale prefix, or a different `translationOf:`"),
+        );
+    }
+    result
 }
 
 /// Structural reachability signals collected once across the WHOLE schema —
@@ -170,6 +342,11 @@ pub(crate) fn reachability_targets(schema: &OrbitalSchema) -> Vec<String> {
 fn collect_reachability_signals(schema: &OrbitalSchema) -> ReachabilitySignals {
     let mut hrefs = HashSet::new();
     let mut navigate_targets = HashSet::new();
+    // The page access host navigates a non-admitted viewer to the app's
+    // declared `signIn` route — a declared navigate target like any effect's.
+    if let Some(sign_in) = schema.site.as_ref().and_then(|s| s.sign_in.as_ref()) {
+        navigate_targets.insert(sign_in.clone());
+    }
 
     for orbital in &schema.orbitals {
         for trait_ref in &orbital.traits {
@@ -621,6 +798,12 @@ mod tests {
 
     fn create_valid_page() -> PageDefinition {
         PageDefinition {
+            translation_of: None,
+            source_page: None,
+            access: None,
+            indexing: None,
+            title: None,
+            description: None,
             name: "TaskList".to_string(),
             path: "/tasks".to_string(),
             traits: Some(vec![TraitReference::Reference {
@@ -1109,6 +1292,26 @@ mod tests {
             ])),
             &["/blog/why"],
         );
+        assert!(reachability_messages(&schema).is_empty());
+    }
+
+    #[test]
+    fn the_declared_sign_in_route_is_reachable_through_the_access_host() {
+        let pages = serde_json::json!([
+            { "name": "HomePage", "path": "/", "traits": [ { "ref": "AppLayout" } ] },
+            { "name": "SignInPage", "path": "/welcome", "traits": [ { "ref": "AppLayout" } ] }
+        ]);
+        let mut schema =
+            schema_for_reachability(layout_trait_with_nav_href_array(&["/"]), pages.clone());
+        assert_eq!(
+            reachability_messages(&schema).len(),
+            1,
+            "control: undeclared it is unreachable"
+        );
+        schema.site = Some(orbital_core::schema::SiteMeta {
+            sign_in: Some("/welcome".into()),
+            ..Default::default()
+        });
         assert!(reachability_messages(&schema).is_empty());
     }
 

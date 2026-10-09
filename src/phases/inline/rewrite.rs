@@ -31,7 +31,7 @@ pub(crate) fn fold_event_typed_members(
     items: Option<&orbital_core::schema::FieldDefinition>,
     event_subs: &HashMap<String, String>,
 ) -> bool {
-    map_event_typed_members(value, items, &mut |current| {
+    map_event_typed_members(value, items, None, &mut |current| {
         event_subs.get(current).cloned()
     })
 }
@@ -42,26 +42,29 @@ pub(crate) fn fold_event_typed_members(
 pub(crate) fn map_event_typed_members(
     value: &mut SExpression,
     items: Option<&orbital_core::schema::FieldDefinition>,
+    properties: Option<&HashMap<String, FieldDefinition>>,
     f: &mut dyn FnMut(&str) -> Option<String>,
 ) -> bool {
-    let Some(schema) = items else {
-        return false;
-    };
+    let properties = items
+        .and_then(|schema| schema.properties.as_ref())
+        .or(properties);
     match value {
         SExpression::Array(entries) => {
             let mut touched = false;
             for entry in entries.iter_mut() {
-                touched |= map_event_typed_members(entry, Some(schema), f);
+                touched |= map_event_typed_members(entry, items, properties, f);
             }
             touched
         }
         SExpression::Object(map) => {
-            let Some(properties) = schema.properties.as_ref() else {
+            let Some(properties) = properties else {
                 return false;
             };
             // A union's `properties` are its VARIANTS; each element carries one
             // variant's members, so walk every variant's members, each key once.
-            if schema.field_type == orbital_core::schema::FieldType::Union {
+            if items
+                .is_some_and(|schema| schema.field_type == orbital_core::schema::FieldType::Union)
+            {
                 let mut seen: std::collections::HashSet<String> = std::collections::HashSet::new();
                 let mut touched = false;
                 for variant in properties.values() {
@@ -98,9 +101,14 @@ pub(crate) fn map_event_typed_members(
                     continue;
                 }
                 // A descriptor can hold descriptors.
-                if decl.items.is_some() {
+                if decl.items.is_some() || decl.properties.is_some() {
                     if let Some(nested) = map.get_mut(member.as_str()) {
-                        touched |= map_event_typed_members(nested, decl.items.as_deref(), f);
+                        touched |= map_event_typed_members(
+                            nested,
+                            decl.items.as_deref(),
+                            decl.properties.as_ref(),
+                            f,
+                        );
                     }
                 }
             }
@@ -163,7 +171,7 @@ pub(crate) fn map_config_fields_event_addresses(
     map_fields_event_values(cfg, &mut on_value);
 }
 
-fn map_fields_event_values(
+pub(crate) fn map_fields_event_values(
     cfg: &mut HashMap<String, orbital_core::schema::ConfigField>,
     on_value: &mut dyn FnMut(&str) -> Option<String>,
 ) {
@@ -177,10 +185,16 @@ fn map_fields_event_values(
                 }
             }
         }
-        if field.items.is_some() {
+        if field.items.is_some() || field.properties.is_some() {
             let items = field.items.clone();
+            let properties = field.properties.clone();
             if let Some(default) = field.default.as_mut() {
-                map_event_typed_members(default, items.as_deref(), &mut *on_value);
+                map_event_typed_members(
+                    default,
+                    items.as_deref(),
+                    properties.as_ref(),
+                    &mut *on_value,
+                );
             }
         }
     }
@@ -4037,7 +4051,7 @@ mod event_typed_union_fold_tests {
             entry("read", "Task"),
         ]);
         let mut calls = 0;
-        let touched = map_event_typed_members(&mut value, Some(&items), &mut |cur| {
+        let touched = map_event_typed_members(&mut value, Some(&items), None, &mut |cur| {
             calls += 1;
             Some(format!("ImportEN.{cur}"))
         });
@@ -4053,7 +4067,7 @@ mod event_typed_union_fold_tests {
         let items = def(serde_json::json!({ "type": "object", "properties": {
             "event": { "name": "event", "type": "event" } } }));
         let mut value = SExpression::Array(vec![entry("event", "SAVE")]);
-        map_event_typed_members(&mut value, Some(&items), &mut |cur| {
+        map_event_typed_members(&mut value, Some(&items), None, &mut |cur| {
             Some(format!("{cur}_X"))
         });
         assert_eq!(get(&value, 0, "event"), "SAVE_X");

@@ -15,6 +15,7 @@ mod fetch;
 mod navigate;
 mod os_watch;
 mod persist;
+mod program_eval;
 mod r#ref;
 mod set;
 mod utils;
@@ -33,6 +34,7 @@ pub(crate) use fetch::{
 pub(crate) use navigate::{validate_navigate, validate_send_server};
 pub(crate) use os_watch::validate_os_watch;
 pub(crate) use persist::{persist_entity_index, validate_persist};
+pub(crate) use program_eval::validate_program_eval;
 pub(crate) use r#ref::validate_ref;
 pub(crate) use set::{
     entity_field_type_map, expr_return_incompatible, validate_set, validate_set_enum_value,

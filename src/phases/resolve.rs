@@ -94,6 +94,7 @@ fn lower_raw_callback(op: &str, args: &[SExpression], resolved: &mut [OirExpr]) 
 
 pub fn resolve_sexpr_standalone(sexpr: &SExpression) -> Result<OirExpr, ResolveError> {
     let empty = OrbitalSchema {
+        site: None,
         public_dir: None,
         locales: None,
         lazy_pages: None,
@@ -112,7 +113,8 @@ pub fn resolve_sexpr_standalone(sexpr: &SExpression) -> Result<OirExpr, ResolveE
 
 /// Substrate operators — async ops that reach outside the app via
 /// `getSubstrateService()` (`llm/*`, `workspace/*`, `session/*`, `memory/*`,
-/// `trace/*`, `behavior/*`, `compose/*`, `integration/*`, `validate/validate`).
+/// `trace/*`, `integration/*`, `behavior/catalog|describe|source`,
+/// `program/read|print|eval`).
 /// Valid only as effects (statement position) with an `emit: { success,
 /// failure }` options object; `resolve_sexpr_call` rejects them in expression
 /// (value) position. The effect-resolution arm routes them to
@@ -216,6 +218,7 @@ impl<'a> Resolver<'a> {
             .unwrap_or_else(|| "1.0.0".to_string());
         let mut module = OirModule::new(&self.schema.name, version);
         module.locales = self.schema.locales.clone().unwrap_or_default();
+        module.site = self.schema.site.clone();
         module.description = self.schema.description.clone();
 
         // Carry `expects` names into the IR so OIR-level existence checks can
@@ -1355,6 +1358,12 @@ impl<'a> Resolver<'a> {
         let mut oir_page = OirPage::new(&page.name, &page.path);
         oir_page.id = page.id.clone();
         oir_page.label = page.label.clone();
+        oir_page.access = page.access;
+        oir_page.indexing = page.indexing;
+        oir_page.source_page = page.source_page.clone();
+        oir_page.translation_of = page.translation_of.clone();
+        oir_page.title = page.title.clone();
+        oir_page.description = page.description.clone();
 
         // Resolve sections if present
         if let Some(sections) = &page.sections {
@@ -3356,6 +3365,7 @@ mod tests {
     /// falls back to the containing-struct inference (the pre-Gap-A path).
     fn empty_schema() -> OrbitalSchema {
         OrbitalSchema {
+            site: None,
             public_dir: None,
             locales: None,
             lazy_pages: None,
@@ -3377,7 +3387,7 @@ mod tests {
     /// keys that the value a control actually sends (`"hello"`) does not satisfy.
     #[test]
     fn union_payload_field_resolves_to_a_union_not_a_struct() {
-        let variant = |name: &str, ty: &str| orbital_core::schema::PayloadField {
+        let variant = |name: &str, ty: &str| orbital_core::schema::PayloadField { values: None,
             name: name.to_string(),
             field_type: ty.to_string(),
             required: None,
@@ -3387,7 +3397,7 @@ mod tests {
             entity: None,
             projected_from: None,
         };
-        let field = orbital_core::schema::PayloadField {
+        let field = orbital_core::schema::PayloadField { values: None,
             name: "value".to_string(),
             field_type: "union".to_string(),
             required: Some(true),
@@ -3461,12 +3471,12 @@ mod tests {
     /// STRUCT and must stay one — the union arm keys strictly off `"union"`.
     #[test]
     fn object_payload_field_with_properties_still_resolves_to_a_struct() {
-        let field = orbital_core::schema::PayloadField {
+        let field = orbital_core::schema::PayloadField { values: None,
             name: "change".to_string(),
             field_type: "object".to_string(),
             required: Some(true),
             description: None,
-            properties: Some(vec![orbital_core::schema::PayloadField {
+            properties: Some(vec![orbital_core::schema::PayloadField { values: None,
                 name: "fieldId".to_string(),
                 field_type: "string".to_string(),
                 required: Some(true),
@@ -3508,12 +3518,12 @@ mod tests {
     /// `NoteTagNotesOverlay`).
     #[test]
     fn entity_marked_payload_field_resolves_to_reference_when_entity_is_declared() {
-        let field = orbital_core::schema::PayloadField {
+        let field = orbital_core::schema::PayloadField { values: None,
             name: "data".to_string(),
             field_type: "[object]".to_string(),
             required: None,
             description: None,
-            properties: Some(vec![orbital_core::schema::PayloadField {
+            properties: Some(vec![orbital_core::schema::PayloadField { values: None,
                 name: "id".to_string(),
                 field_type: "string".to_string(),
                 required: Some(true),
@@ -3556,12 +3566,12 @@ mod tests {
     /// cannot import.
     #[test]
     fn entity_marked_payload_field_falls_back_to_struct_when_entity_is_not_declared() {
-        let field = orbital_core::schema::PayloadField {
+        let field = orbital_core::schema::PayloadField { values: None,
             name: "data".to_string(),
             field_type: "[object]".to_string(),
             required: None,
             description: None,
-            properties: Some(vec![orbital_core::schema::PayloadField {
+            properties: Some(vec![orbital_core::schema::PayloadField { values: None,
                 name: "id".to_string(),
                 field_type: "string".to_string(),
                 required: Some(true),
@@ -3606,7 +3616,7 @@ mod tests {
     /// registers `MenuItem`'s definition in the named-types registry.
     #[test]
     fn recursive_struct_payload_field_resolves_to_type_ref_and_registers() {
-        let sub_menu_backref = orbital_core::schema::PayloadField {
+        let sub_menu_backref = orbital_core::schema::PayloadField { values: None,
             name: "subMenu".to_string(),
             field_type: "[MenuItem]".to_string(),
             required: None,
@@ -3616,13 +3626,13 @@ mod tests {
             entity: None,
             projected_from: None,
         };
-        let row = orbital_core::schema::PayloadField {
+        let row = orbital_core::schema::PayloadField { values: None,
             name: "row".to_string(),
             field_type: "object".to_string(),
             required: Some(true),
             description: None,
             properties: Some(vec![
-                orbital_core::schema::PayloadField {
+                orbital_core::schema::PayloadField { values: None,
                     name: "label".to_string(),
                     field_type: "string".to_string(),
                     required: Some(true),
@@ -3698,6 +3708,7 @@ mod tests {
         }))
         .expect("field fixture must deserialize");
         let schema = OrbitalSchema {
+            site: None,
             public_dir: None,
             locales: None,
             lazy_pages: None,
@@ -3848,6 +3859,7 @@ mod tests {
         }))
         .expect("field fixture must deserialize");
         let schema = OrbitalSchema {
+            site: None,
             public_dir: None,
             locales: None,
             lazy_pages: None,
@@ -4203,6 +4215,7 @@ mod tests {
     #[test]
     fn test_resolve_minimal_schema() {
         let schema = OrbitalSchema {
+            site: None,
             public_dir: None,
             locales: None,
             lazy_pages: None,
@@ -4242,6 +4255,7 @@ mod tests {
     fn empty_resolver() -> Resolver<'static> {
         static SCHEMA: std::sync::OnceLock<OrbitalSchema> = std::sync::OnceLock::new();
         let schema = SCHEMA.get_or_init(|| OrbitalSchema {
+            site: None,
             public_dir: None,
             locales: None,
             lazy_pages: None,

@@ -625,6 +625,12 @@ mod tests {
             auxiliary_entities,
             traits,
             pages: Some(vec![PageRef::Inline(PageDefinition {
+                translation_of: None,
+                source_page: None,
+                access: None,
+                indexing: None,
+                title: None,
+                description: None,
                 id: None,
                 name: "Home".to_string(),
                 path: "/".to_string(),
@@ -649,6 +655,7 @@ mod tests {
 
     fn schema_with(orbitals: Vec<Orbital>) -> OrbitalSchema {
         OrbitalSchema {
+            site: None,
             public_dir: None,
             locales: None,
             lazy_pages: None,

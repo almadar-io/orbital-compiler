@@ -117,39 +117,34 @@ where
     // Generate code from OIR
     let result = generate_from_oir(&oir, output_dir, shell, backend, options)?;
 
-    // Every route the app serves, with its locale — the prerender walks it.
-    let routes: Vec<serde_json::Value> = oir
-        .pages
-        .iter()
-        .map(|page| {
-            serde_json::json!({
-                "path": page.path,
-                "page": page.name,
-                "locale": oir.locale_of_path(&page.path),
-            })
-        })
-        .collect();
-    std::fs::write(
-        output_dir.join("routes.json"),
-        serde_json::to_string_pretty(&routes).map_err(std::io::Error::other)?,
-    )?;
-
     // A program with `locales` ships one merged catalog per locale, where
     // the generated App imports it.
-    if !oir.locales.is_empty() {
+    let catalogs = if oir.locales.is_empty() {
+        std::collections::BTreeMap::new()
+    } else {
         let (resolved, lazy) = crate::phases::lazy::resolve_program_with_path(
             parse_file(schema_path).map_err(crate::phases::CompilerError::from)?,
             &options.compiler,
             Some(source_path),
         )?;
         let program_dir = source_path.parent().unwrap_or(Path::new("."));
+        let catalogs = crate::phases::messages::program_catalogs(&resolved, &lazy, program_dir);
         let locales_dir = output_dir.join("locales");
         std::fs::create_dir_all(&locales_dir)?;
-        for (locale, messages) in crate::phases::messages::program_catalogs(&resolved, &lazy, program_dir) {
-            let json = serde_json::to_string_pretty(&messages).map_err(std::io::Error::other)?;
+        for (locale, messages) in &catalogs {
+            let json = serde_json::to_string_pretty(messages).map_err(std::io::Error::other)?;
             std::fs::write(locales_dir.join(format!("{locale}.json")), json)?;
         }
-    }
+        catalogs
+    };
+
+    // Every route the app serves with its resolved page modifiers — the one
+    // manifest the route documents, sitemap and prerender read.
+    let manifest = route_manifest(&oir, &catalogs).map_err(std::io::Error::other)?;
+    std::fs::write(
+        output_dir.join("routes.json"),
+        serde_json::to_string_pretty(&manifest).map_err(std::io::Error::other)?,
+    )?;
 
     // Step 6: Copy source schema to output directory for reference
     let dest_schema = output_dir.join("schema.orb");
@@ -455,6 +450,164 @@ impl Default for BackendRegistry {
     fn default() -> Self {
         Self::new()
     }
+}
+
+/// `routes.json`: the site modifiers and, per route, its locale, text
+/// direction, access/indexing and its title/description resolved for that
+/// route's locale (a literal as written, `i18n/t` from the merged catalog).
+/// Absent modifiers stay absent. An `i18n/t` key missing from the route's
+/// catalog is an error — validation guarantees every key, so this never
+/// guesses.
+pub fn route_manifest(
+    oir: &orbital_core::ir::OirModule,
+    catalogs: &std::collections::BTreeMap<String, std::collections::BTreeMap<String, String>>,
+) -> Result<serde_json::Value, String> {
+    use orbital_core::schema::{PageAccess, PageIndexing, PageMessage, PageMeta};
+    let resolve = |meta: &PageMeta, locale: Option<&str>, path: &str| -> Result<String, String> {
+        match meta {
+            PageMeta::Literal(s) => Ok(s.clone()),
+            PageMeta::Message(PageMessage(_, key)) => locale
+                .and_then(|l| catalogs.get(l))
+                .and_then(|c| c.get(key))
+                .cloned()
+                .ok_or_else(|| format!("route {path}: no {} message for `{key}`", locale.unwrap_or("default-locale"))),
+        }
+    };
+    if let Some(page) = oir
+        .pages
+        .iter()
+        .find(|p| orbital_core::schema::is_host_sign_in_route(&p.path))
+    {
+        return Err(format!(
+            "ORB_P_HOST_RESERVED_ROUTE: page {} is declared on route {}, the host's own sign-in route",
+            page.name, page.path
+        ));
+    }
+    if let Some((group, locale, paths)) = orbital_core::messages::duplicate_translation_locales(
+        oir.pages
+            .iter()
+            .map(|p| (p.path.as_str(), p.translation_of.as_deref())),
+        &oir.locales,
+    )
+    .into_iter()
+    .next()
+    {
+        return Err(format!(
+            "ORB_P_TRANSLATION_DUPLICATE_LOCALE: translation group '{group}' holds {} pages in locale '{locale}' ({})",
+            paths.len(),
+            paths.join(", ")
+        ));
+    }
+    let mut routes = Vec::new();
+    for page in &oir.pages {
+        let locale = oir.locale_of_path(&page.path);
+        let mut route = serde_json::json!({
+            "path": page.path,
+            "page": page.name,
+            "locale": locale,
+        });
+        let obj = route.as_object_mut().expect("route is an object");
+        if let Some(l) = locale {
+            obj.insert("dir".into(), orbital_core::messages::locale_direction(l).into());
+        }
+        if let Some(access) = page.access {
+            obj.insert(
+                "access".into(),
+                match access {
+                    PageAccess::Public => "public",
+                    PageAccess::Authenticated => "authenticated",
+                }
+                .into(),
+            );
+        }
+        if let Some(indexing) = page.indexing {
+            obj.insert(
+                "indexing".into(),
+                match indexing {
+                    PageIndexing::Index => "index",
+                    PageIndexing::Noindex => "noindex",
+                }
+                .into(),
+            );
+        }
+        if let Some(title) = &page.title {
+            obj.insert("title".into(), resolve(title, locale, &page.path)?.into());
+        }
+        if let Some(description) = &page.description {
+            obj.insert("description".into(), resolve(description, locale, &page.path)?.into());
+        }
+        routes.push(route);
+    }
+    let origin = oir.site.as_ref().and_then(|s| s.origin.as_ref());
+    if origin.is_none() {
+        if let Some(page) = oir
+            .pages
+            .iter()
+            .find(|p| p.indexing == Some(PageIndexing::Index))
+        {
+            return Err(format!(
+                "ORB_P_INDEX_NO_ORIGIN: route {} is `indexing: index` but the app declares no `origin:` — its canonical URL and sitemap entry need one",
+                page.path
+            ));
+        }
+    }
+    for (page, route) in oir.pages.iter().zip(routes.iter_mut()) {
+        if let Some(alternates) = locale_alternates(oir, page) {
+            route["alternates"] = alternates;
+        }
+    }
+    let mut manifest = serde_json::json!({ "routes": routes });
+    if let Some(default_locale) = oir.locales.first() {
+        manifest["defaultLocale"] = default_locale.clone().into();
+    }
+    if let Some(site) = &oir.site {
+        manifest["site"] = serde_json::to_value(site).map_err(|e| e.to_string())?;
+    }
+    Ok(manifest)
+}
+
+/// The indexable public routes of `page`'s translation group (its
+/// `translationOf`, else its upstream `sourcePage`) across the app's locales,
+/// in locale order, as `[{ locale, path }]` — its hreflang alternates. `None`
+/// when `page` is not itself indexable and public, has no group, appears in fewer than two locales, or one locale holds it
+/// twice (no single alternate per language).
+pub fn locale_alternates(
+    oir: &orbital_core::ir::OirModule,
+    page: &orbital_core::ir::OirPage,
+) -> Option<serde_json::Value> {
+    use orbital_core::schema::{PageAccess, PageIndexing};
+    let indexable = |p: &orbital_core::ir::OirPage| {
+        p.access == Some(PageAccess::Public) && p.indexing != Some(PageIndexing::Noindex)
+    };
+    if !indexable(page) {
+        return None;
+    }
+    let group = |p: &orbital_core::ir::OirPage| -> Option<String> {
+        p.translation_of.clone().or_else(|| p.source_page.clone())
+    };
+    let key = group(page)?;
+    let mut by_locale: Vec<(&str, &str)> = Vec::new();
+    for other in oir
+        .pages
+        .iter()
+        .filter(|p| group(p).as_deref() == Some(key.as_str()) && indexable(p))
+    {
+        let locale = oir.locale_of_path(&other.path)?;
+        if by_locale.iter().any(|(l, _)| *l == locale) {
+            return None;
+        }
+        by_locale.push((locale, other.path.as_str()));
+    }
+    if by_locale.len() < 2 {
+        return None;
+    }
+    by_locale.sort_by_key(|(l, _)| oir.locales.iter().position(|x| x == l));
+    Some(
+        by_locale
+            .into_iter()
+            .map(|(locale, path)| serde_json::json!({ "locale": locale, "path": path }))
+            .collect(),
+    )
 }
 
 #[cfg(test)]

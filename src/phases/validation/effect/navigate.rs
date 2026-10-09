@@ -32,6 +32,7 @@ pub(crate) fn validate_navigate(
     }
 
     // Extract the navigate path (may be static string or dynamic expression)
+    let dynamic_prefix = matches!(&arr[1], SExpression::Array(_));
     let nav_path_str: Option<String> = match &arr[1] {
         SExpression::String(s) => Some(s.clone()),
         SExpression::Array(_) => {
@@ -67,7 +68,13 @@ pub(crate) fn validate_navigate(
     // Check payload requirements for the target page
     if let Some(ref nav_path) = nav_path_str {
         // Try to find a matching page path pattern
-        let matching_page = find_matching_page_path(nav_path, page_init_payloads);
+        let matching_page = if let Some((route, _query)) = nav_path.split_once('?') {
+            find_matching_page_path(route, page_init_payloads)
+        } else if dynamic_prefix {
+            find_page_beneath_prefix(nav_path, page_init_payloads)
+        } else {
+            find_matching_page_path(nav_path, page_init_payloads)
+        };
 
         // L2.4 backstop (gap #19A author-side detection): when no
         // declared page matches, error. Catches navigate calls injected
@@ -193,6 +200,8 @@ pub(crate) fn find_matching_page_path<'a>(
 
     // For partial matches (from dynamic paths like "/inspection/"),
     // try to find a pattern that starts with the same prefix
+    // A prefix ending in `/` continues with a further segment (`/feed/` + id), so
+    // only a page beneath it serves it — `/feed` itself does not.
     for (page_path, payload) in page_init_payloads {
         if page_path.starts_with(nav_path.trim_end_matches('/')) {
             return Some((page_path, payload));
@@ -200,6 +209,20 @@ pub(crate) fn find_matching_page_path<'a>(
     }
 
     None
+}
+
+/// A page a dynamic `str/concat` target can reach: its path starts with the
+/// literal prefix (`/feed/` + id reaches `/feed/:id`, never `/feed`).
+fn find_page_beneath_prefix<'a>(
+    prefix: &str,
+    page_init_payloads: &'a HashMap<String, PageInitPayload>,
+) -> Option<(&'a String, &'a PageInitPayload)> {
+    let mut beneath: Vec<(&'a String, &'a PageInitPayload)> = page_init_payloads
+        .iter()
+        .filter(|(page_path, _)| page_path.starts_with(prefix))
+        .collect();
+    beneath.sort_by(|a, b| a.0.cmp(b.0));
+    beneath.into_iter().next()
 }
 
 /// Check if a concrete path matches a pattern with :param placeholders
@@ -238,4 +261,61 @@ pub(crate) fn path_matches_pattern(path: &str, pattern: &str) -> bool {
     }
 
     true
+}
+
+#[cfg(test)]
+mod dynamic_prefix_tests {
+    use super::*;
+
+    fn pages(paths: &[&str]) -> HashMap<String, PageInitPayload> {
+        paths.iter().map(|p| (p.to_string(), PageInitPayload::default())).collect()
+    }
+
+    fn concat(prefix: &str) -> Vec<SExpression> {
+        vec![
+            SExpression::String("navigate".to_string()),
+            SExpression::Array(vec![
+                SExpression::String("str/concat".to_string()),
+                SExpression::String(prefix.to_string()),
+                SExpression::String("@payload.id".to_string()),
+            ]),
+        ]
+    }
+
+    fn unreachable(arr: &[SExpression], declared: &[&str]) -> bool {
+        validate_navigate(arr, "t", &pages(declared))
+            .errors
+            .iter()
+            .any(|e| e.code == ErrorCode::EffectNavigateTargetUnreachable)
+    }
+
+    #[test]
+    fn a_slash_terminated_dynamic_prefix_needs_a_page_beneath_it() {
+        assert!(unreachable(&concat("/feed/"), &["/feed"]));
+    }
+
+    #[test]
+    fn control_a_declared_detail_page_beneath_the_prefix_satisfies_it() {
+        assert!(!unreachable(&concat("/feed/"), &["/feed", "/feed/:id"]));
+    }
+
+    #[test]
+    fn control_a_prefix_without_a_trailing_slash_keeps_prefix_matching() {
+        assert!(!unreachable(&concat("/feed"), &["/feed"]));
+    }
+
+    #[test]
+    fn a_dynamic_query_string_resolves_its_route_before_the_question_mark() {
+        assert!(!unreachable(&concat("/inspection/new?companyId="), &["/inspection/new"]));
+        assert!(unreachable(&concat("/inspection/new?companyId="), &["/inspection"]));
+    }
+
+    #[test]
+    fn control_a_static_target_still_matches_its_page() {
+        let arr = vec![
+            SExpression::String("navigate".to_string()),
+            SExpression::String("/feed".to_string()),
+        ];
+        assert!(!unreachable(&arr, &["/feed"]));
+    }
 }

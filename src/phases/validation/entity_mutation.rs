@@ -2275,6 +2275,12 @@ mod tests {
                 TraitReference::Inline(child.clone()),
             ],
             pages: Some(vec![PageRef::Inline(PageDefinition {
+                translation_of: None,
+                source_page: None,
+                access: None,
+                indexing: None,
+                title: None,
+                description: None,
                 name: "Main".to_string(),
                 id: None,
                 path: "/".to_string(),
@@ -2950,7 +2956,7 @@ mod tests {
             synonyms: None,
             tier: None,
             scope: None,
-            payload_schema: Some(vec![PayloadField {
+            payload_schema: Some(vec![PayloadField { values: None,
                 name: "data".to_string(),
                 field_type: "Note".to_string(),
                 required: None,
@@ -3002,12 +3008,12 @@ mod tests {
             synonyms: None,
             tier: None,
             scope: None,
-            payload_schema: Some(vec![PayloadField {
+            payload_schema: Some(vec![PayloadField { values: None,
                 name: "data".to_string(),
                 field_type: "object".to_string(),
                 required: None,
                 description: None,
-                properties: Some(vec![PayloadField {
+                properties: Some(vec![PayloadField { values: None,
                     name: "title".to_string(),
                     field_type: "string".to_string(),
                     required: None,
@@ -3757,6 +3763,7 @@ mod tests {
 
     fn schema_of(orbitals: Vec<Orbital>) -> OrbitalSchema {
         OrbitalSchema {
+            site: None,
             public_dir: None,
             locales: None,
             lazy_pages: None,

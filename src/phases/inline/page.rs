@@ -3,8 +3,45 @@
 use super::context::{parse_reference, InlineContext, ParsedReference};
 use super::rewrite::{rewrite_identifiers, stale_entity_rebind_subs};
 use super::InlineError;
-use orbital_core::schema::{PageDefinition, PageRef, PageRefObject, TraitReference};
+use orbital_core::schema::{
+    PageAccess, PageDefinition, PageModifiers, PageRef, PageRefObject, TraitReference,
+};
 use std::collections::HashMap;
+
+/// An import's explicit page modifiers over the upstream page's: each declared
+/// one replaces it, absent ones inherit, and `public` over an upstream
+/// `authenticated` is refused (`ORB_O_PAGE_ACCESS_WEAKENED`). Shared by page
+/// references and whole-orbital `pages {}` remap entries.
+pub(crate) fn apply_page_modifiers(
+    page_def: &mut PageDefinition,
+    mods: &PageModifiers,
+    reference: &str,
+    path: &str,
+) -> Result<(), InlineError> {
+    if mods.access == Some(PageAccess::Public) && page_def.access == Some(PageAccess::Authenticated)
+    {
+        return Err(InlineError::PageAccessWeakened {
+            reference: reference.to_string(),
+            path: path.to_string(),
+        });
+    }
+    if mods.access.is_some() {
+        page_def.access = mods.access;
+    }
+    if mods.indexing.is_some() {
+        page_def.indexing = mods.indexing;
+    }
+    if mods.title.is_some() {
+        page_def.title = mods.title.clone();
+    }
+    if mods.description.is_some() {
+        page_def.description = mods.description.clone();
+    }
+    if mods.translation_of.is_some() {
+        page_def.translation_of = mods.translation_of.clone();
+    }
+    Ok(())
+}
 
 /// Phase F.3: Apply override fields from a `PageRefObject` to a resolved
 /// `PageDefinition`. Mirrors `apply_overrides_to_trait` for pages.
@@ -18,7 +55,22 @@ use std::collections::HashMap;
 ///   from the original entity to the caller's entity.
 /// - **`traits`** — replaces `page_def.traits` entirely with the caller's
 ///   list. The caller takes full ownership of the page's trait set.
-fn apply_overrides_to_page(page_def: &mut PageDefinition, obj: &PageRefObject) {
+/// - **`access` / `indexing` / `title` / `description`** — explicit page
+///   modifiers replace the upstream's; absent ones inherit it. `public` over an
+///   upstream `authenticated` is refused (`ORB_O_PAGE_ACCESS_WEAKENED`).
+fn apply_overrides_to_page(
+    page_def: &mut PageDefinition,
+    obj: &PageRefObject,
+) -> Result<(), InlineError> {
+    let mods = PageModifiers {
+        access: obj.access,
+        indexing: obj.indexing,
+        title: obj.title.clone(),
+        description: obj.description.clone(),
+        translation_of: obj.translation_of.clone(),
+    };
+    let path = obj.path.clone().unwrap_or_else(|| page_def.path.clone());
+    apply_page_modifiers(page_def, &mods, &obj.reference, &path)?;
     if let Some(path_override) = &obj.path {
         page_def.path = path_override.clone();
     }
@@ -91,6 +143,7 @@ fn apply_overrides_to_page(page_def: &mut PageDefinition, obj: &PageRefObject) {
     if let Some(traits_override) = &obj.traits {
         page_def.traits = Some(traits_override.clone());
     }
+    Ok(())
 }
 
 /// Inline page references
@@ -132,7 +185,9 @@ pub(crate) fn inline_pages(
                                 // inline traits the page declares); traits
                                 // replaces the page's trait list entirely.
                                 if let PageRef::Inline(mut page_def) = inlined {
-                                    apply_overrides_to_page(&mut page_def, obj);
+                                    page_def.source_page =
+                                        page_def.source_page.take().or_else(|| page_def.id.clone());
+                                    apply_overrides_to_page(&mut page_def, obj)?;
                                     result.push(PageRef::Inline(page_def));
                                 } else {
                                     // Still a reference (loader returned

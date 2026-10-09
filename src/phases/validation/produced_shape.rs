@@ -133,7 +133,7 @@ fn object_payload_fields(
         .iter()
         .map(|(name, ty)| {
             let (field_type, properties) = field_shape(ty, entity);
-            PayloadField {
+            PayloadField { values: None,
                 name: name.clone(),
                 field_type,
                 required: None,
@@ -160,7 +160,7 @@ fn object_payload_fields(
 fn entity_payload_fields(entity: &EntityDefinition) -> Vec<PayloadField> {
     let mut out: Vec<PayloadField> = entity_field_type_map(entity)
         .into_iter()
-        .map(|(name, meta)| PayloadField {
+        .map(|(name, meta)| PayloadField { values: None,
             name,
             field_type: meta.field_type,
             required: None,

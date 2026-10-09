@@ -1513,6 +1513,21 @@ fn pages_key_naming_no_upstream_path_fires_page_unknown_path() {
 }
 
 #[test]
+fn page_modifiers_key_naming_no_upstream_path_fires_page_unknown_path() {
+    let collected =
+        collect_stage_b(r#", "pageModifiers": { "/bogus": { "indexing": "noindex" } }"#);
+    let result = validate_orbital_ref_diagnostics(&collected.orbital_ref, &collected.schema);
+    assert!(
+        result
+            .errors
+            .iter()
+            .any(|e| e.code == ErrorCode::OrbitalRefPageUnknownPath && e.message.contains("/bogus")),
+        "expected ORB_O_PAGE_UNKNOWN_PATH for '/bogus', got: {:#?}",
+        result.errors
+    );
+}
+
+#[test]
 fn pages_key_naming_a_real_upstream_path_does_not_fire_page_unknown_path() {
     let collected = collect_stage_b(r#", "pages": { "/main": "/widgets" }"#);
     let result = validate_orbital_ref_diagnostics(&collected.orbital_ref, &collected.schema);

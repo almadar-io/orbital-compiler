@@ -494,7 +494,7 @@ mod tests {
             synonyms: None,
             tier: None,
             scope: None,
-            payload_schema: Some(vec![PayloadField {
+            payload_schema: Some(vec![PayloadField { values: None,
                 name: field.to_string(),
                 field_type: "string".to_string(),
                 required: None,

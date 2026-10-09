@@ -391,7 +391,7 @@ mod tests {
     }
 
     fn field(name: &str, required: bool) -> PayloadField {
-        PayloadField {
+        PayloadField { values: None,
             name: name.to_string(),
             field_type: "string".to_string(),
             required: if required { Some(true) } else { None },
@@ -404,7 +404,7 @@ mod tests {
     }
 
     fn object_field(name: &str, required: bool, properties: Vec<PayloadField>) -> PayloadField {
-        PayloadField {
+        PayloadField { values: None,
             name: name.to_string(),
             field_type: "object".to_string(),
             required: if required { Some(true) } else { None },
@@ -417,7 +417,7 @@ mod tests {
     }
 
     fn entity_field(name: &str, required: bool, entity: &str) -> PayloadField {
-        PayloadField {
+        PayloadField { values: None,
             name: name.to_string(),
             field_type: "object".to_string(),
             required: if required { Some(true) } else { None },
@@ -490,6 +490,7 @@ mod tests {
 
     fn schema_with(orbitals: Vec<Orbital>) -> OrbitalSchema {
         OrbitalSchema {
+            site: None,
             public_dir: None,
             locales: None,
             lazy_pages: None,

@@ -265,7 +265,7 @@ mod tests {
                 description: None,
                 synonyms: None,
                 tier: None,
-                payload_schema: Some(vec![orbital_core::schema::PayloadField {
+                payload_schema: Some(vec![orbital_core::schema::PayloadField { values: None,
                     name: field.to_string(),
                     field_type: "string".to_string(),
                     required: Some(true),
@@ -340,6 +340,7 @@ mod tests {
 
     fn schema_with(orbitals: Vec<Orbital>) -> OrbitalSchema {
         OrbitalSchema {
+            site: None,
             public_dir: None,
             locales: None,
             lazy_pages: None,
@@ -486,7 +487,7 @@ mod tests {
                 Some(vec![emit(
                     "ORDER_PAID",
                     EventScope::External,
-                    Some(vec![PayloadField {
+                    Some(vec![PayloadField { values: None,
                         name: "orderId".to_string(),
                         field_type: "string".to_string(),
                         required: Some(true),

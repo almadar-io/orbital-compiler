@@ -1252,7 +1252,7 @@ mod array_into_record_tests {
             }
             t => (t.to_string(), None),
         };
-        vec![PayloadField {
+        vec![PayloadField { values: None,
             name: "data".to_string(),
             field_type,
             required: Some(true),

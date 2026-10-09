@@ -72,13 +72,14 @@ const EFFECT_POSITION_EXTRA: &[&str] = &[
     "agent/token-count",
     "agent/context-usage",
     "agent/session-id",
-    // Substrate: behavior (effect-position)
-    "compose/compose-all",
-    "compose/compose-children",
-    "behavior/instantiate",
-    "behavior/call",
-    "validate/validate",
-    "lolo/emit-body",
+    // Substrate: behavior reflection + program (effect-position)
+    "behavior/catalog",
+    "behavior/describe",
+    "behavior/source",
+    "program/read",
+    "program/print",
+    "program/eval",
+    "program/compose",
     // Substrate: llm (value-position, valid in effects)
     "llm/generate",
     "llm/call-tools",

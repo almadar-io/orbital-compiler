@@ -415,6 +415,8 @@ fn field_type_to_binding(ft: &FieldType) -> BindingType {
         // `trait`-typed config values are `@trait.X` strings at the binding
         // level — the codegen / runtime substitute them with embedded UI later.
         FieldType::Trait => BindingType::String,
+        // An orbital value is data (an import body), never rendered.
+        FieldType::Orbital => BindingType::Object,
         // `slot` and `pattern` resolve to strings at the binding level; so
         // does `event` (Phase B struct-field carrier) — an event name is a
         // string at the render-binding lattice, same as the scalar
@@ -674,7 +676,7 @@ mod tests {
     fn resolves_payload_field_to_declared_type() {
         let t = empty_trait("T", None);
         let entities: HashMap<String, EntityDefinition> = HashMap::new();
-        let payload = vec![PayloadField {
+        let payload = vec![PayloadField { values: None,
             name: "tabId".to_string(),
             field_type: "string".to_string(),
             required: Some(true),
@@ -902,7 +904,7 @@ mod tests {
     fn resolves_or_operator_first_truthy() {
         let t = empty_trait("T", None);
         let entities: HashMap<String, EntityDefinition> = HashMap::new();
-        let payload = vec![PayloadField {
+        let payload = vec![PayloadField { values: None,
             name: "totalCount".to_string(),
             field_type: "number".to_string(),
             required: None,

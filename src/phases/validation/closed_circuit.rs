@@ -3331,6 +3331,46 @@ mod tests {
     }
 
     #[test]
+    fn program_eval_failure_event_needs_a_handling_arm() {
+        let sm = |ev: &str| StateMachine {
+            states: vec![state("building")],
+            events: None,
+            transitions: vec![sm_transition(
+                "building",
+                "building",
+                "INIT",
+                effects_from(serde_json::json!([
+                    ["program/eval", "@entity.program", { "emit": { "failure": ev } }]
+                ])),
+            )],
+        };
+        let result = validate_failure_arms(&sm("BuildFailed"), "test");
+        assert!(result
+            .errors
+            .iter()
+            .any(|e| e.code == ErrorCode::CircuitFailureArmMissing));
+        let control = StateMachine {
+            transitions: {
+                let mut t = sm("BuildFailed").transitions;
+                t.push(sm_transition(
+                    "building",
+                    "building",
+                    "BuildFailed",
+                    effects_from(serde_json::json!([
+                        ["render-ui", "main", { "type": "toast", "message": "no" }]
+                    ])),
+                ));
+                t
+            },
+            ..sm("BuildFailed")
+        };
+        assert!(!validate_failure_arms(&control, "test")
+            .errors
+            .iter()
+            .any(|e| e.code == ErrorCode::CircuitFailureArmMissing));
+    }
+
+    #[test]
     fn failure_arm_renders_nothing_when_the_handling_arm_is_mute() {
         let sm = StateMachine {
             states: vec![state("loading"), state("error")],
@@ -4211,6 +4251,7 @@ mod tests {
 
     fn schema_of(orbital: Orbital) -> OrbitalSchema {
         OrbitalSchema {
+            site: None,
             public_dir: None,
             locales: None,
             lazy_pages: None,

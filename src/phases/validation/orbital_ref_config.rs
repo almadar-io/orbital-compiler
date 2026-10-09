@@ -226,6 +226,116 @@ pub fn validate_orbital_ref_diagnostics(
             );
         }
 
+        for field in &diag.mock_unknown_field {
+            result.add_error(
+                ValidationError::error(
+                    ErrorCode::OrbitalRefMockUnknownField,
+                    format!("{}.mock({})", diag.path, field),
+                    format!(
+                        "`mock {{}}` names '{}', which the entity materialized from '{}' does not declare.",
+                        field, diag.reference
+                    ),
+                )
+                .with_suggestion(
+                    "Name a field of the imported primary entity as it is after `fields {}` renames, or an `extend {}` field.".to_string(),
+                ),
+            );
+        }
+
+        for field in &diag.retype_unknown_field {
+            result.add_error(
+                ValidationError::error(
+                    ErrorCode::OrbitalRefRetypeUnknownField,
+                    format!("{}.retype({})", diag.path, field),
+                    format!(
+                        "`retype {{}}` names '{}', which the entity materialized from '{}' does not declare.",
+                        field, diag.reference
+                    ),
+                )
+                .with_suggestion(
+                    "Name a field the upstream primary entity already declares, as it is after `fields {}` renames; add a new field with `extend {}`.".to_string(),
+                ),
+            );
+        }
+
+        for (field, reason) in &diag.retype_conflict {
+            result.add_error(
+                ValidationError::error(
+                    ErrorCode::OrbitalRefRetypeFieldConflict,
+                    format!("{}.retype({})", diag.path, field),
+                    format!("`retype {{}}` field '{}' is {}.", field, reason),
+                )
+                .with_suggestion(
+                    "Declare the field once: either `extend {}` it or `retype {}` it, and list it once.".to_string(),
+                ),
+            );
+        }
+
+        if let Some(mode) = &diag.entity_persistence_locked {
+            result.add_error(
+                ValidationError::error(
+                    ErrorCode::OrbitalRefEntityPersistenceLocked,
+                    format!("{}.entity", diag.path),
+                    format!(
+                        "The `entity [..]` persistence/collection override has no effect: the primary entity of '{}' is `{}`, and only a `persistent` entity allows its persistence or collection to be overridden.",
+                        diag.reference, mode
+                    ),
+                )
+                .with_suggestion(
+                    "Remove the persistence/collection from the `entity` line, or import an orbital whose entity is persistent.".to_string(),
+                ),
+            );
+        }
+
+        for name in &diag.traits_unknown_trait {
+            result.add_error(
+                ValidationError::error(
+                    ErrorCode::OrbitalRefTraitsUnknownTrait,
+                    format!("{}.traits({})", diag.path, name),
+                    format!(
+                        "`traits {{}}` key '{}' names no trait of upstream orbital '{}'.",
+                        name, diag.reference
+                    ),
+                )
+                .with_suggestion(
+                    "Key each entry by the trait's UPSTREAM name (before the import prefix).".to_string(),
+                ),
+            );
+        }
+
+        for name in &diag.traits_omitted_trait {
+            result.add_error(
+                ValidationError::error(
+                    ErrorCode::OrbitalRefTraitsOmittedTrait,
+                    format!("{}.traits({})", diag.path, name),
+                    format!(
+                        "`traits {{}}` overrides '{}', but `omit {{}}` / `only {{}}` drops that trait from the import.",
+                        name
+                    ),
+                )
+                .with_suggestion(format!(
+                    "Remove the `traits {{ {name} {{ … }} }}` entry, or keep '{name}' in the import."
+                )),
+            );
+        }
+
+        for (trait_name, key) in &diag.traits_unknown_config_key {
+            result.add_error(
+                ValidationError::error(
+                    ErrorCode::OrbitalRefConfigUnknownKey,
+                    format!("{}.traits({}).config({})", diag.path, trait_name, key),
+                    format!(
+                        "`traits {{ {} }}` config key '{}' does not match any knob the upstream trait declares. It silently no-ops.",
+                        trait_name, key
+                    ),
+                )
+                .with_suggestion(format!(
+                    "Remove '{}' or use a knob declared in '{}''s `config {{}}` block.",
+                    key, trait_name
+                )),
+            );
+        }
+
         for (position, name) in &diag.field_rename_unapplied {
             result.add_error(
                 ValidationError::error(
@@ -292,6 +402,11 @@ fn is_orbital_ref_root(code: ErrorCode) -> bool {
             | ErrorCode::OrbitalRefEntityTargetUnknown
             | ErrorCode::OrbitalRefPageUnknownPath
             | ErrorCode::OrbitalRefFieldRenameUnapplied
+            | ErrorCode::OrbitalRefRetypeUnknownField
+            | ErrorCode::OrbitalRefRetypeFieldConflict
+            | ErrorCode::OrbitalRefEntityPersistenceLocked
+            | ErrorCode::OrbitalRefTraitsUnknownTrait
+            | ErrorCode::OrbitalRefTraitsOmittedTrait
             | ErrorCode::UsesConfigUnknownKey
     )
 }

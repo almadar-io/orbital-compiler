@@ -7,7 +7,7 @@ use super::validate_send_server;
 use super::{
     effect_operators, extract_emit_object_ref, validate_call_service, validate_call_service_object,
     validate_emit, validate_emit_config, validate_fetch, validate_fetch_object, validate_navigate,
-    validate_os_watch, validate_persist, validate_ref, validate_set, validate_set_enum_value,
+    validate_os_watch, validate_persist, validate_program_eval, validate_ref, validate_set, validate_set_enum_value,
     validate_set_object, validate_set_return_type, validate_set_value_type, DeclaredEmit,
     EntityFieldMeta,
 };
@@ -345,6 +345,9 @@ pub(crate) fn validate_effect(
                     }
                     "send-server" => {
                         result.merge(validate_send_server(arr, path));
+                    }
+                    "program/eval" => {
+                        result.merge(validate_program_eval(arr, path, declared_emits));
                     }
                     os_op if os_op.starts_with("os/watch-") => {
                         result.merge(validate_os_watch(arr, path, declared_emits));

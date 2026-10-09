@@ -97,7 +97,7 @@ mod tests {
     use orbital_core::schema::PayloadField;
 
     fn payload_field(name: &str, field_type: &str) -> PayloadField {
-        PayloadField {
+        PayloadField { values: None,
             name: name.to_string(),
             field_type: field_type.to_string(),
             required: None,

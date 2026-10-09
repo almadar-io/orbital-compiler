@@ -449,6 +449,10 @@ pub fn validate_trait_definition(
             let Some(default) = &cf.default else { continue };
             match default {
                 SExpression::Null => {}
+                SExpression::Object(_)
+                    if orbital_core::schema::behavior_value::is_trait_value(
+                        &orbital_core::evaluator::Value::from(default.clone()),
+                    ) => {}
                 SExpression::String(s) => {
                     if !is_trait_ref_string(s) {
                         result.add_error(
@@ -472,7 +476,7 @@ pub fn validate_trait_definition(
                             ErrorCode::BindingTraitInvalidFormat,
                             format!("{}.config.{}.default", path, field_name),
                             format!(
-                                "trait-typed config field '{}' default must be a string `@trait.<TraitName>` reference, or `none`",
+                                "trait-typed config field '{}' default must be a string `@trait.<TraitName>` reference, a trait value, or `none`",
                                 field_name
                             ),
                         ),
@@ -499,8 +503,6 @@ pub fn validate_trait_definition(
 /// nothing) — the fix is the same `(if @config.<knob> (render-ui ...))`
 /// wrap `tools/almadar-pattern-sync/src/commands/lolo-service.ts` generates.
 fn validate_unbound_trait_knob_embeds(trait_def: &TraitDefinition, path: &str) -> ValidationResult {
-    let mut result = ValidationResult::new();
-
     let unbound_knobs: HashSet<&str> = trait_def
         .config
         .as_ref()
@@ -514,12 +516,116 @@ fn validate_unbound_trait_knob_embeds(trait_def: &TraitDefinition, path: &str) -
                 .collect()
         })
         .unwrap_or_default();
+    validate_unbound_trait_embeds(trait_def, path, "@config.", &unbound_knobs)
+}
+
+/// The entity-field twin of [`validate_unbound_trait_knob_embeds`]: a
+/// `trait`-typed entity field can hold no value (`none`, or a row never
+/// bound), so every render-ui embed of `@entity.<field>` must sit under
+/// `(if @entity.<field> …)`.
+pub(crate) fn validate_unbound_trait_field_embeds(
+    trait_def: &TraitDefinition,
+    entity: &orbital_core::schema::EntityDefinition,
+    path: &str,
+) -> ValidationResult {
+    let trait_fields: HashSet<&str> = entity
+        .fields
+        .iter()
+        .filter(|f| f.field_type == orbital_core::schema::FieldType::Trait)
+        .filter_map(|f| f.name.as_deref())
+        .collect();
+    validate_unbound_trait_embeds(trait_def, path, "@entity.", &trait_fields)
+}
+
+/// `ORB_RENDER_ORBITAL_VALUE_EMBEDDED`: a render-ui payload embeds
+/// `@entity.<field>` where `<field>` is `orbital`-typed. An orbital value is an
+/// import body held as data; only a trait value renders, so no guard makes the
+/// embed legal.
+pub(crate) fn validate_orbital_field_embeds(
+    trait_def: &TraitDefinition,
+    entity: &orbital_core::schema::EntityDefinition,
+    path: &str,
+) -> ValidationResult {
+    let mut result = ValidationResult::new();
+    let orbital_fields: HashSet<&str> = entity
+        .fields
+        .iter()
+        .filter(|f| f.field_type == orbital_core::schema::FieldType::Orbital)
+        .filter_map(|f| f.name.as_deref())
+        .collect();
+    if orbital_fields.is_empty() {
+        return result;
+    }
+
+    fn scan(expr: &SExpression, fields: &HashSet<&str>, effect_path: &str, result: &mut ValidationResult) {
+        match expr {
+            SExpression::String(s) => {
+                if let Some(field) = s.strip_prefix("@entity.") {
+                    if fields.contains(field) {
+                        result.add_error(
+                            ValidationError::error(
+                                ErrorCode::RenderOrbitalValueEmbedded,
+                                effect_path,
+                                format!("render-ui embeds '@entity.{field}', an orbital value — only trait values render"),
+                            )
+                            .with_suggestion(
+                                "Bind a trait value to render, or evaluate the orbital value into a program with `program/eval`",
+                            ),
+                        );
+                    }
+                }
+            }
+            SExpression::Array(arr) => arr.iter().for_each(|item| scan(item, fields, effect_path, result)),
+            SExpression::Object(obj) => obj.values().for_each(|v| scan(v, fields, effect_path, result)),
+            _ => {}
+        }
+    }
+
+    fn walk(expr: &SExpression, fields: &HashSet<&str>, effect_path: &str, result: &mut ValidationResult) {
+        let SExpression::Array(arr) = expr else {
+            return;
+        };
+        if is_render_ui_effect(expr) {
+            arr.iter().for_each(|item| scan(item, fields, effect_path, result));
+            return;
+        }
+        arr.iter().for_each(|item| walk(item, fields, effect_path, result));
+    }
+
+    for (i, transition) in trait_def.state_machine.transitions.iter().enumerate() {
+        let Some(effects) = &transition.effects else {
+            continue;
+        };
+        for (j, effect) in effects.iter().enumerate() {
+            let effect_path = format!("{path}.stateMachine.transitions[{i}].effects[{j}]");
+            walk(effect, &orbital_fields, &effect_path, &mut result);
+        }
+    }
+    if let Some(ticks) = &trait_def.ticks {
+        for (i, tick) in ticks.iter().enumerate() {
+            for (j, effect) in tick.effects.iter().enumerate() {
+                let effect_path = format!("{path}.ticks[{i}].effects[{j}]");
+                walk(effect, &orbital_fields, &effect_path, &mut result);
+            }
+        }
+    }
+    result
+}
+
+fn validate_unbound_trait_embeds(
+    trait_def: &TraitDefinition,
+    path: &str,
+    prefix: &'static str,
+    unbound_knobs: &HashSet<&str>,
+) -> ValidationResult {
+    let mut result = ValidationResult::new();
     if unbound_knobs.is_empty() {
         return result;
     }
 
     fn walk(
         expr: &SExpression,
+        prefix: &'static str,
         unbound_knobs: &HashSet<&str>,
         effect_path: &str,
         result: &mut ValidationResult,
@@ -527,25 +633,26 @@ fn validate_unbound_trait_knob_embeds(trait_def: &TraitDefinition, path: &str) -
         let SExpression::Array(arr) = expr else {
             return;
         };
-        // The sanctioned guard shape: `["if", "@config.<knob>", then, else?]`
-        // where `<knob>` is one of this trait's unbound-eligible knobs. The
+        // The sanctioned guard shapes: `["if", "@config.<knob>", then, else]`
+        // and the one-armed effect `["when", "@config.<knob>", then]`, where
+        // `<knob>` is one of this trait's unbound-eligible knobs. The
         // then-branch is exempt for THAT knob (still walked, so an unrelated
         // knob embedded inside it is still caught); the else-branch (if any)
         // is walked normally, same as any other node.
         if let [SExpression::String(op), SExpression::String(cond), then_branch, rest @ ..] =
             arr.as_slice()
         {
-            if op == "if" {
-                if let Some(knob) = cond.strip_prefix("@config.") {
+            if op == "if" || op == "when" {
+                if let Some(knob) = cond.strip_prefix(prefix) {
                     if unbound_knobs.contains(knob) {
                         // Exempt ONLY this knob for the then-branch — an
                         // unrelated unbound knob embedded inside it must
                         // still be caught.
                         let mut exempt = unbound_knobs.clone();
                         exempt.remove(knob);
-                        walk(then_branch, &exempt, effect_path, result);
+                        walk(then_branch, prefix, &exempt, effect_path, result);
                         if let Some(else_branch) = rest.first() {
-                            walk(else_branch, unbound_knobs, effect_path, result);
+                            walk(else_branch, prefix, unbound_knobs, effect_path, result);
                         }
                         return;
                     }
@@ -554,12 +661,12 @@ fn validate_unbound_trait_knob_embeds(trait_def: &TraitDefinition, path: &str) -
         }
         if is_render_ui_effect(expr) {
             for item in arr {
-                check_render_payload_for_unbound_embeds(item, unbound_knobs, effect_path, result);
+                check_render_payload_for_unbound_embeds(item, prefix, unbound_knobs, effect_path, result);
             }
             return;
         }
         for item in arr {
-            walk(item, unbound_knobs, effect_path, result);
+            walk(item, prefix, unbound_knobs, effect_path, result);
         }
     }
 
@@ -569,29 +676,29 @@ fn validate_unbound_trait_knob_embeds(trait_def: &TraitDefinition, path: &str) -
     /// descending so multiple embeds in one payload are all reported.
     fn check_render_payload_for_unbound_embeds(
         expr: &SExpression,
+        prefix: &'static str,
         unbound_knobs: &HashSet<&str>,
         effect_path: &str,
         result: &mut ValidationResult,
     ) {
         match expr {
             SExpression::String(s) => {
-                if let Some(knob) = s.strip_prefix("@config.") {
+                if let Some(knob) = s.strip_prefix(prefix) {
                     if unbound_knobs.contains(knob) {
                         result.add_error(
                             ValidationError::error(
                                 ErrorCode::RenderUnboundTraitKnobEmbedded,
                                 effect_path,
                                 format!(
-                                    "render-ui embeds '@config.{}', a trait-typed knob whose \
-                                     resolved value is `none` (unbound) — an unguarded embed \
+                                    "render-ui embeds '{}{}', a trait-typed value that may be `none` (unbound) — an unguarded embed \
                                      renders nothing",
-                                    knob
+                                    prefix, knob
                                 ),
                             )
                             .with_suggestion(format!(
-                                "Wrap this render-ui in `(if @config.{} (render-ui ...))` so the \
+                                "Wrap this render-ui in `(if {}{} (render-ui ...))` so the \
                                  unbound case renders nothing instead of a dangling embed",
-                                knob
+                                prefix, knob
                             )),
                         );
                     }
@@ -601,6 +708,7 @@ fn validate_unbound_trait_knob_embeds(trait_def: &TraitDefinition, path: &str) -
                 for item in arr {
                     check_render_payload_for_unbound_embeds(
                         item,
+                        prefix,
                         unbound_knobs,
                         effect_path,
                         result,
@@ -609,7 +717,7 @@ fn validate_unbound_trait_knob_embeds(trait_def: &TraitDefinition, path: &str) -
             }
             SExpression::Object(obj) => {
                 for (_, v) in obj {
-                    check_render_payload_for_unbound_embeds(v, unbound_knobs, effect_path, result);
+                    check_render_payload_for_unbound_embeds(v, prefix, unbound_knobs, effect_path, result);
                 }
             }
             _ => {}
@@ -622,14 +730,14 @@ fn validate_unbound_trait_knob_embeds(trait_def: &TraitDefinition, path: &str) -
         };
         for (j, effect) in effects.iter().enumerate() {
             let effect_path = format!("{}.stateMachine.transitions[{}].effects[{}]", path, i, j);
-            walk(effect, &unbound_knobs, &effect_path, &mut result);
+            walk(effect, prefix, unbound_knobs, &effect_path, &mut result);
         }
     }
     if let Some(ticks) = &trait_def.ticks {
         for (i, tick) in ticks.iter().enumerate() {
             for (j, effect) in tick.effects.iter().enumerate() {
                 let effect_path = format!("{}.ticks[{}].effects[{}]", path, i, j);
-                walk(effect, &unbound_knobs, &effect_path, &mut result);
+                walk(effect, prefix, unbound_knobs, &effect_path, &mut result);
             }
         }
     }
@@ -2065,5 +2173,132 @@ mod tests {
             .errors
             .iter()
             .all(|e| e.code != ErrorCode::TraitInitMissingFetch));
+    }
+}
+
+#[cfg(test)]
+mod trait_field_embed_tests {
+    use super::*;
+    use orbital_core::schema::EntityDefinition;
+
+    fn entity() -> EntityDefinition {
+        serde_json::from_value(serde_json::json!({
+            "name": "Panel",
+            "fields": [
+                { "name": "id", "type": "string" },
+                { "name": "view", "type": "trait" }
+            ]
+        }))
+        .expect("entity")
+    }
+
+    fn trait_with(effect: serde_json::Value) -> TraitDefinition {
+        serde_json::from_value(serde_json::json!({
+            "name": "Hold",
+            "linkedEntity": "Panel",
+            "stateMachine": {
+                "states": [{ "name": "idle", "isInitial": true }],
+                "events": [{ "key": "GO" }],
+                "transitions": [{ "from": "idle", "to": "idle", "event": "GO", "effects": [effect] }]
+            }
+        }))
+        .expect("trait")
+    }
+
+    fn embed() -> serde_json::Value {
+        serde_json::json!(["render-ui", "main", { "type": "stack", "children": ["@entity.view"] }])
+    }
+
+    fn fires(effect: serde_json::Value) -> bool {
+        validate_unbound_trait_field_embeds(&trait_with(effect), &entity(), "t")
+            .errors
+            .iter()
+            .any(|e| e.code == ErrorCode::RenderUnboundTraitKnobEmbedded)
+    }
+
+    #[test]
+    fn an_unguarded_embed_of_a_trait_typed_entity_field_errors() {
+        assert!(fires(embed()));
+    }
+
+    #[test]
+    fn control_the_same_embed_under_an_if_on_the_field_is_clean() {
+        assert!(!fires(serde_json::json!(["if", "@entity.view", embed()])));
+    }
+
+    #[test]
+    fn control_a_guard_on_a_different_field_does_not_exempt_it() {
+        assert!(fires(serde_json::json!(["if", "@entity.id", embed()])));
+    }
+
+    #[test]
+    fn the_one_armed_when_effect_is_a_guard_too() {
+        assert!(!fires(serde_json::json!(["when", "@entity.view", embed()])));
+        assert!(fires(serde_json::json!(["when", "@entity.id", embed()])));
+    }
+
+    fn orbital_entity() -> EntityDefinition {
+        serde_json::from_value(serde_json::json!({
+            "name": "Panel",
+            "fields": [
+                { "name": "id", "type": "string" },
+                { "name": "app", "type": "orbital" }
+            ]
+        }))
+        .expect("entity")
+    }
+
+    fn orbital_fires(effect: serde_json::Value) -> bool {
+        validate_orbital_field_embeds(&trait_with(effect), &orbital_entity(), "t")
+            .errors
+            .iter()
+            .any(|e| e.code == ErrorCode::RenderOrbitalValueEmbedded)
+    }
+
+    #[test]
+    fn embedding_an_orbital_typed_field_errors_even_under_a_guard() {
+        let embed = serde_json::json!(["render-ui", "main", { "type": "stack", "children": ["@entity.app"] }]);
+        assert!(orbital_fires(embed.clone()));
+        assert!(orbital_fires(serde_json::json!(["when", "@entity.app", embed])));
+    }
+
+    #[test]
+    fn control_reading_an_orbital_value_outside_render_ui_is_clean() {
+        assert!(!orbital_fires(serde_json::json!(["set", "@entity.app", null])));
+        assert!(!orbital_fires(serde_json::json!(
+            ["render-ui", "main", { "type": "typography", "content": "@entity.id" }]
+        )));
+    }
+
+    #[test]
+    fn control_embedding_a_non_trait_field_is_never_flagged() {
+        assert!(!fires(serde_json::json!(
+            ["render-ui", "main", { "type": "stack", "children": ["@entity.id"] }]
+        )));
+    }
+
+    #[test]
+    fn a_trait_value_object_is_a_valid_trait_typed_config_default() {
+        let mut t = trait_with(serde_json::json!(["log", "x"]));
+        let mut cf: orbital_core::schema::ConfigField =
+            serde_json::from_value(serde_json::json!({ "type": "trait" })).expect("cf");
+        cf.default = Some(
+            serde_json::from_value(serde_json::json!({ "behavior": "std/std-kanban", "trait": "KanbanBoard" }))
+                .expect("default"),
+        );
+        t.config = Some(HashMap::from([("view".to_string(), cf)]));
+        let r = validate_trait_definition(&t, "t", &HashSet::new());
+        assert!(!r.errors.iter().any(|e| e.code == ErrorCode::BindingTraitInvalidFormat), "{:?}", r.errors);
+    }
+
+    #[test]
+    fn control_any_other_object_is_not_a_trait_typed_default() {
+        let mut t = trait_with(serde_json::json!(["log", "x"]));
+        let mut cf: orbital_core::schema::ConfigField =
+            serde_json::from_value(serde_json::json!({ "type": "trait" })).expect("cf");
+        cf.default = Some(serde_json::from_value(serde_json::json!({ "label": "x" })).expect("default"));
+        t.config = Some(HashMap::from([("view".to_string(), cf)]));
+        let r = validate_trait_definition(&t, "t", &HashSet::new());
+        assert!(r.errors.iter().any(|e| e.code == ErrorCode::BindingTraitInvalidFormat));
     }
 }

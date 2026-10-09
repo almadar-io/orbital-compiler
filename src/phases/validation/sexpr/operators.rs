@@ -263,7 +263,6 @@ pub const CORE_OPERATORS: &[&str] = &[
     "let",
     "do",
     "quote",
-    "eval",
     "print",
     "debug",
 ];
@@ -309,8 +308,8 @@ pub const OS_OPERATORS: &[&str] = &[
 /// truth for the ML operator families (`nn/`, `tensor/`, `train/`, `graph/`,
 /// `contract/`, `data/`, and the bare ML-effect aliases): those legacy
 /// hardcoded lists were retired once canonical became a verified superset. A
-/// few non-ML legacy lists remain (`core`/`effect`/`os`), plus the `agent/` /
-/// `behavior/` namespace prefixes.
+/// few non-ML legacy lists remain (`core`/`effect`/`os`), plus the `agent/`
+/// namespace prefix.
 pub(crate) fn is_known_operator(operator: &str) -> bool {
     if crate::embedded::is_known_operator(operator) {
         return true;
@@ -319,7 +318,6 @@ pub(crate) fn is_known_operator(operator: &str) -> bool {
         || EFFECT_OPERATORS.contains(&operator)
         || OS_OPERATORS.contains(&operator)
         || operator.starts_with("agent/")
-        || operator.starts_with("behavior/")
 }
 
 fn known_operator_names() -> impl Iterator<Item = &'static str> {

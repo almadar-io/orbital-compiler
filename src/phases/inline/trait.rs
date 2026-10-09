@@ -907,7 +907,7 @@ pub(crate) fn resolve_config_ref_emit_names(
 /// Both overrides are applied AFTER `apply_overrides_to_trait` has run, so
 /// any rename / linkedEntity / events substitutions are already in effect
 /// by the time these structural changes apply.
-fn apply_post_subst_overrides_to_trait(
+pub(crate) fn apply_post_subst_overrides_to_trait(
     trait_def: &mut TraitDefinition,
     listens: Option<&Vec<orbital_core::schema::ListenDefinition>>,
     emits_scope: Option<&orbital_core::schema::EventScope>,
@@ -1359,7 +1359,13 @@ pub(crate) fn collect_sibling_trait_refs(expr: &SExpression, out: &mut HashSet<S
 /// callers predate the orbital-import program; the auto-pulled render
 /// siblings it discovers, e.g. std-browse's `MasterListView`/`DataGrid1`/
 /// `DenseTableView` look variants, were already unordered before Stage A/B.)
-pub(crate) fn sibling_trait_refs_of(trait_def: &TraitDefinition) -> Vec<String> {
+pub(crate) fn sibling_trait_refs_of(
+    trait_def: &TraitDefinition,
+    alias: &str,
+    source_trait_name: &str,
+    ctx: &InlineContext,
+    host_routes: &HashSet<(String, String)>,
+) -> Vec<(String, bool)> {
     let mut out = HashSet::new();
     for transition in &trait_def.state_machine.transitions {
         if let Some(guard) = transition.guard.as_ref() {
@@ -1388,7 +1394,73 @@ pub(crate) fn sibling_trait_refs_of(trait_def: &TraitDefinition) -> Vec<String> 
             }
         }
     }
-    let mut sorted: Vec<String> = out.into_iter().collect();
+    let mut receivers: HashSet<String> = HashSet::new();
+    let mut config_events = HashSet::new();
+    if let Some(mut config) = trait_def.config.clone() {
+        super::rewrite::map_fields_event_values(&mut config, &mut |value| {
+            let (event, source) = orbital_core::schema::split_event_address(value);
+            // A consumer route for this event out of the composed trait is the
+            // receiver; pulling the upstream's own would handle it twice.
+            if source.is_none()
+                && !event.is_empty()
+                && !host_routes.contains(&(trait_def.name.clone(), event.clone()))
+            {
+                config_events.insert(event);
+            }
+            None
+        });
+    }
+    if !config_events.is_empty() {
+        if let Ok(entry) = ctx.get_entry(alias) {
+            for orbital in entry.orbitals.iter() {
+                if !orbital
+                    .traits
+                    .iter()
+                    .any(|entry| entry.trait_name() == Some(source_trait_name))
+                {
+                    continue;
+                }
+                for candidate in &orbital.traits {
+                    let TraitReference::Inline(candidate) = candidate else {
+                        continue;
+                    };
+                    let listens = candidate.listens.as_deref().unwrap_or_default();
+                    let depends = listens.iter().any(|listen| {
+                        if !config_events.contains(&listen.event) {
+                            return false;
+                        }
+                        match &listen.source {
+                            Some(orbital_core::schema::ListenSource::Trait {
+                                trait_name, ..
+                            }) => trait_name == source_trait_name,
+                            Some(orbital_core::schema::ListenSource::Orbital {
+                                orbital: source_orbital,
+                                trait_name,
+                                ..
+                            }) => {
+                                source_orbital == &orbital.name && trait_name == source_trait_name
+                            }
+                            Some(orbital_core::schema::ListenSource::Any) => true,
+                            None => false,
+                        }
+                    });
+                    if depends {
+                        receivers.insert(candidate.name.clone());
+                    }
+                }
+            }
+        }
+    }
+    let mut sorted: Vec<(String, bool)> = out
+        .iter()
+        .map(|name| (name.clone(), false))
+        .chain(
+            receivers
+                .into_iter()
+                .filter(|name| !out.contains(name))
+                .map(|name| (name, true)),
+        )
+        .collect();
     sorted.sort();
     sorted
 }
@@ -1432,6 +1504,8 @@ pub(crate) type InlinedTraits = (
     // app-wide; `inline_schema` uniquifies those after all orbitals resolve.
     Vec<String>,
     Vec<TraitRefConfigDiagnostic>,
+    // (owner final name, pulled event receiver final name)
+    Vec<(String, String)>,
 );
 
 /// A pending sibling pull: (alias, sibling, rebind target, pulling parent,
@@ -1443,6 +1517,8 @@ type SiblingPull = (
     String,
     String,
     Option<String>,
+    // pulled as an event receiver (mounted beside its owner), not a render sibling
+    bool,
 );
 
 /// Inline trait references.
@@ -1539,6 +1615,26 @@ pub(crate) fn inline_traits(
     // top-level consumer trait that started the chain, and is the unit a pulled
     // sibling belongs to (see `pulled_as` below).
     let mut sibling_pull_work: Vec<SiblingPull> = Vec::new();
+    // (source trait, event) every consumer-declared trait of this orbital already
+    // routes: the consumer's own receiver for that event (see the receiver pull).
+    let host_routes: HashSet<(String, String)> = traits
+        .iter()
+        .flat_map(|entry| {
+            let listens = match entry {
+                TraitReference::Inline(def) => def.listens.as_deref().unwrap_or_default(),
+                TraitReference::Reference { listens, .. } => listens.as_deref().unwrap_or_default(),
+            };
+            listens.iter().filter_map(|listen| match &listen.source {
+                Some(orbital_core::schema::ListenSource::Trait { trait_name, .. }) => {
+                    Some((trait_name.clone(), listen.event.clone()))
+                }
+                _ => None,
+            })
+        })
+        .collect();
+    // (owner final name, receiver final name): a pulled event receiver is mounted
+    // on every page that mounts the owner it serves.
+    let mut receiver_mounts: Vec<(String, String)> = Vec::new();
     // Explicitly declared Reference instances keyed by (alias, SOURCE trait
     // name, linkedEntity rebind) → final (post-`name`-override) name. A
     // sibling pull that matches one of these keys is satisfied by the
@@ -2044,6 +2140,43 @@ pub(crate) fn inline_traits(
                                                 cfg.insert(k, v);
                                             }
                                         }
+                                    } else {
+                                        // An import load still fixes the forwards this file can
+                                        // never override: a knob found in neither its embedders nor
+                                        // its own orbital config resolves first at the trait's home
+                                        // rungs on every path, so its importer could not reach it.
+                                        let entry_key = name_override.as_deref().unwrap_or("");
+                                        let embedder_chain = embed_graph.embedder_chain(entry_key);
+                                        let overridable = |knob: &str| {
+                                            embedder_chain.iter().any(|c| c.contains_key(knob))
+                                                || orbital_config.is_some_and(|c| c.contains_key(knob))
+                                        };
+                                        if let Some(resolved) = forwarded_sibling_config_from(
+                                            trait_def.config.as_ref(),
+                                            &[],
+                                            None,
+                                            ctx.get_orbital_config_for_trait(
+                                                &alias,
+                                                &name,
+                                                ref_id.as_deref(),
+                                            )
+                                            .as_ref(),
+                                            alias_schema_configs.get(&alias),
+                                            None,
+                                        ) {
+                                            let declared = trait_def.config.clone().unwrap_or_default();
+                                            let cfg =
+                                                trait_def.config.get_or_insert_with(HashMap::new);
+                                            for (k, v) in resolved {
+                                                let forward = declared.get(&k).and_then(|f| match f.default.as_ref() {
+                                                    Some(SExpression::String(s)) => s.strip_prefix("@config.").map(str::to_string),
+                                                    _ => None,
+                                                });
+                                                if forward.as_deref().is_some_and(|knob| !overridable(knob)) {
+                                                    cfg.insert(k, v);
+                                                }
+                                            }
+                                        }
                                     }
                                     let ref_config_arg = (!effective_ref_config.is_empty())
                                         .then_some(&effective_ref_config);
@@ -2197,7 +2330,13 @@ pub(crate) fn inline_traits(
                                     // pass below can instantiate any same-alias
                                     // `@trait.X` siblings its body references,
                                     // rebinding them with the SAME linkedEntity.
-                                    for sibling in sibling_trait_refs_of(&trait_def) {
+                                    for (sibling, receiver) in sibling_trait_refs_of(
+                                        &trait_def,
+                                        &alias,
+                                        &name,
+                                        ctx,
+                                        &host_routes,
+                                    ) {
                                         sibling_pull_work.push((
                                             alias.clone(),
                                             sibling,
@@ -2205,6 +2344,7 @@ pub(crate) fn inline_traits(
                                             trait_def.name.clone(),
                                             trait_def.name.clone(),
                                             source_linked_entity.clone(),
+                                            receiver,
                                         ));
                                     }
                                     result.push(TraitReference::Inline(trait_def));
@@ -2326,7 +2466,7 @@ pub(crate) fn inline_traits(
                     }
                 }
             };
-        while let Some((alias, sibling_name, linked_entity, parent_name, owner, rebind_from)) =
+        while let Some((alias, sibling_name, linked_entity, parent_name, owner, rebind_from, receiver)) =
             worklist.pop()
         {
             // An explicit Reference to this same source trait, rebound to the
@@ -2389,8 +2529,23 @@ pub(crate) fn inline_traits(
             if !visited.insert((alias.clone(), sibling_name.clone(), owner.clone())) {
                 continue;
             }
-            // The sibling must exist as a trait in the SAME source atom.
-            let Ok(TraitReference::Inline(mut sibling_def)) = ctx.get_trait(&alias, &sibling_name)
+            // The sibling must exist as a trait in the SAME source atom — and when the alias holds
+            // several orbitals composing that atom, in the orbital that declares the pulling parent.
+            let parent_source = result
+                .iter()
+                .find_map(|tr| match tr {
+                    TraitReference::Inline(td) if td.name == parent_name => Some(
+                        td.source_behavior
+                            .as_ref()
+                            .filter(|sb| sb.alias == alias)
+                            .map(|sb| sb.original_name.clone())
+                            .unwrap_or_else(|| td.name.clone()),
+                    ),
+                    _ => None,
+                })
+                .unwrap_or_else(|| parent_name.clone());
+            let Ok(TraitReference::Inline(mut sibling_def)) =
+                ctx.get_trait_beside(&alias, &parent_source, &sibling_name)
             else {
                 // Not a same-alias sibling (or not resolvable to an inline
                 // trait) — leave the `@trait.X` for the validator to flag.
@@ -2423,6 +2578,10 @@ pub(crate) fn inline_traits(
                 (Some(own), Some(from)) if own != from => None,
                 _ => linked_entity.clone(),
             };
+            let source_entity = sibling_def
+                .source_entity_definition
+                .clone()
+                .or_else(|| ctx.get_bound_entity_for_trait_orbital(&alias, &sibling_name, None));
             apply_overrides_to_trait(
                 &mut sibling_def,
                 sibling_rebind.as_ref(),
@@ -2454,8 +2613,7 @@ pub(crate) fn inline_traits(
             }
             // Sibling pulls come from an `@trait.<Sibling>` string literal in
             // render-ui — there is no ref object here, so no `ref_id` to try.
-            sibling_def.source_entity_definition =
-                ctx.get_entity_for_trait_orbital(&alias, &sibling_name, None);
+            sibling_def.source_entity_definition = source_entity;
             // No-rebind sibling: it keeps its OWN bound entity (e.g. a
             // step-flow's `ProgressVerticalView`). That entity is auxiliary in
             // the source behavior; carry it into the consumer so the sibling's
@@ -2486,7 +2644,9 @@ pub(crate) fn inline_traits(
             }
             // Recurse into the rebound sibling's own `@trait.Y` references,
             // with this pull (under its FINAL name) as the parent.
-            for next in sibling_trait_refs_of(&sibling_def) {
+            for (next, next_receiver) in
+                sibling_trait_refs_of(&sibling_def, &alias, &sibling_name, ctx, &host_routes)
+            {
                 worklist.push((
                     alias.clone(),
                     next,
@@ -2494,6 +2654,7 @@ pub(crate) fn inline_traits(
                     final_name.clone(),
                     owner.clone(),
                     rebind_from.clone(),
+                    next_receiver,
                 ));
             }
             pulled_as.insert(
@@ -2507,6 +2668,9 @@ pub(crate) fn inline_traits(
                 .entry(owner.clone())
                 .or_default()
                 .insert(sibling_name.clone(), final_name.clone());
+            if receiver {
+                receiver_mounts.push((owner.clone(), final_name.clone()));
+            }
             pulled_owner.insert(final_name.clone(), owner);
             seen_names.insert(final_name.clone());
             pulled_names.push(final_name);
@@ -2652,6 +2816,7 @@ pub(crate) fn inline_traits(
         pulled_aux_entities,
         pulled_names,
         config_diagnostics,
+        receiver_mounts,
     ))
 }
 
@@ -2727,7 +2892,7 @@ mod entity_id_reader_tests {
     }
 
     fn payload_field(name: &str) -> PayloadField {
-        PayloadField {
+        PayloadField { values: None,
             name: name.to_string(),
             field_type: "string".to_string(),
             required: None,

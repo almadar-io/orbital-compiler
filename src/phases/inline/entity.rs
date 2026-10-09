@@ -245,7 +245,9 @@ pub(crate) fn collect_trait_referenced_entity_fields(
         fields.extend(contract.requires.iter().cloned());
     }
 
-    for sibling in super::sibling_trait_refs_of(trait_def) {
+    for (sibling, _) in
+        super::sibling_trait_refs_of(trait_def, alias, &trait_def.name, ctx, &HashSet::new())
+    {
         if !visited.insert(sibling.clone()) {
             continue;
         }
@@ -362,7 +364,9 @@ pub(crate) fn trait_referenced_fields_of_entity_recursive(
 ) -> (bool, HashSet<String>) {
     let mut fields = trait_referenced_fields_of_entity(trait_def, candidate, is_own_entity);
     let mut references = is_own_entity || !fields.is_empty();
-    for sibling in super::sibling_trait_refs_of(trait_def) {
+    for (sibling, _) in
+        super::sibling_trait_refs_of(trait_def, alias, &trait_def.name, ctx, &HashSet::new())
+    {
         if !visited.insert(sibling.clone()) {
             continue;
         }

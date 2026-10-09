@@ -119,6 +119,11 @@ pub enum ErrorCode {
     TraitDuplicateName,
     /// Event not defined but used in transition
     TraitUndefinedEvent,
+    /// A trait-value literal (`<spec>.traits.<Trait>`) whose behavior or trait
+    /// does not resolve against the installed behavior packages.
+    TraitBehaviorRefUnresolved,
+    /// An `["unquote", …]` call outside a quasiquote body in an `.orb` input.
+    TraitUnquoteOutsideQuasiquote,
     /// Config field typed `slot` has a default value not in `VALID_SLOTS`
     TraitInvalidSlotDefault,
     /// Config field typed `pattern` has a default value not in `PATTERN_TYPES`
@@ -249,6 +254,18 @@ pub enum ErrorCode {
     PageInvalidPath,
     /// Duplicate page path
     PageDuplicatePath,
+    /// `indexing: index` without `access: public`, a title, a description or an app `origin`
+    PageIndexRequiresPublic,
+    /// `indexing: index` on a `:param` route (concrete URL inputs are not declarable yet)
+    PageIndexParamRoute,
+    /// `access: authenticated` page in an app that declares no `signIn` route
+    PageAuthNoSignIn,
+    /// The app's `signIn` route is no page, or is itself `access: authenticated`
+    PageSignInUnknownRoute,
+    /// A page is declared on the host's own sign-in route (`/login`)
+    PageHostReservedRoute,
+    /// One locale holds two pages of the same `translationOf` group
+    PageTranslationDuplicateLocale,
     /// Page is missing traits array
     PageMissingTraits,
     /// Page traits array is empty
@@ -303,6 +320,19 @@ pub enum ErrorCode {
     /// reach it (G3, `docs/Almadar_Compiler_Gaps.md` §82, rung 2: what used
     /// to validate 0/0 with a dead reference now errors instead).
     OrbitalRefFieldRenameUnapplied,
+    OrbitalRefMockUnknownField,
+    /// A `retype { … }` field the upstream primary entity does not declare (after
+    /// `fields {}` renames).
+    OrbitalRefRetypeUnknownField,
+    /// A `retype { … }` field also added by `extend {}`, or retyped twice.
+    OrbitalRefRetypeFieldConflict,
+    /// An `entity [persistent: …]` override on an upstream entity whose persistence
+    /// mode does not allow overrides (the factory-runtime rule).
+    OrbitalRefEntityPersistenceLocked,
+    /// A `traits { T { … } }` key naming no trait of the upstream orbital.
+    OrbitalRefTraitsUnknownTrait,
+    /// A `traits { T { … } }` key naming a trait `omit {}` / `only {}` dropped.
+    OrbitalRefTraitsOmittedTrait,
     /// Static sections are forbidden (use render_ui)
     PageSectionsForbidden,
     /// Invalid trait reference on page
@@ -513,6 +543,9 @@ pub enum ErrorCode {
     EffectEmitInvalidName,
     /// Event in `emit:` isn't declared in the trait's `emits` array.
     EffectEmitUndeclaredEvent,
+    /// `program/eval` carries no `emit.failure` event: the validator's errors
+    /// come back through the failure arm, so without one they are dropped.
+    EffectProgramEvalFailureMissing,
     /// Operator declares `requiresEmitSuccess: true` in canonical-operators.json
     /// but the effect call site is missing the trailing options object or its
     /// `emit.success` event key. Applies to fetch / persist / call-service /
@@ -849,6 +882,9 @@ pub enum ErrorCode {
     /// rule that no wire may terminate in nothing (owner ruling 2026-09-13:
     /// a `trait`-typed config knob may be `none`).
     RenderUnboundTraitKnobEmbedded,
+    /// A render-ui payload embeds an `orbital`-typed field: an orbital value
+    /// is data (an import body) and never renders — only trait values embed.
+    RenderOrbitalValueEmbedded,
 
     // =========================================================================
     // Entity Mutation / Tick Errors (ORB_ENTITY_*, ORB_TICK_*)
@@ -1279,6 +1315,8 @@ impl ErrorCode {
             ErrorCode::TraitDeprecatedUI => "ORB_T_DEPRECATED_UI",
             ErrorCode::TraitDuplicateName => "ORB_T_DUPLICATE_NAME",
             ErrorCode::TraitUndefinedEvent => "ORB_T_UNDEFINED_EVENT",
+            ErrorCode::TraitBehaviorRefUnresolved => "ORB_T_BEHAVIOR_REF_UNRESOLVED",
+            ErrorCode::TraitUnquoteOutsideQuasiquote => "ORB_T_UNQUOTE_OUTSIDE_QUASIQUOTE",
             ErrorCode::TraitInvalidSlotDefault => "ORB_T_INVALID_SLOT_DEFAULT",
             ErrorCode::TraitInvalidPatternDefault => "ORB_T_INVALID_PATTERN_DEFAULT",
             ErrorCode::TraitSecretDefaultNotString => "ORB_T_SECRET_DEFAULT_NOT_STRING",
@@ -1308,6 +1346,12 @@ impl ErrorCode {
             ErrorCode::PageMissingPath => "ORB_P_MISSING_PATH",
             ErrorCode::PageInvalidPath => "ORB_P_INVALID_PATH",
             ErrorCode::PageDuplicatePath => "ORB_P_DUPLICATE_PATH",
+            ErrorCode::PageIndexRequiresPublic => "ORB_P_INDEX_REQUIRES_PUBLIC",
+            ErrorCode::PageIndexParamRoute => "ORB_P_INDEX_PARAM_ROUTE",
+            ErrorCode::PageAuthNoSignIn => "ORB_P_AUTH_NO_SIGN_IN",
+            ErrorCode::PageSignInUnknownRoute => "ORB_P_SIGN_IN_UNKNOWN_ROUTE",
+            ErrorCode::PageHostReservedRoute => "ORB_P_HOST_RESERVED_ROUTE",
+            ErrorCode::PageTranslationDuplicateLocale => "ORB_P_TRANSLATION_DUPLICATE_LOCALE",
             ErrorCode::PageMissingTraits => "ORB_P_MISSING_TRAITS",
             ErrorCode::PageEmptyTraits => "ORB_P_EMPTY_TRAITS",
             ErrorCode::OrbitalMissingPages => "ORB_O_MISSING_PAGES",
@@ -1323,6 +1367,12 @@ impl ErrorCode {
             ErrorCode::OrbitalRefExtendFieldCollision => "ORB_O_EXTEND_FIELD_COLLISION",
             ErrorCode::OrbitalRefExtendFieldUnread => "ORB_O_EXTEND_FIELD_UNREAD",
             ErrorCode::OrbitalRefFieldRenameUnapplied => "ORB_O_FIELD_RENAME_UNAPPLIED",
+            ErrorCode::OrbitalRefMockUnknownField => "ORB_O_MOCK_UNKNOWN_FIELD",
+            ErrorCode::OrbitalRefRetypeUnknownField => "ORB_O_RETYPE_UNKNOWN_FIELD",
+            ErrorCode::OrbitalRefRetypeFieldConflict => "ORB_O_RETYPE_FIELD_CONFLICT",
+            ErrorCode::OrbitalRefEntityPersistenceLocked => "ORB_O_ENTITY_PERSISTENCE_LOCKED",
+            ErrorCode::OrbitalRefTraitsUnknownTrait => "ORB_O_TRAITS_UNKNOWN_TRAIT",
+            ErrorCode::OrbitalRefTraitsOmittedTrait => "ORB_O_TRAITS_OMITTED_TRAIT",
             ErrorCode::PageSectionsForbidden => "ORB_P_SECTIONS_FORBIDDEN",
             ErrorCode::PageInvalidTraitRef => "ORB_P_INVALID_TRAIT_REF",
             ErrorCode::PageInvalidViewType => "ORB_P_INVALID_VIEW_TYPE",
@@ -1391,6 +1441,7 @@ impl ErrorCode {
             ErrorCode::EffectEmitKeyInvalid => "ORB_EFF_EMIT_KEY_INVALID",
             ErrorCode::EffectEmitInvalidName => "ORB_EFF_EMIT_INVALID_NAME",
             ErrorCode::EffectEmitUndeclaredEvent => "ORB_EFF_EMIT_UNDECLARED_EVENT",
+            ErrorCode::EffectProgramEvalFailureMissing => "ORB_EFF_PROGRAM_EVAL_FAILURE_MISSING",
             ErrorCode::EffectMissingRequiredEmit => "ORB_EFF_MISSING_REQUIRED_EMIT",
 
             // S-Expression
@@ -1487,6 +1538,7 @@ impl ErrorCode {
             ErrorCode::BindingTraitInvalidPosition => "ORB_BINDING_TRAIT_INVALID_POSITION",
             ErrorCode::BindingTraitOutsideRenderUi => "ORB_BINDING_TRAIT_OUTSIDE_RENDER_UI",
             ErrorCode::RenderUnboundTraitKnobEmbedded => "ORB_RENDER_UNBOUND_TRAIT_KNOB_EMBEDDED",
+            ErrorCode::RenderOrbitalValueEmbedded => "ORB_RENDER_ORBITAL_VALUE_EMBEDDED",
 
             // Entity Mutation / Tick
             ErrorCode::EntitySplitMutation => "ORB_ENTITY_SPLIT_MUTATION",
@@ -1638,6 +1690,8 @@ impl ErrorCode {
             | ErrorCode::TraitDeprecatedUI
             | ErrorCode::TraitDuplicateName
             | ErrorCode::TraitUndefinedEvent
+            | ErrorCode::TraitBehaviorRefUnresolved
+            | ErrorCode::TraitUnquoteOutsideQuasiquote
             | ErrorCode::TraitInvalidSlotDefault
             | ErrorCode::TraitInvalidPatternDefault
             | ErrorCode::TraitSecretDefaultNotString
@@ -1669,6 +1723,12 @@ impl ErrorCode {
             | ErrorCode::PageMissingPath
             | ErrorCode::PageInvalidPath
             | ErrorCode::PageDuplicatePath
+            | ErrorCode::PageIndexRequiresPublic
+            | ErrorCode::PageIndexParamRoute
+            | ErrorCode::PageAuthNoSignIn
+            | ErrorCode::PageSignInUnknownRoute
+            | ErrorCode::PageHostReservedRoute
+            | ErrorCode::PageTranslationDuplicateLocale
             | ErrorCode::PageMissingTraits
             | ErrorCode::PageEmptyTraits
             | ErrorCode::OrbitalMissingPages
@@ -1684,6 +1744,12 @@ impl ErrorCode {
             | ErrorCode::OrbitalRefExtendFieldCollision
             | ErrorCode::OrbitalRefExtendFieldUnread
             | ErrorCode::OrbitalRefFieldRenameUnapplied
+            | ErrorCode::OrbitalRefMockUnknownField
+            | ErrorCode::OrbitalRefRetypeUnknownField
+            | ErrorCode::OrbitalRefRetypeFieldConflict
+            | ErrorCode::OrbitalRefEntityPersistenceLocked
+            | ErrorCode::OrbitalRefTraitsUnknownTrait
+            | ErrorCode::OrbitalRefTraitsOmittedTrait
             | ErrorCode::PageSectionsForbidden
             | ErrorCode::PageInvalidTraitRef
             | ErrorCode::PageInvalidViewType
@@ -1718,7 +1784,8 @@ impl ErrorCode {
             | ErrorCode::RenderUIEventBindingPayloadMismatch
             | ErrorCode::EntityPropContract
             | ErrorCode::RenderUIEventLiteralStale
-            | ErrorCode::RenderUnboundTraitKnobEmbedded => "render_ui",
+            | ErrorCode::RenderUnboundTraitKnobEmbedded
+            | ErrorCode::RenderOrbitalValueEmbedded => "render_ui",
 
             ErrorCode::EffectCallServiceMissingService
             | ErrorCode::EffectCallServiceUnknownService
@@ -1746,6 +1813,7 @@ impl ErrorCode {
             | ErrorCode::EffectEmitKeyInvalid
             | ErrorCode::EffectEmitInvalidName
             | ErrorCode::EffectEmitUndeclaredEvent
+            | ErrorCode::EffectProgramEvalFailureMissing
             | ErrorCode::EffectMissingRequiredEmit
             | ErrorCode::SetValueTypeMismatch
             | ErrorCode::EnumValueNotMember

@@ -370,6 +370,7 @@ pub const VALID_FIELD_TYPES: &[&str] = &[
     // `trait` was missing here while being a real `FieldType` variant — a latent
     // bug that would reject any trait-typed field reaching this check.
     "trait",
+    "orbital",
     "slot",
     "pattern",
     // Renderable UI content (type-integrity campaign).
@@ -884,5 +885,20 @@ mod tests {
             "VALID_SLOTS drifted from UI_SLOTS in \
              packages/almadar-core/src/types/effect.ts — update whichever side is stale"
         );
+    }
+}
+
+#[cfg(test)]
+mod valid_field_types_tests {
+    use super::VALID_FIELD_TYPES;
+    use orbital_core::schema::FieldType;
+
+    #[test]
+    fn the_behavior_value_types_are_valid_field_types() {
+        for ty in [FieldType::Trait, FieldType::Orbital] {
+            let name = serde_json::to_value(&ty).expect("serializes");
+            let name = name.as_str().expect("a string tag");
+            assert!(VALID_FIELD_TYPES.contains(&name), "{name} missing from VALID_FIELD_TYPES");
+        }
     }
 }

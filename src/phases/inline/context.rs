@@ -376,10 +376,7 @@ impl InlineContext {
                 }
             }
         }
-        match &orbital.entity {
-            EntityRef::Inline(e) => Some(e.clone()),
-            _ => None,
-        }
+        self.get_entity_for_trait_orbital(alias, trait_name, trait_ref_id)
     }
 
     /// §B4-R5: the declared `config {}` of the orbital that OWNS an imported
@@ -642,6 +639,32 @@ impl InlineContext {
             name.to_string(),
             entry.source_label.clone(),
         ))
+    }
+
+    /// The trait `name` as the orbital of `alias` declaring the trait `beside` has it; the
+    /// alias-wide lookup ([`Self::get_trait`]) only when no orbital declaring `beside` has it.
+    /// Two orbitals composing one atom each hold that atom's traits under the same names.
+    pub(crate) fn get_trait_beside(
+        &self,
+        alias: &str,
+        beside: &str,
+        name: &str,
+    ) -> Result<TraitReference, InlineError> {
+        let entry = self.get_entry(alias)?;
+        let declares = |traits: &[TraitReference], wanted: &str| {
+            traits.iter().find_map(|t| match t {
+                TraitReference::Inline(td) if td.name == wanted => Some(t.clone()),
+                _ => None,
+            })
+        };
+        for orbital in entry.orbitals.iter() {
+            if declares(&orbital.traits, beside).is_some() {
+                if let Some(found) = declares(&orbital.traits, name) {
+                    return Ok(found);
+                }
+            }
+        }
+        self.get_trait(alias, name)
     }
 
     pub(crate) fn get_page(&self, alias: &str, name: &str) -> Result<PageRef, InlineError> {

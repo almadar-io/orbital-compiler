@@ -206,3 +206,163 @@ fn control_without_a_role_remap_the_vocabulary_is_inherited_as_is() {
     let values = inherited_role_values(r#""customer", "manager""#, "");
     assert_eq!(values, vec!["customer", "manager"]);
 }
+
+fn reconciled_consumer() -> serde_json::Value {
+    serde_json::json!({
+        "name": "Reconciled", "version": "1.0.0",
+        "orbitals": [{
+            "name": "Shop", "uses": [{"from": "./upstream.orb", "as": "Up"}],
+            "entity": {"name": "Product", "collection": "products", "persistence": "persistent", "fields": [{"name": "id", "type": "string"}]},
+            "expects": [
+                {"kind": "entity", "name": "Customer", "shape": [{"name": "email", "type": "email"}]},
+                {"kind": "identity", "name": "OnlineUser", "shape": [
+                    {"name": "role", "type": "string", "values": ["customer", "manager"]},
+                    {"name": "name", "type": "string"}
+                ]}
+            ],
+            "traits": [{"ref": "Up.traits.ProductRules"}], "pages": [{"name":"ShopPage","path":"/shop","traits":[{"ref":"ProductRules"}]}]
+        }, {
+            "name": "Customers", "entity": {"name": "Customer", "collection": "customers", "persistence": "persistent", "fields": [{"name": "id", "type": "string"}, {"name": "email", "type": "email"}]},
+            "traits": [], "pages": [{"name":"CustomersPage","path":"/customers","traits":[]}]
+        }, {
+            "name": "Viewers", "entity": {"name": "OnlineUser", "collection": "users", "identity": true, "persistence": "persistent", "fields": [
+                {"name": "id", "type": "string"},
+                {"name": "role", "type": "string", "values": ["customer", "manager", "moderator"]},
+                {"name": "name", "type": "string", "required": true}
+             ]}, "traits": [], "pages": [{"name":"ViewersPage","path":"/viewers","traits":[]}]
+        }]
+    })
+}
+
+fn inline_reconciled_consumer(
+    mut input: serde_json::Value,
+    whole_orbital: bool,
+) -> orbital_core::schema::OrbitalSchema {
+    if whole_orbital {
+        input["orbitals"][0]["traits"] = serde_json::json!([]);
+        input["orbitals"][0]["reference"] =
+            serde_json::json!({"ref": "Up.orbitals.ProductOrbital", "entity": "Product"});
+    }
+    let dir = tempfile::TempDir::new().expect("temp dir");
+    let expectations = r#""expects": [{"kind":"identity","name":"Customer","shape":[{"name":"role","type":"string","values":["customer","manager"]},{"name":"name","type":"string","required":true}]}],"#;
+    let mut source: serde_json::Value =
+        serde_json::from_str(&upstream(expectations)).expect("upstream JSON");
+    source["orbitals"][0]["entity"]["collection"] = serde_json::json!("products");
+    std::fs::write(dir.path().join("upstream.orb"), source.to_string()).expect("write upstream");
+    let path = dir.path().join("consumer.orb");
+    std::fs::write(&path, input.to_string()).expect("write consumer");
+    let mut schema = parse_file(&path).expect("parse");
+    inline_schema(&mut schema, &InlineConfig::default(), Some(&path)).expect("inline");
+    schema
+}
+
+fn validate_reconciled_contracts(
+    schema: &orbital_core::schema::OrbitalSchema,
+) -> orbital_compiler::phases::validation::ValidationResult {
+    use orbital_compiler::phases::validation::{
+        entity_access, expectations, user_identity, ValidationContext,
+    };
+    let mut context = ValidationContext::new();
+    user_identity::validate_user_identity(schema, &mut context);
+    entity_access::validate_entity_access(schema, &mut context);
+    expectations::validate_expectations(schema, &mut context);
+    context.result
+}
+
+#[test]
+fn explicit_reconciled_viewer_and_record_expectations_survive_both_import_paths() {
+    use orbital_core::schema::ExpectDeclaration;
+    for whole_orbital in [false, true] {
+        let schema = inline_reconciled_consumer(reconciled_consumer(), whole_orbital);
+        let declarations = schema.orbitals[0]
+            .expects
+            .as_ref()
+            .expect("expects retained");
+        assert_eq!(declarations.len(), 2);
+        assert!(declarations.iter().any(|e| matches!(e, ExpectDeclaration::Entity { name, shape: Some(fields) } if name == "Customer" && fields.len() == 1 && fields[0].name.as_deref() == Some("email"))));
+        let identity = declarations
+            .iter()
+            .find_map(|e| match e {
+                ExpectDeclaration::Identity { name, shape } => Some((name, shape)),
+                _ => None,
+            })
+            .expect("viewer expectation retained");
+        assert_eq!(identity.0.as_deref(), Some("OnlineUser"));
+        assert!(identity
+            .1
+            .as_ref()
+            .expect("viewer shape")
+            .iter()
+            .any(|f| f.name.as_deref() == Some("name") && f.required == Some(true)));
+        let result = validate_reconciled_contracts(&schema);
+        assert!(result.errors.is_empty(), "{:?}", result.errors);
+    }
+}
+
+#[test]
+fn reconciliation_does_not_erase_viewer_or_record_contract_failures() {
+    for whole_orbital in [false, true] {
+        for mutation in [
+            "identity-tag",
+            "missing-field",
+            "wrong-type",
+            "wrong-role",
+            "optional-required",
+            "record-type",
+            "genuine-named",
+            "unrelated-record",
+        ] {
+            let mut input = reconciled_consumer();
+            match mutation {
+                "identity-tag" => {
+                    input["orbitals"][2]["entity"]["identity"] = serde_json::json!(false)
+                }
+                "missing-field" => {
+                    input["orbitals"][2]["entity"]["fields"][2]["name"] = serde_json::json!("other")
+                }
+                "wrong-type" => {
+                    input["orbitals"][2]["entity"]["fields"][2]["type"] =
+                        serde_json::json!("number")
+                }
+                "wrong-role" => {
+                    input["orbitals"][2]["entity"]["fields"][1]["values"] =
+                        serde_json::json!(["moderator"])
+                }
+                "optional-required" => {
+                    input["orbitals"][2]["entity"]["fields"][2]["required"] =
+                        serde_json::json!(false)
+                }
+                "record-type" => {
+                    input["orbitals"][1]["entity"]["fields"][1]["type"] =
+                        serde_json::json!("number")
+                }
+                "genuine-named" => {
+                    input["orbitals"][0]["expects"][1]["name"] = serde_json::json!("Customer")
+                }
+                "unrelated-record" => {
+                    input["orbitals"][0]["expects"] =
+                        serde_json::json!([{"kind":"entity","name":"Other"}])
+                }
+                _ => unreachable!(),
+            }
+            let schema = inline_reconciled_consumer(input, whole_orbital);
+            let result = validate_reconciled_contracts(&schema);
+            assert!(
+                result.errors.iter().any(|e| e.path.contains(".expects[")),
+                "{whole_orbital}/{mutation}: {:?}",
+                result.errors
+            );
+        }
+    }
+}
+
+#[test]
+fn an_absent_explicit_viewer_remains_a_deferred_library_requirement() {
+    for whole_orbital in [false, true] {
+        let mut input = reconciled_consumer();
+        input["orbitals"].as_array_mut().expect("orbitals").pop();
+        let schema = inline_reconciled_consumer(input, whole_orbital);
+        let result = validate_reconciled_contracts(&schema);
+        assert!(result.errors.is_empty(), "{:?}", result.errors);
+    }
+}

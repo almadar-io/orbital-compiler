@@ -681,6 +681,15 @@ impl ExternalOrbitalLoader {
         self.load_from_path(absolute_path, import_path, chain)
     }
 
+    /// The `orb.prefix` of the installed package whose registry holds `path`.
+    pub fn owning_prefix(&self, path: &Path) -> Option<&str> {
+        self.config
+            .packages
+            .iter()
+            .find(|pkg| path.starts_with(&pkg.registry))
+            .map(|pkg| pkg.prefix.as_str())
+    }
+
     /// Resolve `import_path` exactly as `load` would (behavior-package forms
     /// only — `std/behaviors/<name>` or `<prefix>/<name>`), for `orb behaviors
     /// which`: "which copy compiled?" without a `from_path` context. Returns
@@ -1035,6 +1044,7 @@ mod tests {
 
         // Insert and retrieve
         let schema = OrbitalSchema {
+            site: None,
             public_dir: None,
             locales: None,
             lazy_pages: None,

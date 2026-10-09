@@ -26,6 +26,7 @@ pub(crate) mod rewrite;
 mod service;
 mod sigil_types;
 mod splice;
+mod trait_value_refs;
 #[path = "trait.rs"]
 mod r#trait;
 
@@ -238,6 +239,22 @@ pub enum InlineError {
          `phases::lazy::split_lazy_and_resolve` before inlining"
     )]
     LazyNotSplit { orbital: String },
+
+    #[error(
+        "Page reference '{reference}' at {path} sets `access: public` on an upstream page declared \
+         `access: authenticated` — an import cannot weaken inherited protection"
+    )]
+    PageAccessWeakened { reference: String, path: String },
+
+    #[error("Behavior value '{literal}' at {path} does not resolve: {reason}")]
+    BehaviorRefUnresolved {
+        literal: String,
+        path: String,
+        reason: String,
+    },
+
+    #[error("`unquote` at {path} appears outside a quasiquote body")]
+    UnquoteOutsideQuasiquote { path: String },
 }
 
 impl InlineError {
@@ -254,6 +271,9 @@ impl InlineError {
             InlineError::DuplicateUseAlias { path, .. } => path,
             InlineError::OrbitalRefListenTargetUnknown { path, .. } => path,
             InlineError::LazyEagerRef { path, .. } => path,
+            InlineError::PageAccessWeakened { path, .. } => path,
+            InlineError::BehaviorRefUnresolved { path, .. } => path,
+            InlineError::UnquoteOutsideQuasiquote { path } => path,
             _ => "",
         }
     }
@@ -274,6 +294,9 @@ impl InlineError {
             InlineError::LazyEagerRef { .. } => "ORB_LAZY_EAGER_REF",
             InlineError::LazyNoPages { .. } => "ORB_LAZY_NO_PAGES",
             InlineError::LazyNotSplit { .. } => "ORB_LAZY_NOT_SPLIT",
+            InlineError::PageAccessWeakened { .. } => "ORB_O_PAGE_ACCESS_WEAKENED",
+            InlineError::BehaviorRefUnresolved { .. } => "ORB_T_BEHAVIOR_REF_UNRESOLVED",
+            InlineError::UnquoteOutsideQuasiquote { .. } => "ORB_T_UNQUOTE_OUTSIDE_QUASIQUOTE",
             InlineError::Loader(LoaderError::PackageNotInstalled { .. })
             | InlineError::Loader(LoaderError::BehaviorPackageNotInstalled { .. }) => {
                 "ORB_BEHAVIOR_PACKAGE_NOT_INSTALLED"
@@ -446,6 +469,8 @@ pub fn inline_schema_with_orbital_diagnostics(
         chain.push(path);
     }
 
+    trait_value_refs::resolve_trait_value_refs(schema, loader, &chain, source_path)?;
+
     // Computed once: threaded into every orbital as the outermost §4.5
     // config-forward rung. Cloned (not borrowed) so the per-orbital loop
     // below can hold `&mut schema.orbitals` without fighting the borrow
@@ -474,7 +499,7 @@ pub fn inline_schema_with_orbital_diagnostics(
     // inline XOR reference-form, never both, so no name can collide with
     // itself) — the shallow pre-pass below only ever adds NEW keys.
     consumer_entity_ids.extend(precompute_reference_form_primary_ids(
-        schema,
+        &schema.orbitals,
         loader,
         &mut chain,
         source_path,
@@ -618,24 +643,13 @@ pub fn inline_schema_with_orbital_diagnostics(
     // auxiliary (a sibling trait still bound to its source behavior's same-named entity) would
     // shadow it by name and drop the fields only the owner carries. Before the retry, so merges
     // land on the owner.
-    drop_shadowed_auxiliaries(&mut schema.orbitals);
-
     // §52 schema-wide retry: every orbital has now inlined (every Gap #22
     // no-rebind auxiliary registered, every primary entity declared), so a
     // merge target unresolved LOCALLY may resolve here — a later no-rebind
     // import in the same orbital, or a sibling orbital's own entity. A
     // target still unresolved after this is left unmerged; there is no
     // further fallback, and `ORB_T_REBIND_TARGET_UNRESOLVED` reports it.
-    for dm in deferred_merges {
-        merge_into_named_entity(
-            &mut schema.orbitals,
-            &dm.target,
-            &dm.imported,
-            dm.intrinsic_only,
-            &dm.required_data,
-            &dm.referenced_fields,
-        );
-    }
+    settle_shadowed_auxiliaries(&mut schema.orbitals, &deferred_merges);
 
     uniquify_cross_orbital_pulled_siblings(schema, &pulled_by_orbital);
 
@@ -961,13 +975,13 @@ fn uniquify_cross_orbital_pulled_siblings(
 /// the REAL `resolve_orbital_reference` call moments later still surfaces
 /// the actual `InlineError` for it.
 fn precompute_reference_form_primary_ids(
-    schema: &OrbitalSchema,
+    orbitals: &[Orbital],
     loader: &mut ExternalOrbitalLoader,
     chain: &mut ImportChain,
     source_path: Option<&Path>,
 ) -> HashMap<String, String> {
     let mut out: HashMap<String, String> = HashMap::new();
-    for orbital in &schema.orbitals {
+    for orbital in orbitals {
         let Some(reference) = orbital.reference.as_ref() else {
             continue;
         };
@@ -981,16 +995,78 @@ fn precompute_reference_form_primary_ids(
         let Ok(loaded) = loader.load(&use_decl.from, source_path, chain) else {
             continue;
         };
-        let Some(upstream) = loaded.schema.orbitals.iter().find(|o| o.name == name) else {
+        let Some(upstream) = loaded.schema.orbitals.iter().find(|o| o.name == name).cloned() else {
             continue;
         };
+        let upstream_path = loaded.source_path.clone();
         if let Some((primary_name, primary_id)) =
-            materialized_primary_entity(upstream, reference, &orbital.name)
+            materialized_primary_entity(&upstream, reference, &orbital.name)
         {
+            out.insert(primary_name, primary_id);
+        } else if let Some((up_name, up_id, upstream_id)) =
+            flattened_primary_entity(&upstream, loader, chain, Some(&upstream_path), 0)
+        {
+            let primary_name = reference
+                .entity
+                .clone()
+                .unwrap_or_else(|| format!("{}{up_name}", orbital.name));
+            let primary_id = derive_materialized_id(
+                up_id.as_deref(),
+                upstream_id.as_deref(),
+                &up_name,
+                &orbital.name,
+                orbital_core::identity::IdKind::Entity,
+            );
             out.insert(primary_name, primary_id);
         }
     }
     out
+}
+
+/// An orbital's primary entity once its own import (if any) flattens: (name,
+/// id, the orbital's effective id). Recursive through an import of an import;
+/// mirrors `resolve_orbital_reference`'s primary naming and id derivation.
+fn flattened_primary_entity(
+    orbital: &Orbital,
+    loader: &mut ExternalOrbitalLoader,
+    chain: &mut ImportChain,
+    source_path: Option<&Path>,
+    depth: usize,
+) -> Option<(String, Option<String>, Option<String>)> {
+    const MAX_IMPORT_DEPTH: usize = 16;
+    if let EntityRef::Inline(def) = &orbital.entity {
+        return Some((def.name.clone(), def.id.clone(), orbital.id.clone()));
+    }
+    let reference = orbital.reference.as_ref()?;
+    if depth >= MAX_IMPORT_DEPTH {
+        return None;
+    }
+    let Ok(ParsedReference::Orbital { alias, name }) = parse_reference(&reference.reference) else {
+        return None;
+    };
+    let use_decl = orbital.uses.iter().flatten().find(|u| u.alias == alias)?;
+    let loaded = loader.load(&use_decl.from, source_path, chain).ok()?;
+    let upstream = loaded.schema.orbitals.iter().find(|o| o.name == name).cloned()?;
+    let upstream_path = loaded.source_path.clone();
+    let (up_name, up_id, upstream_id) =
+        flattened_primary_entity(&upstream, loader, chain, Some(&upstream_path), depth + 1)?;
+    let final_name = reference
+        .entity
+        .clone()
+        .unwrap_or_else(|| format!("{}{up_name}", orbital.name));
+    let final_id = derive_materialized_id(
+        up_id.as_deref(),
+        upstream_id.as_deref(),
+        &up_name,
+        &orbital.name,
+        orbital_core::identity::IdKind::Entity,
+    );
+    let effective_id = orbital.id.clone().or_else(|| {
+        upstream_id
+            .as_deref()
+            .map(|uid| orbital_core::identity::derive_id(uid, &orbital.name))
+    });
+    Some((final_name, Some(final_id), effective_id))
 }
 
 /// G1 (`docs/Almadar_Compiler_Gaps.md` §82): every reference-form orbital
@@ -1503,9 +1579,24 @@ fn inline_orbital(
             alias_schema_configs.insert(use_decl.alias.clone(), folded);
         }
 
-        // An imported behavior inlines the same way wherever it is used (its
-        // inputs are all its own), so it is inlined once per program and reused.
-        let import_key = loader.canonical(&loaded_source);
+        // An imported behavior inlines the same way wherever it is used with the
+        // same `uses { config }` override, so it is inlined once per (file,
+        // override) and reused. Its own reference-form orbitals resolve
+        // `@config.X` against the alias config folded with that override.
+        let alias_config: Option<HashMap<String, ConfigField>> =
+            alias_schema_configs.get(&use_decl.alias).cloned().or_else(|| loaded_schema_config.clone());
+        let import_key = match use_decl.config.as_ref() {
+            Some(overrides) if !overrides.is_empty() => {
+                let mut keyed: Vec<(&String, String)> = overrides
+                    .iter()
+                    .map(|(k, v)| (k, serde_json::to_string(v).unwrap_or_default()))
+                    .collect();
+                keyed.sort();
+                let canonical = loader.canonical(&loaded_source);
+                std::path::PathBuf::from(format!("{}#uses-config={keyed:?}", canonical.display()))
+            }
+            _ => loader.canonical(&loaded_source),
+        };
         let inlined_orbitals: std::rc::Rc<Vec<Orbital>> =
             if let Some(done) = imports.get(&import_key) {
                 recorder.extend(done.provenance.iter().cloned());
@@ -1544,7 +1635,13 @@ fn inline_orbital(
                         );
                     // The alias's own `entities {}` targets name ITS entities, never the
                     // importing program's.
-                    let nested_entity_ids = inline_entity_ids(&inlined_orbitals);
+                    let mut nested_entity_ids = inline_entity_ids(&inlined_orbitals);
+                    nested_entity_ids.extend(precompute_reference_form_primary_ids(
+                        &inlined_orbitals,
+                        loader,
+                        chain,
+                        Some(&loaded_source),
+                    ));
                     for inlined_orbital in &mut inlined_orbitals {
                         inline_orbital(
                             inlined_orbital,
@@ -1555,7 +1652,7 @@ fn inline_orbital(
                             None,
                             recorder,
                             config_diagnostics,
-                            loaded_schema_config.as_ref(),
+                            alias_config.as_ref(),
                             &nested_entity_ids,
                             &nested_listen_source_targets,
                             orbital_ref_diagnostics,
@@ -1570,6 +1667,19 @@ fn inline_orbital(
                 })();
                 let loaded_files = loader.end_recording();
                 inlined?;
+                // Land the alias's own cross-orbital merges on the alias's orbitals too, so a
+                // definition copied out of it (an import's clone or retarget) carries the merged
+                // fields; they still travel on to the importing program as before.
+                for dm in &deferred_merges[marks.4..] {
+                    merge_into_named_entity(
+                        &mut inlined_orbitals,
+                        &dm.target,
+                        &dm.imported,
+                        dm.intrinsic_only,
+                        &dm.required_data,
+                        &dm.referenced_fields,
+                    );
+                }
                 let inlined_orbitals = std::rc::Rc::new(inlined_orbitals);
                 imports.insert(
                     import_key,
@@ -1610,6 +1720,7 @@ fn inline_orbital(
             schema_config,
             orbital_ref_diagnostics,
             orbital_index,
+            deferred_merges,
         )?;
     }
 
@@ -2185,6 +2296,7 @@ fn inline_orbital(
         pulled_aux_entities,
         pulled_sibling_names,
         trait_config_diagnostics,
+        receiver_mounts,
     ) = inline_traits(
         &orbital.traits,
         &ctx,
@@ -2237,6 +2349,7 @@ fn inline_orbital(
     // resolves in `trait_ids` — so no page-ref token rewrite is needed. The
     // former `rewrite_page_trait_refs` is deleted.
     orbital.pages = inline_pages(&orbital.pages, &ctx)?;
+    mount_pulled_receivers(orbital, &receiver_mounts);
 
     // Inline services
     orbital.services = inline_services(&orbital.services, &ctx)?;
@@ -2261,6 +2374,61 @@ fn inline_orbital(
     }
 
     Ok(())
+}
+
+/// A pulled event receiver joins every inline page that mounts the owner trait
+/// it serves (by name or by the owner's id), so its handler is bound wherever
+/// the emitter is.
+fn mount_pulled_receivers(orbital: &mut Orbital, receiver_mounts: &[(String, String)]) {
+    if receiver_mounts.is_empty() {
+        return;
+    }
+    let ids: HashMap<String, String> = orbital
+        .traits
+        .iter()
+        .filter_map(|t| match t {
+            TraitReference::Inline(def) => def.id.clone().map(|id| (def.name.clone(), id)),
+            _ => None,
+        })
+        .collect();
+    for page in orbital.pages.iter_mut().flatten() {
+        let orbital_core::PageRef::Inline(page) = page else {
+            continue;
+        };
+        let Some(mounted) = page.traits.as_mut() else {
+            continue;
+        };
+        for (owner, receiver) in receiver_mounts {
+            let owner_id = ids.get(owner);
+            let mounts_owner = mounted.iter().any(|t| {
+                t.trait_name() == Some(owner.as_str())
+                    || owner_id.is_some_and(|id| t.trait_ref_id() == Some(id.as_str()))
+            });
+            let receiver_id = ids.get(receiver);
+            let mounts_receiver = mounted.iter().any(|t| {
+                t.trait_name() == Some(receiver.as_str())
+                    || receiver_id.is_some_and(|id| t.trait_ref_id() == Some(id.as_str()))
+            });
+            if mounts_owner && !mounts_receiver {
+                mounted.push(TraitReference::Reference {
+                    local: false,
+                    id: None,
+                    reference: Some(receiver.clone()),
+                    name: None,
+                    linked_entity: None,
+                    config: None,
+                    events: None,
+                    fields: None,
+                    listens: None,
+                    emits_scope: None,
+                    event_ids: None,
+                    linked_entity_id: None,
+                    ref_id: receiver_id.cloned(),
+                    type_args: None,
+                });
+            }
+        }
+    }
 }
 
 /// Build the consumer-scope entity name → dual-carry id map for an orbital: its
@@ -3647,7 +3815,7 @@ mod tests {
             modal_ref(Some("CartItemEditItem"), Some("CartItem")),
         ];
 
-        let (result, _rename_map, _aux, _pulled, _cfg_diags) = inline_traits(
+        let (result, _rename_map, _aux, _pulled, _cfg_diags, _receivers) = inline_traits(
             &traits,
             &ctx,
             "<test>",
@@ -3697,7 +3865,7 @@ mod tests {
             modal_ref(None, Some("CartItem")),
         ];
 
-        let (result, _rename_map, _aux, _pulled, _cfg_diags) = inline_traits(
+        let (result, _rename_map, _aux, _pulled, _cfg_diags, _receivers) = inline_traits(
             &traits,
             &ctx,
             "<test>",
@@ -5391,6 +5559,12 @@ mod tests {
         };
 
         let canvas_page = PageDefinition {
+            translation_of: None,
+            source_page: None,
+            access: None,
+            indexing: None,
+            title: None,
+            description: None,
             name: "ArcadeCanvasPage".to_string(),
             path: "/arcade/canvas".to_string(),
             view_type: None,
@@ -6232,6 +6406,7 @@ mod tests {
             config: None,
         };
         OrbitalSchema {
+            site: None,
             public_dir: None,
             locales: None,
             lazy_pages: None,
@@ -6272,6 +6447,324 @@ mod tests {
             session: None,
         };
         inline_schema(schema, &config, None)
+    }
+
+    /// An organism whose orbitals share an entity: `OwnerOrbital` owns `Note` (aux,
+    /// `id` only); `UserOrbital`'s trait writes `Note.body` through an atom.
+    fn write_shared_entity_organism(dir: &std::path::Path) {
+        let atom = serde_json::json!({"name": "NoteAtom", "orbitals": [{"name": "NoteOrbital",
+            "entity": {"name": "Note", "persistence": "runtime", "fields": [
+                {"name": "id", "type": "string", "required": true}, {"name": "body", "type": "string"}]},
+            "traits": [{"name": "NoteKeeper", "linkedEntity": "Note", "stateMachine": {
+                "states": [{"name": "idle", "isInitial": true}], "events": [{"key": "WRITE"}],
+                "transitions": [{"from": "idle", "to": "idle", "event": "WRITE", "effects": [["set", "@entity.body", "x"]]}]}}],
+            "pages": []}]});
+        let org = serde_json::json!({"name": "Org", "orbitals": [
+            {"name": "OwnerOrbital",
+             "entity": {"name": "Owner", "persistence": "runtime", "fields": [{"name": "id", "type": "string", "required": true}]},
+             "auxiliaryEntities": [{"name": "Note", "persistence": "runtime", "fields": [{"name": "id", "type": "string", "required": true}]}],
+             "traits": [], "pages": []},
+            {"name": "UserOrbital", "uses": [{"from": "./atom.orb", "as": "Atom"}],
+             "entity": {"name": "UserView", "persistence": "runtime", "fields": [{"name": "id", "type": "string", "required": true}]},
+             "traits": [{"ref": "Atom.traits.NoteKeeper", "linkedEntity": "Note"}], "pages": []}]});
+        std::fs::write(dir.join("atom.orb"), atom.to_string()).expect("atom.orb");
+        std::fs::write(dir.join("org.orb"), org.to_string()).expect("org.orb");
+    }
+
+    fn shared_entity_consumer(user_entities: serde_json::Value) -> OrbitalSchema {
+        let import = |name: &str, upstream: &str, entity: &str, entities: serde_json::Value| {
+            let mut reference = serde_json::json!({"ref": format!("Org.orbitals.{upstream}"), "entity": entity});
+            if !entities.is_null() {
+                reference["entities"] = entities;
+            }
+            serde_json::json!({"name": name, "uses": [{"from": "./org.orb", "as": "Org"}],
+                "entity": format!("Org.orbitals.{upstream}.entity"), "traits": [], "pages": [], "reference": reference})
+        };
+        serde_json::from_value(serde_json::json!({"name": "Consumer", "orbitals": [
+            import("Owner", "OwnerOrbital", "Owner", serde_json::Value::Null),
+            import("User", "UserOrbital", "UserView", user_entities)]}))
+        .expect("consumer schema")
+    }
+
+    fn aux_fields(schema: &OrbitalSchema, orbital: &str, entity: &str) -> Vec<String> {
+        let o = schema.orbitals.iter().find(|o| o.name == orbital).expect("orbital");
+        o.auxiliary_entities.iter().flatten().find_map(|e| match e {
+            EntityRef::Inline(def) if def.name == entity => Some(def.fields.iter().filter_map(|f| f.name.clone()).collect()),
+            _ => None,
+        }).unwrap_or_default()
+    }
+
+    fn linked_entities(schema: &OrbitalSchema, orbital: &str) -> Vec<String> {
+        let o = schema.orbitals.iter().find(|o| o.name == orbital).expect("orbital");
+        o.traits.iter().filter_map(|t| match t {
+            TraitReference::Inline(td) => td.linked_entity.clone(),
+            _ => None,
+        }).collect()
+    }
+
+    #[test]
+    fn a_retargeted_shared_entity_carries_the_fields_the_importing_traits_write() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        write_shared_entity_organism(dir.path());
+        let mut schema = shared_entity_consumer(serde_json::json!({"Note": "OwnerNote"}));
+        inline_pickup(&mut schema, dir.path()).expect("inlines");
+        assert!(linked_entities(&schema, "User").contains(&"OwnerNote".to_string()), "{:?}", linked_entities(&schema, "User"));
+        assert!(aux_fields(&schema, "Owner", "OwnerNote").contains(&"body".to_string()), "{:?}", aux_fields(&schema, "Owner", "OwnerNote"));
+    }
+
+    #[test]
+    fn control_without_a_retarget_the_import_keeps_its_own_copy() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        write_shared_entity_organism(dir.path());
+        let mut schema = shared_entity_consumer(serde_json::Value::Null);
+        inline_pickup(&mut schema, dir.path()).expect("inlines");
+        assert!(linked_entities(&schema, "User").contains(&"UserNote".to_string()), "{:?}", linked_entities(&schema, "User"));
+    }
+
+    fn diagnose(schema: &mut OrbitalSchema, dir: &std::path::Path) -> Vec<orbital::OrbitalRefDiagnostic> {
+        let config = InlineConfig {
+            loader_config: LoaderConfig { base_path: dir.to_path_buf(), ..Default::default() },
+            skip_inline: false,
+            session: None,
+        };
+        let mut orbital_ref = Vec::new();
+        inline_schema_with_orbital_diagnostics(schema, &config, None, &mut Vec::new(), &mut orbital_ref, &mut Vec::new())
+            .expect("inlines");
+        orbital_ref
+    }
+
+    fn import_of(name: &str, alias: &str, from: &str, upstream: &str, entity: &str, entities: serde_json::Value) -> serde_json::Value {
+        let mut reference = serde_json::json!({"ref": format!("{alias}.orbitals.{upstream}"), "entity": entity});
+        if !entities.is_null() {
+            reference["entities"] = entities;
+        }
+        serde_json::json!({"name": name, "uses": [{"from": from, "as": alias}],
+            "entity": format!("{alias}.orbitals.{upstream}.entity"), "traits": [], "pages": [], "reference": reference})
+    }
+
+    /// `base.orb`: `PersonOrbital` owns `Person`; `ChatOrbital`'s trait links it.
+    /// `solution.orb` imports both, naming `Person` `Customer` and retargeting the chat onto it.
+    fn write_nested_import_solution(dir: &std::path::Path, chat_entities: serde_json::Value) {
+        let base = serde_json::json!({"name": "Base", "orbitals": [
+            {"name": "PersonOrbital",
+             "entity": {"name": "Person", "persistence": "runtime", "fields": [{"name": "id", "type": "string", "required": true}]},
+             "traits": [], "pages": []},
+            {"name": "ChatOrbital",
+             "entity": {"name": "Chat", "persistence": "runtime", "fields": [{"name": "id", "type": "string", "required": true}]},
+             "auxiliaryEntities": [{"name": "Person", "persistence": "runtime", "fields": [{"name": "id", "type": "string", "required": true}]}],
+             "traits": [{"name": "ChatWho", "linkedEntity": "Person", "stateMachine": {
+                "states": [{"name": "idle", "isInitial": true}], "events": [{"key": "INIT"}],
+                "transitions": [{"from": "idle", "to": "idle", "event": "INIT", "effects": []}]}}],
+             "pages": []}]});
+        let solution = serde_json::json!({"name": "Solution", "orbitals": [
+            import_of("Account", "Base", "./base.orb", "PersonOrbital", "Customer", serde_json::Value::Null),
+            import_of("Chat", "Base", "./base.orb", "ChatOrbital", "Chat", chat_entities)]});
+        std::fs::write(dir.join("base.orb"), base.to_string()).expect("base.orb");
+        std::fs::write(dir.join("solution.orb"), solution.to_string()).expect("solution.orb");
+    }
+
+    fn nested_consumer() -> OrbitalSchema {
+        serde_json::from_value(serde_json::json!({"name": "Consumer", "orbitals": [
+            import_of("Account", "Sol", "./solution.orb", "Account", "Customer", serde_json::Value::Null),
+            import_of("Chat", "Sol", "./solution.orb", "Chat", "Chat", serde_json::json!({"Customer": "Customer"}))]}))
+        .expect("consumer schema")
+    }
+
+    #[test]
+    fn an_imported_programs_own_retarget_resolves_against_its_own_sibling_imports() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        write_nested_import_solution(dir.path(), serde_json::json!({"Person": "Customer"}));
+        let mut schema = nested_consumer();
+        let diagnostics = diagnose(&mut schema, dir.path());
+        let unknown: Vec<_> = diagnostics.iter().flat_map(|d| d.entity_target_unknown.clone()).collect();
+        assert!(unknown.is_empty(), "{unknown:?}");
+        assert!(linked_entities(&schema, "Chat").contains(&"Customer".to_string()), "{:?}", linked_entities(&schema, "Chat"));
+    }
+
+    #[test]
+    fn control_an_imported_programs_retarget_naming_nothing_is_still_diagnosed() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        write_nested_import_solution(dir.path(), serde_json::json!({"Person": "Nobody"}));
+        let mut schema = nested_consumer();
+        let diagnostics = diagnose(&mut schema, dir.path());
+        let unknown: Vec<_> = diagnostics.iter().flat_map(|d| d.entity_target_unknown.clone()).collect();
+        assert!(unknown.contains(&("Person".to_string(), "Nobody".to_string())), "{unknown:?}");
+    }
+
+    /// One file, two orbitals sharing `Product`: `ProductOrbital` owns it, `ShelfOrbital`
+    /// carries an auxiliary copy (pulled through an atom) its trait writes.
+    fn write_same_file_shared_entity(dir: &std::path::Path) {
+        let org = serde_json::json!({"name": "Shop", "orbitals": [
+            {"name": "ProductOrbital",
+             "entity": {"name": "Product", "persistence": "runtime", "fields": [
+                {"name": "id", "type": "string", "required": true}, {"name": "title", "type": "string"}]},
+             "traits": [], "pages": []},
+            {"name": "ShelfOrbital",
+             "entity": {"name": "Shelf", "persistence": "runtime", "fields": [{"name": "id", "type": "string", "required": true}]},
+             "auxiliaryEntities": [{"name": "Product", "persistence": "runtime", "fields": [
+                {"name": "id", "type": "string", "required": true}, {"name": "title", "type": "string"}]}],
+             "traits": [{"name": "ShelfRows", "linkedEntity": "Product", "stateMachine": {
+                "states": [{"name": "idle", "isInitial": true}], "events": [{"key": "INIT"}],
+                "transitions": [{"from": "idle", "to": "idle", "event": "INIT", "effects": [["set", "@entity.title", "x"]]}]}}],
+             "pages": []}]});
+        std::fs::write(dir.join("shop.orb"), org.to_string()).expect("shop.orb");
+    }
+
+    fn same_file_consumer(shelf_entities: serde_json::Value) -> OrbitalSchema {
+        serde_json::from_value(serde_json::json!({"name": "Consumer", "orbitals": [
+            import_of("ProductOrbital", "Shop", "./shop.orb", "ProductOrbital", "Product", serde_json::Value::Null),
+            import_of("ShelfOrbital", "Shop", "./shop.orb", "ShelfOrbital", "Shelf", shelf_entities)]}))
+        .expect("consumer schema")
+    }
+
+    #[test]
+    fn a_same_file_siblings_entity_is_shared_through_the_import_not_copied() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        write_same_file_shared_entity(dir.path());
+        let mut schema = same_file_consumer(serde_json::json!({"Product": "Product"}));
+        let diagnostics = diagnose(&mut schema, dir.path());
+        let unknown_keys: Vec<_> = diagnostics.iter().flat_map(|d| d.entity_unknown_key.clone()).collect();
+        assert!(unknown_keys.is_empty(), "{unknown_keys:?}");
+        assert!(linked_entities(&schema, "ShelfOrbital").contains(&"Product".to_string()), "{:?}", linked_entities(&schema, "ShelfOrbital"));
+        assert!(aux_fields(&schema, "ShelfOrbital", "ShelfOrbitalProduct").is_empty(), "the shelf import must not keep its own copy");
+    }
+
+    #[test]
+    fn control_an_unmapped_same_file_siblings_entity_is_diagnosed_unmapped() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        write_same_file_shared_entity(dir.path());
+        let mut schema = same_file_consumer(serde_json::Value::Null);
+        let diagnostics = diagnose(&mut schema, dir.path());
+        let unmapped: Vec<_> = diagnostics.iter().flat_map(|d| d.entity_unmapped.iter().map(|(_, e)| e.clone()).collect::<Vec<_>>()).collect();
+        assert!(unmapped.contains(&"Product".to_string()), "{unmapped:?}");
+    }
+
+    /// `exp.orb` declares the app knob `welcomeTitle`; its `Welcome` trait forwards `headline`
+    /// to it. `sol.orb` composes `Exp.traits.Welcome` into its own `View` orbital, optionally
+    /// re-exposing the knob through its own app config.
+    fn write_two_level_forward(dir: &std::path::Path, sol_uses_config: serde_json::Value, sol_config: serde_json::Value) {
+        let exp = serde_json::json!({"name": "Exp", "config": {"welcomeTitle": {"type": "string", "default": "Your ledger"}},
+            "orbitals": [{"name": "HomeOrbital",
+                "entity": {"name": "Visit", "persistence": "runtime", "fields": [{"name": "id", "type": "string", "required": true}]},
+                "traits": [{"name": "Welcome", "linkedEntity": "Visit",
+                    "config": {"headline": {"type": "string", "default": "@config.welcomeTitle"}},
+                    "stateMachine": {"states": [{"name": "idle", "isInitial": true}], "events": [{"key": "INIT"}],
+                        "transitions": [{"from": "idle", "to": "idle", "event": "INIT",
+                            "effects": [["render-ui", "main", {"type": "typography", "content": "@config.headline"}]]}]}}],
+                "pages": [{"name": "Home", "path": "/", "traits": [{"ref": "Welcome"}]}]}]});
+        let mut uses = serde_json::json!({"from": "./exp.orb", "as": "Exp"});
+        if !sol_uses_config.is_null() {
+            uses["config"] = sol_uses_config;
+        }
+        let mut sol = serde_json::json!({"name": "Sol", "orbitals": [{"name": "View", "uses": [uses],
+            "entity": {"name": "ViewVisit", "persistence": "runtime", "fields": [{"name": "id", "type": "string", "required": true}]},
+            "traits": [{"ref": "Exp.traits.Welcome"}],
+            "pages": [{"name": "ViewPage", "path": "/view", "traits": [{"ref": "Welcome"}]}]}]});
+        if !sol_config.is_null() {
+            sol["config"] = sol_config;
+        }
+        std::fs::write(dir.join("exp.orb"), exp.to_string()).expect("exp.orb");
+        std::fs::write(dir.join("sol.orb"), sol.to_string()).expect("sol.orb");
+    }
+
+    fn two_level_consumer(uses_config: serde_json::Value) -> OrbitalSchema {
+        let mut import = import_of("View", "Sol", "./sol.orb", "View", "ViewVisit", serde_json::Value::Null);
+        if !uses_config.is_null() {
+            import["uses"][0]["config"] = uses_config;
+        }
+        serde_json::from_value(serde_json::json!({"name": "Consumer", "orbitals": [import]})).expect("consumer schema")
+    }
+
+    fn headline_default(schema: &OrbitalSchema) -> Option<serde_json::Value> {
+        schema.orbitals[0].traits.iter().find_map(|t| match t {
+            TraitReference::Inline(td) if td.name.ends_with("Welcome") => td
+                .config
+                .as_ref()
+                .and_then(|c| c.get("headline"))
+                .and_then(|f| f.default.as_ref())
+                .and_then(|d| serde_json::to_value(d).ok()),
+            _ => None,
+        })
+    }
+
+    #[test]
+    fn a_forward_to_an_app_knob_two_imports_deep_resolves_in_its_own_home() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        write_two_level_forward(dir.path(), serde_json::Value::Null, serde_json::Value::Null);
+        let mut schema = two_level_consumer(serde_json::Value::Null);
+        diagnose(&mut schema, dir.path());
+        assert_eq!(headline_default(&schema), Some(serde_json::json!("Your ledger")));
+    }
+
+    #[test]
+    fn control_a_knob_the_middle_program_re_exposes_stays_overridable_by_its_importer() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        write_two_level_forward(
+            dir.path(),
+            serde_json::json!({"welcomeTitle": {"type": "unknown", "default": "@config.solTitle"}}),
+            serde_json::json!({"solTitle": {"type": "string", "default": "Sol default"}}),
+        );
+        let mut schema = two_level_consumer(serde_json::json!({"solTitle": {"type": "unknown", "default": "Candles"}}));
+        diagnose(&mut schema, dir.path());
+        assert_eq!(headline_default(&schema), Some(serde_json::json!("Candles")));
+    }
+
+    /// `atom.orb`: `List` embeds its sibling `Filter`. `hr.orb` composes the atom twice:
+    /// `HomeOrbital` (declared first) rebinds it to `Offboarding`, `EmployeeOrbital` to `Employee`.
+    fn write_two_orbitals_composing_one_atom(dir: &std::path::Path) {
+        let sm = |effects: serde_json::Value| serde_json::json!({"states": [{"name": "idle", "isInitial": true}], "events": [{"key": "INIT"}],
+            "transitions": [{"from": "idle", "to": "idle", "event": "INIT", "effects": effects}]});
+        let atom = serde_json::json!({"name": "BrowseAtom", "orbitals": [{"name": "ItemOrbital",
+            "entity": {"name": "Item", "persistence": "runtime", "fields": [{"name": "id", "type": "string", "required": true}, {"name": "title", "type": "string"}]},
+            "traits": [
+                {"name": "List", "linkedEntity": "Item", "stateMachine": sm(serde_json::json!([["render-ui", "main", {"type": "stack", "children": ["@trait.Filter"]}]]))},
+                {"name": "Filter", "linkedEntity": "Item", "stateMachine": sm(serde_json::json!([["set", "@entity.title", "x"]]))}],
+            "pages": []}]});
+        let entity = |name: &str| serde_json::json!({"name": name, "persistence": "runtime", "fields": [{"name": "id", "type": "string", "required": true}, {"name": "title", "type": "string"}]});
+        let hr = serde_json::json!({"name": "Hr", "orbitals": [
+            {"name": "HomeOrbital", "uses": [{"from": "./atom.orb", "as": "HomeAtom"}], "entity": entity("HomeVisit"),
+             "auxiliaryEntities": [entity("Offboarding")],
+             "traits": [{"ref": "HomeAtom.traits.List", "name": "HomeList", "linkedEntity": "Offboarding"}], "pages": []},
+            {"name": "EmployeeOrbital", "uses": [{"from": "./atom.orb", "as": "Atom"}], "entity": entity("Employee"),
+             "traits": [{"ref": "Atom.traits.List", "name": "EmployeeList", "linkedEntity": "Employee"}], "pages": []}]});
+        std::fs::write(dir.join("atom.orb"), atom.to_string()).expect("atom.orb");
+        std::fs::write(dir.join("hr.orb"), hr.to_string()).expect("hr.orb");
+    }
+
+    fn consumer_composing(trait_name: &str) -> OrbitalSchema {
+        serde_json::from_value(serde_json::json!({"name": "Consumer", "orbitals": [{"name": "PersonOrbital",
+            "uses": [{"from": "./hr.orb", "as": "Hr"}],
+            "entity": {"name": "Person", "persistence": "runtime", "fields": [{"name": "id", "type": "string", "required": true}, {"name": "title", "type": "string"}]},
+            "traits": [{"ref": format!("Hr.traits.{trait_name}"), "linkedEntity": "Person"}], "pages": []}]}))
+        .expect("consumer schema")
+    }
+
+    #[test]
+    fn a_pulled_sibling_comes_from_the_orbital_that_declares_its_parent() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        write_two_orbitals_composing_one_atom(dir.path());
+        let mut schema = consumer_composing("EmployeeList");
+        inline_pickup(&mut schema, dir.path()).expect("inlines");
+        let linked = linked_entities(&schema, "PersonOrbital");
+        assert!(!linked.contains(&"Offboarding".to_string()), "{linked:?}");
+        let aux: Vec<String> = schema.orbitals[0].auxiliary_entities.iter().flatten().filter_map(|e| match e {
+            EntityRef::Inline(d) => Some(d.name.clone()),
+            _ => None,
+        }).collect();
+        assert!(!aux.contains(&"Offboarding".to_string()), "{aux:?}");
+    }
+
+    #[test]
+    fn control_composing_the_first_orbitals_trait_still_pulls_its_own_sibling() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        write_two_orbitals_composing_one_atom(dir.path());
+        let mut schema = consumer_composing("HomeList");
+        inline_pickup(&mut schema, dir.path()).expect("inlines");
+        let names: Vec<String> = schema.orbitals[0].traits.iter().filter_map(|t| match t {
+            TraitReference::Inline(td) => Some(td.name.clone()),
+            _ => None,
+        }).collect();
+        assert!(names.iter().any(|n| n.ends_with("Filter")), "{names:?}");
     }
 
     #[test]
@@ -6539,6 +7032,7 @@ mod tests {
             config: None,
         };
         let mut schema = OrbitalSchema {
+            site: None,
             public_dir: None,
             locales: None,
             lazy_pages: None,
@@ -6640,6 +7134,7 @@ mod tests {
             config: None,
         };
         let mut schema = OrbitalSchema {
+            site: None,
             public_dir: None,
             locales: None,
             lazy_pages: None,
@@ -6718,6 +7213,7 @@ mod tests {
             config: None,
         };
         let mut schema = OrbitalSchema {
+            site: None,
             public_dir: None,
             locales: None,
             lazy_pages: None,
@@ -7041,6 +7537,7 @@ mod tests {
             config: None,
         };
         let mut schema = OrbitalSchema {
+            site: None,
             public_dir: None,
             locales: None,
             lazy_pages: None,
@@ -7113,6 +7610,7 @@ mod tests {
             config: None,
         };
         let mut schema = OrbitalSchema {
+            site: None,
             public_dir: None,
             locales: None,
             lazy_pages: None,
@@ -7187,6 +7685,7 @@ mod tests {
             config: None,
         };
         OrbitalSchema {
+            site: None,
             public_dir: None,
             locales: None,
             lazy_pages: None,
@@ -7347,6 +7846,24 @@ mod tests {
 }
 
 /// Drop every auxiliary copy that is a narrower view of an entity some orbital owns as its primary.
+/// Drop shadowed auxiliary copies, run the deferred merges onto the owners, then drop again: a
+/// copy that only lacked a field a deferred merge brings to the owner is a narrower view once the
+/// merge lands, while a copy with a shape no merge supplies stays a reported conflict.
+fn settle_shadowed_auxiliaries(orbitals: &mut [Orbital], deferred_merges: &[DeferredMerge]) {
+    drop_shadowed_auxiliaries(orbitals);
+    for dm in deferred_merges {
+        merge_into_named_entity(
+            orbitals,
+            &dm.target,
+            &dm.imported,
+            dm.intrinsic_only,
+            &dm.required_data,
+            &dm.referenced_fields,
+        );
+    }
+    drop_shadowed_auxiliaries(orbitals);
+}
+
 pub(crate) fn drop_shadowed_auxiliaries(orbitals: &mut [Orbital]) {
     let owned: HashMap<String, EntityDefinition> = orbitals
         .iter()
@@ -7431,6 +7948,48 @@ mod shadowed_auxiliary_tests {
             );
         }
         drop_shadowed_auxiliaries(&mut o);
+        assert!(aux_names(&o[1]).contains(&"OrderRecord".to_string()));
+    }
+
+    fn copy_with(o: &mut [Orbital], field: &str) {
+        if let Some(EntityRef::Inline(copy)) =
+            o[1].auxiliary_entities.as_mut().and_then(|a| a.first_mut())
+        {
+            copy.fields.push(
+                serde_json::from_value(serde_json::json!({ "name": field, "type": "string" }))
+                    .expect("field"),
+            );
+        }
+    }
+
+    fn merge_of(field: &str) -> DeferredMerge {
+        DeferredMerge {
+            target: "OrderRecord".to_string(),
+            imported: serde_json::from_value(serde_json::json!({
+                "name": "OrderRecord",
+                "fields": [ { "name": "id", "type": "string" }, { "name": field, "type": "string", "mergedFrom": "Stats" } ]
+            }))
+            .expect("entity"),
+            intrinsic_only: false,
+            required_data: HashSet::new(),
+            referenced_fields: [field.to_string()].into_iter().collect(),
+        }
+    }
+
+    #[test]
+    fn a_copy_that_only_lacked_a_field_a_deferred_merge_brings_is_dropped_after_the_merge() {
+        let mut o = orbitals();
+        copy_with(&mut o, "cards");
+        settle_shadowed_auxiliaries(&mut o, &[merge_of("cards")]);
+        assert_eq!(aux_names(&o[1]), vec!["ExportPanel".to_string()]);
+        assert!(matches!(&o[0].entity, EntityRef::Inline(d) if d.fields.iter().any(|f| f.name.as_deref() == Some("cards"))));
+    }
+
+    #[test]
+    fn control_a_copy_whose_extra_field_no_merge_brings_stays_a_conflict() {
+        let mut o = orbitals();
+        copy_with(&mut o, "importedOnly");
+        settle_shadowed_auxiliaries(&mut o, &[merge_of("cards")]);
         assert!(aux_names(&o[1]).contains(&"OrderRecord".to_string()));
     }
 

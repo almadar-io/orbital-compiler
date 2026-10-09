@@ -430,6 +430,7 @@ mod tests {
 
     fn minimal_schema(traits: Vec<TraitReference>) -> OrbitalSchema {
         OrbitalSchema {
+            site: None,
             public_dir: None,
             locales: None,
             lazy_pages: None,
