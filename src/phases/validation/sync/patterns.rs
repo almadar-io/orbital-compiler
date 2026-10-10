@@ -2,7 +2,7 @@
 //!
 //! Source: packages/almadar-core/src/patterns/patterns-registry.json
 //!
-//! Last synced: 2026-10-08
+//! Last synced: 2026-10-10
 //! To regenerate: npx tsx tools/almadar-pattern-sync/index.ts
 //!
 //! DO NOT EDIT MANUALLY - changes will be overwritten on next sync.
@@ -131,6 +131,7 @@ pub static PATTERN_TYPES: LazyLock<HashSet<&'static str>> = LazyLock::new(|| {
         "modal",
         "overlay",
         // Debug Patterns
+        "orb-inspector",
         "runtime-debugger",
         // Display Patterns
         "avl-state-machine",
@@ -149,7 +150,9 @@ pub static PATTERN_TYPES: LazyLock<HashSet<&'static str>> = LazyLock::new(|| {
         "feature-card",
         "feature-grid",
         "flip-card",
+        "flow-canvas",
         "jazari-state-machine",
+        "layers-panel",
         "line-chart",
         "master-detail-layout",
         "module-card",
@@ -430,6 +433,7 @@ pub static PATTERN_TO_CATEGORY: LazyLock<HashMap<&'static str, &'static str>> =
             ("modal", "container"),
             ("overlay", "container"),
             // Debug
+            ("orb-inspector", "debug"),
             ("runtime-debugger", "debug"),
             // Display
             ("avl-state-machine", "display"),
@@ -448,7 +452,9 @@ pub static PATTERN_TO_CATEGORY: LazyLock<HashMap<&'static str, &'static str>> =
             ("feature-card", "display"),
             ("feature-grid", "display"),
             ("flip-card", "display"),
+            ("flow-canvas", "display"),
             ("jazari-state-machine", "display"),
+            ("layers-panel", "display"),
             ("line-chart", "display"),
             ("master-detail-layout", "display"),
             ("module-card", "display"),
@@ -653,6 +659,7 @@ pub static PATTERN_REQUIRED_PROPS: LazyLock<HashMap<&'static str, Vec<&'static s
             ("flip-card", vec!["front", "back"]),
             ("flip-container", vec!["flipped", "children"]),
             ("floating-toolbar", vec!["items"]),
+            ("flow-canvas", vec!["schema"]),
             ("form", vec!["fields"]),
             ("form-field", vec!["label", "children"]),
             ("form-layout", vec!["children"]),
@@ -673,6 +680,7 @@ pub static PATTERN_REQUIRED_PROPS: LazyLock<HashMap<&'static str, Vec<&'static s
             ("import-source-picker", vec!["sources"]),
             ("infinite-scroll-sentinel", vec!["loadMoreEvent"]),
             ("law-reference-tooltip", vec!["reference", "children"]),
+            ("layers-panel", vec!["schema"]),
             ("lightbox", vec!["images"]),
             ("line-chart", vec!["data"]),
             ("markdown-content", vec!["content"]),
@@ -684,6 +692,7 @@ pub static PATTERN_REQUIRED_PROPS: LazyLock<HashMap<&'static str, Vec<&'static s
             ("navigation", vec!["items"]),
             ("notification", vec!["message"]),
             ("option-constraint-group", vec!["groupId", "title", "options"]),
+            ("orb-inspector", vec!["node", "schema", "onClose"]),
             ("page-transition", vec!["locationKey", "children"]),
             ("pagination", vec!["currentPage", "totalPages"]),
             ("popover", vec!["content", "children"]),
@@ -1125,7 +1134,9 @@ pub static PATTERN_PROPS_SCHEMA: LazyLock<HashMap<&'static str, HashSet<&'static
                     "easing",
                     "enter",
                     "enterDelay",
+                    "enterEvent",
                     "lang",
+                    "leaveEvent",
                     "once",
                     "revealEvent",
                     "role",
@@ -1509,6 +1520,7 @@ pub static PATTERN_PROPS_SCHEMA: LazyLock<HashMap<&'static str, HashSet<&'static
                 [
                     "action",
                     "actionPayload",
+                    "animateChanges",
                     "aria-busy",
                     "aria-current",
                     "aria-describedby",
@@ -1868,9 +1880,15 @@ pub static PATTERN_PROPS_SCHEMA: LazyLock<HashMap<&'static str, HashSet<&'static
                     "dir",
                     "enter",
                     "enterDelay",
+                    "fullHeight",
+                    "hasMore",
+                    "isLoadingMore",
                     "items",
                     "lang",
+                    "loadMoreAhead",
+                    "loadMoreEvent",
                     "loop",
+                    "orientation",
                     "renderItem",
                     "role",
                     "showArrows",
@@ -2256,12 +2274,16 @@ pub static PATTERN_PROPS_SCHEMA: LazyLock<HashMap<&'static str, HashSet<&'static
                     "dir",
                     "enter",
                     "enterDelay",
+                    "error",
                     "lang",
                     "language",
-                    "onRun",
+                    "output",
+                    "resetEvent",
                     "role",
                     "runEvent",
+                    "runId",
                     "runnable",
+                    "running",
                     "skeleton",
                     "tabIndex",
                 ]
@@ -2656,6 +2678,7 @@ pub static PATTERN_PROPS_SCHEMA: LazyLock<HashMap<&'static str, HashSet<&'static
                     "appName",
                     "children",
                     "currentPath",
+                    "fullBleed",
                     "headerActions",
                     "layoutMode",
                     "logo",
@@ -2672,6 +2695,7 @@ pub static PATTERN_PROPS_SCHEMA: LazyLock<HashMap<&'static str, HashSet<&'static
                     "sidebarFooter",
                     "topBarActions",
                     "user",
+                    "userMenuItems",
                 ]
                 .into_iter()
                 .collect(),
@@ -2715,6 +2739,7 @@ pub static PATTERN_PROPS_SCHEMA: LazyLock<HashMap<&'static str, HashSet<&'static
                     "isLoading",
                     "itemActions",
                     "itemClickEvent",
+                    "itemEnter",
                     "lang",
                     "loadMoreEvent",
                     "look",
@@ -4016,6 +4041,58 @@ pub static PATTERN_PROPS_SCHEMA: LazyLock<HashMap<&'static str, HashSet<&'static
                 .collect(),
             ),
             (
+                "flow-canvas",
+                [
+                    "animated",
+                    "behaviorMeta",
+                    "className",
+                    "color",
+                    "editable",
+                    "elementAccess",
+                    "enter",
+                    "enterDelay",
+                    "externalInspector",
+                    "focusTarget",
+                    "focusedOrbital",
+                    "height",
+                    "initialLevel",
+                    "initialOrbital",
+                    "initialSelectedNode",
+                    "initialTrait",
+                    "layoutHint",
+                    "mockData",
+                    "nodePositions",
+                    "onEventWire",
+                    "onFocusChange",
+                    "onNodeClick",
+                    "onNodeSelect",
+                    "onOrbitalHover",
+                    "onPatternDelete",
+                    "onPositionsChange",
+                    "onSchemaChange",
+                    "onSelectedNodeChange",
+                    "onSelectedPatternChange",
+                    "onTraitViewChange",
+                    "onZoomChange",
+                    "openBehaviorEvent",
+                    "orbitalStatus",
+                    "scene",
+                    "schema",
+                    "skeleton",
+                    "stateCoverage",
+                    "systemDependencies",
+                    "systemMap",
+                    "themeManifest",
+                    "tools",
+                    "traitView",
+                    "userType",
+                    "verify",
+                    "width",
+                ]
+                .into_iter()
+                .collect(),
+            ),
+            (
                 "form",
                 [
                     "aria-busy",
@@ -5191,6 +5268,7 @@ pub static PATTERN_PROPS_SCHEMA: LazyLock<HashMap<&'static str, HashSet<&'static
                 .into_iter()
                 .collect(),
             ),
+            ("layers-panel", ["onReorder", "onSelect", "schema", "selectedId"].into_iter().collect()),
             (
                 "learning-canvas",
                 [
@@ -5887,6 +5965,24 @@ pub static PATTERN_PROPS_SCHEMA: LazyLock<HashMap<&'static str, HashSet<&'static
                     "skeleton",
                     "tabIndex",
                     "title",
+                ]
+                .into_iter()
+                .collect(),
+            ),
+            (
+                "orb-inspector",
+                [
+                    "defaultTab",
+                    "editable",
+                    "elementAccess",
+                    "node",
+                    "onClose",
+                    "onSchemaChange",
+                    "onTabChange",
+                    "schema",
+                    "selectedPattern",
+                    "themeManifest",
+                    "userType",
                 ]
                 .into_iter()
                 .collect(),
@@ -6849,6 +6945,7 @@ pub static PATTERN_PROPS_SCHEMA: LazyLock<HashMap<&'static str, HashSet<&'static
                     "askLabel",
                     "bloomAnswerEvent",
                     "className",
+                    "codeOutputs",
                     "containerClassName",
                     "dir",
                     "enter",
@@ -6858,9 +6955,11 @@ pub static PATTERN_PROPS_SCHEMA: LazyLock<HashMap<&'static str, HashSet<&'static
                     "noteEvent",
                     "noteLabel",
                     "onRenderVisualization",
-                    "onRunCodeSimulation",
                     "reflectionSaveEvent",
+                    "resetCodeEvent",
                     "role",
+                    "runCodeEvent",
+                    "runningCode",
                     "segments",
                     "skeleton",
                     "tabIndex",
@@ -8416,6 +8515,7 @@ pub static PATTERN_PROPS_SCHEMA: LazyLock<HashMap<&'static str, HashSet<&'static
                     "rows",
                     "skeleton",
                     "tabIndex",
+                    "value",
                 ]
                 .into_iter()
                 .collect(),
@@ -9506,6 +9606,8 @@ pub static PATTERN_PROP_TYPES: LazyLock<HashMap<&'static str, HashMap<&'static s
                     ("delay", &["number"] as &[&str]),
                     ("threshold", &["number"] as &[&str]),
                     ("revealEvent", &["string"] as &[&str]),
+                    ("enterEvent", &["string"] as &[&str]),
+                    ("leaveEvent", &["string"] as &[&str]),
                     ("once", &["boolean"] as &[&str]),
                     ("animate", &["boolean"] as &[&str]),
                     ("easing", &["string"] as &[&str]),
@@ -9929,6 +10031,7 @@ pub static PATTERN_PROP_TYPES: LazyLock<HashMap<&'static str, HashMap<&'static s
                     ("edgeColor", &["string"] as &[&str]),
                     ("edgeFlip", &["boolean"] as &[&str]),
                     ("texture", &["boolean"] as &[&str]),
+                    ("animateChanges", &["boolean"] as &[&str]),
                     ("backdrop", &["node"] as &[&str]),
                     ("children", &["node"] as &[&str]),
                     ("enter", &["string"] as &[&str]),
@@ -10255,6 +10358,12 @@ pub static PATTERN_PROP_TYPES: LazyLock<HashMap<&'static str, HashMap<&'static s
                     ("loop", &["boolean"] as &[&str]),
                     ("slideChangeEvent", &["string"] as &[&str]),
                     ("slideChangePayload", &["object"] as &[&str]),
+                    ("orientation", &["string"] as &[&str]),
+                    ("fullHeight", &["boolean"] as &[&str]),
+                    ("loadMoreEvent", &["string"] as &[&str]),
+                    ("loadMoreAhead", &["number"] as &[&str]),
+                    ("hasMore", &["boolean"] as &[&str]),
+                    ("isLoadingMore", &["boolean"] as &[&str]),
                     ("className", &["string"] as &[&str]),
                     ("enter", &["string"] as &[&str]),
                     ("enterDelay", &["number"] as &[&str]),
@@ -10638,8 +10747,12 @@ pub static PATTERN_PROP_TYPES: LazyLock<HashMap<&'static str, HashMap<&'static s
                     ("code", &["string"] as &[&str]),
                     ("language", &["string"] as &[&str]),
                     ("runnable", &["boolean"] as &[&str]),
-                    ("onRun", &["function"] as &[&str]),
                     ("runEvent", &["string"] as &[&str]),
+                    ("resetEvent", &["string"] as &[&str]),
+                    ("runId", &["string"] as &[&str]),
+                    ("output", &["object"] as &[&str]),
+                    ("running", &["boolean"] as &[&str]),
+                    ("error", &["string"] as &[&str]),
                     ("className", &["string"] as &[&str]),
                     ("enter", &["string"] as &[&str]),
                     ("enterDelay", &["number"] as &[&str]),
@@ -11067,6 +11180,8 @@ pub static PATTERN_PROP_TYPES: LazyLock<HashMap<&'static str, HashMap<&'static s
                     ("searchEvent", &["string"] as &[&str]),
                     ("onSearchSubmit", &["function"] as &[&str]),
                     ("topBarActions", &["array"] as &[&str]),
+                    ("userMenuItems", &["array"] as &[&str]),
+                    ("fullBleed", &["boolean"] as &[&str]),
                     ("notifications", &["array"] as &[&str]),
                     ("notificationClickEvent", &["string"] as &[&str]),
                     ("onNotificationClick", &["function"] as &[&str]),
@@ -11118,6 +11233,7 @@ pub static PATTERN_PROP_TYPES: LazyLock<HashMap<&'static str, HashMap<&'static s
                     ("hasMore", &["boolean"] as &[&str]),
                     ("children", &["function"] as &[&str]),
                     ("renderItem", &["function"] as &[&str]),
+                    ("itemEnter", &["string"] as &[&str]),
                     ("pageSize", &["number"] as &[&str]),
                     ("look", &["string"] as &[&str]),
                     ("surface", &["string"] as &[&str]),
@@ -12435,6 +12551,58 @@ pub static PATTERN_PROP_TYPES: LazyLock<HashMap<&'static str, HashMap<&'static s
                 .collect(),
             ),
             (
+                "flow-canvas",
+                [
+                    ("schema", &["sexpr", "string"] as &[&str]),
+                    ("mockData", &["object"] as &[&str]),
+                    ("className", &["string"] as &[&str]),
+                    ("width", &["number", "string"] as &[&str]),
+                    ("height", &["number", "string"] as &[&str]),
+                    ("onNodeClick", &["function"] as &[&str]),
+                    ("systemMap", &["object"] as &[&str]),
+                    ("systemDependencies", &["object"] as &[&str]),
+                    ("traitView", &["object"] as &[&str]),
+                    ("onTraitViewChange", &["function"] as &[&str]),
+                    ("openBehaviorEvent", &["string"] as &[&str]),
+                    ("scene", &["object"] as &[&str]),
+                    ("onFocusChange", &["function"] as &[&str]),
+                    ("initialOrbital", &["string"] as &[&str]),
+                    ("initialLevel", &["string"] as &[&str]),
+                    ("focusedOrbital", &["string"] as &[&str]),
+                    ("initialSelectedNode", &["object"] as &[&str]),
+                    ("editable", &["boolean"] as &[&str]),
+                    ("onSchemaChange", &["function"] as &[&str]),
+                    ("onPatternDelete", &["function"] as &[&str]),
+                    ("tools", &["array"] as &[&str]),
+                    ("elementAccess", &["function"] as &[&str]),
+                    ("onEventWire", &["function"] as &[&str]),
+                    ("behaviorMeta", &["object"] as &[&str]),
+                    ("orbitalStatus", &["object"] as &[&str]),
+                    ("onOrbitalHover", &["function"] as &[&str]),
+                    ("layoutHint", &["string"] as &[&str]),
+                    ("onNodeSelect", &["function"] as &[&str]),
+                    ("onZoomChange", &["function"] as &[&str]),
+                    ("focusTarget", &["object"] as &[&str]),
+                    ("color", &["string"] as &[&str]),
+                    ("animated", &["boolean"] as &[&str]),
+                    ("initialTrait", &["string"] as &[&str]),
+                    ("stateCoverage", &["object"] as &[&str]),
+                    ("userType", &["string"] as &[&str]),
+                    ("themeManifest", &["object"] as &[&str]),
+                    ("nodePositions", &["object"] as &[&str]),
+                    ("onPositionsChange", &["function"] as &[&str]),
+                    ("onSelectedNodeChange", &["function"] as &[&str]),
+                    ("onSelectedPatternChange", &["function"] as &[&str]),
+                    ("externalInspector", &["boolean"] as &[&str]),
+                    ("verify", &["object"] as &[&str]),
+                    ("enter", &["string"] as &[&str]),
+                    ("enterDelay", &["number"] as &[&str]),
+                    ("skeleton", &["string", "object"] as &[&str]),
+                ]
+                .into_iter()
+                .collect(),
+            ),
+            (
                 "form",
                 [
                     ("surface", &["string"] as &[&str]),
@@ -13541,7 +13709,7 @@ pub static PATTERN_PROP_TYPES: LazyLock<HashMap<&'static str, HashMap<&'static s
                     ("className", &["string"] as &[&str]),
                     ("isLoading", &["boolean"] as &[&str]),
                     ("error", &["object"] as &[&str]),
-                    ("schema", &["object"] as &[&str]),
+                    ("schema", &["sexpr"] as &[&str]),
                     ("trait", &["object"] as &[&str]),
                     ("traitIndex", &["number"] as &[&str]),
                     ("entityFields", &["array"] as &[&str]),
@@ -13619,6 +13787,17 @@ pub static PATTERN_PROP_TYPES: LazyLock<HashMap<&'static str, HashMap<&'static s
                     ("lang", &["string"] as &[&str]),
                     ("dir", &["string"] as &[&str]),
                     ("tabIndex", &["number"] as &[&str]),
+                ]
+                .into_iter()
+                .collect(),
+            ),
+            (
+                "layers-panel",
+                [
+                    ("schema", &["sexpr"] as &[&str]),
+                    ("selectedId", &["string"] as &[&str]),
+                    ("onSelect", &["function"] as &[&str]),
+                    ("onReorder", &["function"] as &[&str]),
                 ]
                 .into_iter()
                 .collect(),
@@ -14319,6 +14498,24 @@ pub static PATTERN_PROP_TYPES: LazyLock<HashMap<&'static str, HashMap<&'static s
                     ("lang", &["string"] as &[&str]),
                     ("dir", &["string"] as &[&str]),
                     ("tabIndex", &["number"] as &[&str]),
+                ]
+                .into_iter()
+                .collect(),
+            ),
+            (
+                "orb-inspector",
+                [
+                    ("node", &["object"] as &[&str]),
+                    ("schema", &["sexpr"] as &[&str]),
+                    ("editable", &["boolean"] as &[&str]),
+                    ("userType", &["string"] as &[&str]),
+                    ("themeManifest", &["object"] as &[&str]),
+                    ("defaultTab", &["string"] as &[&str]),
+                    ("onTabChange", &["function"] as &[&str]),
+                    ("onSchemaChange", &["function"] as &[&str]),
+                    ("onClose", &["function"] as &[&str]),
+                    ("selectedPattern", &["object"] as &[&str]),
+                    ("elementAccess", &["function"] as &[&str]),
                 ]
                 .into_iter()
                 .collect(),
@@ -15081,7 +15278,7 @@ pub static PATTERN_PROP_TYPES: LazyLock<HashMap<&'static str, HashMap<&'static s
                     ("className", &["string"] as &[&str]),
                     ("mode", &["string"] as &[&str]),
                     ("defaultTab", &["string"] as &[&str]),
-                    ("schema", &["object"] as &[&str]),
+                    ("schema", &["sexpr"] as &[&str]),
                     ("enter", &["string"] as &[&str]),
                     ("enterDelay", &["number"] as &[&str]),
                     ("skeleton", &["string", "object"] as &[&str]),
@@ -15278,7 +15475,10 @@ pub static PATTERN_PROP_TYPES: LazyLock<HashMap<&'static str, HashMap<&'static s
                     ("className", &["string"] as &[&str]),
                     ("containerClassName", &["string"] as &[&str]),
                     ("userProgress", &["object"] as &[&str]),
-                    ("onRunCodeSimulation", &["function"] as &[&str]),
+                    ("runCodeEvent", &["string"] as &[&str]),
+                    ("resetCodeEvent", &["string"] as &[&str]),
+                    ("codeOutputs", &["object"] as &[&str]),
+                    ("runningCode", &["string"] as &[&str]),
                     ("onRenderVisualization", &["function"] as &[&str]),
                     ("enter", &["string"] as &[&str]),
                     ("enterDelay", &["number"] as &[&str]),
@@ -16827,6 +17027,7 @@ pub static PATTERN_PROP_TYPES: LazyLock<HashMap<&'static str, HashMap<&'static s
                     ("label", &["string"] as &[&str]),
                     ("placeholder", &["string"] as &[&str]),
                     ("rows", &["number"] as &[&str]),
+                    ("value", &["string"] as &[&str]),
                     ("action", &["string"] as &[&str]),
                     ("helperText", &["string"] as &[&str]),
                     ("error", &["string"] as &[&str]),
@@ -18039,6 +18240,7 @@ pub static PATTERN_PROP_ENUM_VALUES: LazyLock<HashMap<&'static str, HashMap<&'st
             (
                 "carousel",
                 [
+                    ("orientation", &["horizontal", "vertical"] as &[&str]),
                     ("enter", &["none", "fade", "rise", "scale", "slide"] as &[&str]),
                     ("skeleton", &["header", "table", "list", "grid", "detail", "stats", "form", "card", "text", "none"] as &[&str]),
                     ("aria-live", &["off", "polite", "assertive"] as &[&str]),
@@ -18378,6 +18580,7 @@ pub static PATTERN_PROP_ENUM_VALUES: LazyLock<HashMap<&'static str, HashMap<&'st
                 [
                     ("gap", &["none", "sm", "md", "lg", "xl"] as &[&str]),
                     ("skeleton", &["header", "table", "list", "grid", "detail", "stats", "form", "card", "text", "none"] as &[&str]),
+                    ("itemEnter", &["none", "fade", "rise", "scale", "slide"] as &[&str]),
                     ("look", &["dense", "spacious", "striped", "borderless", "card-rows"] as &[&str]),
                     ("surface", &["auto", "none"] as &[&str]),
                     ("enter", &["none", "fade", "rise", "scale", "slide"] as &[&str]),
@@ -18926,6 +19129,18 @@ pub static PATTERN_PROP_ENUM_VALUES: LazyLock<HashMap<&'static str, HashMap<&'st
                     ("aria-pressed", &["true", "false", "mixed"] as &[&str]),
                     ("role", &["alert", "alertdialog", "application", "article", "banner", "blockquote", "button", "caption", "cell", "checkbox", "code", "columnheader", "combobox", "complementary", "contentinfo", "definition", "deletion", "dialog", "document", "emphasis", "feed", "figure", "form", "generic", "grid", "gridcell", "group", "heading", "img", "insertion", "link", "list", "listbox", "listitem", "log", "main", "marquee", "math", "menu", "menubar", "menuitem", "menuitemcheckbox", "menuitemradio", "meter", "navigation", "none", "note", "option", "paragraph", "presentation", "progressbar", "radio", "radiogroup", "region", "row", "rowgroup", "rowheader", "scrollbar", "search", "searchbox", "separator", "slider", "spinbutton", "status", "strong", "subscript", "superscript", "switch", "tab", "table", "tablist", "tabpanel", "term", "textbox", "time", "timer", "toolbar", "tooltip", "tree", "treegrid", "treeitem"] as &[&str]),
                     ("dir", &["ltr", "rtl", "auto"] as &[&str]),
+                ]
+                .into_iter()
+                .collect(),
+            ),
+            (
+                "flow-canvas",
+                [
+                    ("initialLevel", &["overview", "trait-expanded", "system"] as &[&str]),
+                    ("layoutHint", &["pipeline", "grid"] as &[&str]),
+                    ("userType", &["builder", "designer", "architect"] as &[&str]),
+                    ("enter", &["none", "fade", "rise", "scale", "slide"] as &[&str]),
+                    ("skeleton", &["header", "table", "list", "grid", "detail", "stats", "form", "card", "text", "none"] as &[&str]),
                 ]
                 .into_iter()
                 .collect(),
@@ -19735,6 +19950,15 @@ pub static PATTERN_PROP_ENUM_VALUES: LazyLock<HashMap<&'static str, HashMap<&'st
                     ("aria-pressed", &["true", "false", "mixed"] as &[&str]),
                     ("role", &["alert", "alertdialog", "application", "article", "banner", "blockquote", "button", "caption", "cell", "checkbox", "code", "columnheader", "combobox", "complementary", "contentinfo", "definition", "deletion", "dialog", "document", "emphasis", "feed", "figure", "form", "generic", "grid", "gridcell", "group", "heading", "img", "insertion", "link", "list", "listbox", "listitem", "log", "main", "marquee", "math", "menu", "menubar", "menuitem", "menuitemcheckbox", "menuitemradio", "meter", "navigation", "none", "note", "option", "paragraph", "presentation", "progressbar", "radio", "radiogroup", "region", "row", "rowgroup", "rowheader", "scrollbar", "search", "searchbox", "separator", "slider", "spinbutton", "status", "strong", "subscript", "superscript", "switch", "tab", "table", "tablist", "tabpanel", "term", "textbox", "time", "timer", "toolbar", "tooltip", "tree", "treegrid", "treeitem"] as &[&str]),
                     ("dir", &["ltr", "rtl", "auto"] as &[&str]),
+                ]
+                .into_iter()
+                .collect(),
+            ),
+            (
+                "orb-inspector",
+                [
+                    ("userType", &["builder", "designer", "architect"] as &[&str]),
+                    ("defaultTab", &["inspector", "design", "prototype", "code"] as &[&str]),
                 ]
                 .into_iter()
                 .collect(),
@@ -21166,7 +21390,7 @@ pub static PATTERN_EVENT_PROPS: LazyLock<HashMap<&'static str, HashSet<&'static 
     LazyLock::new(|| {
         [
             ("alert", ["dismissEvent"].into_iter().collect()),
-            ("animated-reveal", ["revealEvent"].into_iter().collect()),
+            ("animated-reveal", ["revealEvent", "enterEvent", "leaveEvent"].into_iter().collect()),
             ("avatar", ["action"].into_iter().collect()),
             ("box", ["action"].into_iter().collect()),
             ("button", ["action"].into_iter().collect()),
@@ -21210,7 +21434,7 @@ pub static PATTERN_EVENT_LIST_PROPS: LazyLock<HashMap<&'static str, HashMap<&'st
             ("breadcrumb", [("items", "event")].into_iter().collect()),
             ("chart", [("actions", "event")].into_iter().collect()),
             ("code-block", [("actions", "event")].into_iter().collect()),
-            ("dashboard-layout", [("topBarActions", "event")].into_iter().collect()),
+            ("dashboard-layout", [("topBarActions", "event"), ("userMenuItems", "event")].into_iter().collect()),
             ("data-grid", [("itemActions", "event")].into_iter().collect()),
             ("data-list", [("itemActions", "event")].into_iter().collect()),
             ("detail-panel", [("actions", "event")].into_iter().collect()),

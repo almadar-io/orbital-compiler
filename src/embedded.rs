@@ -704,6 +704,10 @@ pub struct EmbeddedPatternProp {
     /// descriptor type uses a different field name.
     #[serde(rename = "eventField", default)]
     pub event_field: Option<String>,
+    /// `@notification`: the component reports a change it already applied (hover, close
+    /// finished, resize), so a final program may leave the event unhandled (G-ORB-187).
+    #[serde(default)]
+    pub notification: bool,
     /// For `kind: "event-ref"` whose source is `EventEmit<P>`: the
     /// structural shape of `P`, as the bus payload the component fires
     /// when the prop is bound. Validator (L2.2) compares this against the
@@ -764,6 +768,9 @@ pub struct EmbeddedPattern {
     pub props_schema: HashMap<String, EmbeddedPatternProp>,
     #[serde(rename = "entityAware", default)]
     pub entity_aware: bool,
+    /// `form` for a pattern that collects field values and submits them (`form`, `form-section`).
+    #[serde(rename = "fieldsContract", default)]
+    pub fields_contract: Option<String>,
 }
 
 static PATTERNS: OnceLock<HashMap<String, EmbeddedPattern>> = OnceLock::new();

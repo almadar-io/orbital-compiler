@@ -92,6 +92,35 @@ fn ensure_backend_supports<B: Backend>(oir: &OirModule, backend: &B) -> Generate
     )))
 }
 
+/// A browser-only service's calls run on the browser leg; a full build of a
+/// shell that generates no browser leg has nowhere to run them, so it is
+/// refused before it writes a file. A client or server build is one half of a
+/// split deployment whose other half may host the call, so it is not judged here.
+fn ensure_services_hostable<B: Backend>(oir: &OirModule, backend: &B, options: &GenerateOptions) -> GenerateResult<()> {
+    use orbital_core::effects::runs_on::{is_browser_only, SERVICE_RUNTIME_UNSUPPORTED};
+    if options.mode != ShellMode::Full || backend.supports_browser_stored_entities() {
+        return Ok(());
+    }
+    let runtimes = options
+        .compiler
+        .service_runtimes
+        .as_ref()
+        .unwrap_or(&crate::embedded::baked_service_registry().runtimes);
+    let refused: Vec<String> = oir
+        .invoked_services()
+        .into_iter()
+        .filter(|service| runtimes.get(service).is_some_and(|r| is_browser_only(r)))
+        .collect();
+    if refused.is_empty() {
+        return Ok(());
+    }
+    Err(GenerateError::Backend(format!(
+        "{SERVICE_RUNTIME_UNSUPPORTED}: the {} shell generates no browser leg, and {} run(s) only in the browser. Compile with --shell typescript.",
+        backend.name(),
+        refused.join(", ")
+    )))
+}
+
 /// `source_path`.
 pub fn generate_from_file_with_source<S, B>(
     schema_path: &Path,
@@ -244,6 +273,7 @@ where
         eprintln!("Generating code (mode: {:?})...", options.mode);
     }
     ensure_backend_supports(oir, backend)?;
+    ensure_services_hostable(oir, backend, options)?;
     let output = backend.generate_with_mode(oir, options.mode);
 
     // Cross-shell operator-completeness backstop: no emitted file may carry the
@@ -689,6 +719,59 @@ mod tests {
         generate_from_oir(&module_with_local_entity(), tmp.path(), &fixture_shell("generated"), &CapabilityBackend { browser_storage: true }, &options)
             .expect("compiles");
         assert!(tmp.path().join("generated/a.ts").exists());
+    }
+
+    fn module_calling(service: &str) -> OirModule {
+        use orbital_core::ir::{OirEffect, OirExpr, OirState, OirTrait, OirTransition};
+        let mut t = OirTrait::new("Caller");
+        t.states.push(OirState::initial("idle"));
+        t.transitions.push(OirTransition::new("idle", "idle", "INIT").with_effects(vec![OirExpr::effect(
+            OirEffect::call_service(service, "run", OirExpr::null()),
+        )]));
+        let mut module = OirModule::new("Test", "0.1.0");
+        module.traits.push(t);
+        module
+    }
+
+    fn generate_calling(service: &str, mode: ShellMode, browser_storage: bool) -> (Result<GeneratedOutput, String>, bool) {
+        let tmp = tempfile::tempdir().expect("tempdir");
+        let runtimes = [("analytics", vec!["browser"]), ("github", vec!["node"]), ("llm", vec!["node", "browser"])]
+            .into_iter()
+            .map(|(n, r)| (n.to_string(), r.into_iter().map(String::from).collect()))
+            .collect();
+        let options = GenerateOptions {
+            copy_template: false,
+            clean: false,
+            mode,
+            compiler: crate::CompilerOptions { service_runtimes: Some(runtimes), ..Default::default() },
+            ..Default::default()
+        };
+        let result = generate_from_oir(&module_calling(service), tmp.path(), &fixture_shell("generated"), &CapabilityBackend { browser_storage }, &options)
+            .map_err(|e| e.to_string());
+        (result, tmp.path().join("generated/a.ts").exists())
+    }
+
+    #[test]
+    fn a_full_build_without_a_browser_leg_refuses_a_browser_only_service() {
+        let (result, written) = generate_calling("analytics", ShellMode::Full, false);
+        let err = result.unwrap_err();
+        assert!(err.contains("ORB_SHELL_SERVICE_RUNTIME_UNSUPPORTED") && err.contains("analytics"), "{err}");
+        assert!(!written, "nothing is written");
+    }
+
+    #[test]
+    fn control_a_full_build_with_a_browser_leg_hosts_it() {
+        assert!(generate_calling("analytics", ShellMode::Full, true).0.is_ok());
+    }
+
+    #[test]
+    fn control_node_services_and_split_builds_are_not_judged() {
+        assert!(generate_calling("github", ShellMode::Full, false).0.is_ok());
+        assert!(generate_calling("llm", ShellMode::Full, false).0.is_ok(), "node+browser runs on the server");
+        assert!(generate_calling("analytics", ShellMode::Client, false).0.is_ok(), "the other half of a split deploy may host it");
+        assert!(generate_calling("github", ShellMode::Client, true).0.is_ok(), "a client half posts to its server half");
+        assert!(generate_calling("analytics", ShellMode::Server, false).0.is_ok());
+        assert!(generate_calling("custom-bearer-api", ShellMode::Full, false).0.is_ok(), "an unregistered service is validation's business");
     }
 
     fn fixture_shell(generated_dir: &'static str) -> BaseShell {

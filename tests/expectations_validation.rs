@@ -1228,3 +1228,64 @@ fn shapeless_identity_expectation_declares_no_minimum_and_opts_out() {
         "an existence-only declaration has no lower bound to under-declare, got: {codes:?}"
     );
 }
+
+fn provider_trait(emits: Value) -> Value {
+    json!({
+        "name": "OrderOrbital",
+        "entity": { "name": "OrderRecord", "persistence": "persistent", "collection": "orders", "fields": [{ "name": "id", "type": "string" }] },
+        "traits": [{
+            "name": "OrderFeed",
+            "linkedEntity": "OrderRecord",
+            "emits": emits,
+            "stateMachine": { "states": [{ "name": "idle", "isInitial": true }], "events": [{ "key": "INIT", "name": "Init" }], "transitions": [{ "from": "idle", "to": "idle", "event": "INIT" }] }
+        }],
+        "pages": []
+    })
+}
+
+fn unsatisfied(schema: Value) -> Vec<String> {
+    run_scoped(schema)
+        .into_iter()
+        .filter(|c| c == "ORB_S_EXPECTATION_UNSATISFIED")
+        .collect()
+}
+
+/// `expects event Trait.EVENT`: a present trait of that name must emit the event.
+#[test]
+fn an_expected_event_the_present_provider_trait_does_not_emit_is_unsatisfied() {
+    let consumer = consumer_expecting(
+        json!({ "kind": "event", "traitName": "OrderFeed", "event": "ORDER_PLACED" }),
+    );
+    assert_eq!(
+        unsatisfied(composed(
+            consumer,
+            provider_trait(json!([{ "event": "ORDER_SHIPPED" }]))
+        ))
+        .len(),
+        1
+    );
+}
+
+#[test]
+fn control_an_expected_event_the_provider_trait_emits_is_satisfied() {
+    let consumer = consumer_expecting(
+        json!({ "kind": "event", "traitName": "OrderFeed", "event": "ORDER_PLACED" }),
+    );
+    assert!(unsatisfied(composed(
+        consumer,
+        provider_trait(json!([{ "event": "ORDER_PLACED" }]))
+    ))
+    .is_empty());
+}
+
+#[test]
+fn control_an_expected_event_with_no_trait_of_that_name_is_deferred() {
+    let consumer = consumer_expecting(
+        json!({ "kind": "event", "traitName": "Elsewhere", "event": "ORDER_PLACED" }),
+    );
+    assert!(unsatisfied(composed(
+        consumer,
+        provider_trait(json!([{ "event": "ORDER_SHIPPED" }]))
+    ))
+    .is_empty());
+}

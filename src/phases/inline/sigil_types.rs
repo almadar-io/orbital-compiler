@@ -190,13 +190,13 @@ pub(crate) fn resolve_sigil_types(schema: &mut OrbitalSchema) {
             let row: Vec<PayloadField> = fields.iter().map(payload_field_of).collect();
             for emit in td.emits.iter_mut().flatten() {
                 if let Some(schema_fields) = emit.payload_schema.as_mut() {
-                    substitute_entity_sentinel(schema_fields, &row);
+                    substitute_entity_sentinel(schema_fields, &row, &bound);
                 }
             }
             if let Some(events) = td.state_machine.events.as_mut() {
                 for ev in events.iter_mut() {
                     if let Some(schema_fields) = ev.payload_schema.as_mut() {
-                        substitute_entity_sentinel(schema_fields, &row);
+                        substitute_entity_sentinel(schema_fields, &row, &bound);
                     }
                 }
             }
@@ -364,22 +364,20 @@ pub(crate) fn payload_field_of(f: &FieldDefinition) -> PayloadField {
     }
 }
 
-/// Replace a WRAPPER field still typed `@entity` with the bound row's shape.
-/// Mirrors what the per-orbital resolver produces for the same field: the
-/// `object` tag plus the row's fields in `properties`.
-fn substitute_entity_sentinel(fields: &mut [PayloadField], row: &[PayloadField]) {
+/// Replace a WRAPPER field still typed `@entity` with the bound row's shape —
+/// exactly what the per-orbital resolver (`resolve_sentinel_fields`) produces:
+/// `object` / `[object]`, the row's fields in `properties`, and the `entity`
+/// marker naming the row (its only surviving identity once flattened).
+fn substitute_entity_sentinel(fields: &mut [PayloadField], row: &[PayloadField], entity: &str) {
     for f in fields.iter_mut() {
-        match f.field_type.as_str() {
-            "@entity" => {
-                f.field_type = "object".to_string();
-                f.properties = Some(row.to_vec());
-            }
-            "[@entity]" => {
-                f.field_type = "array".to_string();
-                f.properties = Some(row.to_vec());
-            }
-            _ => {}
-        }
+        let shape = match f.field_type.as_str() {
+            "@entity" => "object",
+            "[@entity]" => "[object]",
+            _ => continue,
+        };
+        f.field_type = shape.to_string();
+        f.properties = Some(row.to_vec());
+        f.entity = Some(entity.to_string());
     }
 }
 
@@ -398,8 +396,37 @@ fn pascal(s: &str) -> String {
 
 #[cfg(test)]
 mod tests {
-    use super::payload_field_of;
+    use super::{payload_field_of, substitute_entity_sentinel};
     use orbital_core::schema::{FieldDefinition, PayloadField};
+
+    fn payload(json: serde_json::Value) -> PayloadField {
+        serde_json::from_value(json).expect("PayloadField")
+    }
+
+    /// A sibling-orbital `@entity` resolves to the same shape and marker the per-orbital
+    /// resolver stamps: `object` / `[object]` + the row + `entity`, so consumers judge it as a row.
+    #[test]
+    fn a_sibling_orbital_entity_sentinel_is_stamped_with_its_entity_like_the_per_orbital_resolver() {
+        let row = vec![payload(serde_json::json!({ "name": "id", "type": "string" }))];
+        let mut fields = vec![
+            payload(serde_json::json!({ "name": "row", "type": "@entity" })),
+            payload(serde_json::json!({ "name": "rows", "type": "[@entity]" })),
+        ];
+        substitute_entity_sentinel(&mut fields, &row, "NoteTagRef");
+        assert_eq!(fields[0].field_type, "object");
+        assert_eq!(fields[0].entity.as_deref(), Some("NoteTagRef"));
+        assert_eq!(fields[1].field_type, "[object]");
+        assert_eq!(fields[1].entity.as_deref(), Some("NoteTagRef"));
+    }
+
+    #[test]
+    fn control_a_non_sentinel_field_is_left_alone() {
+        let row = vec![payload(serde_json::json!({ "name": "id", "type": "string" }))];
+        let mut fields = vec![payload(serde_json::json!({ "name": "id", "type": "string" }))];
+        substitute_entity_sentinel(&mut fields, &row, "NoteTagRef");
+        assert_eq!(fields[0].field_type, "string");
+        assert_eq!(fields[0].entity, None);
+    }
 
     fn field(json: serde_json::Value) -> FieldDefinition {
         serde_json::from_value(json).expect("FieldDefinition")

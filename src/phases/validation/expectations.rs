@@ -30,7 +30,7 @@ use super::user_identity::vocabulary;
 use super::{field_type_str, ErrorCode, ValidationContext, ValidationError, ValidationResult};
 use orbital_core::schema::{
     EntityDefinition, EntityRef, ExpectDeclaration, FieldDefinition, Orbital, OrbitalSchema,
-    SExpression,
+    SExpression, TraitReference,
 };
 use orbital_core::type_compat::{enum_value_is_member, set_value_type_compatible};
 
@@ -273,6 +273,47 @@ fn providers(schema: &OrbitalSchema) -> Vec<(&EntityDefinition, &str)> {
     out
 }
 
+/// `orb validate --final` (G-ORB-184): where a generation concludes, the program is the whole app,
+/// so an expectation nothing in it provides is no longer deferred to an importer — it is an error.
+pub fn validate_final_expectations(schema: &OrbitalSchema) -> ValidationResult {
+    let mut result = ValidationResult::new();
+    let providers = providers(schema);
+    for (i, orbital) in schema.orbitals.iter().enumerate() {
+        for (j, expectation) in orbital.expects.iter().flatten().enumerate() {
+            let path = format!("orbitals[{} ({})].expects[{}]", i, orbital.name, j);
+            let missing = match expectation {
+                ExpectDeclaration::Entity { name, .. } => {
+                    (!providers.iter().any(|(def, _)| def.name == *name)).then(|| format!("entity `{name}`"))
+                }
+                ExpectDeclaration::Identity { name: Some(name), .. } => {
+                    (!providers.iter().any(|(def, _)| def.name == *name)).then(|| format!("identity `{name}`"))
+                }
+                ExpectDeclaration::Identity { name: None, .. } => {
+                    (!providers.iter().any(|(def, _)| def.identity)).then(|| "an [identity] entity".to_string())
+                }
+                ExpectDeclaration::Event { .. } | ExpectDeclaration::Page { .. } => None,
+            };
+            if let Some(what) = missing {
+                result.add_error(
+                    ValidationError::error(
+                        ErrorCode::SchemaExpectationUnsatisfied,
+                        &path,
+                        format!(
+                            "`{}` expects {}, but nothing in this finished program provides it — its reads and writes would reach an empty store.",
+                            orbital.name, what
+                        ),
+                    )
+                    .with_suggestion(
+                        "Give the providing import that name (`entity <Name>` on the import), or declare the entity here."
+                            .to_string(),
+                    ),
+                );
+            }
+        }
+    }
+    result
+}
+
 fn validate_expectation_links(schema: &OrbitalSchema, result: &mut ValidationResult) {
     let providers = providers(schema);
     for (i, orbital) in schema.orbitals.iter().enumerate() {
@@ -298,8 +339,36 @@ fn validate_expectation_links(schema: &OrbitalSchema, result: &mut ValidationRes
                         }
                     }
                 }
-                // Phase 2 (escape analysis / listens-audit) — no validation effect yet.
-                ExpectDeclaration::Event { .. } => {}
+                // A present trait of that name must emit the event; no such trait here is
+                // DEFERRED to whoever imports this program, like every other expectation.
+                ExpectDeclaration::Event { trait_name, event } => {
+                    let provider = schema.orbitals.iter().find_map(|o| {
+                        o.traits.iter().find_map(|t| match t {
+                            TraitReference::Inline(td) if td.name == *trait_name => {
+                                Some((td, o.name.as_str()))
+                            }
+                            _ => None,
+                        })
+                    });
+                    if let Some((td, provider_orbital)) = provider {
+                        let emits = td.emits.iter().flatten().any(|e| e.event == *event);
+                        if !emits {
+                            result.add_error(
+                                ValidationError::error(
+                                    ErrorCode::SchemaExpectationUnsatisfied,
+                                    &path,
+                                    format!(
+                                        "`{}` expects `{}.{}`, but trait `{}` in `{}` does not emit `{}`.",
+                                        orbital.name, trait_name, event, trait_name, provider_orbital, event
+                                    ),
+                                )
+                                .with_suggestion(format!(
+                                    "Declare `{event}` in `{trait_name}`'s `emits`, or listen to the trait that emits it."
+                                )),
+                            );
+                        }
+                    }
+                }
                 // A route expectation carries no shape, so there is nothing to
                 // link-check against a present provider, and an absent one is
                 // DEFERRED like every other expectation. Reachability is not
@@ -490,4 +559,32 @@ fn types_compatible(expected: &FieldDefinition, actual: &FieldDefinition) -> boo
         return true;
     }
     vocabulary(expected).is_some() && vocabulary(actual).is_some()
+}
+
+#[cfg(test)]
+mod final_expectation_tests {
+    use super::*;
+
+    fn program(provider_entity: &str, identity: bool) -> OrbitalSchema {
+        serde_json::from_value(serde_json::json!({
+            "name": "App",
+            "orbitals": [
+                { "name": "Apps", "entity": { "name": provider_entity, "persistence": "persistent", "identity": identity, "fields": [{ "name": "id", "type": "string" }] }, "traits": [], "pages": [] },
+                { "name": "Builder", "entity": { "name": "BuilderView", "persistence": "runtime", "fields": [{ "name": "id", "type": "string" }] },
+                  "expects": [{ "kind": "entity", "name": "StudioApp" }], "traits": [], "pages": [] }
+            ]
+        }))
+        .expect("program json")
+    }
+
+    #[test]
+    fn an_expectation_no_entity_provides_is_an_error_in_a_finished_program() {
+        let r = validate_final_expectations(&program("AppsENStudioApp", false));
+        assert!(r.errors.iter().any(|e| e.code == ErrorCode::SchemaExpectationUnsatisfied && e.message.contains("StudioApp")), "{:?}", r.errors);
+    }
+
+    #[test]
+    fn control_a_provided_name_passes() {
+        assert!(validate_final_expectations(&program("StudioApp", false)).errors.is_empty());
+    }
 }

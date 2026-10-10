@@ -122,6 +122,9 @@ pub enum ErrorCode {
     /// A trait-value literal (`<spec>.traits.<Trait>`) whose behavior or trait
     /// does not resolve against the installed behavior packages.
     TraitBehaviorRefUnresolved,
+    /// A `behavior/ref` whose argument is computed at run time: a behavior from
+    /// data must arrive as a `behavior` value, never re-parsed from text.
+    TraitBehaviorRefNotLiteral,
     /// An `["unquote", …]` call outside a quasiquote body in an `.orb` input.
     TraitUnquoteOutsideQuasiquote,
     /// Config field typed `slot` has a default value not in `VALID_SLOTS`
@@ -356,6 +359,21 @@ pub enum ErrorCode {
     /// `unclaimed-main-writer` (warning there; error here per the owner's Q3
     /// ruling).
     PageSecondContentBody,
+    /// A page whose `main` a shell owns through a config channel
+    /// (`contentTrait` …) also mounts a trait that paints a control into
+    /// `main` which neither the owner nor anything it embeds references: the
+    /// control stacks outside the shell's layout instead of inside it.
+    PageControlOutsideShell,
+    /// A composed trait (`sourceBehavior` set) has a state no event the
+    /// program can produce leads to: every transition into it waits on an
+    /// event nothing routes in, no control or effect fires, and the host is
+    /// not declared to send (`external`). An atom's own inputs are its offer;
+    /// a composition that never wires one leaves that part of it dead.
+    ComposedStateUnreachable,
+    /// A composed trait's rendered control fires an event carrying a value
+    /// that no other trait hears and whose own handling reads none of it: the
+    /// value the user entered is discarded (a form submission nothing keeps).
+    ControlValueDiscarded,
     /// A page whose content owner is ambiguous: two or more page-declared
     /// `main` writers, none composing the others, no shell channel naming
     /// one. Renders stacked alone, but any shell that designates one
@@ -529,6 +547,9 @@ pub enum ErrorCode {
     /// Usually a copy-paste leftover or a stale declaration after a
     /// rename; gap #2 defense in `docs/Almadar_Std_Verification.md`.
     EmitDeclaredButUnfired,
+    /// `orb validate --final`: a rendered control fires an event no trait handles — not the
+    /// rendering trait, an embedder of it, nor a `listens` route (G-ORB-187).
+    EmitControlUnhandled,
     /// `emits { @config.<knob> -> ... }` references a knob that isn't a
     /// DECLARED string-typed config field with a default (Option B contract).
     /// Left unresolved by the inline phase; surfaces here with the specific
@@ -551,6 +572,9 @@ pub enum ErrorCode {
     /// `emit.success` event key. Applies to fetch / persist / call-service /
     /// ref by default; any future operator can opt in via the same JSON flag.
     EffectMissingRequiredEmit,
+    /// A success event only `(fetch X { id: … })` produces declares `data` as a list; a
+    /// by-id fetch delivers one row (G-ORB-185).
+    EffectFetchByIdPayloadList,
 
     // =========================================================================
     // S-Expression Errors (SEXPR_*)
@@ -1023,6 +1047,9 @@ pub enum ErrorCode {
     /// shipped app. Ported from the JS wiring lint's
     /// `client-unbound-state-machine`. Error severity.
     CircuitClientUnboundStateMachine,
+    /// A page trait that initializes on `INIT` has a reachable state with no `INIT` arm: trait
+    /// state survives unmount, so revisiting the page from that state does nothing (G-ORB-186).
+    CircuitInitUncoveredState,
     /// A transition moves `from -> to` (not a self-transition) with NO
     /// effects at all, out of a `from` state some OTHER arm already painted
     /// into a main slot (`orbital_core::slots::MAIN_SLOTS`) — the machine
@@ -1316,6 +1343,7 @@ impl ErrorCode {
             ErrorCode::TraitDuplicateName => "ORB_T_DUPLICATE_NAME",
             ErrorCode::TraitUndefinedEvent => "ORB_T_UNDEFINED_EVENT",
             ErrorCode::TraitBehaviorRefUnresolved => "ORB_T_BEHAVIOR_REF_UNRESOLVED",
+            ErrorCode::TraitBehaviorRefNotLiteral => "ORB_T_BEHAVIOR_REF_NOT_LITERAL",
             ErrorCode::TraitUnquoteOutsideQuasiquote => "ORB_T_UNQUOTE_OUTSIDE_QUASIQUOTE",
             ErrorCode::TraitInvalidSlotDefault => "ORB_T_INVALID_SLOT_DEFAULT",
             ErrorCode::TraitInvalidPatternDefault => "ORB_T_INVALID_PATTERN_DEFAULT",
@@ -1378,6 +1406,9 @@ impl ErrorCode {
             ErrorCode::PageInvalidViewType => "ORB_P_INVALID_VIEW_TYPE",
             ErrorCode::PageUnreachable => "ORB_PAGE_UNREACHABLE",
             ErrorCode::PageSecondContentBody => "ORB_PAGE_SECOND_CONTENT_BODY",
+            ErrorCode::PageControlOutsideShell => "ORB_PAGE_CONTROL_OUTSIDE_SHELL",
+            ErrorCode::ComposedStateUnreachable => "ORB_COMPOSED_STATE_UNREACHABLE",
+            ErrorCode::ControlValueDiscarded => "ORB_CONTROL_VALUE_DISCARDED",
             ErrorCode::PageAmbiguousContentOwner => "ORB_PAGE_AMBIGUOUS_CONTENT_OWNER",
 
             // Slot
@@ -1436,6 +1467,7 @@ impl ErrorCode {
             ErrorCode::EffectNavigateMissingPayload => "ORB_EFF_NAVIGATE_MISSING_PAYLOAD",
             ErrorCode::EffectNavigateTargetUnreachable => "ORB_EFF_NAVIGATE_TARGET_UNREACHABLE",
             ErrorCode::EmitDeclaredButUnfired => "ORB_EMIT_DECLARED_BUT_UNFIRED",
+            ErrorCode::EmitControlUnhandled => "ORB_EMIT_CONTROL_UNHANDLED",
             ErrorCode::EmitConfigRefInvalid => "ORB_EMIT_CONFIG_REF_INVALID",
             ErrorCode::EffectMissingFetchForEntityPattern => "ORB_EFF_MISSING_FETCH_FOR_ENTITY",
             ErrorCode::EffectEmitKeyInvalid => "ORB_EFF_EMIT_KEY_INVALID",
@@ -1443,6 +1475,7 @@ impl ErrorCode {
             ErrorCode::EffectEmitUndeclaredEvent => "ORB_EFF_EMIT_UNDECLARED_EVENT",
             ErrorCode::EffectProgramEvalFailureMissing => "ORB_EFF_PROGRAM_EVAL_FAILURE_MISSING",
             ErrorCode::EffectMissingRequiredEmit => "ORB_EFF_MISSING_REQUIRED_EMIT",
+            ErrorCode::EffectFetchByIdPayloadList => "ORB_EFF_FETCH_BY_ID_PAYLOAD_LIST",
 
             // S-Expression
             ErrorCode::SExprInvalidOperator => "SEXPR_INVALID_OPERATOR",
@@ -1571,6 +1604,7 @@ impl ErrorCode {
             ErrorCode::CircuitClientUnboundStateMachine => {
                 "ORB_CIRCUIT_CLIENT_UNBOUND_STATE_MACHINE"
             }
+            ErrorCode::CircuitInitUncoveredState => "ORB_CIRCUIT_INIT_UNCOVERED_STATE",
             ErrorCode::CircuitDeadBodilessAction => "ORB_CIRCUIT_DEAD_BODILESS_ACTION",
             ErrorCode::CircuitAsyncResultDeafTarget => "ORB_CIRCUIT_ASYNC_RESULT_DEAF_TARGET",
             ErrorCode::CircuitViewerStranded => "ORB_CIRCUIT_VIEWER_STRANDED",
@@ -1691,6 +1725,7 @@ impl ErrorCode {
             | ErrorCode::TraitDuplicateName
             | ErrorCode::TraitUndefinedEvent
             | ErrorCode::TraitBehaviorRefUnresolved
+            | ErrorCode::TraitBehaviorRefNotLiteral
             | ErrorCode::TraitUnquoteOutsideQuasiquote
             | ErrorCode::TraitInvalidSlotDefault
             | ErrorCode::TraitInvalidPatternDefault
@@ -1755,6 +1790,7 @@ impl ErrorCode {
             | ErrorCode::PageInvalidViewType
             | ErrorCode::PageUnreachable
             | ErrorCode::PageSecondContentBody
+            | ErrorCode::PageControlOutsideShell
             | ErrorCode::PageAmbiguousContentOwner => "page",
 
             ErrorCode::SlotMainNotCovered
@@ -1815,12 +1851,14 @@ impl ErrorCode {
             | ErrorCode::EffectEmitUndeclaredEvent
             | ErrorCode::EffectProgramEvalFailureMissing
             | ErrorCode::EffectMissingRequiredEmit
+            | ErrorCode::EffectFetchByIdPayloadList
             | ErrorCode::SetValueTypeMismatch
             | ErrorCode::EnumValueNotMember
             | ErrorCode::SetReturnTypeMismatch
             | ErrorCode::ComparisonOperandTypeMismatch
             | ErrorCode::SetRequiredFieldFromOptionalKnob
             | ErrorCode::EmitDeclaredButUnfired
+            | ErrorCode::EmitControlUnhandled
             | ErrorCode::EmitConfigRefInvalid => "effect",
 
             ErrorCode::SExprInvalidOperator
@@ -1925,9 +1963,12 @@ impl ErrorCode {
             | ErrorCode::CircuitLifecycleEmitUndelivered
             | ErrorCode::CircuitSelfEmitLoop
             | ErrorCode::CircuitClientUnboundStateMachine
+            | ErrorCode::CircuitInitUncoveredState
             | ErrorCode::CircuitDeadBodilessAction
             | ErrorCode::CircuitAsyncResultDeafTarget
-            | ErrorCode::CircuitViewerStranded => "circuit",
+            | ErrorCode::CircuitViewerStranded
+            | ErrorCode::ComposedStateUnreachable
+            | ErrorCode::ControlValueDiscarded => "circuit",
 
             ErrorCode::IconInvalidFormat | ErrorCode::IconEmpty | ErrorCode::IconNotFound => "icon",
 

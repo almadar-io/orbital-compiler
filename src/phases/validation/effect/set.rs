@@ -649,6 +649,7 @@ fn field_type_str(ft: &FieldType) -> &'static str {
         FieldType::Relation => "relation",
         FieldType::Trait => "trait",
         FieldType::Orbital => "orbital",
+        FieldType::Behavior => "behavior",
         FieldType::Slot => "slot",
         FieldType::Pattern => "pattern",
         FieldType::Node => "node",

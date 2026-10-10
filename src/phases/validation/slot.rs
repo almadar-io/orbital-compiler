@@ -266,7 +266,7 @@ fn validate_slot_nesting(slots: &HashSet<String>, path: &str) -> ValidationResul
 }
 
 /// Get the initial state of a trait
-fn get_initial_state(trait_def: &TraitDefinition) -> Option<String> {
+pub(crate) fn get_initial_state(trait_def: &TraitDefinition) -> Option<String> {
     trait_def
         .state_machine
         .states
@@ -279,11 +279,12 @@ fn get_initial_state(trait_def: &TraitDefinition) -> Option<String> {
 ///
 /// Wildcard (`"*"`) `from` values mean "any state can transition this way", so
 /// they contribute `to` states as reachable from every state already visited.
+/// An arm whose guard is statically false never fires, so it reaches nothing.
 ///
 /// Inlined here rather than pulled from `closed_circuit.rs` to keep `slot.rs`
 /// self-contained — the BFS is small and the two modules have different needs
 /// (closed-circuit uses an incoming-transition heuristic).
-fn reachable_states(state_machine: &StateMachine, initial: &str) -> HashSet<String> {
+pub(crate) fn reachable_states(state_machine: &StateMachine, initial: &str) -> HashSet<String> {
     let mut visited: HashSet<String> = HashSet::new();
     let mut queue: VecDeque<String> = VecDeque::new();
     visited.insert(initial.to_string());
@@ -295,7 +296,12 @@ fn reachable_states(state_machine: &StateMachine, initial: &str) -> HashSet<Stri
             let fires_from_current = from_states
                 .iter()
                 .any(|s| *s == current.as_str() || *s == "*");
-            if !fires_from_current {
+            if !fires_from_current
+                || transition
+                    .guard
+                    .as_ref()
+                    .is_some_and(|g| g.is_statically_false())
+            {
                 continue;
             }
             if !visited.contains(&transition.to) {
@@ -309,7 +315,7 @@ fn reachable_states(state_machine: &StateMachine, initial: &str) -> HashSet<Stri
 }
 
 /// Return every `from` state as a flat slice of `&str`.
-fn transition_from_states(from: &orbital_core::schema::StringOrArray) -> Vec<&str> {
+pub(crate) fn transition_from_states(from: &orbital_core::schema::StringOrArray) -> Vec<&str> {
     match from {
         orbital_core::schema::StringOrArray::Single(s) => vec![s.as_str()],
         orbital_core::schema::StringOrArray::Multiple(arr) => {

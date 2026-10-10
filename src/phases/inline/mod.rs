@@ -253,6 +253,13 @@ pub enum InlineError {
         reason: String,
     },
 
+    #[error(
+        "`behavior/ref` at {path} takes a computed argument; a behavior that comes from data \
+         must arrive as a `behavior` value (the `value` of a `program/eval` result or a catalog \
+         entry), not as text re-parsed at run time"
+    )]
+    BehaviorRefNotLiteral { path: String },
+
     #[error("`unquote` at {path} appears outside a quasiquote body")]
     UnquoteOutsideQuasiquote { path: String },
 }
@@ -273,6 +280,7 @@ impl InlineError {
             InlineError::LazyEagerRef { path, .. } => path,
             InlineError::PageAccessWeakened { path, .. } => path,
             InlineError::BehaviorRefUnresolved { path, .. } => path,
+            InlineError::BehaviorRefNotLiteral { path } => path,
             InlineError::UnquoteOutsideQuasiquote { path } => path,
             _ => "",
         }
@@ -296,6 +304,7 @@ impl InlineError {
             InlineError::LazyNotSplit { .. } => "ORB_LAZY_NOT_SPLIT",
             InlineError::PageAccessWeakened { .. } => "ORB_O_PAGE_ACCESS_WEAKENED",
             InlineError::BehaviorRefUnresolved { .. } => "ORB_T_BEHAVIOR_REF_UNRESOLVED",
+            InlineError::BehaviorRefNotLiteral { .. } => "ORB_T_BEHAVIOR_REF_NOT_LITERAL",
             InlineError::UnquoteOutsideQuasiquote { .. } => "ORB_T_UNQUOTE_OUTSIDE_QUASIQUOTE",
             InlineError::Loader(LoaderError::PackageNotInstalled { .. })
             | InlineError::Loader(LoaderError::BehaviorPackageNotInstalled { .. }) => {
@@ -1667,19 +1676,27 @@ fn inline_orbital(
                 })();
                 let loaded_files = loader.end_recording();
                 inlined?;
-                // Land the alias's own cross-orbital merges on the alias's orbitals too, so a
+                // Land the alias's own cross-orbital merges on the alias's orbitals, so a
                 // definition copied out of it (an import's clone or retarget) carries the merged
-                // fields; they still travel on to the importing program as before.
-                for dm in &deferred_merges[marks.4..] {
-                    merge_into_named_entity(
-                        &mut inlined_orbitals,
-                        &dm.target,
-                        &dm.imported,
-                        dm.intrinsic_only,
-                        &dm.required_data,
-                        &dm.referenced_fields,
-                    );
-                }
+                // fields. Only a merge whose target the alias does not declare travels on to the
+                // importing program; a landed one reaches it through the imports that use it.
+                let unlanded: Vec<DeferredMerge> = deferred_merges
+                    .split_off(marks.4)
+                    .into_iter()
+                    .filter(|dm| {
+                        !merge_into_named_entity(
+                            &mut inlined_orbitals,
+                            &dm.target,
+                            &dm.imported,
+                            dm.intrinsic_only,
+                            &dm.required_data,
+                            &dm.referenced_fields,
+                        )
+                    })
+                    .collect();
+                deferred_merges.extend(unlanded);
+                move_copy_merges_to_owners(&mut inlined_orbitals);
+                drop_shadowed_auxiliaries(&mut inlined_orbitals);
                 let inlined_orbitals = std::rc::Rc::new(inlined_orbitals);
                 imports.insert(
                     import_key,
@@ -5575,6 +5592,7 @@ mod tests {
             icon: None,
             label: None,
             id: None,
+            roles: None,
         };
 
         let orb1 = Orbital {
@@ -7850,6 +7868,7 @@ mod tests {
 /// copy that only lacked a field a deferred merge brings to the owner is a narrower view once the
 /// merge lands, while a copy with a shape no merge supplies stays a reported conflict.
 fn settle_shadowed_auxiliaries(orbitals: &mut [Orbital], deferred_merges: &[DeferredMerge]) {
+    move_copy_merges_to_owners(orbitals);
     drop_shadowed_auxiliaries(orbitals);
     for dm in deferred_merges {
         merge_into_named_entity(
@@ -7862,6 +7881,44 @@ fn settle_shadowed_auxiliaries(orbitals: &mut [Orbital], deferred_merges: &[Defe
         );
     }
     drop_shadowed_auxiliaries(orbitals);
+}
+
+/// A merge that landed on an auxiliary copy of an entity another orbital owns (the copy
+/// existed before the owner inlined) belongs to the owner's record: its merged fields move
+/// there, so which orbital inlined first never decides where a field lives.
+fn move_copy_merges_to_owners(orbitals: &mut [Orbital]) {
+    let owners: HashMap<String, usize> = orbitals
+        .iter()
+        .enumerate()
+        .filter_map(|(i, o)| match &o.entity {
+            EntityRef::Inline(e) => Some((e.name.clone(), i)),
+            _ => None,
+        })
+        .collect();
+    let mut moves: Vec<(usize, orbital_core::schema::FieldDefinition)> = Vec::new();
+    for (i, orbital) in orbitals.iter().enumerate() {
+        for aux in orbital.auxiliary_entities.iter().flatten() {
+            let EntityRef::Inline(copy) = aux else {
+                continue;
+            };
+            let Some(&owner) = owners.get(&copy.name).filter(|&&o| o != i) else {
+                continue;
+            };
+            moves.extend(
+                copy.fields
+                    .iter()
+                    .filter(|f| f.merged_from.is_some())
+                    .map(|f| (owner, f.clone())),
+            );
+        }
+    }
+    for (owner, field) in moves {
+        if let EntityRef::Inline(entity) = &mut orbitals[owner].entity {
+            if !entity.fields.iter().any(|f| f.name == field.name) {
+                entity.fields.push(field);
+            }
+        }
+    }
 }
 
 pub(crate) fn drop_shadowed_auxiliaries(orbitals: &mut [Orbital]) {
@@ -7983,6 +8040,39 @@ mod shadowed_auxiliary_tests {
         settle_shadowed_auxiliaries(&mut o, &[merge_of("cards")]);
         assert_eq!(aux_names(&o[1]), vec!["ExportPanel".to_string()]);
         assert!(matches!(&o[0].entity, EntityRef::Inline(d) if d.fields.iter().any(|f| f.name.as_deref() == Some("cards"))));
+    }
+
+    fn copy_with_merged(o: &mut [Orbital], field: &str) {
+        if let Some(EntityRef::Inline(copy)) =
+            o[1].auxiliary_entities.as_mut().and_then(|a| a.first_mut())
+        {
+            copy.fields.push(
+                serde_json::from_value(
+                    serde_json::json!({ "name": field, "type": "string", "mergedFrom": "Stats" }),
+                )
+                .expect("field"),
+            );
+        }
+    }
+
+    #[test]
+    fn a_merge_that_landed_on_a_shadowing_copy_moves_to_the_owner() {
+        let mut o = orbitals();
+        copy_with_merged(&mut o, "cards");
+        settle_shadowed_auxiliaries(&mut o, &[]);
+        assert_eq!(aux_names(&o[1]), vec!["ExportPanel".to_string()]);
+        assert!(matches!(&o[0].entity, EntityRef::Inline(d)
+            if d.fields.iter().any(|f| f.name.as_deref() == Some("cards") && f.merged_from.as_deref() == Some("Stats"))));
+    }
+
+    #[test]
+    fn control_an_authored_field_on_a_shadowing_copy_does_not_move() {
+        let mut o = orbitals();
+        copy_with(&mut o, "importedOnly");
+        settle_shadowed_auxiliaries(&mut o, &[]);
+        assert!(aux_names(&o[1]).contains(&"OrderRecord".to_string()));
+        assert!(matches!(&o[0].entity, EntityRef::Inline(d)
+            if !d.fields.iter().any(|f| f.name.as_deref() == Some("importedOnly"))));
     }
 
     #[test]

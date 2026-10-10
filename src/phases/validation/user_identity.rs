@@ -275,7 +275,63 @@ pub fn validate_user_identity(schema: &OrbitalSchema, ctx: &mut ValidationContex
         }
     }
 
+    if let Some(identity) = declared_identity {
+        check_page_nav_roles(schema, identity, &mut result);
+    }
+
     ctx.merge(result);
+}
+
+/// A page's nav entry roles (`@roles`) are matched against the viewer's role, so each
+/// must be a declared value of some role field of the [identity] entity.
+fn check_page_nav_roles(
+    schema: &OrbitalSchema,
+    identity: &EntityDefinition,
+    result: &mut ValidationResult,
+) {
+    let role_fields: Vec<(&str, &Vec<String>)> = identity
+        .fields
+        .iter()
+        .filter_map(|f| Some((f.name.as_deref()?, vocabulary(f)?)))
+        .collect();
+    if role_fields.is_empty() {
+        return;
+    }
+    for (i, orbital) in schema.orbitals.iter().enumerate() {
+        for (k, page_ref) in orbital.pages.iter().flatten().enumerate() {
+            let orbital_core::schema::PageRef::Inline(page) = page_ref else {
+                continue;
+            };
+            for role in page.roles.iter().flatten() {
+                if role_fields
+                    .iter()
+                    .any(|(_, vocab)| enum_value_is_member(role, vocab))
+                {
+                    continue;
+                }
+                let (field_name, vocab) = role_fields[0];
+                result.add_error(
+                    ValidationError::error(
+                        ErrorCode::SchemaRoleLiteralNotMember,
+                        format!("orbitals[{i}].pages[{k}].roles").as_str(),
+                        format!(
+                            "Page \"{}\" lists role \"{}\" for its nav entry, but no role field \
+                             of the [identity] entity `{}` declares it, so no viewer ever sees the entry.",
+                            page.path, role, identity.name
+                        ),
+                    )
+                    .with_valid_values(vocab.to_vec())
+                    .with_suggestion(format!(
+                        "Use one of: {}, or add \"{}\" to `{}.{}`.",
+                        vocab.join(", "),
+                        role,
+                        identity.name,
+                        field_name
+                    )),
+                );
+            }
+        }
+    }
 }
 
 /// Every literal of a config-held role list (`allowedRoles`, nav-item / action

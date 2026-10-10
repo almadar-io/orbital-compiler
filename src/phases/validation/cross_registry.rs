@@ -89,7 +89,10 @@ fn walk_for_references(expr: &SExpression, path: &str, result: &mut ValidationRe
                     // name as the second arg — the suffix is an operator verb,
                     // not a behavior name. Only non-verb suffixes are treated as
                     // behavior shorthand references (behavior/<name>).
-                    let behavior_name = if matches!(suffix, "apply" | "catalog" | "describe" | "source") {
+                    let composer = matches!(suffix, "compose" | "wire" | "detect-layout" | "pipe");
+                    // A registered value/reflection operator (`apply`, `ref`, `catalog`, …):
+                    // the suffix is its verb, not a behavior name.
+                    let behavior_name = if !composer && embedded::is_known_operator(op) {
                         None
                     } else if matches!(suffix, "compose" | "wire" | "detect-layout" | "pipe") {
                         if let Some(SExpression::String(s)) = arr.get(1) {
@@ -236,6 +239,24 @@ mod tests {
         let mut result = ValidationResult::new();
         check_pattern_reference("button", "test", &mut result);
         assert!(result.is_valid());
+    }
+
+    fn behavior_errors(expr: serde_json::Value) -> usize {
+        let mut result = ValidationResult::new();
+        let expr: SExpression = serde_json::from_value(expr).expect("sexpr");
+        walk_for_references(&expr, "t", &mut result);
+        result.errors.iter().filter(|e| e.message.contains("behaviors-registry")).count()
+    }
+
+    #[test]
+    fn a_registered_behavior_operator_is_a_verb_not_a_behavior_name() {
+        assert_eq!(behavior_errors(serde_json::json!(["behavior/ref", "./orbitals/shop"])), 0);
+        assert_eq!(behavior_errors(serde_json::json!(["behavior/apply", "@entity.w", {}])), 0);
+    }
+
+    #[test]
+    fn control_an_unregistered_behavior_shorthand_is_still_checked() {
+        assert_eq!(behavior_errors(serde_json::json!(["behavior/no-such-behavior-xyz"])), 1);
     }
 
     #[test]

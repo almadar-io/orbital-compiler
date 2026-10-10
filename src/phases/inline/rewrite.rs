@@ -1440,7 +1440,9 @@ pub(crate) fn mark_literal_list_in_place(value: &mut SExpression, field_type: &s
 /// struct (`sections: [{ fields: ["count", "slug"] }]`) is as ambiguous as a
 /// top-level one — unwrapped, `(count slug)` evaluates as a call.
 pub(crate) fn mark_config_literal_lists(value: &mut SExpression, field: &ConfigField) {
-    mark_literal_list_in_place(value, &field.field_type);
+    if field.items.as_deref().is_none_or(element_admits_string) {
+        mark_literal_list_in_place(value, &field.field_type);
+    }
     let Some(shape) = field.items.as_deref() else {
         if let (Some(props), SExpression::Object(map)) = (&field.properties, value) {
             mark_object_members(map, props);
@@ -1462,10 +1464,27 @@ pub(crate) fn mark_config_literal_lists(value: &mut SExpression, field: &ConfigF
     }
 }
 
+/// Whether a string can be an element of this array: when it cannot, a
+/// string-headed value is a call, never literal data, and is left unwrapped.
+fn element_admits_string(shape: &FieldDefinition) -> bool {
+    !matches!(
+        shape.field_type,
+        FieldType::Number
+            | FieldType::Boolean
+            | FieldType::Money
+            | FieldType::File
+            | FieldType::Array
+            | FieldType::Object
+            | FieldType::Tuple
+    )
+}
+
 fn mark_field_literal_lists(value: &mut SExpression, shape: &FieldDefinition) {
     match shape.field_type {
         FieldType::Array => {
-            mark_literal_list_in_place(value, "[]");
+            if shape.items.as_deref().is_none_or(element_admits_string) {
+                mark_literal_list_in_place(value, "[]");
+            }
             if let (Some(inner), SExpression::Array(elems)) = (shape.items.as_deref(), value) {
                 for elem in literal_list_elements_mut(elems) {
                     mark_field_literal_lists(elem, inner);
@@ -2794,6 +2813,54 @@ mod literal_list_tests {
         };
         assert_eq!(fields[0], SExpression::String("list".to_string()));
         assert_eq!(fields[1], SExpression::String("count".to_string()));
+    }
+
+    /// A string-headed value can never be a literal of a struct-element array
+    /// (`[NavLink]` elements are objects), so it is a call — e.g. an
+    /// `(if (== "kflow" "rawi") [...] [...])` whose `@config` read was folded to
+    /// a literal — and must reach the runtime unwrapped.
+    #[test]
+    fn struct_element_slot_keeps_a_call_value_unwrapped() {
+        let field: ConfigField = serde_json::from_value(serde_json::json!({
+            "type": "[NavLink]",
+            "items": { "type": "object", "properties": { "label": { "type": "string" }, "href": { "type": "string" } } }
+        }))
+        .expect("config field");
+        let call = serde_json::json!(["if", ["==", "kflow", "rawi"], [{ "href": "#a", "label": "A" }], [{ "href": "#b", "label": "B" }]]);
+        let mut v: SExpression = serde_json::from_value(call.clone()).expect("value");
+        mark_config_literal_lists(&mut v, &field);
+        let expected: SExpression = serde_json::from_value(call).expect("value");
+        assert_eq!(v, expected);
+    }
+
+    #[test]
+    fn control_string_element_slot_still_wraps_a_string_headed_list() {
+        let field: ConfigField = serde_json::from_value(serde_json::json!({
+            "type": "[string]",
+            "items": { "type": "string" }
+        }))
+        .expect("config field");
+        let mut v: SExpression =
+            serde_json::from_value(serde_json::json!(["if", "else"])).expect("value");
+        mark_config_literal_lists(&mut v, &field);
+        let SExpression::Array(items) = &v else {
+            panic!("expected array")
+        };
+        assert_eq!(items[0], SExpression::String("list".to_string()));
+    }
+
+    #[test]
+    fn control_number_element_slot_keeps_a_call_value_unwrapped() {
+        let field: ConfigField = serde_json::from_value(serde_json::json!({
+            "type": "[number]",
+            "items": { "type": "number" }
+        }))
+        .expect("config field");
+        let call = serde_json::json!(["if", true, [1, 2], [3]]);
+        let mut v: SExpression = serde_json::from_value(call.clone()).expect("value");
+        mark_config_literal_lists(&mut v, &field);
+        let expected: SExpression = serde_json::from_value(call).expect("value");
+        assert_eq!(v, expected);
     }
 
     #[test]

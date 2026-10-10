@@ -38,10 +38,13 @@
 
 pub(crate) mod value_walk;
 pub(crate) mod async_results;
+mod fetch_by_id_payload;
+mod init_coverage;
 pub mod binding;
 pub mod canonical_operators;
 pub(crate) mod client_tick_locality;
 pub mod closed_circuit;
+pub mod composed_wiring;
 pub mod config_type;
 pub mod cross_emitter;
 pub mod cross_orbital;
@@ -54,6 +57,7 @@ pub mod entity_access;
 pub mod entity_mutation;
 pub mod error;
 pub mod expectations;
+pub mod final_program;
 pub mod fired_events;
 pub mod generic_types;
 pub mod icon;
@@ -371,6 +375,7 @@ pub const VALID_FIELD_TYPES: &[&str] = &[
     // bug that would reject any trait-typed field reaching this check.
     "trait",
     "orbital",
+    "behavior",
     "slot",
     "pattern",
     // Renderable UI content (type-integrity campaign).
@@ -610,6 +615,9 @@ pub fn validate_comprehensive_full(
     // ORB_CIRCUIT_VIEWER_STRANDED + ORB_PAGE_SECOND_CONTENT_BODY: page-level
     // (not per-trait) checks sharing one page-content-owner computation.
     closed_circuit::validate_page_content_ownership(schema, &mut ctx);
+    // ORB_COMPOSED_STATE_UNREACHABLE + ORB_CONTROL_VALUE_DISCARDED: composed
+    // placements whose inputs nothing produces or whose control values nothing keeps.
+    composed_wiring::validate_composed_wiring(schema, &mut ctx);
 
     // Phase 13: Icon validation
     icon::validate_all_icons(schema, &mut ctx);
@@ -895,7 +903,7 @@ mod valid_field_types_tests {
 
     #[test]
     fn the_behavior_value_types_are_valid_field_types() {
-        for ty in [FieldType::Trait, FieldType::Orbital] {
+        for ty in [FieldType::Trait, FieldType::Orbital, FieldType::Behavior] {
             let name = serde_json::to_value(&ty).expect("serializes");
             let name = name.as_str().expect("a string tag");
             assert!(VALID_FIELD_TYPES.contains(&name), "{name} missing from VALID_FIELD_TYPES");

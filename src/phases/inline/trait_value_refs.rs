@@ -11,7 +11,7 @@
 use super::InlineError;
 use crate::loader::{ExternalOrbitalLoader, ImportChain};
 use orbital_core::evaluator::Value;
-use orbital_core::schema::behavior_value::{OrbitalValueRef, TraitValueRef};
+use orbital_core::schema::behavior_value::{is_behavior_specifier, OrbitalValueRef, TraitValueRef};
 use orbital_core::schema::quote::UNQUOTE_HEAD;
 use orbital_core::schema::{
     EntityRef, FieldDefinition, OrbitalSchema, SExpression, TraitReference,
@@ -30,6 +30,8 @@ struct Pass<'a> {
 enum Member {
     Trait(String),
     Orbital(String),
+    /// The whole behavior (`behavior/ref`).
+    Whole,
 }
 
 impl Member {
@@ -37,6 +39,7 @@ impl Member {
         match self {
             Member::Trait(t) => format!("{behavior}.traits.{t}"),
             Member::Orbital(o) => format!("{behavior}.orbitals.{o}"),
+            Member::Whole => behavior.to_string(),
         }
     }
 }
@@ -141,6 +144,29 @@ impl Pass<'_> {
                         path: path.to_string(),
                     });
                 }
+                // `(behavior/ref "<spec>")` takes a literal specifier, resolved now.
+                if let [SExpression::String(head), arg] = items.as_slice() {
+                    if head == "behavior/ref" {
+                        let spec = match arg {
+                            SExpression::String(s) if !arg.is_binding() => s.clone(),
+                            _ => {
+                                return Err(InlineError::BehaviorRefNotLiteral {
+                                    path: path.to_string(),
+                                })
+                            }
+                        };
+                        if !is_behavior_specifier(&spec) {
+                            return Err(InlineError::BehaviorRefUnresolved {
+                                literal: spec,
+                                path: path.to_string(),
+                                reason: "not a behavior specifier (<prefix>/<name>, std/behaviors/<name> or ./<dir>/<name>)".to_string(),
+                            });
+                        }
+                        let canonical = self.resolve(&spec, &Member::Whole, path)?;
+                        items[1] = SExpression::String(canonical);
+                        return Ok(());
+                    }
+                }
                 for item in items {
                     self.expr(item, path)?;
                 }
@@ -197,11 +223,13 @@ impl Pass<'_> {
                 })
             }),
             Member::Orbital(orbital) => loaded.schema.orbitals.iter().any(|o| &o.name == orbital),
+            Member::Whole => true,
         };
         if !found {
             return Err(match member {
                 Member::Trait(t) => format!("behavior '{behavior}' declares no trait '{t}'"),
                 Member::Orbital(o) => format!("behavior '{behavior}' declares no orbital '{o}'"),
+                Member::Whole => format!("behavior '{behavior}' is not installed"),
             });
         }
         if behavior.starts_with("./") {
@@ -289,6 +317,54 @@ mod tests {
 
     fn ov(behavior: &str, orbital: &str) -> serde_json::Value {
         serde_json::json!({ "behavior": behavior, "orbital": orbital })
+    }
+
+    #[test]
+    fn a_literal_behavior_ref_that_resolves_is_accepted() {
+        let mut schema = schema_with(serde_json::Value::Null, serde_json::json!(["set", "@entity.id", ["behavior/ref", "./loader/fixtures/health"]]));
+        run(&mut schema).expect("resolves");
+    }
+
+    #[test]
+    fn a_literal_behavior_ref_to_an_unknown_behavior_is_unresolved() {
+        let mut schema = schema_with(serde_json::Value::Null, serde_json::json!(["set", "@entity.id", ["behavior/ref", "./loader/fixtures/missing"]]));
+        let err = run(&mut schema).unwrap_err();
+        assert_eq!(err.structured_code(), "ORB_T_BEHAVIOR_REF_UNRESOLVED");
+    }
+
+    #[test]
+    fn a_behavior_ref_over_a_binding_is_rejected() {
+        let mut schema = schema_with(serde_json::Value::Null, serde_json::json!(["set", "@entity.id", ["behavior/ref", "@payload.behavior"]]));
+        let err = run(&mut schema).unwrap_err();
+        assert_eq!(err.structured_code(), "ORB_T_BEHAVIOR_REF_NOT_LITERAL");
+    }
+
+    #[test]
+    fn a_behavior_ref_over_a_computed_value_is_rejected() {
+        let mut schema = schema_with(
+            serde_json::Value::Null,
+            serde_json::json!(["set", "@entity.id", ["behavior/ref", ["object/get", "@payload.data", "behavior", ""]]]),
+        );
+        let err = run(&mut schema).unwrap_err();
+        assert_eq!(err.structured_code(), "ORB_T_BEHAVIOR_REF_NOT_LITERAL");
+    }
+
+    #[test]
+    fn a_literal_behavior_ref_that_is_not_a_specifier_is_unresolved() {
+        let mut schema = schema_with(serde_json::Value::Null, serde_json::json!(["set", "@entity.id", ["behavior/ref", "Indigo Pioneer"]]));
+        let err = run(&mut schema).unwrap_err();
+        assert_eq!(err.structured_code(), "ORB_T_BEHAVIOR_REF_UNRESOLVED");
+    }
+
+    #[test]
+    fn control_a_behavior_ref_inside_a_quasiquote_body_is_left_alone() {
+        let body = orbital_core::schema::quote::quasiquote_expr(
+            &serde_json::from_value::<SExpression>(serde_json::json!(["behavior/ref", ["unquote", "@payload.behavior"]])).unwrap(),
+        )
+        .expect("quasiquote");
+        let effect = serde_json::json!(["set", "@entity.id", serde_json::to_value(&body).unwrap()]);
+        let mut schema = schema_with(serde_json::Value::Null, effect);
+        run(&mut schema).expect("an encoded body is not checked here");
     }
 
     #[test]
@@ -393,6 +469,10 @@ mod tests {
         assert_eq!(
             ErrorCode::TraitUnquoteOutsideQuasiquote.as_str(),
             "ORB_T_UNQUOTE_OUTSIDE_QUASIQUOTE"
+        );
+        assert_eq!(
+            ErrorCode::TraitBehaviorRefNotLiteral.as_str(),
+            "ORB_T_BEHAVIOR_REF_NOT_LITERAL"
         );
     }
 }

@@ -417,6 +417,7 @@ fn field_type_to_binding(ft: &FieldType) -> BindingType {
         FieldType::Trait => BindingType::String,
         // An orbital value is data (an import body), never rendered.
         FieldType::Orbital => BindingType::Object,
+        FieldType::Behavior => BindingType::Object,
         // `slot` and `pattern` resolve to strings at the binding level; so
         // does `event` (Phase B struct-field carrier) — an event name is a
         // string at the render-binding lattice, same as the scalar

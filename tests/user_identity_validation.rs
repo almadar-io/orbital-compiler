@@ -727,3 +727,41 @@ fn role_lists_not_compared_to_a_role_source_are_not_checked() {
     let nav = json!([{ "label": "A", "roles": ["zzz"] }]);
     assert_eq!(role_list_errors(json!(["zzz"]), nav, "not-a-user-read"), 0);
 }
+
+fn schema_with_page_roles(identity_fields: Value, identity: bool, roles: &[&str]) -> Value {
+    let mut schema = schema_with(identity_fields, json!([]), identity);
+    schema["orbitals"][0]["pages"] = json!([
+        { "name": "StaffPage", "path": "/staff", "label": "Staff", "roles": roles }
+    ]);
+    schema
+}
+
+#[test]
+fn a_page_nav_role_outside_the_declared_vocabulary_is_an_error() {
+    let errors = run(schema_with_page_roles(
+        json!([role_field(&["manager", "clerk"])]),
+        true,
+        &["manager", "owner"],
+    ));
+    assert_eq!(errors, vec!["ORB_S_ROLE_LITERAL_NOT_MEMBER"], "{errors:?}");
+}
+
+#[test]
+fn control_page_nav_roles_the_identity_declares_are_accepted() {
+    let errors = run(schema_with_page_roles(
+        json!([role_field(&["manager", "clerk"])]),
+        true,
+        &["manager", "clerk"],
+    ));
+    assert!(errors.is_empty(), "{errors:?}");
+}
+
+#[test]
+fn edge_without_a_declared_identity_page_nav_roles_stay_legal() {
+    let errors = run(schema_with_page_roles(
+        json!([role_field(&["manager"])]),
+        false,
+        &["owner"],
+    ));
+    assert!(errors.is_empty(), "{errors:?}");
+}

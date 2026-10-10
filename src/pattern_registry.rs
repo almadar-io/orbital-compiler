@@ -82,6 +82,18 @@ pub struct PropTypeSchema {
     /// A member typed `T | null` without `?`: `.orb` data omits it, the TS type needs `null`.
     #[serde(default)]
     pub nullable: bool,
+    /// Elements are drawable descriptors (`draw-*` data the painter reads), not rendered children.
+    #[serde(rename = "drawableSlot", default)]
+    pub drawable_slot: bool,
+}
+
+/// A rich prop's typed decoder (see `PropSchema::decoder`).
+#[derive(Debug, Clone, Deserialize, PartialEq)]
+pub struct PropDecoder {
+    pub name: String,
+    pub from: String,
+    #[serde(rename = "acceptsString", default)]
+    pub accepts_string: bool,
 }
 
 /// Prop type definition.
@@ -121,6 +133,10 @@ pub struct PropSchema {
     /// (array). Drives the bind-site cast cardinality.
     #[serde(default)]
     pub cardinality: Option<String>,
+    /// The owning package's typed decoder a compiled app applies to a value reaching this prop
+    /// (G-CROSS-131): `{ name, from, acceptsString? }`.
+    #[serde(default)]
+    pub decoder: Option<PropDecoder>,
     /// For entity-data props declared as `EntityWith<'a' | 'b'>`: the field
     /// names the component requires.
     #[serde(rename = "requiredFields", default)]

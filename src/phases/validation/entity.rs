@@ -719,6 +719,7 @@ fn field_type_to_string(field_type: &FieldType) -> String {
         FieldType::Relation => "relation".to_string(),
         FieldType::Trait => "trait".to_string(),
         FieldType::Orbital => "orbital".to_string(),
+        FieldType::Behavior => "behavior".to_string(),
         FieldType::Slot => "slot".to_string(),
         FieldType::Pattern => "pattern".to_string(),
         FieldType::Node => "node".to_string(),

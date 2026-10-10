@@ -110,6 +110,10 @@ pub struct CompilerOptions {
     /// `compile` report this before parsing, as validator infrastructure, not
     /// a schema authoring error.
     pub discovery_error: Option<orbital_core::behavior_packages::DiscoverError>,
+    /// Service name → declared runtimes, from the services registry the caller
+    /// loaded; `None` reads the baked registry. Decides which calls run in the
+    /// browser (`OirModule::browser_services`).
+    pub service_runtimes: Option<std::collections::HashMap<String, Vec<String>>>,
 }
 
 impl CompilerOptions {
@@ -323,6 +327,15 @@ fn compile_schema_with_path(
         eprintln!("  Phase 5: Resolving...");
     }
     let mut oir = resolve_to_oir(&schema)?;
+    let runtimes = options
+        .service_runtimes
+        .as_ref()
+        .unwrap_or(&crate::embedded::baked_service_registry().runtimes);
+    oir.browser_services = oir
+        .invoked_services()
+        .into_iter()
+        .filter(|s| runtimes.get(s).is_some_and(|r| orbital_core::effects::runs_on::is_browser_only(r)))
+        .collect();
 
     // Phase 5b (opt-in): nominalize anonymous struct/union shapes into
     // `named_types` + `TypeRef`s — post-Resolve, pre-codegen, so every

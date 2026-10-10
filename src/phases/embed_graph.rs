@@ -233,27 +233,8 @@ pub(crate) fn client_bound_traits(orbital: &Orbital) -> HashSet<String> {
     let graph = EmbedGraph::build(&orbital.traits);
     let forward = graph.embedded_children();
 
-    let mut bound: HashSet<String> = HashSet::new();
-    let mut queue: Vec<String> = Vec::new();
-    for page_ref in orbital.pages.iter().flatten() {
-        let PageRef::Inline(page) = page_ref else {
-            continue;
-        };
-        for trait_ref in page.traits.iter().flatten() {
-            let seed = match trait_ref {
-                TraitReference::Inline(td) => Some(td.name.clone()),
-                TraitReference::Reference {
-                    reference: Some(r), ..
-                } => Some(r.clone()),
-                _ => None,
-            };
-            if let Some(name) = seed {
-                if bound.insert(name.clone()) {
-                    queue.push(name);
-                }
-            }
-        }
-    }
+    let mut bound: HashSet<String> = page_declared_traits(orbital);
+    let mut queue: Vec<String> = bound.iter().cloned().collect();
     while let Some(current) = queue.pop() {
         for child in forward.get(current.as_str()).into_iter().flatten() {
             if bound.insert(child.to_string()) {
@@ -262,6 +243,31 @@ pub(crate) fn client_bound_traits(orbital: &Orbital) -> HashSet<String> {
         }
     }
     bound
+}
+
+/// The traits an inline page declares directly in its own trait list: a page-declared
+/// `Inline` trait's `name`, or a `Reference` page trait's `reference`.
+pub(crate) fn page_declared_traits(orbital: &Orbital) -> HashSet<String> {
+    let mut declared: HashSet<String> = HashSet::new();
+    for page_ref in orbital.pages.iter().flatten() {
+        let PageRef::Inline(page) = page_ref else {
+            continue;
+        };
+        for trait_ref in page.traits.iter().flatten() {
+            match trait_ref {
+                TraitReference::Inline(td) => {
+                    declared.insert(td.name.clone());
+                }
+                TraitReference::Reference {
+                    reference: Some(r), ..
+                } => {
+                    declared.insert(r.clone());
+                }
+                _ => {}
+            }
+        }
+    }
+    declared
 }
 
 /// Pages that declare, directly in their own page-level trait list, one of

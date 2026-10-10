@@ -278,6 +278,8 @@ fn walk_pattern_props(
                 || *t == "node"   // any rendered value is a ReactNode
                 || *t == "string" && resolved_str == "trait"  // @trait.X used as label fallback
                 || (*t == "icon" && resolved_str == "string")
+                // An asset is a string brand (a URL), as in the literal check.
+                || (*t == "asset" && resolved_str == "string")
                 // Date props: both render boundaries coerce a serialized
                 // string / epoch number into a real `Date` (runtime
                 // `UISlotRenderer`, compiled `pattern/registry.rs`), so a
@@ -781,6 +783,11 @@ fn primitive_event_compat(declared: &str, actual: &str) -> bool {
         let other = if d == "@entity" { a } else { d };
         return other == "@entity" || other == "object" || other == "json" || other == "string";
     }
+    // A quoted program / expression: the registry kind `sexpr` is the `.lolo` `SExpr` type.
+    if d == "SExpr" || a == "SExpr" {
+        let other = if d == "SExpr" { a } else { d };
+        return other == "sexpr" || other == "SExpr";
+    }
     match d {
         "any" => true,
         // `json` and `object` are the same wire shape (Gate C separately
@@ -1252,7 +1259,8 @@ mod array_into_record_tests {
             }
             t => (t.to_string(), None),
         };
-        vec![PayloadField { values: None,
+        vec![PayloadField {
+            values: None,
             name: "data".to_string(),
             field_type,
             required: Some(true),
@@ -1290,6 +1298,21 @@ mod array_into_record_tests {
         out.into_iter()
             .filter(|e| e.code == ErrorCode::RenderUIBindingTypeMismatch)
             .collect()
+    }
+
+    /// An asset prop is a string brand (a URL) in the literal check; a string-typed binding
+    /// (an `if` choosing between two URLs, an `image`/`url` field) is accepted the same way.
+    #[test]
+    fn string_binding_into_asset_prop_is_fine() {
+        assert!(mismatches("header", "logoSrc", "@payload.data", "string").is_empty());
+    }
+
+    #[test]
+    fn control_number_binding_into_asset_prop_is_an_error() {
+        assert_eq!(
+            mismatches("header", "logoSrc", "@payload.data", "number").len(),
+            1
+        );
     }
 
     #[test]
@@ -1461,5 +1484,25 @@ mod array_element_kind_tests {
         let t = trait_with_config(serde_json::json!({ "fields": { "type": "[FieldSpec]" } }));
         assert!(mismatches(&t, "timeline", "fields", "@config.fields").is_empty());
         assert!(mismatches(&t, "timeline", "fields", "@config.missing").is_empty());
+    }
+}
+
+#[cfg(test)]
+mod sexpr_payload_compat_tests {
+    //! A callback arg the registry types `sexpr` (a quoted program, e.g.
+    //! `flow-canvas.onSchemaChange(schema)`) is the `.lolo` `SExpr` type.
+    use super::primitive_event_compat;
+
+    #[test]
+    fn declared_sexpr_accepts_registry_sexpr() {
+        assert!(primitive_event_compat("SExpr", "sexpr"));
+        assert!(primitive_event_compat("SExpr!", "sexpr"));
+    }
+
+    #[test]
+    fn control_sexpr_is_not_a_struct_and_struct_is_not_sexpr() {
+        assert!(!primitive_event_compat("SExpr", "number"));
+        assert!(!primitive_event_compat("Order", "sexpr"));
+        assert!(!primitive_event_compat("string", "sexpr"));
     }
 }

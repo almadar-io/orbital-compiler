@@ -117,6 +117,7 @@ pub fn validate_all_circuits(schema: &OrbitalSchema, ctx: &mut ValidationContext
         // opposite way — it fires precisely when a trait is NOT in it.
         let bound = client_bound_traits(orbital);
         ctx.merge(validate_client_bound_state_machines(i, orbital, &bound));
+        let page_traits = crate::phases::embed_graph::page_declared_traits(orbital);
         for (j, trait_ref) in orbital.traits.iter().enumerate() {
             if let TraitReference::Inline(trait_def) = trait_ref {
                 let path = super::trait_path(i, &orbital.name, j, trait_ref);
@@ -133,6 +134,9 @@ pub fn validate_all_circuits(schema: &OrbitalSchema, ctx: &mut ValidationContext
                     &path,
                 ));
                 ctx.merge(validate_self_emit_loop(trait_def, &orbital.name, &path));
+                if page_traits.contains(&trait_def.name) {
+                    ctx.merge(super::init_coverage::validate_init_coverage(trait_def, &path));
+                }
             }
         }
     }
@@ -226,6 +230,7 @@ pub fn validate_closed_circuit(
     // JS predicate has no `bound.has` check in this block (unlike its
     // `failure-arm-missing` sibling below).
     result.merge(validate_async_result_deaf_target(state_machine, path));
+    result.merge(super::fetch_by_id_payload::validate_fetch_by_id_payload(trait_def, path));
 
     // Ported wiring-lint kinds (sub-wave L1) — a trait the client never
     // mounts (not reachable from any page's `@trait.X` embed closure) can't
@@ -2738,6 +2743,115 @@ fn validate_viewer_stranded_for_owner(
     }
 }
 
+/// True when any transition or tick of `trait_def` paints a control into a `main` slot: a
+/// pattern node whose event prop (registry `kind: event | event-ref`) carries a value.
+fn paints_main(trait_def: &TraitDefinition) -> bool {
+    fn has_control(node: &SExpression) -> bool {
+        match node {
+            SExpression::Object(map) => {
+                let control = matches!(map.get("type"), Some(SExpression::String(t)) if crate::embedded::get_pattern(t).is_some_and(|p| {
+                    p.props_schema.iter().any(|(prop, spec)| {
+                        matches!(spec.kind.as_deref(), Some("event") | Some("event-ref"))
+                            && matches!(map.get(prop), Some(SExpression::String(v)) if !v.is_empty())
+                    })
+                }));
+                control || map.values().any(has_control)
+            }
+            SExpression::Array(items) => items.iter().any(has_control),
+            _ => false,
+        }
+    }
+    fn scan(node: &SExpression) -> bool {
+        if is_main_slot_render_ui(node) {
+            if let SExpression::Array(arr) = node {
+                return arr.get(2).is_some_and(has_control);
+            }
+        }
+        match node {
+            SExpression::Array(items) => items.iter().any(scan),
+            _ => false,
+        }
+    }
+    trait_def
+        .state_machine
+        .transitions
+        .iter()
+        .flat_map(|t| t.effects.iter().flatten())
+        .chain(trait_def.ticks.iter().flatten().flat_map(|tick| tick.effects.iter()))
+        .any(scan)
+}
+
+/// True when `from` designates one of `owners` through its config channel, directly or
+/// through traits it channels in turn (a shell → a list → the list's row view).
+fn channels_to(
+    from: &str,
+    owners: &[String],
+    channel_adjacency: &crate::phases::embed_graph::EmbedAdjacency<'_>,
+) -> bool {
+    let mut seen: HashSet<&str> = HashSet::new();
+    let mut walk: Vec<&str> = vec![from];
+    while let Some(node) = walk.pop() {
+        if !seen.insert(node) {
+            continue;
+        }
+        for &child in channel_adjacency.get(node).into_iter().flatten() {
+            if owners.iter().any(|o| o == child) {
+                return true;
+            }
+            walk.push(child);
+        }
+    }
+    false
+}
+
+/// True when `trait_def` paints a `template`-category pattern (a whole-page layout) into
+/// `main`; a `@config.<knob>` pattern type resolves through the trait's own config.
+fn paints_main_layout(trait_def: &TraitDefinition) -> bool {
+    let resolve = |t: &str| -> Option<String> {
+        match t.strip_prefix("@config.") {
+            None => Some(t.to_string()),
+            Some(knob) => trait_def
+                .config
+                .as_ref()
+                .and_then(|c| c.get(knob))
+                .and_then(|f| match &f.default {
+                    Some(SExpression::String(v)) => Some(v.clone()),
+                    _ => None,
+                }),
+        }
+    };
+    fn is_layout(node: &SExpression, resolve: &dyn Fn(&str) -> Option<String>) -> bool {
+        match node {
+            SExpression::Object(map) => {
+                matches!(map.get("type"), Some(SExpression::String(t)) if resolve(t).is_some_and(|p| {
+                    crate::embedded::patterns().get(&p).is_some_and(|e| e.category == "template")
+                })) || map.values().any(|v| is_layout(v, resolve))
+            }
+            SExpression::Array(items) => items.iter().any(|i| is_layout(i, resolve)),
+            _ => false,
+        }
+    }
+    fn scan(node: &SExpression, resolve: &dyn Fn(&str) -> Option<String>) -> bool {
+        if is_main_slot_render_ui(node) {
+            if let SExpression::Array(arr) = node {
+                if arr.get(2).is_some_and(|body| is_layout(body, resolve)) {
+                    return true;
+                }
+            }
+        }
+        match node {
+            SExpression::Array(items) => items.iter().any(|i| scan(i, resolve)),
+            _ => false,
+        }
+    }
+    trait_def
+        .state_machine
+        .transitions
+        .iter()
+        .flat_map(|t| t.effects.iter().flatten())
+        .any(|e| scan(e, &resolve))
+}
+
 /// `ORB_PAGE_SECOND_CONTENT_BODY` for one page whose owner is `channel` or
 /// `ambiguous` — a page-declared, inline, content-main-writing trait that is
 /// not the owner, not embedded by any client-bound trait, and not kin to the
@@ -2760,6 +2874,26 @@ fn validate_second_content_body(
         _ => return,
     };
 
+    let page_trait_names: Vec<&str> = page
+        .traits
+        .iter()
+        .flatten()
+        .filter_map(|t| match t {
+            TraitReference::Inline(td) => Some(td.name.as_str()),
+            TraitReference::Reference {
+                reference, name, ..
+            } => name.as_deref().or(reference.as_deref()),
+        })
+        .collect();
+    // A page shell: a page trait that channels the owner and paints a page layout
+    // (a `template`-category pattern) into `main` — anything else painting `main`
+    // outside the channelled content stacks below that layout.
+    let shell_channels_owner = matches!(owner, PageContentOwner::Channel(_))
+        && page_trait_names.iter().any(|candidate| {
+            channels_to(candidate, &owner_names, channel_adjacency)
+                && traits_by_name.get(candidate).is_some_and(|td| paints_main_layout(td))
+        });
+
     for trait_ref in page.traits.iter().flatten() {
         let name = match trait_ref {
             TraitReference::Inline(td) => td.name.as_str(),
@@ -2776,7 +2910,9 @@ fn validate_second_content_body(
         let Some(trait_def) = traits_by_name.get(name) else {
             continue;
         };
-        if !is_content_main_writer(trait_def) {
+        let content_writer = is_content_main_writer(trait_def);
+        let stray_control = shell_channels_owner && paints_main(trait_def);
+        if !content_writer && !stray_control {
             continue;
         }
         let related_to_owner = owner_names.iter().any(|owner_name| {
@@ -2784,6 +2920,23 @@ fn validate_second_content_body(
             reduce_to_owners(&candidates, channel_adjacency, embed_adjacency).len() == 1
         });
         if related_to_owner {
+            continue;
+        }
+        if !content_writer {
+            ctx.add_error(
+                ValidationError::error(
+                    ErrorCode::PageControlOutsideShell,
+                    format!("orbitals[{}].pages[{}]", orbital_index, page_index),
+                    format!(
+                        "page \"{}\": {} paints into slot 'main', but the page's shell shows {} as its content and nothing there embeds {} — it stacks below the shell's layout instead of inside it",
+                        page.path, name, owner_names.join(" / "), name
+                    ),
+                )
+                .with_suggestion(format!(
+                    "embed <trait.{}> in the content the shell shows (a stack set as its contentTrait), or remove {} from the page",
+                    name, name
+                )),
+            );
             continue;
         }
         ctx.add_error(
@@ -4810,6 +4963,174 @@ mod tests {
             page_with(&["Shell", "Catalog", "Stray"]),
         );
         assert!(second_content_body_hits(orbital).is_empty());
+    }
+
+    fn control_outside_shell_hits(orbital: Orbital) -> Vec<ValidationError> {
+        let schema = schema_of(orbital);
+        let mut ctx = ValidationContext::new();
+        validate_page_content_ownership(&schema, &mut ctx);
+        ctx.result
+            .errors
+            .into_iter()
+            .filter(|e| e.code == ErrorCode::PageControlOutsideShell)
+            .collect()
+    }
+
+    /// A page shell: channels `Catalog` through `contentTrait` and paints a template-category
+    /// layout (`dashboard-layout`, named through its `layoutPattern` knob) into `main`.
+    fn channel_shell() -> serde_json::Value {
+        channel_rendering("dashboard-layout")
+    }
+
+    fn channel_rendering(pattern: &str) -> serde_json::Value {
+        serde_json::json!({
+            "name": "Shell", "linkedEntity": "Item", "category": "interaction",
+            "config": {
+                "contentTrait": { "type": "trait", "default": "@trait.Catalog" },
+                "layoutPattern": { "type": "pattern", "default": pattern }
+            },
+            "stateMachine": {
+                "states": [{ "name": "idle", "isInitial": true }],
+                "transitions": [{ "from": "idle", "to": "idle", "event": "INIT",
+                    "effects": [["render-ui", "main", { "type": "box", "children": [{ "type": "@config.layoutPattern", "appName": "Items" }] }]] }]
+            }
+        })
+    }
+
+    fn catalog_rendering(body: serde_json::Value) -> serde_json::Value {
+        serde_json::json!({
+            "name": "Catalog", "linkedEntity": "Item", "category": "interaction",
+            "stateMachine": {
+                "states": [{ "name": "browsing", "isInitial": true }],
+                "transitions": [{ "from": "browsing", "to": "browsing", "event": "INIT", "effects": [["render-ui", "main", body]] }]
+            }
+        })
+    }
+
+    fn add_button(slot: &str, body: serde_json::Value) -> serde_json::Value {
+        serde_json::json!({
+            "name": "AddButton", "linkedEntity": "Item", "category": "interaction",
+            "stateMachine": {
+                "states": [{ "name": "idle", "isInitial": true }],
+                "transitions": [{ "from": "idle", "to": "idle", "event": "INIT", "effects": [["render-ui", slot, body]] }]
+            }
+        })
+    }
+
+    fn button_body() -> serde_json::Value {
+        serde_json::json!({ "type": "button", "label": "Add", "action": "ADD" })
+    }
+
+    /// The shell channels its body to `Catalog`; `AddButton` paints a control into `main`
+    /// that nothing embeds — it stacks below the shell's layout instead of inside it.
+    #[test]
+    fn control_outside_shell_fires_for_an_unembedded_control_on_a_channel_page() {
+        let orbital = orbital_json(
+            vec![channel_shell(), catalog_rendering(serde_json::json!({ "type": "data-grid", "entity": "?data" })), add_button("main", button_body())],
+            page_with(&["Shell", "Catalog", "AddButton"]),
+        );
+        let hits = control_outside_shell_hits(orbital);
+        assert_eq!(hits.len(), 1, "{:?}", hits);
+        assert!(hits[0].message.contains("AddButton") && hits[0].message.contains("Catalog"), "{}", hits[0].message);
+    }
+
+    /// The shell channels a list that channels its own row view: the page's owner is the row
+    /// view, reached from the shell through two channels — the button is still outside.
+    #[test]
+    fn control_outside_shell_fires_through_a_chain_of_channels() {
+        let mut shell = channel_shell();
+        shell["config"]["contentTrait"]["default"] = serde_json::json!("@trait.List");
+        let list = serde_json::json!({
+            "name": "List", "linkedEntity": "Item", "category": "interaction",
+            "config": { "rowTrait": { "type": "trait", "default": "@trait.Catalog" } },
+            "stateMachine": {
+                "states": [{ "name": "browsing", "isInitial": true }],
+                "transitions": [{ "from": "browsing", "to": "browsing", "event": "INIT", "effects": [["render-ui", "main", { "type": "stack", "children": ["@trait.Catalog"] }]] }]
+            }
+        });
+        let orbital = orbital_json(
+            vec![shell, list, catalog_rendering(serde_json::json!({ "type": "data-grid", "entity": "?data" })), add_button("main", button_body())],
+            page_with(&["Shell", "List", "Catalog", "AddButton"]),
+        );
+        let hits = control_outside_shell_hits(orbital);
+        assert_eq!(hits.len(), 1, "{:?}", hits);
+        assert!(hits[0].message.contains("AddButton"));
+    }
+
+    /// Control: the content trait stacks the button inside the shell (`@trait.AddButton`).
+    #[test]
+    fn control_outside_shell_silent_when_the_content_embeds_the_control() {
+        let orbital = orbital_json(
+            vec![
+                channel_shell(),
+                catalog_rendering(serde_json::json!({ "type": "stack", "children": ["@trait.AddButton", { "type": "data-grid", "entity": "?data" }] })),
+                add_button("main", button_body()),
+            ],
+            page_with(&["Shell", "Catalog", "AddButton"]),
+        );
+        assert!(control_outside_shell_hits(orbital).is_empty());
+    }
+
+    /// Control: no shell (a sole writer owns `main`) — siblings stack in page order and stay on screen.
+    #[test]
+    fn control_outside_shell_silent_without_a_channel_owner() {
+        let orbital = orbital_json(
+            vec![catalog_rendering(serde_json::json!({ "type": "data-grid", "entity": "?data" })), add_button("main", button_body())],
+            page_with(&["Catalog", "AddButton"]),
+        );
+        assert!(control_outside_shell_hits(orbital).is_empty());
+    }
+
+    /// Control: a channel that is not a page layout (a list channelling its own row view) —
+    /// a control after it stacks in the page's flow and stays on screen.
+    #[test]
+    fn control_outside_shell_silent_when_the_channel_is_not_a_page_layout() {
+        let orbital = orbital_json(
+            vec![channel_rendering("data-list"), catalog_rendering(serde_json::json!({ "type": "data-grid", "entity": "?data" })), add_button("main", button_body())],
+            page_with(&["Shell", "Catalog", "AddButton"]),
+        );
+        assert!(control_outside_shell_hits(orbital).is_empty());
+    }
+
+    /// Edge: a trait painting only an overlay slot is not in the page's flow.
+    #[test]
+    fn control_outside_shell_silent_for_an_overlay_writer() {
+        let orbital = orbital_json(
+            vec![channel_shell(), catalog_rendering(serde_json::json!({ "type": "data-grid", "entity": "?data" })), add_button("modal", button_body())],
+            page_with(&["Shell", "Catalog", "AddButton"]),
+        );
+        assert!(control_outside_shell_hits(orbital).is_empty());
+    }
+
+    /// Edge: an empty placeholder (a dialog restoring `main` with a bare box) carries no control.
+    #[test]
+    fn control_outside_shell_silent_for_an_empty_placeholder() {
+        let orbital = orbital_json(
+            vec![channel_shell(), catalog_rendering(serde_json::json!({ "type": "data-grid", "entity": "?data" })), add_button("main", serde_json::json!({ "type": "box" }))],
+            page_with(&["Shell", "Catalog", "AddButton"]),
+        );
+        assert!(control_outside_shell_hits(orbital).is_empty());
+    }
+
+    /// Edge: a deliberate clear of `main` paints nothing.
+    #[test]
+    fn control_outside_shell_silent_for_a_clear() {
+        let orbital = orbital_json(
+            vec![channel_shell(), catalog_rendering(serde_json::json!({ "type": "data-grid", "entity": "?data" })), add_button("main", serde_json::Value::Null)],
+            page_with(&["Shell", "Catalog", "AddButton"]),
+        );
+        assert!(control_outside_shell_hits(orbital).is_empty());
+    }
+
+    /// Edge: a second CONTENT body is `ORB_PAGE_SECOND_CONTENT_BODY`'s finding, never reported twice.
+    #[test]
+    fn control_outside_shell_leaves_content_bodies_to_the_second_body_rule() {
+        let orbital = orbital_json(
+            vec![channel_shell(), catalog_rendering(serde_json::json!({ "type": "data-grid", "entity": "?data" })), add_button("main", serde_json::json!({ "type": "data-grid", "entity": "?data" }))],
+            page_with(&["Shell", "Catalog", "AddButton"]),
+        );
+        assert!(control_outside_shell_hits(orbital.clone()).is_empty());
+        assert_eq!(second_content_body_hits(orbital).len(), 1);
     }
 
     /// A `sole-writer` owner (no channel, exactly one writer) means there is

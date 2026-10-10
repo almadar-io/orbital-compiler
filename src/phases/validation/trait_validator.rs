@@ -520,7 +520,7 @@ fn validate_unbound_trait_knob_embeds(trait_def: &TraitDefinition, path: &str) -
 }
 
 /// The entity-field twin of [`validate_unbound_trait_knob_embeds`]: a
-/// `trait`-typed entity field can hold no value (`none`, or a row never
+/// `trait`- or `behavior`-typed entity field can hold no value (`none`, or a row never
 /// bound), so every render-ui embed of `@entity.<field>` must sit under
 /// `(if @entity.<field> …)`.
 pub(crate) fn validate_unbound_trait_field_embeds(
@@ -531,7 +531,12 @@ pub(crate) fn validate_unbound_trait_field_embeds(
     let trait_fields: HashSet<&str> = entity
         .fields
         .iter()
-        .filter(|f| f.field_type == orbital_core::schema::FieldType::Trait)
+        .filter(|f| {
+            matches!(
+                f.field_type,
+                orbital_core::schema::FieldType::Trait | orbital_core::schema::FieldType::Behavior
+            )
+        })
         .filter_map(|f| f.name.as_deref())
         .collect();
     validate_unbound_trait_embeds(trait_def, path, "@entity.", &trait_fields)
@@ -690,7 +695,7 @@ fn validate_unbound_trait_embeds(
                                 ErrorCode::RenderUnboundTraitKnobEmbedded,
                                 effect_path,
                                 format!(
-                                    "render-ui embeds '{}{}', a trait-typed value that may be `none` (unbound) — an unguarded embed \
+                                    "render-ui embeds '{}{}', a trait- or behavior-typed value that may be `none` (unbound) — an unguarded embed \
                                      renders nothing",
                                     prefix, knob
                                 ),
@@ -705,6 +710,40 @@ fn validate_unbound_trait_embeds(
                 }
             }
             SExpression::Array(arr) => {
+                // An in-payload `if`/`when` condition picks a branch and is never
+                // embedded; a condition that is exactly the knob guards its
+                // then-branch for that knob, as the effect-level guard does.
+                if let [SExpression::String(op), cond, then_branch, rest @ ..] = arr.as_slice() {
+                    if op == "if" || op == "when" {
+                        let guarded = match cond {
+                            SExpression::String(c) => {
+                                c.strip_prefix(prefix).filter(|k| unbound_knobs.contains(k))
+                            }
+                            _ => None,
+                        };
+                        let mut exempt = unbound_knobs.clone();
+                        if let Some(knob) = guarded {
+                            exempt.remove(knob);
+                        }
+                        check_render_payload_for_unbound_embeds(
+                            then_branch,
+                            prefix,
+                            &exempt,
+                            effect_path,
+                            result,
+                        );
+                        for else_branch in rest {
+                            check_render_payload_for_unbound_embeds(
+                                else_branch,
+                                prefix,
+                                unbound_knobs,
+                                effect_path,
+                                result,
+                            );
+                        }
+                        return;
+                    }
+                }
                 for item in arr {
                     check_render_payload_for_unbound_embeds(
                         item,
@@ -1635,6 +1674,102 @@ mod tests {
             );
         }
 
+        fn render_with_prop(prop: SExpression) -> SExpression {
+            SExpression::Array(vec![
+                s("render-ui"),
+                s("main"),
+                obj(&[("type", s("chat-bar")), ("placeholder", prop)]),
+            ])
+        }
+
+        fn render_with_children(child: SExpression) -> SExpression {
+            SExpression::Array(vec![
+                s("render-ui"),
+                s("main"),
+                obj(&[
+                    ("type", s("stack")),
+                    ("children", SExpression::Array(vec![child])),
+                ]),
+            ])
+        }
+
+        /// The knob as an in-payload `if` condition picks a value; it is never embedded.
+        #[test]
+        fn an_in_payload_condition_on_the_knob_is_silent() {
+            let cond = SExpression::Array(vec![s("if"), s("@config.uiTrait"), s("Edit"), s("New")]);
+            let trait_def = trait_with_uitrait(SExpression::Null, render_with_prop(cond));
+            let result = validate_trait_definition(&trait_def, "test", &HashSet::new());
+            assert!(
+                !has_code(&result, ErrorCode::RenderUnboundTraitKnobEmbedded),
+                "{:?}",
+                result.errors
+            );
+        }
+
+        #[test]
+        fn a_comparison_inside_an_in_payload_condition_is_silent() {
+            let cmp = SExpression::Array(vec![s("="), s("@config.uiTrait"), SExpression::Null]);
+            let cond = SExpression::Array(vec![s("if"), cmp, s("New"), s("Edit")]);
+            let trait_def = trait_with_uitrait(SExpression::Null, render_with_prop(cond));
+            let result = validate_trait_definition(&trait_def, "test", &HashSet::new());
+            assert!(
+                !has_code(&result, ErrorCode::RenderUnboundTraitKnobEmbedded),
+                "{:?}",
+                result.errors
+            );
+        }
+
+        #[test]
+        fn an_in_payload_guard_exempts_its_then_branch() {
+            let guarded = SExpression::Array(vec![
+                s("if"),
+                s("@config.uiTrait"),
+                s("@config.uiTrait"),
+                SExpression::Null,
+            ]);
+            let trait_def = trait_with_uitrait(SExpression::Null, render_with_children(guarded));
+            let result = validate_trait_definition(&trait_def, "test", &HashSet::new());
+            assert!(
+                !has_code(&result, ErrorCode::RenderUnboundTraitKnobEmbedded),
+                "{:?}",
+                result.errors
+            );
+        }
+
+        #[test]
+        fn control_the_else_branch_of_an_in_payload_guard_is_still_checked() {
+            let inverted = SExpression::Array(vec![
+                s("if"),
+                s("@config.uiTrait"),
+                SExpression::Null,
+                s("@config.uiTrait"),
+            ]);
+            let trait_def = trait_with_uitrait(SExpression::Null, render_with_children(inverted));
+            let result = validate_trait_definition(&trait_def, "test", &HashSet::new());
+            assert!(
+                has_code(&result, ErrorCode::RenderUnboundTraitKnobEmbedded),
+                "{:?}",
+                result.errors
+            );
+        }
+
+        #[test]
+        fn control_a_then_branch_under_another_condition_is_still_checked() {
+            let other = SExpression::Array(vec![
+                s("if"),
+                s("@entity.ready"),
+                s("@config.uiTrait"),
+                SExpression::Null,
+            ]);
+            let trait_def = trait_with_uitrait(SExpression::Null, render_with_children(other));
+            let result = validate_trait_definition(&trait_def, "test", &HashSet::new());
+            assert!(
+                has_code(&result, ErrorCode::RenderUnboundTraitKnobEmbedded),
+                "{:?}",
+                result.errors
+            );
+        }
+
         /// A BOUND trait knob (`@trait.DefaultForm`, never `none`) embedded
         /// with no guard is the ordinary, pre-existing shape — never flagged
         /// by the new rule regardless of guard.
@@ -2300,5 +2435,71 @@ mod trait_field_embed_tests {
         t.config = Some(HashMap::from([("view".to_string(), cf)]));
         let r = validate_trait_definition(&t, "t", &HashSet::new());
         assert!(r.errors.iter().any(|e| e.code == ErrorCode::BindingTraitInvalidFormat));
+    }
+}
+
+#[cfg(test)]
+mod behavior_field_embed_tests {
+    //! A `behavior`-typed field can be `none` like a `trait` field, so its
+    //! render embed (which runs the program in place) must be guarded too.
+    use super::*;
+    use orbital_core::schema::EntityDefinition;
+
+    fn entity() -> EntityDefinition {
+        serde_json::from_value(serde_json::json!({
+            "name": "Workspace",
+            "fields": [
+                { "name": "id", "type": "string" },
+                { "name": "app", "type": "behavior" }
+            ]
+        }))
+        .expect("entity")
+    }
+
+    fn trait_with(effect: serde_json::Value) -> TraitDefinition {
+        serde_json::from_value(serde_json::json!({
+            "name": "Preview",
+            "linkedEntity": "Workspace",
+            "stateMachine": {
+                "states": [{ "name": "idle", "isInitial": true }],
+                "events": [{ "key": "GO" }],
+                "transitions": [{ "from": "idle", "to": "idle", "event": "GO", "effects": [effect] }]
+            }
+        }))
+        .expect("trait")
+    }
+
+    fn embed() -> serde_json::Value {
+        serde_json::json!(["render-ui", "main", { "type": "stack", "children": ["@entity.app"] }])
+    }
+
+    fn fires(effect: serde_json::Value) -> bool {
+        validate_unbound_trait_field_embeds(&trait_with(effect), &entity(), "t")
+            .errors
+            .iter()
+            .any(|e| e.code == ErrorCode::RenderUnboundTraitKnobEmbedded)
+    }
+
+    #[test]
+    fn an_unguarded_embed_of_a_behavior_field_errors() {
+        assert!(fires(embed()));
+    }
+
+    #[test]
+    fn control_guarded_by_its_own_field_is_clean() {
+        assert!(!fires(serde_json::json!(["when", "@entity.app", embed()])));
+        assert!(!fires(serde_json::json!(["if", "@entity.app", embed()])));
+    }
+
+    #[test]
+    fn control_a_guard_on_another_field_does_not_exempt_it() {
+        assert!(fires(serde_json::json!(["when", "@entity.id", embed()])));
+    }
+
+    #[test]
+    fn a_behavior_field_is_not_an_orbital_embed_error() {
+        assert!(validate_orbital_field_embeds(&trait_with(embed()), &entity(), "t")
+            .errors
+            .is_empty());
     }
 }

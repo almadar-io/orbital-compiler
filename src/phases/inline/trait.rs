@@ -1242,6 +1242,28 @@ impl<'a> ForwardRungs<'a> {
     }
 }
 
+/// Every `@config.<knob>` leaf in `expr`, whole-string or nested.
+fn collect_config_forward_knobs(expr: &SExpression, out: &mut Vec<String>) {
+    match expr {
+        SExpression::String(s) => {
+            if let Some(knob) = s.strip_prefix("@config.") {
+                out.push(knob.to_string());
+            }
+        }
+        SExpression::Array(items) => {
+            for item in items {
+                collect_config_forward_knobs(item, out);
+            }
+        }
+        SExpression::Object(map) => {
+            for v in map.values() {
+                collect_config_forward_knobs(v, out);
+            }
+        }
+        SExpression::Null | SExpression::Bool(_) | SExpression::Number(_) => {}
+    }
+}
+
 /// `expr` with every nested `@config.<knob>` leaf that `rungs` resolves
 /// replaced by its value — `None` when nothing changed. A knob `own`
 /// declares is the trait's own read and is never folded.
@@ -2149,7 +2171,8 @@ pub(crate) fn inline_traits(
                                         let embedder_chain = embed_graph.embedder_chain(entry_key);
                                         let overridable = |knob: &str| {
                                             embedder_chain.iter().any(|c| c.contains_key(knob))
-                                                || orbital_config.is_some_and(|c| c.contains_key(knob))
+                                                || orbital_config
+                                                    .is_some_and(|c| c.contains_key(knob))
                                         };
                                         if let Some(resolved) = forwarded_sibling_config_from(
                                             trait_def.config.as_ref(),
@@ -2164,15 +2187,21 @@ pub(crate) fn inline_traits(
                                             alias_schema_configs.get(&alias),
                                             None,
                                         ) {
-                                            let declared = trait_def.config.clone().unwrap_or_default();
+                                            let declared =
+                                                trait_def.config.clone().unwrap_or_default();
                                             let cfg =
                                                 trait_def.config.get_or_insert_with(HashMap::new);
                                             for (k, v) in resolved {
-                                                let forward = declared.get(&k).and_then(|f| match f.default.as_ref() {
-                                                    Some(SExpression::String(s)) => s.strip_prefix("@config.").map(str::to_string),
-                                                    _ => None,
-                                                });
-                                                if forward.as_deref().is_some_and(|knob| !overridable(knob)) {
+                                                let mut knobs: Vec<String> = Vec::new();
+                                                if let Some(value) = declared
+                                                    .get(&k)
+                                                    .and_then(|f| f.default.as_ref())
+                                                {
+                                                    collect_config_forward_knobs(value, &mut knobs);
+                                                }
+                                                if !knobs.is_empty()
+                                                    && knobs.iter().all(|knob| !overridable(knob))
+                                                {
                                                     cfg.insert(k, v);
                                                 }
                                             }
@@ -2466,8 +2495,15 @@ pub(crate) fn inline_traits(
                     }
                 }
             };
-        while let Some((alias, sibling_name, linked_entity, parent_name, owner, rebind_from, receiver)) =
-            worklist.pop()
+        while let Some((
+            alias,
+            sibling_name,
+            linked_entity,
+            parent_name,
+            owner,
+            rebind_from,
+            receiver,
+        )) = worklist.pop()
         {
             // An explicit Reference to this same source trait, rebound to the
             // SAME entity, satisfies the pull no matter what local name the
@@ -2892,7 +2928,8 @@ mod entity_id_reader_tests {
     }
 
     fn payload_field(name: &str) -> PayloadField {
-        PayloadField { values: None,
+        PayloadField {
+            values: None,
             name: name.to_string(),
             field_type: "string".to_string(),
             required: None,

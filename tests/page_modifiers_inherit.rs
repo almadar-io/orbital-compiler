@@ -308,3 +308,42 @@ fn control_an_import_meeting_the_rules_passes_them() {
     .expect("inline");
     assert!(validate_page_modifiers(&schema).errors.is_empty());
 }
+
+#[test]
+fn a_pages_remap_entry_declares_the_pages_nav_entry() {
+    let schema = inline(&format!(
+        r#"{{
+      "name": "AccountImport",
+      "uses": [ {{ "from": "./upstream.orb", "as": "Up" }} ],
+      "entity": "Up.orbitals.AccountOrbital.entity",
+      "traits": [],
+      "reference": {{
+        "ref": "Up.orbitals.AccountOrbital",
+        "pages": {{ "/account": "/me" }},
+        "pageModifiers": {{ "/account": {{ "label": "My account", "icon": "user", "roles": ["owner", "manager"] }} }}
+      }}
+    }}"#
+    ))
+    .expect("inline");
+    let me = page(&schema, "/me");
+    assert_eq!(me.label.as_deref(), Some("My account"));
+    assert_eq!(me.icon.as_deref(), Some("user"));
+    assert_eq!(
+        me.roles,
+        Some(vec!["owner".to_string(), "manager".to_string()])
+    );
+    // control: an entry without a nav declaration leaves its page out of the nav
+    assert_eq!(page(&schema, "/about").label, None);
+}
+
+#[test]
+fn a_page_reference_declares_its_nav_entry() {
+    let schema = inline(&page_import(
+        r#"{ "ref": "Up.pages.AboutPage", "path": "/team", "label": "Team", "roles": ["staff"] }"#,
+    ))
+    .expect("inline");
+    let team = page(&schema, "/team");
+    assert_eq!(team.label.as_deref(), Some("Team"));
+    assert_eq!(team.roles, Some(vec!["staff".to_string()]));
+    assert_eq!(team.icon, None);
+}

@@ -13,7 +13,7 @@
 use std::collections::{HashMap, HashSet};
 
 use orbital_core::schema::{
-    config_ref_event_knob, definer_knobs_for_trait, Cardinality, ConfigField, EntityDefinition,
+    config_ref_event_knob, definer_knobs_for_trait, ConfigField, EntityDefinition,
     FieldDefinition, FieldType, Orbital, OrbitalSchema, PayloadField, SExpression, TraitDefinition,
     TraitReference,
 };
@@ -110,6 +110,31 @@ fn trait_event_ctx(trait_def: &TraitDefinition) -> TraitEventCtx {
         events,
         definer_knobs: definer_knobs_for_trait(trait_def),
     }
+}
+
+/// The events a scalar `event` knob of `trait_def` may name.
+pub fn trait_event_names(trait_def: &TraitDefinition) -> HashSet<String> {
+    trait_event_ctx(trait_def).events
+}
+
+/// The events an `event`-typed struct member of a knob in `orbital` may name:
+/// every inline trait's transitions and emits.
+pub fn orbital_event_names(orbital: &Orbital) -> HashSet<String> {
+    orbital
+        .traits
+        .iter()
+        .filter_map(|tr| match tr {
+            TraitReference::Inline(td) => Some(td),
+            _ => None,
+        })
+        .flat_map(|td| {
+            td.state_machine
+                .transitions
+                .iter()
+                .map(|t| t.event.clone())
+                .chain(td.emits.iter().flatten().map(|e| e.event.clone()))
+        })
+        .collect()
 }
 
 /// The event vocabulary an `event`-typed struct member is checked against:
@@ -662,23 +687,8 @@ pub fn validate_all_config_types(schema: &OrbitalSchema, ctx: &mut ValidationCon
         // touch broader — CIRCUIT_ORPHAN_EVENT remains the precise, only
         // authoritative orphan detector; an honest double-report on the
         // same defect from both codes is fine, no dedup machinery here).
-        let orbital_event_names: HashSet<String> = orbital
-            .traits
-            .iter()
-            .filter_map(|tr| match tr {
-                TraitReference::Inline(td) => Some(td),
-                _ => None,
-            })
-            .flat_map(|td| {
-                td.state_machine
-                    .transitions
-                    .iter()
-                    .map(|t| t.event.clone())
-                    .chain(td.emits.iter().flatten().map(|e| e.event.clone()))
-            })
-            .collect();
         let orbital_events = EventScope {
-            events: orbital_event_names,
+            events: orbital_event_names(orbital),
             orbital: &orbital.name,
             refs: Some(&event_refs),
         };
@@ -1727,15 +1737,7 @@ pub(crate) fn check_field_def_shape(
             // it — every OTHER cardinality (`one`, `many-to-one`, or
             // unspecified) keeps the single id-string-or-null shape.
             if schema.field_type == FieldType::Relation {
-                let is_many = matches!(
-                    schema
-                        .relation
-                        .as_ref()
-                        .and_then(|r| r.cardinality.as_ref()),
-                    Some(Cardinality::Many)
-                        | Some(Cardinality::OneToMany)
-                        | Some(Cardinality::ManyToMany)
-                );
+                let is_many = schema.relation.as_ref().is_some_and(|r| r.is_to_many());
                 if !is_many {
                     result.merge(check_primitive_shape("relation", value, path));
                     return result;

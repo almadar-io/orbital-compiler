@@ -641,6 +641,7 @@ mod tests {
                 sections: None,
                 icon: None,
                 label: None,
+                roles: None,
             })]),
             emits: None,
             listens: None,

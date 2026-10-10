@@ -382,21 +382,28 @@ impl<'a> Resolver<'a> {
         // cannot know which sibling orbitals will be registered in the
         // composed app, so the nav is assembled from the union of root pages
         // (paths without `:` params — detail pages aren't nav entries) across
-        // ALL orbitals, deduped by path. `label` = the page's `@label`, or
-        // derived (strip a trailing `Page` suffix from `name`); `icon` = the
-        // page's `@icon` when present.
-        let page_entries: Vec<(String, String, Option<String>)> = {
+        // ALL orbitals, deduped by path. Only a page that declares its nav
+        // entry (`@label`) is listed, in declaration order, with its `@icon`
+        // and `@roles` when present.
+        let page_entries: Vec<NavEntry> = {
             let mut seen: std::collections::HashSet<String> = std::collections::HashSet::new();
             let mut entries = Vec::new();
             for o in &self.schema.orbitals {
                 if let Some(ps) = o.pages.as_ref() {
                     for pr in ps {
                         if let Some(p) = self.get_page_from_ref(pr) {
+                            let Some(label) = p.label.clone() else {
+                                continue;
+                            };
                             if p.path.contains(':') || !seen.insert(p.path.clone()) {
                                 continue;
                             }
-                            let label = page_nav_label(p);
-                            entries.push((p.path.clone(), label, p.icon.clone()));
+                            entries.push(NavEntry {
+                                href: p.path.clone(),
+                                label,
+                                icon: p.icon.clone(),
+                                roles: p.roles.clone(),
+                            });
                         }
                     }
                 }
@@ -432,10 +439,12 @@ impl<'a> Resolver<'a> {
 /// per-orbital `Orbital.theme`. A full `<base>-<variant>` registry key.
 const DEFAULT_THEME_KEY: &str = "minimalist-light";
 
-/// A page's nav label: its declared `@label`, else its `name` exactly as
-/// written (never derived — the runtime nav stack follows the same rule).
-fn page_nav_label(page: &PageDefinition) -> String {
-    page.label.clone().unwrap_or_else(|| page.name.clone())
+/// One `@pages` nav entry: a root page that declares `@label`.
+struct NavEntry {
+    href: String,
+    label: String,
+    icon: Option<String>,
+    roles: Option<Vec<String>>,
 }
 
 /// Derive the `data-theme` selector-key string from an orbital's `Orbital.theme`.
@@ -464,23 +473,27 @@ fn resolve_theme_key(orbital_theme: Option<&ThemeRef>, app_theme: Option<&ThemeR
 /// key string. Every other expression form is rebuilt with substituted
 /// children so the sigils resolve anywhere they appear (including inside
 /// conditional/computed overrides like `(if @user.prefersDark "x" @currentTheme)`).
-fn substitute_schema_sigils(
-    expr: OirExpr,
-    pages: &[(String, String, Option<String>)],
-    theme_key: &str,
-) -> OirExpr {
+fn substitute_schema_sigils(expr: OirExpr, pages: &[NavEntry], theme_key: &str) -> OirExpr {
     let sub = |e: OirExpr| substitute_schema_sigils(e, pages, theme_key);
     match expr {
         OirExpr::Binding { binding } => match binding.root {
             OirBindingRoot::Pages => OirExpr::array(
                 pages
                     .iter()
-                    .map(|(path, label, icon)| {
+                    .map(|entry| {
                         let mut fields = HashMap::new();
-                        fields.insert("href".to_string(), OirExpr::string(path.clone()));
-                        fields.insert("label".to_string(), OirExpr::string(label.clone()));
-                        if let Some(ic) = icon {
+                        fields.insert("href".to_string(), OirExpr::string(entry.href.clone()));
+                        fields.insert("label".to_string(), OirExpr::string(entry.label.clone()));
+                        if let Some(ic) = &entry.icon {
                             fields.insert("icon".to_string(), OirExpr::string(ic.clone()));
+                        }
+                        if let Some(roles) = &entry.roles {
+                            fields.insert(
+                                "roles".to_string(),
+                                OirExpr::array(
+                                    roles.iter().cloned().map(OirExpr::string).collect(),
+                                ),
+                            );
                         }
                         OirExpr::object(fields)
                     })
@@ -571,22 +584,24 @@ fn substitute_schema_sigils(
 /// The `OirValue` twin of `substitute_schema_sigils` — render-ui props are
 /// stored as `OirValue`s, so `@pages`/`@currentTheme` appearing there need
 /// their own recursive substitution.
-fn substitute_value_sigils(
-    value: OirValue,
-    pages: &[(String, String, Option<String>)],
-    theme_key: &str,
-) -> OirValue {
+fn substitute_value_sigils(value: OirValue, pages: &[NavEntry], theme_key: &str) -> OirValue {
     match value {
         OirValue::String(s) if s == "@pages" => OirValue::Array(
             pages
                 .iter()
-                .map(|(path, label, icon)| {
+                .map(|entry| {
                     let mut fields: Vec<(String, OirValue)> = vec![
-                        ("href".to_string(), OirValue::String(path.clone())),
-                        ("label".to_string(), OirValue::String(label.clone())),
+                        ("href".to_string(), OirValue::String(entry.href.clone())),
+                        ("label".to_string(), OirValue::String(entry.label.clone())),
                     ];
-                    if let Some(ic) = icon {
+                    if let Some(ic) = &entry.icon {
                         fields.push(("icon".to_string(), OirValue::String(ic.clone())));
+                    }
+                    if let Some(roles) = &entry.roles {
+                        fields.push((
+                            "roles".to_string(),
+                            OirValue::Array(roles.iter().cloned().map(OirValue::String).collect()),
+                        ));
                     }
                     OirValue::Object(fields.into_iter().collect())
                 })
@@ -844,7 +859,7 @@ impl<'a> Resolver<'a> {
                 }
             }
             FieldType::Relation => match &field.relation {
-                Some(rel) => Ok(OirType::reference(&rel.entity)),
+                Some(_) => Ok(orbital_core::field_shape(field)),
                 None => Err(ResolveError::InvalidType(
                     "Relation type requires relation definition".to_string(),
                 )),
@@ -3342,23 +3357,6 @@ mod tests {
         assert!(resolve_sexpr_standalone(&two).is_err());
     }
 
-    fn page_named(name: &str, label: Option<&str>) -> PageDefinition {
-        let mut page: PageDefinition = serde_json::from_value(serde_json::json!({ "name": name, "path": "/p" }))
-            .expect("minimal page");
-        page.label = label.map(str::to_string);
-        page
-    }
-
-    /// A nav entry shows the page's declared `@label`; with none it shows the
-    /// page name exactly as written — no English suffix stripping — so the
-    /// runtime and compiled paths agree and nothing is derived from a name.
-    #[test]
-    fn page_nav_label_is_the_declared_label_else_the_name_as_written() {
-        assert_eq!(page_nav_label(&page_named("ContactsPage", Some("جهات الاتصال"))), "جهات الاتصال");
-        assert_eq!(page_nav_label(&page_named("ContactsPage", None)), "ContactsPage");
-        assert_eq!(page_nav_label(&page_named("Page", None)), "Page");
-    }
-
     /// A schema with no orbitals — every named-type test that doesn't
     /// exercise Gap A's `orbital.types` lookup itself uses this, so
     /// `lookup_named_type_shape` finds nothing and `register_named_type_children`
@@ -4270,6 +4268,64 @@ mod tests {
             config: None,
         });
         Resolver::new(schema)
+    }
+
+    fn relation_field_json(cardinality: &str) -> FieldDefinition {
+        serde_json::from_value(serde_json::json!({
+            "name": "revisions",
+            "type": "relation",
+            "relation": { "entity": "Revision", "cardinality": cardinality }
+        }))
+        .expect("relation field")
+    }
+
+    #[test]
+    fn resolve_field_shape_to_many_relation_is_array_of_reference() {
+        let resolver = empty_resolver();
+        for c in ["many", "one-to-many", "many-to-many"] {
+            assert_eq!(
+                resolver.resolve_field_shape(&relation_field_json(c)).unwrap(),
+                OirType::array(OirType::reference("Revision")),
+                "{c}"
+            );
+        }
+    }
+
+    #[test]
+    fn resolve_field_shape_intrinsic_to_many_relation_is_array_of_row() {
+        let resolver = empty_resolver();
+        for c in ["many", "one-to-many", "many-to-many"] {
+            let mut field = relation_field_json(c);
+            field.intrinsic = Some(true);
+            assert_eq!(
+                resolver.resolve_field_shape(&field).unwrap(),
+                OirType::array(OirType::row("Revision")),
+                "{c}"
+            );
+        }
+    }
+
+    #[test]
+    fn resolve_field_shape_intrinsic_to_one_relation_stays_reference() {
+        let resolver = empty_resolver();
+        let mut field = relation_field_json("many-to-one");
+        field.intrinsic = Some(true);
+        assert_eq!(
+            resolver.resolve_field_shape(&field).unwrap(),
+            OirType::reference("Revision")
+        );
+    }
+
+    #[test]
+    fn resolve_field_shape_to_one_relation_is_reference() {
+        let resolver = empty_resolver();
+        for c in ["one", "many-to-one"] {
+            assert_eq!(
+                resolver.resolve_field_shape(&relation_field_json(c)).unwrap(),
+                OirType::reference("Revision"),
+                "{c}"
+            );
+        }
     }
 
     #[test]

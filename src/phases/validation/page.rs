@@ -382,10 +382,58 @@ fn collect_reachability_signals(schema: &OrbitalSchema) -> ReachabilitySignals {
         }
     }
 
+    // `@pages` lists every root page that declares `@label`, so a program using the
+    // sigil links each of them.
+    if schema_uses_pages_sigil(schema) {
+        for orbital in &schema.orbitals {
+            for page in orbital.pages.iter().flatten().filter_map(|p| p.as_inline()) {
+                if page.label.is_some() {
+                    hrefs.insert(page.path.clone());
+                }
+            }
+        }
+    }
+
     ReachabilitySignals {
         hrefs,
         navigate_targets,
     }
+}
+
+fn mentions_pages_sigil(expr: &SExpression) -> bool {
+    match expr {
+        SExpression::String(s) => s == "@pages",
+        SExpression::Array(items) => items.iter().any(mentions_pages_sigil),
+        SExpression::Object(map) => map.values().any(mentions_pages_sigil),
+        _ => false,
+    }
+}
+
+fn schema_uses_pages_sigil(schema: &OrbitalSchema) -> bool {
+    let config_uses = |config: Option<&std::collections::HashMap<String, orbital_core::schema::ConfigField>>| {
+        config
+            .into_iter()
+            .flat_map(|c| c.values())
+            .filter_map(|f| f.default.as_ref())
+            .any(mentions_pages_sigil)
+    };
+    config_uses(schema.config.as_ref())
+        || schema.orbitals.iter().any(|orbital| {
+            config_uses(orbital.config.as_ref())
+                || orbital.traits.iter().any(|tr| {
+                    let TraitReference::Inline(td) = tr else {
+                        return false;
+                    };
+                    config_uses(td.config.as_ref())
+                        || td
+                            .state_machine
+                            .transitions
+                            .iter()
+                            .filter_map(|t| t.effects.as_ref())
+                            .flatten()
+                            .any(mentions_pages_sigil)
+                })
+        })
 }
 
 /// `ORB_PAGE_UNREACHABLE`: a declared inline page nothing in the schema can
@@ -829,6 +877,7 @@ mod tests {
             icon: None,
             label: None,
             id: None,
+            roles: None,
         }
     }
 
@@ -1340,6 +1389,60 @@ mod tests {
 
     fn page(name: &str, path: &str) -> serde_json::Value {
         serde_json::json!({ "name": name, "path": path, "traits": [{ "ref": "AppLayout" }] })
+    }
+
+    fn layout_trait_with_pages_sigil() -> serde_json::Value {
+        serde_json::json!([{
+            "name": "AppLayout",
+            "linkedEntity": "Widget",
+            "category": "interaction",
+            "config": { "navItems": { "type": "array", "default": "@pages" } },
+            "stateMachine": { "states": [{ "name": "idle", "isInitial": true }], "events": [], "transitions": [] }
+        }])
+    }
+
+    fn labelled_page(name: &str, path: &str, label: &str) -> serde_json::Value {
+        serde_json::json!({ "name": name, "path": path, "label": label, "traits": [{ "ref": "AppLayout" }] })
+    }
+
+    #[test]
+    fn a_labelled_page_is_reached_through_the_pages_sigil() {
+        let schema = schema_for_reachability(
+            layout_trait_with_pages_sigil(),
+            serde_json::json!([
+                labelled_page("DashboardPage", "/dashboard", "Dashboard"),
+                labelled_page("StaffPage", "/staff", "Staff")
+            ]),
+        );
+        assert_eq!(reachability_messages(&schema), Vec::<String>::new());
+    }
+
+    #[test]
+    fn control_a_page_without_a_label_is_not_reached_through_the_pages_sigil() {
+        let schema = schema_for_reachability(
+            layout_trait_with_pages_sigil(),
+            serde_json::json!([
+                labelled_page("DashboardPage", "/dashboard", "Dashboard"),
+                page("StaffPage", "/staff")
+            ]),
+        );
+        let messages = reachability_messages(&schema);
+        assert_eq!(messages.len(), 1, "{:?}", messages);
+        assert!(messages[0].contains("/staff"), "{:?}", messages);
+    }
+
+    #[test]
+    fn control_a_label_without_any_pages_sigil_reaches_nothing() {
+        let schema = schema_for_reachability(
+            layout_trait_with_nav_href_array(&["/dashboard"]),
+            serde_json::json!([
+                labelled_page("DashboardPage", "/dashboard", "Dashboard"),
+                labelled_page("StaffPage", "/staff", "Staff")
+            ]),
+        );
+        let messages = reachability_messages(&schema);
+        assert_eq!(messages.len(), 1, "{:?}", messages);
+        assert!(messages[0].contains("/staff"), "{:?}", messages);
     }
 
     #[test]

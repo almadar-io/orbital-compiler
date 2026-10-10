@@ -65,6 +65,14 @@ pub(crate) fn validate_navigate(
         }
     }
 
+    // The host's own sign-in route has no page: every host provides it itself.
+    if let Some(ref nav_path) = nav_path_str {
+        let route = nav_path.split_once('?').map_or(nav_path.as_str(), |(route, _)| route);
+        if orbital_core::schema::is_host_sign_in_route(route) {
+            return result;
+        }
+    }
+
     // Check payload requirements for the target page
     if let Some(ref nav_path) = nav_path_str {
         // Try to find a matching page path pattern
@@ -155,28 +163,7 @@ pub(crate) fn validate_navigate(
     result
 }
 
-/// Extract a static path prefix from a dynamic expression like ["str/concat", "/inspection/", "@entity.id"]
-pub(crate) fn extract_static_path_prefix(expr: &SExpression) -> Option<String> {
-    if let SExpression::Array(arr) = expr {
-        if arr.len() >= 2 {
-            if let SExpression::String(op) = &arr[0] {
-                if op == "str/concat" {
-                    // First argument might be a static string
-                    if let SExpression::String(first) = &arr[1] {
-                        // External URLs in dynamic expressions skip page validation entirely.
-                        if is_external_url(first) {
-                            return Some(first.clone());
-                        }
-                        // Return the first segment - this helps match against path patterns
-                        // For "/inspection/" + dynamic, we get "/inspection/"
-                        return Some(first.clone());
-                    }
-                }
-            }
-        }
-    }
-    None
-}
+pub(crate) use orbital_core::route::{extract_static_path_prefix, path_matches_pattern};
 
 /// Find a matching page path pattern for a given navigation path
 pub(crate) fn find_matching_page_path<'a>(
@@ -242,27 +229,6 @@ pub(crate) fn validate_send_server(arr: &[SExpression], path: &str) -> Validatio
     result
 }
 
-pub(crate) fn path_matches_pattern(path: &str, pattern: &str) -> bool {
-    let path_parts: Vec<&str> = path.split('/').filter(|s| !s.is_empty()).collect();
-    let pattern_parts: Vec<&str> = pattern.split('/').filter(|s| !s.is_empty()).collect();
-
-    if path_parts.len() != pattern_parts.len() {
-        return false;
-    }
-
-    for (path_part, pattern_part) in path_parts.iter().zip(pattern_parts.iter()) {
-        if pattern_part.starts_with(':') {
-            // This is a param, it matches anything
-            continue;
-        }
-        if path_part != pattern_part {
-            return false;
-        }
-    }
-
-    true
-}
-
 #[cfg(test)]
 mod dynamic_prefix_tests {
     use super::*;
@@ -308,6 +274,32 @@ mod dynamic_prefix_tests {
     fn a_dynamic_query_string_resolves_its_route_before_the_question_mark() {
         assert!(!unreachable(&concat("/inspection/new?companyId="), &["/inspection/new"]));
         assert!(unreachable(&concat("/inspection/new?companyId="), &["/inspection"]));
+    }
+
+    fn static_target(target: &str) -> Vec<SExpression> {
+        vec![
+            SExpression::String("navigate".to_string()),
+            SExpression::String(target.to_string()),
+        ]
+    }
+
+    #[test]
+    fn the_host_sign_in_route_is_reachable_without_a_page() {
+        assert!(!unreachable(&static_target("/login"), &["/feed"]));
+        assert!(!unreachable(&static_target("/login/"), &["/feed"]));
+        assert!(!unreachable(&static_target("/login?returnTo=/feed"), &["/feed"]));
+    }
+
+    #[test]
+    fn control_an_undeclared_route_is_still_unreachable() {
+        assert!(unreachable(&static_target("/nowhere"), &["/feed"]));
+        assert!(unreachable(&static_target("/login-help"), &["/feed"]));
+        assert!(unreachable(&static_target("/account/login"), &["/feed"]));
+    }
+
+    #[test]
+    fn control_a_declared_sign_in_page_is_reachable_as_any_page() {
+        assert!(!unreachable(&static_target("/welcome"), &["/welcome"]));
     }
 
     #[test]

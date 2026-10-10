@@ -527,34 +527,25 @@ pub(crate) fn resolve_orbital_reference(
             removed_names.extend(orphaned);
         }
     }
-    // Merged fields (`mergedFrom`) only removed traits referenced leave with
-    // them; authored fields and any a kept trait references stay.
-    let removed_only_merged_fields: HashSet<String> = if removed_names.is_empty() {
-        HashSet::new()
-    } else {
-        let refs_of = |td: &TraitDefinition| {
-            let own = td
-                .linked_entity
-                .as_deref()
-                .is_none_or(|le| le == upstream_entity.name.as_str());
-            super::entity::trait_referenced_fields_of_entity(td, &upstream_entity, own)
-        };
-        let kept_refs: HashSet<String> = kept.iter().flat_map(refs_of).collect();
-        upstream
-            .traits
+    // An import carries only the merged fields (`mergedFrom`) its own kept traits
+    // reference: those a sibling orbital's or a removed trait merged leave with them.
+    let unowned_merged_fields: HashSet<String> = {
+        let kept_refs: HashSet<String> = kept
             .iter()
-            .filter_map(|tr| match tr {
-                TraitReference::Inline(td) if removed_names.contains(&td.name) => Some(td),
-                _ => None,
+            .flat_map(|td| {
+                let own = td
+                    .linked_entity
+                    .as_deref()
+                    .is_none_or(|le| le == upstream_entity.name.as_str());
+                super::entity::trait_referenced_fields_of_entity(td, &upstream_entity, own)
             })
-            .flat_map(refs_of)
+            .collect();
+        upstream_entity
+            .fields
+            .iter()
+            .filter(|fd| fd.merged_from.is_some())
+            .filter_map(|fd| fd.name.clone())
             .filter(|f| !kept_refs.contains(f))
-            .filter(|f| {
-                upstream_entity
-                    .fields
-                    .iter()
-                    .any(|fd| fd.name.as_deref() == Some(f.as_str()) && fd.merged_from.is_some())
-            })
             .collect()
     };
 
@@ -805,6 +796,17 @@ pub(crate) fn resolve_orbital_reference(
     // A name that never appears here (only ever an aux, materialized by
     // descent from some atom) is "aux-only" and auto-clones below.
     let mut primary_anywhere: HashSet<String> = HashSet::new();
+    // Every field any upstream copy of an out-of-orbital entity carries: a merge the
+    // alias landed sits on one copy only, and a retarget below draws from all of them.
+    let mut upstream_universe_fields: HashMap<String, Vec<FieldDefinition>> = HashMap::new();
+    let mut pool_fields = |def: &EntityDefinition| {
+        let pool = upstream_universe_fields.entry(def.name.clone()).or_default();
+        for f in &def.fields {
+            if !pool.iter().any(|p| p.name == f.name) {
+                pool.push(f.clone());
+            }
+        }
+    };
     for other in alias_entry.orbitals.iter() {
         if other.name == upstream.name {
             continue;
@@ -814,6 +816,7 @@ pub(crate) fn resolve_orbital_reference(
                 upstream_universe.insert(def.name.clone());
                 upstream_universe_defs.insert(def.name.clone(), def.clone());
                 primary_anywhere.insert(def.name.clone());
+                pool_fields(def);
             }
         }
         for aux in other.auxiliary_entities.iter().flatten() {
@@ -821,6 +824,7 @@ pub(crate) fn resolve_orbital_reference(
                 if !closure.contains(&def.name) {
                     upstream_universe.insert(def.name.clone());
                     upstream_universe_defs.insert(def.name.clone(), def.clone());
+                    pool_fields(def);
                 }
             }
         }
@@ -1019,6 +1023,19 @@ pub(crate) fn resolve_orbital_reference(
             // fields onto the target (missing names only, the owner's win).
             if let (true, Some(def)) = (mapped, upstream_universe_defs.get(up_name)) {
                 let mut imported = def.clone();
+                if let Some(pool) = upstream_universe_fields.get(up_name) {
+                    imported.fields = pool.clone();
+                }
+                let used: HashSet<String> = kept
+                    .iter()
+                    .flat_map(|td| {
+                        let own = td.linked_entity.as_deref() == Some(def.name.as_str());
+                        super::entity::trait_referenced_fields_of_entity(td, &imported, own)
+                    })
+                    .collect();
+                imported.fields.retain(|f| {
+                    f.merged_from.is_none() || f.name.as_ref().is_some_and(|n| used.contains(n))
+                });
                 rewrite_entity_fields_in_entity(&mut imported, &field_subs);
                 let fields: HashSet<String> = imported.fields.iter().filter_map(|f| f.name.clone()).collect();
                 deferred_merges.push(super::DeferredMerge {
@@ -1080,6 +1097,22 @@ pub(crate) fn resolve_orbital_reference(
             };
             if let Some(values) = vocabulary(field) {
                 role_fields.insert(name.clone(), values.clone());
+            }
+        }
+    }
+    // An upstream with no roster of its own declares its viewer by `expects identity`; the
+    // expectation's declared role values are then the upstream vocabulary.
+    if role_fields.is_empty() {
+        for expect in upstream.expects.iter().flatten() {
+            if let orbital_core::schema::ExpectDeclaration::Identity {
+                shape: Some(shape), ..
+            } = expect
+            {
+                for field in shape {
+                    if let (Some(name), Some(values)) = (field.name.as_ref(), vocabulary(field)) {
+                        role_fields.insert(name.clone(), values.clone());
+                    }
+                }
             }
         }
     }
@@ -1744,7 +1777,7 @@ pub(crate) fn resolve_orbital_reference(
         }
     }
 
-    if !removed_only_merged_fields.is_empty() {
+    if !unowned_merged_fields.is_empty() {
         primary_entity.fields.retain(|f| {
             f.merged_from.is_none()
                 || f.name.as_deref().is_none_or(|n| {
@@ -1753,7 +1786,7 @@ pub(crate) fn resolve_orbital_reference(
                         .find(|(_, to)| to.as_str() == n)
                         .map(|(from, _)| from.as_str())
                         .unwrap_or(n);
-                    !removed_only_merged_fields.contains(upstream_name)
+                    !unowned_merged_fields.contains(upstream_name)
                 })
         });
     }

@@ -37,6 +37,7 @@ fn return_type_to_oir(rt: &str) -> OirType {
         "number" | "integer" => OirType::Number,
         "boolean" => OirType::Boolean,
         "sexpr" => OirType::SExpr,
+        "behavior" => OirType::Behavior,
         "date" => OirType::Date,
         "datetime" => OirType::DateTime,
         "array" => OirType::Array {

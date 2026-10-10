@@ -1,6 +1,6 @@
 // Auto-generated from @almadar/std canonical-operators.json by @almadar-io/almadar-pattern-sync.
 // DO NOT EDIT MANUALLY.
-// Total operators targeting Rust: 246
+// Total operators targeting Rust: 247
 
 /// Operator metadata derived from the canonical @almadar/std registry.
 #[derive(Debug, Clone)]
@@ -629,6 +629,16 @@ pub static CANONICAL_OPERATORS: &[OperatorMeta] = &[
         max_arity: None,
         return_type: "any",
         description: "Left-to-right composition. Each step receives the previous result as its first arg.",
+        has_side_effects: false,
+        return_semantics: None,
+    },
+    OperatorMeta {
+        name: "behavior/ref",
+        category: "std-behavior-value",
+        min_arity: 1,
+        max_arity: Some(1),
+        return_type: "behavior",
+        description: "A whole behavior as a value (`.lolo` type `behavior`), named by its specifier: `<prefix>/<name>`, `std/behaviors/<name>`, or a workspace-relative `./<dir>/<name>` (what `program/eval` wrote). A literal specifier is resolved when the program is checked; a computed one when the value is mounted. Embedding the value in a render tree runs the whole program in place, with its own pages.",
         has_side_effects: false,
         return_semantics: None,
     },
@@ -2509,7 +2519,7 @@ mod tests {
 
     #[test]
     fn test_canonical_operators_count() {
-        assert_eq!(CANONICAL_OPERATORS.len(), 246);
+        assert_eq!(CANONICAL_OPERATORS.len(), 247);
     }
 
     #[test]

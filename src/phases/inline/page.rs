@@ -40,6 +40,15 @@ pub(crate) fn apply_page_modifiers(
     if mods.translation_of.is_some() {
         page_def.translation_of = mods.translation_of.clone();
     }
+    if mods.label.is_some() {
+        page_def.label = mods.label.clone();
+    }
+    if mods.icon.is_some() {
+        page_def.icon = mods.icon.clone();
+    }
+    if mods.roles.is_some() {
+        page_def.roles = mods.roles.clone();
+    }
     Ok(())
 }
 
@@ -55,8 +64,8 @@ pub(crate) fn apply_page_modifiers(
 ///   from the original entity to the caller's entity.
 /// - **`traits`** — replaces `page_def.traits` entirely with the caller's
 ///   list. The caller takes full ownership of the page's trait set.
-/// - **`access` / `indexing` / `title` / `description`** — explicit page
-///   modifiers replace the upstream's; absent ones inherit it. `public` over an
+/// - **`access` / `indexing` / `title` / `description` / `label` / `icon` /
+///   `roles`** — explicit page modifiers replace the upstream's; absent ones inherit it. `public` over an
 ///   upstream `authenticated` is refused (`ORB_O_PAGE_ACCESS_WEAKENED`).
 fn apply_overrides_to_page(
     page_def: &mut PageDefinition,
@@ -68,6 +77,9 @@ fn apply_overrides_to_page(
         title: obj.title.clone(),
         description: obj.description.clone(),
         translation_of: obj.translation_of.clone(),
+        label: obj.label.clone(),
+        icon: obj.icon.clone(),
+        roles: obj.roles.clone(),
     };
     let path = obj.path.clone().unwrap_or_else(|| page_def.path.clone());
     apply_page_modifiers(page_def, &mods, &obj.reference, &path)?;

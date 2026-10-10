@@ -44,6 +44,23 @@ fn element_required_fields(items: &crate::embedded::EmbeddedPatternProp) -> Vec<
 /// and `@`-bindings resolve at runtime. Mirrors the top-level enum check in
 /// `validate_pattern` for the sub-fields the registry now carries `enumValues`
 /// for (CG-SWEEP-1 Cat 11b).
+/// The literal string leaves of a value built from `if` branches (`(if c "a" (if d "b" @x))` →
+/// `a`, `b`); a binding or computed branch contributes none.
+fn conditional_literal_leaves<'a>(value: &'a SExpression, out: &mut Vec<&'a str>) {
+    match value {
+        SExpression::String(s) if !s.starts_with('@') => out.push(s),
+        SExpression::Array(items) => {
+            if let [SExpression::String(head), _cond, then_branch, else_branch] = items.as_slice() {
+                if head == "if" {
+                    conditional_literal_leaves(then_branch, out);
+                    conditional_literal_leaves(else_branch, out);
+                }
+            }
+        }
+        _ => {}
+    }
+}
+
 fn validate_nested_enum_values(
     value: &SExpression,
     schema: &crate::embedded::EmbeddedPatternProp,
@@ -335,6 +352,33 @@ pub(crate) fn validate_pattern(
                     }
                     if let Some(expected_types) = get_prop_types(pattern_type, prop_name) {
                         let actual_type = classify_prop_type(prop_value);
+                        if let Some(allowed) = get_prop_enum_values(pattern_type, prop_name) {
+                            // An `(if c a b)` value (classified a binding below): each literal branch must be a member too.
+                            if let SExpression::Array(_) = prop_value {
+                                let mut leaves = Vec::new();
+                                conditional_literal_leaves(prop_value, &mut leaves);
+                                for s in leaves.into_iter().filter(|s| !allowed.contains(s)) {
+                                    result.add_error(
+                                        ValidationError::error(
+                                            ErrorCode::RenderUIPropTypeMismatch,
+                                            format!("{path}.{prop_name}"),
+                                            format!(
+                                                "Prop '{}' on '{}' has a branch value '{}' but must be one of: {}",
+                                                prop_name,
+                                                pattern_type,
+                                                s,
+                                                allowed.join(", ")
+                                            ),
+                                        )
+                                        .with_suggestion(format!(
+                                            "Use one of the allowed values for '{}' in every branch: {}",
+                                            prop_name,
+                                            allowed.join(", ")
+                                        )),
+                                    );
+                                }
+                            }
+                        }
                         // Skip bindings (@entity.x, @payload.y) - runtime resolves these
                         if actual_type == "binding" {
                             continue;
@@ -489,6 +533,27 @@ pub(crate) fn validate_pattern(
                                         prop_name,
                                         allowed.join(", ")
                                     )),
+                                );
+                            }
+                        }
+                    }
+
+                    // A `node` prop renders a pattern; a list of plain objects (no `type`) is data
+                    // the component cannot render (`alert actions: [{ label, event }]`).
+                    if get_prop_types(pattern_type, prop_name).is_some_and(|t| t == ["node"]) {
+                        if let SExpression::Array(items) = prop_value {
+                            let plain = |i: &SExpression| matches!(i, SExpression::Object(o) if !o.contains_key("type"));
+                            if !items.is_empty() && items.iter().all(plain) {
+                                result.add_error(
+                                    ValidationError::error(
+                                        ErrorCode::RenderUIPropTypeMismatch,
+                                        format!("{path}.{prop_name}"),
+                                        format!(
+                                            "Prop '{}' on '{}' is a render node, but its value is a list of plain objects",
+                                            prop_name, pattern_type
+                                        ),
+                                    )
+                                    .with_suggestion("Pass a pattern (e.g. `{ type: button, label: …, action: … }`) or render the list as sibling patterns".to_string()),
                                 );
                             }
                         }
@@ -1716,5 +1781,45 @@ mod accessible_name_tests {
     fn edge_any_declared_name_prop_suffices() {
         let o = obj(&[("type", s("avatar")), ("name", s("@entity.name"))]);
         assert!(!lacks_accessible_name(&o, &names(&["alt", "name"])));
+    }
+}
+
+#[cfg(test)]
+mod conditional_enum_and_node_list_tests {
+    use super::*;
+
+    fn validate(json: serde_json::Value) -> ValidationResult {
+        let pattern: SExpression = serde_json::from_value(json).expect("pattern json");
+        validate_pattern(&pattern, "p", &HashMap::new(), None, None)
+    }
+
+    fn mismatches(r: &ValidationResult) -> usize {
+        r.errors.iter().filter(|e| e.code == ErrorCode::RenderUIPropTypeMismatch).count()
+    }
+
+    /// G-ORB-188(1): `card look: (if c elevated flat)` — `flat` is not a `CardLook`.
+    #[test]
+    fn an_if_branch_outside_the_enum_is_rejected() {
+        let r = validate(serde_json::json!({ "type": "card", "look": ["if", "@entity.on", "elevated", "flat"] }));
+        assert_eq!(mismatches(&r), 1, "{:?}", r.errors);
+    }
+
+    #[test]
+    fn control_member_branches_and_a_binding_branch_pass() {
+        let r = validate(serde_json::json!({ "type": "card", "look": ["if", "@entity.on", "elevated", "@entity.look"] }));
+        assert_eq!(mismatches(&r), 0, "{:?}", r.errors);
+    }
+
+    /// G-ORB-188(2): `alert actions: [{ label, event }]` — `actions` is a render node.
+    #[test]
+    fn a_node_prop_given_plain_objects_is_rejected() {
+        let r = validate(serde_json::json!({ "type": "alert", "message": "m", "actions": [{ "label": "Retry", "event": "RETRY" }] }));
+        assert_eq!(mismatches(&r), 1, "{:?}", r.errors);
+    }
+
+    #[test]
+    fn control_a_node_prop_given_a_pattern_passes() {
+        let r = validate(serde_json::json!({ "type": "alert", "message": "m", "actions": [{ "type": "button", "label": "Retry", "action": "RETRY" }] }));
+        assert_eq!(mismatches(&r), 0, "{:?}", r.errors);
     }
 }
