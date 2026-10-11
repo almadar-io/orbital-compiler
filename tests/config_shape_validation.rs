@@ -188,6 +188,7 @@ fn schema_with_config(config: HashMap<String, ConfigField>) -> OrbitalSchema {
         trait_embed_ids: None,
     };
     OrbitalSchema {
+        theme_definitions: None,
         site: None,
         public_dir: None,
         locales: None,
@@ -239,7 +240,7 @@ fn shape_errors(schema: &OrbitalSchema) -> Vec<String> {
 #[test]
 fn good_array_of_metricspec_passes() {
     let mut config = HashMap::new();
-    let mut good_metric: HashMap<String, SExpression> = HashMap::new();
+    let mut good_metric: orbital_core::schema::SObject = orbital_core::schema::SObject::new();
     good_metric.insert(
         "label".to_string(),
         SExpression::String("Revenue".to_string()),
@@ -277,7 +278,7 @@ fn good_array_of_metricspec_passes() {
 #[test]
 fn string_value_where_number_expected_fails() {
     let mut config = HashMap::new();
-    let mut bad_metric: HashMap<String, SExpression> = HashMap::new();
+    let mut bad_metric: orbital_core::schema::SObject = orbital_core::schema::SObject::new();
     bad_metric.insert(
         "label".to_string(),
         SExpression::String("Retention".to_string()),
@@ -405,7 +406,7 @@ fn bare_string_in_array_of_objects_fails() {
 fn missing_required_field_fails() {
     let mut config = HashMap::new();
     // `label` is required on MetricSpec; omit it.
-    let mut no_label: HashMap<String, SExpression> = HashMap::new();
+    let mut no_label: orbital_core::schema::SObject = orbital_core::schema::SObject::new();
     no_label.insert("value".to_string(), SExpression::Number(10.0));
     config.insert(
         "metrics".to_string(),
@@ -440,7 +441,7 @@ fn missing_required_field_fails() {
 #[test]
 fn enum_value_outside_allowed_set_fails() {
     let mut config = HashMap::new();
-    let mut bad_enum: HashMap<String, SExpression> = HashMap::new();
+    let mut bad_enum: orbital_core::schema::SObject = orbital_core::schema::SObject::new();
     bad_enum.insert(
         "label".to_string(),
         SExpression::String("Revenue".to_string()),
@@ -486,7 +487,7 @@ fn binding_strings_pass_the_check() {
     // `@entity.X` / `@config.X` / `@payload.X` are late-bound; the static
     // checker can't adjudicate their concrete type, so they pass.
     let mut config = HashMap::new();
-    let mut binding_metric: HashMap<String, SExpression> = HashMap::new();
+    let mut binding_metric: orbital_core::schema::SObject = orbital_core::schema::SObject::new();
     binding_metric.insert(
         "label".to_string(),
         SExpression::String("Revenue".to_string()),
@@ -541,7 +542,7 @@ fn computed_sexpr_call_for_array_items_defers() {
         SExpression::Array(vec![
             SExpression::String("fn".to_string()),
             SExpression::Array(vec![SExpression::String("t".to_string())]),
-            SExpression::Object(HashMap::new()),
+            SExpression::Object(orbital_core::schema::SObject::new()),
         ]),
     ]);
     config.insert(
@@ -580,7 +581,7 @@ fn computed_sexpr_call_nested_in_object_property_defers() {
     // object check must defer that property instead of type-mismatching
     // it against the declared `number` leaf.
     let mut config = HashMap::new();
-    let mut metric: HashMap<String, SExpression> = HashMap::new();
+    let mut metric: orbital_core::schema::SObject = orbital_core::schema::SObject::new();
     metric.insert(
         "label".to_string(),
         SExpression::String("Revenue".to_string()),
@@ -892,7 +893,7 @@ fn map_knob(default: SExpression) -> OrbitalSchema {
 /// replacement for `json` on those knobs. A conforming default must pass.
 #[test]
 fn map_with_conforming_values_passes() {
-    let mut entries: HashMap<String, SExpression> = HashMap::new();
+    let mut entries: orbital_core::schema::SObject = orbital_core::schema::SObject::new();
     entries.insert(
         "draft".to_string(),
         SExpression::String("Draft".to_string()),
@@ -913,7 +914,7 @@ fn map_with_conforming_values_passes() {
 /// `json` into an UNCHECKED type would have been laundering, not typing.
 #[test]
 fn map_with_a_wrong_typed_value_is_reported() {
-    let mut entries: HashMap<String, SExpression> = HashMap::new();
+    let mut entries: orbital_core::schema::SObject = orbital_core::schema::SObject::new();
     entries.insert("draft".to_string(), SExpression::Number(3.0));
     let schema = map_knob(SExpression::Object(entries));
     let warns = shape_errors(&schema);
@@ -1018,7 +1019,7 @@ fn scalar_accepts_every_primitive_member() {
 #[test]
 fn scalar_rejects_objects_and_arrays() {
     for v in [
-        SExpression::Object(HashMap::new()),
+        SExpression::Object(orbital_core::schema::SObject::new()),
         SExpression::Array(vec![]),
     ] {
         let schema = scalar_knob(v.clone());
@@ -1037,7 +1038,7 @@ fn scalar_rejects_objects_and_arrays() {
 /// arm have to compose, or neither is usable for the json burndown.
 #[test]
 fn map_of_scalar_accepts_mixed_primitive_values_but_not_nesting() {
-    let mut ok: HashMap<String, SExpression> = HashMap::new();
+    let mut ok: orbital_core::schema::SObject = orbital_core::schema::SObject::new();
     ok.insert("title".to_string(), SExpression::String("Hi".to_string()));
     ok.insert("count".to_string(), SExpression::Number(2.0));
     ok.insert("done".to_string(), SExpression::Bool(false));
@@ -1089,8 +1090,8 @@ fn map_of_scalar_accepts_mixed_primitive_values_but_not_nesting() {
         shape_errors(&schema)
     );
 
-    let mut bad: HashMap<String, SExpression> = HashMap::new();
-    bad.insert("nested".to_string(), SExpression::Object(HashMap::new()));
+    let mut bad: orbital_core::schema::SObject = orbital_core::schema::SObject::new();
+    bad.insert("nested".to_string(), SExpression::Object(orbital_core::schema::SObject::new()));
     let mut config2 = HashMap::new();
     config2.insert(
         "loadedRow".to_string(),
@@ -1169,7 +1170,7 @@ fn sexpr_args_slot(item_type: FieldType, default: Vec<SExpression>) -> OrbitalSc
 }
 
 fn persist_args() -> Vec<SExpression> {
-    let mut opts = HashMap::new();
+    let mut opts = orbital_core::schema::SObject::new();
     opts.insert("emit".to_string(), SExpression::String("SAVED".to_string()));
     vec![
         SExpression::String("update".to_string()),

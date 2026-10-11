@@ -366,7 +366,7 @@ fn event_payload_prop_pairs(pattern_type: &str) -> Vec<(String, String)> {
 /// not guessed. A literal (non-`@entity.`) value is always supplied, so it
 /// is typed by its own JSON shape and marked required.
 fn signature_from_payload_literal(
-    payload: &HashMap<String, SExpression>,
+    payload: &orbital_core::schema::SObject,
     entity_fields: Option<&[FieldDefinition]>,
 ) -> BTreeSet<(String, String, bool)> {
     payload

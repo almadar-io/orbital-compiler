@@ -37,6 +37,37 @@ pub(crate) fn validate_entity_uniqueness(schema: &OrbitalSchema) -> ValidationRe
     result
 }
 
+/// Orbital names key the runtime and the import splice (trait prefixes, `Orbital.Trait`
+/// listens sources), so a second orbital of the same name shadows or merges with the first.
+pub(crate) fn validate_orbital_name_uniqueness(schema: &OrbitalSchema) -> ValidationResult {
+    let mut result = ValidationResult::new();
+    let mut locations: HashMap<&str, Vec<usize>> = HashMap::new();
+    for (i, orbital) in schema.orbitals.iter().enumerate() {
+        locations.entry(orbital.name.as_str()).or_default().push(i);
+    }
+    let mut duplicated: Vec<(&str, Vec<usize>)> = locations
+        .into_iter()
+        .filter(|(_, at)| at.len() > 1)
+        .collect();
+    duplicated.sort_by_key(|(_, at)| at[0]);
+    for (name, at) in duplicated {
+        result.add_error(
+            ValidationError::error(
+                ErrorCode::OrbitalDuplicateName,
+                format!("orbitals[{}]", at[1]),
+                format!(
+                    "Orbital '{}' is declared {} times (orbitals {:?})",
+                    name,
+                    at.len(),
+                    at
+                ),
+            )
+            .with_suggestion("Give each orbital its own name"),
+        );
+    }
+    result
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -44,6 +75,7 @@ mod tests {
 
     fn create_minimal_schema() -> OrbitalSchema {
         OrbitalSchema {
+            theme_definitions: None,
             site: None,
             public_dir: None,
             locales: None,
@@ -150,5 +182,36 @@ mod tests {
             .errors
             .iter()
             .any(|e| e.code == ErrorCode::CrossOrbitalDuplicateEntity));
+    }
+
+    fn second_orbital(schema: &OrbitalSchema, name: &str, entity: &str) -> Orbital {
+        let mut orbital = schema.orbitals[0].clone();
+        orbital.name = name.to_string();
+        if let EntityRef::Inline(def) = &mut orbital.entity {
+            def.name = entity.to_string();
+        }
+        orbital
+    }
+
+    #[test]
+    fn two_orbitals_sharing_a_name_are_refused_even_when_their_contents_differ() {
+        let mut schema = create_minimal_schema();
+        let twin = second_orbital(&schema, "TaskOrbital", "Appointment");
+        schema.orbitals.push(twin);
+        let result = validate_orbital_name_uniqueness(&schema);
+        let error = result
+            .errors
+            .iter()
+            .find(|e| e.code == ErrorCode::OrbitalDuplicateName)
+            .expect("duplicate orbital name reported");
+        assert!(error.message.contains("TaskOrbital"), "{}", error.message);
+    }
+
+    #[test]
+    fn control_distinct_orbital_names_pass() {
+        let mut schema = create_minimal_schema();
+        let other = second_orbital(&schema, "AppointmentOrbital", "Appointment");
+        schema.orbitals.push(other);
+        assert!(validate_orbital_name_uniqueness(&schema).is_valid());
     }
 }

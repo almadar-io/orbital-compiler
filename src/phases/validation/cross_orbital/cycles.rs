@@ -302,6 +302,7 @@ mod tests {
 
     fn schema_with(orbitals: Vec<Orbital>) -> OrbitalSchema {
         OrbitalSchema {
+            theme_definitions: None,
             site: None,
             public_dir: None,
             locales: None,

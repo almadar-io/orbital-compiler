@@ -6,7 +6,7 @@
 //!     (typically inside render-ui payloads, but anywhere SExpression values
 //!     live).
 //!   - Composers (molecules/organisms) supply concrete values at the call
-//!     site via `TraitReference.config: Option<HashMap<String, SExpression>>`.
+//!     site via `TraitReference.config: Option<orbital_core::schema::SObject>`.
 //!   - The inline phase substitutes BEFORE the validator runs, so by the
 //!     time binding.rs + pattern-prop validation sees the effect, any
 //!     successfully bound `@config.X` has been replaced with a concrete
@@ -168,10 +168,10 @@ fn extract_render_ui_payload(path: &std::path::Path) -> SExpression {
 }
 
 /// Read the render-ui effect's object payload (the third array element) as
-/// a `HashMap<String, SExpression>`. Panics on shape mismatch.
+/// a `orbital_core::schema::SObject`. Panics on shape mismatch.
 fn extract_render_ui_object(
     payload: &SExpression,
-) -> std::collections::HashMap<String, SExpression> {
+) -> orbital_core::schema::SObject {
     match payload {
         SExpression::Array(items) => {
             assert_eq!(items.len(), 3, "render-ui effect must be 3 elements");

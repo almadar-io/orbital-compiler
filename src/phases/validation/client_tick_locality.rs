@@ -16,14 +16,15 @@ use orbital_core::schema::{
 
 pub(crate) fn validate_client_tick_locality(schema: &OrbitalSchema) -> ValidationResult {
     let mut result = ValidationResult::new();
-    let residence = orbital_core::effects::Residence::of_entities(schema.orbitals.iter().flat_map(|o| {
-        std::iter::once(&o.entity)
-            .chain(o.auxiliary_entities.iter().flatten())
-            .filter_map(|e| match e {
-                EntityRef::Inline(def) => Some(def),
-                _ => None,
-            })
-    }));
+    let residence =
+        orbital_core::effects::Residence::of_entities(schema.orbitals.iter().flat_map(|o| {
+            std::iter::once(&o.entity)
+                .chain(o.auxiliary_entities.iter().flatten())
+                .filter_map(|e| match e {
+                    EntityRef::Inline(def) => Some(def),
+                    _ => None,
+                })
+        }));
     for orbital in &schema.orbitals {
         let entities: Vec<_> = std::iter::once(&orbital.entity)
             .chain(orbital.auxiliary_entities.iter().flatten())

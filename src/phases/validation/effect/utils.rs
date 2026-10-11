@@ -72,14 +72,6 @@ const EFFECT_POSITION_EXTRA: &[&str] = &[
     "agent/token-count",
     "agent/context-usage",
     "agent/session-id",
-    // Substrate: behavior reflection + program (effect-position)
-    "behavior/catalog",
-    "behavior/describe",
-    "behavior/source",
-    "program/read",
-    "program/print",
-    "program/eval",
-    "program/compose",
     // Substrate: llm (value-position, valid in effects)
     "llm/generate",
     "llm/call-tools",
@@ -133,6 +125,7 @@ pub fn effect_operators() -> &'static [&'static str] {
     ALL.get_or_init(|| {
         let mut v = EFFECT_OPERATORS.to_vec();
         v.extend_from_slice(EFFECT_POSITION_EXTRA);
+        v.extend(orbital_core::language::registry::program_host_effects());
         v
     })
 }

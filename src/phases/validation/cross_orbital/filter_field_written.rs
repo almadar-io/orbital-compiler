@@ -239,14 +239,31 @@ fn collect_persist_writes(
                     if let Some(ops) = items.get(2) {
                         for w in orbital_core::effects::persist_batch::batch_writes(ops) {
                             if w.action != "delete" {
-                                record_persist_write(w.action, w.entity, w.data, entity_defs, written, any_data, created);
+                                record_persist_write(
+                                    w.action,
+                                    w.entity,
+                                    w.data,
+                                    entity_defs,
+                                    written,
+                                    any_data,
+                                    created,
+                                );
                             }
                         }
                     }
-                } else if let (Some(SExpression::String(entity)), true) =
-                    (items.get(2), op == "persist" && (action == "create" || action == "update"))
-                {
-                    record_persist_write(action, entity, items.get(3), entity_defs, written, any_data, created);
+                } else if let (Some(SExpression::String(entity)), true) = (
+                    items.get(2),
+                    op == "persist" && (action == "create" || action == "update"),
+                ) {
+                    record_persist_write(
+                        action,
+                        entity,
+                        items.get(3),
+                        entity_defs,
+                        written,
+                        any_data,
+                        created,
+                    );
                 }
             }
             for item in items {
@@ -656,6 +673,7 @@ mod tests {
 
     fn schema_with(orbitals: Vec<Orbital>) -> OrbitalSchema {
         OrbitalSchema {
+            theme_definitions: None,
             site: None,
             public_dir: None,
             locales: None,

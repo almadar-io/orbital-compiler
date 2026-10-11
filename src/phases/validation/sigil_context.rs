@@ -2,8 +2,7 @@
 //!
 //! Walks every binding (`@entity.x`, `@payload.y`, `@state`, `@now`) used in
 //! transitions, ticks, and guards. For each binding, checks the sigil root
-//! against the allowed list defined by the embedded `BINDING_CONTEXT_RULES`
-//! (mirrored from `packages/almadar-core/src/types/bindings.ts`).
+//! against `BINDING_CONTEXT_RULES`, read from the installed `@almadar/core`.
 //!
 //! The legacy `binding.rs` validator already catches `@payload` in ticks
 //! (the most common rule), but this validator is the canonical, table-driven
@@ -236,7 +235,7 @@ fn is_collection_callback_operator(op: &str) -> bool {
     false
 }
 
-/// Validate a single sigil binding against the embedded `BINDING_CONTEXT_RULES`.
+/// Validate a single sigil binding against the installed `BINDING_CONTEXT_RULES`.
 fn check_binding_sigil(
     binding: &str,
     path: &str,
@@ -280,10 +279,10 @@ fn check_binding_sigil(
         ));
         return;
     }
-    // Anything else: check the embedded rules.
+    // Anything else: check the installed rules.
     let allowed = embedded::allowed_sigils_for_context(context.name())
-        .expect("BINDING_CONTEXT_RULES must define this context");
-    if !allowed.contains(&root) {
+        .expect("installed BINDING_CONTEXT_RULES must define this context");
+    if !allowed.iter().any(|a| a == root) {
         let allowed_list = allowed.join(", ");
         result.add_error(
             ValidationError::error(

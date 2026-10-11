@@ -78,7 +78,11 @@ fn walk_for_references(expr: &SExpression, path: &str, result: &mut ValidationRe
                         }
                     }) {
                         if let Some(SExpression::String(pattern_type)) = pattern.get("type") {
-                            check_pattern_reference(pattern_type, &format!("{path}[{i}].type"), result);
+                            check_pattern_reference(
+                                pattern_type,
+                                &format!("{path}[{i}].type"),
+                                result,
+                            );
                         }
                     }
                 }
@@ -245,18 +249,31 @@ mod tests {
         let mut result = ValidationResult::new();
         let expr: SExpression = serde_json::from_value(expr).expect("sexpr");
         walk_for_references(&expr, "t", &mut result);
-        result.errors.iter().filter(|e| e.message.contains("behaviors-registry")).count()
+        result
+            .errors
+            .iter()
+            .filter(|e| e.message.contains("behaviors-registry"))
+            .count()
     }
 
     #[test]
     fn a_registered_behavior_operator_is_a_verb_not_a_behavior_name() {
-        assert_eq!(behavior_errors(serde_json::json!(["behavior/ref", "./orbitals/shop"])), 0);
-        assert_eq!(behavior_errors(serde_json::json!(["behavior/apply", "@entity.w", {}])), 0);
+        assert_eq!(
+            behavior_errors(serde_json::json!(["behavior/ref", "./orbitals/shop"])),
+            0
+        );
+        assert_eq!(
+            behavior_errors(serde_json::json!(["behavior/apply", "@entity.w", {}])),
+            0
+        );
     }
 
     #[test]
     fn control_an_unregistered_behavior_shorthand_is_still_checked() {
-        assert_eq!(behavior_errors(serde_json::json!(["behavior/no-such-behavior-xyz"])), 1);
+        assert_eq!(
+            behavior_errors(serde_json::json!(["behavior/no-such-behavior-xyz"])),
+            1
+        );
     }
 
     #[test]

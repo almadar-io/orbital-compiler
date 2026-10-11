@@ -4,11 +4,10 @@
 //! convert an `SExpression` subtree into a `serde_json::Value`.
 
 use orbital_core::schema::SExpression;
-use std::collections::HashMap;
 
 /// Convert an `SExpression` object map into a JSON object map.
 pub fn sexpr_obj_to_json_map(
-    obj: &HashMap<String, SExpression>,
+    obj: &orbital_core::schema::SObject,
 ) -> serde_json::Map<String, serde_json::Value> {
     let mut map = serde_json::Map::new();
     for (key, value) in obj {

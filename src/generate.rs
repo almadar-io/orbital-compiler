@@ -13,7 +13,7 @@ use thiserror::Error;
 
 // Re-export core generation types so existing consumers of
 // `orbital_compiler::generate` continue to compile without changes.
-pub use orbital_core::generate::{Backend, GeneratedFile, GeneratedOutput, ShellMode};
+pub use orbital_core::generate::{locale_alternates, Backend, GeneratedFile, GeneratedOutput, ShellMode};
 
 /// Generation error
 #[derive(Debug, Error)]
@@ -29,6 +29,49 @@ pub enum GenerateError {
 
     #[error("Backend error: {0}")]
     Backend(String),
+
+    /// A shell program refused the request (`orbital_core::shell_protocol`).
+    #[error("{0}")]
+    ShellProgram(#[from] orbital_core::shell_protocol::ShellFailure),
+}
+
+impl From<orbital_core::project::WriteError> for GenerateError {
+    fn from(error: orbital_core::project::WriteError) -> Self {
+        use orbital_core::project::WriteError;
+        match error {
+            WriteError::Shell(e) => GenerateError::Shell(e),
+            WriteError::Io(e) => GenerateError::Io(e),
+            WriteError::Backend(message) => GenerateError::Backend(message),
+        }
+    }
+}
+
+/// Generate code from an OIR module ([`orbital_core::project::write_project`]).
+pub fn generate_from_oir<S, B>(
+    oir: &OirModule,
+    output_dir: impl AsRef<Path>,
+    shell: &S,
+    backend: &B,
+    options: &GenerateOptions,
+) -> GenerateResult<GeneratedOutput>
+where
+    S: Shell,
+    B: Backend,
+{
+    Ok(orbital_core::project::write_project(oir, output_dir.as_ref(), shell, backend, &options.write_options())?)
+}
+
+impl GenerateOptions {
+    /// The project-writing half of these options, as a shell receives it.
+    pub fn write_options(&self) -> orbital_core::project::WriteOptions {
+        orbital_core::project::WriteOptions {
+            copy_template: self.copy_template,
+            clean: self.clean,
+            verbose: self.verbose,
+            mode: self.mode,
+            service_runtimes: self.compiler.service_runtimes.clone(),
+        }
+    }
 }
 
 /// Result type for generation operations
@@ -77,50 +120,6 @@ where
 /// [`generate_from_file`] for a schema written somewhere other than its
 /// source (a lowered `.lolo` or a translated copy): imports resolve against
 
-/// A program declaring browser-stored entities compiles only with a backend that
-/// generates their client-side data effects; any other backend is refused
-/// before it writes a file.
-fn ensure_backend_supports<B: Backend>(oir: &OirModule, backend: &B) -> GenerateResult<()> {
-    let local: Vec<&str> = oir.entities.iter().filter(|e| e.local).map(|e| e.name.as_str()).collect();
-    if local.is_empty() || backend.supports_browser_stored_entities() {
-        return Ok(());
-    }
-    Err(GenerateError::Backend(format!(
-        "ORB_SHELL_LOCAL_ENTITY_UNSUPPORTED: the {} shell does not generate browser-stored entities; {} declare `local`. Compile with --shell typescript, or drop `local`.",
-        backend.name(),
-        local.join(", ")
-    )))
-}
-
-/// A browser-only service's calls run on the browser leg; a full build of a
-/// shell that generates no browser leg has nowhere to run them, so it is
-/// refused before it writes a file. A client or server build is one half of a
-/// split deployment whose other half may host the call, so it is not judged here.
-fn ensure_services_hostable<B: Backend>(oir: &OirModule, backend: &B, options: &GenerateOptions) -> GenerateResult<()> {
-    use orbital_core::effects::runs_on::{is_browser_only, SERVICE_RUNTIME_UNSUPPORTED};
-    if options.mode != ShellMode::Full || backend.supports_browser_stored_entities() {
-        return Ok(());
-    }
-    let runtimes = options
-        .compiler
-        .service_runtimes
-        .as_ref()
-        .unwrap_or(&crate::embedded::baked_service_registry().runtimes);
-    let refused: Vec<String> = oir
-        .invoked_services()
-        .into_iter()
-        .filter(|service| runtimes.get(service).is_some_and(|r| is_browser_only(r)))
-        .collect();
-    if refused.is_empty() {
-        return Ok(());
-    }
-    Err(GenerateError::Backend(format!(
-        "{SERVICE_RUNTIME_UNSUPPORTED}: the {} shell generates no browser leg, and {} run(s) only in the browser. Compile with --shell typescript.",
-        backend.name(),
-        refused.join(", ")
-    )))
-}
-
 /// `source_path`.
 pub fn generate_from_file_with_source<S, B>(
     schema_path: &Path,
@@ -134,6 +133,22 @@ where
     S: Shell,
     B: Backend,
 {
+    generate_from_file_with_source_using(schema_path, source_path, output_dir, options, |oir, output_dir| {
+        generate_from_oir(oir, output_dir, shell, backend, options)
+    })
+}
+
+/// [`generate_from_file_with_source`] with the project write delegated to
+/// `write` (an in-process shell, or a shell program `orb` runs): compile to
+/// IR, write, then the program-level files (catalogs, `routes.json`,
+/// `schema.orb`, `resolved.orb`).
+pub fn generate_from_file_with_source_using<R>(
+    schema_path: &Path,
+    source_path: &Path,
+    output_dir: impl AsRef<Path>,
+    options: &GenerateOptions,
+    write: impl FnOnce(&OirModule, &Path) -> GenerateResult<R>,
+) -> GenerateResult<R> {
     let output_dir = output_dir.as_ref();
 
     if options.verbose {
@@ -144,7 +159,7 @@ where
     let oir = compile_file_with_source(schema_path, source_path, &options.compiler)?;
 
     // Generate code from OIR
-    let result = generate_from_oir(&oir, output_dir, shell, backend, options)?;
+    let result = write(&oir, output_dir)?;
 
     // A program with `locales` ships one merged catalog per locale, where
     // the generated App imports it.
@@ -207,7 +222,7 @@ where
             let resolved_path = output_dir.join("resolved.orb");
             let program_dir = source_path.parent().unwrap_or(Path::new("."));
             if let Err(err) = crate::phases::lazy::write_lazy(output_dir, &lazy, program_dir, &|schema| {
-                serde_json::to_string_pretty(schema).map_err(std::io::Error::other)
+                orbital_core::util::canonical_json::to_canonical_string_pretty(schema).map_err(std::io::Error::other)
             }) {
                 eprintln!(
                     "[generate_from_file] Failed to write lazy behaviors under {}: {}",
@@ -215,7 +230,7 @@ where
                     err
                 );
             }
-            if let Ok(json) = serde_json::to_string_pretty(&resolved) {
+            if let Ok(json) = orbital_core::util::canonical_json::to_canonical_string_pretty(&resolved) {
                 if let Err(err) = std::fs::write(&resolved_path, json) {
                     eprintln!(
                         "[generate_from_file] Failed to write resolved.orb at {}: {}",
@@ -232,224 +247,7 @@ where
     Ok(result)
 }
 
-/// Generate code from an OIR module
-pub fn generate_from_oir<S, B>(
-    oir: &OirModule,
-    output_dir: impl AsRef<Path>,
-    shell: &S,
-    backend: &B,
-    options: &GenerateOptions,
-) -> GenerateResult<GeneratedOutput>
-where
-    S: Shell,
-    B: Backend,
-{
-    let output_dir = output_dir.as_ref();
 
-    if options.verbose {
-        eprintln!("Output: {}", output_dir.display());
-        eprintln!("Shell: {}", shell.name());
-        eprintln!("Backend: {}", backend.name());
-    }
-
-    // Step 2: Copy shell template if requested
-    if options.copy_template {
-        if options.verbose {
-            eprintln!("Copying shell template...");
-        }
-        shell.init_project(output_dir, &oir.name)?;
-    }
-
-    // Step 3: Clean existing generated files if requested
-    if options.clean {
-        if options.verbose {
-            eprintln!("Cleaning generated directory...");
-        }
-        shell.clean_generated(output_dir)?;
-    }
-
-    // Step 4: Generate code
-    if options.verbose {
-        eprintln!("Generating code (mode: {:?})...", options.mode);
-    }
-    ensure_backend_supports(oir, backend)?;
-    ensure_services_hostable(oir, backend, options)?;
-    let output = backend.generate_with_mode(oir, options.mode);
-
-    // Cross-shell operator-completeness backstop: no emitted file may carry the
-    // shared unsupported-operator marker (Python emits it in a `#` comment, TS
-    // in a `/* */` comment). Fail loudly BEFORE writing, rather than shipping a
-    // broken stub the static parity gate can't see — e.g. an operator with no
-    // canonical-registry entry at all.
-    let unsupported: Vec<String> = output
-        .files
-        .iter()
-        .flat_map(|file| {
-            file.content
-                .lines()
-                .filter(|line| {
-                    line.contains(orbital_core::UNSUPPORTED_OPERATOR_MARKER)
-                        || line.contains(orbital_core::ir::LITERAL_TYPE_MISMATCH_MARKER)
-                })
-                .map(move |line| format!("{} — {}", file.path, line.trim()))
-        })
-        .collect();
-    if !unsupported.is_empty() {
-        return Err(GenerateError::Backend(format!(
-            "backend emitted {} codegen marker(s) (unsupported operator / default literal \
-             not renderable at its declared type):\n  {}",
-            unsupported.len(),
-            unsupported.join("\n  ")
-        )));
-    }
-
-    // Step 5: Write files
-    let generated_dir = output_dir.join(shell.generated_dir());
-    std::fs::create_dir_all(&generated_dir)?;
-
-    // §94 (`docs/Almadar_Compiler_Gaps.md`): a source-level trait/organism a
-    // recompile no longer emits used to leave its LAST compile's file behind
-    // forever — nothing in this loop ever deletes anything. Read the PREVIOUS
-    // compile's manifest before writing (`None` on first compile / no
-    // manifest / an unparsable one — never destructive on that path), then
-    // prune whatever it lists that this compile did not reproduce. Scoped to
-    // exactly what THIS loop writes: `generate_from_file`'s `schema.orb` /
-    // `resolved.orb`, `orbital-cli`'s `.env` merge, and the lowered `.orb`
-    // (`orbital-cli/src/commands/compile.rs`) are written by other call
-    // sites entirely and never touched here.
-    let previous_manifest = read_orb_manifest(output_dir);
-
-    for file in &output.files {
-        // Workspace-relative paths (e.g. packages/shared/...) are written
-        // relative to the output root; all other generated paths live under
-        // the shell's generated_dir.
-        let file_path = resolve_manifest_path(output_dir, &generated_dir, &file.path);
-
-        // Ensure parent directory exists
-        if let Some(parent) = file_path.parent() {
-            std::fs::create_dir_all(parent)?;
-        }
-
-        std::fs::write(&file_path, &file.content)?;
-
-        if options.verbose {
-            eprintln!("  Written: {}", file.path);
-        }
-    }
-
-    let new_manifest: std::collections::BTreeSet<String> =
-        output.files.iter().map(|f| f.path.clone()).collect();
-    if let Some(previous) = previous_manifest {
-        for stale in previous.difference(&new_manifest) {
-            let stale_path = resolve_manifest_path(output_dir, &generated_dir, stale);
-            if stale_path.exists() {
-                std::fs::remove_file(&stale_path)?;
-                if options.verbose {
-                    eprintln!("  Pruned stale: {stale}");
-                }
-                if let Some(parent) = stale_path.parent() {
-                    prune_empty_dirs(parent, output_dir);
-                }
-            }
-        }
-    }
-    write_orb_manifest(output_dir, &new_manifest)?;
-
-    if options.verbose {
-        eprintln!(
-            "Generated {} files to {}",
-            output.files.len(),
-            generated_dir.display()
-        );
-    }
-
-    Ok(output)
-}
-
-/// The manifest file name `generate_from_oir` reads/writes at `output_dir`,
-/// listing every logical `GeneratedFile::path` written by its OWN write loop
-/// (never `.env`/lowered-`.orb`/`schema.orb`/`resolved.orb`, written by other
-/// call sites).
-const ORB_MANIFEST_FILE: &str = ".orb-manifest.json";
-
-/// A generated path prefixed with one of these is "workspace-relative" —
-/// already rooted at a template-declared location outside the shell's own
-/// `generated_dir` tree (a sibling package root, or a native test target's
-/// own `sources:`/source-set root declared in `project.yml`/`build.gradle.kts`)
-/// — and is written directly under `output_dir` instead of nested under
-/// `generated_dir`. `packages/` is the original TS/mobile multi-package
-/// case (`orbital-shell-typescript`/`orbital-shell-mobile`); `Sources/` and
-/// `app/src/test/` are the iOS/Android native test-target cases (Program C
-/// wave C4 — `Sources/OrbitalAppTests/PatternSnapshotTests.swift`,
-/// `app/src/test/kotlin/generated/PatternSnapshotTests.kt`); `app/src/main/assets/`
-/// is the Android *main* module's asset root (Program B wave B6 —
-/// `app/src/main/assets/resolved_schema.json`, the in-app kernel's bundled
-/// resolved schema, mirroring iOS's `Sources/OrbitalApp/Resources/`) — added
-/// because neither shell's `generated_dir` (`Sources/OrbitalApp/Generated`,
-/// `app/src/main/kotlin/generated`) covers a sibling resource/test source
-/// root. No existing `GeneratedFile::path` in any shell started with any of
-/// these before their own addition (each backend otherwise emits bare
-/// relative names under its own `generated_dir`), so each is purely additive.
-const WORKSPACE_RELATIVE_PREFIXES: &[&str] =
-    &["packages/", "Sources/", "app/src/test/", "app/src/main/assets/"];
-
-/// A workspace-relative path (see `WORKSPACE_RELATIVE_PREFIXES`) is written
-/// relative to the output root; every other generated path is written under
-/// the shell's `generated_dir` — the ONE resolution rule the write loop and
-/// the stale-prune pass both use, so a manifest entry always resolves to the
-/// exact file it named.
-fn resolve_manifest_path(output_dir: &Path, generated_dir: &Path, logical_path: &str) -> std::path::PathBuf {
-    if WORKSPACE_RELATIVE_PREFIXES.iter().any(|prefix| logical_path.starts_with(prefix)) {
-        output_dir.join(logical_path)
-    } else {
-        generated_dir.join(logical_path)
-    }
-}
-
-/// The previous compile's manifest, if `output_dir` has one and it parses —
-/// `None` on first compile, a missing file, or anything unparsable, so a
-/// corrupt/foreign manifest is never destructive (no prune runs at all
-/// rather than guessing at a malformed list).
-fn read_orb_manifest(output_dir: &Path) -> Option<std::collections::BTreeSet<String>> {
-    let content = std::fs::read_to_string(output_dir.join(ORB_MANIFEST_FILE)).ok()?;
-    serde_json::from_str(&content).ok()
-}
-
-/// Persist this compile's manifest for the NEXT compile's prune pass.
-fn write_orb_manifest(
-    output_dir: &Path,
-    manifest: &std::collections::BTreeSet<String>,
-) -> std::io::Result<()> {
-    let json = serde_json::to_string_pretty(manifest)?;
-    std::fs::write(output_dir.join(ORB_MANIFEST_FILE), json)
-}
-
-/// Remove `dir` and every now-empty ancestor up to (but never including)
-/// `stop_at`, bottom-up — a stale file's directory (and that directory's own
-/// now-empty parent, …) left behind by a dropped trait/organism. Stops the
-/// instant a directory is missing, not a directory, non-empty, or `stop_at`
-/// itself; never touches `stop_at` or anything above it.
-fn prune_empty_dirs(dir: &Path, stop_at: &Path) {
-    let mut current = dir;
-    loop {
-        if current == stop_at || !current.starts_with(stop_at) {
-            return;
-        }
-        let Ok(mut entries) = std::fs::read_dir(current) else {
-            return;
-        };
-        if entries.next().is_some() {
-            return;
-        }
-        if std::fs::remove_dir(current).is_err() {
-            return;
-        }
-        let Some(parent) = current.parent() else {
-            return;
-        };
-        current = parent;
-    }
-}
 
 /// Registry of backends
 pub struct BackendRegistry {
@@ -594,50 +392,6 @@ pub fn route_manifest(
         manifest["site"] = serde_json::to_value(site).map_err(|e| e.to_string())?;
     }
     Ok(manifest)
-}
-
-/// The indexable public routes of `page`'s translation group (its
-/// `translationOf`, else its upstream `sourcePage`) across the app's locales,
-/// in locale order, as `[{ locale, path }]` — its hreflang alternates. `None`
-/// when `page` is not itself indexable and public, has no group, appears in fewer than two locales, or one locale holds it
-/// twice (no single alternate per language).
-pub fn locale_alternates(
-    oir: &orbital_core::ir::OirModule,
-    page: &orbital_core::ir::OirPage,
-) -> Option<serde_json::Value> {
-    use orbital_core::schema::{PageAccess, PageIndexing};
-    let indexable = |p: &orbital_core::ir::OirPage| {
-        p.access == Some(PageAccess::Public) && p.indexing != Some(PageIndexing::Noindex)
-    };
-    if !indexable(page) {
-        return None;
-    }
-    let group = |p: &orbital_core::ir::OirPage| -> Option<String> {
-        p.translation_of.clone().or_else(|| p.source_page.clone())
-    };
-    let key = group(page)?;
-    let mut by_locale: Vec<(&str, &str)> = Vec::new();
-    for other in oir
-        .pages
-        .iter()
-        .filter(|p| group(p).as_deref() == Some(key.as_str()) && indexable(p))
-    {
-        let locale = oir.locale_of_path(&other.path)?;
-        if by_locale.iter().any(|(l, _)| *l == locale) {
-            return None;
-        }
-        by_locale.push((locale, other.path.as_str()));
-    }
-    if by_locale.len() < 2 {
-        return None;
-    }
-    by_locale.sort_by_key(|(l, _)| oir.locales.iter().position(|x| x == l));
-    Some(
-        by_locale
-            .into_iter()
-            .map(|(locale, path)| serde_json::json!({ "locale": locale, "path": path }))
-            .collect(),
-    )
 }
 
 #[cfg(test)]
@@ -839,7 +593,7 @@ mod tests {
         );
 
         let manifest: std::collections::BTreeSet<String> = serde_json::from_str(
-            &std::fs::read_to_string(output_dir.join(ORB_MANIFEST_FILE)).unwrap(),
+            &std::fs::read_to_string(output_dir.join(orbital_core::project::ORB_MANIFEST_FILE)).unwrap(),
         )
         .unwrap();
         assert_eq!(
@@ -876,6 +630,6 @@ mod tests {
         generate_from_oir(&module, output_dir, &shell, &backend, &options).expect("compiles");
         assert!(output_dir.join("generated/a.ts").exists());
         assert!(output_dir.join("generated/nested/b.ts").exists());
-        assert!(output_dir.join(ORB_MANIFEST_FILE).exists());
+        assert!(output_dir.join(orbital_core::project::ORB_MANIFEST_FILE).exists());
     }
 }

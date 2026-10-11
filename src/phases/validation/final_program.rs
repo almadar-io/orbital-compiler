@@ -14,11 +14,15 @@ use std::collections::{BTreeMap, HashSet};
 /// Control event -> the `pattern.prop` sites that fire it.
 type Controls = BTreeMap<String, Vec<String>>;
 
-/// Every finished-program check (G-ORB-184 unsatisfied expectations, G-ORB-187 unhandled controls).
+/// Every finished-program check (G-ORB-184 unsatisfied expectations, G-ORB-187 unhandled controls,
+/// G-CROSS-144 control values offered outward that nothing hears).
 pub fn validate_final_program(schema: &OrbitalSchema) -> ValidationResult {
     let mut result = ValidationResult::new();
     result.merge(super::expectations::validate_final_expectations(schema));
     result.merge(validate_controls_handled(schema));
+    for error in super::composed_wiring::discarded_offered_values(schema) {
+        result.add_error(error);
+    }
     result
 }
 
@@ -29,6 +33,41 @@ pub fn validate_final_program(schema: &OrbitalSchema) -> ValidationResult {
 /// offering an affordance, so both are exempt (the same offer rule as `ORB_X_UNUSED_EMISSION`).
 fn validate_controls_handled(schema: &OrbitalSchema) -> ValidationResult {
     let mut result = ValidationResult::new();
+    for c in unhandled_controls(schema) {
+        result.add_error(
+            ValidationError::error(
+                ErrorCode::EmitControlUnhandled,
+                format!("orbitals.{}.traits.{}", c.orbital, c.trait_name),
+                format!(
+                    "A control rendered by '{}' ({}) fires '{}', which no transition of '{}' or an embedder of it handles and no `listens` routes",
+                    c.trait_name,
+                    c.sites.join(", "),
+                    c.event,
+                    c.trait_name
+                ),
+            )
+            .with_suggestion(format!(
+                "Handle '{}' in '{}' (or the trait that embeds it), route it with `listens`, or remove the control",
+                c.event, c.trait_name
+            )),
+        );
+    }
+    result
+}
+
+/// A rendered control whose event nothing in the program handles (the G-ORB-187 finding).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct UnhandledControl {
+    pub orbital: String,
+    pub trait_name: String,
+    pub event: String,
+    /// The `pattern.prop` sites that fire it.
+    pub sites: Vec<String>,
+}
+
+/// Every unhandled control in `schema`: what `ORB_EMIT_CONTROL_UNHANDLED` reports.
+pub fn unhandled_controls(schema: &OrbitalSchema) -> Vec<UnhandledControl> {
+    let mut found = Vec::new();
     let listens: Vec<&ListenDefinition> = schema
         .orbitals
         .iter()
@@ -96,30 +135,46 @@ fn validate_controls_handled(schema: &OrbitalSchema) -> ValidationResult {
                 if handled {
                     continue;
                 }
-                result.add_error(
-                    ValidationError::error(
-                        ErrorCode::EmitControlUnhandled,
-                        format!("orbitals.{}.traits.{}", orbital.name, td.name),
-                        format!(
-                            "A control rendered by '{}' ({}) fires '{}', which no transition of '{}' or an embedder of it handles and no `listens` routes",
-                            td.name,
-                            sites.join(", "),
-                            event,
-                            td.name
-                        ),
-                    )
-                    .with_suggestion(format!(
-                        "Handle '{event}' in '{}' (or the trait that embeds it), route it with `listens`, or remove the control",
-                        td.name
-                    )),
-                );
+                found.push(UnhandledControl {
+                    orbital: orbital.name.clone(),
+                    trait_name: td.name.clone(),
+                    event,
+                    sites,
+                });
             }
         }
     }
-    result
+    found
 }
 
-fn routes(listen: &ListenDefinition, event: &str, scope: &HashSet<&str>) -> bool {
+/// The unhandled controls a trait forwards on purpose: its composer declared `emitsScope external`, so
+/// the event is left for an embedding organism to handle (each emit for it carries `scope: external`
+/// with `scopeOverridden`). An unhandled control without that declaration is a defect, not a forward.
+pub fn forwarded_controls(schema: &OrbitalSchema) -> Vec<UnhandledControl> {
+    use orbital_core::schema::EventScope;
+    unhandled_controls(schema)
+        .into_iter()
+        .filter(|c| {
+            schema
+                .orbitals
+                .iter()
+                .filter(|o| o.name == c.orbital)
+                .flat_map(|o| o.traits.iter())
+                .filter_map(|t| match t {
+                    TraitReference::Inline(td) if td.name == c.trait_name => Some(td),
+                    _ => None,
+                })
+                .flat_map(|td| td.emits.iter().flatten())
+                .any(|e| {
+                    e.event == c.event
+                        && e.scope == Some(EventScope::External)
+                        && e.scope_overridden == Some(true)
+                })
+        })
+        .collect()
+}
+
+pub(crate) fn routes(listen: &ListenDefinition, event: &str, scope: &HashSet<&str>) -> bool {
     if listen.event != event {
         return false;
     }
@@ -132,7 +187,7 @@ fn routes(listen: &ListenDefinition, event: &str, scope: &HashSet<&str>) -> bool
 }
 
 /// The trait plus every trait that embeds it, directly or transitively, through any referrer.
-fn embedder_closure<'a>(embed: &'a EmbedGraph, trait_name: &'a str) -> HashSet<&'a str> {
+pub(crate) fn embedder_closure<'a>(embed: &'a EmbedGraph, trait_name: &'a str) -> HashSet<&'a str> {
     let mut seen: HashSet<&str> = HashSet::from([trait_name]);
     let mut frontier = vec![trait_name];
     while let Some(current) = frontier.pop() {
@@ -274,6 +329,53 @@ mod tests {
 
     fn button(event: &str) -> serde_json::Value {
         serde_json::json!({ "type": "button", "label": "Go", "action": event })
+    }
+
+    fn forwarding(name: &str, event: &str, overridden: bool) -> serde_json::Value {
+        let mut t = renderer(name, button(event), &[]);
+        let mut emit = serde_json::json!({ "event": event, "scope": "external" });
+        if overridden {
+            emit["scopeOverridden"] = serde_json::json!(true);
+        }
+        t["emits"] = serde_json::json!([emit]);
+        t
+    }
+
+    fn forwards(s: &OrbitalSchema) -> Vec<String> {
+        forwarded_controls(s)
+            .into_iter()
+            .map(|c| format!("{}.{}", c.trait_name, c.event))
+            .collect()
+    }
+
+    #[test]
+    fn a_composer_declared_external_control_nothing_handles_is_a_forward() {
+        let s = schema(
+            serde_json::json!([forwarding("NoteDoc", "EDIT", true)]),
+            serde_json::json!(null),
+        );
+        assert_eq!(forwards(&s), vec!["NoteDoc.EDIT".to_string()]);
+    }
+
+    #[test]
+    fn control_an_external_emit_without_a_composer_declaration_is_not_a_forward() {
+        let s = schema(
+            serde_json::json!([forwarding("Plain", "DELETE", false)]),
+            serde_json::json!(null),
+        );
+        assert!(forwards(&s).is_empty());
+        assert_eq!(codes(&s).len(), 1, "still a dead control");
+    }
+
+    #[test]
+    fn control_a_forward_something_routes_is_not_listed() {
+        let mut listener = renderer("Editor", button("X"), &["X", "OPEN"]);
+        listener["listens"] = serde_json::json!([{ "event": "EDIT", "triggers": "OPEN", "source": { "kind": "trait", "trait": "NoteDoc" } }]);
+        let s = schema(
+            serde_json::json!([forwarding("NoteDoc", "EDIT", true), listener]),
+            serde_json::json!(null),
+        );
+        assert!(forwards(&s).is_empty(), "{:?}", forwards(&s));
     }
 
     #[test]

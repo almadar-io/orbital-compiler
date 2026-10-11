@@ -93,6 +93,7 @@ fn schema_with_effects(effects: Vec<SExpression>) -> OrbitalSchema {
     };
 
     OrbitalSchema {
+        theme_definitions: None,
         site: None,
         public_dir: None,
         locales: None,

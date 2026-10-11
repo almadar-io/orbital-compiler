@@ -1501,7 +1501,7 @@ fn mark_field_literal_lists(value: &mut SExpression, shape: &FieldDefinition) {
 }
 
 fn mark_object_members(
-    map: &mut HashMap<String, SExpression>,
+    map: &mut orbital_core::schema::SObject,
     props: &HashMap<String, FieldDefinition>,
 ) {
     for (key, member) in map.iter_mut() {
@@ -1522,12 +1522,7 @@ fn literal_list_elements_mut(elems: &mut [SExpression]) -> &mut [SExpression] {
 /// validation + OIR resolution) must accept the `["list", …]` constructor the
 /// wrap produces. The evaluators strip the head at eval time (ListOp); readers
 /// that treat the array as inert data strip it here instead.
-pub(crate) fn strip_literal_list_marker(arr: &[SExpression]) -> &[SExpression] {
-    match arr.first() {
-        Some(SExpression::String(s)) if s == "list" => &arr[1..],
-        _ => arr,
-    }
-}
+pub(crate) use orbital_core::lower::strip_literal_list_marker;
 
 /// Deep check: does any leaf in the tree resolve as a binding (`@…`)? A
 /// binding makes the value a live expression the evaluator must resolve, not
@@ -1553,7 +1548,7 @@ pub(crate) fn apply_inline_config_defaults(
     let Some(declared) = trait_def.config.as_ref() else {
         return;
     };
-    let mut effective_config: HashMap<String, SExpression> = HashMap::new();
+    let mut effective_config: orbital_core::schema::SObject = orbital_core::schema::SObject::new();
     let mut trait_knobs: HashSet<String> = HashSet::new();
     for (k, field) in declared.iter() {
         if field.field_type == "trait" {
@@ -1628,7 +1623,7 @@ pub(crate) fn apply_inline_config_defaults(
 pub(crate) fn coerce_trait_knob_conditions(
     trait_def: &mut TraitDefinition,
     trait_knobs: &HashSet<String>,
-    effective_config: &HashMap<String, SExpression>,
+    effective_config: &orbital_core::schema::SObject,
 ) {
     if trait_knobs.is_empty() {
         return;
@@ -1639,7 +1634,7 @@ pub(crate) fn coerce_trait_knob_conditions(
     fn walk(
         expr: &mut SExpression,
         trait_knobs: &HashSet<String>,
-        effective_config: &HashMap<String, SExpression>,
+        effective_config: &orbital_core::schema::SObject,
     ) {
         let SExpression::Array(arr) = expr else {
             return;
@@ -1690,7 +1685,7 @@ pub(crate) fn coerce_trait_knob_conditions(
 /// rewritten in one walk.
 pub(crate) fn rewrite_config_bindings(
     expr: &mut SExpression,
-    config_subs: &HashMap<String, SExpression>,
+    config_subs: &orbital_core::schema::SObject,
 ) {
     if config_subs.is_empty() {
         return;
@@ -1776,7 +1771,7 @@ pub(crate) fn rewrite_config_bindings(
 /// effects, for knobs present in `cfg` (those about to be substituted).
 pub(crate) fn record_config_provenance(
     trait_def: &TraitDefinition,
-    cfg: &HashMap<String, SExpression>,
+    cfg: &orbital_core::schema::SObject,
     recorder: &mut Vec<ConfigProvenanceRecord>,
 ) {
     let trait_name = trait_def.name.as_str();
@@ -1799,7 +1794,7 @@ pub(crate) fn record_config_provenance(
 /// Detect a `["render-ui", slot, {pattern}]` effect and walk its pattern tree.
 fn record_render_ui_effect(
     effect: &SExpression,
-    cfg: &HashMap<String, SExpression>,
+    cfg: &orbital_core::schema::SObject,
     trait_name: &str,
     recorder: &mut Vec<ConfigProvenanceRecord>,
 ) {
@@ -1821,8 +1816,8 @@ fn record_render_ui_effect(
 /// every other prop is scanned for `@config.X` bindings attributed to this
 /// node + prop key.
 fn record_pattern_node(
-    pattern: &HashMap<String, SExpression>,
-    cfg: &HashMap<String, SExpression>,
+    pattern: &orbital_core::schema::SObject,
+    cfg: &orbital_core::schema::SObject,
     trait_name: &str,
     path: &str,
     recorder: &mut Vec<ConfigProvenanceRecord>,
@@ -1849,7 +1844,7 @@ fn record_pattern_node(
 /// walked separately by `record_pattern_node`).
 fn scan_config_in_value(
     value: &SExpression,
-    cfg: &HashMap<String, SExpression>,
+    cfg: &orbital_core::schema::SObject,
     trait_name: &str,
     path: &str,
     prop_key: &str,
@@ -2051,7 +2046,7 @@ pub(crate) fn rewrite_entity_ref_ids(
     let Some(refs) = trait_def.entity_ref_ids.take() else {
         return;
     };
-    let mut out: HashMap<String, String> = HashMap::with_capacity(refs.len());
+    let mut out: HashMap<String, String> = std::collections::HashMap::with_capacity(refs.len());
     for (from, old_id) in refs {
         let name = entity_subs
             .get(&from)
@@ -2775,7 +2770,7 @@ mod literal_list_tests {
             [("BrowseItem".to_string(), "ChannelMember".to_string())]
                 .into_iter()
                 .collect();
-        rewrite_entity_ref_ids(&mut t, &subs, &HashMap::new());
+        rewrite_entity_ref_ids(&mut t, &subs, &std::collections::HashMap::new());
         let refs = t.entity_ref_ids.expect("refs");
         assert!(!refs.contains_key("ChannelMember"), "{refs:?}");
         assert_eq!(refs.get("Other").map(String::as_str), Some("ent_other"));
@@ -2868,7 +2863,7 @@ mod literal_list_tests {
         // A reactive drawables S-expr composed into a `[json]` slot: the head
         // is string-headed but the tree carries `@entity` bindings — it must
         // reach the runtime as a call, not as inert data.
-        let mut food = HashMap::new();
+        let mut food = orbital_core::schema::SObject::new();
         food.insert(
             "x".to_string(),
             arr(vec![
@@ -2877,7 +2872,7 @@ mod literal_list_tests {
                 SExpression::String("x".to_string()),
             ]),
         );
-        let mut cell = HashMap::new();
+        let mut cell = orbital_core::schema::SObject::new();
         cell.insert(
             "type".to_string(),
             SExpression::String("draw-shape".to_string()),
@@ -2902,7 +2897,7 @@ mod literal_list_tests {
         let mut scalar = arr(vec![SExpression::String("path".to_string())]);
         mark_literal_list_in_place(&mut scalar, "string");
         assert_eq!(scalar, arr(vec![SExpression::String("path".to_string())]));
-        let mut object_headed = arr(vec![SExpression::Object(HashMap::new())]);
+        let mut object_headed = arr(vec![SExpression::Object(orbital_core::schema::SObject::new())]);
         mark_literal_list_in_place(&mut object_headed, "[json]");
         match &object_headed {
             SExpression::Array(items) => assert_eq!(items.len(), 1),
@@ -2916,14 +2911,14 @@ mod conditional_event_list_tests {
     use super::*;
 
     fn descriptor(event: &str) -> SExpression {
-        let mut dm = HashMap::new();
+        let mut dm = orbital_core::schema::SObject::new();
         dm.insert("name".to_string(), SExpression::String("Edit".to_string()));
         dm.insert("event".to_string(), SExpression::String(event.to_string()));
         SExpression::Object(dm)
     }
 
     fn data_list_with_item_actions(item_actions: SExpression) -> SExpression {
-        let mut node = HashMap::new();
+        let mut node = orbital_core::schema::SObject::new();
         node.insert(
             "type".to_string(),
             SExpression::String("data-list".to_string()),
@@ -2945,8 +2940,8 @@ mod conditional_event_list_tests {
         ]);
         let mut expr = data_list_with_item_actions(item_actions);
 
-        let entity_subs = HashMap::new();
-        let mut event_subs = HashMap::new();
+        let entity_subs = std::collections::HashMap::new();
+        let mut event_subs = std::collections::HashMap::new();
         event_subs.insert("EDIT_ITEM".to_string(), "EditRow".to_string());
         event_subs.insert("VIEW_ITEM".to_string(), "ViewRow".to_string());
         rewrite_identifiers(&mut expr, &entity_subs, &event_subs);
@@ -2984,8 +2979,8 @@ mod conditional_event_list_tests {
         let item_actions = SExpression::Array(vec![descriptor("EDIT_ITEM")]);
         let mut expr = data_list_with_item_actions(item_actions);
 
-        let entity_subs = HashMap::new();
-        let mut event_subs = HashMap::new();
+        let entity_subs = std::collections::HashMap::new();
+        let mut event_subs = std::collections::HashMap::new();
         event_subs.insert("EDIT_ITEM".to_string(), "EditRow".to_string());
         rewrite_identifiers(&mut expr, &entity_subs, &event_subs);
 
@@ -3008,18 +3003,18 @@ mod role_literal_tests {
     use serde_json::json;
 
     fn role_fields() -> HashMap<String, Vec<String>> {
-        HashMap::from([(
+        std::collections::HashMap::from([(
             "role".to_string(),
             vec!["employee".to_string(), "approver".to_string()],
         )])
     }
 
     fn roles_single() -> HashMap<String, Vec<String>> {
-        HashMap::from([("approver".to_string(), vec!["owner".to_string()])])
+        std::collections::HashMap::from([("approver".to_string(), vec!["owner".to_string()])])
     }
 
     fn roles_list() -> HashMap<String, Vec<String>> {
-        HashMap::from([(
+        std::collections::HashMap::from([(
             "approver".to_string(),
             vec!["owner".to_string(), "project_manager".to_string()],
         )])
@@ -3206,7 +3201,7 @@ mod role_literal_tests {
     }
 
     fn hr_roles() -> HashMap<String, Vec<String>> {
-        HashMap::from([
+        std::collections::HashMap::from([
             (
                 "hr-director".to_string(),
                 vec!["owner".to_string(), "operations_director".to_string()],
@@ -3452,7 +3447,7 @@ mod role_literal_tests {
         rewrite_role_literals_in_config_lists(
             &mut td,
             &role_fields(),
-            &HashMap::new(),
+            &std::collections::HashMap::new(),
             &HashSet::new(),
         );
         assert_eq!(knob(&td, "allowedRoles"), json!(["hr-director"]));
@@ -3527,14 +3522,14 @@ mod entity_slot_tests {
     /// rename with the rest of the program; entity-less shapes are left alone.
     #[test]
     fn persist_batch_op_tuples_are_entity_slots() {
-        let mut subs = HashMap::new();
+        let mut subs = std::collections::HashMap::new();
         subs.insert("Other".to_string(), "Renamed".to_string());
         let mut literal = sexpr(json!([
             "persist",
             "batch",
             [["create", "Other", {}], ["delete", "Other", "i"]]
         ]));
-        rewrite_identifiers(&mut literal, &subs, &HashMap::new());
+        rewrite_identifiers(&mut literal, &subs, &std::collections::HashMap::new());
         assert_eq!(
             literal,
             sexpr(json!([
@@ -3552,7 +3547,7 @@ mod entity_slot_tests {
                 ["fn", "r", ["update", "Other", "@r", {}]]
             ]
         ]));
-        rewrite_identifiers(&mut mapped, &subs, &HashMap::new());
+        rewrite_identifiers(&mut mapped, &subs, &std::collections::HashMap::new());
         assert_eq!(
             mapped,
             sexpr(json!([
@@ -3579,9 +3574,9 @@ mod entity_slot_tests {
     #[test]
     fn visit_and_collect_agree_on_position() {
         let mut expr = sexpr(json!(["fetch", "Other", {}]));
-        let mut subs = HashMap::new();
+        let mut subs = std::collections::HashMap::new();
         subs.insert("Other".to_string(), "Renamed".to_string());
-        rewrite_identifiers(&mut expr, &subs, &HashMap::new());
+        rewrite_identifiers(&mut expr, &subs, &std::collections::HashMap::new());
         let mut out = HashSet::new();
         collect_entity_slots(&expr, &candidates(), &mut out);
         assert!(out.is_empty(), "the name was renamed away: {expr:?}");
@@ -3633,7 +3628,7 @@ mod payload_entity_marker_tests {
             { "name": "id", "type": "string" },
             { "name": "row", "type": "object", "entity": "ConfirmAction" }
         ]));
-        let mut subs = HashMap::new();
+        let mut subs = std::collections::HashMap::new();
         subs.insert("ConfirmAction".to_string(), "Note".to_string());
         rewrite_payload_entity_refs(&mut td, &subs);
         let fields = payload_fields(&td);
@@ -3653,7 +3648,7 @@ mod payload_entity_marker_tests {
         let mut td = trait_with_payload_fields(json!([
             { "name": "rows", "type": "[object]", "entity": "ConfirmAction" }
         ]));
-        let mut subs = HashMap::new();
+        let mut subs = std::collections::HashMap::new();
         subs.insert("ConfirmAction".to_string(), "Note".to_string());
         rewrite_payload_entity_refs(&mut td, &subs);
         assert_eq!(payload_fields(&td)[0].entity.as_deref(), Some("Note"));
@@ -3668,7 +3663,7 @@ mod payload_entity_marker_tests {
             { "name": "tagId", "type": "string", "projectedFrom": { "type": "ConfirmAction", "field": "id" } },
             { "name": "other", "type": "string", "projectedFrom": { "type": "Elsewhere", "field": "id" } }
         ]));
-        let mut subs = HashMap::new();
+        let mut subs = std::collections::HashMap::new();
         subs.insert("ConfirmAction".to_string(), "Note".to_string());
         rewrite_payload_entity_refs(&mut td, &subs);
         let fields = payload_fields(&td);
@@ -3705,7 +3700,7 @@ mod payload_entity_marker_tests {
                 ]
             }
         ]));
-        let mut subs = HashMap::new();
+        let mut subs = std::collections::HashMap::new();
         subs.insert("ConfirmAction".to_string(), "Note".to_string());
         rewrite_payload_entity_refs(&mut td, &subs);
         let outer = &payload_fields(&td)[0];
@@ -3721,7 +3716,7 @@ mod payload_entity_marker_tests {
         let mut td = trait_with_payload_fields(json!([
             { "name": "row", "type": "object", "entity": "Widget" }
         ]));
-        let mut subs = HashMap::new();
+        let mut subs = std::collections::HashMap::new();
         subs.insert("Widget".to_string(), "LocalWidget".to_string());
         rewrite_payload_entity_refs(&mut td, &subs);
         assert_eq!(
@@ -3737,7 +3732,7 @@ mod payload_entity_marker_tests {
         let mut td = trait_with_payload_fields(json!([
             { "name": "row", "type": "object", "entity": "Other" }
         ]));
-        let mut subs = HashMap::new();
+        let mut subs = std::collections::HashMap::new();
         subs.insert("Other".to_string(), "ConsumerOther".to_string());
         rewrite_payload_entity_refs(&mut td, &subs);
         assert_eq!(
@@ -3753,7 +3748,7 @@ mod payload_entity_marker_tests {
         let mut td = trait_with_payload_fields(json!([
             { "name": "row", "type": "object", "entity": "SomeoneElse" }
         ]));
-        let mut subs = HashMap::new();
+        let mut subs = std::collections::HashMap::new();
         subs.insert("ConfirmAction".to_string(), "Note".to_string());
         rewrite_payload_entity_refs(&mut td, &subs);
         assert_eq!(
@@ -3788,7 +3783,7 @@ mod payload_entity_marker_tests {
         ]));
         let note = entity_fixture("Note");
         let changed =
-            resolve_type_param_sentinels(&mut td, Some(&note), &HashMap::new(), &BTreeMap::new());
+            resolve_type_param_sentinels(&mut td, Some(&note), &std::collections::HashMap::new(), &BTreeMap::new());
         assert!(changed);
         let fields = payload_fields(&td);
         assert_eq!(fields[1].field_type, "object");
@@ -3807,7 +3802,7 @@ mod payload_entity_marker_tests {
             { "name": "rows", "type": "[@entity]" }
         ]));
         let note = entity_fixture("Note");
-        resolve_type_param_sentinels(&mut td, Some(&note), &HashMap::new(), &BTreeMap::new());
+        resolve_type_param_sentinels(&mut td, Some(&note), &std::collections::HashMap::new(), &BTreeMap::new());
         let fields = payload_fields(&td);
         assert_eq!(fields[0].field_type, "[object]");
         assert_eq!(fields[0].entity.as_deref(), Some("Note"));
@@ -3827,7 +3822,7 @@ mod payload_entity_marker_tests {
         ]));
         let note = entity_fixture("Note");
         let changed =
-            resolve_type_param_sentinels(&mut td, Some(&note), &HashMap::new(), &BTreeMap::new());
+            resolve_type_param_sentinels(&mut td, Some(&note), &std::collections::HashMap::new(), &BTreeMap::new());
         assert!(changed);
         let fields = payload_fields(&td);
         assert_eq!(fields[0].field_type, "object");
@@ -3852,13 +3847,13 @@ mod payload_entity_marker_tests {
             { "name": "data", "type": "@entity" }
         ]));
         let note = entity_fixture("Note");
-        resolve_type_param_sentinels(&mut td, Some(&note), &HashMap::new(), &BTreeMap::new());
+        resolve_type_param_sentinels(&mut td, Some(&note), &std::collections::HashMap::new(), &BTreeMap::new());
         assert_eq!(payload_fields(&td)[0].entity.as_deref(), Some("Note"));
 
         // A later rename (e.g. this trait rides an orbital-import splice
         // that prefixes every closure entity) must retarget the marker
         // through the SAME general walker, not a parallel one.
-        let mut subs = HashMap::new();
+        let mut subs = std::collections::HashMap::new();
         subs.insert("Note".to_string(), "LocalNote".to_string());
         rewrite_payload_entity_refs(&mut td, &subs);
         assert_eq!(payload_fields(&td)[0].entity.as_deref(), Some("LocalNote"));
@@ -3924,7 +3919,7 @@ mod payload_entity_marker_tests {
             ]
         }))
         .expect("entity fixture deserializes");
-        let mut entities = HashMap::new();
+        let mut entities = std::collections::HashMap::new();
         entities.insert("Message".to_string(), message.clone());
         resolve_type_param_sentinels(&mut td, None, &entities, &BTreeMap::new());
         let fields: Vec<PayloadField> = td.emits.as_ref().expect("emits carried")[0]
@@ -3960,7 +3955,7 @@ mod payload_entity_marker_tests {
                 ("workspaceId", "string"),
             ],
         );
-        let mut entities_by_name = HashMap::new();
+        let mut entities_by_name = std::collections::HashMap::new();
         entities_by_name.insert("Item".to_string(), item);
         let changed =
             resolve_type_param_sentinels(&mut td, None, &entities_by_name, &BTreeMap::new());
@@ -3993,7 +3988,7 @@ mod payload_entity_marker_tests {
             Some("Item"),
             json!([ { "name": "hourlyRate", "type": "number" } ]),
         );
-        let mut subs = HashMap::new();
+        let mut subs = std::collections::HashMap::new();
         subs.insert("Item".to_string(), "LocalItem".to_string());
         rewrite_payload_entity_refs(&mut td, &subs);
         assert_eq!(
@@ -4003,7 +3998,7 @@ mod payload_entity_marker_tests {
 
         let local_item =
             entity_with_fields("LocalItem", &[("id", "string"), ("billRate", "number")]);
-        let mut entities_by_name = HashMap::new();
+        let mut entities_by_name = std::collections::HashMap::new();
         entities_by_name.insert("LocalItem".to_string(), local_item);
         resolve_type_param_sentinels(&mut td, None, &entities_by_name, &BTreeMap::new());
         let names: Vec<&str> = td.emits.as_ref().unwrap()[0]
@@ -4028,7 +4023,7 @@ mod payload_entity_marker_tests {
             json!([ { "name": "hourlyRate", "type": "number" } ]),
         );
         let changed =
-            resolve_type_param_sentinels(&mut td, None, &HashMap::new(), &BTreeMap::new());
+            resolve_type_param_sentinels(&mut td, None, &std::collections::HashMap::new(), &BTreeMap::new());
         assert!(!changed);
         let names: Vec<&str> = td.emits.as_ref().unwrap()[0]
             .payload_schema
@@ -4059,7 +4054,7 @@ mod cancelled_event_rename_tests {
         ]
         .into_iter()
         .collect();
-        rewrite_identifiers(&mut effect, &HashMap::new(), &event_subs);
+        rewrite_identifiers(&mut effect, &std::collections::HashMap::new(), &event_subs);
         let expected: SExpression = serde_json::from_value(json!([
             "call-service", "svc", "run", {},
             { "key": "k", "emit": { "success": "FINISHED", "cancelled": "ABORTED" } }
@@ -4091,7 +4086,7 @@ mod event_typed_union_fold_tests {
     }
 
     fn entry(k: &str, v: &str) -> SExpression {
-        let mut m = HashMap::new();
+        let mut m = orbital_core::schema::SObject::new();
         m.insert(k.to_string(), SExpression::String(v.to_string()));
         SExpression::Object(m)
     }

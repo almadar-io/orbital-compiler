@@ -263,12 +263,15 @@ pub fn validate_render_ui_effect(
         }
         SExpression::Object(obj) => {
             // Object form: { render_ui: { slot: "main", pattern: { ... } } }
-            let rui = [("render_ui", obj.get("render_ui")), ("render-ui", obj.get("render-ui"))]
-                .into_iter()
-                .find_map(|(key, v)| match v {
-                    Some(SExpression::Object(o)) => Some((key, o)),
-                    _ => None,
-                });
+            let rui = [
+                ("render_ui", obj.get("render_ui")),
+                ("render-ui", obj.get("render-ui")),
+            ]
+            .into_iter()
+            .find_map(|(key, v)| match v {
+                Some(SExpression::Object(o)) => Some((key, o)),
+                _ => None,
+            });
             if let Some((rui_key, rui_obj)) = rui {
                 if let Some(SExpression::String(slot)) = rui_obj.get("slot") {
                     result.merge(validate_slot(slot, path));
@@ -472,7 +475,7 @@ mod tests {
         let effect = SExpression::Array(vec![
             SExpression::String("render-ui".to_string()),
             SExpression::String("main".to_string()),
-            SExpression::Object(HashMap::new()),
+            SExpression::Object(orbital_core::schema::SObject::new()),
         ]);
 
         let entity_defs = HashMap::new();
@@ -1353,10 +1356,14 @@ mod tests {
                 .map(|e| e.code.clone())
                 .collect()
         };
-        assert!(codes(&form(serde_json::json!(["title", "hours"]))).contains(&ErrorCode::RenderUIFormFieldIntrinsic));
-        assert!(codes(&form(serde_json::json!(["list", "title", "hours"]))).contains(&ErrorCode::RenderUIFormFieldIntrinsic));
-        assert!(codes(&form(serde_json::json!([{ "name": "hours" }]))).contains(&ErrorCode::RenderUIFormFieldIntrinsic));
-        assert!(!codes(&form(serde_json::json!(["title"]))).contains(&ErrorCode::RenderUIFormFieldIntrinsic));
+        assert!(codes(&form(serde_json::json!(["title", "hours"])))
+            .contains(&ErrorCode::RenderUIFormFieldIntrinsic));
+        assert!(codes(&form(serde_json::json!(["list", "title", "hours"])))
+            .contains(&ErrorCode::RenderUIFormFieldIntrinsic));
+        assert!(codes(&form(serde_json::json!([{ "name": "hours" }])))
+            .contains(&ErrorCode::RenderUIFormFieldIntrinsic));
+        assert!(!codes(&form(serde_json::json!(["title"])))
+            .contains(&ErrorCode::RenderUIFormFieldIntrinsic));
     }
 
     /// Helper to build a minimal TraitDefinition with given effects in a single INIT transition

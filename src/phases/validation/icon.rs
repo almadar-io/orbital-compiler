@@ -75,7 +75,7 @@ fn validate_effect_icons(effect: &SExpression, path: &str) -> ValidationResult {
 
 /// Validate icons in a pattern object
 fn validate_pattern_icons(
-    pattern: &std::collections::HashMap<String, SExpression>,
+    pattern: &orbital_core::schema::SObject,
     path: &str,
 ) -> ValidationResult {
     let mut result = ValidationResult::new();

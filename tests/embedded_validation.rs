@@ -5,7 +5,7 @@
 //! Proves the validator reads core language data (`operators.json`,
 //! `patterns-registry.json`) from the embedded registries, the discovered
 //! `@almadar/std` package's `.orb` corpus parses and carries the expected
-//! atom/organism tiers, plus the hand-ported `BINDING_CONTEXT_RULES`. See
+//! atom/organism tiers. See
 //! `docs/Lolo_Language_Spec_v3_PLAN.md` Section 8.7.
 
 use orbital_compiler::embedded;
@@ -258,15 +258,15 @@ fn sigil_unknown_root_in_guard_is_rejected() {
 // ============================================================================
 
 /// Recursively collect every `.orb` file under `dir`.
-fn collect_orb_files(dir: &Path, out: &mut Vec<PathBuf>) {
+fn collect_orb_files(dir: &Path, extension: &str, out: &mut Vec<PathBuf>) {
     let Ok(entries) = std::fs::read_dir(dir) else {
         return;
     };
     for entry in entries.flatten() {
         let path = entry.path();
         if path.is_dir() {
-            collect_orb_files(&path, out);
-        } else if path.extension().and_then(|e| e.to_str()) == Some("orb") {
+            collect_orb_files(&path, extension, out);
+        } else if path.extension().and_then(|e| e.to_str()) == Some(extension) {
             out.push(path);
         }
     }
@@ -279,7 +279,11 @@ fn installed_std_corpus_validates() {
         Path::new(env!("CARGO_MANIFEST_DIR")),
     );
     let mut files = Vec::new();
-    collect_orb_files(&std_pkg.registry, &mut files);
+    collect_orb_files(
+        std_pkg.registry.root(),
+        std_pkg.registry.extension(),
+        &mut files,
+    );
     // Corpus is ~469 files at time of writing; floor well below that so a
     // routine publish doesn't red this test, but a wholesale registry loss
     // (e.g. a bad install) still fails loudly.
@@ -287,9 +291,18 @@ fn installed_std_corpus_validates() {
         files.len() >= 300,
         "installed @almadar/std registry shrank below 300 .orb files — got {} under {}",
         files.len(),
-        std_pkg.registry.display()
+        std_pkg.registry.root().display()
     );
 
+    // A live std (`orb.source`) holds `.lolo` sources; this crate cannot lower
+    // them (orbital-lolo depends on it, not the reverse). Lowering the whole live
+    // corpus is orbital-cli's `live_std_corpus_lowers` test.
+    if matches!(
+        std_pkg.registry,
+        orbital_core::behavior_packages::RegistrySource::Live(_)
+    ) {
+        return;
+    }
     let (mut atoms, mut organisms, mut other) = (0u32, 0u32, 0u32);
     for path in &files {
         let content = std::fs::read_to_string(path)
@@ -303,7 +316,7 @@ fn installed_std_corpus_validates() {
         );
 
         let rel = path
-            .strip_prefix(&std_pkg.registry)
+            .strip_prefix(std_pkg.registry.root())
             .unwrap_or(path)
             .to_string_lossy();
         if rel.contains("/organisms/") {
@@ -334,39 +347,4 @@ fn cross_registry_unknown_operator_is_unknown() {
 #[test]
 fn cross_registry_unknown_pattern_is_unknown() {
     assert!(!embedded::is_known_pattern("totally-fake-pattern-xyz"));
-}
-
-// ============================================================================
-// Bonus: parity test from spec — embedded BINDING_CONTEXT_RULES must match TS
-// ============================================================================
-
-#[test]
-fn sigil_rules_match_ts_source() {
-    // The baked TS `BINDING_CONTEXT_RULES` (from @almadar/core) and the Rust
-    // `embedded::BINDING_CONTEXT_RULES` must list the same roots per context.
-    // Compared against each other, never against a copy kept in this test.
-    let ts_path = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src/baked/bindings.ts");
-    let src = std::fs::read_to_string(&ts_path)
-        .unwrap_or_else(|e| panic!("Failed to read {}: {}", ts_path.display(), e));
-    let rules_src = &src[src
-        .find("export const BINDING_CONTEXT_RULES")
-        .expect("bindings.ts declares BINDING_CONTEXT_RULES")..];
-
-    for (context, rust_roots) in embedded::BINDING_CONTEXT_RULES {
-        let block = &rules_src[rules_src
-            .find(&format!("  {context}: {{"))
-            .unwrap_or_else(|| panic!("bindings.ts has no `{context}` rule"))..];
-        let allowed =
-            &block[block.find("allowed: [").expect("rule has `allowed`") + "allowed: [".len()..];
-        let ts_roots: Vec<&str> = allowed[..allowed.find(']').expect("closed `allowed` list")]
-            .split(',')
-            .map(|r| r.trim().trim_matches('\''))
-            .filter(|r| !r.is_empty())
-            .collect();
-        assert_eq!(
-            ts_roots,
-            rust_roots.to_vec(),
-            "BINDING_CONTEXT_RULES.{context}: bindings.ts and embedded.rs list different roots"
-        );
-    }
 }

@@ -214,7 +214,7 @@ fn check_persist_payload(
 
 fn check_persist_payload_keys(
     entity_name: &str,
-    payload: &std::collections::HashMap<String, SExpression>,
+    payload: &orbital_core::schema::SObject,
     path: &str,
     orbital: &Orbital,
     result: &mut ValidationResult,
@@ -283,13 +283,16 @@ pub fn validate_final_expectations(schema: &OrbitalSchema) -> ValidationResult {
             let path = format!("orbitals[{} ({})].expects[{}]", i, orbital.name, j);
             let missing = match expectation {
                 ExpectDeclaration::Entity { name, .. } => {
-                    (!providers.iter().any(|(def, _)| def.name == *name)).then(|| format!("entity `{name}`"))
+                    (!providers.iter().any(|(def, _)| def.name == *name))
+                        .then(|| format!("entity `{name}`"))
                 }
-                ExpectDeclaration::Identity { name: Some(name), .. } => {
-                    (!providers.iter().any(|(def, _)| def.name == *name)).then(|| format!("identity `{name}`"))
-                }
+                ExpectDeclaration::Identity {
+                    name: Some(name), ..
+                } => (!providers.iter().any(|(def, _)| def.name == *name))
+                    .then(|| format!("identity `{name}`")),
                 ExpectDeclaration::Identity { name: None, .. } => {
-                    (!providers.iter().any(|(def, _)| def.identity)).then(|| "an [identity] entity".to_string())
+                    (!providers.iter().any(|(def, _)| def.identity))
+                        .then(|| "an [identity] entity".to_string())
                 }
                 ExpectDeclaration::Event { .. } | ExpectDeclaration::Page { .. } => None,
             };
@@ -580,11 +583,20 @@ mod final_expectation_tests {
     #[test]
     fn an_expectation_no_entity_provides_is_an_error_in_a_finished_program() {
         let r = validate_final_expectations(&program("AppsENStudioApp", false));
-        assert!(r.errors.iter().any(|e| e.code == ErrorCode::SchemaExpectationUnsatisfied && e.message.contains("StudioApp")), "{:?}", r.errors);
+        assert!(
+            r.errors
+                .iter()
+                .any(|e| e.code == ErrorCode::SchemaExpectationUnsatisfied
+                    && e.message.contains("StudioApp")),
+            "{:?}",
+            r.errors
+        );
     }
 
     #[test]
     fn control_a_provided_name_passes() {
-        assert!(validate_final_expectations(&program("StudioApp", false)).errors.is_empty());
+        assert!(validate_final_expectations(&program("StudioApp", false))
+            .errors
+            .is_empty());
     }
 }

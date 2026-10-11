@@ -305,7 +305,7 @@ fn reresolve(
 }
 
 fn reresolve_config(
-    config: Option<&mut std::collections::HashMap<String, orbital_core::schema::ConfigField>>,
+    config: Option<&mut HashMap<String, orbital_core::schema::ConfigField>>,
     retired: &HashSet<String>,
     key_to_id: &HashMap<String, String>,
 ) {

@@ -884,7 +884,7 @@ fn node_leaf_values<'a>(
 /// that pattern's prop. The second condition disambiguates canvas-shape data
 /// (`{type: "grid", xStep: …}`) from real UI literals (`{type: "grid",
 /// columns: …}`) on the one name the two vocabularies share.
-fn is_pattern_literal_object(obj: &std::collections::HashMap<String, SExpression>) -> bool {
+fn is_pattern_literal_object(obj: &orbital_core::schema::SObject) -> bool {
     let Some(SExpression::String(t)) = obj.get("type") else {
         return false;
     };

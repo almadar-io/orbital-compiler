@@ -8,7 +8,7 @@ use super::{
 };
 use orbital_core::schema::{OrbitalSchema, PageDefinition, SExpression, TraitReference};
 use regex::Regex;
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::sync::LazyLock;
 
 /// Regex for valid page paths (must start with /)
@@ -147,9 +147,14 @@ pub fn validate_page_modifiers(schema: &OrbitalSchema) -> ValidationResult {
         .iter()
         .enumerate()
         .flat_map(|(i, o)| {
-            o.pages.iter().flatten().enumerate().filter_map(move |(j, p)| {
-                p.as_inline().map(|p| (format!("orbitals[{i}].pages[{j}]"), p))
-            })
+            o.pages
+                .iter()
+                .flatten()
+                .enumerate()
+                .filter_map(move |(j, p)| {
+                    p.as_inline()
+                        .map(|p| (format!("orbitals[{i}].pages[{j}]"), p))
+                })
         })
         .collect();
     for (location, page) in &pages {
@@ -333,7 +338,11 @@ fn collect_navigate_targets(expr: &SExpression, out: &mut HashSet<String>) {
 /// Every link and navigate target in `schema`, sorted; recorded on a lazy page so links between lazy pages count.
 pub(crate) fn reachability_targets(schema: &OrbitalSchema) -> Vec<String> {
     let signals = collect_reachability_signals(schema);
-    let mut targets: Vec<String> = signals.hrefs.into_iter().chain(signals.navigate_targets).collect();
+    let mut targets: Vec<String> = signals
+        .hrefs
+        .into_iter()
+        .chain(signals.navigate_targets)
+        .collect();
     targets.sort();
     targets.dedup();
     targets
@@ -410,13 +419,14 @@ fn mentions_pages_sigil(expr: &SExpression) -> bool {
 }
 
 fn schema_uses_pages_sigil(schema: &OrbitalSchema) -> bool {
-    let config_uses = |config: Option<&std::collections::HashMap<String, orbital_core::schema::ConfigField>>| {
-        config
-            .into_iter()
-            .flat_map(|c| c.values())
-            .filter_map(|f| f.default.as_ref())
-            .any(mentions_pages_sigil)
-    };
+    let config_uses =
+        |config: Option<&HashMap<String, orbital_core::schema::ConfigField>>| {
+            config
+                .into_iter()
+                .flat_map(|c| c.values())
+                .filter_map(|f| f.default.as_ref())
+                .any(mentions_pages_sigil)
+        };
     config_uses(schema.config.as_ref())
         || schema.orbitals.iter().any(|orbital| {
             config_uses(orbital.config.as_ref())
@@ -521,11 +531,14 @@ pub(crate) fn validate_page_reachability(schema: &OrbitalSchema) -> ValidationRe
     // itself reached; walk that to a fixpoint so an unreached page's links reach nothing.
     let mut hrefs = signals.hrefs.clone();
     let mut navigate_targets = signals.navigate_targets.clone();
-    let lazy_pages: Vec<&orbital_core::schema::LazyPage> = schema.lazy_pages.iter().flatten().collect();
+    let lazy_pages: Vec<&orbital_core::schema::LazyPage> =
+        schema.lazy_pages.iter().flatten().collect();
     let is_reached = |path: &str, hrefs: &HashSet<String>, targets: &HashSet<String>| {
         hrefs.contains(path)
             || targets.contains(path)
-            || targets.iter().any(|target| target.len() > 1 && path.starts_with(target.as_str()))
+            || targets
+                .iter()
+                .any(|target| target.len() > 1 && path.starts_with(target.as_str()))
     };
     let mut expanded = vec![false; lazy_pages.len()];
     loop {
@@ -1265,7 +1278,10 @@ mod tests {
     }
 
     /// Lazy pages from separate behaviors, each with the links its own resolved behavior carries.
-    fn with_linked_lazy_pages(mut schema: OrbitalSchema, pages: &[(&str, &[&str])]) -> OrbitalSchema {
+    fn with_linked_lazy_pages(
+        mut schema: OrbitalSchema,
+        pages: &[(&str, &[&str])],
+    ) -> OrbitalSchema {
         schema.lazy_pages = Some(
             pages
                 .iter()
@@ -1283,10 +1299,17 @@ mod tests {
     #[test]
     fn a_lazy_page_linked_only_from_a_reached_lazy_page_is_reachable() {
         let schema = with_linked_lazy_pages(
-            schema_for_reachability(layout_trait_with_nav_href_array(&["/", "/docs"]), serde_json::json!([
-                { "name": "HomePage", "path": "/", "traits": [ { "ref": "AppLayout" } ] }
-            ])),
-            &[("/docs", &["/docs/intro"]), ("/docs/intro", &["/docs/traits"]), ("/docs/traits", &[])],
+            schema_for_reachability(
+                layout_trait_with_nav_href_array(&["/", "/docs"]),
+                serde_json::json!([
+                    { "name": "HomePage", "path": "/", "traits": [ { "ref": "AppLayout" } ] }
+                ]),
+            ),
+            &[
+                ("/docs", &["/docs/intro"]),
+                ("/docs/intro", &["/docs/traits"]),
+                ("/docs/traits", &[]),
+            ],
         );
         assert!(reachability_messages(&schema).is_empty());
     }
@@ -1294,9 +1317,12 @@ mod tests {
     #[test]
     fn control_links_inside_an_unreached_lazy_page_reach_nothing() {
         let schema = with_linked_lazy_pages(
-            schema_for_reachability(layout_trait_with_nav_href_array(&["/"]), serde_json::json!([
-                { "name": "HomePage", "path": "/", "traits": [ { "ref": "AppLayout" } ] }
-            ])),
+            schema_for_reachability(
+                layout_trait_with_nav_href_array(&["/"]),
+                serde_json::json!([
+                    { "name": "HomePage", "path": "/", "traits": [ { "ref": "AppLayout" } ] }
+                ]),
+            ),
             &[("/docs", &["/docs/intro"]), ("/docs/intro", &[])],
         );
         assert_eq!(
@@ -1311,9 +1337,12 @@ mod tests {
     #[test]
     fn edge_a_lazy_page_linking_to_itself_does_not_reach_itself() {
         let schema = with_linked_lazy_pages(
-            schema_for_reachability(layout_trait_with_nav_href_array(&["/"]), serde_json::json!([
-                { "name": "HomePage", "path": "/", "traits": [ { "ref": "AppLayout" } ] }
-            ])),
+            schema_for_reachability(
+                layout_trait_with_nav_href_array(&["/"]),
+                serde_json::json!([
+                    { "name": "HomePage", "path": "/", "traits": [ { "ref": "AppLayout" } ] }
+                ]),
+            ),
             &[("/docs", &["/docs"])],
         );
         assert_eq!(reachability_messages(&schema).len(), 1);
@@ -1322,9 +1351,12 @@ mod tests {
     #[test]
     fn a_lazy_page_nothing_links_to_is_unreachable() {
         let schema = with_lazy_pages(
-            schema_for_reachability(layout_trait_with_nav_href_array(&["/"]), serde_json::json!([
-                { "name": "HomePage", "path": "/", "traits": [ { "ref": "AppLayout" } ] }
-            ])),
+            schema_for_reachability(
+                layout_trait_with_nav_href_array(&["/"]),
+                serde_json::json!([
+                    { "name": "HomePage", "path": "/", "traits": [ { "ref": "AppLayout" } ] }
+                ]),
+            ),
             &["/blog/why"],
         );
         assert_eq!(
@@ -1336,9 +1368,12 @@ mod tests {
     #[test]
     fn control_a_linked_lazy_page_is_reachable() {
         let schema = with_lazy_pages(
-            schema_for_reachability(layout_trait_with_nav_href_array(&["/", "/blog/why"]), serde_json::json!([
-                { "name": "HomePage", "path": "/", "traits": [ { "ref": "AppLayout" } ] }
-            ])),
+            schema_for_reachability(
+                layout_trait_with_nav_href_array(&["/", "/blog/why"]),
+                serde_json::json!([
+                    { "name": "HomePage", "path": "/", "traits": [ { "ref": "AppLayout" } ] }
+                ]),
+            ),
             &["/blog/why"],
         );
         assert!(reachability_messages(&schema).is_empty());

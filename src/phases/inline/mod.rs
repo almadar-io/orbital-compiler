@@ -26,9 +26,9 @@ pub(crate) mod rewrite;
 mod service;
 mod sigil_types;
 mod splice;
-mod trait_value_refs;
 #[path = "trait.rs"]
 mod r#trait;
+mod trait_value_refs;
 
 // V4-W4 pre-inline identity normalization — rewrite id-carrying entity tokens to
 // their current declaration name so a post-stamp rename resolves through the
@@ -525,7 +525,7 @@ pub fn inline_schema_with_orbital_diagnostics(
     // Process each orbital, recording the names the auto-pull loop added and
     // the config→knob provenance for substituted render-ui props.
     let mut pulled_by_orbital: Vec<(usize, Vec<String>)> = Vec::new();
-    let mut all_provenance: HashMap<String, Vec<ConfigProvenanceRecord>> = HashMap::new();
+    let mut all_provenance: HashMap<String, Vec<ConfigProvenanceRecord>> = std::collections::HashMap::new();
     // One orbital's inline failure must not leave its SIBLINGS un-inlined: a
     // `?` here abandoned every later orbital, and validators (which index
     // Inline traits only) then cascaded spurious ORB_T_UNDEFINED_TRAIT /
@@ -1004,7 +1004,13 @@ fn precompute_reference_form_primary_ids(
         let Ok(loaded) = loader.load(&use_decl.from, source_path, chain) else {
             continue;
         };
-        let Some(upstream) = loaded.schema.orbitals.iter().find(|o| o.name == name).cloned() else {
+        let Some(upstream) = loaded
+            .schema
+            .orbitals
+            .iter()
+            .find(|o| o.name == name)
+            .cloned()
+        else {
             continue;
         };
         let upstream_path = loaded.source_path.clone();
@@ -1055,7 +1061,12 @@ fn flattened_primary_entity(
     };
     let use_decl = orbital.uses.iter().flatten().find(|u| u.alias == alias)?;
     let loaded = loader.load(&use_decl.from, source_path, chain).ok()?;
-    let upstream = loaded.schema.orbitals.iter().find(|o| o.name == name).cloned()?;
+    let upstream = loaded
+        .schema
+        .orbitals
+        .iter()
+        .find(|o| o.name == name)
+        .cloned()?;
     let upstream_path = loaded.source_path.clone();
     let (up_name, up_id, upstream_id) =
         flattened_primary_entity(&upstream, loader, chain, Some(&upstream_path), depth + 1)?;
@@ -1592,8 +1603,10 @@ fn inline_orbital(
         // same `uses { config }` override, so it is inlined once per (file,
         // override) and reused. Its own reference-form orbitals resolve
         // `@config.X` against the alias config folded with that override.
-        let alias_config: Option<HashMap<String, ConfigField>> =
-            alias_schema_configs.get(&use_decl.alias).cloned().or_else(|| loaded_schema_config.clone());
+        let alias_config: Option<HashMap<String, ConfigField>> = alias_schema_configs
+            .get(&use_decl.alias)
+            .cloned()
+            .or_else(|| loaded_schema_config.clone());
         let import_key = match use_decl.config.as_ref() {
             Some(overrides) if !overrides.is_empty() => {
                 let mut keyed: Vec<(&String, String)> = overrides
@@ -2759,7 +2772,7 @@ fn merge_source_ledgers(
         .ledger
         .get_or_insert_with(|| orbital_core::identity::IdentityLedger {
             schema_version: 1,
-            entries: HashMap::new(),
+            entries: std::collections::BTreeMap::new(),
         });
     for row in to_add {
         ledger.entries.entry(row.id.clone()).or_insert(row);
@@ -3314,7 +3327,7 @@ mod tests {
     fn rewrite_entity_refs_rewrites_nested_lists() {
         // Nested: ["render-ui", "main", { children: [ ["ref", "ModalRecord"] ] }]
         // plus a nested binding root inside a sibling array.
-        let mut obj: HashMap<String, SExpression> = HashMap::new();
+        let mut obj: orbital_core::schema::SObject = orbital_core::schema::SObject::new();
         obj.insert(
             "children".to_string(),
             SExpression::Array(vec![SExpression::Array(vec![s("ref"), s("ModalRecord")])]),
@@ -4519,7 +4532,7 @@ mod tests {
     fn rewrite_entity_refs_noop_when_no_match() {
         // An expression with no entity references anywhere should be
         // byte-identical after rewrite.
-        let mut obj: HashMap<String, SExpression> = HashMap::new();
+        let mut obj: orbital_core::schema::SObject = orbital_core::schema::SObject::new();
         obj.insert("type".to_string(), s("stack"));
         obj.insert("direction".to_string(), s("vertical"));
         obj.insert(
@@ -4707,7 +4720,7 @@ mod tests {
         let mut event_subs: HashMap<String, String> = HashMap::new();
         event_subs.insert("FILTER".to_string(), "NARROW".to_string());
 
-        let mut payload_obj: HashMap<String, SExpression> = HashMap::new();
+        let mut payload_obj: orbital_core::schema::SObject = orbital_core::schema::SObject::new();
         payload_obj.insert("value".to_string(), SExpression::String("".to_string()));
         payload_obj.insert("field".to_string(), SExpression::String("".to_string()));
         let mut expr = SExpression::Array(vec![
@@ -4773,7 +4786,7 @@ mod tests {
         let mut event_subs: HashMap<String, String> = HashMap::new();
         event_subs.insert("OPEN".to_string(), "ADD_ITEM".to_string());
 
-        let mut object = HashMap::new();
+        let mut object = orbital_core::schema::SObject::new();
         object.insert(
             "type".to_string(),
             SExpression::String("button".to_string()),
@@ -4811,7 +4824,7 @@ mod tests {
         let mut event_subs: HashMap<String, String> = HashMap::new();
         event_subs.insert("OPEN".to_string(), "ADD_ITEM".to_string());
 
-        let mut object = HashMap::new();
+        let mut object = orbital_core::schema::SObject::new();
         object.insert(
             "content".to_string(),
             SExpression::String("OPEN".to_string()),
@@ -4867,6 +4880,7 @@ mod tests {
                         payload_schema: None,
                         payload_entity: None,
                         external: None,
+                        listened: None,
                     },
                     EventDefinition {
                         id: None,
@@ -4878,6 +4892,7 @@ mod tests {
                         payload_schema: None,
                         payload_entity: None,
                         external: None,
+                        listened: None,
                     },
                 ]),
                 transitions: vec![
@@ -4977,6 +4992,7 @@ mod tests {
                     payload_schema: None,
                     payload_entity: None,
                     external: None,
+                    listened: None,
                 }]),
                 transitions: vec![TransitionDefinition {
                     event_id: None,
@@ -5056,7 +5072,7 @@ mod tests {
         let mut entity_subs: HashMap<String, String> = HashMap::new();
         entity_subs.insert("Source".to_string(), "Target".to_string());
 
-        let mut criteria = HashMap::new();
+        let mut criteria = orbital_core::schema::SObject::new();
         criteria.insert("limit".to_string(), SExpression::Number(10.0));
 
         let mut expr = SExpression::Array(vec![
@@ -5079,7 +5095,7 @@ mod tests {
         let mut entity_subs: HashMap<String, String> = HashMap::new();
         entity_subs.insert("Source".to_string(), "Target".to_string());
 
-        let mut payload = HashMap::new();
+        let mut payload = orbital_core::schema::SObject::new();
         payload.insert("data".to_string(), s("@payload.data"));
 
         let mut expr = SExpression::Array(vec![
@@ -5131,9 +5147,9 @@ mod tests {
         let mut entity_subs: HashMap<String, String> = HashMap::new();
         entity_subs.insert("Source".to_string(), "Target".to_string());
 
-        let mut row1 = HashMap::new();
+        let mut row1 = orbital_core::schema::SObject::new();
         row1.insert("name".to_string(), s("row-1"));
-        let mut row2 = HashMap::new();
+        let mut row2 = orbital_core::schema::SObject::new();
         row2.insert("name".to_string(), s("row-2"));
 
         let rows = SExpression::Array(vec![
@@ -5161,7 +5177,7 @@ mod tests {
         let mut entity_subs: HashMap<String, String> = HashMap::new();
         entity_subs.insert("Source".to_string(), "Target".to_string());
 
-        let mut obj: HashMap<String, SExpression> = HashMap::new();
+        let mut obj: orbital_core::schema::SObject = orbital_core::schema::SObject::new();
         obj.insert(
             "children".to_string(),
             SExpression::Array(vec![SExpression::Array(vec![s("fetch"), s("Source")])]),
@@ -6424,6 +6440,7 @@ mod tests {
             config: None,
         };
         OrbitalSchema {
+            theme_definitions: None,
             site: None,
             public_dir: None,
             locales: None,
@@ -6491,7 +6508,8 @@ mod tests {
 
     fn shared_entity_consumer(user_entities: serde_json::Value) -> OrbitalSchema {
         let import = |name: &str, upstream: &str, entity: &str, entities: serde_json::Value| {
-            let mut reference = serde_json::json!({"ref": format!("Org.orbitals.{upstream}"), "entity": entity});
+            let mut reference =
+                serde_json::json!({"ref": format!("Org.orbitals.{upstream}"), "entity": entity});
             if !entities.is_null() {
                 reference["entities"] = entities;
             }
@@ -6505,19 +6523,36 @@ mod tests {
     }
 
     fn aux_fields(schema: &OrbitalSchema, orbital: &str, entity: &str) -> Vec<String> {
-        let o = schema.orbitals.iter().find(|o| o.name == orbital).expect("orbital");
-        o.auxiliary_entities.iter().flatten().find_map(|e| match e {
-            EntityRef::Inline(def) if def.name == entity => Some(def.fields.iter().filter_map(|f| f.name.clone()).collect()),
-            _ => None,
-        }).unwrap_or_default()
+        let o = schema
+            .orbitals
+            .iter()
+            .find(|o| o.name == orbital)
+            .expect("orbital");
+        o.auxiliary_entities
+            .iter()
+            .flatten()
+            .find_map(|e| match e {
+                EntityRef::Inline(def) if def.name == entity => {
+                    Some(def.fields.iter().filter_map(|f| f.name.clone()).collect())
+                }
+                _ => None,
+            })
+            .unwrap_or_default()
     }
 
     fn linked_entities(schema: &OrbitalSchema, orbital: &str) -> Vec<String> {
-        let o = schema.orbitals.iter().find(|o| o.name == orbital).expect("orbital");
-        o.traits.iter().filter_map(|t| match t {
-            TraitReference::Inline(td) => td.linked_entity.clone(),
-            _ => None,
-        }).collect()
+        let o = schema
+            .orbitals
+            .iter()
+            .find(|o| o.name == orbital)
+            .expect("orbital");
+        o.traits
+            .iter()
+            .filter_map(|t| match t {
+                TraitReference::Inline(td) => td.linked_entity.clone(),
+                _ => None,
+            })
+            .collect()
     }
 
     #[test]
@@ -6526,8 +6561,16 @@ mod tests {
         write_shared_entity_organism(dir.path());
         let mut schema = shared_entity_consumer(serde_json::json!({"Note": "OwnerNote"}));
         inline_pickup(&mut schema, dir.path()).expect("inlines");
-        assert!(linked_entities(&schema, "User").contains(&"OwnerNote".to_string()), "{:?}", linked_entities(&schema, "User"));
-        assert!(aux_fields(&schema, "Owner", "OwnerNote").contains(&"body".to_string()), "{:?}", aux_fields(&schema, "Owner", "OwnerNote"));
+        assert!(
+            linked_entities(&schema, "User").contains(&"OwnerNote".to_string()),
+            "{:?}",
+            linked_entities(&schema, "User")
+        );
+        assert!(
+            aux_fields(&schema, "Owner", "OwnerNote").contains(&"body".to_string()),
+            "{:?}",
+            aux_fields(&schema, "Owner", "OwnerNote")
+        );
     }
 
     #[test]
@@ -6536,23 +6579,48 @@ mod tests {
         write_shared_entity_organism(dir.path());
         let mut schema = shared_entity_consumer(serde_json::Value::Null);
         inline_pickup(&mut schema, dir.path()).expect("inlines");
-        assert!(linked_entities(&schema, "User").contains(&"UserNote".to_string()), "{:?}", linked_entities(&schema, "User"));
+        assert!(
+            linked_entities(&schema, "User").contains(&"UserNote".to_string()),
+            "{:?}",
+            linked_entities(&schema, "User")
+        );
     }
 
-    fn diagnose(schema: &mut OrbitalSchema, dir: &std::path::Path) -> Vec<orbital::OrbitalRefDiagnostic> {
+    fn diagnose(
+        schema: &mut OrbitalSchema,
+        dir: &std::path::Path,
+    ) -> Vec<orbital::OrbitalRefDiagnostic> {
         let config = InlineConfig {
-            loader_config: LoaderConfig { base_path: dir.to_path_buf(), ..Default::default() },
+            loader_config: LoaderConfig {
+                base_path: dir.to_path_buf(),
+                ..Default::default()
+            },
             skip_inline: false,
             session: None,
         };
         let mut orbital_ref = Vec::new();
-        inline_schema_with_orbital_diagnostics(schema, &config, None, &mut Vec::new(), &mut orbital_ref, &mut Vec::new())
-            .expect("inlines");
+        inline_schema_with_orbital_diagnostics(
+            schema,
+            &config,
+            None,
+            &mut Vec::new(),
+            &mut orbital_ref,
+            &mut Vec::new(),
+        )
+        .expect("inlines");
         orbital_ref
     }
 
-    fn import_of(name: &str, alias: &str, from: &str, upstream: &str, entity: &str, entities: serde_json::Value) -> serde_json::Value {
-        let mut reference = serde_json::json!({"ref": format!("{alias}.orbitals.{upstream}"), "entity": entity});
+    fn import_of(
+        name: &str,
+        alias: &str,
+        from: &str,
+        upstream: &str,
+        entity: &str,
+        entities: serde_json::Value,
+    ) -> serde_json::Value {
+        let mut reference =
+            serde_json::json!({"ref": format!("{alias}.orbitals.{upstream}"), "entity": entity});
         if !entities.is_null() {
             reference["entities"] = entities;
         }
@@ -6594,9 +6662,16 @@ mod tests {
         write_nested_import_solution(dir.path(), serde_json::json!({"Person": "Customer"}));
         let mut schema = nested_consumer();
         let diagnostics = diagnose(&mut schema, dir.path());
-        let unknown: Vec<_> = diagnostics.iter().flat_map(|d| d.entity_target_unknown.clone()).collect();
+        let unknown: Vec<_> = diagnostics
+            .iter()
+            .flat_map(|d| d.entity_target_unknown.clone())
+            .collect();
         assert!(unknown.is_empty(), "{unknown:?}");
-        assert!(linked_entities(&schema, "Chat").contains(&"Customer".to_string()), "{:?}", linked_entities(&schema, "Chat"));
+        assert!(
+            linked_entities(&schema, "Chat").contains(&"Customer".to_string()),
+            "{:?}",
+            linked_entities(&schema, "Chat")
+        );
     }
 
     #[test]
@@ -6605,8 +6680,14 @@ mod tests {
         write_nested_import_solution(dir.path(), serde_json::json!({"Person": "Nobody"}));
         let mut schema = nested_consumer();
         let diagnostics = diagnose(&mut schema, dir.path());
-        let unknown: Vec<_> = diagnostics.iter().flat_map(|d| d.entity_target_unknown.clone()).collect();
-        assert!(unknown.contains(&("Person".to_string(), "Nobody".to_string())), "{unknown:?}");
+        let unknown: Vec<_> = diagnostics
+            .iter()
+            .flat_map(|d| d.entity_target_unknown.clone())
+            .collect();
+        assert!(
+            unknown.contains(&("Person".to_string(), "Nobody".to_string())),
+            "{unknown:?}"
+        );
     }
 
     /// One file, two orbitals sharing `Product`: `ProductOrbital` owns it, `ShelfOrbital`
@@ -6641,10 +6722,20 @@ mod tests {
         write_same_file_shared_entity(dir.path());
         let mut schema = same_file_consumer(serde_json::json!({"Product": "Product"}));
         let diagnostics = diagnose(&mut schema, dir.path());
-        let unknown_keys: Vec<_> = diagnostics.iter().flat_map(|d| d.entity_unknown_key.clone()).collect();
+        let unknown_keys: Vec<_> = diagnostics
+            .iter()
+            .flat_map(|d| d.entity_unknown_key.clone())
+            .collect();
         assert!(unknown_keys.is_empty(), "{unknown_keys:?}");
-        assert!(linked_entities(&schema, "ShelfOrbital").contains(&"Product".to_string()), "{:?}", linked_entities(&schema, "ShelfOrbital"));
-        assert!(aux_fields(&schema, "ShelfOrbital", "ShelfOrbitalProduct").is_empty(), "the shelf import must not keep its own copy");
+        assert!(
+            linked_entities(&schema, "ShelfOrbital").contains(&"Product".to_string()),
+            "{:?}",
+            linked_entities(&schema, "ShelfOrbital")
+        );
+        assert!(
+            aux_fields(&schema, "ShelfOrbital", "ShelfOrbitalProduct").is_empty(),
+            "the shelf import must not keep its own copy"
+        );
     }
 
     #[test]
@@ -6653,14 +6744,26 @@ mod tests {
         write_same_file_shared_entity(dir.path());
         let mut schema = same_file_consumer(serde_json::Value::Null);
         let diagnostics = diagnose(&mut schema, dir.path());
-        let unmapped: Vec<_> = diagnostics.iter().flat_map(|d| d.entity_unmapped.iter().map(|(_, e)| e.clone()).collect::<Vec<_>>()).collect();
+        let unmapped: Vec<_> = diagnostics
+            .iter()
+            .flat_map(|d| {
+                d.entity_unmapped
+                    .iter()
+                    .map(|(_, e)| e.clone())
+                    .collect::<Vec<_>>()
+            })
+            .collect();
         assert!(unmapped.contains(&"Product".to_string()), "{unmapped:?}");
     }
 
     /// `exp.orb` declares the app knob `welcomeTitle`; its `Welcome` trait forwards `headline`
     /// to it. `sol.orb` composes `Exp.traits.Welcome` into its own `View` orbital, optionally
     /// re-exposing the knob through its own app config.
-    fn write_two_level_forward(dir: &std::path::Path, sol_uses_config: serde_json::Value, sol_config: serde_json::Value) {
+    fn write_two_level_forward(
+        dir: &std::path::Path,
+        sol_uses_config: serde_json::Value,
+        sol_config: serde_json::Value,
+    ) {
         let exp = serde_json::json!({"name": "Exp", "config": {"welcomeTitle": {"type": "string", "default": "Your ledger"}},
             "orbitals": [{"name": "HomeOrbital",
                 "entity": {"name": "Visit", "persistence": "runtime", "fields": [{"name": "id", "type": "string", "required": true}]},
@@ -6686,11 +6789,19 @@ mod tests {
     }
 
     fn two_level_consumer(uses_config: serde_json::Value) -> OrbitalSchema {
-        let mut import = import_of("View", "Sol", "./sol.orb", "View", "ViewVisit", serde_json::Value::Null);
+        let mut import = import_of(
+            "View",
+            "Sol",
+            "./sol.orb",
+            "View",
+            "ViewVisit",
+            serde_json::Value::Null,
+        );
         if !uses_config.is_null() {
             import["uses"][0]["config"] = uses_config;
         }
-        serde_json::from_value(serde_json::json!({"name": "Consumer", "orbitals": [import]})).expect("consumer schema")
+        serde_json::from_value(serde_json::json!({"name": "Consumer", "orbitals": [import]}))
+            .expect("consumer schema")
     }
 
     fn headline_default(schema: &OrbitalSchema) -> Option<serde_json::Value> {
@@ -6711,7 +6822,10 @@ mod tests {
         write_two_level_forward(dir.path(), serde_json::Value::Null, serde_json::Value::Null);
         let mut schema = two_level_consumer(serde_json::Value::Null);
         diagnose(&mut schema, dir.path());
-        assert_eq!(headline_default(&schema), Some(serde_json::json!("Your ledger")));
+        assert_eq!(
+            headline_default(&schema),
+            Some(serde_json::json!("Your ledger"))
+        );
     }
 
     #[test]
@@ -6722,16 +6836,23 @@ mod tests {
             serde_json::json!({"welcomeTitle": {"type": "unknown", "default": "@config.solTitle"}}),
             serde_json::json!({"solTitle": {"type": "string", "default": "Sol default"}}),
         );
-        let mut schema = two_level_consumer(serde_json::json!({"solTitle": {"type": "unknown", "default": "Candles"}}));
+        let mut schema = two_level_consumer(
+            serde_json::json!({"solTitle": {"type": "unknown", "default": "Candles"}}),
+        );
         diagnose(&mut schema, dir.path());
-        assert_eq!(headline_default(&schema), Some(serde_json::json!("Candles")));
+        assert_eq!(
+            headline_default(&schema),
+            Some(serde_json::json!("Candles"))
+        );
     }
 
     /// `atom.orb`: `List` embeds its sibling `Filter`. `hr.orb` composes the atom twice:
     /// `HomeOrbital` (declared first) rebinds it to `Offboarding`, `EmployeeOrbital` to `Employee`.
     fn write_two_orbitals_composing_one_atom(dir: &std::path::Path) {
-        let sm = |effects: serde_json::Value| serde_json::json!({"states": [{"name": "idle", "isInitial": true}], "events": [{"key": "INIT"}],
-            "transitions": [{"from": "idle", "to": "idle", "event": "INIT", "effects": effects}]});
+        let sm = |effects: serde_json::Value| {
+            serde_json::json!({"states": [{"name": "idle", "isInitial": true}], "events": [{"key": "INIT"}],
+            "transitions": [{"from": "idle", "to": "idle", "event": "INIT", "effects": effects}]})
+        };
         let atom = serde_json::json!({"name": "BrowseAtom", "orbitals": [{"name": "ItemOrbital",
             "entity": {"name": "Item", "persistence": "runtime", "fields": [{"name": "id", "type": "string", "required": true}, {"name": "title", "type": "string"}]},
             "traits": [
@@ -6765,10 +6886,15 @@ mod tests {
         inline_pickup(&mut schema, dir.path()).expect("inlines");
         let linked = linked_entities(&schema, "PersonOrbital");
         assert!(!linked.contains(&"Offboarding".to_string()), "{linked:?}");
-        let aux: Vec<String> = schema.orbitals[0].auxiliary_entities.iter().flatten().filter_map(|e| match e {
-            EntityRef::Inline(d) => Some(d.name.clone()),
-            _ => None,
-        }).collect();
+        let aux: Vec<String> = schema.orbitals[0]
+            .auxiliary_entities
+            .iter()
+            .flatten()
+            .filter_map(|e| match e {
+                EntityRef::Inline(d) => Some(d.name.clone()),
+                _ => None,
+            })
+            .collect();
         assert!(!aux.contains(&"Offboarding".to_string()), "{aux:?}");
     }
 
@@ -6778,10 +6904,14 @@ mod tests {
         write_two_orbitals_composing_one_atom(dir.path());
         let mut schema = consumer_composing("HomeList");
         inline_pickup(&mut schema, dir.path()).expect("inlines");
-        let names: Vec<String> = schema.orbitals[0].traits.iter().filter_map(|t| match t {
-            TraitReference::Inline(td) => Some(td.name.clone()),
-            _ => None,
-        }).collect();
+        let names: Vec<String> = schema.orbitals[0]
+            .traits
+            .iter()
+            .filter_map(|t| match t {
+                TraitReference::Inline(td) => Some(td.name.clone()),
+                _ => None,
+            })
+            .collect();
         assert!(names.iter().any(|n| n.ends_with("Filter")), "{names:?}");
     }
 
@@ -7050,6 +7180,7 @@ mod tests {
             config: None,
         };
         let mut schema = OrbitalSchema {
+            theme_definitions: None,
             site: None,
             public_dir: None,
             locales: None,
@@ -7152,6 +7283,7 @@ mod tests {
             config: None,
         };
         let mut schema = OrbitalSchema {
+            theme_definitions: None,
             site: None,
             public_dir: None,
             locales: None,
@@ -7231,6 +7363,7 @@ mod tests {
             config: None,
         };
         let mut schema = OrbitalSchema {
+            theme_definitions: None,
             site: None,
             public_dir: None,
             locales: None,
@@ -7555,6 +7688,7 @@ mod tests {
             config: None,
         };
         let mut schema = OrbitalSchema {
+            theme_definitions: None,
             site: None,
             public_dir: None,
             locales: None,
@@ -7628,6 +7762,7 @@ mod tests {
             config: None,
         };
         let mut schema = OrbitalSchema {
+            theme_definitions: None,
             site: None,
             public_dir: None,
             locales: None,
@@ -7703,6 +7838,7 @@ mod tests {
             config: None,
         };
         OrbitalSchema {
+            theme_definitions: None,
             site: None,
             public_dir: None,
             locales: None,
@@ -8039,7 +8175,9 @@ mod shadowed_auxiliary_tests {
         copy_with(&mut o, "cards");
         settle_shadowed_auxiliaries(&mut o, &[merge_of("cards")]);
         assert_eq!(aux_names(&o[1]), vec!["ExportPanel".to_string()]);
-        assert!(matches!(&o[0].entity, EntityRef::Inline(d) if d.fields.iter().any(|f| f.name.as_deref() == Some("cards"))));
+        assert!(
+            matches!(&o[0].entity, EntityRef::Inline(d) if d.fields.iter().any(|f| f.name.as_deref() == Some("cards")))
+        );
     }
 
     fn copy_with_merged(o: &mut [Orbital], field: &str) {

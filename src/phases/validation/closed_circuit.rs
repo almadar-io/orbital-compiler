@@ -135,7 +135,9 @@ pub fn validate_all_circuits(schema: &OrbitalSchema, ctx: &mut ValidationContext
                 ));
                 ctx.merge(validate_self_emit_loop(trait_def, &orbital.name, &path));
                 if page_traits.contains(&trait_def.name) {
-                    ctx.merge(super::init_coverage::validate_init_coverage(trait_def, &path));
+                    ctx.merge(super::init_coverage::validate_init_coverage(
+                        trait_def, &path,
+                    ));
                 }
             }
         }
@@ -230,7 +232,9 @@ pub fn validate_closed_circuit(
     // JS predicate has no `bound.has` check in this block (unlike its
     // `failure-arm-missing` sibling below).
     result.merge(validate_async_result_deaf_target(state_machine, path));
-    result.merge(super::fetch_by_id_payload::validate_fetch_by_id_payload(trait_def, path));
+    result.merge(super::fetch_by_id_payload::validate_fetch_by_id_payload(
+        trait_def, path,
+    ));
 
     // Ported wiring-lint kinds (sub-wave L1) — a trait the client never
     // mounts (not reachable from any page's `@trait.X` embed closure) can't
@@ -1363,6 +1367,23 @@ fn validate_failure_arms(state_machine: &StateMachine, path: &str) -> Validation
     result
 }
 
+/// True when a transition of `state_machine` mounts a pattern the generic portal shell wraps
+/// (an overlay slot, not a self-overlaying pattern): the shell's own X/Escape/overlay click then
+/// fires `CLOSE` and `CANCEL` at this trait.
+pub(crate) fn mounts_shell_overlay(state_machine: &StateMachine) -> bool {
+    state_machine.transitions.iter().any(|t| {
+        overlay_slot_render_ui_payloads(t.effects.as_deref().unwrap_or(&[]))
+            .into_iter()
+            .any(|p| {
+                is_pattern_payload(p)
+                    && !pattern_type_of(p).is_some_and(|t| SELF_OVERLAY_PATTERN_TYPES.contains(&t))
+            })
+    })
+}
+
+/// The events the portal shell fires at a trait that mounts it.
+pub(crate) const SHELL_DISMISS_EVENTS: [&str; 2] = ["CLOSE", "CANCEL"];
+
 /// `ORB_CIRCUIT_MODAL_SHELL_CLOSE_DEAF` / `ORB_CIRCUIT_SELF_OVERLAY_IN_SHELL`.
 ///
 /// Shares one walk over `overlay_slot_render_ui_payloads` (D2: the modal pair
@@ -2374,7 +2395,7 @@ fn is_pattern_node_tree_shape(expr: &SExpression) -> bool {
 /// opaque — `None`, not a false literal.
 fn resolve_value_literal_candidates(
     expr: &SExpression,
-    lets: &HashMap<String, SExpression>,
+    lets: &orbital_core::schema::SObject,
     depth: u32,
 ) -> Option<Vec<SExpression>> {
     if depth > 32 {
@@ -2450,7 +2471,7 @@ fn collect_entity_field_literal_candidates(
 ) -> HashMap<String, Vec<SExpression>> {
     fn walk(
         expr: &SExpression,
-        lets: &mut HashMap<String, SExpression>,
+        lets: &mut orbital_core::schema::SObject,
         fields: &mut HashMap<String, Vec<SExpression>>,
     ) {
         let SExpression::Array(items) = expr else {
@@ -2490,7 +2511,7 @@ fn collect_entity_field_literal_candidates(
         }
     }
 
-    let mut lets = HashMap::new();
+    let mut lets = orbital_core::schema::SObject::new();
     let mut fields = HashMap::new();
     for effect in effects {
         walk(effect, &mut lets, &mut fields);
@@ -2524,7 +2545,7 @@ fn collect_entity_field_literal_candidates(
 /// inclusion of `event-list`.
 fn pattern_node_has_live_event_outlet(
     pattern_type: &str,
-    map: &HashMap<String, SExpression>,
+    map: &orbital_core::schema::SObject,
 ) -> bool {
     let Some(entry) = crate::embedded::get_pattern(pattern_type) else {
         return false;
@@ -2777,7 +2798,13 @@ fn paints_main(trait_def: &TraitDefinition) -> bool {
         .transitions
         .iter()
         .flat_map(|t| t.effects.iter().flatten())
-        .chain(trait_def.ticks.iter().flatten().flat_map(|tick| tick.effects.iter()))
+        .chain(
+            trait_def
+                .ticks
+                .iter()
+                .flatten()
+                .flat_map(|tick| tick.effects.iter()),
+        )
         .any(scan)
 }
 
@@ -2891,7 +2918,9 @@ fn validate_second_content_body(
     let shell_channels_owner = matches!(owner, PageContentOwner::Channel(_))
         && page_trait_names.iter().any(|candidate| {
             channels_to(candidate, &owner_names, channel_adjacency)
-                && traits_by_name.get(candidate).is_some_and(|td| paints_main_layout(td))
+                && traits_by_name
+                    .get(candidate)
+                    .is_some_and(|td| paints_main_layout(td))
         });
 
     for trait_ref in page.traits.iter().flatten() {
@@ -4404,6 +4433,7 @@ mod tests {
 
     fn schema_of(orbital: Orbital) -> OrbitalSchema {
         OrbitalSchema {
+            theme_definitions: None,
             site: None,
             public_dir: None,
             locales: None,
@@ -5026,12 +5056,20 @@ mod tests {
     #[test]
     fn control_outside_shell_fires_for_an_unembedded_control_on_a_channel_page() {
         let orbital = orbital_json(
-            vec![channel_shell(), catalog_rendering(serde_json::json!({ "type": "data-grid", "entity": "?data" })), add_button("main", button_body())],
+            vec![
+                channel_shell(),
+                catalog_rendering(serde_json::json!({ "type": "data-grid", "entity": "?data" })),
+                add_button("main", button_body()),
+            ],
             page_with(&["Shell", "Catalog", "AddButton"]),
         );
         let hits = control_outside_shell_hits(orbital);
         assert_eq!(hits.len(), 1, "{:?}", hits);
-        assert!(hits[0].message.contains("AddButton") && hits[0].message.contains("Catalog"), "{}", hits[0].message);
+        assert!(
+            hits[0].message.contains("AddButton") && hits[0].message.contains("Catalog"),
+            "{}",
+            hits[0].message
+        );
     }
 
     /// The shell channels a list that channels its own row view: the page's owner is the row
@@ -5049,7 +5087,12 @@ mod tests {
             }
         });
         let orbital = orbital_json(
-            vec![shell, list, catalog_rendering(serde_json::json!({ "type": "data-grid", "entity": "?data" })), add_button("main", button_body())],
+            vec![
+                shell,
+                list,
+                catalog_rendering(serde_json::json!({ "type": "data-grid", "entity": "?data" })),
+                add_button("main", button_body()),
+            ],
             page_with(&["Shell", "List", "Catalog", "AddButton"]),
         );
         let hits = control_outside_shell_hits(orbital);
@@ -5063,7 +5106,9 @@ mod tests {
         let orbital = orbital_json(
             vec![
                 channel_shell(),
-                catalog_rendering(serde_json::json!({ "type": "stack", "children": ["@trait.AddButton", { "type": "data-grid", "entity": "?data" }] })),
+                catalog_rendering(
+                    serde_json::json!({ "type": "stack", "children": ["@trait.AddButton", { "type": "data-grid", "entity": "?data" }] }),
+                ),
                 add_button("main", button_body()),
             ],
             page_with(&["Shell", "Catalog", "AddButton"]),
@@ -5075,7 +5120,10 @@ mod tests {
     #[test]
     fn control_outside_shell_silent_without_a_channel_owner() {
         let orbital = orbital_json(
-            vec![catalog_rendering(serde_json::json!({ "type": "data-grid", "entity": "?data" })), add_button("main", button_body())],
+            vec![
+                catalog_rendering(serde_json::json!({ "type": "data-grid", "entity": "?data" })),
+                add_button("main", button_body()),
+            ],
             page_with(&["Catalog", "AddButton"]),
         );
         assert!(control_outside_shell_hits(orbital).is_empty());
@@ -5086,7 +5134,11 @@ mod tests {
     #[test]
     fn control_outside_shell_silent_when_the_channel_is_not_a_page_layout() {
         let orbital = orbital_json(
-            vec![channel_rendering("data-list"), catalog_rendering(serde_json::json!({ "type": "data-grid", "entity": "?data" })), add_button("main", button_body())],
+            vec![
+                channel_rendering("data-list"),
+                catalog_rendering(serde_json::json!({ "type": "data-grid", "entity": "?data" })),
+                add_button("main", button_body()),
+            ],
             page_with(&["Shell", "Catalog", "AddButton"]),
         );
         assert!(control_outside_shell_hits(orbital).is_empty());
@@ -5096,7 +5148,11 @@ mod tests {
     #[test]
     fn control_outside_shell_silent_for_an_overlay_writer() {
         let orbital = orbital_json(
-            vec![channel_shell(), catalog_rendering(serde_json::json!({ "type": "data-grid", "entity": "?data" })), add_button("modal", button_body())],
+            vec![
+                channel_shell(),
+                catalog_rendering(serde_json::json!({ "type": "data-grid", "entity": "?data" })),
+                add_button("modal", button_body()),
+            ],
             page_with(&["Shell", "Catalog", "AddButton"]),
         );
         assert!(control_outside_shell_hits(orbital).is_empty());
@@ -5106,7 +5162,11 @@ mod tests {
     #[test]
     fn control_outside_shell_silent_for_an_empty_placeholder() {
         let orbital = orbital_json(
-            vec![channel_shell(), catalog_rendering(serde_json::json!({ "type": "data-grid", "entity": "?data" })), add_button("main", serde_json::json!({ "type": "box" }))],
+            vec![
+                channel_shell(),
+                catalog_rendering(serde_json::json!({ "type": "data-grid", "entity": "?data" })),
+                add_button("main", serde_json::json!({ "type": "box" })),
+            ],
             page_with(&["Shell", "Catalog", "AddButton"]),
         );
         assert!(control_outside_shell_hits(orbital).is_empty());
@@ -5116,7 +5176,11 @@ mod tests {
     #[test]
     fn control_outside_shell_silent_for_a_clear() {
         let orbital = orbital_json(
-            vec![channel_shell(), catalog_rendering(serde_json::json!({ "type": "data-grid", "entity": "?data" })), add_button("main", serde_json::Value::Null)],
+            vec![
+                channel_shell(),
+                catalog_rendering(serde_json::json!({ "type": "data-grid", "entity": "?data" })),
+                add_button("main", serde_json::Value::Null),
+            ],
             page_with(&["Shell", "Catalog", "AddButton"]),
         );
         assert!(control_outside_shell_hits(orbital).is_empty());
@@ -5126,7 +5190,14 @@ mod tests {
     #[test]
     fn control_outside_shell_leaves_content_bodies_to_the_second_body_rule() {
         let orbital = orbital_json(
-            vec![channel_shell(), catalog_rendering(serde_json::json!({ "type": "data-grid", "entity": "?data" })), add_button("main", serde_json::json!({ "type": "data-grid", "entity": "?data" }))],
+            vec![
+                channel_shell(),
+                catalog_rendering(serde_json::json!({ "type": "data-grid", "entity": "?data" })),
+                add_button(
+                    "main",
+                    serde_json::json!({ "type": "data-grid", "entity": "?data" }),
+                ),
+            ],
             page_with(&["Shell", "Catalog", "AddButton"]),
         );
         assert!(control_outside_shell_hits(orbital.clone()).is_empty());

@@ -10,7 +10,7 @@ use super::super::{ErrorCode, ValidationError, ValidationResult};
 use super::{extract_emit_object_ref, validate_emit_config, DeclaredEmit};
 use crate::embedded::ServiceRegistryData;
 use orbital_core::schema::{OrbitalSchema, SExpression};
-use std::collections::{HashMap, HashSet};
+use std::collections::HashSet;
 
 /// Envelope keys the call-service form itself owns; never param-checked.
 const RESERVED_OPTION_KEYS: [&str; 4] = ["emit", "onSuccess", "onError", "timeout"];
@@ -163,10 +163,10 @@ fn check_params(
         return result;
     };
 
-    static EMPTY: std::sync::OnceLock<std::collections::HashMap<String, SExpression>> =
+    static EMPTY: std::sync::OnceLock<orbital_core::schema::SObject> =
         std::sync::OnceLock::new();
     let obj = match params {
-        None => EMPTY.get_or_init(std::collections::HashMap::new),
+        None => EMPTY.get_or_init(orbital_core::schema::SObject::new),
         Some(SExpression::Object(map)) => map,
         // Dynamic params expression — keys unknowable, skip all param checks.
         Some(_) => return result,
@@ -237,7 +237,7 @@ fn check_params(
 /// The trailing options object of a `call-service` array (head included): the
 /// 5th element, an object carrying `emit` and/or `key`. Mirrors the resolver's
 /// split — a plain trailing object is the args payload, not options.
-fn trailing_options(arr: &[SExpression]) -> Option<&HashMap<String, SExpression>> {
+fn trailing_options(arr: &[SExpression]) -> Option<&orbital_core::schema::SObject> {
     if arr.len() <= 4 {
         return None;
     }
@@ -251,7 +251,7 @@ fn trailing_options(arr: &[SExpression]) -> Option<&HashMap<String, SExpression>
     }
 }
 
-fn declared_key(options: &HashMap<String, SExpression>) -> Option<&SExpression> {
+fn declared_key(options: &orbital_core::schema::SObject) -> Option<&SExpression> {
     match options.get("key") {
         None | Some(SExpression::Null) => None,
         Some(k) => Some(k),
@@ -260,7 +260,7 @@ fn declared_key(options: &HashMap<String, SExpression>) -> Option<&SExpression> 
 
 /// `key` must be string-typed: a non-string literal can never name a call;
 /// expressions (bindings, calls) are not decidable here and pass.
-fn check_key_and_cancelled(options: &HashMap<String, SExpression>, path: &str) -> ValidationResult {
+fn check_key_and_cancelled(options: &orbital_core::schema::SObject, path: &str) -> ValidationResult {
     let mut result = ValidationResult::new();
     let key = declared_key(options);
     if let Some(kind) = key.and_then(literal_kind) {
@@ -402,7 +402,7 @@ pub(crate) fn validate_call_service(
 
 /// Validate call_service effect (object form)
 pub(crate) fn validate_call_service_object(
-    obj: &std::collections::HashMap<String, SExpression>,
+    obj: &orbital_core::schema::SObject,
     path: &str,
     known_services: &HashSet<String>,
     registry: &ServiceRegistryData,

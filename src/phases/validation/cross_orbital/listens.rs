@@ -280,10 +280,10 @@ mod tests {
         EntityDefinition, EntityRef, ListenDefinition, Orbital, SExpression, StateDefinition,
         StateMachine, TraitDefinition, TransitionDefinition,
     };
-    use std::collections::HashMap as Map;
 
     fn minimal_schema(traits: Vec<TraitReference>) -> OrbitalSchema {
         OrbitalSchema {
+            theme_definitions: None,
             site: None,
             public_dir: None,
             locales: None,
@@ -374,7 +374,7 @@ mod tests {
     /// `EDIT_ITEM`, the else-branch fires `VIEW_ITEM`.
     fn trait_with_conditional_item_actions(name: &str) -> TraitDefinition {
         let descriptor = |event: &str| {
-            let mut dm: Map<String, SExpression> = Map::new();
+            let mut dm: orbital_core::schema::SObject = orbital_core::schema::SObject::new();
             dm.insert("name".to_string(), SExpression::String("Edit".to_string()));
             dm.insert("event".to_string(), SExpression::String(event.to_string()));
             SExpression::Object(dm)
@@ -385,7 +385,7 @@ mod tests {
             SExpression::Array(vec![descriptor("EDIT_ITEM")]),
             SExpression::Array(vec![descriptor("VIEW_ITEM")]),
         ]);
-        let mut node: Map<String, SExpression> = Map::new();
+        let mut node: orbital_core::schema::SObject = orbital_core::schema::SObject::new();
         node.insert(
             "type".to_string(),
             SExpression::String("data-list".to_string()),

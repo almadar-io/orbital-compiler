@@ -934,6 +934,7 @@ mod tests {
 
     fn create_minimal_schema() -> OrbitalSchema {
         OrbitalSchema {
+            theme_definitions: None,
             site: None,
             public_dir: None,
             locales: None,
@@ -1154,8 +1155,7 @@ mod tests {
     }
 
     fn render_ui_with_event_prop(pattern_type: &str, prop: &str, event: &str) -> SExpression {
-        use std::collections::HashMap as Map;
-        let mut node: Map<String, SExpression> = Map::new();
+        let mut node: orbital_core::schema::SObject = orbital_core::schema::SObject::new();
         node.insert(
             "type".to_string(),
             SExpression::String(pattern_type.to_string()),
@@ -1260,13 +1260,12 @@ mod tests {
     /// fetch `emit: {success}` map satisfies a scoped std-stats-style listener.
     #[test]
     fn fetch_emit_map_satisfies_scoped_listener() {
-        use std::collections::HashMap as Map;
-        let mut emit_map: Map<String, SExpression> = Map::new();
+        let mut emit_map: orbital_core::schema::SObject = orbital_core::schema::SObject::new();
         emit_map.insert(
             "success".to_string(),
             SExpression::String("SummaryLoaded".to_string()),
         );
-        let mut options: Map<String, SExpression> = Map::new();
+        let mut options: orbital_core::schema::SObject = orbital_core::schema::SObject::new();
         options.insert("emit".to_string(), SExpression::Object(emit_map));
         let fetch_effect = SExpression::Array(vec![
             SExpression::String("fetch".to_string()),
@@ -1297,9 +1296,8 @@ mod tests {
     /// Build `["if", cond, then_descriptors, else_descriptors]` where each
     /// branch is an itemActions-style array of `{event: <name>}` descriptors.
     fn conditional_item_actions(then_event: &str, else_event: &str) -> SExpression {
-        use std::collections::HashMap as Map;
         let descriptor = |event: &str| {
-            let mut dm: Map<String, SExpression> = Map::new();
+            let mut dm: orbital_core::schema::SObject = orbital_core::schema::SObject::new();
             dm.insert("name".to_string(), SExpression::String("Edit".to_string()));
             dm.insert("event".to_string(), SExpression::String(event.to_string()));
             SExpression::Object(dm)
@@ -1313,8 +1311,7 @@ mod tests {
     }
 
     fn render_ui_with_item_actions(pattern_type: &str, item_actions: SExpression) -> SExpression {
-        use std::collections::HashMap as Map;
-        let mut node: Map<String, SExpression> = Map::new();
+        let mut node: orbital_core::schema::SObject = orbital_core::schema::SObject::new();
         node.insert(
             "type".to_string(),
             SExpression::String(pattern_type.to_string()),
@@ -1357,9 +1354,8 @@ mod tests {
     /// way down: every leaf branch's events are credited.
     #[test]
     fn nested_conditional_item_actions_credits_every_leaf_branch() {
-        use std::collections::HashMap as Map;
         let descriptor = |event: &str| {
-            let mut dm: Map<String, SExpression> = Map::new();
+            let mut dm: orbital_core::schema::SObject = orbital_core::schema::SObject::new();
             dm.insert("name".to_string(), SExpression::String("Edit".to_string()));
             dm.insert("event".to_string(), SExpression::String(event.to_string()));
             SExpression::Object(dm)
@@ -1395,9 +1391,8 @@ mod tests {
     /// does; the bare binding is the paired control.
     #[test]
     fn filtered_item_actions_credit_the_same_events_as_a_bare_binding() {
-        use std::collections::HashMap as Map;
         let descriptor = |event: &str| {
-            let mut dm: Map<String, SExpression> = Map::new();
+            let mut dm: orbital_core::schema::SObject = orbital_core::schema::SObject::new();
             dm.insert("event".to_string(), SExpression::String(event.to_string()));
             SExpression::Object(dm)
         };
@@ -1424,12 +1419,11 @@ mod tests {
     }
 
     fn descriptor_list(events: &[&str]) -> SExpression {
-        use std::collections::HashMap as Map;
         SExpression::Array(
             events
                 .iter()
                 .map(|event| {
-                    let mut dm: Map<String, SExpression> = Map::new();
+                    let mut dm: orbital_core::schema::SObject = orbital_core::schema::SObject::new();
                     dm.insert(
                         "event".to_string(),
                         SExpression::String((*event).to_string()),
@@ -2153,11 +2147,11 @@ mod async_result_collector_tests {
     use orbital_core::schema::SExpression;
 
     fn effect_with_emit(op: &str, emit: &[(&str, &str)]) -> SExpression {
-        let mut emit_map = HashMap::new();
+        let mut emit_map = orbital_core::schema::SObject::new();
         for (k, v) in emit {
             emit_map.insert((*k).to_string(), SExpression::String((*v).to_string()));
         }
-        let mut options = HashMap::new();
+        let mut options = orbital_core::schema::SObject::new();
         options.insert("emit".to_string(), SExpression::Object(emit_map));
         SExpression::Array(vec![
             SExpression::String(op.to_string()),

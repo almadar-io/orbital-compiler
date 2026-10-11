@@ -93,7 +93,7 @@ pub(crate) fn validate_emit(arr: &[SExpression], path: &str) -> ValidationResult
 /// the language-level rule is still enforced in `validate_emit_against_declaration`
 /// once the runtime actually fires the event.
 pub(crate) fn validate_emit_config(
-    emit_obj: &std::collections::HashMap<String, SExpression>,
+    emit_obj: &orbital_core::schema::SObject,
     allowed_keys: &[&str],
     declared_emits: Option<&[DeclaredEmit]>,
     path: &str,
@@ -189,8 +189,8 @@ pub(crate) fn validate_emit_config(
 /// Extract the `emit:` object from a trailing options SExpression::Object.
 /// Returns None if the map has no `emit` key or if `emit` is not an object.
 pub(crate) fn extract_emit_object_ref(
-    options: &std::collections::HashMap<String, SExpression>,
-) -> Option<&std::collections::HashMap<String, SExpression>> {
+    options: &orbital_core::schema::SObject,
+) -> Option<&orbital_core::schema::SObject> {
     match options.get("emit")? {
         SExpression::Object(obj) => Some(obj),
         _ => None,
@@ -208,7 +208,7 @@ mod tests {
         // an uncoded "Expected string" (T-RESOLVE-OPAQUE).
         let arr = vec![
             SExpression::String("emit".to_string()),
-            SExpression::Object(std::collections::HashMap::from([(
+            SExpression::Object(orbital_core::schema::SObject::from([(
                 "data".to_string(),
                 SExpression::String("?data".to_string()),
             )])),

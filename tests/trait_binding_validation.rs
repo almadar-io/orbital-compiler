@@ -107,7 +107,7 @@ fn object_to_sexpr(v: serde_json::Value) -> SExpression {
             SExpression::Array(items.into_iter().map(object_to_sexpr).collect())
         }
         serde_json::Value::Object(map) => {
-            let mut out = std::collections::HashMap::new();
+            let mut out = orbital_core::schema::SObject::new();
             for (k, v) in map {
                 out.insert(k, object_to_sexpr(v));
             }
@@ -300,7 +300,7 @@ fn trait_with_binding_outside_render(effect_kind: &str, binding: &str) -> TraitD
                 SExpression::String("fetch".to_string()),
                 SExpression::String("Item".to_string()),
                 SExpression::Object({
-                    let mut m = std::collections::HashMap::new();
+                    let mut m = orbital_core::schema::SObject::new();
                     m.insert("emit".to_string(), binding_sexpr.clone());
                     m
                 }),

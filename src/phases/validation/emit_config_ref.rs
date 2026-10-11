@@ -35,7 +35,7 @@ pub fn validate_all_config_ref_emits(schema: &OrbitalSchema, ctx: &mut Validatio
                 // inline phase has already folded any call-site override
                 // into `trait_def.config[k].default` by this point) purely
                 // to name the failure clause precisely.
-                let mut effective_config = std::collections::HashMap::new();
+                let mut effective_config = orbital_core::schema::SObject::new();
                 if let Some(declared) = trait_def.config.as_ref() {
                     for (k, field) in declared.iter() {
                         if let Some(default) = field.default.as_ref() {

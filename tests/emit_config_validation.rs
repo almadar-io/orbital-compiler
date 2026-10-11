@@ -19,14 +19,13 @@ use orbital_core::schema::{
     OrbitalSchema, SExpression, StateDefinition, StateMachine, StringOrArray, TraitDefinition,
     TraitReference, TransitionDefinition,
 };
-use std::collections::HashMap;
 
 // ============================================================================
 // Helpers
 // ============================================================================
 
 fn emit_object(entries: &[(&str, &str)]) -> SExpression {
-    let mut m: HashMap<String, SExpression> = HashMap::new();
+    let mut m: orbital_core::schema::SObject = orbital_core::schema::SObject::new();
     for (k, v) in entries {
         m.insert((*k).to_string(), SExpression::String((*v).to_string()));
     }
@@ -34,7 +33,7 @@ fn emit_object(entries: &[(&str, &str)]) -> SExpression {
 }
 
 fn options_with_emit(emit: SExpression) -> SExpression {
-    let mut opts: HashMap<String, SExpression> = HashMap::new();
+    let mut opts: orbital_core::schema::SObject = orbital_core::schema::SObject::new();
     opts.insert("emit".to_string(), emit);
     SExpression::Object(opts)
 }
@@ -129,6 +128,7 @@ fn schema_with_effects(
     };
 
     OrbitalSchema {
+        theme_definitions: None,
         site: None,
         public_dir: None,
         locales: None,
@@ -440,7 +440,7 @@ fn options(entries: Vec<(&str, SExpression)>) -> SExpression {
         entries
             .into_iter()
             .map(|(k, v)| (k.to_string(), v))
-            .collect::<HashMap<_, _>>(),
+            .collect::<orbital_core::schema::SObject>(),
     )
 }
 

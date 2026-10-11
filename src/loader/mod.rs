@@ -5,7 +5,7 @@
 //! - Standard library (std/...)
 //! - Scoped packages (@name/...)
 
-use orbital_core::behavior_packages::BehaviorPackage;
+use orbital_core::behavior_packages::{BehaviorPackage, RegistrySource};
 use orbital_core::schema::OrbitalSchema;
 use std::cell::RefCell;
 use std::collections::hash_map::Entry;
@@ -89,7 +89,7 @@ pub enum LoaderError {
     IoError(#[from] std::io::Error),
 
     #[error(
-        "Behavior package with prefix '{prefix}' is not installed. Run `orb behaviors install \
+        "Behavior package with prefix '{prefix}' is not installed. Run `orb add \
          <package>` for the package that declares orb.prefix = \"{prefix}\"."
     )]
     PackageNotInstalled { prefix: String },
@@ -240,8 +240,13 @@ fn relative_dir(from: &Path, to: &Path) -> String {
     let from: Vec<_> = from.components().collect();
     let to: Vec<_> = to.components().collect();
     let common = from.iter().zip(&to).take_while(|(a, b)| a == b).count();
-    let mut parts: Vec<String> = std::iter::repeat_n("..".to_string(), from.len() - common).collect();
-    parts.extend(to[common..].iter().map(|c| c.as_os_str().to_string_lossy().into_owned()));
+    let mut parts: Vec<String> =
+        std::iter::repeat_n("..".to_string(), from.len() - common).collect();
+    parts.extend(
+        to[common..]
+            .iter()
+            .map(|c| c.as_os_str().to_string_lossy().into_owned()),
+    );
     if parts.is_empty() {
         ".".to_string()
     } else {
@@ -339,6 +344,16 @@ impl Default for LoaderCache {
 /// one `opendir` per directory and no `stat` per file; only a symlink pays a
 /// `stat` to learn what it points at. Pure function — no mutation, no caching.
 pub fn index_registry(root: &Path) -> HashMap<String, PathBuf> {
+    index_behavior_files(root, "orb")
+}
+
+/// Behavior name → file for a package's [`RegistrySource`]: `.orb` programs in a
+/// materialized registry, `.lolo` sources in a live one.
+pub fn index_registry_source(source: &RegistrySource) -> HashMap<String, PathBuf> {
+    index_behavior_files(source.root(), source.extension())
+}
+
+fn index_behavior_files(root: &Path, extension: &str) -> HashMap<String, PathBuf> {
     let mut index = HashMap::new();
     let mut stack = vec![root.to_path_buf()];
     while let Some(dir) = stack.pop() {
@@ -354,7 +369,7 @@ pub fn index_registry(root: &Path) -> HashMap<String, PathBuf> {
             };
             if is_dir {
                 stack.push(path);
-            } else if path.extension().map(|e| e == "orb").unwrap_or(false) {
+            } else if path.extension().map(|e| e == extension).unwrap_or(false) {
                 if let Some(stem) = path.file_stem().and_then(|s| s.to_str()) {
                     index.entry(stem.to_string()).or_insert(path);
                 }
@@ -368,8 +383,8 @@ pub fn index_registry(root: &Path) -> HashMap<String, PathBuf> {
 /// One full walk per call — `ExternalOrbitalLoader` keeps a per-root index
 /// instead, so it walks each root once per compile rather than once per
 /// import hop.
-pub fn resolve_behavior_in_registry(name: &str, root: &Path) -> Option<PathBuf> {
-    index_registry(root).remove(name)
+pub fn resolve_behavior_in_registry(name: &str, source: &RegistrySource) -> Option<PathBuf> {
+    index_registry_source(source).remove(name)
 }
 
 // ============================================================================
@@ -501,16 +516,17 @@ impl ExternalOrbitalLoader {
             return canonical.clone();
         }
         let canonical = canonical_key(path);
-        self.canonical_paths.insert(path.to_path_buf(), canonical.clone());
+        self.canonical_paths
+            .insert(path.to_path_buf(), canonical.clone());
         canonical
     }
 
     /// `<name>.orb` under `root`, through the per-root index.
-    fn registry_lookup(&self, name: &str, root: &Path) -> Option<PathBuf> {
+    fn registry_lookup(&self, name: &str, source: &RegistrySource) -> Option<PathBuf> {
         let mut indexes = self.registry_index.borrow_mut();
-        let index = match indexes.entry(root.to_path_buf()) {
+        let index = match indexes.entry(source.root().to_path_buf()) {
             Entry::Occupied(e) => e.into_mut(),
-            Entry::Vacant(e) => e.insert(index_registry(root)),
+            Entry::Vacant(e) => e.insert(index_registry_source(source)),
         };
         index.get(name).cloned()
     }
@@ -530,12 +546,17 @@ impl ExternalOrbitalLoader {
         }
         let loaded = self
             .cache
-            .get_or_insert_canonical(canonical.clone(), || Self::load_file(&absolute_path, import_path))
+            .get_or_insert_canonical(canonical.clone(), || {
+                Self::load_file(&absolute_path, import_path)
+            })
             .map(|_| ());
         chain.pop();
         loaded?;
         self.note_loaded(&canonical);
-        Ok(self.cache.get_canonical(&canonical).expect("inserted above"))
+        Ok(self
+            .cache
+            .get_canonical(&canonical)
+            .expect("inserted above"))
     }
 
     /// `std/behaviors/<name>` resolution (Almadar_Behavior_Packages.md Phase
@@ -686,7 +707,7 @@ impl ExternalOrbitalLoader {
         self.config
             .packages
             .iter()
-            .find(|pkg| path.starts_with(&pkg.registry))
+            .find(|pkg| path.starts_with(pkg.registry.root()))
             .map(|pkg| pkg.prefix.as_str())
     }
 
@@ -706,7 +727,7 @@ impl ExternalOrbitalLoader {
             .config
             .packages
             .iter()
-            .find(|pkg| path.starts_with(&pkg.registry))
+            .find(|pkg| path.starts_with(pkg.registry.root()))
             .map(|pkg| format!("{}@{}", pkg.name, pkg.version))
             .unwrap_or_else(|| path.display().to_string());
         Ok((path, owner))
@@ -905,6 +926,23 @@ impl ExternalOrbitalLoader {
     }
 
     fn load_file(path: &Path, import_path: &str) -> Result<LoadedSchema, LoaderError> {
+        // A live package's behavior is its `.lolo` source, lowered on read.
+        if path.extension().is_some_and(|e| e == "lolo") {
+            let lower = SOURCE_LOWERER.get().ok_or_else(|| {
+                LoaderError::SourceLowering(
+                    path.display().to_string(),
+                    "no .lolo lowerer is registered in this process".to_string(),
+                )
+            })?;
+            let mut schema = lower(path)
+                .map_err(|e| LoaderError::SourceLowering(path.display().to_string(), e))?;
+            orbital_core::stamp::ensure_stamped(&mut schema);
+            return Ok(LoadedSchema {
+                schema,
+                source_path: path.to_path_buf(),
+                import_path: import_path.to_string(),
+            });
+        }
         if !path.exists() {
             // An `.orb` beside the importer wins; else its `.lolo` source, lowered.
             let source = path.with_extension("lolo");
@@ -950,13 +988,24 @@ impl ExternalOrbitalLoader {
     /// Every behavior this loader loaded (plus the program at `root` itself,
     /// named `root_name`): name → the folder of its source file, relative to
     /// the program's folder. A program's message catalogs are found there.
-    pub fn message_sources(&self, root: &Path, root_name: &str) -> std::collections::BTreeMap<String, String> {
+    pub fn message_sources(
+        &self,
+        root: &Path,
+        root_name: &str,
+    ) -> std::collections::BTreeMap<String, String> {
         let base = root.parent().map(canonical_key).unwrap_or_default();
         let mut sources = std::collections::BTreeMap::new();
         sources.insert(root_name.to_string(), ".".to_string());
-        for loaded in self.touched.iter().filter_map(|p| self.cache.get_canonical(p)) {
+        for loaded in self
+            .touched
+            .iter()
+            .filter_map(|p| self.cache.get_canonical(p))
+        {
             if let Some(dir) = loaded.source_path.parent() {
-                sources.insert(loaded.schema.name.clone(), relative_dir(&base, &canonical_key(dir)));
+                sources.insert(
+                    loaded.schema.name.clone(),
+                    relative_dir(&base, &canonical_key(dir)),
+                );
             }
         }
         sources
@@ -969,7 +1018,11 @@ impl ExternalOrbitalLoader {
     /// copied into the consumer schema.
     pub fn source_ledger_union(&self) -> HashMap<String, orbital_core::identity::LedgerEntry> {
         let mut union: HashMap<String, orbital_core::identity::LedgerEntry> = HashMap::new();
-        let schemas = self.touched.iter().filter_map(|p| self.cache.get_canonical(p)).map(|l| &l.schema);
+        let schemas = self
+            .touched
+            .iter()
+            .filter_map(|p| self.cache.get_canonical(p))
+            .map(|l| &l.schema);
         for schema in schemas {
             if let Some(ledger) = &schema.ledger {
                 for (id, row) in &ledger.entries {
@@ -1044,6 +1097,7 @@ mod tests {
 
         // Insert and retrieve
         let schema = OrbitalSchema {
+            theme_definitions: None,
             site: None,
             public_dir: None,
             locales: None,
@@ -1231,11 +1285,12 @@ mod tests {
         assert_eq!(index.len(), 2);
         assert!(index["std-realtime-chat"].ends_with("app/organisms/std-realtime-chat.orb"));
         assert!(index["std-modal"].ends_with("ui/core/atoms/std-modal.orb"));
+        let source = RegistrySource::Materialized(dir.path().to_path_buf());
         assert_eq!(
-            resolve_behavior_in_registry("std-modal", dir.path()),
+            resolve_behavior_in_registry("std-modal", &source),
             Some(index["std-modal"].clone())
         );
-        assert_eq!(resolve_behavior_in_registry("notes", dir.path()), None);
+        assert_eq!(resolve_behavior_in_registry("notes", &source), None);
     }
 
     #[test]
@@ -1246,12 +1301,13 @@ mod tests {
             version: "1.0.0".to_string(),
             prefix: "almadar-behaviors".to_string(),
             root: dir.path().to_path_buf(),
-            registry: dir.path().to_path_buf(),
+            registry: RegistrySource::Materialized(dir.path().to_path_buf()),
             index: dir.path().to_path_buf(),
             factory_signatures: dir.path().to_path_buf(),
             lolo_contracts: dir.path().to_path_buf(),
             signatures: dir.path().to_path_buf(),
             embeddings: vec![],
+            sidecars: vec![],
             compiler_range: ">=0.0.0".to_string(),
             std_peer_range: None,
             core_range: None,
@@ -1276,7 +1332,7 @@ mod tests {
             .registry_lookup("std-realtime-chat", &pkg.registry)
             .unwrap();
         assert!(second.ends_with("app/organisms/std-realtime-chat.orb"));
-        assert_eq!(loader.registry_index.borrow()[&pkg.registry].len(), 2);
+        assert_eq!(loader.registry_index.borrow()[pkg.registry.root()].len(), 2);
     }
 
     /// Writes an installable behavior package under `tmp/node_modules/<name>`
@@ -1587,7 +1643,7 @@ mod tests {
             LoaderError::BehaviorPackageNotInstalled { package } => {
                 assert_eq!(package, "@almadar/std");
                 assert!(
-                    message.contains("orb behaviors install @almadar/std"),
+                    message.contains("run `orb update`"),
                     "message: {message}"
                 );
             }
@@ -1771,12 +1827,8 @@ mod tests {
     }
 
     /// G-ORB-056: a relative import whose target exists only as `.lolo` is
-    /// lowered through the registered source lowerer. The stand-in lowerer
-    /// reads JSON, so these tests exercise the loader, not orbital-lolo.
-    fn json_lowerer(path: &Path) -> Result<OrbitalSchema, String> {
-        let text = std::fs::read_to_string(path).map_err(|e| e.to_string())?;
-        serde_json::from_str(&text).map_err(|e| e.to_string())
-    }
+    /// lowered through the registered source lowerer (the real one; the
+    /// process registers it once, and the installed-std tests need it too).
 
     fn sibling_dir(tag: &str, files: &[(&str, &str)]) -> PathBuf {
         let dir = std::env::temp_dir().join(format!(
@@ -1798,8 +1850,12 @@ mod tests {
         format!(r#"{{"name":"{name}","orbitals":[]}}"#)
     }
 
+    fn named_lolo(name: &str) -> String {
+        format!("orbital {name} {{\n  entity Probe [runtime] {{\n    id : string!\n  }}\n}}\n")
+    }
+
     fn sibling_loader(dir: &Path) -> ExternalOrbitalLoader {
-        register_source_lowerer(json_lowerer);
+        register_source_lowerer(orbital_test_support::lower_lolo_file);
         ExternalOrbitalLoader::new(LoaderConfig {
             base_path: dir.to_path_buf(),
             ..Default::default()
@@ -1808,7 +1864,7 @@ mod tests {
 
     #[test]
     fn relative_import_lowers_a_lolo_only_sibling() {
-        let dir = sibling_dir("only", &[("A.lolo", &named("FromLolo"))]);
+        let dir = sibling_dir("only", &[("A.lolo", &named_lolo("FromLolo"))]);
         let mut loader = sibling_loader(&dir);
         let mut chain = ImportChain::new();
         let loaded = loader
@@ -1820,7 +1876,7 @@ mod tests {
 
     #[test]
     fn explicit_lolo_import_lowers_the_lolo() {
-        let dir = sibling_dir("explicit", &[("A.lolo", &named("FromLolo"))]);
+        let dir = sibling_dir("explicit", &[("A.lolo", &named_lolo("FromLolo"))]);
         let mut loader = sibling_loader(&dir);
         let mut chain = ImportChain::new();
         let loaded = loader
@@ -1833,7 +1889,10 @@ mod tests {
     fn orb_sibling_wins_over_lolo() {
         let dir = sibling_dir(
             "both",
-            &[("A.orb", &named("FromOrb")), ("A.lolo", &named("FromLolo"))],
+            &[
+                ("A.orb", &named("FromOrb")),
+                ("A.lolo", &named_lolo("FromLolo")),
+            ],
         );
         let mut loader = sibling_loader(&dir);
         let mut chain = ImportChain::new();
@@ -1856,7 +1915,7 @@ mod tests {
 
     #[test]
     fn lowering_failure_names_the_lolo_file() {
-        let dir = sibling_dir("broken", &[("A.lolo", "not json")]);
+        let dir = sibling_dir("broken", &[("A.lolo", "not lolo {")]);
         let mut loader = sibling_loader(&dir);
         let mut chain = ImportChain::new();
         let err = loader
@@ -1883,6 +1942,7 @@ mod embedded_loader_tests {
     use super::*;
 
     fn std_loader_config() -> LoaderConfig {
+        register_source_lowerer(orbital_test_support::lower_lolo_file);
         let std_pkg = orbital_test_support::installed_package(
             "almadar-std",
             Path::new(env!("CARGO_MANIFEST_DIR")),

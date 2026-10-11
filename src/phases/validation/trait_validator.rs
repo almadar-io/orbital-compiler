@@ -562,7 +562,12 @@ pub(crate) fn validate_orbital_field_embeds(
         return result;
     }
 
-    fn scan(expr: &SExpression, fields: &HashSet<&str>, effect_path: &str, result: &mut ValidationResult) {
+    fn scan(
+        expr: &SExpression,
+        fields: &HashSet<&str>,
+        effect_path: &str,
+        result: &mut ValidationResult,
+    ) {
         match expr {
             SExpression::String(s) => {
                 if let Some(field) = s.strip_prefix("@entity.") {
@@ -580,21 +585,32 @@ pub(crate) fn validate_orbital_field_embeds(
                     }
                 }
             }
-            SExpression::Array(arr) => arr.iter().for_each(|item| scan(item, fields, effect_path, result)),
-            SExpression::Object(obj) => obj.values().for_each(|v| scan(v, fields, effect_path, result)),
+            SExpression::Array(arr) => arr
+                .iter()
+                .for_each(|item| scan(item, fields, effect_path, result)),
+            SExpression::Object(obj) => obj
+                .values()
+                .for_each(|v| scan(v, fields, effect_path, result)),
             _ => {}
         }
     }
 
-    fn walk(expr: &SExpression, fields: &HashSet<&str>, effect_path: &str, result: &mut ValidationResult) {
+    fn walk(
+        expr: &SExpression,
+        fields: &HashSet<&str>,
+        effect_path: &str,
+        result: &mut ValidationResult,
+    ) {
         let SExpression::Array(arr) = expr else {
             return;
         };
         if is_render_ui_effect(expr) {
-            arr.iter().for_each(|item| scan(item, fields, effect_path, result));
+            arr.iter()
+                .for_each(|item| scan(item, fields, effect_path, result));
             return;
         }
-        arr.iter().for_each(|item| walk(item, fields, effect_path, result));
+        arr.iter()
+            .for_each(|item| walk(item, fields, effect_path, result));
     }
 
     for (i, transition) in trait_def.state_machine.transitions.iter().enumerate() {
@@ -666,7 +682,13 @@ fn validate_unbound_trait_embeds(
         }
         if is_render_ui_effect(expr) {
             for item in arr {
-                check_render_payload_for_unbound_embeds(item, prefix, unbound_knobs, effect_path, result);
+                check_render_payload_for_unbound_embeds(
+                    item,
+                    prefix,
+                    unbound_knobs,
+                    effect_path,
+                    result,
+                );
             }
             return;
         }
@@ -756,7 +778,13 @@ fn validate_unbound_trait_embeds(
             }
             SExpression::Object(obj) => {
                 for (_, v) in obj {
-                    check_render_payload_for_unbound_embeds(v, prefix, unbound_knobs, effect_path, result);
+                    check_render_payload_for_unbound_embeds(
+                        v,
+                        prefix,
+                        unbound_knobs,
+                        effect_path,
+                        result,
+                    );
                 }
             }
             _ => {}
@@ -1140,6 +1168,22 @@ pub fn validate_transitions(
                     )
                     .with_suggestion("Add guard conditions to distinguish transitions"),
                 );
+            } else if indices.iter().enumerate().any(|(n, &a)| {
+                indices[n + 1..].iter().any(|&b| {
+                    transitions[a].guard.is_some() && transitions[a].guard == transitions[b].guard
+                })
+            }) {
+                result.add_error(
+                    ValidationError::error(
+                        ErrorCode::TraitDuplicateTransition,
+                        format!("{}.transitions", path),
+                        format!(
+                            "Duplicate transitions from '{}' on event '{}' with the same guard",
+                            from, event
+                        ),
+                    )
+                    .with_suggestion("Remove the repeated arm, or give each arm its own guard"),
+                );
             }
         }
     }
@@ -1484,6 +1528,7 @@ mod tests {
                     payload_schema: None,
                     payload_entity: None,
                     external: None,
+                    listened: None,
                 },
                 EventDefinition {
                     id: None,
@@ -1495,6 +1540,7 @@ mod tests {
                     payload_schema: None,
                     payload_entity: None,
                     external: None,
+                    listened: None,
                 },
             ]),
             transitions: vec![
@@ -1511,7 +1557,7 @@ mod tests {
                         orbital_core::schema::SExpression::String("render-ui".to_string()),
                         orbital_core::schema::SExpression::String("main".to_string()),
                         orbital_core::schema::SExpression::Object({
-                            let mut m = std::collections::HashMap::new();
+                            let mut m = orbital_core::schema::SObject::new();
                             m.insert(
                                 "type".to_string(),
                                 orbital_core::schema::SExpression::String("box".to_string()),
@@ -2189,7 +2235,7 @@ mod tests {
     }
 
     fn with_render(mut t: TraitDefinition, prop: &str) -> TraitDefinition {
-        let mut props = HashMap::new();
+        let mut props = orbital_core::schema::SObject::new();
         props.insert("type".to_string(), SExpression::String("stack".to_string()));
         props.insert(
             "children".to_string(),
@@ -2394,12 +2440,20 @@ mod trait_field_embed_tests {
     fn embedding_an_orbital_typed_field_errors_even_under_a_guard() {
         let embed = serde_json::json!(["render-ui", "main", { "type": "stack", "children": ["@entity.app"] }]);
         assert!(orbital_fires(embed.clone()));
-        assert!(orbital_fires(serde_json::json!(["when", "@entity.app", embed])));
+        assert!(orbital_fires(serde_json::json!([
+            "when",
+            "@entity.app",
+            embed
+        ])));
     }
 
     #[test]
     fn control_reading_an_orbital_value_outside_render_ui_is_clean() {
-        assert!(!orbital_fires(serde_json::json!(["set", "@entity.app", null])));
+        assert!(!orbital_fires(serde_json::json!([
+            "set",
+            "@entity.app",
+            null
+        ])));
         assert!(!orbital_fires(serde_json::json!(
             ["render-ui", "main", { "type": "typography", "content": "@entity.id" }]
         )));
@@ -2418,12 +2472,20 @@ mod trait_field_embed_tests {
         let mut cf: orbital_core::schema::ConfigField =
             serde_json::from_value(serde_json::json!({ "type": "trait" })).expect("cf");
         cf.default = Some(
-            serde_json::from_value(serde_json::json!({ "behavior": "std/std-kanban", "trait": "KanbanBoard" }))
-                .expect("default"),
+            serde_json::from_value(
+                serde_json::json!({ "behavior": "std/std-kanban", "trait": "KanbanBoard" }),
+            )
+            .expect("default"),
         );
         t.config = Some(HashMap::from([("view".to_string(), cf)]));
         let r = validate_trait_definition(&t, "t", &HashSet::new());
-        assert!(!r.errors.iter().any(|e| e.code == ErrorCode::BindingTraitInvalidFormat), "{:?}", r.errors);
+        assert!(
+            !r.errors
+                .iter()
+                .any(|e| e.code == ErrorCode::BindingTraitInvalidFormat),
+            "{:?}",
+            r.errors
+        );
     }
 
     #[test]
@@ -2431,10 +2493,14 @@ mod trait_field_embed_tests {
         let mut t = trait_with(serde_json::json!(["log", "x"]));
         let mut cf: orbital_core::schema::ConfigField =
             serde_json::from_value(serde_json::json!({ "type": "trait" })).expect("cf");
-        cf.default = Some(serde_json::from_value(serde_json::json!({ "label": "x" })).expect("default"));
+        cf.default =
+            Some(serde_json::from_value(serde_json::json!({ "label": "x" })).expect("default"));
         t.config = Some(HashMap::from([("view".to_string(), cf)]));
         let r = validate_trait_definition(&t, "t", &HashSet::new());
-        assert!(r.errors.iter().any(|e| e.code == ErrorCode::BindingTraitInvalidFormat));
+        assert!(r
+            .errors
+            .iter()
+            .any(|e| e.code == ErrorCode::BindingTraitInvalidFormat));
     }
 }
 
@@ -2498,8 +2564,52 @@ mod behavior_field_embed_tests {
 
     #[test]
     fn a_behavior_field_is_not_an_orbital_embed_error() {
-        assert!(validate_orbital_field_embeds(&trait_with(embed()), &entity(), "t")
+        assert!(
+            validate_orbital_field_embeds(&trait_with(embed()), &entity(), "t")
+                .errors
+                .is_empty()
+        );
+    }
+
+    fn transitions_from(json: serde_json::Value) -> Vec<TransitionDefinition> {
+        serde_json::from_value(json).expect("transitions deserialize")
+    }
+
+    fn duplicate_hits(json: serde_json::Value) -> usize {
+        let states: HashSet<&str> = HashSet::from(["running", "paused"]);
+        let events: HashSet<&str> = HashSet::new();
+        validate_transitions(&transitions_from(json), "t", &states, &events)
             .errors
-            .is_empty());
+            .iter()
+            .filter(|e| e.code == ErrorCode::TraitDuplicateTransition)
+            .count()
+    }
+
+    #[test]
+    fn identical_guarded_arms_are_duplicates() {
+        let arm = serde_json::json!({ "from": "paused", "to": "paused", "event": "INIT", "guard": ["not", "@config.autoStart"] });
+        assert_eq!(duplicate_hits(serde_json::json!([arm.clone(), arm])), 1);
+    }
+
+    #[test]
+    fn control_arms_with_different_guards_are_not_duplicates() {
+        assert_eq!(
+            duplicate_hits(serde_json::json!([
+                { "from": "paused", "to": "paused", "event": "INIT", "guard": ["not", "@config.autoStart"] },
+                { "from": "paused", "to": "running", "event": "INIT", "guard": "@config.autoStart" }
+            ])),
+            0
+        );
+    }
+
+    #[test]
+    fn control_one_guarded_and_one_fallback_arm_are_not_duplicates() {
+        assert_eq!(
+            duplicate_hits(serde_json::json!([
+                { "from": "paused", "to": "paused", "event": "INIT", "guard": ["not", "@config.autoStart"] },
+                { "from": "paused", "to": "running", "event": "INIT" }
+            ])),
+            0
+        );
     }
 }

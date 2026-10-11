@@ -25,10 +25,10 @@ pub mod enrich;
 pub mod inline;
 pub mod lazy;
 pub mod messages;
-pub mod public;
 pub mod nominalize;
 pub mod page_content_owner;
 pub mod parse;
+pub mod public;
 pub mod resolve;
 pub mod sexpr_json;
 pub mod validate;
@@ -264,6 +264,13 @@ pub(crate) fn resolve_schema_with_inline(
     }
     enrich_schema(&mut schema, &options.enrichment);
 
+    // The theme presets the program references travel with it, so a runtime
+    // with no installed `@almadar/core` (wasm, mobile) resolves its theme.
+    orbital_core::runtime::theme::carry_theme_definitions(
+        &mut schema,
+        orbital_core::runtime::theme::ThemePresets::installed(),
+    );
+
     Ok(schema)
 }
 
@@ -334,7 +341,11 @@ fn compile_schema_with_path(
     oir.browser_services = oir
         .invoked_services()
         .into_iter()
-        .filter(|s| runtimes.get(s).is_some_and(|r| orbital_core::effects::runs_on::is_browser_only(r)))
+        .filter(|s| {
+            runtimes
+                .get(s)
+                .is_some_and(|r| orbital_core::effects::runs_on::is_browser_only(r))
+        })
         .collect();
 
     // Phase 5b (opt-in): nominalize anonymous struct/union shapes into
@@ -393,7 +404,10 @@ mod app_root_tests {
         let dir = tempfile::tempdir().expect("tmp");
         std::fs::create_dir_all(dir.path().join(".almadar")).expect("mkdir");
         std::fs::write(dir.path().join(".almadar/app-marker.json"), "{}").expect("marker");
-        assert_eq!(app_root(Some("/elsewhere"), dir.path()), Some(PathBuf::from("/elsewhere")));
+        assert_eq!(
+            app_root(Some("/elsewhere"), dir.path()),
+            Some(PathBuf::from("/elsewhere"))
+        );
     }
 
     #[test]
@@ -404,14 +418,22 @@ mod app_root_tests {
         let inner = dir.path().join("orbitals/deep");
         std::fs::create_dir_all(&inner).expect("mkdir");
         assert_eq!(app_root(None, &inner), Some(dir.path().to_path_buf()));
-        assert_eq!(app_root(Some(""), &inner), Some(dir.path().to_path_buf()), "an empty value is unset");
+        assert_eq!(
+            app_root(Some(""), &inner),
+            Some(dir.path().to_path_buf()),
+            "an empty value is unset"
+        );
     }
 
     #[test]
     fn control_no_marker_and_no_explicit_root_is_no_app_scope() {
         let dir = tempfile::tempdir().expect("tmp");
         std::fs::create_dir_all(dir.path().join(".almadar")).expect("mkdir");
-        assert_eq!(app_root(None, dir.path()), None, "a .almadar without the marker is not a workspace");
+        assert_eq!(
+            app_root(None, dir.path()),
+            None,
+            "a .almadar without the marker is not a workspace"
+        );
     }
 }
 
@@ -446,12 +468,11 @@ mod tests {
         use orbital_core::schema::TraitReference;
         use std::path::Path;
 
-        let orb_path = orbital_test_support::installed_std_orb(
+        let schema = orbital_test_support::installed_schema(
+            "almadar-std",
             Path::new(env!("CARGO_MANIFEST_DIR")),
             "std-export",
         );
-        let json = std::fs::read_to_string(&orb_path).expect("read std-export.orb");
-        let schema = parse_json(&json).expect("parse std-export");
 
         // Pre-condition: the peers are unresolved References before inline.
         let orbital = &schema.orbitals[0];

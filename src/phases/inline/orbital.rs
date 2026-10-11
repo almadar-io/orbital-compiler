@@ -800,7 +800,9 @@ pub(crate) fn resolve_orbital_reference(
     // alias landed sits on one copy only, and a retarget below draws from all of them.
     let mut upstream_universe_fields: HashMap<String, Vec<FieldDefinition>> = HashMap::new();
     let mut pool_fields = |def: &EntityDefinition| {
-        let pool = upstream_universe_fields.entry(def.name.clone()).or_default();
+        let pool = upstream_universe_fields
+            .entry(def.name.clone())
+            .or_default();
         for f in &def.fields {
             if !pool.iter().any(|p| p.name == f.name) {
                 pool.push(f.clone());
@@ -987,7 +989,9 @@ pub(crate) fn resolve_orbital_reference(
         .iter()
         .flat_map(|o| o.expects.iter().flatten())
         .filter_map(|e| match e {
-            orbital_core::schema::ExpectDeclaration::Identity { name: Some(n), .. } => Some(n.clone()),
+            orbital_core::schema::ExpectDeclaration::Identity { name: Some(n), .. } => {
+                Some(n.clone())
+            }
             _ => None,
         })
         .filter(|n| !closure.contains(n) && !upstream_universe.contains(n))
@@ -1037,7 +1041,11 @@ pub(crate) fn resolve_orbital_reference(
                     f.merged_from.is_none() || f.name.as_ref().is_some_and(|n| used.contains(n))
                 });
                 rewrite_entity_fields_in_entity(&mut imported, &field_subs);
-                let fields: HashSet<String> = imported.fields.iter().filter_map(|f| f.name.clone()).collect();
+                let fields: HashSet<String> = imported
+                    .fields
+                    .iter()
+                    .filter_map(|f| f.name.clone())
+                    .collect();
                 deferred_merges.push(super::DeferredMerge {
                     target: target.clone(),
                     imported,
@@ -1749,7 +1757,10 @@ pub(crate) fn resolve_orbital_reference(
     // allowed only where the factory allowed them (a `persistent` upstream entity).
     let mut entity_persistence_locked: Option<String> = None;
     if obj.persistence.is_some() || obj.collection.is_some() {
-        if matches!(primary_entity.persistence, None | Some(Persistence::Persistent)) {
+        if matches!(
+            primary_entity.persistence,
+            None | Some(Persistence::Persistent)
+        ) {
             if let Some(mode) = obj.persistence.clone() {
                 primary_entity.persistence = Some(mode);
             }
@@ -1770,7 +1781,11 @@ pub(crate) fn resolve_orbital_reference(
         let mut keys: Vec<&String> = mock.keys().collect();
         keys.sort();
         for key in keys {
-            match primary_entity.fields.iter_mut().find(|f| f.name.as_deref() == Some(key.as_str())) {
+            match primary_entity
+                .fields
+                .iter_mut()
+                .find(|f| f.name.as_deref() == Some(key.as_str()))
+            {
                 Some(field) => field.mock = Some(mock[key].clone()),
                 None => mock_unknown_field.push(key.clone()),
             }
@@ -1907,7 +1922,9 @@ pub(crate) fn resolve_orbital_reference(
             let mut expect = expect.clone();
             match &mut expect {
                 orbital_core::schema::ExpectDeclaration::Entity { name, .. }
-                | orbital_core::schema::ExpectDeclaration::Identity { name: Some(name), .. } => {
+                | orbital_core::schema::ExpectDeclaration::Identity {
+                    name: Some(name), ..
+                } => {
                     if let Some(local) = obj.entities.as_ref().and_then(|m| m.get(name.as_str())) {
                         *name = local.clone();
                     }
@@ -4444,6 +4461,7 @@ mod tests {
             orbitals.push(owner);
         }
         let schema = OrbitalSchema {
+            theme_definitions: None,
             site: None,
             public_dir: None,
             locales: None,
@@ -4534,7 +4552,10 @@ mod tests {
                 entities,
                 ..Default::default()
             };
-            let consumer_ids = HashMap::from([("ConsumerOther".to_string(), "ent_CONSUMEROTHERID00000000".to_string())]);
+            let consumer_ids = HashMap::from([(
+                "ConsumerOther".to_string(),
+                "ent_CONSUMEROTHERID00000000".to_string(),
+            )]);
             let mut merges = Vec::new();
             resolve_orbital_reference(
                 &mut orbital,
@@ -4550,18 +4571,29 @@ mod tests {
             )
             .map(|()| merges)
         };
-        let merges = run(Some(HashMap::from([("Other".to_string(), "ConsumerOther".to_string())]))).expect("resolves");
+        let merges = run(Some(HashMap::from([(
+            "Other".to_string(),
+            "ConsumerOther".to_string(),
+        )])))
+        .expect("resolves");
         assert_eq!(merges.len(), 1);
         assert_eq!(merges[0].target, "ConsumerOther");
         assert!(!merges[0].intrinsic_only);
-        assert!(merges[0].imported.fields.iter().any(|f| f.name.as_deref() == Some("name")));
+        assert!(merges[0]
+            .imported
+            .fields
+            .iter()
+            .any(|f| f.name.as_deref() == Some("name")));
     }
 
     #[test]
     fn control_an_unmapped_entity_queues_no_retarget_merge() {
         let ctx = stage_b_ctx();
         let mut orbital = consumer_orbital("Local");
-        let obj = OrbitalRefObject { reference: "Up.orbitals.MainOrbital".to_string(), ..Default::default() };
+        let obj = OrbitalRefObject {
+            reference: "Up.orbitals.MainOrbital".to_string(),
+            ..Default::default()
+        };
         let mut merges = Vec::new();
         let _ = resolve_orbital_reference(
             &mut orbital,
@@ -5512,8 +5544,8 @@ mod tests {
             None,
             &mut diagnostics,
             None,
-        &mut Vec::new(),
-    )?;
+            &mut Vec::new(),
+        )?;
         Ok(orbital)
     }
 

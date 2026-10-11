@@ -925,7 +925,7 @@ mod tests {
         );
     }
 
-    /// `collect_fired_events_recursive` recurses generically through every
+    /// `collect_fired_with_knobs` recurses generically through every
     /// array/object node with no `type:`-based gating, so a conditional
     /// (`if`-wrapped) `itemActions` config default is walked into both
     /// branches automatically — proven here rather than assumed: both

@@ -110,28 +110,42 @@ fn validate_persist_batch(
                         Some(_) if is_op_tuple(element) => {
                             check_tuple(tuple, &op_path, &mut result);
                         }
-                        Some(head) if crate::phases::validation::sexpr::operators::is_known_operator(head) => {}
+                        Some(head)
+                            if crate::phases::validation::sexpr::operators::is_known_operator(
+                                head,
+                            ) => {}
                         Some(head) => bad_op(
                             &op_path,
-                            format!("batch op action '{head}' is not one of create, update, delete"),
+                            format!(
+                                "batch op action '{head}' is not one of create, update, delete"
+                            ),
                             &mut result,
                         ),
-                        None => bad_op(&op_path, "batch op must start with an action".to_string(), &mut result),
+                        None => bad_op(
+                            &op_path,
+                            "batch op must start with an action".to_string(),
+                            &mut result,
+                        ),
                     },
-                    _ => bad_op(&op_path, "batch op must be a [action, Entity, …] tuple".to_string(), &mut result),
+                    _ => bad_op(
+                        &op_path,
+                        "batch op must be a [action, Entity, …] tuple".to_string(),
+                        &mut result,
+                    ),
                 }
             }
         }
         BatchOps::Mapped(tuple) => check_tuple(tuple, &format!("{path}.ops"), &mut result),
         BatchOps::Expression => {
             let op_path = format!("{path}.ops");
-            let body_head = mapped_body(ops)
-                .and_then(|b| match b {
-                    SExpression::Array(items) => items.first().and_then(|h| h.as_str()),
-                    _ => None,
-                });
+            let body_head = mapped_body(ops).and_then(|b| match b {
+                SExpression::Array(items) => items.first().and_then(|h| h.as_str()),
+                _ => None,
+            });
             match body_head {
-                Some(head) if !crate::phases::validation::sexpr::operators::is_known_operator(head) => {
+                Some(head)
+                    if !crate::phases::validation::sexpr::operators::is_known_operator(head) =>
+                {
                     bad_op(
                         &op_path,
                         format!("batch op action '{head}' is not one of create, update, delete"),
@@ -172,11 +186,17 @@ fn validate_persist_batch(
     }
 
     let residence = orbital_core::effects::Residence::of_entities(entity_definitions.values());
-    if orbital_core::effects::persist_batch::batch_placement(ops, &residence) == BatchPlacement::Mixed {
+    if orbital_core::effects::persist_batch::batch_placement(ops, &residence)
+        == BatchPlacement::Mixed
+    {
         let mut browser: Vec<&str> = Vec::new();
         let mut server: Vec<&str> = Vec::new();
         for entity in batch_entities(ops) {
-            if residence.is_client(entity) { browser.push(entity) } else { server.push(entity) }
+            if residence.is_client(entity) {
+                browser.push(entity)
+            } else {
+                server.push(entity)
+            }
         }
         result.add_error(
             ValidationError::error(
@@ -214,7 +234,13 @@ pub(crate) fn validate_persist(
     declared_emits: Option<&[DeclaredEmit]>,
 ) -> ValidationResult {
     if is_batch(arr) {
-        return validate_persist_batch(arr, path, known_entities, entity_definitions, declared_emits);
+        return validate_persist_batch(
+            arr,
+            path,
+            known_entities,
+            entity_definitions,
+            declared_emits,
+        );
     }
     let mut result = ValidationResult::new();
 
@@ -380,7 +406,7 @@ mod tests {
     }
 
     fn persist_create_arr(entity: &str, fields: Vec<(&str, SExpression)>) -> Vec<SExpression> {
-        let mut obj = std::collections::HashMap::new();
+        let mut obj = orbital_core::schema::SObject::new();
         for (k, v) in fields {
             obj.insert(k.to_string(), v);
         }

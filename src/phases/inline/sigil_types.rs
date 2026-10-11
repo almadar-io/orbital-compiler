@@ -352,7 +352,8 @@ pub(crate) fn payload_field_of(f: &FieldDefinition) -> PayloadField {
         _ => tag,
     };
 
-    PayloadField { values: None,
+    PayloadField {
+        values: None,
         name: f.name.clone().unwrap_or_default(),
         field_type: tag,
         required: f.required,
@@ -406,8 +407,11 @@ mod tests {
     /// A sibling-orbital `@entity` resolves to the same shape and marker the per-orbital
     /// resolver stamps: `object` / `[object]` + the row + `entity`, so consumers judge it as a row.
     #[test]
-    fn a_sibling_orbital_entity_sentinel_is_stamped_with_its_entity_like_the_per_orbital_resolver() {
-        let row = vec![payload(serde_json::json!({ "name": "id", "type": "string" }))];
+    fn a_sibling_orbital_entity_sentinel_is_stamped_with_its_entity_like_the_per_orbital_resolver()
+    {
+        let row = vec![payload(
+            serde_json::json!({ "name": "id", "type": "string" }),
+        )];
         let mut fields = vec![
             payload(serde_json::json!({ "name": "row", "type": "@entity" })),
             payload(serde_json::json!({ "name": "rows", "type": "[@entity]" })),
@@ -421,8 +425,12 @@ mod tests {
 
     #[test]
     fn control_a_non_sentinel_field_is_left_alone() {
-        let row = vec![payload(serde_json::json!({ "name": "id", "type": "string" }))];
-        let mut fields = vec![payload(serde_json::json!({ "name": "id", "type": "string" }))];
+        let row = vec![payload(
+            serde_json::json!({ "name": "id", "type": "string" }),
+        )];
+        let mut fields = vec![payload(
+            serde_json::json!({ "name": "id", "type": "string" }),
+        )];
         substitute_entity_sentinel(&mut fields, &row, "NoteTagRef");
         assert_eq!(fields[0].field_type, "string");
         assert_eq!(fields[0].entity, None);

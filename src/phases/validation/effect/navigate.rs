@@ -67,7 +67,9 @@ pub(crate) fn validate_navigate(
 
     // The host's own sign-in route has no page: every host provides it itself.
     if let Some(ref nav_path) = nav_path_str {
-        let route = nav_path.split_once('?').map_or(nav_path.as_str(), |(route, _)| route);
+        let route = nav_path
+            .split_once('?')
+            .map_or(nav_path.as_str(), |(route, _)| route);
         if orbital_core::schema::is_host_sign_in_route(route) {
             return result;
         }
@@ -234,7 +236,10 @@ mod dynamic_prefix_tests {
     use super::*;
 
     fn pages(paths: &[&str]) -> HashMap<String, PageInitPayload> {
-        paths.iter().map(|p| (p.to_string(), PageInitPayload::default())).collect()
+        paths
+            .iter()
+            .map(|p| (p.to_string(), PageInitPayload::default()))
+            .collect()
     }
 
     fn concat(prefix: &str) -> Vec<SExpression> {
@@ -272,8 +277,14 @@ mod dynamic_prefix_tests {
 
     #[test]
     fn a_dynamic_query_string_resolves_its_route_before_the_question_mark() {
-        assert!(!unreachable(&concat("/inspection/new?companyId="), &["/inspection/new"]));
-        assert!(unreachable(&concat("/inspection/new?companyId="), &["/inspection"]));
+        assert!(!unreachable(
+            &concat("/inspection/new?companyId="),
+            &["/inspection/new"]
+        ));
+        assert!(unreachable(
+            &concat("/inspection/new?companyId="),
+            &["/inspection"]
+        ));
     }
 
     fn static_target(target: &str) -> Vec<SExpression> {
@@ -287,7 +298,10 @@ mod dynamic_prefix_tests {
     fn the_host_sign_in_route_is_reachable_without_a_page() {
         assert!(!unreachable(&static_target("/login"), &["/feed"]));
         assert!(!unreachable(&static_target("/login/"), &["/feed"]));
-        assert!(!unreachable(&static_target("/login?returnTo=/feed"), &["/feed"]));
+        assert!(!unreachable(
+            &static_target("/login?returnTo=/feed"),
+            &["/feed"]
+        ));
     }
 
     #[test]

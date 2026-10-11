@@ -13,12 +13,6 @@ thiserror.workspace = true
 tracing.workspace = true
 chrono.workspace = true
 regex = "1.10"
-# Pure-Rust (miniz_oxide) gzip for the baked registries — wasm32-safe, no C
-# toolchain. The corpus embeds as .gz (build.rs) and inflates lazily.
-flate2 = { version = "1", default-features = false, features = ["rust_backend"] }
-
-[build-dependencies]
-flate2 = { version = "1", default-features = false, features = ["rust_backend"] }
 
 [dev-dependencies]
 pretty_assertions.workspace = true

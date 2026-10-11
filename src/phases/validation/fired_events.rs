@@ -104,30 +104,70 @@ pub(crate) fn collect_schema_fired_events(schema: &OrbitalSchema) -> FiredEvents
             let TraitReference::Inline(td) = trait_ref else {
                 continue;
             };
+            let knobs = literal_knobs(td);
             for transition in &td.state_machine.transitions {
                 if let Some(effects) = &transition.effects {
                     for effect in effects {
-                        collect_fired_events_recursive(&td.name, effect, &mut fired);
+                        collect_fired_with_knobs(&td.name, effect, &knobs, &mut fired);
                     }
                 }
             }
             if let Some(ticks) = &td.ticks {
                 for tick in ticks {
                     for effect in &tick.effects {
-                        collect_fired_events_recursive(&td.name, effect, &mut fired);
+                        collect_fired_with_knobs(&td.name, effect, &knobs, &mut fired);
                     }
                 }
             }
             if let Some(config) = &td.config {
                 for field in config.values() {
                     if let Some(default) = &field.default {
-                        collect_fired_events_recursive(&td.name, default, &mut fired);
+                        collect_fired_with_knobs(&td.name, default, &knobs, &mut fired);
                     }
                 }
             }
         }
     }
     fired
+}
+
+/// A trait's config knobs whose resolved value is a literal (the composition's call-site value,
+/// folded into `default` by the inline phase): what a `(if @config.<knob> …)` condition reads.
+pub(crate) fn literal_knobs(
+    td: &TraitDefinition,
+) -> orbital_core::schema::SObject {
+    td.config
+        .iter()
+        .flat_map(|c| c.iter())
+        .filter_map(|(name, field)| match &field.default {
+            Some(
+                v @ (SExpression::Bool(_)
+                | SExpression::Number(_)
+                | SExpression::String(_)
+                | SExpression::Null),
+            ) => Some((name.clone(), v.clone())),
+            _ => None,
+        })
+        .collect()
+}
+
+/// `condition` with every `@config.<knob>` the trait resolved to a literal replaced by that
+/// literal, so a branch the composition's config switched off folds to statically false.
+pub(crate) fn fold_knobs(
+    condition: &SExpression,
+    knobs: &orbital_core::schema::SObject,
+) -> SExpression {
+    match condition {
+        SExpression::String(s) => s
+            .strip_prefix("@config.")
+            .and_then(|knob| knobs.get(knob))
+            .cloned()
+            .unwrap_or_else(|| condition.clone()),
+        SExpression::Array(items) => {
+            SExpression::Array(items.iter().map(|i| fold_knobs(i, knobs)).collect())
+        }
+        other => other.clone(),
+    }
 }
 
 /// Trait names whose event surface is DYNAMIC — the fired name is a binding
@@ -300,9 +340,10 @@ fn event_map_prop_names() -> &'static std::collections::HashSet<String> {
 /// pattern-sync wrote because a component author typed the prop
 /// accordingly. The set extends automatically as new event-bearing
 /// props ship in @almadar/ui.
-pub(crate) fn collect_fired_events_recursive(
+fn collect_fired_with_knobs(
     trait_name: &str,
     expr: &SExpression,
+    knobs: &orbital_core::schema::SObject,
     fired: &mut FiredEvents,
 ) {
     match expr {
@@ -347,16 +388,16 @@ pub(crate) fn collect_fired_events_recursive(
                 matches!(arr.first().and_then(|e| e.as_str()), Some("if")) && arr.len() >= 3;
             if is_conditional {
                 let condition = &arr[1];
-                if !condition.is_statically_false() {
-                    collect_fired_events_recursive(trait_name, &arr[2], fired);
+                if !fold_knobs(condition, knobs).is_statically_false() {
+                    collect_fired_with_knobs(trait_name, &arr[2], knobs, fired);
                 }
                 if let Some(else_branch) = arr.get(3) {
-                    collect_fired_events_recursive(trait_name, else_branch, fired);
+                    collect_fired_with_knobs(trait_name, else_branch, knobs, fired);
                 }
-                collect_fired_events_recursive(trait_name, condition, fired);
+                collect_fired_with_knobs(trait_name, condition, knobs, fired);
             } else {
                 for item in arr {
-                    collect_fired_events_recursive(trait_name, item, fired);
+                    collect_fired_with_knobs(trait_name, item, knobs, fired);
                 }
             }
         }
@@ -413,7 +454,7 @@ pub(crate) fn collect_fired_events_recursive(
                         }
                     }
                 }
-                collect_fired_events_recursive(trait_name, value, fired);
+                collect_fired_with_knobs(trait_name, value, knobs, fired);
             }
         }
         _ => {}
@@ -430,6 +471,7 @@ mod tests {
 
     fn minimal_schema(traits: Vec<TraitReference>) -> OrbitalSchema {
         OrbitalSchema {
+            theme_definitions: None,
             site: None,
             public_dir: None,
             locales: None,
@@ -555,6 +597,56 @@ mod tests {
     /// for it; a SIBLING trait `ArticleEdit` renders the actual button. A
     /// schema-wide-by-NAME set would credit `ArticleBrowse` with control
     /// production it doesn't have — keying by (trait, event) must not.
+    /// A list whose search control sits behind `(if @config.bodySearch …)`, both in a transition
+    /// effect and inside another knob's default (std-browse's `bodyContent`), with `bodySearch`
+    /// resolved to `body_search` (G-CROSS-144).
+    fn gated_search(body_search: serde_json::Value) -> OrbitalSchema {
+        let gated = serde_json::json!(["if", "@config.bodySearch", { "type": "search-input", "event": "REFETCH_QUERY" }]);
+        let mut config = serde_json::json!({
+            "bodyContent": { "type": "SExpr", "default": gated.clone() }
+        });
+        if !body_search.is_null() {
+            config["bodySearch"] = serde_json::json!({ "type": "boolean", "default": body_search });
+        }
+        serde_json::from_value(serde_json::json!({
+            "name": "App",
+            "orbitals": [{
+                "name": "Items",
+                "entity": { "name": "Item", "fields": [{ "name": "id", "type": "string" }] },
+                "traits": [{
+                    "name": "Browse",
+                    "config": config,
+                    "stateMachine": {
+                        "states": [{ "name": "idle", "isInitial": true }],
+                        "transitions": [{ "from": "idle", "to": "idle", "event": "INIT", "effects": [["render-ui", "main", gated]] }]
+                    }
+                }]
+            }]
+        }))
+        .expect("fixture deserializes")
+    }
+
+    #[test]
+    fn a_control_behind_a_config_off_knob_is_not_produced() {
+        let fired = collect_schema_fired_events(&gated_search(serde_json::json!(false)));
+        assert!(!fired.contains_for_trait("Browse", "REFETCH_QUERY"));
+    }
+
+    #[test]
+    fn control_a_control_behind_a_config_on_knob_is_produced() {
+        let fired = collect_schema_fired_events(&gated_search(serde_json::json!(true)));
+        assert!(fired.contains_for_trait("Browse", "REFETCH_QUERY"));
+    }
+
+    #[test]
+    fn edge_a_knob_with_no_literal_value_keeps_both_branches() {
+        let fired = collect_schema_fired_events(&gated_search(serde_json::Value::Null));
+        assert!(
+            fired.contains_for_trait("Browse", "REFETCH_QUERY"),
+            "undecidable: counted, never guessed dead"
+        );
+    }
+
     #[test]
     fn by_control_is_keyed_per_trait_not_per_event_name() {
         let mut browse = bare_trait("ArticleBrowse");
@@ -640,7 +732,7 @@ mod tests {
             SExpression::Array(vec![s("emit"), s("LIVE")]),
         ]);
         let mut fired = FiredEvents::default();
-        collect_fired_events_recursive("T", &tree, &mut fired);
+        collect_fired_with_knobs("T", &tree, &orbital_core::schema::SObject::new(), &mut fired);
         assert!(
             !fired
                 .by_effect
@@ -670,7 +762,7 @@ mod tests {
             SExpression::Array(vec![s("emit"), s("B")]),
         ]);
         let mut fired = FiredEvents::default();
-        collect_fired_events_recursive("T", &tree, &mut fired);
+        collect_fired_with_knobs("T", &tree, &orbital_core::schema::SObject::new(), &mut fired);
         assert!(fired
             .by_effect
             .contains(&("T".to_string(), "A".to_string())));
@@ -724,7 +816,7 @@ mod tests {
             .collect(),
         );
         let mut fired = FiredEvents::default();
-        collect_fired_events_recursive("T", &node, &mut fired);
+        collect_fired_with_knobs("T", &node, &orbital_core::schema::SObject::new(), &mut fired);
         assert!(
             fired
                 .by_control
@@ -754,7 +846,7 @@ mod tests {
             .collect(),
         );
         let mut fired = FiredEvents::default();
-        collect_fired_events_recursive("T", &node, &mut fired);
+        collect_fired_with_knobs("T", &node, &orbital_core::schema::SObject::new(), &mut fired);
         assert!(fired.by_control.is_empty(), "{:?}", fired.by_control);
     }
 }

@@ -210,7 +210,7 @@ fn expand_children_operators(children: &SExpression) -> SExpression {
 /// hidden (`aria-hidden` set to anything but a literal `false`). A present key
 /// counts even when empty (`alt: ""` declares a decorative image).
 pub(crate) fn lacks_accessible_name(
-    obj: &HashMap<String, SExpression>,
+    obj: &orbital_core::schema::SObject,
     name_props: &[String],
 ) -> bool {
     let hidden =
@@ -582,16 +582,17 @@ pub(crate) fn validate_pattern(
                         obj.get("fields"),
                         linked_entity.and_then(|e| entity_definitions.get(e)),
                     ) {
-                        let names = crate::phases::inline::rewrite::strip_literal_list_marker(fields)
-                            .iter()
-                            .filter_map(|f| match f {
-                                SExpression::String(name) => Some(name.as_str()),
-                                SExpression::Object(o) => match o.get("name") {
-                                    Some(SExpression::String(name)) => Some(name.as_str()),
+                        let names =
+                            crate::phases::inline::rewrite::strip_literal_list_marker(fields)
+                                .iter()
+                                .filter_map(|f| match f {
+                                    SExpression::String(name) => Some(name.as_str()),
+                                    SExpression::Object(o) => match o.get("name") {
+                                        Some(SExpression::String(name)) => Some(name.as_str()),
+                                        _ => None,
+                                    },
                                     _ => None,
-                                },
-                                _ => None,
-                            });
+                                });
                         for name in names {
                             let intrinsic = entity.fields.iter().any(|f| {
                                 f.name.as_deref() == Some(name) && f.intrinsic == Some(true)
@@ -893,8 +894,8 @@ pub(crate) fn validate_pattern(
                 .as_conditional_node()
                 .expect("guard above proved this is a conditional node");
             // `["if", cond, then, else?]`: the arms' IR positions are [2] and [3].
-            let arms = std::iter::once((cond.then_node, 2))
-                .chain(cond.else_node.map(|node| (node, 3)));
+            let arms =
+                std::iter::once((cond.then_node, 2)).chain(cond.else_node.map(|node| (node, 3)));
             for (arm, index) in arms {
                 let arm_path = format!("{path}[{index}]");
                 if let Some(mc) = arm.as_mapped_children() {
@@ -959,7 +960,7 @@ pub(crate) fn validate_pattern(
 /// object.
 fn validate_entity_prop_contract(
     pattern_type: &str,
-    obj: &HashMap<String, SExpression>,
+    obj: &orbital_core::schema::SObject,
     path: &str,
     entity_definitions: &HashMap<String, EntityDefinition>,
     linked_entity: Option<&str>,
@@ -983,7 +984,7 @@ fn validate_entity_prop_contract(
 fn validate_entity_prop_contract_inner(
     pattern_type: &str,
     embedded_pattern: &crate::embedded::EmbeddedPattern,
-    obj: &HashMap<String, SExpression>,
+    obj: &orbital_core::schema::SObject,
     path: &str,
     entity_definitions: &HashMap<String, EntityDefinition>,
     linked_entity: Option<&str>,
@@ -1042,7 +1043,7 @@ fn validate_entity_prop_contract_inner(
 /// node's bound entity exactly the same way — never two definitions of
 /// "what this node is bound to".
 fn resolve_node_bound_entity<'a>(
-    obj: &'a HashMap<String, SExpression>,
+    obj: &'a orbital_core::schema::SObject,
     linked_entity: Option<&'a str>,
 ) -> Option<&'a str> {
     match obj.get("entity") {
@@ -1078,7 +1079,7 @@ fn resolve_node_bound_entity<'a>(
 /// as the validator checks them.
 pub(crate) fn required_entity_fields_for_node(
     pattern_type: &str,
-    obj: &HashMap<String, SExpression>,
+    obj: &orbital_core::schema::SObject,
     entity_name: &str,
     linked_entity: Option<&str>,
 ) -> HashSet<String> {
@@ -1126,7 +1127,7 @@ fn is_whole_entity_binding(binding: &str) -> bool {
 /// (iii) any `@entity.f` reference appears anywhere in the resolved obj.
 fn is_field_provided(
     field: &str,
-    obj: &HashMap<String, SExpression>,
+    obj: &orbital_core::schema::SObject,
     entity_def: Option<&EntityDefinition>,
 ) -> bool {
     // (i) entity declares the field
@@ -1324,7 +1325,7 @@ mod entity_prop_contract_tests {
         }
     }
 
-    fn pattern_obj(entries: Vec<(&str, SExpression)>) -> HashMap<String, SExpression> {
+    fn pattern_obj(entries: Vec<(&str, SExpression)>) -> orbital_core::schema::SObject {
         entries
             .into_iter()
             .map(|(k, v)| (k.to_string(), v))
@@ -1639,13 +1640,12 @@ fn suggest_pattern_type(unknown: &str) -> Option<String> {
 #[cfg(test)]
 mod children_operator_tests {
     use super::*;
-    use std::collections::HashMap as Map;
 
     fn s(v: &str) -> SExpression {
         SExpression::String(v.to_string())
     }
     fn obj(pairs: &[(&str, SExpression)]) -> SExpression {
-        let mut m: Map<String, SExpression> = Map::new();
+        let mut m: orbital_core::schema::SObject = orbital_core::schema::SObject::new();
         for (k, v) in pairs {
             m.insert((*k).to_string(), v.clone());
         }
@@ -1706,9 +1706,8 @@ mod children_operator_tests {
 mod accessible_name_tests {
     use super::lacks_accessible_name;
     use orbital_core::schema::SExpression;
-    use std::collections::HashMap;
 
-    fn obj(pairs: &[(&str, SExpression)]) -> HashMap<String, SExpression> {
+    fn obj(pairs: &[(&str, SExpression)]) -> orbital_core::schema::SObject {
         pairs
             .iter()
             .map(|(k, v)| ((*k).to_string(), v.clone()))
@@ -1794,32 +1793,43 @@ mod conditional_enum_and_node_list_tests {
     }
 
     fn mismatches(r: &ValidationResult) -> usize {
-        r.errors.iter().filter(|e| e.code == ErrorCode::RenderUIPropTypeMismatch).count()
+        r.errors
+            .iter()
+            .filter(|e| e.code == ErrorCode::RenderUIPropTypeMismatch)
+            .count()
     }
 
     /// G-ORB-188(1): `card look: (if c elevated flat)` — `flat` is not a `CardLook`.
     #[test]
     fn an_if_branch_outside_the_enum_is_rejected() {
-        let r = validate(serde_json::json!({ "type": "card", "look": ["if", "@entity.on", "elevated", "flat"] }));
+        let r = validate(
+            serde_json::json!({ "type": "card", "look": ["if", "@entity.on", "elevated", "flat"] }),
+        );
         assert_eq!(mismatches(&r), 1, "{:?}", r.errors);
     }
 
     #[test]
     fn control_member_branches_and_a_binding_branch_pass() {
-        let r = validate(serde_json::json!({ "type": "card", "look": ["if", "@entity.on", "elevated", "@entity.look"] }));
+        let r = validate(
+            serde_json::json!({ "type": "card", "look": ["if", "@entity.on", "elevated", "@entity.look"] }),
+        );
         assert_eq!(mismatches(&r), 0, "{:?}", r.errors);
     }
 
     /// G-ORB-188(2): `alert actions: [{ label, event }]` — `actions` is a render node.
     #[test]
     fn a_node_prop_given_plain_objects_is_rejected() {
-        let r = validate(serde_json::json!({ "type": "alert", "message": "m", "actions": [{ "label": "Retry", "event": "RETRY" }] }));
+        let r = validate(
+            serde_json::json!({ "type": "alert", "message": "m", "actions": [{ "label": "Retry", "event": "RETRY" }] }),
+        );
         assert_eq!(mismatches(&r), 1, "{:?}", r.errors);
     }
 
     #[test]
     fn control_a_node_prop_given_a_pattern_passes() {
-        let r = validate(serde_json::json!({ "type": "alert", "message": "m", "actions": [{ "type": "button", "label": "Retry", "action": "RETRY" }] }));
+        let r = validate(
+            serde_json::json!({ "type": "alert", "message": "m", "actions": [{ "type": "button", "label": "Retry", "action": "RETRY" }] }),
+        );
         assert_eq!(mismatches(&r), 0, "{:?}", r.errors);
     }
 }

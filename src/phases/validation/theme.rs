@@ -256,7 +256,7 @@ pub fn validate_theme_definition(theme: &ThemeDefinition, path: &str) -> Validat
 /// `@almadar/core`'s `isWellFormedFontStack`.
 fn check_font_stacks(
     type_scale: Option<&TypeScaleTokens>,
-    typography: Option<&std::collections::HashMap<String, String>>,
+    typography: Option<&orbital_core::schema::ThemeMap>,
     path: &str,
     result: &mut ValidationResult,
 ) {

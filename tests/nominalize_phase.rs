@@ -204,7 +204,7 @@ fn same_shape_from_both_resolve_paths_dedups_to_one_entry() {
     module.traits.push({
         let mut t = orbital_core::ir::OirTrait::new("viewer");
         let mut event = orbital_core::ir::OirEvent::new("LOAD");
-        event.payload_schema = Some(std::collections::HashMap::from([(
+        event.payload_schema = Some(orbital_core::ir::OirTypeMap::from([(
             "meta".to_string(),
             shape_b(),
         )]));

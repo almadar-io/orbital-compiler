@@ -275,6 +275,8 @@ pub enum ErrorCode {
     PageEmptyTraits,
     /// Orbital has no pages defined
     OrbitalMissingPages,
+    /// Two orbitals of one program share a name
+    OrbitalDuplicateName,
     /// An `orbital X = Alias.orbitals.Y { config { … } } }` call-site
     /// override names a key the upstream orbital's declared `config {}`
     /// does not have (`Almadar_Orbital_Import.md` §4.5).
@@ -370,6 +372,11 @@ pub enum ErrorCode {
     /// not declared to send (`external`). An atom's own inputs are its offer;
     /// a composition that never wires one leaves that part of it dead.
     ComposedStateUnreachable,
+    /// A composed trait (`sourceBehavior` set) has a live transition, from a
+    /// reachable state, on an event the program cannot produce under its
+    /// resolved config: no listens route, control or effect fires it, it is
+    /// not a lifecycle event and not declared `external` (G-CROSS-144).
+    ComposedTransitionUnreachable,
     /// A composed trait's rendered control fires an event carrying a value
     /// that no other trait hears and whose own handling reads none of it: the
     /// value the user entered is discarded (a form submission nothing keeps).
@@ -1383,6 +1390,7 @@ impl ErrorCode {
             ErrorCode::PageMissingTraits => "ORB_P_MISSING_TRAITS",
             ErrorCode::PageEmptyTraits => "ORB_P_EMPTY_TRAITS",
             ErrorCode::OrbitalMissingPages => "ORB_O_MISSING_PAGES",
+            ErrorCode::OrbitalDuplicateName => "ORB_O_DUPLICATE_NAME",
             ErrorCode::OrbitalRefConfigUnknownKey => "ORB_O_CONFIG_UNKNOWN_KEY",
             ErrorCode::OrbitalRefOmitEmbeddedTrait => "ORB_O_OMIT_EMBEDDED_TRAIT",
             ErrorCode::OrbitalConfigDeadKnob => "ORB_O_CONFIG_DEAD_KNOB",
@@ -1408,6 +1416,7 @@ impl ErrorCode {
             ErrorCode::PageSecondContentBody => "ORB_PAGE_SECOND_CONTENT_BODY",
             ErrorCode::PageControlOutsideShell => "ORB_PAGE_CONTROL_OUTSIDE_SHELL",
             ErrorCode::ComposedStateUnreachable => "ORB_COMPOSED_STATE_UNREACHABLE",
+            ErrorCode::ComposedTransitionUnreachable => "ORB_COMPOSED_TRANSITION_UNREACHABLE",
             ErrorCode::ControlValueDiscarded => "ORB_CONTROL_VALUE_DISCARDED",
             ErrorCode::PageAmbiguousContentOwner => "ORB_PAGE_AMBIGUOUS_CONTENT_OWNER",
 
@@ -1767,6 +1776,7 @@ impl ErrorCode {
             | ErrorCode::PageMissingTraits
             | ErrorCode::PageEmptyTraits
             | ErrorCode::OrbitalMissingPages
+            | ErrorCode::OrbitalDuplicateName
             | ErrorCode::OrbitalRefConfigUnknownKey
             | ErrorCode::OrbitalRefOmitEmbeddedTrait
             | ErrorCode::OrbitalConfigDeadKnob
@@ -1968,6 +1978,7 @@ impl ErrorCode {
             | ErrorCode::CircuitAsyncResultDeafTarget
             | ErrorCode::CircuitViewerStranded
             | ErrorCode::ComposedStateUnreachable
+            | ErrorCode::ComposedTransitionUnreachable
             | ErrorCode::ControlValueDiscarded => "circuit",
 
             ErrorCode::IconInvalidFormat | ErrorCode::IconEmpty | ErrorCode::IconNotFound => "icon",

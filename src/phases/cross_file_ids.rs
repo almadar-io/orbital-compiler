@@ -107,6 +107,26 @@ fn resolve_ref_id(r: &str, aliases: &HashMap<String, ResolvedImport>) -> Option<
     }
 }
 
+/// Settle one dual-carry id slot against what its name resolves to. The name
+/// is the authoritative edge and the id only leverage, so an empty slot is
+/// filled and a stored id that differs from the name's resolution (the import's
+/// ids were re-derived) is replaced. A name that resolves to nothing leaves the
+/// slot as it is. Returns 1 when the slot changed.
+fn settle(slot: &mut Option<String>, resolved: Option<String>) -> usize {
+    match (slot.as_deref(), resolved) {
+        (None, Some(id)) => {
+            *slot = Some(id);
+            1
+        }
+        (Some(stored), Some(id)) if stored != id => {
+            tracing::info!(stale = stored, id = %id, "cross-file id re-resolved from its name");
+            *slot = Some(id);
+            1
+        }
+        _ => 0,
+    }
+}
+
 /// The trait-id a reference resolves to — either the inline trait's own id,
 /// an already-resolved `ref_id`, or a freshly cross-file-resolved one. Mirrors
 /// `orbital-lolo/identity.rs`'s `trait_ref_id_of`, extended to dotted refs.
@@ -143,23 +163,15 @@ fn resolve_trait_ref_edges(
         return 0;
     };
 
-    let mut count = 0;
-    if ref_id.is_none() {
-        if let Some(id) = reference.as_ref().and_then(|r| resolve_ref_id(r, aliases)) {
-            *ref_id = Some(id);
-            count += 1;
-        }
-    }
-    if linked_entity_id.is_none() {
-        if let Some(id) = linked_entity
+    settle(
+        ref_id,
+        reference.as_ref().and_then(|r| resolve_ref_id(r, aliases)),
+    ) + settle(
+        linked_entity_id,
+        linked_entity
             .as_ref()
-            .and_then(|n| resolve_ref_id(n, aliases))
-        {
-            *linked_entity_id = Some(id);
-            count += 1;
-        }
-    }
-    count
+            .and_then(|n| resolve_ref_id(n, aliases)),
+    )
 }
 
 /// Resolve a relation field's cross-file `entity_id`, recursing into array
@@ -171,12 +183,7 @@ fn resolve_field_relations(
 ) -> usize {
     let mut count = 0;
     if let Some(rel) = field.relation.as_mut() {
-        if rel.entity_id.is_none() {
-            if let Some(id) = resolve_ref_id(&rel.entity, aliases) {
-                rel.entity_id = Some(id);
-                count += 1;
-            }
-        }
+        count += settle(&mut rel.entity_id, resolve_ref_id(&rel.entity, aliases));
     }
     if let Some(items) = field.items.as_mut() {
         count += resolve_field_relations(items, aliases);
@@ -205,12 +212,7 @@ fn resolve_orbital(orbital: &mut Orbital, aliases: &HashMap<String, ResolvedImpo
     let mut count = 0;
 
     if let EntityRef::Extends(e) = &mut orbital.entity {
-        if e.extends_id.is_none() {
-            if let Some(id) = resolve_ref_id(&e.reference, aliases) {
-                e.extends_id = Some(id);
-                count += 1;
-            }
-        }
+        count += settle(&mut e.extends_id, resolve_ref_id(&e.reference, aliases));
     }
     if let EntityRef::Inline(entity) = &mut orbital.entity {
         for f in &mut entity.fields {
@@ -232,22 +234,13 @@ fn resolve_orbital(orbital: &mut Orbital, aliases: &HashMap<String, ResolvedImpo
                 }
             }
             PageRef::Object(o) => {
-                if o.ref_id.is_none() {
-                    if let Some(id) = resolve_ref_id(&o.reference, aliases) {
-                        o.ref_id = Some(id);
-                        count += 1;
-                    }
-                }
-                if o.linked_entity_id.is_none() {
-                    if let Some(id) = o
-                        .linked_entity
+                count += settle(&mut o.ref_id, resolve_ref_id(&o.reference, aliases));
+                count += settle(
+                    &mut o.linked_entity_id,
+                    o.linked_entity
                         .as_ref()
-                        .and_then(|n| resolve_ref_id(n, aliases))
-                    {
-                        o.linked_entity_id = Some(id);
-                        count += 1;
-                    }
-                }
+                        .and_then(|n| resolve_ref_id(n, aliases)),
+                );
                 if let Some(traits) = o.traits.as_mut() {
                     for tr in traits.iter_mut() {
                         count += resolve_trait_ref_edges(tr, aliases);
@@ -256,12 +249,11 @@ fn resolve_orbital(orbital: &mut Orbital, aliases: &HashMap<String, ResolvedImpo
                     ref_ids.resize(traits.len(), String::new());
                     let mut any_set = ref_ids.iter().any(|s| !s.is_empty());
                     for (i, tr) in traits.iter().enumerate() {
-                        if ref_ids[i].is_empty() {
-                            if let Some(id) = trait_ref_id_of(tr, aliases) {
-                                ref_ids[i] = id;
-                                any_set = true;
-                                count += 1;
-                            }
+                        let mut slot = (!ref_ids[i].is_empty()).then(|| ref_ids[i].clone());
+                        if settle(&mut slot, trait_ref_id_of(tr, aliases)) == 1 {
+                            ref_ids[i] = slot.unwrap_or_default();
+                            any_set = true;
+                            count += 1;
                         }
                     }
                     if any_set {
@@ -576,12 +568,88 @@ mod tests {
         }
     }
 
+    fn importer_with_ref_id(stored: Option<&str>) -> OrbitalSchema {
+        let mut orbital = orbital_with_use("Alias", "./foo.orb", "Alias.traits.Foo");
+        if let TraitReference::Reference { ref_id, .. } = &mut orbital.traits[0] {
+            *ref_id = stored.map(str::to_string);
+        }
+        OrbitalSchema {
+            theme_definitions: None,
+            site: None,
+            public_dir: None,
+            locales: None,
+            lazy_pages: None,
+            theme: None,
+            name: "Test".to_string(),
+            version: None,
+            description: None,
+            orbitals: vec![orbital],
+            metadata: None,
+            ledger: None,
+            schema_version: None,
+            config: None,
+        }
+    }
+
+    fn import_with_foo(id: Option<&str>) -> HashMap<String, ResolvedImport> {
+        let mut reverse = HashMap::new();
+        if let Some(id) = id {
+            reverse.insert((IdKind::Trait, "Foo".to_string()), id.to_string());
+        }
+        HashMap::from([(
+            "./foo.orb".to_string(),
+            ResolvedImport {
+                reverse,
+                entity_id: None,
+            },
+        )])
+    }
+
+    fn ref_id_of(schema: &OrbitalSchema) -> Option<String> {
+        match &schema.orbitals[0].traits[0] {
+            TraitReference::Reference { ref_id, .. } => ref_id.clone(),
+            TraitReference::Inline(_) => panic!("expected Reference variant"),
+        }
+    }
+
+    /// Live behaviors W1: a stored cross-file id the import no longer carries
+    /// (the import's ids were re-derived) is re-resolved from its name — the
+    /// name is the authoritative edge, the id only leverage.
+    #[test]
+    fn a_stale_stored_cross_file_id_is_re_resolved_from_its_name() {
+        let mut schema = importer_with_ref_id(Some("trt_OLDENTROPY"));
+        let changed =
+            resolve_schema_with_imports(&mut schema, &import_with_foo(Some("trt_DERIVED")));
+        assert_eq!(changed, 1);
+        assert_eq!(ref_id_of(&schema).as_deref(), Some("trt_DERIVED"));
+    }
+
+    #[test]
+    fn control_a_stored_id_that_still_matches_is_untouched() {
+        let mut schema = importer_with_ref_id(Some("trt_DERIVED"));
+        let changed =
+            resolve_schema_with_imports(&mut schema, &import_with_foo(Some("trt_DERIVED")));
+        assert_eq!(changed, 0);
+        assert_eq!(ref_id_of(&schema).as_deref(), Some("trt_DERIVED"));
+    }
+
+    /// A name that no longer resolves (the target was renamed or removed) keeps
+    /// the stored id: nothing is invented, and the unknown-ref check reports it.
+    #[test]
+    fn edge_a_name_that_no_longer_resolves_keeps_the_stored_id() {
+        let mut schema = importer_with_ref_id(Some("trt_OLDENTROPY"));
+        let changed = resolve_schema_with_imports(&mut schema, &import_with_foo(None));
+        assert_eq!(changed, 0);
+        assert_eq!(ref_id_of(&schema).as_deref(), Some("trt_OLDENTROPY"));
+    }
+
     /// (a) A `uses` import whose ledger has trait `Foo` resolves a
     /// `ref: "Alias.traits.Foo"` to the imported id, without touching the
     /// `reference` string (dual-carry, not inlining).
     #[test]
     fn resolves_dotted_trait_ref_from_imported_ledger() {
         let mut schema = OrbitalSchema {
+            theme_definitions: None,
             site: None,
             public_dir: None,
             locales: None,
@@ -626,6 +694,7 @@ mod tests {
     #[test]
     fn leaves_unresolvable_dotted_ref_none_without_panic() {
         let mut schema = OrbitalSchema {
+            theme_definitions: None,
             site: None,
             public_dir: None,
             locales: None,
@@ -670,6 +739,7 @@ mod tests {
     #[test]
     fn leaves_unknown_alias_ref_none() {
         let mut schema = OrbitalSchema {
+            theme_definitions: None,
             site: None,
             public_dir: None,
             locales: None,
@@ -707,7 +777,7 @@ mod tests {
 
     #[test]
     fn build_reverse_index_keys_by_kind_and_baked_name() {
-        let mut entries = HashMap::new();
+        let mut entries = std::collections::BTreeMap::new();
         entries.insert("trt_1".to_string(), trait_ledger_entry("trt_1", "Foo"));
         let ledger = IdentityLedger {
             schema_version: 1,
@@ -783,6 +853,7 @@ mod tests {
         std::fs::write(dir.path().join("frame.orb"), FRAME_ORB).expect("write frame.orb");
 
         let mut schema = OrbitalSchema {
+            theme_definitions: None,
             site: None,
             public_dir: None,
             locales: None,
@@ -852,6 +923,7 @@ mod tests {
         std::fs::write(dir.path().join("b.orb"), b_orb).expect("write b.orb");
 
         let mut schema = OrbitalSchema {
+            theme_definitions: None,
             site: None,
             public_dir: None,
             locales: None,

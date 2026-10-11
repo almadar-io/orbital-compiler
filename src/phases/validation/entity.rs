@@ -317,7 +317,7 @@ fn validate_browser_storage(entity: &EntityDefinition, path: &str, result: &mut 
 /// and (browser-stored) a stable `id`.
 fn check_instance_rows<'a>(
     entity: &EntityDefinition,
-    rows: impl Iterator<Item = &'a std::collections::HashMap<String, orbital_core::schema::SExpression>>,
+    rows: impl Iterator<Item = &'a orbital_core::schema::SObject>,
     rows_path: &str,
     result: &mut ValidationResult,
 ) {
@@ -923,7 +923,7 @@ mod tests {
             cardinality: None,
             entity_id: None,
         });
-        field.default = Some(SExpression::Object(HashMap::new()));
+        field.default = Some(SExpression::Object(orbital_core::schema::SObject::new()));
         entity.fields.push(field);
 
         let known_entities: HashSet<String> = ["Task".to_string()].into_iter().collect();
@@ -1027,7 +1027,7 @@ mod tests {
         let mut entity = create_valid_entity();
         entity.fields.push(many_relation_field(
             "children",
-            SExpression::Array(vec![SExpression::Object(HashMap::new())]),
+            SExpression::Array(vec![SExpression::Object(orbital_core::schema::SObject::new())]),
         ));
 
         let result = validate_entity(&entity, "test", &HashSet::new(), true);
@@ -1046,7 +1046,7 @@ mod tests {
         let mut entity = create_valid_entity();
         entity.fields.push(many_relation_field(
             "children",
-            SExpression::Object(HashMap::new()),
+            SExpression::Object(orbital_core::schema::SObject::new()),
         ));
 
         let result = validate_entity(&entity, "test", &HashSet::new(), true);
@@ -1238,7 +1238,7 @@ mod tests {
 
         let mut field = create_field("source", FieldType::Object);
         field.properties = Some(props);
-        field.default = Some(SExpression::Object(HashMap::new()));
+        field.default = Some(SExpression::Object(orbital_core::schema::SObject::new()));
         entity.fields.push(field);
 
         let result = validate_entity(&entity, "test", &HashSet::new(), true);

@@ -13,9 +13,8 @@
 use std::collections::{HashMap, HashSet};
 
 use orbital_core::schema::{
-    config_ref_event_knob, definer_knobs_for_trait, ConfigField, EntityDefinition,
-    FieldDefinition, FieldType, Orbital, OrbitalSchema, PayloadField, SExpression, TraitDefinition,
-    TraitReference,
+    config_ref_event_knob, definer_knobs_for_trait, ConfigField, EntityDefinition, FieldDefinition,
+    FieldType, Orbital, OrbitalSchema, PayloadField, SExpression, TraitDefinition, TraitReference,
 };
 use orbital_core::type_compat::set_value_type_compatible;
 
@@ -1161,7 +1160,14 @@ fn check_config_default_shape(
     // Tuple slot — `field_type` is `[T1, T2, …]`; the slots ride `properties` by index.
     if orbital_core::type_compat::tuple_type_slots(&field.field_type).is_some() {
         let slots = orbital_core::schema::tuple_slots_of(field.properties.as_ref());
-        return check_tuple_shape(&slots, default, path, orbital_events, &HashMap::new(), false);
+        return check_tuple_shape(
+            &slots,
+            default,
+            path,
+            orbital_events,
+            &HashMap::new(),
+            false,
+        );
     }
     // Array slot — `field_type` is `[T]` (string tag) and `items` carries
     // the per-element shape. Verify the value is an array, then recurse
@@ -1363,9 +1369,16 @@ fn check_tuple_shape(
             ValidationError::error(
                 ErrorCode::TraitConfigShapeMismatch,
                 path,
-                format!("expected a tuple of {} values, got {}", slots.len(), super::sexpr::render_sexpr_brief(value)),
+                format!(
+                    "expected a tuple of {} values, got {}",
+                    slots.len(),
+                    super::sexpr::render_sexpr_brief(value)
+                ),
             )
-            .with_suggestion(format!("supply `[ … ]` with exactly {} values", slots.len())),
+            .with_suggestion(format!(
+                "supply `[ … ]` with exactly {} values",
+                slots.len()
+            )),
         );
         return result;
     };
@@ -1374,7 +1387,11 @@ fn check_tuple_shape(
             ValidationError::error(
                 ErrorCode::TraitConfigShapeMismatch,
                 path,
-                format!("expected a tuple of {} values, got {}", slots.len(), items.len()),
+                format!(
+                    "expected a tuple of {} values, got {}",
+                    slots.len(),
+                    items.len()
+                ),
             )
             .with_suggestion(format!("supply exactly {} values", slots.len())),
         );
@@ -1849,7 +1866,7 @@ enum VariantChoice<'a> {
 }
 
 fn select_union_variant<'a>(
-    value: &std::collections::HashMap<String, SExpression>,
+    value: &orbital_core::schema::SObject,
     names: &[String],
     variants: &'a HashMap<String, FieldDefinition>,
 ) -> VariantChoice<'a> {
@@ -3702,7 +3719,7 @@ mod recursive_type_literal_tests {
     }
 
     fn item(label: &str, sub_menu: Vec<SExpression>) -> SExpression {
-        let mut obj = std::collections::HashMap::new();
+        let mut obj = orbital_core::schema::SObject::new();
         obj.insert("label".to_string(), SExpression::String(label.to_string()));
         obj.insert("subMenu".to_string(), SExpression::Array(sub_menu));
         SExpression::Object(obj)
@@ -3742,7 +3759,7 @@ mod recursive_type_literal_tests {
     fn depth_3_literal_with_wrong_inner_field_name_errors() {
         let field = menu_item_config_field();
         let events = HashSet::new();
-        let mut typo_leaf = std::collections::HashMap::new();
+        let mut typo_leaf = orbital_core::schema::SObject::new();
         typo_leaf.insert(
             "labell".to_string(), // typo: required "label" is now absent
             SExpression::String("C".to_string()),
@@ -3824,7 +3841,7 @@ mod skip_required_members_tests {
     #[test]
     fn strict_mode_rejects_incomplete_object_literal() {
         let schema = alias_with_required_members();
-        let empty = SExpression::Object(HashMap::new());
+        let empty = SExpression::Object(orbital_core::schema::SObject::new());
         let result = check_field_def_shape(
             &schema,
             &empty,
@@ -3845,7 +3862,7 @@ mod skip_required_members_tests {
     #[test]
     fn lenient_mode_accepts_incomplete_object_literal_for_entity_defaults() {
         let schema = alias_with_required_members();
-        let empty = SExpression::Object(HashMap::new());
+        let empty = SExpression::Object(orbital_core::schema::SObject::new());
         let result = check_field_def_shape(
             &schema,
             &empty,
@@ -4077,7 +4094,7 @@ mod union_variant_selection_tests {
         order.iter().map(|s| s.to_string()).collect()
     }
 
-    fn value(pairs: &[(&str, &str)]) -> HashMap<String, SExpression> {
+    fn value(pairs: &[(&str, &str)]) -> orbital_core::schema::SObject {
         pairs
             .iter()
             .map(|(k, v)| (k.to_string(), SExpression::String(v.to_string())))
@@ -4232,17 +4249,57 @@ mod tuple_shape_tests {
     /// (`Light.position : [number, number, number]`) and a knob typed `[number, number, number]`.
     #[test]
     fn a_tuple_value_is_checked_for_arity_and_slot_types() {
-        let member: FieldDefinition = serde_json::from_value(serde_json::json!({ "type": "tuple", "properties": slots() })).unwrap();
-        let check = |v: &SExpression| check_field_def_shape(&member, v, "p", &EventScope::default(), &HashMap::new(), false);
+        let member: FieldDefinition =
+            serde_json::from_value(serde_json::json!({ "type": "tuple", "properties": slots() }))
+                .unwrap();
+        let check = |v: &SExpression| {
+            check_field_def_shape(
+                &member,
+                v,
+                "p",
+                &EventScope::default(),
+                &HashMap::new(),
+                false,
+            )
+        };
         assert!(check(&nums(&[1.0, 2.0, 3.0])).errors.is_empty());
         assert!(!check(&nums(&[1.0, 2.0])).errors.is_empty(), "wrong arity");
-        assert!(!check(&SExpression::Array(vec![SExpression::Number(1.0), SExpression::String("x".into()), SExpression::Number(3.0)])).errors.is_empty(), "wrong slot type");
-        assert!(!check(&SExpression::String("x".into())).errors.is_empty(), "not an array");
+        assert!(
+            !check(&SExpression::Array(vec![
+                SExpression::Number(1.0),
+                SExpression::String("x".into()),
+                SExpression::Number(3.0)
+            ]))
+            .errors
+            .is_empty(),
+            "wrong slot type"
+        );
+        assert!(
+            !check(&SExpression::String("x".into())).errors.is_empty(),
+            "not an array"
+        );
 
-        let knob: ConfigField = serde_json::from_value(serde_json::json!({ "type": "[number, number, number]", "properties": slots() })).unwrap();
-        let check_knob = |v: &SExpression| check_config_default_shape(&knob, v, "k", &EventScope::default(), None);
+        let knob: ConfigField = serde_json::from_value(
+            serde_json::json!({ "type": "[number, number, number]", "properties": slots() }),
+        )
+        .unwrap();
+        let check_knob = |v: &SExpression| {
+            check_config_default_shape(&knob, v, "k", &EventScope::default(), None)
+        };
         assert!(check_knob(&nums(&[4.0, 5.0, 6.0])).errors.is_empty());
-        assert!(!check_knob(&nums(&[4.0, 5.0])).errors.is_empty(), "knob: wrong arity");
-        assert!(!check_knob(&SExpression::Array(vec![SExpression::String("a".into()), SExpression::Number(5.0), SExpression::Number(6.0)])).errors.is_empty(), "knob: wrong slot type");
+        assert!(
+            !check_knob(&nums(&[4.0, 5.0])).errors.is_empty(),
+            "knob: wrong arity"
+        );
+        assert!(
+            !check_knob(&SExpression::Array(vec![
+                SExpression::String("a".into()),
+                SExpression::Number(5.0),
+                SExpression::Number(6.0)
+            ]))
+            .errors
+            .is_empty(),
+            "knob: wrong slot type"
+        );
     }
 }

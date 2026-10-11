@@ -658,7 +658,6 @@ mod render_ui_pattern_contract_reference_tests {
         FieldDefinition, FieldType, Persistence, StateDefinition, StateMachine, StringOrArray,
         TransitionDefinition,
     };
-    use std::collections::HashMap;
 
     fn entity(name: &str) -> EntityDefinition {
         EntityDefinition {
@@ -750,7 +749,7 @@ mod render_ui_pattern_contract_reference_tests {
     }
 
     fn calendar_grid_node() -> SExpression {
-        let mut obj = HashMap::new();
+        let mut obj = orbital_core::schema::SObject::new();
         obj.insert(
             "type".to_string(),
             SExpression::String("calendar-grid".to_string()),

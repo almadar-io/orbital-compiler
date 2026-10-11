@@ -5,8 +5,8 @@
 //! importer keeps only `lazyPages`, recorded from the split schema's resolved
 //! pages.
 
-use super::inline::InlineError;
 use super::inline::InlineConfig;
+use super::inline::InlineError;
 use super::{resolve_schema_with_inline, CompileResult, CompilerOptions};
 use orbital_core::schema::{LazyPage, Orbital, OrbitalSchema, PageRef};
 use std::path::Path;
@@ -78,6 +78,7 @@ pub fn split_lazy(schema: &mut OrbitalSchema) -> Vec<LazyArtifact> {
             LazyArtifact {
                 orb_ref: lazy_orb_ref(&name),
                 schema: OrbitalSchema {
+                    theme_definitions: None,
                     site: schema.site.clone(),
                     public_dir: None,
                     name: name.clone(),
@@ -147,7 +148,10 @@ pub fn record_lazy_pages(
             orbital: artifact.orbital.clone(),
         });
     }
-    importer.lazy_pages.get_or_insert_with(Vec::new).extend(pages);
+    importer
+        .lazy_pages
+        .get_or_insert_with(Vec::new)
+        .extend(pages);
     Ok(())
 }
 
@@ -233,7 +237,12 @@ pub fn write_lazy(
         }
         std::fs::write(&out, serialize(&item.schema)?)?;
         super::messages::write_catalogs(&out, &item.schema, program_dir)?;
-        write_lazy(out.parent().unwrap_or(dir), &item.lazy, program_dir, serialize)?;
+        write_lazy(
+            out.parent().unwrap_or(dir),
+            &item.lazy,
+            program_dir,
+            serialize,
+        )?;
     }
     Ok(())
 }

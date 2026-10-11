@@ -381,6 +381,7 @@ mod tests {
         };
 
         OrbitalSchema {
+            theme_definitions: None,
             site: None,
             public_dir: None,
             locales: None,

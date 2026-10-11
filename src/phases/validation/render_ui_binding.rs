@@ -677,7 +677,8 @@ mod tests {
     fn resolves_payload_field_to_declared_type() {
         let t = empty_trait("T", None);
         let entities: HashMap<String, EntityDefinition> = HashMap::new();
-        let payload = vec![PayloadField { values: None,
+        let payload = vec![PayloadField {
+            values: None,
             name: "tabId".to_string(),
             field_type: "string".to_string(),
             required: Some(true),
@@ -905,7 +906,8 @@ mod tests {
     fn resolves_or_operator_first_truthy() {
         let t = empty_trait("T", None);
         let entities: HashMap<String, EntityDefinition> = HashMap::new();
-        let payload = vec![PayloadField { values: None,
+        let payload = vec![PayloadField {
+            values: None,
             name: "totalCount".to_string(),
             field_type: "number".to_string(),
             required: None,

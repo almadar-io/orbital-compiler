@@ -2633,7 +2633,8 @@ mod tests {
     #[test]
     fn test_payload_field_undeclared_missing_field() {
         let expr = SExpression::String("@payload.unknownField".to_string());
-        let fields = vec![PayloadField { values: None,
+        let fields = vec![PayloadField {
+            values: None,
             name: "rawData".to_string(),
             field_type: "array".to_string(),
             required: Some(true),
@@ -2653,7 +2654,8 @@ mod tests {
     #[test]
     fn test_payload_field_declared() {
         let expr = SExpression::String("@payload.rawData".to_string());
-        let fields = vec![PayloadField { values: None,
+        let fields = vec![PayloadField {
+            values: None,
             name: "rawData".to_string(),
             field_type: "array".to_string(),
             required: Some(true),
@@ -2672,7 +2674,8 @@ mod tests {
         // `?payload.date` lowers to `@payload.payload.date` — the suggestion
         // must name the sigil mistake, not "add a field named payload".
         let expr = SExpression::String("@payload.payload.date".to_string());
-        let fields = vec![PayloadField { values: None,
+        let fields = vec![PayloadField {
+            values: None,
             name: "date".to_string(),
             field_type: "string".to_string(),
             required: Some(true),
@@ -2704,12 +2707,14 @@ mod tests {
         // A schema that DOES declare a field named `payload` is not the hybrid
         // mistake — deeper misses under it keep the generic suggestion.
         let expr = SExpression::String("@payload.payload.missing".to_string());
-        let fields = vec![PayloadField { values: None,
+        let fields = vec![PayloadField {
+            values: None,
             name: "payload".to_string(),
             field_type: "object".to_string(),
             required: Some(true),
             description: None,
-            properties: Some(vec![PayloadField { values: None,
+            properties: Some(vec![PayloadField {
+                values: None,
                 name: "present".to_string(),
                 field_type: "string".to_string(),
                 required: Some(true),
@@ -3179,7 +3184,7 @@ mod tests {
             s("render-ui"),
             s("main"),
             SExpression::Object({
-                let mut m = std::collections::HashMap::new();
+                let mut m = orbital_core::schema::SObject::new();
                 m.insert("currentPage".to_string(), s("@entity.currentPage"));
                 m
             }),
@@ -3291,7 +3296,7 @@ mod tests {
             s("render-ui"),
             s("main"),
             SExpression::Object({
-                let mut m = std::collections::HashMap::new();
+                let mut m = orbital_core::schema::SObject::new();
                 m.insert("range".to_string(), s("@entity.selectedRange"));
                 m
             }),
@@ -3328,7 +3333,7 @@ mod tests {
             s("render-ui"),
             s("main"),
             SExpression::Object({
-                let mut m = std::collections::HashMap::new();
+                let mut m = orbital_core::schema::SObject::new();
                 m.insert("currentPage".to_string(), s("@entity.currentPage"));
                 m
             }),
@@ -3365,7 +3370,7 @@ mod tests {
             s("render-ui"),
             s("main"),
             SExpression::Object({
-                let mut m = std::collections::HashMap::new();
+                let mut m = orbital_core::schema::SObject::new();
                 m.insert("currentPage".to_string(), s("@entity.currentPage"));
                 m
             }),
@@ -3396,7 +3401,7 @@ mod tests {
             s("render-ui"),
             s("main"),
             SExpression::Object({
-                let mut m = std::collections::HashMap::new();
+                let mut m = orbital_core::schema::SObject::new();
                 m.insert("entityId".to_string(), s("@entity.id"));
                 m
             }),
@@ -3427,7 +3432,7 @@ mod tests {
             s("render-ui"),
             s("main"),
             SExpression::Object({
-                let mut m = std::collections::HashMap::new();
+                let mut m = orbital_core::schema::SObject::new();
                 m.insert("anything".to_string(), s("@entity.anything"));
                 m
             }),
@@ -3457,7 +3462,7 @@ mod tests {
             s("render-ui"),
             s("main"),
             SExpression::Object({
-                let mut m = std::collections::HashMap::new();
+                let mut m = orbital_core::schema::SObject::new();
                 m.insert("currentPage".to_string(), s("@entity.currentPage"));
                 m
             }),
@@ -3607,7 +3612,7 @@ mod tests {
             s("render-ui"),
             s("main"),
             SExpression::Object({
-                let mut m = HashMap::new();
+                let mut m = orbital_core::schema::SObject::new();
                 m.insert("type".to_string(), s("stack"));
                 m.insert("children".to_string(), arr(vec![s("@trait.Child")]));
                 m
@@ -3672,7 +3677,7 @@ mod tests {
             s("render-ui"),
             s("main"),
             SExpression::Object({
-                let mut m = HashMap::new();
+                let mut m = orbital_core::schema::SObject::new();
                 m.insert(
                     "children".to_string(),
                     arr(refs.into_iter().map(s).collect()),
@@ -3765,7 +3770,7 @@ mod tests {
             s("render-ui"),
             s("main"),
             SExpression::Object({
-                let mut m = HashMap::new();
+                let mut m = orbital_core::schema::SObject::new();
                 m.insert("text".to_string(), s("@entity.title"));
                 m
             }),
@@ -3835,7 +3840,7 @@ mod tests {
             s("render-ui"),
             s("main"),
             SExpression::Object({
-                let mut m = HashMap::new();
+                let mut m = orbital_core::schema::SObject::new();
                 m.insert("text".to_string(), s("@entity.title"));
                 m
             }),
@@ -3900,7 +3905,7 @@ mod tests {
             s("render-ui"),
             s("main"),
             SExpression::Object({
-                let mut m = HashMap::new();
+                let mut m = orbital_core::schema::SObject::new();
                 m.insert("done".to_string(), s("@entity.done"));
                 m
             }),
@@ -3941,7 +3946,7 @@ mod tests {
             s("render-ui"),
             s("main"),
             SExpression::Object({
-                let mut m = std::collections::HashMap::new();
+                let mut m = orbital_core::schema::SObject::new();
                 m.insert("val".to_string(), s("@entity.sharedX"));
                 m
             }),
@@ -3984,7 +3989,7 @@ mod tests {
             s("render-ui"),
             s("main"),
             SExpression::Object({
-                let mut m = std::collections::HashMap::new();
+                let mut m = orbital_core::schema::SObject::new();
                 m.insert("val".to_string(), s("@entity.neverSet"));
                 m
             }),
@@ -4027,7 +4032,7 @@ mod tests {
             s("render-ui"),
             s("main"),
             SExpression::Object({
-                let mut m = std::collections::HashMap::new();
+                let mut m = orbital_core::schema::SObject::new();
                 m.insert("val".to_string(), s("@entity.x"));
                 m
             }),

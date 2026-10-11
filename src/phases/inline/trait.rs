@@ -215,7 +215,7 @@ pub(crate) fn apply_overrides_to_trait(
             ))
         });
     }
-    let mut effective_config: HashMap<String, SExpression> = HashMap::new();
+    let mut effective_config: orbital_core::schema::SObject = orbital_core::schema::SObject::new();
     if let Some(declared) = trait_def.config.as_ref() {
         for (k, field) in declared.iter() {
             if let Some(default) = field.default.as_ref() {
@@ -567,7 +567,7 @@ pub(crate) fn apply_overrides_to_trait(
             })
             .unwrap_or_default();
         coerce_trait_knob_conditions(trait_def, &trait_knobs, &effective_config);
-        let subst_config: HashMap<String, SExpression> = effective_config
+        let subst_config: orbital_core::schema::SObject = effective_config
             .iter()
             .filter(|(_, v)| !orbital_core::schema::contains_callsite_payload(v))
             .map(|(k, v)| (k.clone(), v.clone()))
@@ -825,7 +825,7 @@ fn set_entity_field(target: &SExpression) -> Option<&str> {
 /// just the resolved default, or `ORB_X_RENDER_UI_EVENT_LITERAL_STALE` fires.
 pub(crate) fn resolve_config_ref_emit_names(
     trait_def: &mut TraitDefinition,
-    effective_config: &HashMap<String, SExpression>,
+    effective_config: &orbital_core::schema::SObject,
 ) -> Vec<String> {
     let mut resolved_triples: Vec<(String, String, String)> = Vec::new();
     {
@@ -1106,7 +1106,7 @@ pub(super) fn forwarded_sibling_config_from_tracked(
         upstream_schema_config,
         schema_config,
     };
-    let mut out: HashMap<String, ConfigField> = HashMap::new();
+    let mut out: HashMap<String, ConfigField> = std::collections::HashMap::new();
     for (key, field) in declared.iter() {
         match field.default.as_ref() {
             Some(SExpression::String(forward)) => {
@@ -1303,7 +1303,7 @@ fn substitute_nested_forwards(
         }
         SExpression::Object(map) => {
             let mut changed = false;
-            let next: HashMap<String, SExpression> = map
+            let next: orbital_core::schema::SObject = map
                 .iter()
                 .map(|(k, v)| {
                     match substitute_nested_forwards(v, own, rungs, tokens, schema_only) {
@@ -1906,8 +1906,8 @@ pub(crate) fn inline_traits(
                                         // source key is checked against the
                                         // RESOLVED `@config.<knob>` emit name,
                                         // not the raw unresolved token.
-                                        let mut effective_config: HashMap<String, SExpression> =
-                                            HashMap::new();
+                                        let mut effective_config: orbital_core::schema::SObject =
+                                            orbital_core::schema::SObject::new();
                                         if let Some(declared) = trait_def.config.as_ref() {
                                             for (k, field) in declared.iter() {
                                                 if let Some(default) = field.default.as_ref() {
@@ -2021,7 +2021,7 @@ pub(crate) fn inline_traits(
                                     // embedded phf registry).
                                     {
                                         let empty_cfg: HashMap<String, ConfigField> =
-                                            HashMap::new();
+                                            std::collections::HashMap::new();
                                         let cfg = config.as_ref().unwrap_or(&empty_cfg);
                                         let mut declared_keys: std::collections::BTreeSet<String> =
                                             trait_def
@@ -2960,6 +2960,7 @@ mod entity_id_reader_tests {
                 payload_schema: Some(vec![payload_field(f)]),
                 payload_entity: None,
                 external: None,
+                listened: None,
             }]
         });
         TraitDefinition {
@@ -3031,6 +3032,7 @@ mod entity_id_reader_tests {
                     payload_schema: Some(fields.iter().map(|f| payload_field(f)).collect()),
                     payload_entity: None,
                     external: None,
+                    listened: None,
                 });
             }
             let mut tr = td.state_machine.transitions[0].clone();
@@ -3385,7 +3387,7 @@ mod entity_id_reader_tests {
                 s("persist"),
                 s("create"),
                 s("WikiPageRevision"),
-                SExpression::Object(HashMap::new()),
+                SExpression::Object(orbital_core::schema::SObject::new()),
             ]));
         td.linked_entity = Some("WikiPage".to_string());
         td.linked_entity_id = Some("ent-page".to_string());
@@ -3988,7 +3990,7 @@ mod config_ref_emit_name_tests {
     #[test]
     fn a_knob_resolved_to_empty_declares_no_event_and_no_emit() {
         let mut td = calendar_trait();
-        let config = HashMap::from([(
+        let config = orbital_core::schema::SObject::from([(
             "onEventClick".to_string(),
             SExpression::String(String::new()),
         )]);
@@ -4015,7 +4017,7 @@ mod config_ref_emit_name_tests {
     #[test]
     fn control_a_knob_resolved_to_a_name_renames_both() {
         let mut td = calendar_trait();
-        let config = HashMap::from([(
+        let config = orbital_core::schema::SObject::from([(
             "onEventClick".to_string(),
             SExpression::String("OPEN_NOTE".to_string()),
         )]);

@@ -19,7 +19,7 @@ mod relations;
 mod scope;
 
 pub(crate) use cycles::validate_circular_dependencies;
-pub(crate) use entity::validate_entity_uniqueness;
+pub(crate) use entity::{validate_entity_uniqueness, validate_orbital_name_uniqueness};
 pub(crate) use event_wiring::{
     collect_async_result_events, collect_effect_produced_events, collect_failure_events,
     extract_emit_event, transition_can_propagate, validate_event_wiring,
@@ -76,6 +76,7 @@ pub fn validate_cross_orbital(schema: &OrbitalSchema, ctx: &mut ValidationContex
 
     // Validate entity uniqueness
     result.merge(validate_entity_uniqueness(schema));
+    result.merge(validate_orbital_name_uniqueness(schema));
 
     // Validate event wiring
     result.merge(validate_event_wiring(schema));
@@ -168,6 +169,7 @@ mod tests {
 
     fn create_minimal_schema() -> OrbitalSchema {
         OrbitalSchema {
+            theme_definitions: None,
             site: None,
             public_dir: None,
             locales: None,

@@ -36,12 +36,9 @@
 //! }
 //! ```
 
-pub(crate) mod value_walk;
 pub(crate) mod async_results;
-mod fetch_by_id_payload;
-mod init_coverage;
 pub mod binding;
-pub mod canonical_operators;
+pub use orbital_core::language::canonical_operators;
 pub(crate) mod client_tick_locality;
 pub mod closed_circuit;
 pub mod composed_wiring;
@@ -57,11 +54,13 @@ pub mod entity_access;
 pub mod entity_mutation;
 pub mod error;
 pub mod expectations;
+mod fetch_by_id_payload;
 pub mod final_program;
 pub mod fired_events;
 pub mod generic_types;
 pub mod icon;
 pub mod id_integrity;
+mod init_coverage;
 pub mod literal_default;
 pub mod orbital_config;
 pub mod orbital_ref_config;
@@ -82,6 +81,7 @@ pub mod trait_ref_config;
 pub mod trait_validator;
 pub mod type_param_sweep;
 pub mod user_identity;
+pub(crate) mod value_walk;
 
 // Re-export main types
 pub use error::{ErrorCode, Severity, ValidationError, ValidationResult};
@@ -856,11 +856,9 @@ mod tests {
     }
 
     /// Parity gate: `VALID_SLOTS` must match `UI_SLOTS` in
-    /// `packages/almadar-core/src/types/effect.ts` exactly. There is no baked
-    /// copy of `effect.ts` under `src/baked/` to diff against at test time (unlike
-    /// `bindings.ts`, see `embedded_validation.rs::sigil_rules_match_ts_source`),
-    /// so this pins the expected set inline — if `UI_SLOTS` changes, this test
-    /// must be hand-updated to match.
+    /// `packages/almadar-core/src/types/effect.ts` exactly. Nothing to diff
+    /// against at test time, so this pins the expected set inline — if
+    /// `UI_SLOTS` changes, this test must be hand-updated to match.
     #[test]
     fn valid_slots_matches_canonical_ts_source() {
         const CANONICAL: &[&str] = &[
@@ -906,7 +904,10 @@ mod valid_field_types_tests {
         for ty in [FieldType::Trait, FieldType::Orbital, FieldType::Behavior] {
             let name = serde_json::to_value(&ty).expect("serializes");
             let name = name.as_str().expect("a string tag");
-            assert!(VALID_FIELD_TYPES.contains(&name), "{name} missing from VALID_FIELD_TYPES");
+            assert!(
+                VALID_FIELD_TYPES.contains(&name),
+                "{name} missing from VALID_FIELD_TYPES"
+            );
         }
     }
 }

@@ -13,9 +13,9 @@
 //! entity by accident (should have been `[shared]`), and the inverse —
 //! `[shared]` traits fighting over one field or double-rendering.
 
-use orbital_core::effects::Residence;
 use super::render_ui::is_render_ui_effect;
 use super::{ErrorCode, Severity, ValidationContext, ValidationError, ValidationResult};
+use orbital_core::effects::Residence;
 use orbital_core::schema::{
     EntityDefinition, ListenSource, Orbital, OrbitalSchema, PageRef, Persistence, SExpression,
     StringOrNumber, TraitDefinition, TraitReference, TransitionDefinition,
@@ -1300,7 +1300,8 @@ fn validate_trait_local_dispatch(
 fn expr_persists_entity_create_or_update(expr: &SExpression, entity_name: &str) -> bool {
     match expr {
         SExpression::Array(items) => {
-            let is_persist = matches!(items.first(), Some(SExpression::String(op)) if op == "persist");
+            let is_persist =
+                matches!(items.first(), Some(SExpression::String(op)) if op == "persist");
             let batch_hit = is_persist
                 && matches!(items.get(1), Some(SExpression::String(a)) if a == "batch")
                 && items.get(2).is_some_and(|ops| {
@@ -1843,7 +1844,7 @@ mod tests {
             s("render-ui"),
             s("main"),
             SExpression::Object({
-                let mut m = std::collections::HashMap::new();
+                let mut m = orbital_core::schema::SObject::new();
                 m.insert("val".to_string(), s(&format!("@entity.{}", field)));
                 m
             }),
@@ -1856,7 +1857,7 @@ mod tests {
             s("create"),
             s(entity_name),
             SExpression::Object({
-                let mut m = std::collections::HashMap::new();
+                let mut m = orbital_core::schema::SObject::new();
                 m.insert(field.to_string(), SExpression::Number(1.into()));
                 m
             }),
@@ -2044,7 +2045,7 @@ mod tests {
                     s("redis"),
                     s("set"),
                     SExpression::Object({
-                        let mut m = std::collections::HashMap::new();
+                        let mut m = orbital_core::schema::SObject::new();
                         m.insert("ttl".to_string(), s("@entity.ttl"));
                         m
                     }),
@@ -2427,7 +2428,7 @@ mod tests {
             s("render-ui"),
             s(slot),
             SExpression::Object({
-                let mut m = std::collections::HashMap::new();
+                let mut m = orbital_core::schema::SObject::new();
                 m.insert("val".to_string(), s(&format!("@entity.{}", field)));
                 m
             }),
@@ -2471,7 +2472,7 @@ mod tests {
             s("render-ui"),
             s("main"),
             SExpression::Object({
-                let mut m = std::collections::HashMap::new();
+                let mut m = orbital_core::schema::SObject::new();
                 m.insert("val".to_string(), s(&format!("@entity.{}", field)));
                 m.insert(
                     "children".to_string(),
@@ -2704,7 +2705,7 @@ mod tests {
             s("persist"),
             s("create"),
             s("Message"),
-            SExpression::Object(std::collections::HashMap::new()),
+            SExpression::Object(orbital_core::schema::SObject::new()),
         ]);
         let t = local_trait_with_guard("ChatComposer", "Message", None, vec![persist_effect]);
         let mut defs = HashMap::new();
@@ -2864,7 +2865,7 @@ mod tests {
             s("persist"),
             s("create"),
             s("Message"),
-            SExpression::Object(std::collections::HashMap::new()),
+            SExpression::Object(orbital_core::schema::SObject::new()),
         ]);
         let t = trait_with_init_effects("Composer", "Message", vec![persist_effect]);
         let mut defs = HashMap::new();
@@ -2910,7 +2911,7 @@ mod tests {
             s("persist"),
             s("create"),
             s(entity_name),
-            SExpression::Object(std::collections::HashMap::new()),
+            SExpression::Object(orbital_core::schema::SObject::new()),
         ])
     }
 
@@ -2957,7 +2958,8 @@ mod tests {
             synonyms: None,
             tier: None,
             scope: None,
-            payload_schema: Some(vec![PayloadField { values: None,
+            payload_schema: Some(vec![PayloadField {
+                values: None,
                 name: "data".to_string(),
                 field_type: "Note".to_string(),
                 required: None,
@@ -3009,12 +3011,14 @@ mod tests {
             synonyms: None,
             tier: None,
             scope: None,
-            payload_schema: Some(vec![PayloadField { values: None,
+            payload_schema: Some(vec![PayloadField {
+                values: None,
                 name: "data".to_string(),
                 field_type: "object".to_string(),
                 required: None,
                 description: None,
-                properties: Some(vec![PayloadField { values: None,
+                properties: Some(vec![PayloadField {
+                    values: None,
                     name: "title".to_string(),
                     field_type: "string".to_string(),
                     required: None,
@@ -3126,7 +3130,7 @@ mod tests {
             s("update"),
             s(entity_name),
             s(&format!("@payload.{var}")),
-            SExpression::Object(std::collections::HashMap::new()),
+            SExpression::Object(orbital_core::schema::SObject::new()),
         ])
     }
 
@@ -3262,7 +3266,7 @@ mod tests {
         let fetch_effect = arr(vec![
             s("fetch"),
             s("Progress"),
-            SExpression::Object(HashMap::from([("filter".to_string(), filter_expr)])),
+            SExpression::Object(orbital_core::schema::SObject::from([("filter".to_string(), filter_expr)])),
         ]);
         let t = trait_with_init_effects(
             "MyProgressDisplay",
@@ -3509,7 +3513,7 @@ mod tests {
             s("persist"),
             s("update"),
             s("Message"),
-            SExpression::Object(std::collections::HashMap::new()),
+            SExpression::Object(orbital_core::schema::SObject::new()),
         ]);
         let t = local_trait_with_guard("Composer", "Message", Some(guard), vec![persist_effect]);
         let mut defs = HashMap::new();
@@ -3546,7 +3550,7 @@ mod tests {
             arr(vec![
                 s("fetch"),
                 s("Cursor"),
-                SExpression::Object(std::collections::HashMap::new()),
+                SExpression::Object(orbital_core::schema::SObject::new()),
             ]),
         ]);
         let t = trait_with_guard("Cursor", "Cursor", Some(guard), vec![nested_fetch]);
@@ -3606,7 +3610,7 @@ mod tests {
         arr(vec![
             s("fetch"),
             s("Message"),
-            SExpression::Object(std::collections::HashMap::new()),
+            SExpression::Object(orbital_core::schema::SObject::new()),
         ])
     }
 
@@ -3615,7 +3619,7 @@ mod tests {
             s("persist"),
             s("update"),
             s("Message"),
-            SExpression::Object(std::collections::HashMap::new()),
+            SExpression::Object(orbital_core::schema::SObject::new()),
         ])
     }
 
@@ -3764,6 +3768,7 @@ mod tests {
 
     fn schema_of(orbitals: Vec<Orbital>) -> OrbitalSchema {
         OrbitalSchema {
+            theme_definitions: None,
             site: None,
             public_dir: None,
             locales: None,

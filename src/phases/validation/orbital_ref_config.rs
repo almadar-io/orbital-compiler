@@ -298,7 +298,8 @@ pub fn validate_orbital_ref_diagnostics(
                     ),
                 )
                 .with_suggestion(
-                    "Key each entry by the trait's UPSTREAM name (before the import prefix).".to_string(),
+                    "Key each entry by the trait's UPSTREAM name (before the import prefix)."
+                        .to_string(),
                 ),
             );
         }

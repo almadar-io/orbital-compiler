@@ -387,11 +387,13 @@ mod tests {
             payload_schema: payload,
             payload_entity: None,
             external: None,
+            listened: None,
         }
     }
 
     fn field(name: &str, required: bool) -> PayloadField {
-        PayloadField { values: None,
+        PayloadField {
+            values: None,
             name: name.to_string(),
             field_type: "string".to_string(),
             required: if required { Some(true) } else { None },
@@ -404,7 +406,8 @@ mod tests {
     }
 
     fn object_field(name: &str, required: bool, properties: Vec<PayloadField>) -> PayloadField {
-        PayloadField { values: None,
+        PayloadField {
+            values: None,
             name: name.to_string(),
             field_type: "object".to_string(),
             required: if required { Some(true) } else { None },
@@ -417,7 +420,8 @@ mod tests {
     }
 
     fn entity_field(name: &str, required: bool, entity: &str) -> PayloadField {
-        PayloadField { values: None,
+        PayloadField {
+            values: None,
             name: name.to_string(),
             field_type: "object".to_string(),
             required: if required { Some(true) } else { None },
@@ -490,6 +494,7 @@ mod tests {
 
     fn schema_with(orbitals: Vec<Orbital>) -> OrbitalSchema {
         OrbitalSchema {
+            theme_definitions: None,
             site: None,
             public_dir: None,
             locales: None,
@@ -634,7 +639,7 @@ mod tests {
             vec![],
         );
         let mut listen = listen_from("SAVE", "ChatComposer", "DO_CREATE");
-        let mut mapping: Map<String, orbital_core::schema::SExpression> = Map::new();
+        let mut mapping = orbital_core::schema::SObject::new();
         mapping.insert(
             "content".to_string(),
             orbital_core::schema::SExpression::String("?text".to_string()),
@@ -771,7 +776,7 @@ mod tests {
             "actionPayload".to_string(),
             payload_companion_field(
                 "action",
-                SExpression::Object(Map::from([(
+                SExpression::Object(orbital_core::schema::SObject::from([(
                     "prompt".to_string(),
                     SExpression::String("@payload.text".to_string()),
                 )])),

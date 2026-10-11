@@ -14,7 +14,7 @@ use orbital_core::evaluator::Value;
 use orbital_core::schema::behavior_value::{is_behavior_specifier, OrbitalValueRef, TraitValueRef};
 use orbital_core::schema::quote::UNQUOTE_HEAD;
 use orbital_core::schema::{
-    EntityRef, FieldDefinition, OrbitalSchema, SExpression, TraitReference,
+    EntityRef, FieldDefinition, FieldType, OrbitalSchema, SExpression, TraitReference,
 };
 use std::collections::HashMap;
 use std::path::Path;
@@ -127,6 +127,25 @@ impl Pass<'_> {
         if let Some(d) = f.default.as_mut() {
             self.expr(d, &format!("{here}.default"))?;
         }
+        // A behavior field's `@mock` candidates are behavior specifiers the seeder stores
+        // as behavior values, so each resolves now, as `(behavior/ref "<spec>")` does.
+        if f.field_type == FieldType::Behavior {
+            if let Some(declared) = f.mock.clone() {
+                let at = format!("{here}.mock");
+                let mut canonical = Vec::new();
+                for spec in orbital_core::runtime::seed::mock_candidates(&declared) {
+                    if !is_behavior_specifier(spec) {
+                        return Err(InlineError::BehaviorRefUnresolved {
+                            literal: spec.to_string(),
+                            path: at,
+                            reason: "not a behavior specifier (<prefix>/<name>, std/behaviors/<name> or ./<dir>/<name>)".to_string(),
+                        });
+                    }
+                    canonical.push(self.resolve(spec, &Member::Whole, &at)?);
+                }
+                f.mock = Some(canonical.join(", "));
+            }
+        }
         if let Some(items) = f.items.as_mut() {
             self.field(items, &here)?;
         }
@@ -194,7 +213,12 @@ impl Pass<'_> {
         Ok(())
     }
 
-    fn resolve(&mut self, behavior: &str, member: &Member, path: &str) -> Result<String, InlineError> {
+    fn resolve(
+        &mut self,
+        behavior: &str,
+        member: &Member,
+        path: &str,
+    ) -> Result<String, InlineError> {
         let key = (behavior.to_string(), member.literal(behavior));
         if !self.resolved.contains_key(&key) {
             let outcome = self.lookup(behavior, member);
@@ -219,7 +243,9 @@ impl Pass<'_> {
             Member::Trait(trait_name) => loaded.schema.orbitals.iter().any(|o| {
                 o.traits.iter().any(|t| match t {
                     TraitReference::Inline(td) => &td.name == trait_name,
-                    TraitReference::Reference { name, .. } => name.as_deref() == Some(trait_name.as_str()),
+                    TraitReference::Reference { name, .. } => {
+                        name.as_deref() == Some(trait_name.as_str())
+                    }
                 })
             }),
             Member::Orbital(orbital) => loaded.schema.orbitals.iter().any(|o| &o.name == orbital),
@@ -321,20 +347,37 @@ mod tests {
 
     #[test]
     fn a_literal_behavior_ref_that_resolves_is_accepted() {
-        let mut schema = schema_with(serde_json::Value::Null, serde_json::json!(["set", "@entity.id", ["behavior/ref", "./loader/fixtures/health"]]));
+        let mut schema = schema_with(
+            serde_json::Value::Null,
+            serde_json::json!([
+                "set",
+                "@entity.id",
+                ["behavior/ref", "./loader/fixtures/health"]
+            ]),
+        );
         run(&mut schema).expect("resolves");
     }
 
     #[test]
     fn a_literal_behavior_ref_to_an_unknown_behavior_is_unresolved() {
-        let mut schema = schema_with(serde_json::Value::Null, serde_json::json!(["set", "@entity.id", ["behavior/ref", "./loader/fixtures/missing"]]));
+        let mut schema = schema_with(
+            serde_json::Value::Null,
+            serde_json::json!([
+                "set",
+                "@entity.id",
+                ["behavior/ref", "./loader/fixtures/missing"]
+            ]),
+        );
         let err = run(&mut schema).unwrap_err();
         assert_eq!(err.structured_code(), "ORB_T_BEHAVIOR_REF_UNRESOLVED");
     }
 
     #[test]
     fn a_behavior_ref_over_a_binding_is_rejected() {
-        let mut schema = schema_with(serde_json::Value::Null, serde_json::json!(["set", "@entity.id", ["behavior/ref", "@payload.behavior"]]));
+        let mut schema = schema_with(
+            serde_json::Value::Null,
+            serde_json::json!(["set", "@entity.id", ["behavior/ref", "@payload.behavior"]]),
+        );
         let err = run(&mut schema).unwrap_err();
         assert_eq!(err.structured_code(), "ORB_T_BEHAVIOR_REF_NOT_LITERAL");
     }
@@ -343,7 +386,14 @@ mod tests {
     fn a_behavior_ref_over_a_computed_value_is_rejected() {
         let mut schema = schema_with(
             serde_json::Value::Null,
-            serde_json::json!(["set", "@entity.id", ["behavior/ref", ["object/get", "@payload.data", "behavior", ""]]]),
+            serde_json::json!([
+                "set",
+                "@entity.id",
+                [
+                    "behavior/ref",
+                    ["object/get", "@payload.data", "behavior", ""]
+                ]
+            ]),
         );
         let err = run(&mut schema).unwrap_err();
         assert_eq!(err.structured_code(), "ORB_T_BEHAVIOR_REF_NOT_LITERAL");
@@ -351,7 +401,10 @@ mod tests {
 
     #[test]
     fn a_literal_behavior_ref_that_is_not_a_specifier_is_unresolved() {
-        let mut schema = schema_with(serde_json::Value::Null, serde_json::json!(["set", "@entity.id", ["behavior/ref", "Indigo Pioneer"]]));
+        let mut schema = schema_with(
+            serde_json::Value::Null,
+            serde_json::json!(["set", "@entity.id", ["behavior/ref", "Indigo Pioneer"]]),
+        );
         let err = run(&mut schema).unwrap_err();
         assert_eq!(err.structured_code(), "ORB_T_BEHAVIOR_REF_UNRESOLVED");
     }
@@ -359,7 +412,11 @@ mod tests {
     #[test]
     fn control_a_behavior_ref_inside_a_quasiquote_body_is_left_alone() {
         let body = orbital_core::schema::quote::quasiquote_expr(
-            &serde_json::from_value::<SExpression>(serde_json::json!(["behavior/ref", ["unquote", "@payload.behavior"]])).unwrap(),
+            &serde_json::from_value::<SExpression>(serde_json::json!([
+                "behavior/ref",
+                ["unquote", "@payload.behavior"]
+            ]))
+            .unwrap(),
         )
         .expect("quasiquote");
         let effect = serde_json::json!(["set", "@entity.id", serde_json::to_value(&body).unwrap()]);
@@ -369,16 +426,34 @@ mod tests {
 
     #[test]
     fn a_resolving_orbital_value_is_accepted() {
-        let mut schema = schema_with(serde_json::Value::Null, serde_json::json!(["set", "@entity.id", ov("./loader/fixtures/health", "Health")]));
+        let mut schema = schema_with(
+            serde_json::Value::Null,
+            serde_json::json!([
+                "set",
+                "@entity.id",
+                ov("./loader/fixtures/health", "Health")
+            ]),
+        );
         run(&mut schema).expect("resolves");
     }
 
     #[test]
     fn control_an_unknown_orbital_of_a_known_behavior_is_unresolved() {
-        let mut schema = schema_with(serde_json::Value::Null, serde_json::json!(["set", "@entity.id", ov("./loader/fixtures/health", "NoSuchOrbital")]));
+        let mut schema = schema_with(
+            serde_json::Value::Null,
+            serde_json::json!([
+                "set",
+                "@entity.id",
+                ov("./loader/fixtures/health", "NoSuchOrbital")
+            ]),
+        );
         let err = run(&mut schema).unwrap_err();
         assert_eq!(err.structured_code(), "ORB_T_BEHAVIOR_REF_UNRESOLVED");
-        assert!(err.to_string().contains("declares no orbital 'NoSuchOrbital'"), "{err}");
+        assert!(
+            err.to_string()
+                .contains("declares no orbital 'NoSuchOrbital'"),
+            "{err}"
+        );
     }
 
     #[test]
@@ -432,6 +507,73 @@ mod tests {
         run(&mut schema).expect("not trait values");
         let mut schema = schema_with(serde_json::Value::Null, serde_json::json!(["log", "x"]));
         run(&mut schema).expect("null default");
+    }
+
+    fn schema_with_mock(field_type: &str, mock: &str) -> OrbitalSchema {
+        let mut schema = schema_with(serde_json::Value::Null, serde_json::json!(["log", "x"]));
+        let EntityRef::Inline(ed) = &mut schema.orbitals[0].entity else {
+            panic!("inline entity")
+        };
+        ed.fields.push(
+            serde_json::from_value(
+                serde_json::json!({ "name": "app", "type": field_type, "mock": mock }),
+            )
+            .unwrap(),
+        );
+        schema
+    }
+
+    fn mock_of(schema: &OrbitalSchema) -> Option<String> {
+        let EntityRef::Inline(ed) = &schema.orbitals[0].entity else {
+            panic!("inline entity")
+        };
+        ed.fields[2].mock.clone()
+    }
+
+    #[test]
+    fn a_behavior_fields_mock_candidates_resolve_like_behavior_ref() {
+        let mut schema = schema_with_mock(
+            "behavior",
+            "./loader/fixtures/health, ./loader/fixtures/health",
+        );
+        run(&mut schema).expect("both candidates resolve");
+        assert_eq!(
+            mock_of(&schema).as_deref(),
+            Some("./loader/fixtures/health, ./loader/fixtures/health")
+        );
+    }
+
+    #[test]
+    fn a_behavior_fields_mock_naming_an_unknown_behavior_is_unresolved() {
+        let mut schema = schema_with_mock(
+            "behavior",
+            "./loader/fixtures/health, ./loader/fixtures/missing",
+        );
+        let err = run(&mut schema).unwrap_err();
+        assert_eq!(err.structured_code(), "ORB_T_BEHAVIOR_REF_UNRESOLVED");
+        assert!(
+            err.structured_path().ends_with("fields[app].mock"),
+            "{}",
+            err.structured_path()
+        );
+    }
+
+    #[test]
+    fn a_behavior_fields_mock_that_is_not_a_specifier_is_unresolved() {
+        let mut schema = schema_with_mock("behavior", "Indigo Pioneer");
+        let err = run(&mut schema).unwrap_err();
+        assert_eq!(err.structured_code(), "ORB_T_BEHAVIOR_REF_UNRESOLVED");
+        assert!(
+            err.to_string().contains("not a behavior specifier"),
+            "{err}"
+        );
+    }
+
+    #[test]
+    fn control_a_string_fields_mock_is_not_a_behavior() {
+        let mut schema = schema_with_mock("string", "Indigo Pioneer, Acme");
+        run(&mut schema).expect("plain text candidates");
+        assert_eq!(mock_of(&schema).as_deref(), Some("Indigo Pioneer, Acme"));
     }
 
     #[test]
