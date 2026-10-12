@@ -283,8 +283,11 @@ fn literal_href(expr: &SExpression) -> Option<String> {
 fn collect_href_strings(expr: &SExpression, out: &mut HashSet<String>) {
     match expr {
         SExpression::Object(map) => {
-            if let Some(path) = map.get("href").and_then(literal_href) {
-                out.insert(path);
+            // `navigatesTo` is an action entry's link (`userMenuItems`, page actions): the UI emits it as `UI:NAVIGATE`.
+            for key in ["href", "navigatesTo"] {
+                if let Some(path) = map.get(key).and_then(literal_href) {
+                    out.insert(path);
+                }
             }
             for v in map.values() {
                 collect_href_strings(v, out);
@@ -419,14 +422,13 @@ fn mentions_pages_sigil(expr: &SExpression) -> bool {
 }
 
 fn schema_uses_pages_sigil(schema: &OrbitalSchema) -> bool {
-    let config_uses =
-        |config: Option<&HashMap<String, orbital_core::schema::ConfigField>>| {
-            config
-                .into_iter()
-                .flat_map(|c| c.values())
-                .filter_map(|f| f.default.as_ref())
-                .any(mentions_pages_sigil)
-        };
+    let config_uses = |config: Option<&HashMap<String, orbital_core::schema::ConfigField>>| {
+        config
+            .into_iter()
+            .flat_map(|c| c.values())
+            .filter_map(|f| f.default.as_ref())
+            .any(mentions_pages_sigil)
+    };
     config_uses(schema.config.as_ref())
         || schema.orbitals.iter().any(|orbital| {
             config_uses(orbital.config.as_ref())
@@ -1587,6 +1589,40 @@ mod tests {
             ]),
         );
         assert_eq!(reachability_messages(&schema), Vec::<String>::new());
+    }
+
+    fn layout_trait_with_user_menu(items: serde_json::Value) -> serde_json::Value {
+        serde_json::json!([{
+            "name": "AppLayout",
+            "linkedEntity": "Widget",
+            "category": "interaction",
+            "config": { "userMenuItems": { "type": "array", "default": items } },
+            "stateMachine": { "states": [{ "name": "idle", "isInitial": true }], "events": [], "transitions": [] }
+        }])
+    }
+
+    #[test]
+    fn silent_for_a_page_reached_only_by_an_action_navigates_to() {
+        // `userMenuItems: [{ label, navigatesTo: "/account" }]` — an action
+        // entry the UI turns into `UI:NAVIGATE`, so it links its target.
+        let schema = schema_for_reachability(
+            layout_trait_with_user_menu(
+                serde_json::json!([{ "label": "Account", "navigatesTo": "/account" }]),
+            ),
+            serde_json::json!([page("HomePage", "/"), page("AccountPage", "/account")]),
+        );
+        assert_eq!(reachability_messages(&schema), Vec::<String>::new());
+    }
+
+    #[test]
+    fn control_an_action_without_navigates_to_reaches_nothing() {
+        let schema = schema_for_reachability(
+            layout_trait_with_user_menu(
+                serde_json::json!([{ "label": "Account", "event": "OPEN_ACCOUNT" }]),
+            ),
+            serde_json::json!([page("HomePage", "/"), page("AccountPage", "/account")]),
+        );
+        assert_eq!(reachability_messages(&schema).len(), 1);
     }
 
     #[test]

@@ -4995,6 +4995,57 @@ mod tests {
         assert!(second_content_body_hits(orbital).is_empty());
     }
 
+    /// The resolved `kflow-lesson` shape on a sidebar-less shell: the shell
+    /// channels `Body`, whose view is one container with a single child object;
+    /// `Viz` paints a knob into the DRAWER slot whose tree embeds `Sim`, a `main`
+    /// writer. `Body` owns the page; `Sim` lives inside an overlay.
+    fn overlay_embed_orbital() -> Orbital {
+        let shell = serde_json::json!({
+            "name": "Shell", "linkedEntity": "Item", "category": "interaction",
+            "config": { "contentTrait": { "type": "trait", "default": "@trait.Body" } },
+            "stateMachine": {
+                "states": [{ "name": "idle", "isInitial": true }],
+                "transitions": [{ "from": "idle", "to": "idle", "event": "INIT",
+                    "effects": [["render-ui", "main", { "type": "box", "children": ["@config.contentTrait"] }]] }]
+            }
+        });
+        let body = serde_json::json!({
+            "name": "Body", "linkedEntity": "Item", "category": "interaction",
+            "stateMachine": {
+                "states": [{ "name": "reading", "isInitial": true }],
+                "transitions": [{ "from": "reading", "to": "reading", "event": "INIT",
+                    "effects": [["render-ui", "main", { "type": "container", "children": { "type": "typography", "content": "Lesson" } }]] }]
+            }
+        });
+        let viz = serde_json::json!({
+            "name": "Viz", "linkedEntity": "Item", "category": "interaction",
+            "config": { "readyView": { "type": "render-ui", "default": { "type": "drawer", "children": ["@trait.Sim"] } } },
+            "stateMachine": {
+                "states": [{ "name": "idle", "isInitial": true }],
+                "transitions": [{ "from": "idle", "to": "idle", "event": "SHOW",
+                    "effects": [["render-ui", "drawer", "@config.readyView"]] }]
+            }
+        });
+        let sim = serde_json::json!({
+            "name": "Sim", "linkedEntity": "Item", "category": "interaction",
+            "stateMachine": {
+                "states": [{ "name": "idle", "isInitial": true }],
+                "transitions": [{ "from": "idle", "to": "idle", "event": "INIT",
+                    "effects": [["render-ui", "main", { "type": "data-grid", "entity": "?data" }]] }]
+            }
+        });
+        orbital_json(
+            vec![shell, body, viz, sim],
+            page_with(&["Shell", "Body", "Viz", "Sim"]),
+        )
+    }
+
+    #[test]
+    fn second_content_body_silent_for_a_writer_embedded_through_an_overlay_knob() {
+        let hits = second_content_body_hits(overlay_embed_orbital());
+        assert!(hits.is_empty(), "{:?}", hits);
+    }
+
     fn control_outside_shell_hits(orbital: Orbital) -> Vec<ValidationError> {
         let schema = schema_of(orbital);
         let mut ctx = ValidationContext::new();

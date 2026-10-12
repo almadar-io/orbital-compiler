@@ -88,8 +88,15 @@ impl EmbedGraph {
                 }
             }
             // Config-only snapshot, before the state-machine scan below adds
-            // to `children` — this is the exact set `config_referrers` records.
-            let config_children = children.clone();
+            // to `children` — this is the exact set `config_referrers` records,
+            // less what the trait paints only into an overlay slot: that is
+            // containment, never a page-body channel.
+            let mut config_children = children.clone();
+            if let TraitReference::Inline(td) = trait_ref {
+                for name in overlay_only_embeds(td) {
+                    config_children.remove(&name);
+                }
+            }
             if let TraitReference::Inline(td) = trait_ref {
                 collect_state_machine_trait_tokens(td, &mut children);
             }
@@ -215,6 +222,65 @@ impl EmbedGraph {
         }
         forward
     }
+}
+
+/// Traits this trait paints only into non-main slots (`drawer`, `modal`, …):
+/// every `render-ui` effect whose payload embeds them, directly or through a
+/// `@config.<knob>` payload, targets an overlay slot.
+fn overlay_only_embeds(td: &orbital_core::schema::TraitDefinition) -> HashSet<String> {
+    fn scan(
+        node: &SExpression,
+        config: &HashMap<String, ConfigField>,
+        slots_by_trait: &mut HashMap<String, Vec<String>>,
+    ) {
+        let SExpression::Array(items) = node else {
+            return;
+        };
+        if let [SExpression::String(op), SExpression::String(slot), payload, ..] = items.as_slice()
+        {
+            if op == "render-ui" {
+                let mut embedded: HashSet<String> = HashSet::new();
+                collect_trait_tokens(payload, &mut embedded);
+                if let SExpression::String(p) = payload {
+                    if let Some(default) = p
+                        .strip_prefix("@config.")
+                        .and_then(|knob| config.get(knob))
+                        .and_then(|f| f.default.as_ref())
+                    {
+                        collect_trait_tokens(default, &mut embedded);
+                    }
+                }
+                for name in embedded {
+                    slots_by_trait.entry(name).or_default().push(slot.clone());
+                }
+            }
+        }
+        for item in items {
+            scan(item, config, slots_by_trait);
+        }
+    }
+    let config = td.config.clone().unwrap_or_default();
+    let mut slots_by_trait: HashMap<String, Vec<String>> = HashMap::new();
+    let effects = td
+        .state_machine
+        .transitions
+        .iter()
+        .filter_map(|t| t.effects.as_ref())
+        .chain(td.ticks.iter().flatten().map(|t| &t.effects));
+    for list in effects {
+        for effect in list {
+            scan(effect, &config, &mut slots_by_trait);
+        }
+    }
+    slots_by_trait
+        .into_iter()
+        .filter(|(_, slots)| {
+            slots
+                .iter()
+                .all(|slot| !orbital_core::slots::MAIN_SLOTS.contains(&slot.as_str()))
+        })
+        .map(|(name, _)| name)
+        .collect()
 }
 
 /// Client-bound traits: every trait a page declares directly, plus the
@@ -513,6 +579,69 @@ mod tests {
         )];
         let graph = EmbedGraph::build(&traits);
         assert!(graph.config_embedded_children().is_empty());
+    }
+
+    /// `kflow-lesson`'s `LessonViz`: its `readyView` knob embeds the sims and is
+    /// painted only into the `drawer` slot, so it designates no page body.
+    #[test]
+    fn config_embedded_children_skips_a_knob_painted_only_into_an_overlay_slot() {
+        let traits = vec![inline_trait(
+            "Viz",
+            json!({ "readyView": { "type": "render-ui", "default": { "type": "drawer", "children": ["@trait.Sim"] } } }),
+            json!([
+                ["render-ui", "drawer", "@config.readyView"],
+                ["render-ui", "drawer", null]
+            ]),
+        )];
+        let graph = EmbedGraph::build(&traits);
+        assert!(!graph.config_embedded_children().contains_key("Viz"));
+        assert!(graph
+            .embedded_children()
+            .get("Viz")
+            .is_some_and(|c| c.contains("Sim")));
+    }
+
+    #[test]
+    fn config_embedded_children_skips_an_inlined_overlay_tree() {
+        // Post-inline the knob's tree sits in the effect itself.
+        let traits = vec![inline_trait(
+            "Viz",
+            json!({ "readyView": { "type": "render-ui", "default": { "type": "drawer", "children": ["@trait.Sim"] } } }),
+            json!([["render-ui", "drawer", { "type": "drawer", "children": ["@trait.Sim"] }]]),
+        )];
+        let graph = EmbedGraph::build(&traits);
+        assert!(!graph.config_embedded_children().contains_key("Viz"));
+    }
+
+    #[test]
+    fn control_a_knob_painted_into_main_still_designates() {
+        let traits = vec![inline_trait(
+            "Viz",
+            json!({ "readyView": { "type": "render-ui", "default": { "type": "stack", "children": ["@trait.Sim"] } } }),
+            json!([
+                ["render-ui", "drawer", "@config.readyView"],
+                ["render-ui", "main", "@config.readyView"]
+            ]),
+        )];
+        let graph = EmbedGraph::build(&traits);
+        assert!(graph
+            .config_embedded_children()
+            .get("Viz")
+            .is_some_and(|c| c.contains("Sim")));
+    }
+
+    #[test]
+    fn control_a_knob_never_painted_by_its_own_trait_still_designates() {
+        let traits = vec![inline_trait(
+            "Shell",
+            json!({ "contentTrait": { "type": "trait", "default": "@trait.Body" } }),
+            json!([["render-ui", "main", { "type": "box", "children": ["@config.contentTrait"] }]]),
+        )];
+        let graph = EmbedGraph::build(&traits);
+        assert!(graph
+            .config_embedded_children()
+            .get("Shell")
+            .is_some_and(|c| c.contains("Body")));
     }
 
     // --- client_bound_traits ---

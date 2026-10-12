@@ -1319,7 +1319,7 @@ impl<'a> Resolver<'a> {
                 } else if orbital_core::cron::is_valid_cron_expression(s) {
                     // A real 5-field cron expression (e.g. "0 9 * * *") —
                     // previously silently collapsed to `Seconds { value: 1 }`.
-                    OirInterval::Cron(s.clone())
+                    OirInterval::Cron { expression: s.clone() }
                 } else {
                     return Err(ResolveError::InvalidTickInterval(s.clone()));
                 }
@@ -2965,7 +2965,7 @@ mod tests {
             .expect("valid cron should resolve");
         assert_eq!(
             resolved.interval,
-            OirInterval::Cron("0 9 * * *".to_string())
+            OirInterval::Cron { expression: "0 9 * * *".to_string() }
         );
     }
 

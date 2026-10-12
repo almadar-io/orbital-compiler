@@ -30,16 +30,17 @@ pub fn is_content_body_pattern_type(pattern_type: &str) -> bool {
 }
 
 /// True for a render-ui payload that is content-body-shaped: a string
-/// literal, an object with a non-empty `children` array, or an object whose
+/// literal, an object with a non-empty `children` array or a single child
+/// object, or an object whose
 /// `type` is a content-body pattern type. Mirrors `isContentBodyPattern`.
 pub fn is_content_body_pattern(payload: &SExpression) -> bool {
     match payload {
         SExpression::String(_) => true,
         SExpression::Object(map) => {
-            if let Some(SExpression::Array(children)) = map.get("children") {
-                if !children.is_empty() {
-                    return true;
-                }
+            match map.get("children") {
+                Some(SExpression::Array(children)) if !children.is_empty() => return true,
+                Some(SExpression::Object(_)) => return true,
+                _ => {}
             }
             matches!(map.get("type"), Some(SExpression::String(t)) if is_content_body_pattern_type(t))
         }
@@ -103,6 +104,28 @@ mod tests {
             ),
         ]);
         assert!(is_content_body_pattern(&payload));
+    }
+
+    #[test]
+    fn content_body_pattern_true_for_a_single_child_object() {
+        // `{ type: container, children: { type: stack, … } }` — one child node.
+        let payload = obj(&[
+            ("type", SExpression::String("container".to_string())),
+            (
+                "children",
+                obj(&[("type", SExpression::String("stack".to_string()))]),
+            ),
+        ]);
+        assert!(is_content_body_pattern(&payload));
+    }
+
+    #[test]
+    fn content_body_pattern_false_for_empty_children() {
+        let payload = obj(&[
+            ("type", SExpression::String("container".to_string())),
+            ("children", SExpression::Array(vec![])),
+        ]);
+        assert!(!is_content_body_pattern(&payload));
     }
 
     #[test]
