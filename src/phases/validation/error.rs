@@ -230,6 +230,11 @@ pub enum ErrorCode {
     /// mis-tagged; its transitions would never await the round trip they
     /// depend on. Wave 2. Error severity.
     TraitLocalTouchesServer,
+    /// A tick that runs in the browser (its trait is not server-awaited; the tick is not
+    /// `[background]`) carries a server effect — a server-owned data effect, or a
+    /// `runsOn: server` operator. Nothing replays a tick on the server, so the effect would be
+    /// dropped. Server work goes through an emitted event a server-side trait handles.
+    TraitClientTickServerEffect,
     /// `local` on a trait whose linked entity is neither `[shared]` nor
     /// `[runtime]`. `local` is only legal on an entity multiple traits
     /// co-mutate client-side (`[shared]`) or one that is never persisted at
@@ -916,6 +921,10 @@ pub enum ErrorCode {
     /// A render-ui payload embeds an `orbital`-typed field: an orbital value
     /// is data (an import body) and never renders — only trait values embed.
     RenderOrbitalValueEmbedded,
+    /// A bridged embed delivers an event nothing in the program sends.
+    EmbedBridgeListensUnsent,
+    /// A bridged embed re-emits an event nothing in the program handles.
+    EmbedBridgeEmitsUnheard,
 
     // =========================================================================
     // Entity Mutation / Tick Errors (ORB_ENTITY_*, ORB_TICK_*)
@@ -1373,6 +1382,7 @@ impl ErrorCode {
             ErrorCode::TraitConfigUnknownCallSiteKey => "ORB_T_CONFIG_UNKNOWN_CALL_SITE_KEY",
             ErrorCode::TraitConfigMissingRequiredKey => "ORB_T_CONFIG_MISSING_REQUIRED_KEY",
             ErrorCode::TraitLocalTouchesServer => "ORB_T_LOCAL_TRAIT_TOUCHES_SERVER",
+            ErrorCode::TraitClientTickServerEffect => "ORB_T_CLIENT_TICK_SERVER_EFFECT",
             ErrorCode::TraitLocalOnNonSharedPersistent => "ORB_T_LOCAL_ON_NON_SHARED_PERSISTENT",
             ErrorCode::AuthGuardClientOnly => "ORB_AUTH_GUARD_CLIENT_ONLY",
 
@@ -1581,6 +1591,8 @@ impl ErrorCode {
             ErrorCode::BindingTraitOutsideRenderUi => "ORB_BINDING_TRAIT_OUTSIDE_RENDER_UI",
             ErrorCode::RenderUnboundTraitKnobEmbedded => "ORB_RENDER_UNBOUND_TRAIT_KNOB_EMBEDDED",
             ErrorCode::RenderOrbitalValueEmbedded => "ORB_RENDER_ORBITAL_VALUE_EMBEDDED",
+            ErrorCode::EmbedBridgeListensUnsent => "ORB_EMBED_BRIDGE_LISTENS_UNSENT",
+            ErrorCode::EmbedBridgeEmitsUnheard => "ORB_EMBED_BRIDGE_EMITS_UNHEARD",
 
             // Entity Mutation / Tick
             ErrorCode::EntitySplitMutation => "ORB_ENTITY_SPLIT_MUTATION",
@@ -1756,6 +1768,7 @@ impl ErrorCode {
             | ErrorCode::TraitConfigMissingRequiredKey
             | ErrorCode::UnresolvedTypeParam
             | ErrorCode::TraitLocalTouchesServer
+            | ErrorCode::TraitClientTickServerEffect
             | ErrorCode::TraitLocalOnNonSharedPersistent
             // A generic type in a declaration position — a TYPE-system rejection
             // since the burndown reached zero (2026-09-01).
@@ -1831,7 +1844,9 @@ impl ErrorCode {
             | ErrorCode::EntityPropContract
             | ErrorCode::RenderUIEventLiteralStale
             | ErrorCode::RenderUnboundTraitKnobEmbedded
-            | ErrorCode::RenderOrbitalValueEmbedded => "render_ui",
+            | ErrorCode::RenderOrbitalValueEmbedded
+            | ErrorCode::EmbedBridgeListensUnsent
+            | ErrorCode::EmbedBridgeEmitsUnheard => "render_ui",
 
             ErrorCode::EffectCallServiceMissingService
             | ErrorCode::EffectCallServiceUnknownService

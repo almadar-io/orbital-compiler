@@ -89,6 +89,7 @@ pub fn unhandled_controls(schema: &OrbitalSchema) -> Vec<UnhandledControl> {
                 _ => None,
             })
             .collect();
+        let bridged = super::embed_bridge::bridged_listens(traits.iter().copied());
         for td in &traits {
             let mut controls = Controls::new();
             let reachable = super::slot::get_initial_state(td)
@@ -125,6 +126,9 @@ pub fn unhandled_controls(schema: &OrbitalSchema) -> Vec<UnhandledControl> {
             }
             let scope = embedder_closure(&embed, &td.name);
             for (event, sites) in controls {
+                if bridged.contains(&event) {
+                    continue;
+                }
                 let handled = traits.iter().any(|t| {
                     scope.contains(t.name.as_str())
                         && t.state_machine
@@ -346,6 +350,29 @@ mod tests {
             .into_iter()
             .map(|c| format!("{}.{}", c.trait_name, c.event))
             .collect()
+    }
+
+    fn with_bridge(control: &str, bridged: &[&str]) -> serde_json::Value {
+        renderer(
+            "Workspace",
+            serde_json::json!({ "type": "stack", "children": [
+                button(control),
+                ["behavior/apply", "@entity.plugin", { "bridge": { "listens": bridged, "emits": [] } }]
+            ] }),
+            &[],
+        )
+    }
+
+    #[test]
+    fn a_control_a_bridged_embed_listens_for_is_handled() {
+        let s = schema(serde_json::json!([with_bridge("SHELL_KEY", &["SHELL_KEY"])]), serde_json::json!(null));
+        assert!(codes(&s).is_empty(), "{:?}", codes(&s));
+    }
+
+    #[test]
+    fn control_a_bridge_listening_for_something_else_leaves_the_control_unhandled() {
+        let s = schema(serde_json::json!([with_bridge("SHELL_KEY", &["OTHER"])]), serde_json::json!(null));
+        assert_eq!(codes(&s).len(), 1);
     }
 
     #[test]

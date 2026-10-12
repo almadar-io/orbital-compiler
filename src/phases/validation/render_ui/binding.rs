@@ -570,9 +570,19 @@ fn check_event_binding_payload(
                             resolve_payload_type_when(conds, bctx.trait_def.config.as_ref())
                         })
                         .is_some_and(|resolved_ty| resolved_ty == declared_field.field_type);
-                    if !primitive_event_compat(&declared_field.field_type, &required_field.r#type)
-                        && !type_when_covers_this_field
-                    {
+                    let derived = declared_payload_type_check(
+                        required_field.kind.as_deref(),
+                        required_field.payload_for.as_deref(),
+                        &declared_field.field_type,
+                    );
+                    let compatible = match &derived {
+                        Some((_, ok)) => *ok,
+                        None => primitive_event_compat(
+                            &declared_field.field_type,
+                            &required_field.r#type,
+                        ),
+                    };
+                    if !compatible && !type_when_covers_this_field {
                         diagnostics.push(
                             ValidationError::error(
                                 ErrorCode::RenderUIEventBindingPayloadMismatch,
@@ -752,6 +762,30 @@ fn check_event_literal_stale(
 /// vocabulary as the L1.3/L2 emit_payload checks: `any` matches; date /
 /// datetime / timestamp accept string|number; entity / relation accept
 /// object|string; named entity types accept object.
+/// The `.lolo` type a registry payload member names directly, and whether `declared`
+/// matches it: `event` for an `EventKey` member (`kind: "event"`; a declared plain
+/// `string` is accepted too, an event being a string at the OIR boundary,
+/// `FieldType::Event => OirType::String`), `@payload(.<sibling>)` for a member paired to
+/// one by `payloadFor`. `None` when it names neither and the structural types decide.
+fn declared_payload_type_check(
+    kind: Option<&str>,
+    payload_for: Option<&str>,
+    declared: &str,
+) -> Option<(String, bool)> {
+    let declared = declared.trim_end_matches('!');
+    if kind == Some("event") {
+        return Some((
+            "event".to_string(),
+            declared == "event" || declared == "string",
+        ));
+    }
+    payload_for.map(|sibling| {
+        let expected = format!("@payload(.{sibling})");
+        let matches = declared == expected;
+        (expected, matches)
+    })
+}
+
 fn primitive_event_compat(declared: &str, actual: &str) -> bool {
     let d = declared.trim_end_matches('!');
     let a = actual.trim_end_matches('!');
@@ -1176,26 +1210,13 @@ fn check_callback_arg_schema(
                 // type, not the registry's structural `object`. Both bypass
                 // `prop.types` entirely — there is no primitive kind here to
                 // union-match.
-                let payload_for_expected = prop
-                    .payload_for
-                    .as_deref()
-                    .map(|s| format!("@payload(.{s})"));
-                let (expected, compatible): (&str, bool) = if prop.kind.as_deref() == Some("event")
-                {
-                    // `event`-typed IS structurally a string at the OIR/
-                    // runtime boundary (`FieldType::Event => OirType::
-                    // String`, `resolve.rs`) — plenty of pre-existing
-                    // traits legitimately declare the field plain
-                    // `string` rather than the `event` type tag. Accept
-                    // both; only a genuinely unrelated declared type is
-                    // a real mismatch.
-                    let declared = nested.field_type.trim_end_matches('!');
-                    ("event", declared == "event" || declared == "string")
-                } else if let Some(expected) = payload_for_expected.as_deref() {
-                    (
-                        expected,
-                        nested.field_type.trim_end_matches('!') == expected,
-                    )
+                let derived = declared_payload_type_check(
+                    prop.kind.as_deref(),
+                    prop.payload_for.as_deref(),
+                    &nested.field_type,
+                );
+                let (expected, compatible): (String, bool) = if let Some(derived) = derived {
+                    derived
                 } else {
                     // A prop with several `types` is a UNION, and the declared
                     // field only has to match ONE of them — taking `.first()`
@@ -1210,7 +1231,7 @@ fn check_callback_arg_schema(
                     } else {
                         primitive_event_compat(&nested.field_type, expected)
                     };
-                    (expected, compatible)
+                    (expected.to_string(), compatible)
                 };
                 if !compatible {
                     diagnostics.push(
@@ -1298,6 +1319,45 @@ mod array_into_record_tests {
         out.into_iter()
             .filter(|e| e.code == ErrorCode::RenderUIBindingTypeMismatch)
             .collect()
+    }
+
+    /// A registry payload member typed `EventKey` (`kind: "event"`) or paired to one by
+    /// `payloadFor` names its `.lolo` type directly; the structural `types` do not decide it.
+    #[test]
+    fn event_kind_member_expects_event_and_accepts_string() {
+        assert_eq!(
+            declared_payload_type_check(Some("event"), None, "event!"),
+            Some(("event".to_string(), true))
+        );
+        assert_eq!(
+            declared_payload_type_check(Some("event"), None, "string"),
+            Some(("event".to_string(), true))
+        );
+    }
+
+    #[test]
+    fn control_event_kind_member_rejects_an_unrelated_type() {
+        assert_eq!(
+            declared_payload_type_check(Some("event"), None, "number"),
+            Some(("event".to_string(), false))
+        );
+    }
+
+    #[test]
+    fn payload_for_member_expects_the_dependent_type() {
+        assert_eq!(
+            declared_payload_type_check(None, Some("event"), "@payload(.event)!"),
+            Some(("@payload(.event)".to_string(), true))
+        );
+        assert_eq!(
+            declared_payload_type_check(None, Some("event"), "object"),
+            Some(("@payload(.event)".to_string(), false))
+        );
+    }
+
+    #[test]
+    fn edge_plain_member_is_left_to_the_structural_check() {
+        assert_eq!(declared_payload_type_check(None, None, "string"), None);
     }
 
     /// An asset prop is a string brand (a URL) in the literal check; a string-typed binding

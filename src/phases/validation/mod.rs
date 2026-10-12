@@ -58,6 +58,7 @@ mod fetch_by_id_payload;
 pub mod final_program;
 pub mod fired_events;
 pub mod generic_types;
+pub mod embed_bridge;
 pub mod icon;
 pub mod id_integrity;
 mod init_coverage;
@@ -535,6 +536,10 @@ pub fn validate_comprehensive_full(
     // positions.
     generic_types::validate_generic_types(schema, &mut ctx);
 
+    // Phase 5e': a bridged embed (`behavior/apply` with `bridge`) whose events the
+    // host never sends or never handles is a dead wire.
+    embed_bridge::validate_embed_bridges(schema, &mut ctx);
+
     // Phase 5f: increment 3-I defensive sweep — a `$`-prefixed payload
     // sentinel surviving the inline phase means the carrying trait had no
     // `linkedEntity` to monomorphize its event alias's `(E : Entity)`
@@ -600,6 +605,7 @@ pub fn validate_comprehensive_full(
     entity_mutation::validate_all_merged_field_usage(schema, &mut ctx);
     entity_mutation::validate_all_tick_guards(schema, &mut ctx);
     entity_mutation::validate_all_local_trait_dispatch(schema, &mut ctx);
+    entity_mutation::validate_all_client_tick_server_effects(schema, &mut ctx);
     entity_mutation::validate_all_mixed_residence(schema, &mut ctx);
     ctx.merge({
         let mut result = ValidationResult::new();

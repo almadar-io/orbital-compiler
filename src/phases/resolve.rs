@@ -4,12 +4,13 @@
 
 use crate::phases::embed_graph::EmbedGraph;
 use orbital_core::ir::{
-    OirBindingRoot, OirCardinality, OirConfigFieldType, OirConstraint,
-    OirEffect, OirEmit, OirEntity, OirEvent, OirEventScope, OirExpr, OirField,
-    OirInterval, OirListener, OirMetadata, OirModule, OirPage, OirPattern, OirPayloadField,
-    OirPersistence, OirRelation, OirSection, OirState, OirTick, OirTrait, OirTraitBinding,
-    OirTraitSource, OirTransition, OirTransitionFrom, OirType, OirValue,
+    OirBindingRoot, OirCardinality, OirConfigFieldType, OirConstraint, OirEffect, OirEmit,
+    OirEntity, OirEvent, OirEventScope, OirExpr, OirField, OirInterval, OirListener, OirMetadata,
+    OirModule, OirPage, OirPattern, OirPayloadField, OirPersistence, OirRelation, OirSection,
+    OirState, OirTick, OirTrait, OirTraitBinding, OirTraitSource, OirTransition, OirTransitionFrom,
+    OirType, OirValue,
 };
+use orbital_core::lower::{ExprLowerer, LowerError};
 use orbital_core::schema::{
     Cardinality, EntityDefinition, EntityRef, FieldDefinition, FieldType, OrbitalSchema,
     PageDefinition, PageRef, SExpression, SectionDefinition, ServiceRef, StringOrArray, ThemeRef,
@@ -17,7 +18,6 @@ use orbital_core::schema::{
 };
 use std::cell::RefCell;
 use std::collections::{BTreeMap, HashMap, HashSet};
-use orbital_core::lower::{ExprLowerer, LowerError};
 use thiserror::Error;
 
 /// Resolution error
@@ -41,7 +41,8 @@ pub enum ResolveError {
 
 /// A schema id map (unordered) as the IR's, keys sorted so the IR is deterministic.
 fn sorted_id_map(map: &HashMap<String, String>) -> orbital_core::ir::OirIdMap {
-    let mut entries: Vec<(String, String)> = map.iter().map(|(k, v)| (k.clone(), v.clone())).collect();
+    let mut entries: Vec<(String, String)> =
+        map.iter().map(|(k, v)| (k.clone(), v.clone())).collect();
     entries.sort();
     entries.into_iter().collect()
 }
@@ -1330,6 +1331,7 @@ impl<'a> Resolver<'a> {
 
         let mut oir_tick = OirTick::new(&tick.name, interval);
         oir_tick.background = tick.background;
+        oir_tick.applies_to = tick.applies_to.clone().unwrap_or_default();
 
         if let Some(guard) = &tick.guard {
             oir_tick.guard = Some(self.resolve_sexpr(guard)?);
@@ -2923,6 +2925,33 @@ mod tests {
                 "{c}"
             );
         }
+    }
+
+    #[test]
+    fn resolve_tick_keeps_the_states_it_applies_to() {
+        let resolver = empty_resolver();
+        let mut tick = tick_with_interval(orbital_core::schema::StringOrNumber::String(
+            "1s".to_string(),
+        ));
+        tick.applies_to = Some(vec!["editing".to_string(), "review".to_string()]);
+        let resolved = resolver.resolve_tick(&tick).expect("tick resolves");
+        assert_eq!(
+            resolved.applies_to,
+            vec!["editing".to_string(), "review".to_string()]
+        );
+    }
+
+    #[test]
+    fn control_a_tick_without_applies_to_runs_in_every_state() {
+        let resolver = empty_resolver();
+        let tick = tick_with_interval(orbital_core::schema::StringOrNumber::String(
+            "1s".to_string(),
+        ));
+        assert!(resolver
+            .resolve_tick(&tick)
+            .expect("tick resolves")
+            .applies_to
+            .is_empty());
     }
 
     #[test]

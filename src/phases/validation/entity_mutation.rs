@@ -1177,6 +1177,47 @@ pub fn validate_all_mixed_residence(schema: &OrbitalSchema, ctx: &mut Validation
     }
 }
 
+/// `ORB_T_CLIENT_TICK_SERVER_EFFECT`: a browser-run tick (trait not server-awaited, tick not
+/// `[background]`) carrying a server effect. A `local` trait is reported by
+/// `ORB_T_LOCAL_TRAIT_TOUCHES_SERVER` instead, so it is not reported twice.
+pub fn validate_all_client_tick_server_effects(schema: &OrbitalSchema, ctx: &mut ValidationContext) {
+    use orbital_core::effects::sexpr_runs_server_effect;
+    use orbital_core::runtime::dispatch_mode::DispatchMode;
+    let residence = Residence::of_entities(ctx.entity_definitions.values());
+    for (trait_def, path) in super::inline_traits(schema) {
+        if trait_def.local {
+            continue;
+        }
+        let entity = trait_def
+            .linked_entity
+            .as_ref()
+            .and_then(|name| ctx.entity_definitions.get(name));
+        if trait_def.dispatch_mode(entity, &residence) == DispatchMode::PersistedAwaited {
+            continue;
+        }
+        for (i, tick) in trait_def.ticks.iter().flatten().enumerate() {
+            if tick.background || !tick.effects.iter().any(|e| sexpr_runs_server_effect(e, &residence)) {
+                continue;
+            }
+            ctx.merge({
+                let mut result = ValidationResult::new();
+                result.add_error(
+                    ValidationError::error(
+                        ErrorCode::TraitClientTickServerEffect,
+                        format!("{}.ticks[{}].effects", path, i),
+                        format!(
+                            "trait {:?} tick '{}' runs in the browser but its effects reach the server — nothing replays a tick on the server, so that work would be dropped",
+                            trait_def.name, tick.name
+                        ),
+                    )
+                    .with_suggestion("Emit an event from the tick and handle it in a trait that runs on the server (linked to a server-stored entity), which does the server work; or mark the tick [background] to run it on the server."),
+                );
+                result
+            });
+        }
+    }
+}
+
 /// Run the `local` trait dispatch-contract pair
 /// (`ORB_T_LOCAL_TRAIT_TOUCHES_SERVER` / `ORB_T_LOCAL_ON_NON_SHARED_PERSISTENT`)
 /// for every orbital in the schema.
