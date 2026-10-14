@@ -446,6 +446,16 @@ pub fn register_source_lowerer(lowerer: SourceLowerer) {
     let _ = SOURCE_LOWERER.set(lowerer);
 }
 
+/// A `.lolo` file lowered by the registered lowerer, stamped.
+pub(crate) fn lower_source(path: &Path) -> Result<OrbitalSchema, String> {
+    let lower = SOURCE_LOWERER
+        .get()
+        .ok_or_else(|| "no .lolo lowerer is registered in this process".to_string())?;
+    let mut schema = lower(path)?;
+    orbital_core::stamp::ensure_stamped(&mut schema);
+    Ok(schema)
+}
+
 /// ExternalOrbitalLoader - Loads external .orb files with security and caching
 pub struct ExternalOrbitalLoader {
     config: LoaderConfig,
@@ -928,15 +938,8 @@ impl ExternalOrbitalLoader {
     fn load_file(path: &Path, import_path: &str) -> Result<LoadedSchema, LoaderError> {
         // A live package's behavior is its `.lolo` source, lowered on read.
         if path.extension().is_some_and(|e| e == "lolo") {
-            let lower = SOURCE_LOWERER.get().ok_or_else(|| {
-                LoaderError::SourceLowering(
-                    path.display().to_string(),
-                    "no .lolo lowerer is registered in this process".to_string(),
-                )
-            })?;
-            let mut schema = lower(path)
+            let schema = lower_source(path)
                 .map_err(|e| LoaderError::SourceLowering(path.display().to_string(), e))?;
-            orbital_core::stamp::ensure_stamped(&mut schema);
             return Ok(LoadedSchema {
                 schema,
                 source_path: path.to_path_buf(),
@@ -1303,9 +1306,7 @@ mod tests {
             root: dir.path().to_path_buf(),
             registry: RegistrySource::Materialized(dir.path().to_path_buf()),
             index: dir.path().to_path_buf(),
-            factory_signatures: dir.path().to_path_buf(),
             lolo_contracts: dir.path().to_path_buf(),
-            signatures: dir.path().to_path_buf(),
             embeddings: vec![],
             sidecars: vec![],
             compiler_range: ">=0.0.0".to_string(),
@@ -1365,13 +1366,7 @@ mod tests {
             serde_json::to_string(&serde_json::json!({ "behaviors": index })).unwrap(),
         )
         .unwrap();
-        std::fs::write(
-            pkg_dir.join("behaviors/registry/factory-signatures.json"),
-            "{}",
-        )
-        .unwrap();
         std::fs::write(pkg_dir.join("behaviors/lolo-behavior-contracts.json"), "{}").unwrap();
-        std::fs::write(pkg_dir.join("behaviors/signatures.lolo"), "").unwrap();
         let pkg_json = serde_json::json!({
             "name": name,
             "version": version,
@@ -1379,9 +1374,7 @@ mod tests {
                 "prefix": prefix,
                 "registry": "behaviors/registry",
                 "index": "behaviors/behaviors-registry.json",
-                "factorySignatures": "behaviors/registry/factory-signatures.json",
                 "loloContracts": "behaviors/lolo-behavior-contracts.json",
-                "signatures": "behaviors/signatures.lolo",
                 "compiler": ">=0.0.0",
             },
         });
@@ -1534,13 +1527,7 @@ mod tests {
                 .to_string(),
         )
         .unwrap();
-        std::fs::write(
-            pkg_dir.join("behaviors/registry/factory-signatures.json"),
-            "{}",
-        )
-        .unwrap();
         std::fs::write(pkg_dir.join("behaviors/lolo-behavior-contracts.json"), "{}").unwrap();
-        std::fs::write(pkg_dir.join("behaviors/signatures.lolo"), "").unwrap();
         std::fs::write(
             pkg_dir.join("package.json"),
             serde_json::json!({
@@ -1550,9 +1537,7 @@ mod tests {
                     "prefix": "almadar-std",
                     "registry": "behaviors/registry",
                     "index": "behaviors/behaviors-registry.json",
-                    "factorySignatures": "behaviors/registry/factory-signatures.json",
                     "loloContracts": "behaviors/lolo-behavior-contracts.json",
-                    "signatures": "behaviors/signatures.lolo",
                     "compiler": ">=0.0.0",
                 },
             })

@@ -205,8 +205,9 @@ pub fn resolve_program_with_path(
     source_path: Option<&Path>,
 ) -> CompileResult<(OrbitalSchema, Vec<ResolvedLazy>)> {
     let inline = program_inline(options);
-    let lazy = split_lazy_and_resolve_in(&mut schema, options, &inline, source_path)?;
-    let schema = resolve_schema_with_inline(schema, options, &inline, source_path)?;
+    let mut lazy = split_lazy_and_resolve_in(&mut schema, options, &inline, source_path)?;
+    let mut schema = resolve_schema_with_inline(schema, options, &inline, source_path)?;
+    super::reflect::fold_program(&mut schema, &mut lazy, source_path)?;
     Ok((schema, lazy))
 }
 

@@ -507,19 +507,18 @@ fn struct_alias_arg_resolves_array_form() {
     assert_eq!(prop_names, vec!["id"]);
 }
 
-/// 6. `:: v scalar` — `scalar` was measured missing from the compiler's
-/// `PRIMITIVE_TYPE_ARG_NAMES` parallel list; must resolve like any other
-/// primitive (no `properties`).
+/// 6. `:: v date` — every primitive in `PRIMITIVE_TYPE_ARG_NAMES` resolves as
+/// a primitive (no `properties`).
 #[test]
-fn scalar_arg_resolves_as_primitive() {
+fn date_arg_resolves_as_primitive() {
     let schema = materialize_and_inline(
         r#"[{"name": "v", "kind": "Type"}]"#,
-        r#", "typeArgs": {"v": "scalar"}"#,
+        r#", "typeArgs": {"v": "date"}"#,
         "",
     );
     let trait_def = lookup_run_trait(&schema);
     let field = candidate_field(trait_def);
-    assert_eq!(field.field_type, "scalar");
+    assert_eq!(field.field_type, "date");
     assert!(field.properties.is_none());
 
     let mut ctx = ValidationContext::new();
@@ -649,13 +648,13 @@ fn declared_default_resolves_with_no_call_site_arg() {
     );
 }
 
-/// 9. A call-site arg WINS over a declared default — `scalar` default
+/// 9. A call-site arg WINS over a declared default — `date` default
 /// present, but the composer's explicit `:: v Booking` must still produce
-/// the Entity substitution, not the default's scalar.
+/// the Entity substitution, not the default's date.
 #[test]
 fn call_site_arg_wins_over_declared_default() {
     let schema = materialize_and_inline(
-        r#"[{"name": "v", "kind": "Type", "default": "scalar"}]"#,
+        r#"[{"name": "v", "kind": "Type", "default": "date"}]"#,
         r#", "typeArgs": {"v": "Booking"}"#,
         r#", { "name": "when", "type": "string" }"#,
     );
@@ -663,7 +662,7 @@ fn call_site_arg_wins_over_declared_default() {
     let field = candidate_field(trait_def);
     assert_eq!(
         field.field_type, "object",
-        "the explicit call-site arg (Booking, an entity) must win over the declared default (scalar)"
+        "the explicit call-site arg (Booking, an entity) must win over the declared default (date)"
     );
     let props = field
         .properties

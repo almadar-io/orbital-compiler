@@ -644,3 +644,69 @@ fn arm_four_legacy_alias_sentinel_stamps_entity_and_all_four_forms_resolve() {
     });
     assert_or_write_sentinel_fixture(&expected);
 }
+
+// ---------------------------------------------------------------------------
+// Payload-position `@entity <knob>`: an event's payload field is a row of the entity a knob names.
+// ---------------------------------------------------------------------------
+
+fn schema_with_payload_row_knob(source: &str) -> OrbitalSchema {
+    let payload = json!([{ "name": "data", "type": "[@entity(sourceEntity)]" }, { "name": "total", "type": "number" }]);
+    let trait_json = json!({
+        "name": "ThingList",
+        "linkedEntity": "Thing",
+        "config": { "sourceEntity": { "type": "entity", "default": source } },
+        "emits": [{ "event": "ROWS_LOADED", "payloadSchema": payload }],
+        "stateMachine": {
+            "states": [{ "name": "idle", "isInitial": true }],
+            "transitions": [{ "from": "idle", "to": "idle", "event": "INIT" }],
+            "events": [{ "key": "ROWS_LOADED", "payloadSchema": payload }]
+        }
+    });
+    serde_json::from_value(json!({
+        "name": "App",
+        "orbitals": [{
+            "name": "ThingOrbital",
+            "entity": {
+                "name": "Thing",
+                "persistence": "runtime",
+                "fields": [{ "name": "id", "type": "string" }, { "name": "a", "type": "string" }]
+            },
+            "auxiliaryEntities": [{
+                "name": "Order",
+                "persistence": "runtime",
+                "fields": [{ "name": "id", "type": "string" }, { "name": "status", "type": "string" }]
+            }],
+            "traits": [trait_json],
+            "pages": []
+        }]
+    }))
+    .expect("schema fixture must deserialize")
+}
+
+#[test]
+fn a_payload_row_typed_by_a_knob_resolves_to_the_entity_the_knob_names() {
+    let mut schema = schema_with_payload_row_knob("Order");
+    inline_schema(&mut schema, &InlineConfig::default(), None).expect("inline must succeed");
+    let td = thing_trait(&schema);
+    for fields in [
+        td.emits.as_ref().unwrap()[0].payload_schema.as_ref().unwrap(),
+        td.state_machine.events.as_ref().unwrap()[0].payload_schema.as_ref().unwrap(),
+    ] {
+        let data = &fields[0];
+        assert_eq!(data.field_type, "[object]");
+        assert_eq!(data.entity.as_deref(), Some("Order"));
+        let names: Vec<&str> = data.properties.iter().flatten().map(|p| p.name.as_str()).collect();
+        assert_eq!(names, ["id", "status"], "the named entity's row, not the linked entity's");
+        assert_eq!(fields[1].field_type, "number", "control: a plain field is untouched");
+    }
+}
+
+#[test]
+fn a_payload_row_typed_by_a_knob_naming_no_entity_keeps_its_sentinel() {
+    let mut schema = schema_with_payload_row_knob("Nobody");
+    inline_schema(&mut schema, &InlineConfig::default(), None).expect("inline must succeed");
+    let td = thing_trait(&schema);
+    let data = &td.emits.as_ref().unwrap()[0].payload_schema.as_ref().unwrap()[0];
+    assert_eq!(data.field_type, "[@entity(sourceEntity)]");
+    assert_eq!(data.entity, None);
+}

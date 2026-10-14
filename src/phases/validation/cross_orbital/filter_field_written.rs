@@ -172,7 +172,7 @@ fn fold_comparand_literal(comparand: &SExpression, trait_def: &TraitDefinition) 
     }
     let mut ctx = BindingContext::new();
     if let Some(config) = &trait_def.config {
-        let mut map = HashMap::new();
+        let mut map = orbital_core::ValueMap::new();
         for (key, field) in config {
             if let Some(default) = &field.default {
                 map.insert(key.clone(), Value::from(default.clone()));

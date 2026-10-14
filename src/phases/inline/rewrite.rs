@@ -1745,7 +1745,34 @@ pub(crate) fn rewrite_config_bindings(
             }
         }
         SExpression::Array(items) => {
-            for item in items.iter_mut() {
+            // An operator checks each argument against its signature. An empty list read there stays
+            // `@config.<knob>`, typed by the knob's declaration: `[]` has no element type of its own. A list with
+            // elements types itself and is substituted, as is any literal anywhere else (a render prop, an effect
+            // option, a written row).
+            let head = items.first().and_then(|h| h.as_str()).map(str::to_string);
+            let is_let = head.as_deref() == Some("let");
+            let reads_as_operand = head.as_deref().is_some_and(crate::type_infer::is_value_operator);
+            for (at, item) in items.iter_mut().enumerate() {
+                if reads_as_operand && is_empty_list_knob(item, config_subs) {
+                    continue;
+                }
+                // `(let ((name <value>) …) body)`: each value is read by the body as the name's type.
+                if is_let && at == 1 {
+                    if let SExpression::Array(pairs) = item {
+                        for pair in pairs.iter_mut() {
+                            if let SExpression::Array(parts) = pair {
+                                for part in parts.iter_mut().skip(1) {
+                                    if !is_empty_list_knob(part, config_subs) {
+                                        rewrite_config_bindings(part, config_subs);
+                                    }
+                                }
+                                continue;
+                            }
+                            rewrite_config_bindings(pair, config_subs);
+                        }
+                        continue;
+                    }
+                }
                 rewrite_config_bindings(item, config_subs);
             }
         }
@@ -1755,6 +1782,16 @@ pub(crate) fn rewrite_config_bindings(
             }
         }
     }
+}
+
+/// Whether `expr` is a bare `@config.<knob>` whose value is the empty list.
+fn is_empty_list_knob(expr: &SExpression, config_subs: &orbital_core::schema::SObject) -> bool {
+    let SExpression::String(s) = expr else {
+        return false;
+    };
+    s.strip_prefix("@config.")
+        .and_then(|knob| config_subs.get(knob))
+        .is_some_and(|value| matches!(value, SExpression::Array(items) if items.is_empty()))
 }
 
 // ----------------------------------------------------------------------------
@@ -2428,7 +2465,6 @@ const PRIMITIVE_TYPE_ARG_NAMES: &[&str] = &[
     "timestamp",
     "object",
     "sexpr",
-    "scalar",
 ];
 
 /// Resolve a call-site type-parameter argument's VALUE (the string the

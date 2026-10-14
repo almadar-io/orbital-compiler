@@ -95,30 +95,6 @@ fn check_action(
     result
 }
 
-/// Registry param types are TS-flavored strings. Map the checkable subset to
-/// the SExpression literal kinds; anything else (named TS types, unions of
-/// non-literals) is deliberately unchecked.
-fn checkable_type(declared: &str) -> Option<&'static str> {
-    let t = declared.trim();
-    match t {
-        "string" => Some("string"),
-        "number" => Some("number"),
-        "boolean" => Some("boolean"),
-        "object" => Some("object"),
-        "array" => Some("array"),
-        _ => {
-            if t.ends_with("[]") {
-                Some("array")
-            } else if t.starts_with('\'') {
-                // 'a' | 'b' string-literal union
-                Some("string")
-            } else {
-                None
-            }
-        }
-    }
-}
-
 /// The literal kind of a param value, or None when the value is dynamic
 /// (bindings, computed s-expressions, null) and must not be type-checked.
 fn literal_kind(value: &SExpression) -> Option<&'static str> {
@@ -212,7 +188,7 @@ fn check_params(
                 .with_suggestion("Supply the required param in the call's args object"),
             );
         }
-        if let (Some(expected), Some(value)) = (checkable_type(&p.param_type), obj.get(&p.name)) {
+        if let (Some(expected), Some(value)) = (orbital_core::runtime::service_params::checkable_type(&p.param_type).map(|k| k.as_str()), obj.get(&p.name)) {
             if let Some(actual) = literal_kind(value) {
                 if actual != expected {
                     result.add_error(

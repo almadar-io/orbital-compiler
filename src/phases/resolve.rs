@@ -746,22 +746,22 @@ impl<'a> Resolver<'a> {
             // Tagged union: `values` holds the variant names in DECLARATION
             // order, `properties` their shapes. Iterating `values` (not the
             // HashMap) is what keeps variant order stable across runs, which
-            // codegen output depends on. No `properties` means this is a
-            // by-name recursive back-reference (`lower/entity.rs`'s RESOLVING
-            // cycle guard degrading a self-referential struct alias to this
-            // shape rather than expanding forever) — resolve to a `TypeRef`
-            // naming what it would have expanded to, so a backend with a
-            // named-type facility (the TS shell) can emit a real recursive
-            // reference instead of degrading to Json.
+            // codegen output depends on. A by-name reference
+            // (`FieldDefinition::by_name_reference`: the recursive
+            // back-reference `lower/entity.rs`'s RESOLVING cycle guard leaves
+            // where a self-referential alias would expand forever) resolves
+            // to a `TypeRef` naming the type, so a backend with a named-type
+            // facility (the TS shell) emits a real recursive reference.
             FieldType::Union => {
-                let Some(names) = &field.values else {
-                    return Ok(OirType::Json);
-                };
-                let Some(props) = &field.properties else {
-                    return Ok(match names.first() {
-                        Some(name) => OirType::TypeRef { name: name.clone() },
-                        None => OirType::Json,
+                if let Some(name) = field.by_name_reference() {
+                    return Ok(OirType::TypeRef {
+                        name: name.to_string(),
                     });
+                }
+                let (Some(names), Some(props)) = (&field.values, &field.properties) else {
+                    return Err(ResolveError::InvalidType(
+                        "a union type declares its variants (values + properties) or names one type".to_string(),
+                    ));
                 };
                 let mut variants: Vec<OirField> = Vec::new();
                 for name in names {
@@ -778,7 +778,9 @@ impl<'a> Resolver<'a> {
                     variants.push(v);
                 }
                 if variants.is_empty() {
-                    return Ok(OirType::Json);
+                    return Err(ResolveError::InvalidType(
+                        "a union type names no variant that has a shape".to_string(),
+                    ));
                 }
                 Ok(OirType::Union { variants })
             }
@@ -972,12 +974,6 @@ impl<'a> Resolver<'a> {
             "render-ui" => OirType::Json,
             // `SExpr` brand config knob — emits the recursive `SExpr` TS type.
             "sexpr" => OirType::SExpr,
-            // The closed primitive union (`string | number | boolean | null`) —
-            // a config knob generated from a registry prop whose `types` mix
-            // several scalars. Fell through to `String` before (a narrower
-            // type than the `.lolo` declared), so the emitted `Config` member
-            // rejected the knob's numeric default (§80(g)).
-            "scalar" => OirType::Scalar,
             _ => OirType::String, // Default to string for unknown types
         }
     }
@@ -1331,6 +1327,7 @@ impl<'a> Resolver<'a> {
 
         let mut oir_tick = OirTick::new(&tick.name, interval);
         oir_tick.background = tick.background;
+        oir_tick.while_visible = tick.while_visible;
         oir_tick.applies_to = tick.applies_to.clone().unwrap_or_default();
 
         if let Some(guard) = &tick.guard {
@@ -1497,6 +1494,47 @@ struct NamedTypeCtx<'a> {
     in_progress: &'a RefCell<HashSet<String>>,
     /// See `Resolver::entity_names`'s doc.
     entity_names: &'a HashSet<String>,
+}
+
+/// The `OirType` a declared trait config knob has.
+pub(crate) fn config_field_oir_type(field: &orbital_core::schema::ConfigField, schema: &OrbitalSchema) -> OirType {
+    Resolver::new(schema).resolve_config_field_shape(field)
+}
+
+/// The `OirType` a declared payload field has, named types resolved against the schema.
+pub(crate) fn payload_field_oir_type(field: &orbital_core::schema::PayloadField, schema: &OrbitalSchema) -> OirType {
+    let named_types = RefCell::new(BTreeMap::new());
+    let in_progress = RefCell::new(HashSet::new());
+    let entity_names = declared_entity_names(schema);
+    let ctx = NamedTypeCtx {
+        schema,
+        named_types: &named_types,
+        in_progress: &in_progress,
+        entity_names: &entity_names,
+    };
+    payload_field_to_oir_type(field, &ctx)
+}
+
+/// The struct a declared alias (`type X = { … }`) names, as an `OirType`; `None` when no orbital declares it.
+pub(crate) fn declared_struct_type(schema: &OrbitalSchema, name: &str) -> Option<OirType> {
+    let named_types = RefCell::new(BTreeMap::new());
+    let in_progress = RefCell::new(HashSet::new());
+    let entity_names = declared_entity_names(schema);
+    let ctx = NamedTypeCtx {
+        schema,
+        named_types: &named_types,
+        in_progress: &in_progress,
+        entity_names: &entity_names,
+    };
+    // A dictionary or list alias is one entry with the empty name whose type string is the alias's value.
+    for orbital in &schema.orbitals {
+        if let Some([only]) = orbital.types.as_ref().and_then(|t| t.get(name)).map(Vec::as_slice) {
+            if only.name.is_empty() {
+                return Some(payload_field_to_oir_type(only, &ctx));
+            }
+        }
+    }
+    lookup_named_type_shape(name, &ctx)
 }
 
 /// Every entity name `resolve()` will push into `OirModule.entities`: each
@@ -1760,8 +1798,6 @@ fn parse_payload_field_type(field_type: &str) -> OirType {
         // an enum as its literal value; neither sidecar (target entity, values)
         // rides the payload schema.
         "relation" | "enum" => return OirType::String,
-        // Closed primitive union — same arm as `type_string_to_oir` (§80(g)).
-        "scalar" => return OirType::Scalar,
         "array" | "list" => return OirType::array(OirType::Json),
         "object" | "json" | "tensor" => return OirType::Json,
         // `SExpr` brand — a compiled s-expression value (config-only; e.g. a
@@ -1779,6 +1815,11 @@ fn parse_payload_field_type(field_type: &str) -> OirType {
         // string wire shape; membership is validated at Phase 3b.
         "slot" | "icon" | "asset" | "component" | "pattern" | "event" => return OirType::String,
         _ => {}
+    }
+    // `@entity(<knob>)`: a row of the entity a knob names, and nothing names it here (the knob holds its own
+    // unset default). The target declares nothing: an empty record, the same answer a config-position sigil gets.
+    if trimmed.starts_with("@entity(") && trimmed.ends_with(')') {
+        return OirType::Struct { fields: Vec::new() };
     }
     // Any remaining non-empty identifier: treat as an entity reference.
     // `type_expr_to_string` on a `TypeExpr::Named` emits the bare identifier
@@ -2456,6 +2497,43 @@ mod tests {
         );
     }
 
+    /// A union that names a list of types without a shape for them is not a type: resolution refuses it
+    /// rather than inventing an untyped value. Control: the single-name form is the by-name reference.
+    #[test]
+    fn a_union_without_variant_shapes_is_refused_not_degraded() {
+        let schema = OrbitalSchema {
+            theme_definitions: None,
+            site: None,
+            public_dir: None,
+            locales: None,
+            lazy_pages: None,
+            name: String::new(),
+            version: None,
+            description: None,
+            theme: None,
+            orbitals: Vec::new(),
+            metadata: None,
+            ledger: None,
+            schema_version: None,
+            config: None,
+        };
+        let resolver = Resolver::new(&schema);
+        for malformed in [
+            serde_json::json!({ "type": "union" }),
+            serde_json::json!({ "type": "union", "values": ["A", "B"] }),
+            serde_json::json!({ "type": "union", "values": ["A"], "properties": {} }),
+        ] {
+            let field: FieldDefinition = serde_json::from_value(malformed.clone()).unwrap();
+            assert!(resolver.resolve_field_shape(&field).is_err(), "{malformed}");
+        }
+        let by_name: FieldDefinition =
+            serde_json::from_value(serde_json::json!({ "type": "union", "values": ["Node"] })).unwrap();
+        assert!(matches!(
+            resolver.resolve_field_shape(&by_name),
+            Ok(OirType::TypeRef { .. })
+        ));
+    }
+
     #[test]
     fn theme_key_precedence_orbital_over_app_over_default() {
         let orb = ThemeRef::Reference("clay-light".to_string());
@@ -2519,6 +2597,20 @@ mod tests {
         )
         .unwrap();
         assert_eq!(resolver.resolve_config_field_shape(&knob), n3);
+    }
+
+    #[test]
+    fn a_row_of_the_entity_an_unset_knob_names_is_an_empty_record() {
+        assert_eq!(parse_payload_field_type("@entity(captureEntity)"), OirType::Struct { fields: Vec::new() });
+        assert_eq!(
+            parse_payload_field_type("[@entity(captureEntity)]"),
+            OirType::array(OirType::Struct { fields: Vec::new() })
+        );
+        // control: a bare name stays a reference to the entity it names.
+        assert_eq!(
+            parse_payload_field_type("Order"),
+            OirType::Reference { entity: "Order".to_string() }
+        );
     }
 
     #[test]
@@ -2841,6 +2933,7 @@ mod tests {
             applies_to: None,
             description: None,
             background: false,
+            while_visible: false,
         }
     }
 
@@ -3247,7 +3340,7 @@ mod tests {
         ]));
         assert_eq!(
             lambda_params(&callback_arg(&filter, "array/filter", 1)),
-            Some(vec!["item".to_string()])
+            Some(vec!["item".to_string(), "index".to_string()])
         );
 
         let map = resolve_json(serde_json::json!([
@@ -3360,7 +3453,7 @@ mod tests {
         };
         assert_eq!(
             lambda_params(&callback_arg(&len_args[0], "array/filter", 1)),
-            Some(vec!["item".to_string()])
+            Some(vec!["item".to_string(), "index".to_string()])
         );
     }
 }

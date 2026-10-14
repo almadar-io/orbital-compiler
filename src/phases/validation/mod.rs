@@ -81,6 +81,7 @@ pub mod time_unit;
 pub mod trait_ref_config;
 pub mod trait_validator;
 pub mod type_param_sweep;
+pub mod trait_id_uniqueness;
 pub mod user_identity;
 pub(crate) mod value_walk;
 
@@ -383,11 +384,7 @@ pub const VALID_FIELD_TYPES: &[&str] = &[
     "node",
     // Event-name reference (Phase B / SCAN-EVENT-KNOB-2 struct-field carrier).
     "event",
-    // The closed scalar union (`string | number | boolean | null`) — a real
-    // FieldType since the type-integrity campaign, and absent here, which made
-    // it unusable on an ENTITY field even though payloads and config accepted it.
-    "scalar",
-    // A union of type variants (`scalar | FileItem`). Its `values` carry the
+    // A union of type variants (`string | FileItem`). Its `values` carry the
     // VARIANT NAMES, not enum members — see the enum-member check, which skips
     // this type for exactly that reason.
     "union",
@@ -580,6 +577,7 @@ pub fn validate_comprehensive_full(
     // No-ops entirely when the program declares no identity entity. Runs
     // post-inline so config knob defaults carry their call-site values.
     user_identity::validate_user_identity(schema, &mut ctx);
+    trait_id_uniqueness::validate_unique_trait_ids(schema, &mut ctx);
 
     // Phase 11c3: entity access directives (`@read`/`@create`/`@update`/
     // `@delete`) — field/binding checks on the four per-row authorization

@@ -2636,6 +2636,10 @@ pub(crate) fn inline_traits(
                 // recurse below carrying THIS copy as parent, so they follow
                 // the same collision handling.
                 sibling_def.name = final_name.clone();
+                // A distinct declaration needs a distinct id: listens match sources by id.
+                if let Some(source_id) = sibling_def.id.clone() {
+                    sibling_def.id = Some(orbital_core::identity::derive_id(&source_id, &owner));
+                }
                 rewrite_parent(&mut result, &parent_name, &sibling_name, &final_name);
             }
             // Provenance + source entity, mirroring the main ref path so Studio

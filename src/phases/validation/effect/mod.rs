@@ -13,6 +13,7 @@ mod emit;
 mod emit_declaration;
 mod fetch;
 mod navigate;
+mod operator_args;
 mod os_watch;
 mod persist;
 mod program_eval;
@@ -32,6 +33,7 @@ pub(crate) use fetch::{
     validate_fetch_object,
 };
 pub(crate) use navigate::{validate_navigate, validate_send_server};
+pub(crate) use operator_args::validate_operator_arg_types;
 pub(crate) use os_watch::validate_os_watch;
 pub(crate) use persist::{persist_entity_index, validate_persist};
 pub(crate) use program_eval::validate_program_eval;
@@ -50,6 +52,7 @@ pub fn validate_all_effects(schema: &OrbitalSchema, ctx: &mut ValidationContext)
     // Note: Traits are now only defined inline within orbitals, not at schema level.
     for (trait_def, path) in super::inline_traits(schema) {
         let result = validate_trait_effects(
+            schema,
             trait_def,
             &path,
             &ctx.entity_names,
@@ -65,6 +68,7 @@ pub fn validate_all_effects(schema: &OrbitalSchema, ctx: &mut ValidationContext)
 
 /// Validate all effects in a trait definition
 pub fn validate_trait_effects(
+    schema: &OrbitalSchema,
     trait_def: &TraitDefinition,
     path: &str,
     known_entities: &HashSet<String>,
@@ -93,6 +97,8 @@ pub fn validate_trait_effects(
         .unwrap_or_default();
     let per_event_payloads = collect_per_event_payload_field_types(trait_def);
     let payload_field_types = collect_payload_field_types(trait_def);
+    let per_event_shapes = collect_per_event_payload_shapes(trait_def, schema);
+    let tick_types = binding_types(trait_def, schema, collect_payload_shapes(trait_def, schema), &per_event_shapes);
 
     // Validate effects in transitions — scope payload types to the trigger event
     // so `?result` resolves against the correct event's payload schema.
@@ -101,12 +107,24 @@ pub fn validate_trait_effects(
             .get(&transition.event)
             .cloned()
             .unwrap_or_else(|| payload_field_types.clone());
+        let scoped_shapes = match per_event_shapes.get(&transition.event) {
+            Some(shapes) => binding_types(trait_def, schema, shapes.clone(), &per_event_shapes),
+            None => tick_types.clone(),
+        };
         if let Some(guard) = &transition.guard {
             result.merge(set::validate_comparison_operands(
                 guard,
                 &format!("{}.stateMachine.transitions[{}].guard", path, i),
                 &entity_field_types,
                 &scoped_payload,
+            ));
+            result.merge(validate_operator_arg_types(
+                guard,
+                &format!("{}.stateMachine.transitions[{}].guard", path, i),
+                &entity_field_types,
+                &scoped_payload,
+                &scoped_shapes,
+                Some(schema),
             ));
         }
         if let Some(effects) = &transition.effects {
@@ -137,6 +155,14 @@ pub fn validate_trait_effects(
                     &entity_field_types,
                     &scoped_payload,
                 ));
+                result.merge(validate_operator_arg_types(
+                    effect,
+                    &effect_path,
+                    &entity_field_types,
+                    &scoped_payload,
+                    &scoped_shapes,
+                    Some(schema),
+                ));
 
                 result.merge(validate_set_required_field_from_optional_knob(
                     effect,
@@ -151,6 +177,16 @@ pub fn validate_trait_effects(
     // Validate effects in ticks
     if let Some(ticks) = &trait_def.ticks {
         for (i, tick) in ticks.iter().enumerate() {
+            if let Some(guard) = &tick.guard {
+                result.merge(validate_operator_arg_types(
+                    guard,
+                    &format!("{}.ticks[{}].guard", path, i),
+                    &entity_field_types,
+                    &payload_field_types,
+                    &tick_types,
+                    Some(schema),
+                ));
+            }
             for (j, effect) in tick.effects.iter().enumerate() {
                 let effect_path = format!("{}.ticks[{}].effects[{}]", path, i, j);
                 let effect_result = validate_effect(
@@ -176,6 +212,14 @@ pub fn validate_trait_effects(
                     &effect_path,
                     &entity_field_types,
                     &payload_field_types,
+                ));
+                result.merge(validate_operator_arg_types(
+                    effect,
+                    &effect_path,
+                    &entity_field_types,
+                    &payload_field_types,
+                    &tick_types,
+                    Some(schema),
                 ));
 
                 result.merge(validate_set_required_field_from_optional_knob(
@@ -238,6 +282,114 @@ pub(crate) fn collect_per_event_payload_field_types(
     map
 }
 
+/// The `{ event -> { field -> OirType } }` payload shapes of a trait: the full declared type of every payload
+/// field (lists, maps, structs, named types resolved), not the bare kind string. The same precedence as
+/// [`collect_per_event_payload_field_types`]: an inbound event's declared payload wins over an emit's.
+pub(crate) fn collect_per_event_payload_shapes(
+    trait_def: &orbital_core::schema::TraitDefinition,
+    schema: &OrbitalSchema,
+) -> HashMap<String, HashMap<String, orbital_core::ir::OirType>> {
+    let shapes = |fields: &[orbital_core::schema::PayloadField]| -> HashMap<String, orbital_core::ir::OirType> {
+        fields
+            .iter()
+            .map(|f| (f.name.clone(), crate::phases::resolve::payload_field_oir_type(f, schema)))
+            .collect()
+    };
+    let mut map = HashMap::new();
+    if let Some(emits) = &trait_def.emits {
+        for emit in emits {
+            if let Some(fields) = &emit.payload_schema {
+                map.insert(emit.event.clone(), shapes(fields));
+            }
+        }
+    }
+    if let Some(events) = &trait_def.state_machine.events {
+        for event in events {
+            if let Some(fields) = &event.payload_schema {
+                map.insert(event.key.clone(), shapes(fields));
+            }
+        }
+    }
+    map
+}
+
+/// The full declared types of the bindings one transition (or tick) of `trait_def` reads.
+fn binding_types(
+    trait_def: &orbital_core::schema::TraitDefinition,
+    schema: &OrbitalSchema,
+    payload: HashMap<String, orbital_core::ir::OirType>,
+    per_event: &HashMap<String, HashMap<String, orbital_core::ir::OirType>>,
+) -> set::BindingTypes {
+    // The events the trait receives: an earlier delivery in the dispatch is one of them, so its payload is the record
+    // carrying every field any of them declares, a field optional when not all declare it. A field the events
+    // declare with different types has no one type and is left out.
+    let mut merged: HashMap<String, (orbital_core::ir::OirType, usize)> = HashMap::new();
+    let mut conflicting: HashSet<String> = HashSet::new();
+    let mut deliveries = 0usize;
+    let received: std::collections::BTreeSet<&str> = trait_def
+        .state_machine
+        .transitions
+        .iter()
+        .map(|t| t.event.as_str())
+        .collect();
+    for event in received {
+        let Some(shape) = per_event.get(event) else {
+            continue;
+        };
+        deliveries += 1;
+        for (name, ty) in shape {
+            match merged.get_mut(name) {
+                Some((prior, seen)) if prior == ty => *seen += 1,
+                Some(_) => {
+                    conflicting.insert(name.clone());
+                }
+                None => {
+                    merged.insert(name.clone(), (ty.clone(), 1));
+                }
+            }
+        }
+    }
+    let prev_payload = (deliveries > 0).then(|| {
+        set::BindingTypes::record_of(
+            &merged
+                .into_iter()
+                .filter(|(name, _)| !conflicting.contains(name))
+                .map(|(name, (ty, seen))| {
+                    (name, if seen == deliveries { ty } else { orbital_core::ir::OirType::optional(ty) })
+                })
+                .collect(),
+        )
+    });
+    set::BindingTypes {
+        payload,
+        prev_payload,
+        user: super::user_identity::identity_type(schema, &trait_def.name),
+        config: trait_def
+            .config
+            .iter()
+            .flatten()
+            .map(|(name, field)| (name.clone(), crate::phases::resolve::config_field_oir_type(field, schema)))
+            .collect(),
+    }
+}
+
+/// The payload shapes of a trait with no triggering event (ticks): the first declared emit's type of each field.
+pub(crate) fn collect_payload_shapes(
+    trait_def: &orbital_core::schema::TraitDefinition,
+    schema: &OrbitalSchema,
+) -> HashMap<String, orbital_core::ir::OirType> {
+    let mut map = HashMap::new();
+    if let Some(emits) = &trait_def.emits {
+        for emit in emits {
+            for field in emit.payload_schema.iter().flatten() {
+                map.entry(field.name.clone())
+                    .or_insert_with(|| crate::phases::resolve::payload_field_oir_type(field, schema));
+            }
+        }
+    }
+    map
+}
+
 /// Flat (legacy) payload field types — kept for ticks and contexts that
 /// lack a triggering event. On duplicate field names across multiple
 /// emits, the first declared type wins.
@@ -272,6 +424,44 @@ pub(crate) struct DeclaredEmit {
 mod per_event_payload_tests {
     use super::*;
 
+    fn listening_trait() -> orbital_core::schema::TraitDefinition {
+        serde_json::from_value(serde_json::json!({
+            "name": "Listener",
+            "stateMachine": {
+                "initial": "idle",
+                "states": [{ "name": "idle" }],
+                "events": [
+                    { "key": "A", "payloadSchema": [{ "name": "id", "type": "string" }, { "name": "kind", "type": "string" }] },
+                    { "key": "B", "payloadSchema": [{ "name": "id", "type": "string" }, { "name": "kind", "type": "number" }, { "name": "n", "type": "number" }] }
+                ],
+                "transitions": [
+                    { "from": "idle", "event": "A", "to": "idle" },
+                    { "from": "idle", "event": "B", "to": "idle" }
+                ]
+            },
+            "emits": []
+        }))
+        .expect("fixture deserializes")
+    }
+
+    #[test]
+    fn an_earlier_delivery_is_the_merge_of_the_listened_payloads() {
+        use orbital_core::ir::OirType;
+        let schema: OrbitalSchema = serde_json::from_value(serde_json::json!({ "name": "App", "orbitals": [] })).unwrap();
+        let trait_def = listening_trait();
+        let per_event = collect_per_event_payload_shapes(&trait_def, &schema);
+        let types = binding_types(&trait_def, &schema, HashMap::new(), &per_event);
+        let Some(OirType::Struct { fields }) = types.prev_payload else {
+            panic!("a trait that listens has a prior delivery payload");
+        };
+        let by_name = |name: &str| fields.iter().find(|f| f.name == name).map(|f| f.field_type.clone());
+        assert_eq!(by_name("id"), Some(OirType::String), "declared by both with one type");
+        assert_eq!(by_name("n"), Some(OirType::optional(OirType::Number)), "declared by one of two");
+        assert_eq!(by_name("kind"), None, "control: declared with two types, so it has none");
+        let silent = binding_types(&listening_trait(), &schema, HashMap::new(), &HashMap::new());
+        assert!(silent.prev_payload.is_none(), "control: events with no declared payload give none");
+    }
+
     /// An inbound event declared via `listens { EVENT { field : type } }`
     /// lowers onto `stateMachine.events[].payloadSchema`. Its type must win
     /// for that event, even when an UNRELATED emit declares a same-named
@@ -291,7 +481,7 @@ mod per_event_payload_tests {
                     "transitions": []
                 },
                 "emits": [
-                    { "event": "GetDone", "payloadSchema": [{ "name": "value", "type": "Map<string,scalar>" }] }
+                    { "event": "GetDone", "payloadSchema": [{ "name": "value", "type": "Map<string,string>" }] }
                 ]
             }),
         )
@@ -311,7 +501,7 @@ mod per_event_payload_tests {
                 .get("GetDone")
                 .and_then(|f| f.get("value"))
                 .map(String::as_str),
-            Some("Map<string,scalar>"),
+            Some("Map<string,string>"),
             "the emit keeps its own payload type"
         );
     }

@@ -1908,6 +1908,14 @@ pub(crate) fn resolve_orbital_reference(
         Some(final_pages)
     };
     orbital.config = folded_config;
+    // The imported traits read the aliases the upstream declares (a `json/parse x Name` shape), so the composing
+    // orbital knows the same names; one it declares itself wins.
+    if let Some(upstream_types) = upstream.types.as_ref() {
+        let own = orbital.types.get_or_insert_with(Default::default);
+        for (name, fields) in upstream_types {
+            own.entry(name.clone()).or_insert_with(|| fields.clone());
+        }
+    }
     // Orbital-level `emits`/`listens`/`exposes` name UPSTREAM's pre-rename
     // vocabulary — carrying them through would be wrong, and nothing reads
     // them off a materialized orbital (matches the JS twin's drop; §Report).

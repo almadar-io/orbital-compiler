@@ -1998,6 +1998,7 @@ mod tests {
             applies_to: None,
             description: None,
             background: false,
+            while_visible: false,
         }]);
         t
     }

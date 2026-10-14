@@ -1,122 +1,625 @@
-//! Canonical `OirExpr → OirType` inference — the single derivation of "what
-//! type does this expression evaluate to", shared by the validator (the
-//! `(set @field <expr>)` type check, Gap G-LOLO-SET-OP-RETURN) and the TS
-//! codegen (operator-result / array-element typing, replacing the parallel
-//! `infer_oirexpr_element_type_ts`).
+//! Canonical `OirExpr → OirType` inference — the single derivation of "what type does this expression
+//! evaluate to", shared by the validator (the `(set @field <expr>)` type check, the operator argument check) and
+//! the TS codegen.
 //!
-//! Operator result types come from the canonical `@almadar/std` metadata
-//! (`canonical_operators`): the static `return_type` for fixed-return operators,
-//! and the **`return_semantics` lattice** for the input-dependent ones
-//! (`element-of-arg<0>?`, `branch-union`, `object-key-lookup`, `lambda-result`,
-//! `identity-of-arg<0>`, first/last-truthy). This is a *generic interpreter* of
-//! that lattice — no per-operator special-casing. Where a result is genuinely
-//! unknowable (an untagged imprecise op, an open object-key lookup), it infers
-//! `Json` so downstream compat (`orbital_core::oir_type_satisfies_field`) is
-//! conservative and never false-positives. Widening precision is an upstream
-//! `@almadar/std` `return_semantics` change, never per-op Rust code.
+//! An operator's result type is its signature's (`@almadar/std` `returnType`, built from the type variables of
+//! its `params`), resolved by `orbital_core::signature` — the same resolver the runtime check drives. Every
+//! argument of a call is bound against its declared type in order; the call's result is the signature's return
+//! type under those bindings, so `(array/first @entity.tags)` is `string` when `tags` is `[string]`. A lambda
+//! argument is inferred with its parameters bound to the types the signature gives them. There is no per-operator
+//! code here.
+//!
+//! `None` means no concrete type is determined: a binding nothing resolves, an effect, a call with a type
+//! variable no argument bound. It is never a type: handed to a type variable it is an error
+//! (`ORB_X_OPERATOR_ARG_UNDETERMINED`), because a variable never stands for an unknown.
 
-use crate::phases::validation::canonical_operators::get_canonical_operator;
-use orbital_core::ir::{OirBinaryOp, OirBinding, OirExpr, OirModule, OirType, OirUnaryOp};
+use std::cell::RefCell;
 
-/// Binding-resolution context the inferencer needs (and only that). Each
-/// consumer supplies its own — the validator from the resolved entity/payload
-/// field types, the codegen from its `CodegenContext` catalog — so the
+use orbital_core::evaluator::operator_signature;
+use orbital_core::ir::{OirBinaryOp, OirBinding, OirBindingRoot, OirExpr, OirField, OirModule, OirType, OirUnaryOp};
+use orbital_core::language::registry::{get_operator, OperatorTypeRef, OperatorTypeRefKind};
+use orbital_core::signature::{type_at_path, Actual, CallBindings, Known, Mismatch, Mode, Signature};
+
+/// Binding-resolution context the inferencer needs (and only that). Each consumer supplies its own — the
+/// validator from the resolved entity/payload field types, the codegen from its `CodegenContext` catalog — so the
 /// inferencer itself is layer-agnostic.
 pub trait TypeCtx {
-    /// The declared type of a binding (`@entity.f` / `@payload.f` / `@config.f`),
-    /// or `None` when it can't be resolved (→ inferred `Json`, conservative).
+    /// The declared type of a binding (`@entity.f` / `@payload.f` / `@config.f`), or `None` when it can't be
+    /// resolved.
     fn binding_type(&self, binding: &OirBinding) -> Option<OirType>;
-}
 
-/// Map a canonical operator `return_type` string to an `OirType`. Imprecise
-/// kinds (`any`/`object`/`json`/`void`/ML types) collapse to `Json` so compat
-/// stays conservative.
-fn return_type_to_oir(rt: &str) -> OirType {
-    match rt {
-        "string" => OirType::String,
-        "number" | "integer" => OirType::Number,
-        "boolean" => OirType::Boolean,
-        "sexpr" => OirType::SExpr,
-        "behavior" => OirType::Behavior,
-        "date" => OirType::Date,
-        "datetime" => OirType::DateTime,
-        "array" => OirType::Array {
-            inner: Box::new(OirType::Json),
-        },
-        "number[]" => OirType::Array {
-            inner: Box::new(OirType::Number),
-        },
-        _ => OirType::Json, // any / object / json / void / function / nn|tensor|train …
+    /// The declared type a name stands for (a named struct), when the context knows it.
+    fn named_type(&self, _name: &str) -> Option<OirType> {
+        None
+    }
+
+    /// The row type of the entity `name` (its declared fields and the system fields every row carries), when the
+    /// context knows the declarations. A field read through a reference to a row is typed by it.
+    fn entity_type(&self, _name: &str) -> Option<OirType> {
+        None
+    }
+
+    /// The type of `@event.payload` in the transition being checked: the payload of the event that triggers it.
+    fn delivery_payload(&self) -> Option<OirType> {
+        None
+    }
+
+    /// The type of `@prevEvents[i].payload`: the payload every event this trait listens to declares, when they
+    /// agree. Without one the earlier deliveries' payload has no type.
+    fn prev_delivery_payload(&self) -> Option<OirType> {
+        None
+    }
+
+    /// Whether an object literal is exactly the record it writes (its keys, each typed by its value). A consumer
+    /// comparing a literal with a declared type (a default that omits optional keys) keeps it a record of unknown
+    /// extent; one that reads the literal's own fields needs the exact record.
+    fn object_literals_are_exact(&self) -> bool {
+        false
+    }
+
+    /// Whether `name` is a declared type: `None` when the context does not know the declarations at all.
+    fn declared_type(&self, _name: &str) -> Option<bool> {
+        None
     }
 }
 
-/// Infer the `OirType` a `(set @field <expr>)`-style value expression evaluates to.
-pub fn infer_oir_expr_type<C: TypeCtx>(expr: &OirExpr, ctx: &C) -> OirType {
-    match expr {
-        OirExpr::Null => OirType::Json,
-        OirExpr::Bool { .. } => OirType::Boolean,
-        OirExpr::Number { .. } => OirType::Number,
-        OirExpr::String { .. } => OirType::String,
-        OirExpr::Array { items } => {
-            let inner = items
-                .first()
-                .map(|e| infer_oir_expr_type(e, ctx))
-                .unwrap_or(OirType::Json);
-            OirType::Array {
-                inner: Box::new(inner),
+/// A call whose argument contradicts the operator's signature.
+#[derive(Debug, Clone, PartialEq)]
+pub struct Diagnostic {
+    /// The canonical operator name.
+    pub function: String,
+    /// The zero-based argument position.
+    pub index: usize,
+    pub mismatch: Mismatch,
+    /// The call, printed.
+    pub expression: String,
+    /// The argument at `index`, printed.
+    pub argument: String,
+}
+
+/// The signature of an operator that evaluates to a value: the evaluator's (alias-aware) first, then the
+/// installed table's for operators the evaluator does not run (the Python-target ones).
+fn signature_of(name: &str) -> Option<Signature<'static>> {
+    operator_signature(name).or_else(|| {
+        let meta = get_operator(name)?;
+        (!meta.has_side_effects).then(|| Signature::of(meta))
+    })
+}
+
+/// Whether `name` is an effect: it runs for what it does and produces no value.
+pub(crate) fn is_effect(name: &str) -> bool {
+    orbital_core::ir::is_substrate_operator(name) || get_operator(name).is_some_and(|meta| meta.has_side_effects)
+}
+
+/// Whether `name` is an operator that evaluates to a value (not an effect).
+pub(crate) fn is_value_operator(name: &str) -> bool {
+    signature_of(name).is_some()
+}
+
+struct Inferer<'c> {
+    ctx: &'c dyn TypeCtx,
+    scopes: RefCell<Vec<(String, Option<OirType>)>>,
+    diagnostics: RefCell<Vec<Diagnostic>>,
+    /// Set by the call (or `let`) just inferred when its result is void.
+    void: std::cell::Cell<bool>,
+}
+
+impl<'c> Inferer<'c> {
+    fn new(ctx: &'c dyn TypeCtx) -> Self {
+        Self {
+            ctx,
+            scopes: RefCell::new(Vec::new()),
+            diagnostics: RefCell::new(Vec::new()),
+            void: std::cell::Cell::new(false),
+        }
+    }
+
+    /// What the checker knows of `expr` as an argument: a type, the null value, an effect (void), an empty list, or
+    /// nothing (undetermined).
+    fn known(&self, expr: &OirExpr) -> Option<Known> {
+        if let Some((live, dead)) = live_branch(expr) {
+            let mark = self.diagnostics.borrow().len();
+            let dead_known = self.known(dead);
+            self.diagnostics.borrow_mut().truncate(mark);
+            return match (self.known(live), dead_known) {
+                (Some(Known::EmptyList), Some(Known::Type(ty))) => Some(Known::Type(ty)),
+                (live_known, _) => live_known,
+            };
+        }
+        match expr {
+            OirExpr::Null => Some(Known::Absent),
+            OirExpr::Array { items } if items.is_empty() => Some(Known::EmptyList),
+            OirExpr::Effect { effect } => {
+                for child in effect.child_exprs() {
+                    self.known(child);
+                }
+                Some(Known::Void)
+            }
+            // An effect produces no value, but the expressions it is handed are checked where they stand, in the
+            // scope of every `let` and lambda around them.
+            OirExpr::Call { function, args } if is_effect(function) => {
+                for arg in args {
+                    self.known(arg);
+                }
+                Some(Known::Void)
+            }
+            _ => {
+                let reported = self.diagnostics.borrow().len();
+                self.void.set(false);
+                let inferred = self.infer(expr);
+                let through_call = matches!(
+                    expr,
+                    OirExpr::Call { .. } | OirExpr::Conditional { .. } | OirExpr::BinaryOp { .. } | OirExpr::UnaryOp { .. }
+                );
+                match inferred {
+                    Some(ty) => Some(Known::Type(ty)),
+                    None if through_call && self.void.get() => Some(Known::Void),
+                    // Its own error is already reported; the enclosing call does not report it again.
+                    None if self.diagnostics.borrow().len() > reported => Some(Known::Absent),
+                    None => None,
+                }
             }
         }
-        OirExpr::Object { .. } => OirType::Json,
-        OirExpr::Binding { binding } => ctx.binding_type(binding).unwrap_or(OirType::Json),
-        OirExpr::BinaryOp { op, .. } => match op {
-            OirBinaryOp::Add
-            | OirBinaryOp::Sub
-            | OirBinaryOp::Mul
-            | OirBinaryOp::Div
-            | OirBinaryOp::Mod => OirType::Number,
-            OirBinaryOp::Eq
-            | OirBinaryOp::Ne
-            | OirBinaryOp::Lt
-            | OirBinaryOp::Gt
-            | OirBinaryOp::Le
-            | OirBinaryOp::Ge => OirType::Boolean,
-            OirBinaryOp::Concat => OirType::String,
-            // `and`/`or` return a truthy operand (JS semantics) — union, unknowable.
-            OirBinaryOp::And | OirBinaryOp::Or => OirType::Json,
-        },
-        OirExpr::UnaryOp { op, .. } => match op {
-            OirUnaryOp::Not => OirType::Boolean,
-            OirUnaryOp::Neg => OirType::Number,
-        },
-        OirExpr::Conditional {
-            then_branch,
-            else_branch,
-            ..
-        } => {
-            let t = infer_oir_expr_type(then_branch, ctx);
-            let e = infer_oir_expr_type(else_branch, ctx);
-            if t == e {
-                t
-            } else {
-                OirType::Json
-            } // branch-union, conservative
+    }
+
+    fn binding(&self, binding: &OirBinding) -> Option<OirType> {
+        if let OirBindingRoot::Local(name) = &binding.root {
+            let scoped = self
+                .scopes
+                .borrow()
+                .iter()
+                .rev()
+                .find(|(n, _)| n == name)
+                .map(|(_, t)| t.clone());
+            if let Some(local) = scoped {
+                let mut ty = local?;
+                for segment in &binding.path {
+                    ty = type_at_path(&self.unfold_rows(ty), std::slice::from_ref(segment))?;
+                }
+                return Some(ty);
+            }
         }
-        OirExpr::Call { function, args } => infer_call(function, args, ctx),
-        // Map/Reduce produce values whose element/result type needs the bound
-        // loop var's type; conservative without over-reaching.
-        OirExpr::Map { .. } => OirType::Array {
-            inner: Box::new(OirType::Json),
-        },
-        OirExpr::Filter { source, .. } => infer_oir_expr_type(source, ctx), // identity
-        OirExpr::Reduce { initial, .. } => infer_oir_expr_type(initial, ctx),
-        OirExpr::Lambda { .. } | OirExpr::Effect { .. } => OirType::Json,
+        if let Some(builtin) = language_binding(binding, self.ctx.delivery_payload(), self.ctx.prev_delivery_payload()) {
+            return type_at_path(&builtin, &binding.path);
+        }
+        // The context types the first segment (`@payload.row`); a reference to a row is read through its entity.
+        let split = binding.path.len().min(1);
+        let head = OirBinding {
+            root: binding.root.clone(),
+            path: binding.path[..split].to_vec(),
+        };
+        let mut ty = self.ctx.binding_type(&head)?;
+        for segment in &binding.path[split..] {
+            ty = type_at_path(&self.unfold_rows(ty), std::slice::from_ref(segment))?;
+        }
+        Some(self.unfold_rows(ty))
+    }
+
+    /// A reference to a row (or a list of them) as the row it stands for, one level deep.
+    fn unfold_rows(&self, ty: OirType) -> OirType {
+        match &ty {
+            OirType::Reference { entity } | OirType::Row { entity } => self
+                .ctx
+                .entity_type(entity)
+                .or_else(|| self.ctx.named_type(entity))
+                .unwrap_or(ty),
+            OirType::Array { inner } => OirType::array(self.unfold_rows((**inner).clone())),
+            OirType::Optional { inner } => OirType::optional(self.unfold_rows((**inner).clone())),
+            _ => ty,
+        }
+    }
+
+    fn infer(&self, expr: &OirExpr) -> Option<OirType> {
+        let inferred = self.infer_bare(expr)?;
+        Some(self.unfold_rows(inferred))
+    }
+
+    fn infer_bare(&self, expr: &OirExpr) -> Option<OirType> {
+        match expr {
+            OirExpr::Null => None,
+            OirExpr::Bool { .. } => Some(OirType::Boolean),
+            OirExpr::Number { .. } => Some(OirType::Number),
+            OirExpr::String { .. } => Some(OirType::String),
+            OirExpr::Array { items } if items.is_empty() => Some(OirType::Tuple { items: Vec::new() }),
+            OirExpr::Array { items } => self.call("list", &items.iter().collect::<Vec<_>>()),
+            // The fields an object literal writes are not all the fields of the type it stands for (a default that
+            // omits optional keys): a record of unknown extent. The field values are still checked.
+            OirExpr::Object { fields } => {
+                let typed: Vec<(String, Option<OirType>)> =
+                    fields.iter().map(|(name, value)| (name.clone(), self.infer(value))).collect();
+                if !self.ctx.object_literals_are_exact() {
+                    return Some(OirType::Row {
+                        entity: "{ … }".to_string(),
+                    });
+                }
+                let mut record: Vec<OirField> = Vec::new();
+                for (name, ty) in typed {
+                    record.push(OirField::new(name, ty?));
+                }
+                record.sort_by(|a, b| a.name.cmp(&b.name));
+                Some(OirType::Struct { fields: record })
+            }
+            OirExpr::Binding { binding } => self.binding(binding),
+            OirExpr::BinaryOp { op, left, right } => {
+                let name = match op {
+                    OirBinaryOp::Add => "+",
+                    OirBinaryOp::Sub => "-",
+                    OirBinaryOp::Mul => "*",
+                    OirBinaryOp::Div => "/",
+                    OirBinaryOp::Mod => "%",
+                    OirBinaryOp::Eq => "==",
+                    OirBinaryOp::Ne => "!=",
+                    OirBinaryOp::Lt => "<",
+                    OirBinaryOp::Gt => ">",
+                    OirBinaryOp::Le => "<=",
+                    OirBinaryOp::Ge => ">=",
+                    OirBinaryOp::And => "and",
+                    OirBinaryOp::Or => "or",
+                    OirBinaryOp::Concat => "str/concat",
+                };
+                self.call(name, &[left, right])
+            }
+            OirExpr::UnaryOp { op, operand } => match op {
+                OirUnaryOp::Not => self.call("not", &[operand]),
+                OirUnaryOp::Neg => self.call("-", &[operand]),
+            },
+            OirExpr::Conditional {
+                condition,
+                then_branch,
+                else_branch,
+            } => match live_branch(expr) {
+                Some((live, dead)) => {
+                    // The dead branch still says what type the other one stands for (an empty list); its own
+                    // findings are dropped, because it never runs.
+                    let mark = self.diagnostics.borrow().len();
+                    let dead_known = self.known(dead);
+                    self.diagnostics.borrow_mut().truncate(mark);
+                    match (self.known(live), dead_known) {
+                        (Some(Known::Type(ty)), _) => Some(ty),
+                        (Some(Known::EmptyList), Some(Known::Type(ty))) => Some(ty),
+                        (Some(Known::EmptyList), _) => Some(OirType::Tuple { items: Vec::new() }),
+                        (Some(Known::Void), _) => {
+                            self.void.set(true);
+                            None
+                        }
+                        _ => None,
+                    }
+                }
+                None => self.call("if", &[condition, then_branch, else_branch]),
+            },
+            OirExpr::Call { function, args } if function == "let" => self.infer_let(args),
+            OirExpr::Call { function, args } => self.call(function, &args.iter().collect::<Vec<_>>()),
+            OirExpr::Map {
+                source,
+                variable,
+                body,
+            } => {
+                let element = element_of(&self.infer(source)?);
+                let result = self.with_scope(&[(variable.clone(), element)], || self.infer(body))?;
+                Some(OirType::array(result))
+            }
+            OirExpr::Filter {
+                source,
+                variable,
+                predicate,
+            } => {
+                let source_ty = self.infer(source);
+                let element = source_ty.as_ref().and_then(element_of);
+                self.with_scope(&[(variable.clone(), element)], || self.infer(predicate));
+                source_ty
+            }
+            OirExpr::Reduce {
+                source,
+                variable,
+                accumulator,
+                initial,
+                body,
+            } => {
+                let element = self.infer(source).as_ref().and_then(element_of);
+                let accumulated = self.infer(initial);
+                self.with_scope(
+                    &[(variable.clone(), element), (accumulator.clone(), accumulated.clone())],
+                    || self.infer(body),
+                );
+                accumulated
+            }
+            OirExpr::Lambda { .. } | OirExpr::Effect { .. } => None,
+        }
+    }
+
+    fn with_scope<R>(&self, names: &[(String, Option<OirType>)], f: impl FnOnce() -> R) -> R {
+        let depth = self.scopes.borrow().len();
+        self.scopes.borrow_mut().extend(names.iter().cloned());
+        let out = f();
+        self.scopes.borrow_mut().truncate(depth);
+        out
+    }
+
+    /// `(let [[name value] …] body)`: each name is in scope, typed by its value, for the bindings after it and the body.
+    fn infer_let(&self, args: &[OirExpr]) -> Option<OirType> {
+        let (OirExpr::Array { items: bindings }, Some(body)) = (args.first()?, args.get(1)) else {
+            return None;
+        };
+        let depth = self.scopes.borrow().len();
+        for pair in bindings {
+            if let OirExpr::Array { items } = pair {
+                if let (Some(OirExpr::String { value: name }), Some(value)) = (items.first(), items.get(1)) {
+                    let ty = self.infer(value);
+                    self.scopes.borrow_mut().push((name.clone(), ty));
+                }
+            }
+        }
+        let names: Vec<(String, Option<OirType>)> = self.scopes.borrow()[depth..].to_vec();
+        self.scopes.borrow_mut().truncate(depth);
+        let body_known = self.with_scope(&names, || self.known(body));
+        match body_known {
+            Some(Known::Type(ty)) => Some(ty),
+            Some(Known::Void) => {
+                self.void.set(true);
+                None
+            }
+            _ => None,
+        }
+    }
+
+    fn literal_text(expr: &OirExpr) -> Option<String> {
+        match expr {
+            OirExpr::String { value } => Some(value.clone()),
+            _ => None,
+        }
+    }
+
+    fn literal_texts(expr: &OirExpr) -> Option<Vec<String>> {
+        let items = match expr {
+            OirExpr::Array { items } => items,
+            OirExpr::Call { function, args } if function == "list" => args,
+            _ => return None,
+        };
+        items.iter().map(Self::literal_text).collect()
+    }
+
+    fn call(&self, name: &str, args: &[&OirExpr]) -> Option<OirType> {
+        let name_fn = name;
+        let signature = signature_of(name)?;
+        let mut bindings = CallBindings::new();
+        let mut sound = true;
+        for (index, arg) in args.iter().enumerate() {
+            let outcome = match arg {
+                OirExpr::Lambda { params, body } => {
+                    // A callback the operator also hands the element's index: that parameter is a number.
+                    let index_at = orbital_core::evaluator::callback_index_position(name);
+                    let run = |types: &[Option<OirType>]| {
+                        let mut typed = types.to_vec();
+                        if let Some(at) = index_at {
+                            typed.resize(at + 1, None);
+                            typed[at] = Some(OirType::Number);
+                        }
+                        // A parameter the call typed with the empty list (a fold's accumulator started at `[]`) has
+                        // no element until the body builds one: read the body once for the list it builds, then
+                        // check it with the parameter typed as that list. The first reading's findings are dropped;
+                        // they were made without the element.
+                        let empty = |t: &Option<OirType>| t.as_ref().is_some_and(is_empty_list);
+                        if typed.iter().any(empty) {
+                            let mark = self.diagnostics.borrow().len();
+                            let built = self.infer_lambda(params, body, &typed, index_at.is_some()).filter(|t| !is_empty_list(t));
+                            self.diagnostics.borrow_mut().truncate(mark);
+                            if let Some(built) = built {
+                                for slot in typed.iter_mut().filter(|t| empty(t)) {
+                                    *slot = Some(built.clone());
+                                }
+                            }
+                        }
+                        self.infer_lambda(params, body, &typed, index_at.is_some())
+                    };
+                    let actual = Actual {
+                        known: None,
+                        text: None,
+                        texts: None,
+                        lambda: Some(&run),
+                    };
+                    signature.bind(&mut bindings, index, &actual, Mode::Static)
+                }
+                other => {
+                    let known = self.known(other);
+                    let actual = Actual {
+                        known,
+                        text: Self::literal_text(other),
+                        texts: Self::literal_texts(other),
+                        lambda: None,
+                    };
+                    signature.bind(&mut bindings, index, &actual, Mode::Static)
+                }
+            };
+            if let Err(mismatch) = outcome {
+                sound = false;
+                self.diagnostics.borrow_mut().push(Diagnostic {
+                    function: name.to_string(),
+                    index,
+                    mismatch,
+                    expression: printed(name, args),
+                    argument: printed_arg(args.get(index)),
+                });
+            }
+        }
+        // What the whole call decides is only asked of a call whose arguments each fit: a rejected argument is the
+        // finding, and a variable it left unbound is not a second one.
+        let finished = if sound { signature.finish(&bindings, args.len()) } else { Ok(()) };
+        if let Err((index, mismatch)) = finished {
+            sound = false;
+            self.diagnostics.borrow_mut().push(Diagnostic {
+                function: name.to_string(),
+                index,
+                mismatch,
+                expression: printed(name, args),
+                argument: printed_arg(args.get(index)),
+            });
+        }
+        self.void.set(sound && (signature.returns_void() || signature.result_is_void(&bindings)));
+        if !sound {
+            return None;
+        }
+        let result = signature.result(&bindings)?;
+        if let (OperatorTypeRef::Tagged(OperatorTypeRefKind::Shape), OirType::TypeRef { name }) =
+            (signature.returns(), &result)
+        {
+            if self.ctx.declared_type(name) == Some(false) {
+                let index = signature
+                    .shape_position()
+                    .unwrap_or_default();
+                self.diagnostics.borrow_mut().push(Diagnostic {
+                    function: name_fn.to_string(),
+                    index,
+                    mismatch: Mismatch::Type {
+                        expected: "the name of a declared type".to_string(),
+                        actual: format!("`{name}`, which no type declares"),
+                    },
+                    expression: printed(name_fn, args),
+                    argument: printed_arg(args.get(index)),
+                });
+                return None;
+            }
+        }
+        Some(self.unfold(result))
+    }
+
+    /// `names_the_element` is true for a callback that is handed the element's index: both evaluators then also bind
+    /// the element as `@item` and its position as `@index`, whatever the lambda names its own parameters.
+    fn infer_lambda(
+        &self,
+        params: &[String],
+        body: &OirExpr,
+        types: &[Option<OirType>],
+        names_the_element: bool,
+    ) -> Option<OirType> {
+        let mut names: Vec<(String, Option<OirType>)> = Vec::new();
+        if names_the_element {
+            names.push(("item".to_string(), types.first().cloned().flatten()));
+            names.push(("index".to_string(), Some(OirType::Number)));
+        }
+        names.extend(
+            params
+                .iter()
+                .enumerate()
+                .map(|(i, name)| (name.clone(), types.get(i).cloned().flatten())),
+        );
+        self.with_scope(&names, || self.infer(body))
+    }
+
+    /// A by-name result (the shape `json/parse` was given) is the declared type it names, when the context knows it.
+    fn unfold(&self, ty: OirType) -> OirType {
+        match &ty {
+            OirType::TypeRef { name } => self.ctx.named_type(name).unwrap_or(ty),
+            _ => ty,
+        }
     }
 }
 
-/// A `TypeCtx` that resolves no bindings — every `@entity.x` / `@payload.x`
-/// / `@config.x` infers to `Json` (unknown). Used by the guard check so bare
-/// binding guards (intentional truthy checks, e.g. `@entity.running`) are
-/// never false-positive-flagged.
+/// The type of a binding the language itself defines, whatever the program: the dispatch's timestamp, the
+/// state names, the locale and theme keys, the delivery being processed, a sibling trait's render output.
+fn language_binding(binding: &OirBinding, payload: Option<OirType>, prev_payload: Option<OirType>) -> Option<OirType> {
+    let field = |name: &str, ty: OirType| OirField::new(name.to_string(), ty);
+    // The emitter's envelope: the ten `BusEventSource` fields, each present only when the delivery carries it.
+    let source = || OirType::Struct {
+        fields: vec![
+            field("orbital", OirType::String),
+            field("orbitalId", OirType::String),
+            field("trait", OirType::String),
+            field("traitId", OirType::String),
+            field("eventId", OirType::String),
+            field("transition", OirType::String),
+            field("tick", OirType::String),
+            field("fromBridge", OirType::Boolean),
+            field("dispatched", OirType::Boolean),
+            field("originClientId", OirType::String),
+        ],
+    };
+    Some(match &binding.root {
+        OirBindingRoot::Local(name) if name == "now" => OirType::Number,
+        OirBindingRoot::State
+        | OirBindingRoot::FromState
+        | OirBindingRoot::ToState
+        | OirBindingRoot::Locale
+        | OirBindingRoot::CurrentTheme => OirType::String,
+        OirBindingRoot::PrevStates => OirType::array(OirType::String),
+        OirBindingRoot::Event => {
+            let mut fields = vec![field("event", OirType::String), field("source", source())];
+            if let Some(payload) = payload {
+                fields.push(field("payload", payload));
+            }
+            OirType::Struct { fields }
+        }
+        OirBindingRoot::PrevEvents => {
+            let mut fields = vec![field("event", OirType::String), field("source", source())];
+            if let Some(payload) = prev_payload {
+                fields.push(field("payload", payload));
+            }
+            OirType::array(OirType::Struct { fields })
+        }
+        OirBindingRoot::Trait(_) => OirType::Node,
+        _ => return None,
+    })
+}
+
+/// The branch of an `if` that can run when its condition is provably decided without running the program (a
+/// `@config` knob substituted to its call-site literal), with the dead branch that cannot.
+fn live_branch(expr: &OirExpr) -> Option<(&OirExpr, &OirExpr)> {
+    let OirExpr::Conditional {
+        condition,
+        then_branch,
+        else_branch,
+    } = expr
+    else {
+        return None;
+    };
+    let decided = condition.to_sexpression()?;
+    if decided.is_statically_true() {
+        Some((then_branch, else_branch))
+    } else if decided.is_statically_false() {
+        Some((else_branch, then_branch))
+    } else {
+        None
+    }
+}
+
+fn printed_arg(arg: Option<&&OirExpr>) -> String {
+    arg.map(|a| orbital_core::ir::pretty_print_expr(a)).unwrap_or_default()
+}
+
+fn printed(name: &str, args: &[&OirExpr]) -> String {
+    orbital_core::ir::pretty_print_expr(&OirExpr::call(
+        name,
+        args.iter().map(|a| (*a).clone()).collect(),
+    ))
+}
+
+fn is_empty_list(ty: &OirType) -> bool {
+    matches!(ty, OirType::Tuple { items } if items.is_empty())
+}
+
+fn element_of(ty: &OirType) -> Option<OirType> {
+    match ty {
+        OirType::Array { inner } => Some((**inner).clone()),
+        OirType::Optional { inner } => element_of(inner),
+        _ => None,
+    }
+}
+
+/// The `OirType` an expression evaluates to, or `None` when no concrete type is determined.
+pub fn infer_oir_expr_type<C: TypeCtx>(expr: &OirExpr, ctx: &C) -> Option<OirType> {
+    Inferer::new(ctx).infer(expr)
+}
+
+/// Every call in `expr` (lambda bodies included, with their parameters typed) whose argument contradicts the
+/// operator's signature.
+pub fn check_oir_expr<C: TypeCtx>(expr: &OirExpr, ctx: &C) -> Vec<Diagnostic> {
+    let inferer = Inferer::new(ctx);
+    inferer.infer(expr);
+    inferer.diagnostics.into_inner()
+}
+
+/// A `TypeCtx` that resolves no bindings — every `@entity.x` / `@payload.x` / `@config.x` is undetermined. Used
+/// by the guard check so bare binding guards (intentional truthy checks, e.g. `@entity.running`) are never
+/// false-positive-flagged.
 pub(crate) struct NoBindingCtx;
 impl TypeCtx for NoBindingCtx {
     fn binding_type(&self, _binding: &OirBinding) -> Option<OirType> {
@@ -124,18 +627,15 @@ impl TypeCtx for NoBindingCtx {
     }
 }
 
-/// Phase 4 (C-GUARD-NO-BOOLEAN-CHECK): collect warnings for `when` guard
-/// expressions that resolve to a definitively non-boolean type (`Number` /
-/// `String` / `Array`), which would otherwise run with silent JS truthiness
-/// coercion. Conservative by design — with `NoBindingCtx`, all bindings AND
-/// `and`/`or`/`object/get` infer to `Json` (unknown) and are NOT flagged;
-/// only structural non-boolean exprs (arithmetic, literals, number/string
-/// operator calls like `math/cos`) produce a warning. One warning string per
-/// offending guard, each naming the trait + guard site.
+/// Phase 4 (C-GUARD-NO-BOOLEAN-CHECK): collect warnings for `when` guard expressions that resolve to a
+/// definitively non-boolean type (`Number` / `String` / `Array`), which would otherwise run with silent JS
+/// truthiness coercion. Conservative by design — with `NoBindingCtx`, bindings are undetermined and are NOT
+/// flagged; only structural non-boolean exprs (arithmetic, literals, number/string operator calls like
+/// `math/cos`) produce a warning. One warning string per offending guard, each naming the trait + guard site.
 pub fn collect_guard_type_warnings(module: &OirModule) -> Vec<String> {
     fn check_guard(guard: &OirExpr, trait_name: &str, site: &str, out: &mut Vec<String>) {
         match infer_oir_expr_type(guard, &NoBindingCtx) {
-            OirType::Number | OirType::String | OirType::Array { .. } => out.push(format!(
+            Some(OirType::Number | OirType::String | OirType::Array { .. }) => out.push(format!(
                 "{trait_name}: {site} guard does not return boolean \
                  (resolves to a non-boolean type) — it will run with JS truthiness coercion"
             )),
@@ -164,65 +664,10 @@ pub fn collect_guard_type_warnings(module: &OirModule) -> Vec<String> {
     warnings
 }
 
-fn infer_call<C: TypeCtx>(function: &str, args: &[OirExpr], ctx: &C) -> OirType {
-    let Some(meta) = get_canonical_operator(function) else {
-        return OirType::Json; // unknown operator — validator rejects separately
-    };
-    match meta.return_semantics {
-        None => return_type_to_oir(meta.return_type),
-        Some(sem) => {
-            apply_return_semantics(sem, args, ctx, || return_type_to_oir(meta.return_type))
-        }
-    }
-}
-
-/// The `return_semantics` lattice — a generic interpreter, no per-operator code.
-fn apply_return_semantics<C: TypeCtx>(
-    sem: &str,
-    args: &[OirExpr],
-    ctx: &C,
-    static_type: impl Fn() -> OirType,
-) -> OirType {
-    let arg0 = || {
-        args.first()
-            .map(|a| infer_oir_expr_type(a, ctx))
-            .unwrap_or(OirType::Json)
-    };
-    match sem {
-        // element of the arg<0> array (may be undefined)
-        "element-of-arg<0>?" => {
-            let inner = match arg0() {
-                OirType::Array { inner } => *inner,
-                _ => OirType::Json,
-            };
-            OirType::Optional {
-                inner: Box::new(inner),
-            }
-        }
-        // the arg<0> array passes through unchanged (filter/reject/sort/…)
-        "identity-of-arg<0>" => arg0(),
-        // value-provenance kinds (`identity-of-arg<N>`, `union-of-args[<..>]`,
-        // `last-of-args`) trace which VALUES a result carries, not its type:
-        // the static `return_type` stays authoritative except `<0>` above.
-        kind if kind.starts_with("identity-of-arg<")
-            || kind.starts_with("union-of-args")
-            || kind == "last-of-args" =>
-        {
-            static_type()
-        }
-        // union of the branches/args, or an open object-key lookup — unknowable.
-        "branch-union"
-        | "first-truthy-of-args"
-        | "last-truthy-of-args"
-        | "object-key-lookup"
-        | "lambda-result" => OirType::Json,
-        _ => OirType::Json,
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
+    use orbital_core::ir::OirBindingRoot;
 
     struct NoCtx;
     impl TypeCtx for NoCtx {
@@ -238,71 +683,268 @@ mod tests {
         }
     }
 
+    fn num(v: f64) -> OirExpr {
+        OirExpr::Number { value: v }
+    }
+
+    fn text(v: &str) -> OirExpr {
+        OirExpr::String { value: v.into() }
+    }
+
+    fn list_of(items: Vec<OirExpr>) -> OirExpr {
+        OirExpr::Array { items }
+    }
+
+    /// Resolves `@entity.<field>` against a fixed field list, whole `@entity` to the struct of them.
+    struct Row(Vec<(&'static str, OirType)>);
+    impl TypeCtx for Row {
+        fn binding_type(&self, binding: &OirBinding) -> Option<OirType> {
+            if !matches!(binding.root, OirBindingRoot::Entity) {
+                return None;
+            }
+            let whole = OirType::Struct {
+                fields: self.0.iter().map(|(n, t)| OirField::new((*n).to_string(), t.clone())).collect(),
+            };
+            type_at_path(&whole, &binding.path)
+        }
+    }
+
+    fn entity(path: &[&str]) -> OirExpr {
+        OirExpr::entity_binding(path.iter().map(|s| s.to_string()).collect())
+    }
+
+    fn tags_row() -> Row {
+        Row(vec![
+            ("tags", OirType::array(OirType::String)),
+            ("count", OirType::Number),
+            ("name", OirType::String),
+        ])
+    }
+
     #[test]
     fn literals_and_binops() {
-        assert_eq!(
-            infer_oir_expr_type(&OirExpr::Number { value: 1.0 }, &NoCtx),
-            OirType::Number
-        );
+        assert_eq!(infer_oir_expr_type(&num(1.0), &NoCtx), Some(OirType::Number));
         assert_eq!(
             infer_oir_expr_type(
                 &OirExpr::BinaryOp {
                     op: OirBinaryOp::Concat,
-                    left: Box::new(OirExpr::String { value: "a".into() }),
-                    right: Box::new(OirExpr::String { value: "b".into() }),
+                    left: Box::new(text("a")),
+                    right: Box::new(text("b")),
                 },
                 &NoCtx
             ),
-            OirType::String
+            Some(OirType::String)
         );
     }
 
     #[test]
     fn static_return_type_op() {
-        // str/concat → string (static returnType)
-        assert_eq!(
-            infer_oir_expr_type(
-                &call("str/concat", vec![OirExpr::String { value: "a".into() }]),
-                &NoCtx
-            ),
-            OirType::String
-        );
+        assert_eq!(infer_oir_expr_type(&call("str/concat", vec![text("a")]), &NoCtx), Some(OirType::String));
     }
 
-    /// G-CROSS-041: `(quote x)` is S-expression data, not an opaque `json`.
+    /// G-CROSS-041: `(quote x)` is S-expression data, not an opaque value.
     #[test]
     fn quote_infers_sexpr() {
-        let body = OirExpr::String { value: "[\">\",1,0]".into() };
-        assert_eq!(infer_oir_expr_type(&call("quote", vec![body]), &NoCtx), OirType::SExpr);
+        assert_eq!(infer_oir_expr_type(&call("quote", vec![text("[\">\",1,0]")]), &NoCtx), Some(OirType::SExpr));
     }
 
     #[test]
-    fn input_dependent_element_of_arg() {
-        // array/first over a [Number] array → Optional<Number>
-        let arr = OirExpr::Array {
-            items: vec![OirExpr::Number { value: 1.0 }],
+    fn a_polymorphic_call_is_the_concrete_type_of_its_arguments() {
+        // (array/first @entity.tags) is a string when tags is [string]; the control is a [number].
+        let row = tags_row();
+        assert_eq!(
+            infer_oir_expr_type(&call("array/first", vec![entity(&["tags"])]), &row),
+            Some(OirType::String)
+        );
+        assert_eq!(
+            infer_oir_expr_type(&call("array/first", vec![list_of(vec![num(1.0)])]), &NoCtx),
+            Some(OirType::Number)
+        );
+    }
+
+    #[test]
+    fn an_undetermined_argument_leaves_the_result_undetermined() {
+        assert_eq!(infer_oir_expr_type(&call("array/first", vec![entity(&["missing"])]), &tags_row()), None);
+        assert_eq!(infer_oir_expr_type(&call("totally/unknown", vec![]), &NoCtx), None);
+    }
+
+    #[test]
+    fn object_get_reads_the_field_type_of_a_known_record() {
+        let row = tags_row();
+        assert_eq!(
+            infer_oir_expr_type(&call("object/get", vec![entity(&[]), text("count")]), &row),
+            Some(OirType::Number)
+        );
+        assert_eq!(
+            infer_oir_expr_type(&call("object/get", vec![entity(&[]), text("name"), text("anon")]), &row),
+            Some(OirType::String)
+        );
+    }
+
+    #[test]
+    fn a_lambda_is_inferred_with_its_parameter_typed_by_the_signature() {
+        // (array/map @entity.tags (fn t (str/len @t))) is [number]
+        let row = tags_row();
+        let lambda = OirExpr::Lambda {
+            params: vec!["t".into()],
+            body: Box::new(call("str/len", vec![OirExpr::Binding {
+                binding: OirBinding::new(OirBindingRoot::Local("t".into()), vec![]),
+            }])),
         };
-        let got = infer_oir_expr_type(&call("array/first", vec![arr]), &NoCtx);
         assert_eq!(
-            got,
-            OirType::Optional {
-                inner: Box::new(OirType::Number)
-            }
+            infer_oir_expr_type(&call("array/map", vec![entity(&["tags"]), lambda]), &row),
+            Some(OirType::array(OirType::Number))
         );
     }
 
     #[test]
-    fn unknowable_falls_to_json() {
-        // object/get (object-key-lookup) → Json (conservative)
+    fn a_mismatch_inside_a_lambda_body_is_reported_with_the_parameter_typed() {
+        // The parameter is a string, so `(+ @t 1)` is a string passed to arithmetic.
+        let row = tags_row();
+        let lambda = OirExpr::Lambda {
+            params: vec!["t".into()],
+            body: Box::new(OirExpr::BinaryOp {
+                op: OirBinaryOp::Add,
+                left: Box::new(OirExpr::Binding {
+                    binding: OirBinding::new(OirBindingRoot::Local("t".into()), vec![]),
+                }),
+                right: Box::new(num(1.0)),
+            }),
+        };
+        let found = check_oir_expr(&call("array/map", vec![entity(&["tags"]), lambda]), &row);
+        assert_eq!(found.len(), 1, "{found:?}");
+        assert_eq!(found[0].function, "+");
+        assert_eq!(found[0].index, 0);
+    }
+
+    #[test]
+    fn arguments_bound_to_one_variable_that_disagree_are_reported() {
+        let row = tags_row();
+        // (array/append @entity.tags 1): a number into a [string]
+        let found = check_oir_expr(&call("array/append", vec![entity(&["tags"]), num(1.0)]), &row);
+        assert_eq!(found.len(), 1, "{found:?}");
+        assert_eq!(found[0].index, 1);
+        // control: the same call with a string
+        assert!(check_oir_expr(&call("array/append", vec![entity(&["tags"]), text("x")]), &row).is_empty());
+    }
+
+    #[test]
+    fn an_empty_list_is_typed_by_a_sibling_argument_and_by_nothing_else() {
+        let row = tags_row();
+        let empty = || list_of(vec![]);
+        // (array/append [] "x") is a [string]: the sibling item types the empty list.
         assert_eq!(
-            infer_oir_expr_type(&call("object/get", vec![]), &NoCtx),
-            OirType::Json
+            infer_oir_expr_type(&call("array/append", vec![empty(), text("x")]), &row),
+            Some(OirType::array(OirType::String))
         );
-        // unknown operator → Json
+        assert!(check_oir_expr(&call("array/append", vec![empty(), text("x")]), &row).is_empty());
+        // (or @entity.tags []) is the tags' type; so is (if c [] @entity.tags).
         assert_eq!(
-            infer_oir_expr_type(&call("totally/unknown", vec![]), &NoCtx),
-            OirType::Json
+            infer_oir_expr_type(&call("or", vec![entity(&["tags"]), empty()]), &row),
+            Some(OirType::array(OirType::String))
         );
+        // control: nothing types (array/first []) or (array/len []).
+        for operator in ["array/first", "array/len"] {
+            let found = check_oir_expr(&call(operator, vec![empty()]), &row);
+            assert_eq!(found.len(), 1, "{operator}: {found:?}");
+            assert!(matches!(found[0].mismatch, Mismatch::Undetermined { .. }), "{found:?}");
+        }
+        // control: the same operators over a typed list are clean.
+        assert!(check_oir_expr(&call("array/len", vec![entity(&["tags"])]), &row).is_empty());
+        // control: two empty lists type each other no better.
+        assert_eq!(check_oir_expr(&call("or", vec![empty(), empty()]), &row).len(), 1);
+    }
+
+    #[test]
+    fn a_key_that_names_no_field_is_reported() {
+        let row = tags_row();
+        let found = check_oir_expr(&call("object/get", vec![entity(&[]), text("nope")]), &row);
+        assert_eq!(found.len(), 1, "{found:?}");
+        assert!(matches!(found[0].mismatch, Mismatch::NoField { .. }));
+        assert!(check_oir_expr(&call("object/get", vec![entity(&[]), text("count")]), &row).is_empty());
+    }
+
+    #[test]
+    fn a_let_binding_is_typed_by_its_value() {
+        // (let [[n 2]] (+ @n 1)) is a number; (let [[s "a"]] (+ @s 1)) is a string in arithmetic
+        let local = |n: &str| OirExpr::Binding {
+            binding: OirBinding::new(OirBindingRoot::Local(n.into()), vec![]),
+        };
+        let ok = call("let", vec![list_of(vec![list_of(vec![text("n"), num(2.0)])]), OirExpr::BinaryOp {
+            op: OirBinaryOp::Add,
+            left: Box::new(local("n")),
+            right: Box::new(num(1.0)),
+        }]);
+        assert_eq!(infer_oir_expr_type(&ok, &NoCtx), Some(OirType::Number));
+        assert!(check_oir_expr(&ok, &NoCtx).is_empty());
+        let bad = call("let", vec![list_of(vec![list_of(vec![text("s"), text("a")])]), OirExpr::BinaryOp {
+            op: OirBinaryOp::Add,
+            left: Box::new(local("s")),
+            right: Box::new(num(1.0)),
+        }]);
+        assert_eq!(check_oir_expr(&bad, &NoCtx).len(), 1);
+    }
+
+    fn lowered(value: serde_json::Value) -> OirExpr {
+        let sexpr: orbital_core::schema::SExpression = serde_json::from_value(value).expect("s-expression");
+        orbital_core::lower::lower_sexpr(&sexpr).expect("lowers")
+    }
+
+    /// The maps of two reads inside a lambda merge into one map, so the lambda's result is typed.
+    #[test]
+    fn a_merge_of_maps_read_in_a_lambda_is_a_typed_result() {
+        let words = OirType::map(OirType::String, OirType::String);
+        let item = OirType::Struct { fields: vec![OirField::new("entities".to_string(), words)] };
+        let typed = Row(vec![("items", OirType::array(item)), ("out", OirType::String)]);
+        let body = |entities: serde_json::Value| {
+            serde_json::json!(["let", [["n", 1]], ["set", "@entity.out", ["json/stringify", ["array/map", "@entity.items", ["fn", "v", entities]]]]])
+        };
+        let merged = body(serde_json::json!(["object/merge", ["object/get", "@v", "entities", {}], ["object/get", "@v", "entities", {}]]));
+        let found = check_oir_expr(&lowered(merged), &typed);
+        assert!(found.is_empty(), "{:?}", found.iter().map(|d| &d.expression).collect::<Vec<_>>());
+        let unlike = body(serde_json::json!(["object/merge", ["object/get", "@v", "entities", {}], { "n": 1 }]));
+        assert_eq!(check_oir_expr(&lowered(unlike), &typed).len(), 1, "control: a map and a number record have no one value type");
+    }
+
+    #[test]
+    fn json_parse_is_the_type_its_shape_names() {
+        struct Named;
+        impl TypeCtx for Named {
+            fn binding_type(&self, _: &OirBinding) -> Option<OirType> {
+                None
+            }
+            fn named_type(&self, name: &str) -> Option<OirType> {
+                (name == "Point").then(|| OirType::Struct {
+                    fields: vec![OirField::new("x".to_string(), OirType::Number)],
+                })
+            }
+        }
+        let parse = call("json/parse", vec![text("{}"), text("Point")]);
+        assert_eq!(
+            infer_oir_expr_type(&parse, &Named),
+            Some(OirType::Struct { fields: vec![OirField::new("x".to_string(), OirType::Number)] })
+        );
+        assert_eq!(
+            infer_oir_expr_type(&parse, &NoCtx),
+            Some(OirType::TypeRef { name: "Point".into() }),
+            "control: a context that does not know the name keeps the by-name reference"
+        );
+    }
+
+    #[test]
+    fn and_or_results_are_the_operand_type() {
+        let both_strings = OirExpr::BinaryOp {
+            op: OirBinaryOp::Or,
+            left: Box::new(entity(&["name"])),
+            right: Box::new(text("anon")),
+        };
+        assert_eq!(infer_oir_expr_type(&both_strings, &tags_row()), Some(OirType::String));
+        let mixed = OirExpr::BinaryOp {
+            op: OirBinaryOp::Or,
+            left: Box::new(entity(&["name"])),
+            right: Box::new(OirExpr::Bool { value: true }),
+        };
+        assert_eq!(check_oir_expr(&mixed, &tags_row()).len(), 1);
     }
 
     // ---- Phase 4: collect_guard_type_warnings (C-GUARD-NO-BOOLEAN-CHECK) ----

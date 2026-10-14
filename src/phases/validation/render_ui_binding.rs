@@ -428,11 +428,6 @@ fn field_type_to_binding(ft: &FieldType) -> BindingType {
         // Renderable content binds like an object (a pattern tree) — and the
         // prop-compat rule already accepts anything where `node` is expected.
         FieldType::Node => BindingType::Object,
-        // `scalar` is one of three primitives and this lattice has no union
-        // member, so resolve it as Unknown rather than manufacture a wrong
-        // compare — the same posture this file already takes for a leaf it
-        // cannot resolve. A narrower answer would invent findings.
-        FieldType::Scalar => BindingType::Unknown,
         FieldType::SExpr => BindingType::Unknown,
         // Every variant is an object, so a union binds like one.
         FieldType::Union => BindingType::Object,
@@ -531,24 +526,6 @@ fn resolve_array_value(arr: &[SExpression], ctx: &BindingContext) -> BindingType
     // arithmetic-context rule needs it.
     if let Some(semantics) = meta.return_semantics {
         match semantics {
-            "first-truthy-of-args" | "last-truthy-of-args" | "first-non-null-of-args" => {
-                // Could be any input arg's type. Conservatively widen to
-                // the union of arg types when they all agree, else
-                // Unknown. Cheap version for v1: union of resolved arg
-                // types if homogeneous; else Unknown.
-                let arg_types: Vec<BindingType> = arr
-                    .iter()
-                    .skip(1)
-                    .map(|a| resolve_binding_type(a, ctx))
-                    .collect();
-                if arg_types.is_empty() {
-                    BindingType::Unknown
-                } else if arg_types.iter().all(|t| *t == arg_types[0]) {
-                    arg_types[0].clone()
-                } else {
-                    BindingType::Unknown
-                }
-            }
             "branch-union" => {
                 // `(if cond X Y)` — return type is union of arg<1> and
                 // arg<2>. If both branches resolve to the same type,
@@ -587,11 +564,48 @@ fn resolve_array_value(arr: &[SExpression], ctx: &BindingContext) -> BindingType
                     BindingType::Array
                 }
             }
-            "object-key-lookup" => BindingType::Unknown,
-            _ => static_return_to_binding(meta.return_type),
+            _ => declared_return_to_binding(meta, arr, ctx),
         }
     } else {
-        static_return_to_binding(meta.return_type)
+        declared_return_to_binding(meta, arr, ctx)
+    }
+}
+
+/// The result of an operator call under the lattice, read off its declared signature: a primitive result is
+/// itself, a list/record result is `Array`/`Object`, and a result that is a type variable is the type its
+/// arguments of that variable share (`(or @payload.n 10)` is a `Number`), else `Unknown`.
+fn declared_return_to_binding(
+    meta: &orbital_core::language::canonical_operators::OperatorMeta,
+    arr: &[SExpression],
+    ctx: &BindingContext,
+) -> BindingType {
+    use orbital_core::language::registry::{get_operator, OperatorTypeRef, OperatorTypeRefKind};
+    match meta.returns {
+        OperatorTypeRef::Primitive(name) => static_return_to_binding(name),
+        OperatorTypeRef::Tagged(OperatorTypeRefKind::Var { name, .. }) => {
+            let Some(op) = get_operator(meta.name) else {
+                return BindingType::Unknown;
+            };
+            let signature = orbital_core::signature::Signature::of(op);
+            let mut shared: Option<BindingType> = None;
+            for (index, arg) in arr.iter().skip(1).enumerate() {
+                let bare = matches!(
+                    signature.formal(index),
+                    Some(OperatorTypeRef::Tagged(OperatorTypeRefKind::Var { name: n, .. })) if n == name
+                );
+                if !bare {
+                    continue;
+                }
+                let ty = resolve_binding_type(arg, ctx);
+                match &shared {
+                    None => shared = Some(ty),
+                    Some(prior) if *prior == ty => {}
+                    Some(_) => return BindingType::Unknown,
+                }
+            }
+            shared.unwrap_or(BindingType::Unknown)
+        }
+        other => static_return_to_binding(other.kind_name()),
     }
 }
 
@@ -606,7 +620,6 @@ fn static_return_to_binding(s: &str) -> BindingType {
         "array" => BindingType::Array,
         "object" => BindingType::Object,
         "null" => BindingType::Null,
-        "void" | "any" => BindingType::Unknown,
         _ => BindingType::Unknown,
     }
 }
@@ -924,7 +937,7 @@ mod tests {
             sibling_trait_names: &[],
         };
         // `(or @payload.totalCount 10)` — both args resolve to Number,
-        // so `or`'s first-truthy-of-args returns Number (NOT boolean —
+        // so `or`'s signature (`T, T -> T`) returns Number (NOT boolean —
         // gap #24's lift).
         let expr = SExpression::Array(vec![
             SExpression::String("or".to_string()),

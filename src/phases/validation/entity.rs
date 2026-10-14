@@ -587,7 +587,7 @@ pub fn validate_field(
     // An entity field's `default` must be structurally compatible with its
     // declared type — a relation field defaulting to a whole row (`seedRow
     // : Note = {}`, the defect this rule exists to catch — the right shape
-    // is a `Map string scalar` field like `loadedRow`) instead of an id/
+    // is a typed `Map string <Row>` field like `loadedRow`) instead of an id/
     // absent, a number/boolean default on a string field, etc. Reuses the
     // one shape-vs-type walk (`check_field_def_shape`, `config_type.rs`)
     // rather than a second checker for the same question. The string-vs-
@@ -624,7 +624,7 @@ pub fn validate_field(
                 err.code = ErrorCode::EntityDefaultTypeMismatch;
                 if field.field_type == FieldType::Relation {
                     err = err.with_suggestion(
-                        "a relation field's default is absent, null, or an id string; store a row in a `Map string scalar` field",
+                        "a relation field's default is absent, null, or an id string; store a row in a typed `Map string <Row>` field",
                     );
                 }
                 err
@@ -725,7 +725,6 @@ fn field_type_to_string(field_type: &FieldType) -> String {
         FieldType::Node => "node".to_string(),
         FieldType::Event => "event".to_string(),
         FieldType::EventAddress => "EventAddress".to_string(),
-        FieldType::Scalar => "scalar".to_string(),
         FieldType::SExpr => "SExpr".to_string(),
         FieldType::Union => "union".to_string(),
     }

@@ -230,6 +230,15 @@ pub(crate) fn validate_pattern(
 ) -> ValidationResult {
     let mut result = ValidationResult::new();
 
+    // A trait value is an embed (resolved by the inline phase), not a pattern.
+    if matches!(pattern, SExpression::Object(_))
+        && orbital_core::schema::behavior_value::is_trait_value(
+            &orbital_core::evaluator::Value::from(pattern.clone()),
+        )
+    {
+        return result;
+    }
+
     match pattern {
         SExpression::Object(obj) => {
             // Check for type property
@@ -1831,5 +1840,50 @@ mod conditional_enum_and_node_list_tests {
             serde_json::json!({ "type": "alert", "message": "m", "actions": [{ "type": "button", "label": "Retry", "action": "RETRY" }] }),
         );
         assert_eq!(mismatches(&r), 0, "{:?}", r.errors);
+    }
+}
+
+#[cfg(test)]
+mod trait_value_child_tests {
+    use super::validate_pattern;
+    use crate::phases::validation::ErrorCode;
+    use orbital_core::schema::SExpression;
+    use std::collections::HashMap;
+
+    fn stack_with(child: serde_json::Value) -> SExpression {
+        serde_json::from_value(serde_json::json!({ "type": "stack", "children": [child] }))
+            .expect("pattern")
+    }
+
+    fn missing_type(pattern: &SExpression) -> bool {
+        validate_pattern(pattern, "p", &HashMap::new(), None, None)
+            .errors
+            .iter()
+            .any(|e| e.code == ErrorCode::RenderUIMissingPatternType)
+    }
+
+    #[test]
+    fn a_trait_value_child_is_an_embed_not_a_pattern() {
+        let pattern = stack_with(serde_json::json!({
+            "behavior": "almadar-std/ui-calendar-grid",
+            "trait": "CalendarGridRender"
+        }));
+        assert!(!missing_type(&pattern));
+    }
+
+    #[test]
+    fn control_an_untyped_object_child_still_needs_a_type() {
+        assert!(missing_type(&stack_with(
+            serde_json::json!({ "label": "x" })
+        )));
+    }
+
+    #[test]
+    fn control_a_lookalike_whose_trait_is_not_a_trait_name_still_needs_a_type() {
+        let pattern = stack_with(serde_json::json!({
+            "behavior": "almadar-std/ui-calendar-grid",
+            "trait": "not a trait"
+        }));
+        assert!(missing_type(&pattern));
     }
 }

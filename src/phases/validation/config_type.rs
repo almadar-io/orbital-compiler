@@ -1743,7 +1743,7 @@ pub(crate) fn check_field_def_shape(
                 return result;
             }
             // A relation field's default is never a stored row — that shape
-            // belongs to `Map string scalar` (see `std-record-detail.lolo`'s
+            // belongs to a typed `Map` field (see `std-record-detail.lolo`'s
             // `loadedRow`). Cardinality-aware per the field's OWN relation
             // metadata (`schema.relation.cardinality` — the `RelationDefinition`
             // the validator sees, `orbital-core/src/schema/types.rs`), never
@@ -1795,7 +1795,7 @@ pub(crate) fn check_field_def_shape(
                                         ),
                                     )
                                     .with_suggestion(
-                                        "a to-many relation's default holds an array of id strings, never rows — store rows in a `Map string scalar` field",
+                                        "a to-many relation's default holds an array of id strings, never rows — store rows in a typed `Map string <Row>` field",
                                     ),
                                 );
                             }
@@ -1826,11 +1826,6 @@ pub(crate) fn check_field_def_shape(
                 FieldType::Date => "date",
                 FieldType::Datetime => "datetime",
                 FieldType::Timestamp => "timestamp",
-                // `scalar` is a LEAF, and a checkable one — it is the value
-                // type of `Map string scalar`, so without this arm the map's
-                // per-value walk would fall into the opaque catch-all and the
-                // replacement for `json` would be as unchecked as `json`.
-                FieldType::Scalar => "scalar",
                 _ => return result, // Other field types are opaque to the leaf check.
             };
             result.merge(check_primitive_shape(type_tag, value, path));
@@ -1984,11 +1979,6 @@ pub(crate) fn check_primitive_shape(
         // catch-all below and accept anything, so `float` took a string or a
         // bool silently.
         "int" | "float" => actual == "number",
-        // The CLOSED union. This arm is the entire reason `scalar` beats
-        // `json`: an object or an array here is decidably wrong, where `json`
-        // accepted both. Null is a member — a scalar bag legitimately holds
-        // cleared values.
-        "scalar" => matches!(actual, "string" | "number" | "boolean" | "null"),
         // Name-carrying scalar tags: a Lucide icon name, a slot key, a pattern
         // name, a component name. Each is a STRING in every emitted program, so
         // a number or boolean here is decidably wrong. They also fell through

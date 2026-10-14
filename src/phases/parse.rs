@@ -18,11 +18,14 @@ pub enum ParseError {
 
     #[error("Unsupported file format: {0}")]
     UnsupportedFormat(String),
+
+    #[error("Failed to lower {0}: {1}")]
+    SourceLowering(String, String),
 }
 
 /// Parse a schema file
 ///
-/// Supports .json and .orb (JSON) files.
+/// Supports .json and .orb (JSON) files, and .lolo through the registered source lowerer.
 pub fn parse_file(path: impl AsRef<Path>) -> Result<OrbitalSchema, ParseError> {
     let path = path.as_ref();
     let content = fs::read_to_string(path)?;
@@ -32,6 +35,8 @@ pub fn parse_file(path: impl AsRef<Path>) -> Result<OrbitalSchema, ParseError> {
 
     match ext {
         "json" | "orb" => parse_json(&content),
+        "lolo" => crate::loader::lower_source(path)
+            .map_err(|e| ParseError::SourceLowering(path.display().to_string(), e)),
         other => Err(ParseError::UnsupportedFormat(other.to_string())),
     }
 }
@@ -119,6 +124,32 @@ fn strip_json_comments(json: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_lolo_file_parses_through_the_registered_lowerer() {
+        crate::loader::register_source_lowerer(orbital_test_support::lower_lolo_file);
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("door.lolo");
+        std::fs::write(
+            &path,
+            "app Door [version: \"1.0.0\"]\norbital DoorOrbital {\n  entity Door [runtime] {\n    id : string!\n  }\n  trait DoorLife -> Door [interaction] {\n    initial: closed\n    state closed {\n      INIT -> closed\n      OPEN -> open\n    }\n    state open {\n      CLOSE -> closed\n    }\n  }\n  page \"/door\" -> DoorLife\n}\n",
+        )
+        .unwrap();
+        let schema = parse_file(&path).expect("a .lolo file parses");
+        assert_eq!(schema.name, "Door");
+        assert_eq!(schema.orbitals.len(), 1);
+    }
+
+    #[test]
+    fn an_unknown_extension_is_still_unsupported() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("door.txt");
+        std::fs::write(&path, "{}").unwrap();
+        assert!(matches!(
+            parse_file(&path),
+            Err(ParseError::UnsupportedFormat(ext)) if ext == "txt"
+        ));
+    }
 
     #[test]
     fn test_parse_minimal_schema() {

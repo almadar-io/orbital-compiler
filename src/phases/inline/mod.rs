@@ -2014,6 +2014,8 @@ fn inline_orbital(
             referenced: HashSet<String>,
         }
         let mut travel_by_name: HashMap<String, TravelCandidate> = HashMap::new();
+        let mut pulled_types: std::collections::BTreeMap<String, Vec<orbital_core::schema::PayloadField>> =
+            Default::default();
         for trait_ref in &orbital.traits {
             if let TraitReference::Reference {
                 reference: Some(ref ref_str),
@@ -2024,6 +2026,10 @@ fn inline_orbital(
             } = trait_ref
             {
                 if let Ok(ParsedReference::Trait { alias, name }) = parse_reference(ref_str) {
+                    // The trait body reads the aliases its own file declares (a `json/parse x Name` shape).
+                    for (type_name, fields) in ctx.get_types_for_trait_orbital(&alias, &name, ref_id.as_deref()) {
+                        pulled_types.entry(type_name).or_insert(fields);
+                    }
                     let natural_bound_entity =
                         ctx.get_bound_entity_for_trait_orbital(&alias, &name, ref_id.as_deref());
                     let effective_bound_name: Option<String> = linked_entity
@@ -2110,6 +2116,12 @@ fn inline_orbital(
             }
         }
 
+        if !pulled_types.is_empty() {
+            let own = orbital.types.get_or_insert_with(Default::default);
+            for (type_name, fields) in pulled_types {
+                own.entry(type_name).or_insert(fields);
+            }
+        }
         let mut travel_names: Vec<String> = travel_by_name.keys().cloned().collect();
         travel_names.sort_unstable();
         let mut aux_collected: Vec<EntityDefinition> = Vec::new();

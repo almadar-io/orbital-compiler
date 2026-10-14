@@ -726,8 +726,6 @@ fn default_value_for_type(ty: &orbital_core::ir::OirType) -> &'static str {
         OirType::Money => "0",
         OirType::File => "{ name: 'test.pdf', url: 'https://example.com/test.pdf', mimeType: 'application/pdf', sizeBytes: 1024 }",
         OirType::Json => "{}",
-        // TS renders `scalar` as the real union, so a string member is valid.
-        OirType::Scalar => "'test'",
         OirType::Union { .. } => "{}",
         OirType::Array { .. } | OirType::Tuple { .. } => "[]",
         OirType::Map { .. } => "{}",
@@ -763,9 +761,6 @@ fn rust_default_value(ty: &orbital_core::ir::OirType) -> &'static str {
         OirType::Money => "0.0",
         OirType::File => "serde_json::Value::Null",
         OirType::Json => "serde_json::Value::Null",
-        // Rust falls back to the json() default (serde_json::Value); Null is a
-        // legal member of the scalar union AND a legal Value.
-        OirType::Scalar => "serde_json::Value::Null",
         OirType::Union { .. } => "serde_json::Value::Null",
         OirType::Array { .. } | OirType::Tuple { .. } => "vec![]",
         OirType::Map { .. } => "Default::default()",
@@ -797,9 +792,6 @@ fn python_default_value(ty: &orbital_core::ir::OirType) -> &'static str {
         OirType::Money => "0",
         OirType::File => "{}",
         OirType::Json => "{}",
-        // Python falls back to the json() default; a string member is a valid
-        // scalar and is what the seeder samples.
-        OirType::Scalar => "\"test\"",
         OirType::Union { .. } => "{}",
         OirType::Array { .. } | OirType::Tuple { .. } => "[]",
         OirType::Map { .. } => "{}",

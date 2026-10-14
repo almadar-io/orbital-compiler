@@ -213,3 +213,39 @@ fn two_rebinds_of_one_atom_each_get_their_own_sub_view() {
     );
     assert_ne!(a, b, "the two rebinds must not share one sub-view ({a})");
 }
+
+/// The per-embedder copies are distinct declarations, so they must carry distinct
+/// trait ids: listens match sources by id, and a shared id makes each copy's
+/// listeners hear the other copy (G-ORB-281).
+#[test]
+fn per_embedder_copies_of_one_sibling_get_distinct_ids() {
+    let schema = inline_fixture(
+        &[("atom-browse.orb", ATOM.to_string())],
+        TWO_REBIND_CONSUMER,
+    );
+    let traits = inline_traits_of(&schema);
+    let ids: Vec<(&str, Option<&str>)> = traits
+        .iter()
+        .filter(|t| t.name.contains("RowView"))
+        .map(|t| (t.name.as_str(), t.id.as_deref()))
+        .collect();
+    assert_eq!(ids.len(), 2, "{ids:?}");
+    assert!(ids.iter().all(|(_, id)| id.is_some()), "{ids:?}");
+    assert_ne!(ids[0].1, ids[1].1, "two copies share one trait id: {ids:?}");
+}
+
+#[test]
+fn every_inlined_trait_has_its_own_id() {
+    let schema = inline_fixture(
+        &[("atom-browse.orb", ATOM.to_string())],
+        TWO_REBIND_CONSUMER,
+    );
+    let mut ids: Vec<&str> = inline_traits_of(&schema)
+        .iter()
+        .filter_map(|t| t.id.as_deref())
+        .collect();
+    let total = ids.len();
+    ids.sort_unstable();
+    ids.dedup();
+    assert_eq!(ids.len(), total, "every trait of the inlined orbital has its own id");
+}

@@ -29,6 +29,7 @@ pub mod nominalize;
 pub mod page_content_owner;
 pub mod parse;
 pub mod public;
+pub mod reflect;
 pub mod resolve;
 pub mod sexpr_json;
 pub mod validate;
@@ -74,6 +75,9 @@ pub enum CompilerError {
 
     #[error("IO error: {0}")]
     Io(#[from] std::io::Error),
+
+    #[error("Reflection error: {0}")]
+    Reflection(String),
 }
 
 /// Compilation result
@@ -278,6 +282,17 @@ pub(crate) fn resolve_schema_with_inline(
 /// as route chunks, then Inline, Compose, Enrich. What a compiled client's own
 /// runtime (the browser store for `[persistent, local]` entities) runs.
 pub fn resolve_compiled_program_with_path(
+    schema: OrbitalSchema,
+    options: &CompilerOptions,
+    source_path: Option<&Path>,
+) -> CompileResult<OrbitalSchema> {
+    let mut program = resolve_compiled_program_as_written(schema, options, source_path)?;
+    reflect::fold_literal_reflection(&mut program, source_path)?;
+    Ok(program)
+}
+
+/// [`resolve_compiled_program_with_path`] before reflection is answered: what validation judges.
+fn resolve_compiled_program_as_written(
     mut schema: OrbitalSchema,
     options: &CompilerOptions,
     source_path: Option<&Path>,
@@ -299,7 +314,7 @@ fn compile_schema_with_path(
     options: &CompilerOptions,
     source_path: Option<&Path>,
 ) -> CompileResult<OirModule> {
-    let schema = resolve_compiled_program_with_path(schema, options, source_path)?;
+    let mut schema = resolve_compiled_program_as_written(schema, options, source_path)?;
 
     // Phase 4: Validate (runs on the fully inlined + enriched schema so reference
     //           checks and collection-presence checks are accurate)
@@ -328,6 +343,9 @@ fn compile_schema_with_path(
             }
         }
     }
+
+    // Phase 4c: answer the reflection the build already knows, on the validated program.
+    reflect::fold_literal_reflection(&mut schema, source_path)?;
 
     // Phase 5: Resolve to OIR
     if options.verbose {

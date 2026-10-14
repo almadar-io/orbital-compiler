@@ -1,5 +1,5 @@
 //! Gate C of the type-integrity campaign: deprecation diagnostics for the
-//! generic types `json`, `object` (shapeless), and `any` in declaration
+//! generic types `json`, `object` (shapeless), `any` and `scalar` in declaration
 //! positions — entity fields, config knobs, and event payload fields
 //! (type-alias members surface through whichever of those positions they
 //! lower into).
@@ -23,7 +23,7 @@ use super::{
     inline_traits, ValidationContext,
 };
 
-const GUIDANCE: &str = "Replace the generic type: renderable content → `node`; structured data → an inline `{ k: T }` shape, a named `type` alias, or `Map K V`; a single primitive of unknown kind → `scalar`; the row of an entity a config knob names → `@entity @config.<knob>`; genuinely polymorphic atoms → a declared type parameter.";
+const GUIDANCE: &str = "Replace the generic type: renderable content → `node`; structured data → an inline `{ k: T }` shape, a named `type` alias, or `Map K V`; a value of several kinds → a named tagged-union `type` alias (or the concrete primitive); the row of an entity a config knob names → `@entity @config.<knob>`; the row of the linked entity → `@entity @config.<knob>`; genuinely polymorphic atoms → a declared type parameter.";
 
 /// Strip one level of array brackets: `[json]` → `json`.
 fn base_type(ft: &str) -> &str {
@@ -37,7 +37,7 @@ fn warn(path: &str, position: &str, declared: &str) -> ValidationError {
         ErrorCode::GenericTypeDeprecated,
         path,
         format!(
-            "{position} declares the generic type '{declared}' — generic types (`json`, shapeless `object`, `any`) are not allowed in a declaration position."
+            "{position} declares the generic type '{declared}' — generic types (`json`, shapeless `object`, `any`, `scalar`) are not allowed in a declaration position."
         ),
     )
     .with_suggestion(GUIDANCE.to_string())
@@ -47,7 +47,7 @@ fn check_payload_field(field: &PayloadField, path: &str, result: &mut Validation
     let field_path = format!("{}.{}", path, field.name);
     let base = base_type(&field.field_type);
     match base {
-        "json" | "any" => {
+        "json" | "any" | "scalar" => {
             result.add_error(warn(&field_path, "Payload field", &field.field_type));
         }
         "object" if field.properties.as_ref().map_or(true, |p| p.is_empty()) => {
@@ -71,7 +71,7 @@ fn check_entity_field(field: &FieldDefinition, path: &str, result: &mut Validati
         // `Map K V` on an ENTITY field lowers to the `Object` tag with the
         // VALUE shape in `items` and no `properties` (see `lower/entity.rs`'s
         // Map arm) — a map's keys are dynamic, so it HAS no properties by
-        // construction. Without this arm a fully-typed `Map string scalar`
+        // construction. Without this arm a fully-typed `Map string number`
         // would be reported as "no declared properties", i.e. the gate would
         // reject the very fix it is asking for.
         FieldType::Object if field.items.is_some() => {
@@ -104,7 +104,7 @@ fn check_entity_field(field: &FieldDefinition, path: &str, result: &mut Validati
 fn check_config_type(field_type: &str, path: &str, result: &mut ValidationResult) {
     // Bare/array `object` is already a hard error (`TraitConfigObjectArrayForbidden`);
     // only report the survivors so a single site is not double-reported.
-    if matches!(base_type(field_type), "json" | "any") {
+    if matches!(base_type(field_type), "json" | "any" | "scalar") {
         result.add_error(warn(path, "Config field", field_type));
     }
 }
@@ -243,7 +243,7 @@ mod tests {
 
     #[test]
     fn payload_generic_types_are_rejected() {
-        for ft in ["object", "json", "any", "[json]", "[any]"] {
+        for ft in ["object", "json", "any", "scalar", "[json]", "[any]", "[scalar]"] {
             let mut result = ValidationResult::new();
             check_payload_field(&payload(ft, None), "t.emits.E", &mut result);
             assert_eq!(result.errors.len(), 1, "{ft} must be rejected");
@@ -252,6 +252,18 @@ mod tests {
                 "ORB_T_GENERIC_TYPE_DEPRECATED"
             );
         }
+    }
+
+    #[test]
+    fn scalar_knob_is_rejected_and_a_typed_primitive_passes() {
+        for ft in ["scalar", "[scalar]"] {
+            let mut result = ValidationResult::new();
+            check_config_type(ft, "t.config.cell", &mut result);
+            assert_eq!(result.errors.len(), 1, "{ft} must be rejected");
+        }
+        let mut result = ValidationResult::new();
+        check_config_type("string", "t.config.cell", &mut result);
+        assert!(result.errors.is_empty(), "control");
     }
 
     #[test]

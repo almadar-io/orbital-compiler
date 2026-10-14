@@ -203,6 +203,34 @@ pub(crate) fn resolve_sigil_types(schema: &mut OrbitalSchema) {
         }
     }
 
+    // Payload-position `@entity <knob>`: the row of the entity the trait's knob names (post-inline the knob's
+    // default carries the call site's override).
+    for orbital in &mut schema.orbitals {
+        for trait_ref in &mut orbital.traits {
+            let TraitReference::Inline(td) = trait_ref else {
+                continue;
+            };
+            let declared = td.config.clone();
+            let resolve = |knob: &str| {
+                let name = knob_value(declared.as_ref(), knob)?;
+                let fields = entities.get(&name)?;
+                Some((fields.iter().map(payload_field_of).collect::<Vec<_>>(), name))
+            };
+            for emit in td.emits.iter_mut().flatten() {
+                if let Some(schema_fields) = emit.payload_schema.as_mut() {
+                    substitute_named_entity_sentinels(schema_fields, resolve);
+                }
+            }
+            if let Some(events) = td.state_machine.events.as_mut() {
+                for ev in events.iter_mut() {
+                    if let Some(schema_fields) = ev.payload_schema.as_mut() {
+                        substitute_named_entity_sentinels(schema_fields, resolve);
+                    }
+                }
+            }
+        }
+    }
+
     for orbital in &mut schema.orbitals {
         for trait_ref in &mut orbital.traits {
             let TraitReference::Inline(td) = trait_ref else {
@@ -382,6 +410,30 @@ fn substitute_entity_sentinel(fields: &mut [PayloadField], row: &[PayloadField],
     }
 }
 
+/// Replace a field typed by the entity a knob names (`@entity(<knob>)` / `[@entity(<knob>)]`) with that entity's row,
+/// stamped exactly like [`substitute_entity_sentinel`]. `resolve` answers a knob name with the named entity's row and
+/// name; a knob that names no declared entity keeps its sentinel, which the unresolved-type sweep reports.
+fn substitute_named_entity_sentinels(
+    fields: &mut [PayloadField],
+    resolve: impl Fn(&str) -> Option<(Vec<PayloadField>, String)>,
+) {
+    for f in fields.iter_mut() {
+        let (knob, shape) = if let Some(k) = f.field_type.strip_prefix("[@entity(").and_then(|r| r.strip_suffix(")]")) {
+            (k, "[object]")
+        } else if let Some(k) = f.field_type.strip_prefix("@entity(").and_then(|r| r.strip_suffix(')')) {
+            (k, "object")
+        } else {
+            continue;
+        };
+        let Some((row, entity)) = resolve(knob) else {
+            continue;
+        };
+        f.field_type = shape.to_string();
+        f.properties = Some(row);
+        f.entity = Some(entity);
+    }
+}
+
 fn pascal(s: &str) -> String {
     s.split(|c: char| !c.is_alphanumeric())
         .filter(|p| !p.is_empty())
@@ -397,7 +449,7 @@ fn pascal(s: &str) -> String {
 
 #[cfg(test)]
 mod tests {
-    use super::{payload_field_of, substitute_entity_sentinel};
+    use super::{payload_field_of, substitute_entity_sentinel, substitute_named_entity_sentinels};
     use orbital_core::schema::{FieldDefinition, PayloadField};
 
     fn payload(json: serde_json::Value) -> PayloadField {
@@ -434,6 +486,35 @@ mod tests {
         substitute_entity_sentinel(&mut fields, &row, "NoteTagRef");
         assert_eq!(fields[0].field_type, "string");
         assert_eq!(fields[0].entity, None);
+    }
+
+    /// A payload field typed by the entity a knob names (`@entity <knob>`) takes that entity's row, stamped like the
+    /// bound-entity sentinel: `object` / `[object]`, the row's fields, and the entity's name.
+    #[test]
+    fn a_payload_field_typed_by_the_entity_a_knob_names_takes_that_entitys_row() {
+        let rows = |knob: &str| match knob {
+            "sourceEntity" => Some((
+                vec![payload(serde_json::json!({ "name": "status", "type": "string" }))],
+                "Order".to_string(),
+            )),
+            _ => None,
+        };
+        let mut fields = vec![
+            payload(serde_json::json!({ "name": "row", "type": "@entity(sourceEntity)" })),
+            payload(serde_json::json!({ "name": "rows", "type": "[@entity(sourceEntity)]" })),
+            payload(serde_json::json!({ "name": "other", "type": "@entity(missingKnob)" })),
+            payload(serde_json::json!({ "name": "count", "type": "number" })),
+        ];
+        substitute_named_entity_sentinels(&mut fields, rows);
+        assert_eq!(fields[0].field_type, "object");
+        assert_eq!(fields[0].entity.as_deref(), Some("Order"));
+        assert_eq!(fields[0].properties.as_ref().map(|p| p[0].name.as_str()), Some("status"));
+        assert_eq!(fields[1].field_type, "[object]");
+        assert_eq!(fields[1].entity.as_deref(), Some("Order"));
+        // controls: a knob that names no entity leaves its sentinel for the pass that reports it; a plain field is untouched.
+        assert_eq!(fields[2].field_type, "@entity(missingKnob)");
+        assert_eq!(fields[3].field_type, "number");
+        assert_eq!(fields[3].entity, None);
     }
 
     fn field(json: serde_json::Value) -> FieldDefinition {

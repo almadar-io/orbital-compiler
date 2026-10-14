@@ -660,9 +660,21 @@ fn validate_unbound_trait_embeds(
         // then-branch is exempt for THAT knob (still walked, so an unrelated
         // knob embedded inside it is still caught); the else-branch (if any)
         // is walked normally, same as any other node.
-        if let [SExpression::String(op), SExpression::String(cond), then_branch, rest @ ..] =
-            arr.as_slice()
-        {
+        // The condition is the value's own binding, or its explicit presence test `(validate/required <binding>)`.
+        let presence = |cond: &SExpression| -> Option<String> {
+            match cond {
+                SExpression::String(s) => Some(s.clone()),
+                SExpression::Array(call) => match call.as_slice() {
+                    [SExpression::String(op), SExpression::String(s)] if op == "validate/required" => {
+                        Some(s.clone())
+                    }
+                    _ => None,
+                },
+                _ => None,
+            }
+        };
+        if let [SExpression::String(op), cond_expr, then_branch, rest @ ..] = arr.as_slice() {
+            let cond = presence(cond_expr).unwrap_or_default();
             if op == "if" || op == "when" {
                 if let Some(knob) = cond.strip_prefix(prefix) {
                     if unbound_knobs.contains(knob) {
@@ -2555,6 +2567,16 @@ mod behavior_field_embed_tests {
     fn control_guarded_by_its_own_field_is_clean() {
         assert!(!fires(serde_json::json!(["when", "@entity.app", embed()])));
         assert!(!fires(serde_json::json!(["if", "@entity.app", embed()])));
+    }
+
+    #[test]
+    fn a_presence_test_of_its_own_field_is_a_guard_too() {
+        // A trait- or behavior-typed value is not a boolean, so the presence test is explicit.
+        let present = serde_json::json!(["validate/required", "@entity.app"]);
+        assert!(!fires(serde_json::json!(["when", present.clone(), embed()])));
+        assert!(!fires(serde_json::json!(["if", present, embed()])));
+        let other = serde_json::json!(["validate/required", "@entity.id"]);
+        assert!(fires(serde_json::json!(["when", other, embed()])), "control: another field's test does not exempt it");
     }
 
     #[test]

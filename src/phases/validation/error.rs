@@ -139,7 +139,9 @@ pub enum ErrorCode {
     /// knobs (A-UNIFY) skip this membership check — their value CREATES the
     /// event name — but still land here if the default isn't a plain string.
     TraitInvalidEventDefault,
+    /// An event-typed config value addresses a trait the program does not have.
     TraitEventRefUnresolved,
+    /// An event-typed config value addresses an event its trait does not declare as an external input.
     TraitEventRefNotExternalInput,
     /// A declared external input (`listens { EVENT -> external { … } }`) has no
     /// transition from the trait's initial state: inputs are complete commands.
@@ -330,6 +332,7 @@ pub enum ErrorCode {
     /// reach it (G3, `docs/Almadar_Compiler_Gaps.md` §82, rung 2: what used
     /// to validate 0/0 with a dead reference now errors instead).
     OrbitalRefFieldRenameUnapplied,
+    /// A `mock { … }` key names no field of the imported primary entity.
     OrbitalRefMockUnknownField,
     /// A `retype { … }` field the upstream primary entity does not declare (after
     /// `fields {}` renames).
@@ -787,6 +790,16 @@ pub enum ErrorCode {
     /// the compiled TypeScript does not typecheck, and Rust compares kinds —
     /// the paths disagree. Convert one side so both are the same kind.
     ComparisonOperandTypeMismatch,
+    /// An operator argument whose static type contradicts the type the operator
+    /// table declares for its position — `(str/upper @entity.count)` with
+    /// `count: number`, `(+ "a" 1)`. Both evaluators raise the same typed
+    /// mismatch at run time (D-12), so the program can never do what it says.
+    OperatorArgTypeMismatch,
+    /// A value handed to an operator's type variable has no determined type — an unresolved expression, an
+    /// expression value, json, a list whose items share no type — so what the variable stands for, and the type of
+    /// the call's result, is unknown. There are no generic types: give the value a real type (a declared
+    /// payload or entity shape, a typed `let`, a named union alias for a list of differently-shaped items).
+    OperatorArgUndetermined,
     /// `(set @entity.X @config.<knob>)` where the value is STILL the literal
     /// `@config.<knob>` token post-inline (no default resolved it, no
     /// call-site override supplied one) and `X` is a REQUIRED entity field.
@@ -859,6 +872,8 @@ pub enum ErrorCode {
     /// Consumers that listen on the event will see one shape from one
     /// emitter and a different shape from another. Error severity.
     CrossEmitterDeclaredPayloadMismatch,
+    /// Two traits of one program carry the same trait id; listens match sources by id, so each hears the other's emits.
+    CrossDuplicateTraitId,
 
     /// @entity.field references a field not present on the linked entity
     BindingEntityFieldNotFound,
@@ -1313,6 +1328,8 @@ pub enum ErrorCode {
     DuplicateEntity,
 }
 
+include!(concat!(env!("OUT_DIR"), "/error_code_docs.rs"));
+
 impl ErrorCode {
     /// Get the string code matching TypeScript error codes
     pub fn as_str(&self) -> &'static str {
@@ -1560,6 +1577,8 @@ impl ErrorCode {
             ErrorCode::EnumValueNotMember => "ORB_X_ENUM_VALUE_NOT_MEMBER",
             ErrorCode::SetReturnTypeMismatch => "ORB_X_SET_RETURN_TYPE_MISMATCH",
             ErrorCode::ComparisonOperandTypeMismatch => "ORB_X_COMPARISON_OPERAND_TYPE_MISMATCH",
+            ErrorCode::OperatorArgTypeMismatch => "ORB_X_OPERATOR_ARG_TYPE_MISMATCH",
+            ErrorCode::OperatorArgUndetermined => "ORB_X_OPERATOR_ARG_UNDETERMINED",
             ErrorCode::SetRequiredFieldFromOptionalKnob => {
                 "ORB_X_SET_REQUIRED_FIELD_FROM_OPTIONAL_KNOB"
             }
@@ -1574,6 +1593,7 @@ impl ErrorCode {
             }
             ErrorCode::EmitSuccessPayloadWrapped => "ORB_EMIT_SUCCESS_PAYLOAD_WRAPPED",
             ErrorCode::EmitPayloadNotProduced => "ORB_EMIT_PAYLOAD_NOT_PRODUCED",
+            ErrorCode::CrossDuplicateTraitId => "ORB_X_DUPLICATE_TRAIT_ID",
             ErrorCode::CrossEmitterDeclaredPayloadMismatch => {
                 "ORB_X_CROSS_EMITTER_DECLARED_PAYLOAD_MISMATCH"
             }
@@ -1881,6 +1901,8 @@ impl ErrorCode {
             | ErrorCode::EnumValueNotMember
             | ErrorCode::SetReturnTypeMismatch
             | ErrorCode::ComparisonOperandTypeMismatch
+            | ErrorCode::OperatorArgTypeMismatch
+            | ErrorCode::OperatorArgUndetermined
             | ErrorCode::SetRequiredFieldFromOptionalKnob
             | ErrorCode::EmitDeclaredButUnfired
             | ErrorCode::EmitControlUnhandled
@@ -1924,6 +1946,7 @@ impl ErrorCode {
             | ErrorCode::ListenRouteStarvesRequiredField
             | ErrorCode::ListenRedundantEmbedRoute
             | ErrorCode::CrossEmitterDeclaredPayloadMismatch
+            | ErrorCode::CrossDuplicateTraitId
             | ErrorCode::FilterFieldNeverWritten => "cross",
 
             ErrorCode::BindingInvalidFormat
@@ -2304,6 +2327,30 @@ impl ValidationResult {
 
 #[cfg(test)]
 mod tests {
+
+    #[test]
+    fn every_error_code_carries_its_doc_comment_as_description() {
+        assert!(!ErrorCode::ALL.is_empty());
+        for code in ErrorCode::ALL {
+            assert!(
+                !code.description().trim().is_empty(),
+                "{} has no doc comment",
+                code.as_str()
+            );
+        }
+    }
+
+    #[test]
+    fn a_code_s_description_is_its_doc_comment() {
+        assert_eq!(
+            ErrorCode::CircuitDeadEndState.description(),
+            "State has no outgoing transitions"
+        );
+        assert_ne!(
+            ErrorCode::CircuitUnreachableState.description(),
+            ErrorCode::CircuitDeadEndState.description()
+        );
+    }
     use super::*;
 
     #[test]

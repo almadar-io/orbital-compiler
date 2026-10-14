@@ -157,13 +157,12 @@ fn validate_persist_batch(
                         SExpression::Object(_) | SExpression::Null => true,
                         other => crate::phases::resolve::resolve_sexpr_standalone(other)
                             .map(|oir| {
-                                !matches!(
+                                matches!(
                                     crate::type_infer::infer_oir_expr_type(
                                         &oir,
                                         &crate::type_infer::NoBindingCtx
                                     ),
-                                    orbital_core::ir::OirType::Array { .. }
-                                        | orbital_core::ir::OirType::Json
+                                    Some(ty) if !matches!(ty, orbital_core::ir::OirType::Array { .. })
                                 )
                             })
                             .unwrap_or(false),

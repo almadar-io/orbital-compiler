@@ -407,6 +407,32 @@ fn role_literal_error(
     ))
 }
 
+/// The type of `@user` for the trait named `trait_name`: the program's `[identity]` roster, else the declaring
+/// orbital's `expects identity { … }` shape, else the implicit default shape.
+pub(crate) fn identity_type(schema: &OrbitalSchema, trait_name: &str) -> orbital_core::ir::OirType {
+    let orbital = schema.orbitals.iter().find(|o| {
+        o.traits
+            .iter()
+            .any(|t| matches!(t, orbital_core::schema::TraitReference::Inline(def) if def.name == trait_name))
+    });
+    let expected = orbital
+        .and_then(super::expectations::identity_expectation)
+        .and_then(|e| e.shape.map(<[_]>::to_vec));
+    let roster = identity_entities(schema).into_iter().next().map(|def| def.fields.clone());
+    let fields = roster
+        .or(expected)
+        .unwrap_or_else(|| default_identity_shape().fields);
+    orbital_core::ir::OirType::Struct {
+        fields: fields
+            .iter()
+            .filter_map(|f| {
+                let name = f.name.clone()?;
+                Some(orbital_core::ir::OirField::new(name, orbital_core::field_shape(f)))
+            })
+            .collect(),
+    }
+}
+
 /// The implicit `@user` shape of a program with no `[identity]` entity.
 pub(super) fn default_identity_shape() -> EntityDefinition {
     serde_json::from_value(serde_json::json!({

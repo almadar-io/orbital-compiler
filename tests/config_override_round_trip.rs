@@ -79,6 +79,7 @@ const ATOM_FIXTURE: &str = r#"{
                     "type": "section",
                     "slot": "@config.slot",
                     "filterFields": "@config.filterFields",
+                    "count": ["array/len", "@config.filterFields"],
                     "label": "@config.label"
                   }]
                 ]
@@ -289,6 +290,59 @@ fn config_override_substitutes_array_param() {
         obj.get("label"),
         Some(&SExpression::String("@config.label".to_string()))
     );
+}
+
+// ---------------------------------------------------------------------------
+// Test 3b — an empty list an operator reads keeps its declared knob
+// ---------------------------------------------------------------------------
+
+#[test]
+fn config_override_keeps_an_empty_list_an_operator_reads_a_reference_to_its_knob() {
+    // `[]` carries no element type of its own: substituted into an operator's argument it would be a list nothing
+    // types. The knob declares the list's type, so there the binding stays and the checker reads the knob. As a
+    // render prop the empty list is the value.
+    let config_fragment = r#",
+          "config": {
+            "filterFields": { "type": "unknown", "default": [] }
+          }"#;
+    let (_dir, composer_path) = materialize_fixtures(config_fragment);
+    let obj = extract_render_ui_object(&extract_render_ui_payload(&composer_path));
+
+    assert_eq!(
+        obj.get("count"),
+        Some(&SExpression::Array(vec![
+            SExpression::String("array/len".to_string()),
+            SExpression::String("@config.filterFields".to_string()),
+        ])),
+        "an operator's argument stays a reference to the knob that types it"
+    );
+    assert_eq!(
+        obj.get("filterFields"),
+        Some(&SExpression::Array(vec![])),
+        "control: the same empty list as a render prop is the value"
+    );
+}
+
+#[test]
+fn config_override_substitutes_a_list_with_elements_and_a_scalar_an_operator_reads() {
+    for (default, expected) in [
+        (r#"["status"]"#, SExpression::Array(vec![SExpression::String("status".to_string())])),
+        (r#""status""#, SExpression::String("status".to_string())),
+    ] {
+        let config_fragment = format!(
+            r#",
+          "config": {{
+            "filterFields": {{ "type": "unknown", "default": {default} }}
+          }}"#
+        );
+        let (_dir, composer_path) = materialize_fixtures(&config_fragment);
+        let obj = extract_render_ui_object(&extract_render_ui_payload(&composer_path));
+        assert_eq!(
+            obj.get("count"),
+            Some(&SExpression::Array(vec![SExpression::String("array/len".to_string()), expected])),
+            "control: {default} types itself, so it is substituted"
+        );
+    }
 }
 
 // ---------------------------------------------------------------------------

@@ -427,6 +427,8 @@ mod tests {
             param_type: ty.to_string(),
             required,
             items: None,
+            properties: None,
+            map_value: None,
         };
         ServiceRegistryData {
             runtimes: HashMap::new(),
