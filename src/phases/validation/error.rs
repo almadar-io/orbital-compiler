@@ -526,6 +526,8 @@ pub enum ErrorCode {
     CallServiceKeyType,
     /// the app runs `cancel-call` but no `call-service` anywhere carries a `key`
     CancelCallNoKeyedCall,
+    /// a keyed call-service whose registry responseShape already has a `key` field
+    CallServiceResultHasKey,
     /// an `http` origin, `tokenUrl` origin, or `url` knob default is not in `egress`
     HttpEgressUndeclared,
     /// an `egress` entry is not `scheme://host[:port]`
@@ -538,16 +540,20 @@ pub enum ErrorCode {
     HttpOptionUnknown,
     /// `http` `auth.scheme` is not in the closed scheme set
     HttpAuthSchemeUnknown,
-    /// an `http` auth credential slot is not a `secret`-typed knob
-    HttpAuthCredentialNotSecret,
+    /// an `http` with `auth` sits where its trait runs on the client (a `local` trait, a browser-run tick)
+    HttpAuthOnClient,
     /// an `http` request has more than one body kind, or a body on GET
     HttpBodyConflict,
+    /// `random-bytes`, `credential-status` or `credential-forget` with the wrong number of arguments
+    HostEffectArity,
+    /// a key other than `emit`, or a non-object, as the options of a host effect
+    HostEffectOptionUnknown,
+    /// a literal `random-bytes` count that is not an integer from 1 to 1024
+    RandomBytesCount,
     /// `http` `paginate` without `max`
     HttpPaginateMaxMissing,
     /// `http` `stream` without `emit.onMessage`
     HttpStreamWithoutOnMessage,
-    /// a `secret`-typed knob is read outside an `http` auth credential slot
-    SecretOutsideAuth,
     /// set effect using invalid binding
     EffectSetInvalidBinding,
     /// set effect using @payload (should use @entity)
@@ -1535,17 +1541,20 @@ impl ErrorCode {
             ErrorCode::CallServiceCancelledWithoutKey => "ORB_CALL_SERVICE_CANCELLED_WITHOUT_KEY",
             ErrorCode::CallServiceKeyType => "ORB_CALL_SERVICE_KEY_TYPE",
             ErrorCode::CancelCallNoKeyedCall => "ORB_CANCEL_CALL_NO_KEYED_CALL",
+            ErrorCode::CallServiceResultHasKey => "ORB_CALL_SERVICE_RESULT_HAS_KEY",
             ErrorCode::HttpEgressUndeclared => "ORB_HTTP_EGRESS_UNDECLARED",
             ErrorCode::HttpEgressEntryInvalid => "ORB_HTTP_EGRESS_ENTRY_INVALID",
             ErrorCode::HttpOriginNotStatic => "ORB_HTTP_ORIGIN_NOT_STATIC",
             ErrorCode::HttpMethodUnknown => "ORB_HTTP_METHOD_UNKNOWN",
             ErrorCode::HttpOptionUnknown => "ORB_HTTP_OPTION_UNKNOWN",
             ErrorCode::HttpAuthSchemeUnknown => "ORB_HTTP_AUTH_SCHEME_UNKNOWN",
-            ErrorCode::HttpAuthCredentialNotSecret => "ORB_HTTP_AUTH_CREDENTIAL_NOT_SECRET",
+            ErrorCode::HttpAuthOnClient => "ORB_HTTP_AUTH_ON_CLIENT",
             ErrorCode::HttpBodyConflict => "ORB_HTTP_BODY_CONFLICT",
+            ErrorCode::HostEffectArity => "ORB_HOST_EFFECT_ARITY",
+            ErrorCode::HostEffectOptionUnknown => "ORB_HOST_EFFECT_OPTION_UNKNOWN",
+            ErrorCode::RandomBytesCount => "ORB_RANDOM_BYTES_COUNT",
             ErrorCode::HttpPaginateMaxMissing => "ORB_HTTP_PAGINATE_MAX_MISSING",
             ErrorCode::HttpStreamWithoutOnMessage => "ORB_HTTP_STREAM_WITHOUT_ON_MESSAGE",
-            ErrorCode::SecretOutsideAuth => "ORB_SECRET_OUTSIDE_AUTH",
             ErrorCode::EffectSetInvalidBinding => "ORB_EFF_SET_INVALID_BINDING",
             ErrorCode::EffectSetPayloadNotAllowed => "ORB_EFF_SET_PAYLOAD_NOT_ALLOWED",
             ErrorCode::EffectFetchInvalidEntity => "ORB_EFF_FETCH_INVALID_ENTITY",
@@ -1941,17 +1950,20 @@ impl ErrorCode {
             | ErrorCode::CallServiceCancelledWithoutKey
             | ErrorCode::CallServiceKeyType
             | ErrorCode::CancelCallNoKeyedCall
+            | ErrorCode::CallServiceResultHasKey
             | ErrorCode::HttpEgressUndeclared
             | ErrorCode::HttpEgressEntryInvalid
             | ErrorCode::HttpOriginNotStatic
             | ErrorCode::HttpMethodUnknown
             | ErrorCode::HttpOptionUnknown
             | ErrorCode::HttpAuthSchemeUnknown
-            | ErrorCode::HttpAuthCredentialNotSecret
+            | ErrorCode::HttpAuthOnClient
             | ErrorCode::HttpBodyConflict
+            | ErrorCode::HostEffectArity
+            | ErrorCode::HostEffectOptionUnknown
+            | ErrorCode::RandomBytesCount
             | ErrorCode::HttpPaginateMaxMissing
             | ErrorCode::HttpStreamWithoutOnMessage
-            | ErrorCode::SecretOutsideAuth
             | ErrorCode::EffectNotifyRetired
             | ErrorCode::EffectSetInvalidBinding
             | ErrorCode::EffectSetPayloadNotAllowed

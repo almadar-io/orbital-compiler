@@ -4,7 +4,7 @@
 
 use orbital_compiler::phases::inline::{inline_schema, InlineConfig};
 use orbital_compiler::phases::parse::parse_file;
-use orbital_compiler::phases::validation::validate_comprehensive;
+use orbital_compiler::phases::validation::validate_comprehensive_without_services;
 
 fn upstream(expects: &str) -> String {
     format!(
@@ -70,7 +70,7 @@ fn identity_policy_errors_with(expects: &str, own_expects: &str) -> Vec<String> 
     let mut schema = parse_file(&consumer_path).expect("consumer parses");
     inline_schema(&mut schema, &InlineConfig::default(), Some(&consumer_path))
         .expect("inline succeeds");
-    validate_comprehensive(&schema)
+    validate_comprehensive_without_services(&schema)
         .errors
         .iter()
         .filter(|e| e.code.as_str() == "ORB_S_ACCESS_POLICY_REQUIRES_IDENTITY")

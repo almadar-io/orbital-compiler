@@ -19,6 +19,7 @@ use orbital_core::schema::{
     EntityDefinition, EventScope, OrbitalSchema, PayloadField, SExpression, TraitReference,
 };
 
+use crate::embedded::ServiceRegistryData;
 use super::effect::{
     collect_payload_field_types, entity_field_type_map, expr_return_incompatible, EntityFieldMeta,
 };
@@ -29,7 +30,7 @@ use super::{ValidationContext, ValidationResult};
 
 /// Run emit-payload validation across every trait in every orbital.
 ///
-/// Called from `validation/mod.rs:validate_comprehensive` after effect
+/// Called from `validation/mod.rs:validate_comprehensive_full` after effect
 /// validation (phase 5) and before closed-circuit (phase 12). Accumulates
 /// warnings into the shared `ValidationContext`.
 pub fn validate_all_emit_payloads(schema: &OrbitalSchema, ctx: &mut ValidationContext) {
@@ -94,6 +95,7 @@ pub fn validate_all_emit_payloads(schema: &OrbitalSchema, ctx: &mut ValidationCo
                             &path,
                             &emit_schemas,
                             &ctx.entity_definitions,
+                            &ctx.service_registry,
                         );
                         ctx.merge(p08);
                     }
@@ -119,6 +121,7 @@ pub fn validate_all_emit_payloads(schema: &OrbitalSchema, ctx: &mut ValidationCo
                             &path,
                             &emit_schemas,
                             &ctx.entity_definitions,
+                            &ctx.service_registry,
                         );
                         ctx.merge(p08);
                     }
@@ -276,7 +279,11 @@ fn validate_emit_literal(
                     );
                 }
                 Some(expected) => {
-                    if let Some(actual) = orbital_core::literal_value_type(value) {
+                    // An empty list has no element type of its own; it takes the slot's.
+                    let empty_list_in_list_slot = matches!(value, SExpression::Array(items) if items.is_empty())
+                        && (expected.starts_with('[') || *expected == "array");
+                    if empty_list_in_list_slot {
+                    } else if let Some(actual) = orbital_core::literal_value_type(value) {
                         if !primitive_types_compatible(expected, actual) {
                             result.add_error(
                                 ValidationError::error(
@@ -369,6 +376,7 @@ fn validate_emit_success_return(
     path: &str,
     emit_schemas: &HashMap<&str, &[PayloadField]>,
     entity_definitions: &HashMap<String, EntityDefinition>,
+    registry: &ServiceRegistryData,
 ) -> ValidationResult {
     let mut result = ValidationResult::new();
 
@@ -379,24 +387,54 @@ fn validate_emit_success_return(
         return result;
     };
 
-    // The bus key this operator actually fires on — `ref` uses `on_change`, so
-    // reading `success` for it would inspect a key the runtime never fires.
-    let emit_key = produced_shape::success_emit_key(op_name.as_str());
-    let Some(success_event) = emit_event_for_key(arr.as_slice(), emit_key) else {
-        return result;
-    };
-    // Unknown events are reported by `effect::validate_emit_against_declaration`.
-    let Some(declared_payload) = emit_schemas.get(success_event.as_str()) else {
-        return result;
-    };
-    // `None` means the produced shape is undecidable at this call site (no
-    // effect metadata, an opaque `any`, an unresolvable union). Never guess.
-    let Some(produced) =
-        produced_shape::produced_payload(op_name.as_str(), arr.as_slice(), entity_definitions)
-    else {
-        return result;
-    };
+    // Each slot a call can fire: the bus key it fires on and the payload the
+    // operator puts there. `None` = undecidable at this call site (no effect
+    // metadata, an opaque `any`, an unresolvable union): never guess.
+    // `ref` fires `on_change`, so reading `success` for it would inspect a key
+    // the runtime never fires.
+    let slots: [(&[&str], Option<Vec<PayloadField>>); 3] = [
+        (
+            &[produced_shape::success_emit_key(op_name.as_str())],
+            produced_shape::produced_payload(op_name.as_str(), arr.as_slice(), entity_definitions, registry),
+        ),
+        (&["failure"], produced_shape::produced_failure_payload(op_name.as_str(), arr.as_slice())),
+        (&["onMessage", "on_message"], produced_shape::produced_message_payload(op_name.as_str())),
+    ];
+    for (emit_keys, produced) in slots {
+        let Some(produced) = produced else { continue };
+        let Some((emit_key, success_event)) = emit_keys
+            .iter()
+            .find_map(|key| emit_event_for_key(arr.as_slice(), key).map(|event| (*key, event)))
+        else {
+            continue;
+        };
+        // Unknown events are reported by `effect::validate_emit_against_declaration`.
+        let Some(declared_payload) = emit_schemas.get(success_event.as_str()) else {
+            continue;
+        };
+        check_declared_against_produced(
+            op_name,
+            emit_key,
+            &success_event,
+            declared_payload,
+            &produced,
+            path,
+            &mut result,
+        );
+    }
 
+    result
+}
+
+fn check_declared_against_produced(
+    op_name: &str,
+    emit_key: &str,
+    success_event: &str,
+    declared_payload: &[PayloadField],
+    produced: &[PayloadField],
+    path: &str,
+    result: &mut ValidationResult,
+) {
     for declared in declared_payload.iter() {
         match produced.iter().find(|p| p.name == declared.name) {
             None => {
@@ -409,7 +447,7 @@ fn validate_emit_success_return(
                             success_event,
                             declared.name,
                             op_name,
-                            describe_fields(&produced),
+                            describe_fields(produced),
                             emit_key,
                             declared.name,
                             declared.name
@@ -419,7 +457,7 @@ fn validate_emit_success_return(
                         "Declare '{}' with the shape '{}' actually emits ({}), or drop the field",
                         success_event,
                         op_name,
-                        describe_fields(&produced)
+                        describe_fields(produced)
                     )),
                 );
             }
@@ -449,8 +487,6 @@ fn validate_emit_success_return(
             }
         }
     }
-
-    result
 }
 
 /// Can a field the operator emits as `produced` legitimately be declared as

@@ -4,7 +4,7 @@
 //! hand-authored `.orb`, or a registry not yet re-emitted) must fail
 //! validation with `ORB_EFF_NOTIFY_RETIRED`, never panic the effect parser.
 
-use orbital_compiler::phases::validation::{validate_comprehensive, ErrorCode};
+use orbital_compiler::phases::validation::{validate_comprehensive_without_services, ErrorCode};
 use orbital_core::schema::{
     EntityDefinition, EntityRef, FieldDefinition, FieldType, Orbital, OrbitalSchema, SExpression,
     StateDefinition, StateMachine, StringOrArray, TraitDefinition, TraitReference,
@@ -141,7 +141,7 @@ fn notify_tuple(level: &str, message: &str) -> SExpression {
 #[test]
 fn a_stale_notify_tuple_fails_validation_with_the_retirement_code() {
     let schema = schema_with_effects(vec![notify_tuple("error", "Saving failed")]);
-    let result = validate_comprehensive(&schema);
+    let result = validate_comprehensive_without_services(&schema);
     assert!(
         result
             .errors
@@ -187,7 +187,7 @@ fn a_render_ui_toast_effect_carries_no_retirement_error() {
         ),
     ]);
     let schema = schema_with_effects(vec![toast]);
-    let result = validate_comprehensive(&schema);
+    let result = validate_comprehensive_without_services(&schema);
     assert!(
         !result
             .errors

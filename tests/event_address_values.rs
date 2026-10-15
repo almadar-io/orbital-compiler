@@ -2,7 +2,7 @@
 //! (`Trait.EVENT` within the orbital, `Orbital.Trait.EVENT` across the program) —
 //! the contract `llm call-tools` reads. Unlike `event`, a bare name is never one.
 
-use orbital_compiler::phases::validation::validate_comprehensive;
+use orbital_compiler::phases::validation::validate_comprehensive_without_services;
 use orbital_core::schema::OrbitalSchema;
 use serde_json::{json, Value};
 
@@ -72,7 +72,7 @@ fn findings_value(member_type: &str, tool: Value) -> Vec<(String, String)> {
         ]
     });
     let schema: OrbitalSchema = serde_json::from_value(schema).expect("fixture deserializes");
-    let result = validate_comprehensive(&schema);
+    let result = validate_comprehensive_without_services(&schema);
     result
         .errors
         .iter()

@@ -44,8 +44,7 @@ pub use resolve::{resolve_to_oir, ResolveError};
 pub use validate::{validate_schema, ValidationError as SchemaValidationError};
 pub use validation::sync::ExtraPatterns;
 pub use validation::{
-    validate_comprehensive, validate_comprehensive_full, validate_comprehensive_with_options,
-    validate_comprehensive_with_patterns, SchemaLanguage,
+    validate_comprehensive_full, validate_comprehensive_without_services, SchemaLanguage,
     ValidationResult as ComprehensiveValidationResult,
 };
 
@@ -308,6 +307,21 @@ fn resolve_compiled_program_as_written(
     Ok(schema)
 }
 
+/// Phase 4b: the comprehensive pass against the installed services registry
+/// and the packages the compile discovered.
+fn validate_for_compile(
+    schema: &OrbitalSchema,
+    options: &CompilerOptions,
+) -> ComprehensiveValidationResult {
+    validate_comprehensive_full(
+        schema,
+        None,
+        SchemaLanguage::English,
+        crate::embedded::baked_service_registry().clone(),
+        options.inline.loader_config.packages.clone(),
+    )
+}
+
 /// Compile a schema file to OIR with source path for resolving imports
 fn compile_schema_with_path(
     mut schema: OrbitalSchema,
@@ -329,7 +343,7 @@ fn compile_schema_with_path(
             if options.verbose {
                 eprintln!("  Phase 4b: Comprehensive validation...");
             }
-            let result = validate_comprehensive(&schema);
+            let result = validate_for_compile(&schema, options);
             if !result.is_valid() {
                 // Log errors but don't fail compilation yet (comprehensive validation is advisory)
                 for error in &result.errors {
@@ -352,6 +366,7 @@ fn compile_schema_with_path(
         eprintln!("  Phase 5: Resolving...");
     }
     let mut oir = resolve_to_oir(&schema)?;
+    oir.egress = schema.egress.clone().unwrap_or_default();
     let runtimes = options
         .service_runtimes
         .as_ref()
@@ -458,6 +473,49 @@ mod app_root_tests {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use serde_json::{json, Value};
+
+    fn keyed_upload_program(options: Value) -> OrbitalSchema {
+        serde_json::from_value(json!({
+            "name": "fixture", "version": "1.0.0",
+            "orbitals": [{
+                "name": "Files",
+                "entity": { "name": "Row", "persistence": "runtime",
+                    "fields": [{ "name": "id", "type": "string", "required": true }] },
+                "traits": [{
+                    "name": "Uploader", "linkedEntity": "Row", "category": "interaction",
+                    "emits": [{ "event": "DONE", "payloadSchema": [{ "name": "key", "type": "string" }] }],
+                    "stateMachine": {
+                        "states": [{ "name": "idle", "isInitial": true }],
+                        "events": [{ "key": "INIT" }],
+                        "transitions": [{ "from": "idle", "to": "idle", "event": "INIT",
+                            "effects": [["call-service", "storage", "upload", {}, options]] }]
+                    }
+                }],
+                "pages": []
+            }]
+        }))
+        .expect("schema")
+    }
+
+    fn has_result_has_key(result: &ComprehensiveValidationResult) -> bool {
+        result
+            .errors
+            .iter()
+            .chain(result.warnings.iter())
+            .any(|e| e.code == validation::ErrorCode::CallServiceResultHasKey)
+    }
+
+    #[test]
+    fn compile_validation_reads_the_installed_services_registry() {
+        use serde_json::json;
+        let keyed = keyed_upload_program(json!({ "key": "@entity.id", "emit": { "success": "DONE" } }));
+        let result = validate_for_compile(&keyed, &CompilerOptions::default());
+        assert!(has_result_has_key(&result), "{:?}", result.errors);
+        assert!(!has_result_has_key(&validate_comprehensive_without_services(&keyed)));
+        let unkeyed = keyed_upload_program(json!({ "emit": { "success": "DONE" } }));
+        assert!(!has_result_has_key(&validate_for_compile(&unkeyed, &CompilerOptions::default())));
+    }
 
     #[test]
     fn test_compile_simple_schema() {

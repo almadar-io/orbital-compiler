@@ -5,7 +5,7 @@
 
 use orbital_compiler::phases::inline::{inline_schema, InlineConfig};
 use orbital_compiler::phases::parse::parse_file;
-use orbital_compiler::phases::validation::validate_comprehensive;
+use orbital_compiler::phases::validation::validate_comprehensive_without_services;
 use orbital_core::schema::{ListenSource, OrbitalSchema, SExpression, TraitReference};
 
 const UPSTREAM: &str = r#"{
@@ -151,7 +151,7 @@ fn listen_trait(schema: &OrbitalSchema) -> String {
 }
 
 fn codes(schema: &OrbitalSchema) -> Vec<String> {
-    let result = validate_comprehensive(schema);
+    let result = validate_comprehensive_without_services(schema);
     result
         .errors
         .iter()

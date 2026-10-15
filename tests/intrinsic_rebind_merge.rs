@@ -8,14 +8,14 @@
 use orbital_compiler::phases::inline::{inline_schema, InlineConfig};
 use orbital_compiler::phases::parse::parse_file;
 use orbital_compiler::phases::validation::error::ErrorCode;
-use orbital_compiler::phases::validation::validate_comprehensive;
+use orbital_compiler::phases::validation::validate_comprehensive_without_services;
 use orbital_core::schema::{EntityRef, OrbitalSchema};
 use std::path::Path;
 
 /// True when the comprehensive validation result contains a
 /// `ORB_T_REBIND_MISSING_FIELDS` error.
 fn has_rebind_missing_fields(schema: &OrbitalSchema) -> bool {
-    validate_comprehensive(schema)
+    validate_comprehensive_without_services(schema)
         .errors
         .iter()
         .any(|e| !e.is_warning() && e.code == ErrorCode::RebindMissingEntityFields)

@@ -3,7 +3,7 @@
 //! from its initial (resting) state. An input only valid mid-flow, or never handled,
 //! is `ORB_T_EXTERNAL_INPUT_NOT_RESTING`.
 
-use orbital_compiler::phases::validation::validate_comprehensive;
+use orbital_compiler::phases::validation::validate_comprehensive_without_services;
 use orbital_core::schema::OrbitalSchema;
 use serde_json::{json, Value};
 
@@ -41,10 +41,10 @@ fn findings(transitions: Value) -> Vec<String> {
         }]
     });
     let schema: OrbitalSchema = serde_json::from_value(schema).expect("fixture deserializes");
-    validate_comprehensive(&schema)
+    validate_comprehensive_without_services(&schema)
         .errors
         .iter()
-        .chain(validate_comprehensive(&schema).warnings.iter())
+        .chain(validate_comprehensive_without_services(&schema).warnings.iter())
         .filter(|e| e.code.as_str() == CODE)
         .map(|e| e.message.clone())
         .collect()

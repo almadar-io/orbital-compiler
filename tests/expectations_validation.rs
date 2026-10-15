@@ -7,7 +7,7 @@
 //! compatibility (width / `type_compat` / literal-union subset).
 
 use orbital_compiler::phases::validation::{
-    entity_access, expectations, user_identity, validate_comprehensive, ValidationContext,
+    entity_access, expectations, user_identity, validate_comprehensive_without_services, ValidationContext,
 };
 use orbital_core::schema::OrbitalSchema;
 use serde_json::{json, Value};
@@ -35,7 +35,7 @@ fn run_scoped(schema: Value) -> Vec<String> {
 /// fetch targets, `linkedEntity`) whose entity-name table is built by
 /// `collect_names`.
 fn run_full(schema: Value) -> Vec<String> {
-    validate_comprehensive(&parse(schema))
+    validate_comprehensive_without_services(&parse(schema))
         .errors
         .iter()
         .map(|e| e.code.as_str().to_string())
@@ -571,7 +571,7 @@ fn an_absent_provider_is_deferred_not_unsatisfied() {
             "pages": []
         }),
     );
-    let result = validate_comprehensive(&parse(schema));
+    let result = validate_comprehensive_without_services(&parse(schema));
     let hits: Vec<_> = result
         .errors
         .iter()
@@ -606,7 +606,7 @@ fn a_present_but_incompatible_provider_still_errors() {
             "pages": []
         }),
     );
-    let result = validate_comprehensive(&parse(schema));
+    let result = validate_comprehensive_without_services(&parse(schema));
     let hits: Vec<_> = result
         .errors
         .iter()

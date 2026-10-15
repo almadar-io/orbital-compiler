@@ -24,10 +24,12 @@
 //! # Usage
 //!
 //! ```rust,ignore
-//! use orbital_compiler::phases::validation::{validate_comprehensive, ValidationResult};
+//! use orbital_compiler::phases::validation::{validate_comprehensive_full, SchemaLanguage};
 //!
 //! let schema = parse_schema(json)?;
-//! let result = validate_comprehensive(&schema);
+//! let result = validate_comprehensive_full(
+//!     &schema, None, SchemaLanguage::English, installed_registry, packages,
+//! );
 //!
 //! if !result.is_valid() {
 //!     for error in &result.errors {
@@ -417,32 +419,15 @@ pub const RESERVED_SOCKET_EVENTS: &[&str] = &[
     "error",
 ];
 
-/// Run comprehensive validation on a schema
-///
-/// This runs all validators in sequence and accumulates all errors.
-/// Use `validate_comprehensive_with_patterns` to pass project-local patterns.
-pub fn validate_comprehensive(schema: &OrbitalSchema) -> ValidationResult {
-    validate_comprehensive_with_options(schema, None, SchemaLanguage::English)
-}
-
-/// Run comprehensive validation with optional extra patterns from a project's patterns.json.
-pub fn validate_comprehensive_with_patterns(
-    schema: &OrbitalSchema,
-    extra_patterns: Option<ExtraPatterns>,
-) -> ValidationResult {
-    validate_comprehensive_with_options(schema, extra_patterns, SchemaLanguage::English)
-}
-
-/// Run comprehensive validation with extra patterns and language awareness.
-pub fn validate_comprehensive_with_options(
-    schema: &OrbitalSchema,
-    extra_patterns: Option<ExtraPatterns>,
-    schema_language: SchemaLanguage,
-) -> ValidationResult {
+/// Run comprehensive validation with an EMPTY service registry: no keyed
+/// call-service payload shape, no `ORB_CALL_SERVICE_RESULT_HAS_KEY`. For tests
+/// whose fixtures declare no services; production goes through
+/// [`validate_comprehensive_full`] with the installed registry.
+pub fn validate_comprehensive_without_services(schema: &OrbitalSchema) -> ValidationResult {
     validate_comprehensive_full(
         schema,
-        extra_patterns,
-        schema_language,
+        None,
+        SchemaLanguage::English,
         crate::embedded::ServiceRegistryData::default(),
         Vec::new(),
     )

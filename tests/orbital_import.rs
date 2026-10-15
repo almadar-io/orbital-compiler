@@ -13,7 +13,7 @@
 
 use orbital_compiler::phases::inline::{inline_schema, InlineConfig};
 use orbital_compiler::phases::parse::parse_file;
-use orbital_compiler::phases::validation::validate_comprehensive;
+use orbital_compiler::phases::validation::validate_comprehensive_without_services;
 use orbital_core::schema::{EntityRef, ListenSource, OrbitalSchema, PageRef, TraitReference};
 
 /// One orbital ("ThingOrbital"): two traits (`ThingList` embeds
@@ -598,13 +598,13 @@ fn control_navigate_target_on_the_same_import_is_remapped() {
 
 /// The real-organism proof's acceptance bar, reproduced at fixture scale:
 /// none of the five materialization-gap codes fire on this schema.
-/// `validate_comprehensive` is used (not just `inline_schema`) because these
+/// `validate_comprehensive_without_services` is used (not just `inline_schema`) because these
 /// are POST-inline structural checks (`trait_validator`, `entity_access`,
 /// `entity`/`cross_orbital::relations`) — inlining alone can't observe them.
 #[test]
 fn materialized_schema_trips_none_of_the_five_gap_codes() {
     let schema = inline_consumer();
-    let result = validate_comprehensive(&schema);
+    let result = validate_comprehensive_without_services(&schema);
     let codes: Vec<&str> = result.errors.iter().map(|e| e.code.as_str()).collect();
     for forbidden in [
         "ORB_E_INVALID_RELATION",
@@ -666,9 +666,9 @@ fn materialized_page_name_is_prefixed_with_local_orbital_name() {
 /// `crates/orbital-cli/src/commands/validate.rs`) reports no
 /// "Duplicate page name" error. The duplicate-page-name check lives in
 /// `orbital_core::ir::validation` (OIR-level), NOT in the compiler-crate
-/// `validate_comprehensive` used by the test above (which only checks page
+/// `validate_comprehensive_without_services` used by the test above (which only checks page
 /// PATH uniqueness, `phases/validation/page.rs`) — so this test exercises
-/// the OIR path directly rather than `validate_comprehensive`.
+/// the OIR path directly rather than `validate_comprehensive_without_services`.
 #[test]
 fn two_imports_of_one_upstream_produce_no_duplicate_page_names() {
     let schema = inline_consumer();

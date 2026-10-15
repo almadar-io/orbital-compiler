@@ -1014,6 +1014,16 @@ impl ExternalOrbitalLoader {
         sources
     }
 
+    /// Every file the current schema loaded, as parsed (before any inline
+    /// substitution), in path order.
+    pub fn each_touched_schema(&self, visit: &mut dyn FnMut(&LoadedSchema)) {
+        let mut paths: Vec<&PathBuf> = self.touched.iter().collect();
+        paths.sort();
+        for loaded in paths.into_iter().filter_map(|p| self.cache.get_canonical(p)) {
+            visit(loaded);
+        }
+    }
+
     /// Union of every loaded import's identity ledger (`id → row`). First
     /// writer wins on id collision (identical baked ids are byte-equal by
     /// construction). Used by the inline phase to preserve cross-file ids: a

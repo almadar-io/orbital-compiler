@@ -80,7 +80,7 @@ pub fn resolve_sexpr_standalone(sexpr: &SExpression) -> Result<OirExpr, ResolveE
 
 /// Substrate operators — async ops that reach outside the app via
 /// `getSubstrateService()` (`llm/*`, `workspace/*`, `session/*`, `memory/*`,
-/// `trace/*`, `integration/*`, `behavior/catalog|describe|source`,
+/// `trace/*`, `behavior/catalog|describe|source`,
 /// `program/read|print|eval`).
 /// Valid only as effects (statement position) with an `emit: { success,
 /// failure }` options object; `resolve_sexpr_call` rejects them in expression

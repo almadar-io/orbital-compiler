@@ -6,7 +6,7 @@
 
 use orbital_compiler::phases::inline::{inline_schema, InlineConfig};
 use orbital_compiler::phases::parse::parse_file;
-use orbital_compiler::phases::validation::{validate_comprehensive, ErrorCode};
+use orbital_compiler::phases::validation::{validate_comprehensive_without_services, ErrorCode};
 use orbital_core::schema::{OrbitalSchema, SExpression, TraitReference};
 
 const CHROME: &str = r#"{
@@ -102,7 +102,7 @@ fn header_brand(schema: &OrbitalSchema) -> Option<SExpression> {
 }
 
 fn dangling(schema: &OrbitalSchema) -> usize {
-    validate_comprehensive(schema)
+    validate_comprehensive_without_services(schema)
         .errors
         .iter()
         .filter(|e| e.code == ErrorCode::ConfigDanglingRef)

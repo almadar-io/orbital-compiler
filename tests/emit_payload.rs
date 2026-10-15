@@ -9,7 +9,7 @@
 //!
 //! All classes are warn-only in V2 Phase 0; tests verify warnings surface on
 //! the result but do not block validation.
-use orbital_compiler::phases::validation::{validate_comprehensive, ErrorCode};
+use orbital_compiler::phases::validation::{validate_comprehensive_without_services, ErrorCode};
 use orbital_core::schema::{
     EmitDefinition, EntityDefinition, EntityRef, EventScope, FieldDefinition, FieldType, Orbital,
     OrbitalSchema, PayloadField, SExpression, StateDefinition, StateMachine, StringOrArray,
@@ -200,7 +200,7 @@ fn missing_required_field_emits_warning() {
         ],
     );
     let schema = schema_with_emit(emit, declared);
-    let result = validate_comprehensive(&schema);
+    let result = validate_comprehensive_without_services(&schema);
     let hit = result
         .errors
         .iter()
@@ -223,7 +223,7 @@ fn extra_field_emits_warning() {
     let declared =
         declared_emit_with_payload("USER_SAVED", vec![payload_field("id", "string", false)]);
     let schema = schema_with_emit(emit, declared);
-    let result = validate_comprehensive(&schema);
+    let result = validate_comprehensive_without_services(&schema);
     let hit = result
         .errors
         .iter()
@@ -245,7 +245,7 @@ fn primitive_type_mismatch_emits_warning() {
     let declared =
         declared_emit_with_payload("USER_SAVED", vec![payload_field("count", "number", false)]);
     let schema = schema_with_emit(emit, declared);
-    let result = validate_comprehensive(&schema);
+    let result = validate_comprehensive_without_services(&schema);
     let hit = result
         .errors
         .iter()
@@ -273,7 +273,7 @@ fn valid_emit_passes_without_warnings() {
         ],
     );
     let schema = schema_with_emit(emit, declared);
-    let result = validate_comprehensive(&schema);
+    let result = validate_comprehensive_without_services(&schema);
     let any_p07_hit = result.errors.iter().chain(result.warnings.iter()).any(|e| {
         matches!(
             e.code,
@@ -300,7 +300,7 @@ fn number_literal_matches_number_declared_type() {
         vec![payload_field("count", "number", true)],
     );
     let schema = schema_with_emit(emit, declared);
-    let result = validate_comprehensive(&schema);
+    let result = validate_comprehensive_without_services(&schema);
     let any_p07_hit = result.errors.iter().chain(result.warnings.iter()).any(|e| {
         matches!(
             e.code,
@@ -310,4 +310,31 @@ fn number_literal_matches_number_declared_type() {
         )
     });
     assert!(!any_p07_hit);
+}
+
+fn list_field_emit(value: SExpression) -> bool {
+    let mut literal = orbital_core::schema::SObject::new();
+    literal.insert("icons".to_string(), value);
+    let emit = emit_effect("USER_SAVED", Some(SExpression::Object(literal)));
+    let declared =
+        declared_emit_with_payload("USER_SAVED", vec![payload_field("icons", "[string]", true)]);
+    let result = validate_comprehensive_without_services(&emit_schema(emit, declared));
+    result
+        .errors
+        .iter()
+        .any(|e| matches!(e.code, ErrorCode::EmitPayloadFieldTypeMismatch))
+}
+
+fn emit_schema(emit: SExpression, declared: EmitDefinition) -> OrbitalSchema {
+    schema_with_emit(emit, declared)
+}
+
+#[test]
+fn an_empty_list_takes_the_declared_list_type() {
+    assert!(!list_field_emit(SExpression::Array(vec![])));
+}
+
+#[test]
+fn control_a_string_in_a_list_field_is_a_mismatch() {
+    assert!(list_field_emit(string_sexpr("github")));
 }

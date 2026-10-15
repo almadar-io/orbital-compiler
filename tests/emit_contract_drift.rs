@@ -13,7 +13,7 @@
 //! `orbital_core::effects::emit_contract` disagree.
 
 use orbital_compiler::embedded::{get_operator, OperatorTypeRef, OperatorTypeRefKind};
-use orbital_core::effects::{success_payload, ProducedPayload};
+use orbital_core::effects::{success_payload, CallVariant, ProducedPayload};
 
 /// The registry's `produces` branch for a call site, narrowed the way the
 /// validator narrows it, reduced to the same vocabulary the core table speaks.
@@ -45,7 +45,7 @@ fn registry_shape(operator: &str, persist_action: Option<&str>) -> Option<Produc
 }
 
 fn assert_agrees(operator: &str, persist_action: Option<&str>) {
-    let core = success_payload(operator, persist_action);
+    let core = success_payload(operator, persist_action.map_or(CallVariant::Plain, CallVariant::PersistAction));
     let registry = registry_shape(operator, persist_action).unwrap_or_else(|| {
         panic!("registry has no decidable produces for {operator} {persist_action:?}")
     });
@@ -106,7 +106,7 @@ fn ref_agrees_with_the_registry() {
 #[test]
 fn phantom_persist_actions_stay_opaque() {
     assert_eq!(
-        success_payload("persist", Some("clear")),
+        success_payload("persist", CallVariant::PersistAction("clear")),
         ProducedPayload::Opaque
     );
 }

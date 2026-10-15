@@ -343,6 +343,16 @@ pub struct InlineConfig {
 #[derive(Clone, Default)]
 pub struct InlineSession(std::rc::Rc<std::cell::RefCell<InlineSessionState>>);
 
+impl InlineSession {
+    /// Every behavior file the last inline through this session loaded, as
+    /// parsed (before `@config.<knob>` reads were substituted).
+    pub fn each_loaded_schema(&self, visit: &mut dyn FnMut(&crate::loader::LoadedSchema)) {
+        if let Some(loader) = &self.0.borrow().loader {
+            loader.each_touched_schema(visit);
+        }
+    }
+}
+
 impl std::fmt::Debug for InlineSession {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.write_str("InlineSession")

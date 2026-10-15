@@ -13,7 +13,7 @@
 //! `wired: true, via: listens`. It produced 9 false `CIRCUIT_ORPHAN_EVENT`
 //! errors (3 view variants x 3 transitions).
 
-use orbital_compiler::phases::validation::validate_comprehensive;
+use orbital_compiler::phases::validation::validate_comprehensive_without_services;
 use orbital_core::schema::OrbitalSchema;
 use serde_json::{json, Value};
 
@@ -22,7 +22,7 @@ const ORPHAN: &str = "CIRCUIT_ORPHAN_EVENT";
 fn orphan_errors(schema: Value) -> Vec<String> {
     let schema: OrbitalSchema =
         serde_json::from_value(schema).expect("schema fixture must deserialize");
-    validate_comprehensive(&schema)
+    validate_comprehensive_without_services(&schema)
         .errors
         .iter()
         .filter(|e| e.code.as_str() == ORPHAN)

@@ -25,7 +25,7 @@
 
 use orbital_compiler::phases::inline::{inline_schema, InlineConfig};
 use orbital_compiler::phases::parse::parse_file;
-use orbital_compiler::phases::validation::{validate_comprehensive, ErrorCode};
+use orbital_compiler::phases::validation::{validate_comprehensive_without_services, ErrorCode};
 use orbital_core::schema::{OrbitalSchema, SExpression, TraitReference};
 
 /// `HomeOrbital` declares the orbital-level knob `browseColumns` (default
@@ -197,7 +197,7 @@ fn trait_form_reference_resolves_forward_against_the_home_orbital_when_the_consu
         Some("@config.appName")
     );
 
-    let result = validate_comprehensive(&schema);
+    let result = validate_comprehensive_without_services(&schema);
     let dangling: Vec<_> = result
         .errors
         .iter()
@@ -222,7 +222,7 @@ fn trait_form_reference_prefers_the_consumers_own_orbital_declaration_over_the_h
         "the consumer's own orbital-level browseColumns must win over HomeOrbital's"
     );
 
-    let result = validate_comprehensive(&schema);
+    let result = validate_comprehensive_without_services(&schema);
     let dangling: Vec<_> = result
         .errors
         .iter()
@@ -256,7 +256,7 @@ fn trait_form_reference_honors_the_uses_config_override_of_an_upstream_app_knob(
         )])),
     );
 
-    let result = validate_comprehensive(&schema);
+    let result = validate_comprehensive_without_services(&schema);
     let dangling: Vec<_> = result
         .errors
         .iter()

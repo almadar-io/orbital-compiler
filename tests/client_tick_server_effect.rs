@@ -4,7 +4,7 @@
 //! through an emitted event a server-side trait handles. Data effects on browser-stored
 //! entities are client work and stay allowed (owner ruling 2026-10-12, drift D-1).
 
-use orbital_compiler::phases::validation::{validate_comprehensive, ErrorCode, ValidationResult};
+use orbital_compiler::phases::validation::{validate_comprehensive_without_services, ErrorCode, ValidationResult};
 use orbital_core::schema::OrbitalSchema;
 use serde_json::{json, Value};
 
@@ -49,7 +49,7 @@ fn codes(result: &ValidationResult) -> Vec<ErrorCode> {
 }
 
 fn validate(traits: Vec<Value>) -> Vec<ErrorCode> {
-    codes(&validate_comprehensive(&schema(traits)))
+    codes(&validate_comprehensive_without_services(&schema(traits)))
 }
 
 #[test]

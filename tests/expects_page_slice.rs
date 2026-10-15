@@ -13,7 +13,7 @@
 //! provider declares the PATTERN `/articles/:slug` — the parameterisation is
 //! information the usage does not carry.
 
-use orbital_compiler::phases::validation::validate_comprehensive;
+use orbital_compiler::phases::validation::validate_comprehensive_without_services;
 use orbital_core::schema::OrbitalSchema;
 use serde_json::{json, Value};
 
@@ -22,7 +22,7 @@ const NAV_UNREACHABLE: &str = "ORB_EFF_NAVIGATE_TARGET_UNREACHABLE";
 fn codes(schema: Value) -> Vec<String> {
     let schema: OrbitalSchema =
         serde_json::from_value(schema).expect("schema fixture must deserialize");
-    validate_comprehensive(&schema)
+    validate_comprehensive_without_services(&schema)
         .errors
         .iter()
         .map(|e| e.code.as_str().to_string())

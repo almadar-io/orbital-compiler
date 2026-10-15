@@ -7,7 +7,7 @@
 //! enums). Bindings like `@entity.X` / `@config.X` are late-bound and
 //! pass the static check.
 
-use orbital_compiler::phases::validation::{validate_comprehensive, ErrorCode};
+use orbital_compiler::phases::validation::{validate_comprehensive_without_services, ErrorCode};
 use orbital_core::schema::{
     ConfigField, EntityDefinition, EntityRef, FieldDefinition, FieldType, Orbital, OrbitalSchema,
     SExpression, StateDefinition, StateMachine, StringOrArray, TraitDefinition, TraitReference,
@@ -226,7 +226,7 @@ fn schema_with_config(config: HashMap<String, ConfigField>) -> OrbitalSchema {
 }
 
 fn shape_errors(schema: &OrbitalSchema) -> Vec<String> {
-    validate_comprehensive(schema)
+    validate_comprehensive_without_services(schema)
         .errors
         .into_iter()
         .filter(|e| e.code == ErrorCode::TraitConfigShapeMismatch)

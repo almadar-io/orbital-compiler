@@ -16,9 +16,12 @@
 
 use std::collections::HashMap;
 
+use orbital_core::effects::{
+    failure_payload, message_payload, success_payload, CallVariant, ProducedPayload, ShapeField,
+};
 use orbital_core::schema::{EntityDefinition, PayloadField, SExpression};
 
-use crate::embedded::{get_operator, OperatorTypeRef, OperatorTypeRefKind};
+use crate::embedded::{get_operator, ServiceRegistryData, OperatorTypeRef, OperatorTypeRefKind};
 
 use super::effect::entity_field_type_map;
 
@@ -197,25 +200,52 @@ fn scalar_field(name: &str, field_type: &str) -> PayloadField {
     }
 }
 
-/// `HttpReplyPayload { status, headers, body }`, or with `paginate`
-/// `HttpPagedPayload { pages, items, last }` (`docs/Almadar_Embedded_Kernel.md` H.1).
-fn http_reply_payload(paged: bool) -> Vec<PayloadField> {
-    let mut reply = vec![
-        scalar_field("status", "number"),
-        scalar_field("headers", "object"),
-        scalar_field("body", "string"),
-    ];
-    if !paged {
-        return reply;
+/// A KEYED `call-service` success payload: the registry result record with
+/// `key: string` merged beside its fields (D-A82). Unkeyed calls and results
+/// that are not a known record carry no shape to check.
+fn keyed_call_service_payload(
+    args: &[SExpression],
+    registry: &ServiceRegistryData,
+) -> Option<Vec<PayloadField>> {
+    let (SExpression::String(service), SExpression::String(action)) = (args.get(1)?, args.get(2)?)
+    else {
+        return None;
+    };
+    if !call_has_key("call-service", args) {
+        return None;
     }
-    reply.sort_by(|a, b| a.name.cmp(&b.name));
-    let mut last = scalar_field("last", "object");
-    last.properties = Some(reply);
-    vec![
-        scalar_field("items", "array"),
-        last,
-        scalar_field("pages", "number"),
-    ]
+    let mut fields: Vec<PayloadField> = registry
+        .response_shape(service, action)?
+        .iter()
+        .map(|f| scalar_field(&f.name, &f.field_type))
+        .collect();
+    fields.push(scalar_field("key", "string"));
+    fields.sort_by(|a, b| a.name.cmp(&b.name));
+    Some(fields)
+}
+
+/// A core-owned typed shape as the `PayloadField`s a declared payload is compared against.
+fn shape_fields(shape: &[ShapeField]) -> Vec<PayloadField> {
+    let mut out: Vec<PayloadField> = shape
+        .iter()
+        .map(|f| {
+            let mut field = scalar_field(f.name, f.field_type);
+            if !f.fields.is_empty() {
+                field.properties = Some(shape_fields(f.fields));
+            }
+            field
+        })
+        .collect();
+    out.sort_by(|a, b| a.name.cmp(&b.name));
+    out
+}
+
+fn produced_to_fields(produced: ProducedPayload) -> Option<Vec<PayloadField>> {
+    match produced {
+        ProducedPayload::Shape(shape) => Some(shape_fields(shape)),
+        ProducedPayload::Fields(names) => Some(names.iter().map(|n| scalar_field(n, "any")).collect()),
+        ProducedPayload::EntityRow | ProducedPayload::Opaque => None,
+    }
 }
 
 /// True when the `http` call's request object (the fifth array element, head
@@ -239,9 +269,17 @@ pub(crate) fn produced_payload(
     op_name: &str,
     args: &[SExpression],
     entity_definitions: &HashMap<String, EntityDefinition>,
+    registry: &ServiceRegistryData,
 ) -> Option<Vec<PayloadField>> {
     if op_name == "http" {
-        return Some(http_reply_payload(http_paginates(args)));
+        let variant = if http_paginates(args) { CallVariant::HttpPaginate } else { CallVariant::Plain };
+        return produced_to_fields(success_payload("http", variant));
+    }
+    if matches!(op_name, "random-bytes" | "credential-status" | "credential-forget") {
+        return produced_to_fields(success_payload(op_name, CallVariant::Plain));
+    }
+    if matches!(op_name, "call-service" | "call_service") {
+        return keyed_call_service_payload(args, registry);
     }
     let produces = get_operator(op_name)?.effect.as_ref()?.produces.as_ref()?;
     let narrowed = narrow(op_name, args, produces)?;
@@ -261,4 +299,29 @@ pub(crate) fn produced_payload(
         // `any` (call-service, set) and anything else carries no shape to check.
         _ => None,
     }
+}
+
+fn call_has_key(op_name: &str, args: &[SExpression]) -> bool {
+    match op_name {
+        "http" => true,
+        _ => matches!(
+            args.last(),
+            Some(SExpression::Object(options))
+                if args.len() > 4 && !matches!(options.get("key"), None | Some(SExpression::Null))
+        ),
+    }
+}
+
+/// The payload an operator call site puts on `emit.failure`, or `None` (do not
+/// check) when its failure shape is not decidable here.
+pub(crate) fn produced_failure_payload(
+    op_name: &str,
+    args: &[SExpression],
+) -> Option<Vec<PayloadField>> {
+    produced_to_fields(failure_payload(op_name, call_has_key(op_name, args)))
+}
+
+/// The payload an operator call site puts on `emit.onMessage` (an `http` `stream`).
+pub(crate) fn produced_message_payload(op_name: &str) -> Option<Vec<PayloadField>> {
+    produced_to_fields(message_payload(op_name))
 }

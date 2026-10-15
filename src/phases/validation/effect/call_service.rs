@@ -8,7 +8,7 @@
 
 use super::super::{ErrorCode, ValidationError, ValidationResult};
 use super::keyed_call::{
-    check_key_and_cancelled, trailing_options, KEYED_CALL_EMIT_KEYS,
+    check_key_and_cancelled, declared_key, trailing_options, KEYED_CALL_EMIT_KEYS,
 };
 use super::{extract_emit_object_ref, validate_emit_config, DeclaredEmit};
 use crate::embedded::ServiceRegistryData;
@@ -270,6 +270,20 @@ fn check_array_call(
     result.merge(check_params(service_name, action, params, path, registry));
     if let Some(options) = options {
         result.merge(check_key_and_cancelled(options, path, "call-service"));
+        if declared_key(options).is_some()
+            && registry
+                .response_shape(service_name, action)
+                .is_some_and(|fields| fields.iter().any(|f| f.name == "key"))
+        {
+            result.add_error(
+                ValidationError::error(
+                    ErrorCode::CallServiceResultHasKey,
+                    path,
+                    format!("keyed call-service {service_name}.{action} returns a record that already has a `key` field; the call's `key` is merged beside the result and would collide"),
+                )
+                .with_suggestion("Drop the call's `key`, or use an action whose result has no `key` field"),
+            );
+        }
     }
 
     result

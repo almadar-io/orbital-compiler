@@ -35,7 +35,7 @@ pub(super) fn trailing_options(arr: &[SExpression]) -> Option<&orbital_core::sch
     }
 }
 
-fn declared_key(options: &orbital_core::schema::SObject) -> Option<&SExpression> {
+pub(super) fn declared_key(options: &orbital_core::schema::SObject) -> Option<&SExpression> {
     match options.get("key") {
         None | Some(SExpression::Null) => None,
         Some(k) => Some(k),

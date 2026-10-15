@@ -12,7 +12,7 @@
 
 use orbital_compiler::phases::inline::{inline_schema, InlineConfig};
 use orbital_compiler::phases::parse::parse_file;
-use orbital_compiler::phases::validation::{validate_comprehensive, ErrorCode};
+use orbital_compiler::phases::validation::{validate_comprehensive_without_services, ErrorCode};
 use orbital_core::schema::{ListenSource, OrbitalSchema, TraitReference};
 
 /// Minimal stand-in for std-mod-queue: a CloseButton atom plus a review trait
@@ -198,7 +198,7 @@ fn events_rename_keeps_sourced_listen_source_side() {
     );
 
     // The composed schema validates: no ORB_X_LISTEN_SOURCE_UNRESOLVED.
-    let result = validate_comprehensive(&schema);
+    let result = validate_comprehensive_without_services(&schema);
     assert!(
         !result
             .errors

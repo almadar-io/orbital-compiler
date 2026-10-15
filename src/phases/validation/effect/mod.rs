@@ -12,7 +12,9 @@ mod call_service;
 mod emit;
 mod emit_declaration;
 mod fetch;
+mod host_effects;
 mod http;
+mod http_site;
 mod keyed_call;
 mod navigate;
 mod operator_args;
@@ -24,8 +26,9 @@ mod set;
 mod utils;
 
 pub(crate) use call_service::{validate_call_service, validate_call_service_object};
+pub(crate) use host_effects::validate_host_effects;
 pub(crate) use http::validate_http_effects;
-pub use http::validate_http_secrets;
+pub(crate) use http_site::validate_http_auth_placement;
 pub(crate) use keyed_call::validate_cancel_calls_have_a_keyed_call;
 pub(crate) use emit::{extract_emit_object_ref, validate_emit, validate_emit_config};
 pub(crate) use emit_declaration::{
@@ -68,6 +71,8 @@ pub fn validate_all_effects(schema: &OrbitalSchema, ctx: &mut ValidationContext)
     }
     ctx.merge(validate_cancel_calls_have_a_keyed_call(schema));
     ctx.merge(validate_http_effects(schema));
+    validate_http_auth_placement(schema, ctx);
+    ctx.merge(validate_host_effects(schema));
 }
 
 /// Validate all effects in a trait definition

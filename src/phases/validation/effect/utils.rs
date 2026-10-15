@@ -110,10 +110,6 @@ const EFFECT_POSITION_EXTRA: &[&str] = &[
     // Substrate: trace (value-position, valid in effects)
     "trace/log",
     "trace/emit",
-    // Substrate: integration (value-position, valid in effects)
-    "integration/http",
-    "integration/github-get-repo",
-    "integration/github-create-issue",
 ];
 
 /// All operators valid in effect position: the core effects (the single
@@ -323,6 +319,7 @@ mod tests {
 
         let service_registry = crate::embedded::ServiceRegistryData {
             runtimes: HashMap::new(),
+            response_shapes: HashMap::new(),
             actions: [(
                 "email".to_string(),
                 ["send".to_string()].into_iter().collect(),
@@ -360,6 +357,7 @@ mod tests {
 
         let service_registry = crate::embedded::ServiceRegistryData {
             runtimes: HashMap::new(),
+            response_shapes: HashMap::new(),
             actions: [(
                 "email".to_string(),
                 ["send".to_string()].into_iter().collect(),
@@ -397,6 +395,7 @@ mod tests {
 
         let service_registry = crate::embedded::ServiceRegistryData {
             runtimes: HashMap::new(),
+            response_shapes: HashMap::new(),
             actions: [("migration".to_string(), HashSet::new())]
                 .into_iter()
                 .collect(),
@@ -432,6 +431,7 @@ mod tests {
         };
         ServiceRegistryData {
             runtimes: HashMap::new(),
+            response_shapes: HashMap::new(),
             actions: [(
                 "email".to_string(),
                 ["send".to_string()].into_iter().collect(),
@@ -496,6 +496,7 @@ mod tests {
         let known_services: HashSet<String> = ["api".to_string()].into_iter().collect();
         let registry = crate::embedded::ServiceRegistryData {
             runtimes: HashMap::new(),
+            response_shapes: HashMap::new(),
             actions: [(
                 "email".to_string(),
                 ["send".to_string()].into_iter().collect(),

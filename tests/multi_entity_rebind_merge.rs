@@ -8,7 +8,7 @@ use orbital_compiler::phases::enrich::{enrich_schema, EnrichmentConfig};
 use orbital_compiler::phases::inline::{inline_schema, InlineConfig};
 use orbital_compiler::phases::parse::parse_file;
 use orbital_compiler::phases::validation::error::ErrorCode;
-use orbital_compiler::phases::validation::validate_comprehensive;
+use orbital_compiler::phases::validation::validate_comprehensive_without_services;
 use orbital_core::schema::{EntityRef, OrbitalSchema};
 use std::path::Path;
 
@@ -366,7 +366,7 @@ fn aux_entity_is_legal_relation_target_and_its_fields_are_walked() {
       }]
     }"#;
     let schema: OrbitalSchema = serde_json::from_str(src).expect("parse schema");
-    let result = validate_comprehensive(&schema);
+    let result = validate_comprehensive_without_services(&schema);
     let unresolved: Vec<_> = result
         .errors
         .iter()

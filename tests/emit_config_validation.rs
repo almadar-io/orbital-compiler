@@ -13,7 +13,7 @@
 //!   - Non-UPPER_SNAKE event    → `ORB_EFF_EMIT_INVALID_NAME`
 //!   - Undeclared event         → `ORB_EFF_EMIT_UNDECLARED_EVENT` (warning)
 
-use orbital_compiler::phases::validation::{validate_comprehensive, ErrorCode};
+use orbital_compiler::phases::validation::{validate_comprehensive_without_services, ErrorCode};
 use orbital_core::schema::{
     EmitDefinition, EntityDefinition, EntityRef, EventScope, FieldDefinition, FieldType, Orbital,
     OrbitalSchema, SExpression, StateDefinition, StateMachine, StringOrArray, TraitDefinition,
@@ -205,7 +205,7 @@ fn fetch_with_success_and_failure_is_valid() {
             declared_emit("PATIENT_LOAD_FAILED", false),
         ],
     );
-    let result = validate_comprehensive(&schema);
+    let result = validate_comprehensive_without_services(&schema);
     assert!(
         !result.errors.iter().any(|e| matches!(
             e.code,
@@ -226,7 +226,7 @@ fn fetch_with_on_message_is_rejected() {
         options_with_emit(emit_object(&[("on_message", "STREAMING")])),
     ])];
     let schema = schema_with_effects(effects, vec![]);
-    let result = validate_comprehensive(&schema);
+    let result = validate_comprehensive_without_services(&schema);
     assert!(
         result
             .errors
@@ -247,7 +247,7 @@ fn set_with_failure_is_rejected() {
         options_with_emit(emit_object(&[("failure", "WRITE_FAILED")])),
     ])];
     let schema = schema_with_effects(effects, vec![]);
-    let result = validate_comprehensive(&schema);
+    let result = validate_comprehensive_without_services(&schema);
     assert!(
         result
             .errors
@@ -267,7 +267,7 @@ fn set_with_success_is_valid() {
         options_with_emit(emit_object(&[("success", "STATUS_CHANGED")])),
     ])];
     let schema = schema_with_effects(effects, vec![declared_emit("STATUS_CHANGED", false)]);
-    let result = validate_comprehensive(&schema);
+    let result = validate_comprehensive_without_services(&schema);
     assert!(
         !result
             .errors
@@ -289,7 +289,7 @@ fn mixed_case_event_name_accepted_post_phase_2_5() {
         options_with_emit(emit_object(&[("success", "patientLoaded")])),
     ])];
     let schema = schema_with_effects(effects, vec![]);
-    let result = validate_comprehensive(&schema);
+    let result = validate_comprehensive_without_services(&schema);
     assert!(
         !result
             .errors
@@ -311,7 +311,7 @@ fn malformed_event_identifier_still_rejected() {
         options_with_emit(emit_object(&[("success", "1badName")])),
     ])];
     let schema = schema_with_effects(effects, vec![]);
-    let result = validate_comprehensive(&schema);
+    let result = validate_comprehensive_without_services(&schema);
     assert!(
         result
             .errors
@@ -331,7 +331,7 @@ fn undeclared_event_is_warning() {
     ])];
     // No declared emit for PATIENT_LOADED
     let schema = schema_with_effects(effects, vec![]);
-    let result = validate_comprehensive(&schema);
+    let result = validate_comprehensive_without_services(&schema);
 
     // The validator promotes every diagnostic to an Error severity by
     // design ("zero non-error output" — see `ValidationError::warning`).
@@ -360,7 +360,7 @@ fn os_watch_http_on_message_is_valid() {
         options_with_emit(emit_object(&[("on_message", "PUSH_RECEIVED")])),
     ])];
     let schema = schema_with_effects(effects, vec![declared_emit("PUSH_RECEIVED", false)]);
-    let result = validate_comprehensive(&schema);
+    let result = validate_comprehensive_without_services(&schema);
     assert!(
         !result
             .errors
@@ -379,7 +379,7 @@ fn ref_with_on_change_is_valid() {
         options_with_emit(emit_object(&[("on_change", "PATIENT_UPDATED")])),
     ])];
     let schema = schema_with_effects(effects, vec![declared_emit("PATIENT_UPDATED", false)]);
-    let result = validate_comprehensive(&schema);
+    let result = validate_comprehensive_without_services(&schema);
     assert!(
         !result
             .errors
@@ -399,7 +399,7 @@ fn ref_with_success_is_rejected() {
         options_with_emit(emit_object(&[("success", "LOADED")])),
     ])];
     let schema = schema_with_effects(effects, vec![]);
-    let result = validate_comprehensive(&schema);
+    let result = validate_comprehensive_without_services(&schema);
     assert!(
         result
             .errors
@@ -421,7 +421,7 @@ fn camel_case_on_message_alias_accepted() {
         options_with_emit(emit_object(&[("onMessage", "CRON_TICKED")])),
     ])];
     let schema = schema_with_effects(effects, vec![declared_emit("CRON_TICKED", false)]);
-    let result = validate_comprehensive(&schema);
+    let result = validate_comprehensive_without_services(&schema);
     assert!(
         !result
             .errors
@@ -464,7 +464,7 @@ fn cancel_call(key: SExpression) -> SExpression {
 }
 
 fn has_code(effects: Vec<SExpression>, emits: Vec<EmitDefinition>, code: ErrorCode) -> bool {
-    validate_comprehensive(&schema_with_effects(effects, emits))
+    validate_comprehensive_without_services(&schema_with_effects(effects, emits))
         .errors
         .iter()
         .any(|e| e.code == code)
@@ -494,7 +494,7 @@ fn keyed_call_with_cancelled_and_a_cancel_call_has_no_cancel_errors() {
         ])),
         cancel_call(str_expr("@entity.id")),
     ];
-    let result = validate_comprehensive(&schema_with_effects(effects, cancelled_emit_declared()));
+    let result = validate_comprehensive_without_services(&schema_with_effects(effects, cancelled_emit_declared()));
     assert!(
         !result.errors.iter().any(|e| matches!(
             e.code,
@@ -623,7 +623,7 @@ fn cancel_call_is_satisfied_by_a_keyed_call_in_another_trait_of_the_app() {
     let mut other = keyed.orbitals.into_iter().next().unwrap();
     other.name = "OtherOrbital".to_string();
     schema.orbitals.push(other);
-    let result = validate_comprehensive(&schema);
+    let result = validate_comprehensive_without_services(&schema);
     assert!(
         !result
             .errors

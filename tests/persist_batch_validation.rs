@@ -3,7 +3,7 @@
 //! tuple with the single-op persist validator, requires non-literal ops to be
 //! array-typed, and requires one placement for every entity the ops name.
 
-use orbital_compiler::phases::validation::{validate_comprehensive, ErrorCode, ValidationResult};
+use orbital_compiler::phases::validation::{validate_comprehensive_without_services, ErrorCode, ValidationResult};
 use orbital_core::schema::OrbitalSchema;
 use serde_json::{json, Value};
 
@@ -56,7 +56,7 @@ fn validate(effects: Value, saved: Value) -> ValidationResult {
         }]
     }))
     .expect("schema");
-    validate_comprehensive(&schema)
+    validate_comprehensive_without_services(&schema)
 }
 
 fn emit() -> Value {

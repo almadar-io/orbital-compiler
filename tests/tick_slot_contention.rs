@@ -11,7 +11,7 @@
 //! slot" predicate is legitimate 106 times over, and only the tick scoping plus
 //! a live-guard clause separates the real defect from the ordinary pattern.
 
-use orbital_compiler::phases::validation::validate_comprehensive;
+use orbital_compiler::phases::validation::validate_comprehensive_without_services;
 use orbital_core::schema::OrbitalSchema;
 use serde_json::{json, Value};
 
@@ -20,7 +20,7 @@ fn parse(schema: Value) -> OrbitalSchema {
 }
 
 fn codes(schema: Value) -> Vec<String> {
-    validate_comprehensive(&parse(schema))
+    validate_comprehensive_without_services(&parse(schema))
         .errors
         .iter()
         .map(|e| e.code.as_str().to_string())
@@ -28,7 +28,7 @@ fn codes(schema: Value) -> Vec<String> {
 }
 
 fn findings(schema: Value) -> Vec<(String, String, String)> {
-    validate_comprehensive(&parse(schema))
+    validate_comprehensive_without_services(&parse(schema))
         .errors
         .iter()
         .map(|e| {

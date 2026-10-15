@@ -30,7 +30,7 @@
 
 use orbital_compiler::phases::inline::{inline_schema, InlineConfig};
 use orbital_compiler::phases::parse::parse_file;
-use orbital_compiler::phases::validation::{validate_comprehensive, ErrorCode};
+use orbital_compiler::phases::validation::{validate_comprehensive_without_services, ErrorCode};
 use orbital_core::schema::{OrbitalSchema, SExpression, TraitReference};
 
 /// Shared atom fixture. Declares a single orbital with a trait whose OPEN
@@ -968,7 +968,7 @@ fn ref_entry_call_site_config_forward_dangling_key_stays_unresolved_and_is_flagg
     // resolver and `validate_dangling_config_refs` read the same
     // `EmbedGraph` — a forward the resolver leaves unresolved is exactly a
     // forward the validator judges unreachable.
-    let result = validate_comprehensive(&schema);
+    let result = validate_comprehensive_without_services(&schema);
     let flagged = result
         .errors
         .iter()

@@ -31,7 +31,7 @@ use orbital_compiler::phases::validation::orbital_ref_config::{
     validate_orbital_ref_diagnostics, validate_uses_config_diagnostics,
 };
 use orbital_compiler::phases::validation::page::validate_page_path_uniqueness;
-use orbital_compiler::phases::validation::validate_comprehensive;
+use orbital_compiler::phases::validation::validate_comprehensive_without_services;
 use orbital_core::schema::OrbitalSchema;
 use serde_json::{json, Value};
 
@@ -647,7 +647,7 @@ fn entities_map_onto_a_sibling_reference_form_orbitals_materialized_entity_is_or
 const DEAD_KNOB: &str = "ORB_O_CONFIG_DEAD_KNOB";
 
 fn codes(schema: &OrbitalSchema) -> Vec<String> {
-    validate_comprehensive(schema)
+    validate_comprehensive_without_services(schema)
         .errors
         .iter()
         .map(|e| e.code.as_str().to_string())
@@ -964,7 +964,7 @@ const REF_FORWARD_CONSUMER: &str = r#"{
 #[test]
 fn ref_entry_forwarded_app_and_orbital_knobs_do_not_fire_dead_knob() {
     let collected = collect_with(REF_FORWARD_UPSTREAM, REF_FORWARD_CONSUMER);
-    let result = validate_comprehensive(&collected.schema);
+    let result = validate_comprehensive_without_services(&collected.schema);
     assert!(
         !result
             .errors
@@ -1030,7 +1030,7 @@ fn ref_entry_with_an_unforwarded_orbital_knob_still_fires_dead_knob() {
         1,
     );
     let collected = collect_with(REF_FORWARD_UPSTREAM, &consumer);
-    let result = validate_comprehensive(&collected.schema);
+    let result = validate_comprehensive_without_services(&collected.schema);
     assert!(
         result
             .errors
@@ -1298,7 +1298,7 @@ fn role_target_that_is_a_different_fields_vocabulary_member_fires_org_o_and_down
         org_o.errors
     );
 
-    let comprehensive = validate_comprehensive(&collected.schema);
+    let comprehensive = validate_comprehensive_without_services(&collected.schema);
     assert!(
         comprehensive.errors.iter().any(
             |e| e.code == ErrorCode::SchemaRoleLiteralNotMember && e.message.contains("active")
@@ -1331,7 +1331,7 @@ fn role_target_list_with_one_status_value_fires_both_codes_for_that_member_only(
     );
     assert!(org_o_target_errors[0].message.contains("active"));
 
-    let comprehensive = validate_comprehensive(&collected.schema);
+    let comprehensive = validate_comprehensive_without_services(&collected.schema);
     let role_literal_errors: Vec<_> = comprehensive
         .errors
         .iter()
@@ -1362,7 +1362,7 @@ fn role_target_valid_mapping_stays_silent_even_with_a_status_field_present() {
         org_o.errors
     );
 
-    let comprehensive = validate_comprehensive(&collected.schema);
+    let comprehensive = validate_comprehensive_without_services(&collected.schema);
     assert!(
         !comprehensive
             .errors
