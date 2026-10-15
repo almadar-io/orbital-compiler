@@ -12,6 +12,8 @@ mod call_service;
 mod emit;
 mod emit_declaration;
 mod fetch;
+mod http;
+mod keyed_call;
 mod navigate;
 mod operator_args;
 mod os_watch;
@@ -21,9 +23,10 @@ mod r#ref;
 mod set;
 mod utils;
 
-pub(crate) use call_service::{
-    validate_call_service, validate_call_service_object, validate_cancel_calls_have_a_keyed_call,
-};
+pub(crate) use call_service::{validate_call_service, validate_call_service_object};
+pub(crate) use http::validate_http_effects;
+pub use http::validate_http_secrets;
+pub(crate) use keyed_call::validate_cancel_calls_have_a_keyed_call;
 pub(crate) use emit::{extract_emit_object_ref, validate_emit, validate_emit_config};
 pub(crate) use emit_declaration::{
     collect_declared_emits, validate_effect, validate_emit_against_declaration,
@@ -64,6 +67,7 @@ pub fn validate_all_effects(schema: &OrbitalSchema, ctx: &mut ValidationContext)
         ctx.merge(result);
     }
     ctx.merge(validate_cancel_calls_have_a_keyed_call(schema));
+    ctx.merge(validate_http_effects(schema));
 }
 
 /// Validate all effects in a trait definition
@@ -98,7 +102,8 @@ pub fn validate_trait_effects(
     let per_event_payloads = collect_per_event_payload_field_types(trait_def);
     let payload_field_types = collect_payload_field_types(trait_def);
     let per_event_shapes = collect_per_event_payload_shapes(trait_def, schema);
-    let tick_types = binding_types(trait_def, schema, collect_payload_shapes(trait_def, schema), &per_event_shapes);
+    let mut tick_types = binding_types(trait_def, schema, collect_payload_shapes(trait_def, schema), &per_event_shapes);
+    tick_types.optional_payload = optional_payload_fields(trait_def, None);
 
     // Validate effects in transitions — scope payload types to the trigger event
     // so `?result` resolves against the correct event's payload schema.
@@ -108,7 +113,11 @@ pub fn validate_trait_effects(
             .cloned()
             .unwrap_or_else(|| payload_field_types.clone());
         let scoped_shapes = match per_event_shapes.get(&transition.event) {
-            Some(shapes) => binding_types(trait_def, schema, shapes.clone(), &per_event_shapes),
+            Some(shapes) => {
+                let mut types = binding_types(trait_def, schema, shapes.clone(), &per_event_shapes);
+                types.optional_payload = optional_payload_fields(trait_def, Some(&transition.event));
+                types
+            }
             None => tick_types.clone(),
         };
         if let Some(guard) = &transition.guard {
@@ -145,10 +154,6 @@ pub fn validate_trait_effects(
                 );
                 result.merge(effect_result);
 
-                // Validate emit effects against declared emits
-                let emit_result =
-                    validate_emit_against_declaration(effect, &effect_path, &declared_emits);
-                result.merge(emit_result);
                 result.merge(set::validate_comparison_operands(
                     effect,
                     &effect_path,
@@ -203,10 +208,6 @@ pub fn validate_trait_effects(
                 );
                 result.merge(effect_result);
 
-                // Validate emit effects against declared emits
-                let emit_result =
-                    validate_emit_against_declaration(effect, &effect_path, &declared_emits);
-                result.merge(emit_result);
                 result.merge(set::validate_comparison_operands(
                     effect,
                     &effect_path,
@@ -363,6 +364,7 @@ fn binding_types(
     set::BindingTypes {
         payload,
         prev_payload,
+        optional_payload: Default::default(),
         user: super::user_identity::identity_type(schema, &trait_def.name),
         config: trait_def
             .config
@@ -371,6 +373,47 @@ fn binding_types(
             .map(|(name, field)| (name.clone(), crate::phases::resolve::config_field_oir_type(field, schema)))
             .collect(),
     }
+}
+
+/// The payload fields the declaration of `event` (or, for a tick, the first emit declaring each field) does not
+/// require. The same precedence as [`collect_per_event_payload_shapes`]: an inbound event's declared payload
+/// wins over an emit's.
+fn optional_payload_fields(
+    trait_def: &orbital_core::schema::TraitDefinition,
+    event: Option<&str>,
+) -> HashSet<String> {
+    let optional_of = |fields: &[orbital_core::schema::PayloadField]| -> HashSet<String> {
+        fields
+            .iter()
+            .filter(|f| f.required != Some(true))
+            .map(|f| f.name.clone())
+            .collect()
+    };
+    let Some(event) = event else {
+        let mut first: HashMap<&str, bool> = HashMap::new();
+        for emit in trait_def.emits.iter().flatten() {
+            for f in emit.payload_schema.iter().flatten() {
+                first.entry(f.name.as_str()).or_insert(f.required != Some(true));
+            }
+        }
+        return first.into_iter().filter(|(_, optional)| *optional).map(|(n, _)| n.to_string()).collect();
+    };
+    let inbound = trait_def
+        .state_machine
+        .events
+        .iter()
+        .flatten()
+        .find(|e| e.key == event)
+        .and_then(|e| e.payload_schema.as_deref());
+    let emitted = || {
+        trait_def
+            .emits
+            .iter()
+            .flatten()
+            .find(|e| e.event == event)
+            .and_then(|e| e.payload_schema.as_deref())
+    };
+    inbound.or_else(emitted).map(optional_of).unwrap_or_default()
 }
 
 /// The payload shapes of a trait with no triggering event (ticks): the first declared emit's type of each field.

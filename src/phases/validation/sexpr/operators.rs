@@ -283,6 +283,7 @@ pub const EFFECT_OPERATORS: &[&str] = &[
     "call-service",
     "call_service",
     "cancel-call",
+    "http",
     "notify",
     "log",
     "spawn",

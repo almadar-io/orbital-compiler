@@ -50,6 +50,13 @@ pub trait TypeCtx {
         None
     }
 
+    /// Whether a row or payload field can be missing: declared without `!` and without a default. A missing value
+    /// is below any number to both evaluators and fails every ordering comparison in every push-down store, so an
+    /// ordering comparison over one is an error unless the program guards it (ORB_X_ORDERING_OPTIONAL_OPERAND).
+    fn may_be_absent(&self, _binding: &OirBinding) -> bool {
+        false
+    }
+
     /// Whether an object literal is exactly the record it writes (its keys, each typed by its value). A consumer
     /// comparing a literal with a declared type (a default that omits optional keys) keeps it a record of unknown
     /// extent; one that reads the literal's own fields needs the exact record.
@@ -102,6 +109,10 @@ struct Inferer<'c> {
     diagnostics: RefCell<Vec<Diagnostic>>,
     /// Set by the call (or `let`) just inferred when its result is void.
     void: std::cell::Cell<bool>,
+    /// The operands (printed) a presence check on the way in has shown present.
+    present: RefCell<Vec<String>>,
+    /// The `let` locals bound to an operand that can be missing.
+    absent_locals: RefCell<Vec<String>>,
 }
 
 impl<'c> Inferer<'c> {
@@ -111,6 +122,8 @@ impl<'c> Inferer<'c> {
             scopes: RefCell::new(Vec::new()),
             diagnostics: RefCell::new(Vec::new()),
             void: std::cell::Cell::new(false),
+            present: RefCell::new(Vec::new()),
+            absent_locals: RefCell::new(Vec::new()),
         }
     }
 
@@ -160,6 +173,21 @@ impl<'c> Inferer<'c> {
                 }
             }
         }
+    }
+
+    /// The printed operand when `arg` can be missing at this point of the program: a field declared without `!` and
+    /// without a default, or a `let` local bound to one, that no enclosing presence check shows present.
+    fn absent_operand(&self, arg: &OirExpr) -> Option<String> {
+        let binding = operand_binding(arg)?;
+        let key = binding.to_string();
+        if self.present.borrow().contains(&key) {
+            return None;
+        }
+        let absent = match &binding.root {
+            OirBindingRoot::Local(name) => binding.path.is_empty() && self.absent_locals.borrow().contains(name),
+            _ => self.ctx.may_be_absent(&binding),
+        };
+        absent.then(|| printed_arg(Some(&arg)))
     }
 
     fn binding(&self, binding: &OirBinding) -> Option<OirType> {
@@ -241,22 +269,7 @@ impl<'c> Inferer<'c> {
             }
             OirExpr::Binding { binding } => self.binding(binding),
             OirExpr::BinaryOp { op, left, right } => {
-                let name = match op {
-                    OirBinaryOp::Add => "+",
-                    OirBinaryOp::Sub => "-",
-                    OirBinaryOp::Mul => "*",
-                    OirBinaryOp::Div => "/",
-                    OirBinaryOp::Mod => "%",
-                    OirBinaryOp::Eq => "==",
-                    OirBinaryOp::Ne => "!=",
-                    OirBinaryOp::Lt => "<",
-                    OirBinaryOp::Gt => ">",
-                    OirBinaryOp::Le => "<=",
-                    OirBinaryOp::Ge => ">=",
-                    OirBinaryOp::And => "and",
-                    OirBinaryOp::Or => "or",
-                    OirBinaryOp::Concat => "str/concat",
-                };
+                let name = binary_name(op);
                 self.call(name, &[left, right])
             }
             OirExpr::UnaryOp { op, operand } => match op {
@@ -341,10 +354,14 @@ impl<'c> Inferer<'c> {
             return None;
         };
         let depth = self.scopes.borrow().len();
+        let absent_depth = self.absent_locals.borrow().len();
         for pair in bindings {
             if let OirExpr::Array { items } = pair {
                 if let (Some(OirExpr::String { value: name }), Some(value)) = (items.first(), items.get(1)) {
                     let ty = self.infer(value);
+                    if self.absent_operand(value).is_some() {
+                        self.absent_locals.borrow_mut().push(name.clone());
+                    }
                     self.scopes.borrow_mut().push((name.clone(), ty));
                 }
             }
@@ -352,6 +369,7 @@ impl<'c> Inferer<'c> {
         let names: Vec<(String, Option<OirType>)> = self.scopes.borrow()[depth..].to_vec();
         self.scopes.borrow_mut().truncate(depth);
         let body_known = self.with_scope(&names, || self.known(body));
+        self.absent_locals.borrow_mut().truncate(absent_depth);
         match body_known {
             Some(Known::Type(ty)) => Some(ty),
             Some(Known::Void) => {
@@ -383,7 +401,25 @@ impl<'c> Inferer<'c> {
         let signature = signature_of(name)?;
         let mut bindings = CallBindings::new();
         let mut sound = true;
+        if is_ordering(name) {
+            for (index, arg) in args.iter().enumerate() {
+                if let Some(operand) = self.absent_operand(arg) {
+                    self.diagnostics.borrow_mut().push(Diagnostic {
+                        function: name.to_string(),
+                        index,
+                        mismatch: Mismatch::MaybeAbsent {
+                            operator: name.to_string(),
+                            operand,
+                        },
+                        expression: printed(name, args),
+                        argument: printed_arg(args.get(index)),
+                    });
+                }
+            }
+        }
         for (index, arg) in args.iter().enumerate() {
+            let narrowed = self.present.borrow().len();
+            self.present.borrow_mut().extend(guards_for(name, args, index));
             let outcome = match arg {
                 OirExpr::Lambda { params, body } => {
                     // A callback the operator also hands the element's index: that parameter is a number.
@@ -430,6 +466,7 @@ impl<'c> Inferer<'c> {
                     signature.bind(&mut bindings, index, &actual, Mode::Static)
                 }
             };
+            self.present.borrow_mut().truncate(narrowed);
             if let Err(mismatch) = outcome {
                 sound = false;
                 self.diagnostics.borrow_mut().push(Diagnostic {
@@ -558,6 +595,116 @@ fn language_binding(binding: &OirBinding, payload: Option<OirType>, prev_payload
         OirBindingRoot::Trait(_) => OirType::Node,
         _ => return None,
     })
+}
+
+fn binary_name(op: &OirBinaryOp) -> &'static str {
+    match op {
+        OirBinaryOp::Add => "+",
+        OirBinaryOp::Sub => "-",
+        OirBinaryOp::Mul => "*",
+        OirBinaryOp::Div => "/",
+        OirBinaryOp::Mod => "%",
+        OirBinaryOp::Eq => "==",
+        OirBinaryOp::Ne => "!=",
+        OirBinaryOp::Lt => "<",
+        OirBinaryOp::Gt => ">",
+        OirBinaryOp::Le => "<=",
+        OirBinaryOp::Ge => ">=",
+        OirBinaryOp::And => "and",
+        OirBinaryOp::Or => "or",
+        OirBinaryOp::Concat => "str/concat",
+    }
+}
+
+/// A call's name and arguments, however the lowering spelled it.
+fn as_call(expr: &OirExpr) -> Option<(&str, Vec<&OirExpr>)> {
+    match expr {
+        OirExpr::Call { function, args } => Some((function.as_str(), args.iter().collect())),
+        OirExpr::BinaryOp { op, left, right } => Some((binary_name(op), vec![left.as_ref(), right.as_ref()])),
+        OirExpr::UnaryOp { op: OirUnaryOp::Not, operand } => Some(("not", vec![operand.as_ref()])),
+        OirExpr::Conditional { condition, then_branch, else_branch } => {
+            Some(("if", vec![condition.as_ref(), then_branch.as_ref(), else_branch.as_ref()]))
+        }
+        _ => None,
+    }
+}
+
+/// The field an operand reads, spelled as its binding: `@entity.p` and `(object/get @entity p)` are one operand.
+fn operand_binding(expr: &OirExpr) -> Option<OirBinding> {
+    match expr {
+        OirExpr::Binding { binding } => Some(binding.clone()),
+        OirExpr::Call { function, args } if function == "object/get" => match args.as_slice() {
+            [OirExpr::Binding { binding }, OirExpr::String { value }] => {
+                let mut read = binding.clone();
+                read.path.push(value.clone());
+                Some(read)
+            }
+            _ => None,
+        },
+        _ => None,
+    }
+}
+
+fn operand_key(expr: &OirExpr) -> Option<String> {
+    operand_binding(expr).map(|b| b.to_string())
+}
+
+fn union_of(lists: impl Iterator<Item = Vec<String>>) -> Vec<String> {
+    lists.flatten().collect()
+}
+
+fn intersection_of(mut lists: impl Iterator<Item = Vec<String>>) -> Vec<String> {
+    let Some(first) = lists.next() else {
+        return Vec::new();
+    };
+    lists.fold(first, |acc, next| acc.into_iter().filter(|k| next.contains(k)).collect())
+}
+
+/// The operands `expr` shows present when it evaluates to `truth`: `(validate/required x)`, `(!= x null)`, a bare
+/// `x`, and `and` / `or` / `not` over them. Nothing else narrows.
+fn presence(expr: &OirExpr, truth: bool) -> Vec<String> {
+    if truth {
+        if let Some(key) = operand_key(expr) {
+            return vec![key];
+        }
+    }
+    let Some((name, args)) = as_call(expr) else {
+        return Vec::new();
+    };
+    let null_compared = |args: &[&OirExpr]| -> Option<String> {
+        match args {
+            [OirExpr::Null, other] | [other, OirExpr::Null] => operand_key(other),
+            _ => None,
+        }
+    };
+    match name {
+        "validate/required" | "required" if truth => args.first().and_then(|a| operand_key(a)).into_iter().collect(),
+        "not" => args.first().map(|a| presence(a, !truth)).unwrap_or_default(),
+        "and" if truth => union_of(args.iter().map(|a| presence(a, true))),
+        "and" => intersection_of(args.iter().map(|a| presence(a, false))),
+        "or" if truth => intersection_of(args.iter().map(|a| presence(a, true))),
+        "or" => union_of(args.iter().map(|a| presence(a, false))),
+        "!=" if truth => null_compared(&args).into_iter().collect(),
+        "=" | "==" if !truth => null_compared(&args).into_iter().collect(),
+        _ => Vec::new(),
+    }
+}
+
+/// The operands the earlier arguments of a call show present when argument `index` is evaluated.
+fn guards_for(name: &str, args: &[&OirExpr], index: usize) -> Vec<String> {
+    match name {
+        "and" => union_of(args[..index].iter().map(|a| presence(a, true))),
+        "or" => union_of(args[..index].iter().map(|a| presence(a, false))),
+        "if" | "when" if index >= 1 => match args.first() {
+            Some(condition) => presence(condition, name == "when" || index == 1),
+            None => Vec::new(),
+        },
+        _ => Vec::new(),
+    }
+}
+
+fn is_ordering(name: &str) -> bool {
+    matches!(name, "<" | "<=" | ">" | ">=")
 }
 
 /// The branch of an `if` that can run when its condition is provably decided without running the program (a

@@ -234,9 +234,130 @@ pub(crate) fn validate_required_emit_success(
     result
 }
 
-/// Validate a single effect
+/// Validate an effect and every effect nested in its control flow. `do`, `if`, `when` and `let` are the
+/// effect-sequencing forms (`exec_effect_expr` in the runtime kernel); each child effect is validated
+/// exactly like a top-level one, at `<path>.do[i]` / `.then` / `.else` / `.body[i]`. A branch written as a
+/// list of effects (`[[effect…]]`) adds `[k]`. Conditions and `let` values are value positions: they only get
+/// the nested call-service walk.
 #[allow(clippy::too_many_arguments)]
 pub(crate) fn validate_effect(
+    effect: &SExpression,
+    path: &str,
+    known_entities: &HashSet<String>,
+    entity_definitions: &HashMap<String, EntityDefinition>,
+    known_services: &HashSet<String>,
+    page_init_payloads: &HashMap<String, PageInitPayload>,
+    service_registry: &ServiceRegistryData,
+    declared_emits: Option<&[DeclaredEmit]>,
+    entity_field_types: &HashMap<String, EntityFieldMeta>,
+    payload_field_types: &HashMap<String, String>,
+) -> ValidationResult {
+    let mut result = ValidationResult::new();
+    let head = match effect {
+        SExpression::Array(arr) => arr.first().and_then(|e| e.as_str()),
+        _ => None,
+    };
+    let (Some(head @ ("do" | "if" | "when" | "let")), SExpression::Array(arr)) = (head, effect)
+    else {
+        result.merge(validate_leaf_effect(
+            effect,
+            path,
+            known_entities,
+            entity_definitions,
+            known_services,
+            page_init_payloads,
+            service_registry,
+            declared_emits,
+            entity_field_types,
+            payload_field_types,
+        ));
+        if let Some(declared) = declared_emits {
+            result.merge(validate_emit_against_declaration(effect, path, declared));
+        }
+        return result;
+    };
+
+    let value = |expr: &SExpression, result: &mut ValidationResult| {
+        result.merge(walk_nested_call_services(
+            expr,
+            path,
+            known_services,
+            service_registry,
+        ));
+    };
+    let child = |expr: &SExpression, child_path: String, result: &mut ValidationResult| {
+        // A branch that is itself a list of effects (`[[effect…]]`) is a sequence.
+        let sequence = matches!(expr, SExpression::Array(items) if matches!(items.first(), Some(SExpression::Array(_))));
+        let members: Vec<(&SExpression, String)> = match (sequence, expr) {
+            (true, SExpression::Array(items)) => items
+                .iter()
+                .enumerate()
+                .map(|(k, e)| (e, format!("{}[{}]", child_path, k)))
+                .collect(),
+            _ => vec![(expr, child_path)],
+        };
+        for (member, member_path) in members {
+            result.merge(validate_effect(
+                member,
+                &member_path,
+                known_entities,
+                entity_definitions,
+                known_services,
+                page_init_payloads,
+                service_registry,
+                declared_emits,
+                entity_field_types,
+                payload_field_types,
+            ));
+        }
+    };
+
+    match head {
+        "do" => {
+            for (i, body) in arr.iter().enumerate().skip(1) {
+                child(body, format!("{}.do[{}]", path, i - 1), &mut result);
+            }
+        }
+        "if" => {
+            if let Some(cond) = arr.get(1) {
+                value(cond, &mut result);
+            }
+            if let Some(then) = arr.get(2) {
+                child(then, format!("{}.then", path), &mut result);
+            }
+            if let Some(otherwise) = arr.get(3) {
+                child(otherwise, format!("{}.else", path), &mut result);
+            }
+        }
+        "when" => {
+            if let Some(cond) = arr.get(1) {
+                value(cond, &mut result);
+            }
+            for (i, body) in arr.iter().enumerate().skip(2) {
+                child(body, format!("{}.then[{}]", path, i - 2), &mut result);
+            }
+        }
+        _ => {
+            if let Some(SExpression::Array(bindings)) = arr.get(1) {
+                for binding in bindings {
+                    if let SExpression::Array(pair) = binding {
+                        if let Some(bound) = pair.get(1) {
+                            value(bound, &mut result);
+                        }
+                    }
+                }
+            }
+            for (i, body) in arr.iter().enumerate().skip(2) {
+                child(body, format!("{}.body[{}]", path, i - 2), &mut result);
+            }
+        }
+    }
+    result
+}
+
+/// Validate a single non-control-flow effect
+#[allow(clippy::too_many_arguments)]
+fn validate_leaf_effect(
     effect: &SExpression,
     path: &str,
     known_entities: &HashSet<String>,

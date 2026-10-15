@@ -192,7 +192,7 @@ fn check_persist_payload(
         return;
     }
     // Mirror effect/persist.rs's format detection.
-    let entity_index = if matches!(&arr[1], SExpression::String(op) if op == "create" || op == "update" || op == "delete")
+    let entity_index = if matches!(&arr[1], SExpression::String(op) if op == "create" || op == "upsert" || op == "update" || op == "delete")
     {
         2
     } else {

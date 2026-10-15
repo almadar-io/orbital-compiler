@@ -1176,4 +1176,64 @@ mod tests {
             .iter()
             .any(|e| e.code == ErrorCode::EffectFetchInvalidInclude));
     }
+
+    fn nested_check(json: &str, declared: &[DeclaredEmit]) -> Vec<(ErrorCode, String)> {
+        let effect: SExpression = serde_json::from_str(json).unwrap();
+        let known: HashSet<String> = ["Message".to_string()].into_iter().collect();
+        validate_effect(
+            &effect,
+            "fx",
+            &known,
+            &HashMap::new(),
+            &HashSet::new(),
+            &HashMap::new(),
+            &Default::default(),
+            Some(declared),
+            &HashMap::new(),
+            &HashMap::new(),
+        )
+        .errors
+        .into_iter()
+        .map(|e| (e.code, e.path))
+        .collect()
+    }
+
+    #[test]
+    fn effects_nested_in_control_flow_are_validated_with_their_own_path() {
+        let literal = r#"["persist", "create", "Message", {"id": "mix"}]"#;
+        let upsert = r#"["persist", "upsert", "Message", {"id": "mix"}]"#;
+        let hit = |errs: &[(ErrorCode, String)], path: &str| {
+            errs.iter().any(|(c, p)| *c == ErrorCode::PersistCreateLiteralId && p == path)
+        };
+        let in_do = nested_check(&format!(r#"["do", {upsert}, {literal}]"#), &[]);
+        assert!(hit(&in_do, "fx.do[1]"), "{in_do:?}");
+        assert!(!hit(&in_do, "fx.do[0]"), "control: the upsert is clean");
+        let in_if = nested_check(&format!(r#"["if", true, {upsert}, {literal}]"#), &[]);
+        assert!(hit(&in_if, "fx.else"), "{in_if:?}");
+        let in_when = nested_check(&format!(r#"["when", "@entity.on", {literal}]"#), &[]);
+        assert!(hit(&in_when, "fx.then[0]"), "{in_when:?}");
+        let in_let = nested_check(&format!(r#"["let", [["x", 1]], ["do", {literal}]]"#), &[]);
+        assert!(hit(&in_let, "fx.body[0].do[0]"), "{in_let:?}");
+        let in_list = nested_check(&format!(r#"["if", true, [{upsert}, {literal}]]"#), &[]);
+        assert!(hit(&in_list, "fx.then[1]"), "{in_list:?}");
+        let clean = nested_check(&format!(r#"["do", ["if", true, {upsert}]]"#), &[]);
+        assert!(clean.is_empty(), "control: no nested defect, no error: {clean:?}");
+    }
+
+    #[test]
+    fn a_nested_undeclared_emit_is_flagged_and_a_declared_one_is_not() {
+        let undeclared = nested_check(r#"["do", ["when", true, ["emit", "GHOST"]]]"#, &[]);
+        assert!(
+            undeclared.iter().any(|(c, p)| *c == ErrorCode::TraitEventUndeclared && p == "fx.do[0].then[0]"),
+            "{undeclared:?}"
+        );
+        let declared = vec![DeclaredEmit {
+            event: "GHOST".to_string(),
+            is_external: false,
+            payload_fields: vec![],
+            required_fields: vec![],
+        }];
+        let ok = nested_check(r#"["do", ["when", true, ["emit", "GHOST"]]]"#, &declared);
+        assert!(!ok.iter().any(|(c, _)| *c == ErrorCode::TraitEventUndeclared), "{ok:?}");
+    }
 }

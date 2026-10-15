@@ -161,6 +161,7 @@ fn schema_with_effects(
         ledger: None,
         schema_version: None,
         config: None,
+    egress: None,
     }
 }
 

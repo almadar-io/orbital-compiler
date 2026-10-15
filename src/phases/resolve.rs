@@ -1977,6 +1977,7 @@ mod tests {
             ledger: None,
             schema_version: None,
             config: None,
+    egress: None,
         }
     }
 
@@ -2332,6 +2333,7 @@ mod tests {
             ledger: None,
             schema_version: None,
             config: None,
+    egress: None,
         };
         let resolver = Resolver::new(&schema);
         let resolved = resolver
@@ -2484,6 +2486,7 @@ mod tests {
             ledger: None,
             schema_version: None,
             config: None,
+    egress: None,
         };
         let resolver = Resolver::new(&schema);
         let resolved = resolver.resolve_field_shape(&field).expect("resolves");
@@ -2516,6 +2519,7 @@ mod tests {
             ledger: None,
             schema_version: None,
             config: None,
+    egress: None,
         };
         let resolver = Resolver::new(&schema);
         for malformed in [
@@ -2912,6 +2916,7 @@ mod tests {
             ledger: None,
             schema_version: None,
             config: None,
+    egress: None,
         };
 
         let result = resolve_to_oir(&schema);
@@ -2954,6 +2959,7 @@ mod tests {
             ledger: None,
             schema_version: None,
             config: None,
+    egress: None,
         });
         Resolver::new(schema)
     }

@@ -614,6 +614,18 @@ impl crate::type_infer::TypeCtx for ExprReturnCtx<'_> {
         self.types.is_some()
     }
 
+    fn may_be_absent(&self, binding: &orbital_core::ir::OirBinding) -> bool {
+        use orbital_core::ir::OirBindingRoot;
+        let [field] = binding.path.as_slice() else {
+            return false;
+        };
+        match binding.root {
+            OirBindingRoot::Entity => self.entity.get(field).is_some_and(|meta| !meta.required && !meta.defaulted),
+            OirBindingRoot::Payload => self.types.is_some_and(|types| types.optional_payload.contains(field)),
+            _ => false,
+        }
+    }
+
     fn delivery_payload(&self) -> Option<orbital_core::ir::OirType> {
         self.types.map(BindingTypes::payload_struct)
     }
@@ -687,6 +699,8 @@ pub(crate) struct BindingTypes {
     pub config: HashMap<String, orbital_core::ir::OirType>,
     /// The payload shared by every event the trait listens to, when they agree.
     pub prev_payload: Option<orbital_core::ir::OirType>,
+    /// The payload fields of the delivery the declaration does not require: an emitter may omit them.
+    pub optional_payload: std::collections::HashSet<String>,
 }
 
 impl BindingTypes {
@@ -754,6 +768,8 @@ pub(crate) struct EntityFieldMeta {
     pub shape: orbital_core::ir::OirType,
     pub enum_values: Vec<String>,
     pub required: bool,
+    /// Whether the field declares a default, so a row never lacks it.
+    pub defaulted: bool,
 }
 
 /// Build the `{ fieldName -> EntityFieldMeta }` map for an entity definition.
@@ -773,6 +789,7 @@ pub(crate) fn entity_field_type_map(entity: &EntityDefinition) -> HashMap<String
                         shape: orbital_core::field_shape(f),
                         enum_values: f.values.clone().unwrap_or_default(),
                         required: f.required.unwrap_or(false),
+                        defaulted: f.default.is_some(),
                     },
                 )
             })
@@ -856,6 +873,7 @@ mod enum_tests {
                 shape: orbital_core::compat_kind_oir("string"),
                 enum_values: vec!["open".into(), "closed".into(), "pending".into()],
                 required: false,
+                defaulted: false,
             },
         );
         m
@@ -896,6 +914,7 @@ mod enum_tests {
                 shape: orbital_core::compat_kind_oir("string"),
                 enum_values: vec![],
                 required: false,
+                defaulted: false,
             },
         );
         let arr = set("title", SExpression::String("anything".into()));
@@ -924,6 +943,7 @@ mod enum_tests {
                 shape: orbital_core::ir::OirType::Json,
                 enum_values: vec!["MenuItem".into()],
                 required: false,
+                defaulted: false,
             },
         );
         let arr = set("subMenu", SExpression::String("MenuItem".into()));
@@ -947,6 +967,7 @@ mod return_type_tests {
                 shape: orbital_core::compat_kind_oir(ty),
                 enum_values: vec![],
                 required: false,
+                defaulted: false,
             },
         );
         m
@@ -1078,6 +1099,7 @@ mod required_field_from_optional_knob_tests {
                 shape: orbital_core::compat_kind_oir(ty),
                 enum_values: vec![],
                 required,
+                defaulted: false,
             },
         );
         m
@@ -1177,6 +1199,7 @@ mod comparison_operand_tests {
                 shape: orbital_core::compat_kind_oir(ty),
                 enum_values: vec![],
                 required: false,
+                defaulted: false,
             },
         );
         m

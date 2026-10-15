@@ -92,6 +92,7 @@ pub fn split_lazy(schema: &mut OrbitalSchema) -> Vec<LazyArtifact> {
                     metadata: None,
                     schema_version: schema.schema_version,
                     ledger,
+    egress: None,
                 },
                 orbital: name,
             }

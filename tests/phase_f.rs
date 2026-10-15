@@ -202,6 +202,7 @@ fn schema_for_f1(strict_target_event: &str) -> OrbitalSchema {
         ledger: None,
         schema_version: None,
         config: None,
+    egress: None,
     }
 }
 
@@ -392,6 +393,7 @@ fn schema_with_two_emitters_and_listener_source(
         ledger: None,
         schema_version: None,
         config: None,
+    egress: None,
     }
 }
 
@@ -762,6 +764,7 @@ fn schema_with_render_action_payload(
         ledger: None,
         schema_version: None,
         config: None,
+    egress: None,
     }
 }
 
@@ -891,6 +894,7 @@ fn schema_with_default(field: FieldDefinition) -> OrbitalSchema {
         ledger: None,
         schema_version: None,
         config: None,
+    egress: None,
     }
 }
 

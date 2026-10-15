@@ -1352,7 +1352,7 @@ fn expr_persists_entity_create_or_update(expr: &SExpression, entity_name: &str) 
                 });
             let hit = batch_hit
                 || (is_persist
-                    && matches!(items.get(1), Some(SExpression::String(action)) if action == "create" || action == "update")
+                    && matches!(items.get(1), Some(SExpression::String(action)) if action == "create" || action == "upsert" || action == "update")
                     && matches!(items.get(2), Some(SExpression::String(name)) if name == entity_name));
             hit || items
                 .iter()
@@ -1374,7 +1374,7 @@ fn persist_whole_payload_var(expr: &SExpression, entity_name: &str) -> Option<St
     match expr {
         SExpression::Array(items) => {
             let is_persist_call = matches!(items.first(), Some(SExpression::String(op)) if op == "persist")
-                && matches!(items.get(1), Some(SExpression::String(action)) if action == "create" || action == "update")
+                && matches!(items.get(1), Some(SExpression::String(action)) if action == "create" || action == "upsert" || action == "update")
                 && matches!(items.get(2), Some(SExpression::String(name)) if name == entity_name);
             if is_persist_call {
                 if let Some(SExpression::String(s)) = items.get(3) {
@@ -3824,6 +3824,7 @@ mod tests {
             metadata: None,
             schema_version: None,
             ledger: None,
+    egress: None,
         }
     }
 

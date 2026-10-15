@@ -193,7 +193,7 @@ fn record_persist_write(
     any_data: &mut HashSet<String>,
     created: &mut HashSet<String>,
 ) {
-    if action == "create" {
+    if action == "create" || action == "upsert" {
         created.insert(entity.to_string());
     }
     match data {
@@ -253,7 +253,7 @@ fn collect_persist_writes(
                     }
                 } else if let (Some(SExpression::String(entity)), true) = (
                     items.get(2),
-                    op == "persist" && (action == "create" || action == "update"),
+                    op == "persist" && (action == "create" || action == "upsert" || action == "update"),
                 ) {
                     record_persist_write(
                         action,
@@ -687,6 +687,7 @@ mod tests {
             ledger: None,
             schema_version: None,
             config: None,
+    egress: None,
         }
     }
 

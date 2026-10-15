@@ -6,14 +6,14 @@ use orbital_core::schema::{EntityDefinition, SExpression};
 use std::collections::{HashMap, HashSet};
 
 /// Position of the entity-name literal in a `persist` call array: 2 for the
-/// 4-element form (`["persist", "create"|"update"|"delete", "Entity", data]`),
+/// 4-element form (`["persist", "create"|"upsert"|"update"|"delete", "Entity", data]`),
 /// 1 for the legacy 3-element form (`["persist", "Entity", data]`). Shared
 /// with the compiler's field-usage collector (`phases/inline/entity.rs`) so
 /// both readers agree on where the entity name and data literal sit — no
 /// second copy of this positional rule.
 pub(crate) fn persist_entity_index(arr: &[SExpression]) -> usize {
     match arr.get(1) {
-        Some(SExpression::String(op)) if op == "create" || op == "update" || op == "delete" => 2,
+        Some(SExpression::String(op)) if op == "create" || op == "upsert" || op == "update" || op == "delete" => 2,
         _ => 1,
     }
 }
@@ -244,7 +244,7 @@ pub(crate) fn validate_persist(
     let mut result = ValidationResult::new();
 
     // Expected formats:
-    // 4-element: ["persist", "create"|"update"|"delete", "EntityName", data]
+    // 4-element: ["persist", "create"|"upsert"|"update"|"delete", "EntityName", data]
     // 3-element: ["persist", "EntityName", data] (legacy)
     if arr.len() < 3 {
         result.add_error(
@@ -294,6 +294,30 @@ pub(crate) fn validate_persist(
         Some(SExpression::String(name)) => Some(name.as_str()),
         _ => None,
     };
+    // ORB_PERSIST_CREATE_LITERAL_ID: a `persist create` whose row names a string-literal id creates the same
+    // row on every run and the second run fails `duplicate-id`; a seed or singleton re-save is `persist upsert`.
+    if let (Some("create"), Some(entity_name), Some(SExpression::Object(row))) =
+        (op, entity_name, arr.get(entity_index + 1))
+    {
+        if let Some(SExpression::String(id)) = row.get("id") {
+            if !id.starts_with('@') {
+                result.add_error(
+                    ValidationError::error(
+                        ErrorCode::PersistCreateLiteralId,
+                        path,
+                        format!(
+                            "persist create '{}' names the literal id \"{}\": the second run creates a row that already exists and fails with `duplicate-id`",
+                            entity_name, id
+                        ),
+                    )
+                    .with_suggestion(format!(
+                        "Use `persist upsert {}` to create the row or replace it by id, or drop the literal id so the store mints one",
+                        entity_name
+                    )),
+                );
+            }
+        }
+    }
     if let (Some(entity_name), Some(SExpression::Object(data_fields))) =
         (entity_name, arr.get(entity_index + 1))
     {
@@ -327,9 +351,9 @@ pub(crate) fn validate_persist(
             }
 
             // Rule 3 (ORB_PERSIST_CREATE_MISSING_POLICY_FIELD): only on
-            // `create`, and only when `@create` compares a field the literal
-            // doesn't supply.
-            if op == Some("create") {
+            // `create` and `upsert` (which is checked by `@create` too), and only
+            // when `@create` compares a field the literal doesn't supply.
+            if op == Some("create") || op == Some("upsert") {
                 if let Some(create_policy) = &entity_def.create_policy {
                     let mut referenced: HashMap<String, String> = HashMap::new();
                     let mut set_fields: HashSet<String> = HashSet::new();
@@ -564,5 +588,57 @@ mod tests {
             "persist update must never trigger the create-only policy rule: {:?}",
             result.errors
         );
+    }
+
+    fn persist_with_id(action: &str, id: SExpression) -> Vec<SExpression> {
+        let mut arr = persist_create_arr("Message", vec![("id", id), ("text", SExpression::String("hi".to_string()))]);
+        arr[1] = SExpression::String(action.to_string());
+        arr
+    }
+
+    fn literal_id_hits(arr: &[SExpression]) -> usize {
+        let known = ["Message".to_string()].into_iter().collect();
+        validate_persist(arr, "test", &known, &HashMap::new(), None)
+            .all_issues()
+            .filter(|e| e.code == ErrorCode::PersistCreateLiteralId)
+            .count()
+    }
+
+    #[test]
+    fn persist_create_with_a_literal_id_is_flagged_and_suggests_upsert() {
+        let arr = persist_with_id("create", SExpression::String("mix".to_string()));
+        let known = ["Message".to_string()].into_iter().collect();
+        let result = validate_persist(&arr, "test", &known, &HashMap::new(), None);
+        let hit = result
+            .errors
+            .iter()
+            .find(|e| e.code == ErrorCode::PersistCreateLiteralId)
+            .expect("a literal-id create is flagged");
+        assert!(hit.suggestion.as_deref().unwrap_or("").contains("persist upsert"));
+    }
+
+    #[test]
+    fn a_bound_id_an_upsert_and_an_update_are_not_literal_id_creates() {
+        let bound = SExpression::String("@payload.id".to_string());
+        assert_eq!(literal_id_hits(&persist_with_id("create", bound.clone())), 0, "a bound id");
+        let literal = SExpression::String("mix".to_string());
+        assert_eq!(literal_id_hits(&persist_with_id("upsert", literal.clone())), 0, "an upsert");
+        assert_eq!(literal_id_hits(&persist_with_id("update", literal.clone())), 0, "an update");
+        assert_eq!(literal_id_hits(&persist_with_id("create", literal)), 1, "control: the literal-id create");
+        let no_id = persist_create_arr("Message", vec![("text", SExpression::String("hi".to_string()))]);
+        assert_eq!(literal_id_hits(&no_id), 0, "a create naming no id");
+    }
+
+    #[test]
+    fn persist_upsert_is_held_to_the_create_policy_field_rule() {
+        let create_policy = json!(["==", "@entity.sender", "@user.id"]);
+        let mut arr = persist_create_arr("Message", vec![("text", SExpression::String("hi".to_string()))]);
+        arr[1] = SExpression::String("upsert".to_string());
+        let mut defs = HashMap::new();
+        defs.insert("Message".to_string(), message_entity(Some(create_policy)));
+        let known = ["Message".to_string()].into_iter().collect();
+        let result = validate_persist(&arr, "test", &known, &defs, None);
+        assert!(result.errors.iter().any(|e| e.code == ErrorCode::PersistCreateMissingPolicyField));
+        assert!(!result.errors.iter().any(|e| e.code == ErrorCode::EffectFetchInvalidEntity), "the entity is read at index 2 for an upsert");
     }
 }

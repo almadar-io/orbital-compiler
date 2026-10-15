@@ -44,7 +44,9 @@ fn call_site_entity(op_name: &str, args: &[SExpression]) -> Option<String> {
     let idx = match op_name {
         "persist" => match args.get(1) {
             Some(SExpression::String(op)) if op == "batch" => return None,
-            Some(SExpression::String(op)) if op == "create" || op == "update" || op == "delete" => {
+            Some(SExpression::String(op))
+                if op == "create" || op == "upsert" || op == "update" || op == "delete" =>
+            {
                 2
             }
             _ => 1,
@@ -63,7 +65,11 @@ fn call_site_entity(op_name: &str, args: &[SExpression]) -> Option<String> {
 fn persist_action(args: &[SExpression]) -> Option<&str> {
     match args.get(1) {
         Some(SExpression::String(op))
-            if op == "create" || op == "update" || op == "delete" || op == "batch" =>
+            if op == "create"
+                || op == "upsert"
+                || op == "update"
+                || op == "delete"
+                || op == "batch" =>
         {
             Some(op.as_str())
         }
@@ -84,7 +90,7 @@ fn narrow<'a>(
     // persist's union is ordered [create/update row, delete result, batch summary].
     if op_name == "persist" {
         let idx = match persist_action(args)? {
-            "create" | "update" => 0,
+            "create" | "upsert" | "update" => 0,
             "delete" => 1,
             "batch" => 2,
             _ => return None,
@@ -177,6 +183,51 @@ fn entity_payload_fields(entity: &EntityDefinition) -> Vec<PayloadField> {
     out
 }
 
+fn scalar_field(name: &str, field_type: &str) -> PayloadField {
+    PayloadField {
+        values: None,
+        name: name.to_string(),
+        field_type: field_type.to_string(),
+        required: None,
+        description: None,
+        properties: None,
+        type_when: None,
+        entity: None,
+        projected_from: None,
+    }
+}
+
+/// `HttpReplyPayload { status, headers, body }`, or with `paginate`
+/// `HttpPagedPayload { pages, items, last }` (`docs/Almadar_Embedded_Kernel.md` H.1).
+fn http_reply_payload(paged: bool) -> Vec<PayloadField> {
+    let mut reply = vec![
+        scalar_field("status", "number"),
+        scalar_field("headers", "object"),
+        scalar_field("body", "string"),
+    ];
+    if !paged {
+        return reply;
+    }
+    reply.sort_by(|a, b| a.name.cmp(&b.name));
+    let mut last = scalar_field("last", "object");
+    last.properties = Some(reply);
+    vec![
+        scalar_field("items", "array"),
+        last,
+        scalar_field("pages", "number"),
+    ]
+}
+
+/// True when the `http` call's request object (the fifth array element, head
+/// included) carries a `paginate` entry.
+fn http_paginates(args: &[SExpression]) -> bool {
+    matches!(
+        args.get(4),
+        Some(SExpression::Object(request))
+            if !matches!(request.get("paginate"), None | Some(SExpression::Null))
+    )
+}
+
 /// The payload an operator call site actually puts on the bus, expressed as
 /// `PayloadField`s so it can be compared directly against an event's declared
 /// payload.
@@ -189,6 +240,9 @@ pub(crate) fn produced_payload(
     args: &[SExpression],
     entity_definitions: &HashMap<String, EntityDefinition>,
 ) -> Option<Vec<PayloadField>> {
+    if op_name == "http" {
+        return Some(http_reply_payload(http_paginates(args)));
+    }
     let produces = get_operator(op_name)?.effect.as_ref()?.produces.as_ref()?;
     let narrowed = narrow(op_name, args, produces)?;
 

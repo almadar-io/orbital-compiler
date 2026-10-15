@@ -256,7 +256,7 @@ pub(crate) fn rewrite_identifiers(
 /// `@EntityNameOther` never matches candidate `EntityName`: the identifier is
 /// the substring up to the first `.`, so a differently-spelled name can never
 /// partially match), `["ref", "EntityName"]`, `["fetch", "EntityName", …]`,
-/// and `["persist", "create"|"update"|"delete", "EntityName", …]`
+/// and `["persist", "create"|"upsert"|"update"|"delete", "EntityName", …]`
 /// (GAP-COMP-11), and the entity of each op tuple a `["persist", "batch", <ops>]`
 /// writes out (a literal list element, or the tuple an `array/map` lambda returns). Shared by the RENAME walk (`rewrite_identifiers_inner`,
 /// via `f` that substitutes through a rename map) and the read-only
@@ -304,7 +304,7 @@ pub(crate) fn visit_entity_slots(expr: &mut SExpression, f: &mut dyn FnMut(&mut 
                         let is_single_record = matches!(
                             items.get(1),
                             Some(SExpression::String(action))
-                                if matches!(action.as_str(), "create" | "update" | "delete")
+                                if matches!(action.as_str(), "create" | "upsert" | "update" | "delete")
                         );
                         if is_single_record {
                             if let Some(SExpression::String(name)) = items.get_mut(2) {

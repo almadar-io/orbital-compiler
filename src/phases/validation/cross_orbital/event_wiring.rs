@@ -618,7 +618,7 @@ pub(crate) fn collect_effect_produced_events(trait_def: &TraitDefinition) -> Has
                         for (slot, slot_v) in emit_map {
                             if matches!(
                                 slot.as_str(),
-                                "success" | "failure" | "on_message" | "on_change" | "cancelled"
+                                "success" | "failure" | "on_message" | "onMessage" | "on_change" | "cancelled"
                             ) {
                                 credit(slot_v, out);
                             }
@@ -724,7 +724,7 @@ pub(crate) fn collect_failure_events(
         if let Some(SExpression::String(op)) = items.first() {
             if matches!(
                 op.as_str(),
-                "fetch" | "persist" | "call-service" | "program/eval" | "program/compose"
+                "fetch" | "persist" | "call-service" | "http" | "program/eval" | "program/compose"
             ) {
                 for item in items {
                     if let SExpression::Object(map) = item {
@@ -824,7 +824,7 @@ pub(crate) fn transition_can_propagate(trait_def: &TraitDefinition, event: &str)
                     if let SExpression::String(op) = &arr[0] {
                         if matches!(
                             op.as_str(),
-                            "fetch" | "persist" | "ref" | "deref" | "call-service" | "agent/invoke"
+                            "fetch" | "persist" | "ref" | "deref" | "call-service" | "http" | "agent/invoke"
                         ) {
                             for item in arr.iter().skip(1) {
                                 if let SExpression::Object(opts) = item {
@@ -984,6 +984,7 @@ mod tests {
             ledger: None,
             schema_version: None,
             config: None,
+    egress: None,
         }
     }
 

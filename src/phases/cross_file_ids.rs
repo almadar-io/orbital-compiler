@@ -588,6 +588,7 @@ mod tests {
             ledger: None,
             schema_version: None,
             config: None,
+    egress: None,
         }
     }
 
@@ -663,6 +664,7 @@ mod tests {
             ledger: None,
             schema_version: None,
             config: None,
+    egress: None,
         };
 
         let mut by_from = HashMap::new();
@@ -712,6 +714,7 @@ mod tests {
             ledger: None,
             schema_version: None,
             config: None,
+    egress: None,
         };
 
         let mut by_from = HashMap::new();
@@ -757,6 +760,7 @@ mod tests {
             ledger: None,
             schema_version: None,
             config: None,
+    egress: None,
         };
 
         let mut by_from = HashMap::new();
@@ -871,6 +875,7 @@ mod tests {
             ledger: None,
             schema_version: None,
             config: None,
+    egress: None,
         };
 
         let config = LoaderConfig {
@@ -937,6 +942,7 @@ mod tests {
             ledger: None,
             schema_version: None,
             config: None,
+    egress: None,
         };
 
         let config = LoaderConfig {

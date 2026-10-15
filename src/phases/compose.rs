@@ -342,6 +342,7 @@ mod tests {
             ledger: None,
             schema_version: None,
             config: None,
+    egress: None,
         };
         let config = ComposeConfig { skip_compose: true };
         let result = compose_schema(&mut schema, &config);
@@ -365,6 +366,7 @@ mod tests {
             ledger: None,
             schema_version: None,
             config: None,
+    egress: None,
         };
         let config = ComposeConfig::default();
         let result = compose_schema(&mut schema, &config);

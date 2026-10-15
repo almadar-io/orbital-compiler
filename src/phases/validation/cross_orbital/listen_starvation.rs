@@ -508,6 +508,7 @@ mod tests {
             ledger: None,
             schema_version: None,
             config: None,
+    egress: None,
         }
     }
 

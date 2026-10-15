@@ -78,6 +78,7 @@ struct ItemActionInfo {
 
 /// Validate all closed circuits in the schema
 pub fn validate_all_circuits(schema: &OrbitalSchema, ctx: &mut ValidationContext) {
+    ctx.merge(super::fetch_deliver::validate_fetch_deliver(schema));
     // Validate orbital inline traits
     // Note: Traits are now only defined inline within orbitals, not at schema level.
     for (i, orbital) in schema.orbitals.iter().enumerate() {
@@ -4447,6 +4448,7 @@ mod tests {
             metadata: None,
             schema_version: None,
             ledger: None,
+    egress: None,
         }
     }
 

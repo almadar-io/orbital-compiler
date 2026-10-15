@@ -55,6 +55,7 @@ pub mod entity_mutation;
 pub mod error;
 pub mod expectations;
 mod fetch_by_id_payload;
+mod fetch_deliver;
 pub mod final_program;
 pub mod fired_events;
 pub mod generic_types;

@@ -64,6 +64,20 @@ pub(crate) fn validate_fetch(
                             entity_definitions,
                         ));
                     }
+                    for (key, allowed) in [("deliver", ["rows", "ids"]), ("total", ["exact", "none"])] {
+                        match obj.get(key) {
+                            None => {}
+                            Some(SExpression::String(v)) if allowed.contains(&v.as_str()) => {}
+                            Some(_) => result.add_error(
+                                ValidationError::error(
+                                    ErrorCode::EffectFetchInvalidOption,
+                                    path,
+                                    format!("fetch `{key}` must be one of: {}", allowed.join(", ")),
+                                )
+                                .with_valid_values(allowed.iter().map(|v| v.to_string()).collect()),
+                            ),
+                        }
+                    }
                     // fetch is one-shot async — success + failure allowed.
                     if let Some(emit_obj) = extract_emit_object_ref(obj) {
                         result.merge(validate_emit_config(

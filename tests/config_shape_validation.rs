@@ -221,6 +221,7 @@ fn schema_with_config(config: HashMap<String, ConfigField>) -> OrbitalSchema {
         ledger: None,
         schema_version: None,
         config: None,
+    egress: None,
     }
 }
 

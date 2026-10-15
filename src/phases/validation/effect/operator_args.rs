@@ -103,6 +103,21 @@ fn report(expr: &SExpression, path: &str, ctx: &ExprReturnCtx<'_>, result: &mut 
             );
             continue;
         }
+        if let Mismatch::MaybeAbsent { operator, operand } = &found.mismatch {
+            result.add_error(
+                ValidationError::error(
+                    ErrorCode::OrderingOptionalOperand,
+                    path,
+                    format!(
+                        "`({operator} …)` argument {position}, `{operand}`, can be missing (an optional field with no default), and a missing value compares below any number in the evaluators but fails the comparison in a store query: {call}"
+                    ),
+                )
+                .with_suggestion(format!(
+                    "Say what a missing value means: guard it, `(and (validate/required {operand}) ({operator} {operand} …))`, or put the comparison under an `if`/`when` on its presence, or give the field a default (`= 0`) or make it required (`!`)"
+                )),
+            );
+            continue;
+        }
         let (message, suggestion) = match &found.mismatch {
             Mismatch::Type { expected, actual } => (
                 format!("`({function} …)` argument {position} is a {actual}, but the operator declares {expected}: {call}"),
@@ -112,7 +127,7 @@ fn report(expr: &SExpression, path: &str, ctx: &ExprReturnCtx<'_>, result: &mut 
                 format!("`({function} …)` argument {position} is a {actual}, but the arguments of one type variable must share a type and an earlier argument is a {expected}: {call}"),
                 "Make the arguments one type: convert one of them, or compare/combine only values of the same type".to_string(),
             ),
-            Mismatch::Undetermined { .. } => continue,
+            Mismatch::Undetermined { .. } | Mismatch::MaybeAbsent { .. } => continue,
             Mismatch::NoField { path: field, record } => (
                 format!("`({function} …)` argument {position} names `{field}`, which is not a field of the {record} it reads: {call}"),
                 "Name a field the record declares, or read a record that has it".to_string(),
@@ -135,6 +150,7 @@ mod tests {
             user: orbital_core::ir::OirType::Struct { fields: Vec::new() },
             config: HashMap::new(),
             prev_payload: None,
+            optional_payload: Default::default(),
         }
     }
 
@@ -147,6 +163,7 @@ mod tests {
                 shape: orbital_core::compat_kind_oir(ty),
                 enum_values: vec![],
                 required: false,
+                defaulted: false,
             },
         );
         m
@@ -342,6 +359,7 @@ mod tests {
             user: OirType::Struct { fields: vec![OirField::new("role".to_string(), OirType::String)] },
             config: [("limit".to_string(), OirType::Number)].into_iter().collect(),
             prev_payload: None,
+            optional_payload: Default::default(),
         };
         let run = |json: &str| {
             let r = validate_operator_arg_types(&parse(json), "p", &HashMap::new(), &HashMap::new(), &types, None);
@@ -634,6 +652,7 @@ mod tests {
                         shape: shape.clone(),
                         enum_values: vec![],
                         required: false,
+                        defaulted: false,
                     },
                 )
             })
@@ -775,5 +794,115 @@ mod tests {
         assert!(with_types(r#"["array/len", ["json/parse", "[]", "Rows"]]"#).is_empty());
         let not_a_list = with_types(r#"["str/upper", ["json/parse", "[]", "Rows"]]"#);
         assert_eq!(not_a_list.len(), 1, "{not_a_list:?}");
+    }
+
+    mod ordering_optional_operand {
+        use super::*;
+
+        fn entity(required: bool, defaulted: bool) -> HashMap<String, EntityFieldMeta> {
+            let mut m = HashMap::new();
+            m.insert(
+                "p".to_string(),
+                EntityFieldMeta {
+                    field_type: "number".into(),
+                    shape: orbital_core::ir::OirType::Number,
+                    enum_values: vec![],
+                    required,
+                    defaulted,
+                },
+            );
+            m
+        }
+
+        fn findings(json: &str, entity: HashMap<String, EntityFieldMeta>, optional_payload: &[&str]) -> usize {
+            let payload: HashMap<String, orbital_core::ir::OirType> =
+                [("q".to_string(), orbital_core::ir::OirType::Number)].into_iter().collect();
+            let types = BindingTypes {
+                payload,
+                optional_payload: optional_payload.iter().map(|n| n.to_string()).collect(),
+                ..no_types()
+            };
+            validate_operator_arg_types(&parse(json), "p", &entity, &HashMap::new(), &types, None)
+                .errors
+                .iter()
+                .filter(|e| e.code == ErrorCode::OrderingOptionalOperand)
+                .count()
+        }
+
+        #[test]
+        fn an_optional_field_in_an_ordering_position_is_an_error() {
+            for op in ["<", "<=", ">", ">="] {
+                assert_eq!(findings(&format!(r#"["{op}", "@entity.p", 3]"#), entity(false, false), &[]), 1, "{op}");
+                assert_eq!(findings(&format!(r#"["{op}", 3, "@entity.p"]"#), entity(false, false), &[]), 1, "{op} right");
+            }
+            assert_eq!(findings(r#"["<", ["object/get", "@entity", "p"], 3]"#, entity(false, false), &[]), 1, "object/get");
+        }
+
+        #[test]
+        fn a_required_or_defaulted_field_is_fine() {
+            assert_eq!(findings(r#"["<", "@entity.p", 3]"#, entity(true, false), &[]), 0, "required");
+            assert_eq!(findings(r#"["<", "@entity.p", 3]"#, entity(false, true), &[]), 0, "defaulted");
+            assert_eq!(findings(r#"["==", "@entity.p", 3]"#, entity(false, false), &[]), 0, "equality is not ordering");
+        }
+
+        #[test]
+        fn a_presence_guard_narrows_the_operand() {
+            let guarded = [
+                r#"["and", ["validate/required", "@entity.p"], ["<", "@entity.p", 3]]"#,
+                r#"["and", ["!=", "@entity.p", null], ["<", "@entity.p", 3]]"#,
+                r#"["and", ["not", ["=", "@entity.p", null]], ["<", "@entity.p", 3]]"#,
+                r#"["and", "@entity.p", ["<", "@entity.p", 3]]"#,
+                r#"["if", ["validate/required", "@entity.p"], ["<", "@entity.p", 3], false]"#,
+                r#"["when", ["validate/required", "@entity.p"], ["<", "@entity.p", 3]]"#,
+                r#"["or", ["not", ["validate/required", "@entity.p"]], ["<", "@entity.p", 3]]"#,
+                r#"["if", ["validate/required", "@entity.p"], true, ["<", "@entity.p", 3]]"#,
+                r#"["and", ["and", true, ["validate/required", "@entity.p"]], ["<", "@entity.p", 3]]"#,
+                r#"["and", ["validate/required", ["object/get", "@entity", "p"]], ["<", "@entity.p", 3]]"#,
+            ];
+            for json in &guarded[..guarded.len() - 3] {
+                assert_eq!(findings(json, entity(false, false), &[]), 0, "{json}");
+            }
+            // The if with the guard in the wrong branch is not narrowed; the others above are.
+            assert_eq!(findings(guarded[7], entity(false, false), &[]), 1, "{}", guarded[7]);
+            assert_eq!(findings(guarded[8], entity(false, false), &[]), 0, "{}", guarded[8]);
+            assert_eq!(findings(guarded[9], entity(false, false), &[]), 0, "{}", guarded[9]);
+        }
+
+        #[test]
+        fn a_guard_that_does_not_cover_the_operand_does_not_narrow() {
+            for json in [
+                r#"["and", ["<", "@entity.p", 3], ["validate/required", "@entity.p"]]"#,
+                r#"["or", ["validate/required", "@entity.p"], ["<", "@entity.p", 3]]"#,
+                r#"["and", ["or", ["validate/required", "@entity.p"], true], ["<", "@entity.p", 3]]"#,
+                r#"["and", ["not", ["validate/required", "@entity.p"]], ["<", "@entity.p", 3]]"#,
+                r#"["and", ["validate/required", "@entity.other"], ["<", "@entity.p", 3]]"#,
+            ] {
+                assert_eq!(findings(json, entity(false, false), &[]), 1, "{json}");
+            }
+        }
+
+        #[test]
+        fn an_optional_payload_field_is_checked_like_an_entity_field() {
+            assert_eq!(findings(r#"["<", "@payload.q", 3]"#, HashMap::new(), &["q"]), 1);
+            assert_eq!(findings(r#"["<", "@payload.q", 3]"#, HashMap::new(), &[]), 0, "required payload field");
+            assert_eq!(
+                findings(r#"["and", ["validate/required", "@payload.q"], ["<", "@payload.q", 3]]"#, HashMap::new(), &["q"]),
+                0
+            );
+        }
+
+        #[test]
+        fn a_local_bound_to_an_optional_field_stays_optional() {
+            assert_eq!(findings(r#"["let", [["x", "@entity.p"]], ["<", "@x", 3]]"#, entity(false, false), &[]), 1);
+            assert_eq!(findings(r#"["let", [["x", "@entity.p"]], ["<", "@x", 3]]"#, entity(true, false), &[]), 0);
+            assert_eq!(
+                findings(
+                    r#"["let", [["x", "@entity.p"]], ["and", ["validate/required", "@x"], ["<", "@x", 3]]]"#,
+                    entity(false, false),
+                    &[]
+                ),
+                0
+            );
+        }
     }
 }

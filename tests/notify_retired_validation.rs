@@ -126,6 +126,7 @@ fn schema_with_effects(effects: Vec<SExpression>) -> OrbitalSchema {
         ledger: None,
         schema_version: None,
         config: None,
+    egress: None,
     }
 }
 

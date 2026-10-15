@@ -526,6 +526,28 @@ pub enum ErrorCode {
     CallServiceKeyType,
     /// the app runs `cancel-call` but no `call-service` anywhere carries a `key`
     CancelCallNoKeyedCall,
+    /// an `http` origin, `tokenUrl` origin, or `url` knob default is not in `egress`
+    HttpEgressUndeclared,
+    /// an `egress` entry is not `scheme://host[:port]`
+    HttpEgressEntryInvalid,
+    /// an `http` origin is neither a string literal nor a `url`-typed `@config` knob
+    HttpOriginNotStatic,
+    /// an `http` method is not one of GET POST PUT PATCH DELETE
+    HttpMethodUnknown,
+    /// an `http` request/auth/paginate object carries a key outside its closed set
+    HttpOptionUnknown,
+    /// `http` `auth.scheme` is not in the closed scheme set
+    HttpAuthSchemeUnknown,
+    /// an `http` auth credential slot is not a `secret`-typed knob
+    HttpAuthCredentialNotSecret,
+    /// an `http` request has more than one body kind, or a body on GET
+    HttpBodyConflict,
+    /// `http` `paginate` without `max`
+    HttpPaginateMaxMissing,
+    /// `http` `stream` without `emit.onMessage`
+    HttpStreamWithoutOnMessage,
+    /// a `secret`-typed knob is read outside an `http` auth credential slot
+    SecretOutsideAuth,
     /// set effect using invalid binding
     EffectSetInvalidBinding,
     /// set effect using @payload (should use @entity)
@@ -590,6 +612,18 @@ pub enum ErrorCode {
     /// A success event only `(fetch X { id: … })` produces declares `data` as a list; a
     /// by-id fetch delivers one row (G-ORB-185).
     EffectFetchByIdPayloadList,
+    /// A `fetch` option outside its closed enum (`deliver: rows | ids`, `total: exact | none`).
+    EffectFetchInvalidOption,
+    /// `deliver: ids` makes the success event's `data` a row-set reference; any use other than
+    /// passing it whole as a `render-ui` prop value reads rows that were never delivered.
+    FetchDeliverIdsRowsRead,
+    /// `deliver: ids` with `include`: included relations are row content.
+    FetchDeliverIdsEntityRefs,
+    /// `deliver: ids` with no `emit.success`: the reference is only ever passed whole to a `render-ui`
+    /// prop, and nothing can reference a result that no event carries.
+    FetchDeliverIdsNoSuccess,
+    /// `total: none` skips the count, so the success event's `totalCount` is never set.
+    FetchTotalNoneRead,
 
     // =========================================================================
     // S-Expression Errors (SEXPR_*)
@@ -800,6 +834,12 @@ pub enum ErrorCode {
     /// the call's result, is unknown. There are no generic types: give the value a real type (a declared
     /// payload or entity shape, a typed `let`, a named union alias for a list of differently-shaped items).
     OperatorArgUndetermined,
+    /// An ordering comparison (`<`, `<=`, `>`, `>=`) over an operand that can be missing or null — an optional
+    /// entity field with no default, an optional payload field — that the program neither guards with a presence
+    /// check (`(and (validate/required x) (< x 3))`, an `if`/`when` on presence) nor declares a default for.
+    /// Both evaluators read a missing value as below any number; every push-down store fails the comparison, so
+    /// the meaning is the program's to state.
+    OrderingOptionalOperand,
     /// `(set @entity.X @config.<knob>)` where the value is STILL the literal
     /// `@config.<knob>` token post-inline (no default resolved it, no
     /// call-site override supplied one) and `X` is a REQUIRED entity field.
@@ -906,6 +946,11 @@ pub enum ErrorCode {
     /// creator out of their own row. A bare `persist create @entity` (whole
     /// frame) is not a hit. Wave 2. Error severity.
     PersistCreateMissingPolicyField,
+    /// `persist create E { id: "literal", … }`: the row names a string-literal id, so the
+    /// second run creates a row that already exists and fails with `duplicate-id`. A seed
+    /// or singleton re-save is an authored `persist upsert` (create-or-replace by id).
+    /// Error severity.
+    PersistCreateLiteralId,
     /// `@trait` binding with no trait name — bare `@trait` is not resolvable.
     BindingTraitMissingName,
     /// `@trait.X` trait name doesn't match the `PascalCase` identifier pattern.
@@ -1490,6 +1535,17 @@ impl ErrorCode {
             ErrorCode::CallServiceCancelledWithoutKey => "ORB_CALL_SERVICE_CANCELLED_WITHOUT_KEY",
             ErrorCode::CallServiceKeyType => "ORB_CALL_SERVICE_KEY_TYPE",
             ErrorCode::CancelCallNoKeyedCall => "ORB_CANCEL_CALL_NO_KEYED_CALL",
+            ErrorCode::HttpEgressUndeclared => "ORB_HTTP_EGRESS_UNDECLARED",
+            ErrorCode::HttpEgressEntryInvalid => "ORB_HTTP_EGRESS_ENTRY_INVALID",
+            ErrorCode::HttpOriginNotStatic => "ORB_HTTP_ORIGIN_NOT_STATIC",
+            ErrorCode::HttpMethodUnknown => "ORB_HTTP_METHOD_UNKNOWN",
+            ErrorCode::HttpOptionUnknown => "ORB_HTTP_OPTION_UNKNOWN",
+            ErrorCode::HttpAuthSchemeUnknown => "ORB_HTTP_AUTH_SCHEME_UNKNOWN",
+            ErrorCode::HttpAuthCredentialNotSecret => "ORB_HTTP_AUTH_CREDENTIAL_NOT_SECRET",
+            ErrorCode::HttpBodyConflict => "ORB_HTTP_BODY_CONFLICT",
+            ErrorCode::HttpPaginateMaxMissing => "ORB_HTTP_PAGINATE_MAX_MISSING",
+            ErrorCode::HttpStreamWithoutOnMessage => "ORB_HTTP_STREAM_WITHOUT_ON_MESSAGE",
+            ErrorCode::SecretOutsideAuth => "ORB_SECRET_OUTSIDE_AUTH",
             ErrorCode::EffectSetInvalidBinding => "ORB_EFF_SET_INVALID_BINDING",
             ErrorCode::EffectSetPayloadNotAllowed => "ORB_EFF_SET_PAYLOAD_NOT_ALLOWED",
             ErrorCode::EffectFetchInvalidEntity => "ORB_EFF_FETCH_INVALID_ENTITY",
@@ -1512,6 +1568,11 @@ impl ErrorCode {
             ErrorCode::EffectProgramEvalFailureMissing => "ORB_EFF_PROGRAM_EVAL_FAILURE_MISSING",
             ErrorCode::EffectMissingRequiredEmit => "ORB_EFF_MISSING_REQUIRED_EMIT",
             ErrorCode::EffectFetchByIdPayloadList => "ORB_EFF_FETCH_BY_ID_PAYLOAD_LIST",
+            ErrorCode::EffectFetchInvalidOption => "ORB_EFF_FETCH_INVALID_OPTION",
+            ErrorCode::FetchDeliverIdsRowsRead => "ORB_FETCH_DELIVER_IDS_ROWS_READ",
+            ErrorCode::FetchDeliverIdsEntityRefs => "ORB_FETCH_DELIVER_IDS_ENTITY_REFS",
+            ErrorCode::FetchDeliverIdsNoSuccess => "ORB_FETCH_DELIVER_IDS_NO_SUCCESS",
+            ErrorCode::FetchTotalNoneRead => "ORB_FETCH_TOTAL_NONE_READ",
 
             // S-Expression
             ErrorCode::SExprInvalidOperator => "SEXPR_INVALID_OPERATOR",
@@ -1579,6 +1640,7 @@ impl ErrorCode {
             ErrorCode::ComparisonOperandTypeMismatch => "ORB_X_COMPARISON_OPERAND_TYPE_MISMATCH",
             ErrorCode::OperatorArgTypeMismatch => "ORB_X_OPERATOR_ARG_TYPE_MISMATCH",
             ErrorCode::OperatorArgUndetermined => "ORB_X_OPERATOR_ARG_UNDETERMINED",
+            ErrorCode::OrderingOptionalOperand => "ORB_X_ORDERING_OPTIONAL_OPERAND",
             ErrorCode::SetRequiredFieldFromOptionalKnob => {
                 "ORB_X_SET_REQUIRED_FIELD_FROM_OPTIONAL_KNOB"
             }
@@ -1602,6 +1664,7 @@ impl ErrorCode {
             ErrorCode::BindingEmbedReadsArmWrite => "ORB_BINDING_EMBED_READS_ARM_WRITE",
             ErrorCode::BindingPersistRowIdNeverSet => "ORB_BINDING_PERSIST_ROW_ID_NEVER_SET",
             ErrorCode::PersistCreateMissingPolicyField => "ORB_PERSIST_CREATE_MISSING_POLICY_FIELD",
+            ErrorCode::PersistCreateLiteralId => "ORB_PERSIST_CREATE_LITERAL_ID",
             ErrorCode::BindingTraitMissingName => "ORB_BINDING_TRAIT_MISSING_NAME",
             ErrorCode::BindingTraitInvalidFormat => "ORB_BINDING_TRAIT_INVALID_FORMAT",
             ErrorCode::BindingTraitUnknown => "ORB_BINDING_TRAIT_UNKNOWN",
@@ -1878,6 +1941,17 @@ impl ErrorCode {
             | ErrorCode::CallServiceCancelledWithoutKey
             | ErrorCode::CallServiceKeyType
             | ErrorCode::CancelCallNoKeyedCall
+            | ErrorCode::HttpEgressUndeclared
+            | ErrorCode::HttpEgressEntryInvalid
+            | ErrorCode::HttpOriginNotStatic
+            | ErrorCode::HttpMethodUnknown
+            | ErrorCode::HttpOptionUnknown
+            | ErrorCode::HttpAuthSchemeUnknown
+            | ErrorCode::HttpAuthCredentialNotSecret
+            | ErrorCode::HttpBodyConflict
+            | ErrorCode::HttpPaginateMaxMissing
+            | ErrorCode::HttpStreamWithoutOnMessage
+            | ErrorCode::SecretOutsideAuth
             | ErrorCode::EffectNotifyRetired
             | ErrorCode::EffectSetInvalidBinding
             | ErrorCode::EffectSetPayloadNotAllowed
@@ -1897,12 +1971,18 @@ impl ErrorCode {
             | ErrorCode::EffectProgramEvalFailureMissing
             | ErrorCode::EffectMissingRequiredEmit
             | ErrorCode::EffectFetchByIdPayloadList
+            | ErrorCode::EffectFetchInvalidOption
+            | ErrorCode::FetchDeliverIdsRowsRead
+            | ErrorCode::FetchDeliverIdsEntityRefs
+            | ErrorCode::FetchDeliverIdsNoSuccess
+            | ErrorCode::FetchTotalNoneRead
             | ErrorCode::SetValueTypeMismatch
             | ErrorCode::EnumValueNotMember
             | ErrorCode::SetReturnTypeMismatch
             | ErrorCode::ComparisonOperandTypeMismatch
             | ErrorCode::OperatorArgTypeMismatch
             | ErrorCode::OperatorArgUndetermined
+            | ErrorCode::OrderingOptionalOperand
             | ErrorCode::SetRequiredFieldFromOptionalKnob
             | ErrorCode::EmitDeclaredButUnfired
             | ErrorCode::EmitControlUnhandled
@@ -1982,7 +2062,8 @@ impl ErrorCode {
             | ErrorCode::BindingTraitCycle
             | ErrorCode::BindingTraitInvalidPosition
             | ErrorCode::BindingTraitOutsideRenderUi
-            | ErrorCode::PersistCreateMissingPolicyField => "binding",
+            | ErrorCode::PersistCreateMissingPolicyField
+            | ErrorCode::PersistCreateLiteralId => "binding",
 
             ErrorCode::EntitySplitMutation
             | ErrorCode::SharedEntityFieldConflict

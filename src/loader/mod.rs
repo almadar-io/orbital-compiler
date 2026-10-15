@@ -1114,6 +1114,7 @@ mod tests {
             ledger: None,
             schema_version: None,
             config: None,
+    egress: None,
         };
         let loaded = LoadedSchema {
             schema,
@@ -1306,8 +1307,8 @@ mod tests {
             root: dir.path().to_path_buf(),
             registry: RegistrySource::Materialized(dir.path().to_path_buf()),
             index: dir.path().to_path_buf(),
-            lolo_contracts: dir.path().to_path_buf(),
-            embeddings: vec![],
+            lolo_source: None,
+            vectors: None,
             sidecars: vec![],
             compiler_range: ">=0.0.0".to_string(),
             std_peer_range: None,
