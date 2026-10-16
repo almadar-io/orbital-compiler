@@ -415,6 +415,7 @@ mod tests {
             schema_version: None,
             config: None,
     egress: None,
+    os_grants: None,
         }
     }
 

@@ -5,6 +5,7 @@
 use super::super::{inline_traits, ErrorCode, ValidationError, ValidationResult};
 use super::emit_declaration::collect_declared_emits;
 use super::http::visit_effects;
+use super::keyed_call::check_key_and_cancelled;
 use super::{extract_emit_object_ref, validate_emit_config};
 use orbital_core::schema::{OrbitalSchema, SExpression};
 
@@ -57,15 +58,20 @@ pub(crate) fn validate_host_effects(schema: &OrbitalSchema) -> ValidationResult 
                 match arr.get(2) {
                     None => {}
                     Some(SExpression::Object(options)) => {
-                        if let Some(key) = options.keys().find(|k| k.as_str() != "emit") {
+                        let keyed = head == "random-bytes";
+                        let allowed: &[&str] = if keyed { &["key", "emit"] } else { &["emit"] };
+                        if let Some(key) = options.keys().find(|k| !allowed.contains(&k.as_str())) {
                             result.add_error(
                                 ValidationError::error(
                                     ErrorCode::HostEffectOptionUnknown,
                                     at,
-                                    format!("`{head}` options accept only `emit`, got `{key}`"),
+                                    format!("`{head}` options accept only {}, got `{key}`", allowed.join(" and ")),
                                 )
-                                .with_valid_values(vec!["emit".to_string()]),
+                                .with_valid_values(allowed.iter().map(|k| k.to_string()).collect()),
                             );
+                        }
+                        if keyed {
+                            result.merge(check_key_and_cancelled(options, at, head));
                         }
                         if let Some(emit) = extract_emit_object_ref(options) {
                             result.merge(validate_emit_config(emit, &HOST_EMIT_KEYS, Some(&declared), at));

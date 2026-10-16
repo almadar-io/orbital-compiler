@@ -408,6 +408,7 @@ fn field_type_to_binding(ft: &FieldType) -> BindingType {
         // {name, url, mimeType, sizeBytes} struct value).
         FieldType::Money => BindingType::Number,
         FieldType::File => BindingType::Object,
+        FieldType::Bytes => BindingType::String,
         FieldType::Array | FieldType::Tuple => BindingType::Array,
         FieldType::Object => BindingType::Object,
         FieldType::Enum => BindingType::String,

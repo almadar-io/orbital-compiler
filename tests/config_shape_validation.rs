@@ -222,6 +222,7 @@ fn schema_with_config(config: HashMap<String, ConfigField>) -> OrbitalSchema {
         schema_version: None,
         config: None,
     egress: None,
+    os_grants: None,
     }
 }
 

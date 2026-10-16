@@ -87,7 +87,7 @@ fn auth_keys(scheme: &str) -> &'static [&'static str] {
         "aws-sigv4" => &["scheme", "accessKeyId", "secretAccessKey", "sessionToken", "region", "service"],
         "vapid" => &["scheme", "privateKey", "publicKey", "subject"],
         "oauth-client" => &[
-            "scheme", "op", "client", "code", "state", "subject", "provider", "refreshToken", "token", "accessToken",
+            "scheme", "op", "client", "clients", "code", "state", "subject", "provider", "refreshToken", "token", "accessToken",
         ],
         "hmac-sha256" => &["scheme", "credential", "name", "signs", "encoding"],
         _ => &[],

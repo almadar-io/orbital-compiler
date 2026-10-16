@@ -588,9 +588,9 @@ impl crate::type_infer::TypeCtx for ExprReturnCtx<'_> {
             _ => {
                 // Only a payload field of a primitive kind has a type here: a struct-, list- or entity-typed one is
                 // carried as a bare kind string, which says nothing of its shape.
-                const PRIMITIVE_KINDS: [&str; 14] = [
+                const PRIMITIVE_KINDS: [&str; 15] = [
                     "string", "number", "boolean", "date", "datetime", "timestamp", "email", "url", "phone",
-                    "uuid", "image", "money", "int", "float",
+                    "uuid", "image", "money", "bytes", "int", "float",
                 ];
                 let mut names: Vec<&String> = self
                     .payload
@@ -815,6 +815,7 @@ fn field_type_str(ft: &FieldType) -> &'static str {
         FieldType::Image => "image",
         FieldType::Money => "money",
         FieldType::File => "file",
+        FieldType::Bytes => "bytes",
         FieldType::Array | FieldType::Tuple => "array",
         FieldType::Object => "object",
         FieldType::Enum => "enum",
@@ -990,6 +991,28 @@ mod return_type_tests {
         let r = validate_set_return_type(&arr, "p", &field("count", "number"), &HashMap::new());
         assert_eq!(r.errors.len(), 1, "errors: {:?}", r.errors);
         assert_eq!(r.errors[0].code, ErrorCode::SetReturnTypeMismatch);
+    }
+
+    #[test]
+    fn bytes_op_into_string_field_errors() {
+        let arr = set_call("title", "bytes/from-string", &["hi"]);
+        let r = validate_set_return_type(&arr, "p", &field("title", "string"), &HashMap::new());
+        assert_eq!(r.errors.len(), 1, "errors: {:?}", r.errors);
+        assert_eq!(r.errors[0].code, ErrorCode::SetReturnTypeMismatch);
+    }
+
+    #[test]
+    fn bytes_op_into_bytes_field_passes() {
+        let arr = set_call("blob", "bytes/from-string", &["hi"]);
+        let r = validate_set_return_type(&arr, "p", &field("blob", "bytes"), &HashMap::new());
+        assert!(r.errors.is_empty(), "errors: {:?}", r.errors);
+    }
+
+    #[test]
+    fn bytes_to_string_into_string_field_passes() {
+        let arr = set_call("title", "bytes/to-string", &["AAEC"]);
+        let r = validate_set_return_type(&arr, "p", &field("title", "string"), &HashMap::new());
+        assert!(r.errors.is_empty(), "errors: {:?}", r.errors);
     }
 
     #[test]

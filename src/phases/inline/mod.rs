@@ -6481,6 +6481,7 @@ mod tests {
             schema_version: None,
             config: None,
     egress: None,
+    os_grants: None,
         }
     }
 
@@ -7222,6 +7223,7 @@ mod tests {
             schema_version: None,
             config: None,
     egress: None,
+    os_grants: None,
         };
 
         let config = InlineConfig {
@@ -7326,6 +7328,7 @@ mod tests {
             schema_version: None,
             config: None,
     egress: None,
+    os_grants: None,
         };
 
         let config = InlineConfig {
@@ -7407,6 +7410,7 @@ mod tests {
             schema_version: None,
             config: None,
     egress: None,
+    os_grants: None,
         };
 
         let config = InlineConfig {
@@ -7733,6 +7737,7 @@ mod tests {
             schema_version: None,
             config: None,
     egress: None,
+    os_grants: None,
         };
 
         let config = InlineConfig {
@@ -7808,6 +7813,7 @@ mod tests {
             schema_version: None,
             config: None,
     egress: None,
+    os_grants: None,
         };
 
         let config = InlineConfig {
@@ -7885,6 +7891,7 @@ mod tests {
             schema_version: None,
             config: None,
     egress: None,
+    os_grants: None,
         }
     }
 

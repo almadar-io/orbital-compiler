@@ -991,6 +991,19 @@ mod tests {
     }
 
     #[test]
+    fn bytes_operators_infer_from_their_signatures() {
+        let blob = call("bytes/from-string", vec![text("hi")]);
+        assert_eq!(infer_oir_expr_type(&blob, &NoCtx), Some(OirType::Bytes));
+        assert_eq!(infer_oir_expr_type(&call("bytes/length", vec![blob.clone()]), &NoCtx), Some(OirType::Number));
+        assert_eq!(infer_oir_expr_type(&call("bytes/to-string", vec![blob.clone()]), &NoCtx), Some(OirType::String));
+        assert_eq!(
+            infer_oir_expr_type(&call("bytes/concat", vec![list_of(vec![blob.clone(), blob.clone()])]), &NoCtx),
+            Some(OirType::Bytes)
+        );
+        assert_eq!(infer_oir_expr_type(&call("bytes/equals", vec![blob.clone(), blob]), &NoCtx), Some(OirType::Boolean));
+    }
+
+    #[test]
     fn an_undetermined_argument_leaves_the_result_undetermined() {
         assert_eq!(infer_oir_expr_type(&call("array/first", vec![entity(&["missing"])]), &tags_row()), None);
         assert_eq!(infer_oir_expr_type(&call("totally/unknown", vec![]), &NoCtx), None);

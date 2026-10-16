@@ -1473,6 +1473,7 @@ fn element_admits_string(shape: &FieldDefinition) -> bool {
             | FieldType::Boolean
             | FieldType::Money
             | FieldType::File
+            | FieldType::Bytes
             | FieldType::Array
             | FieldType::Object
             | FieldType::Tuple

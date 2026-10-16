@@ -713,6 +713,7 @@ fn field_type_to_string(field_type: &FieldType) -> String {
         FieldType::Image => "image".to_string(),
         FieldType::Money => "money".to_string(),
         FieldType::File => "file".to_string(),
+        FieldType::Bytes => "bytes".to_string(),
         FieldType::Array | FieldType::Tuple => "array".to_string(),
         FieldType::Object => "object".to_string(),
         FieldType::Enum => "enum".to_string(),

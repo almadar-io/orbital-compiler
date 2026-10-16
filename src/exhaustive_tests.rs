@@ -1073,6 +1073,7 @@ mod tests {
             services: vec![],
             browser_services: vec![],
             egress: vec![],
+            os_grants: Default::default(),
             expected_entities: vec![],
             named_types: std::collections::BTreeMap::new(),
             metadata: OirMetadata::default(),

@@ -20,6 +20,7 @@ fn program(effects: Value) -> OrbitalSchema {
                 "emits": [
                     { "event": "DRAWN", "payloadSchema": [{ "name": "value", "type": "string", "required": true }] },
                     { "event": "DRAW_FAILED", "payloadSchema": [{ "name": "error", "type": "string", "required": true }] },
+                    { "event": "DRAWN_KEYED", "payloadSchema": [{ "name": "value", "type": "string", "required": true }, { "name": "key", "type": "string", "required": true }] },
                     { "event": "KNOWN", "payloadSchema": [{ "name": "connected", "type": "boolean", "required": true }] },
                     { "event": "SPOILED", "payloadSchema": [{ "name": "bytes", "type": "string", "required": true }] }
                 ],
@@ -73,7 +74,7 @@ fn the_wrong_number_of_arguments_is_an_arity_error() {
 
 #[test]
 fn only_emit_is_an_option_and_only_success_and_failure_are_emit_keys() {
-    let r = check(json!([["random-bytes", 8, { "key": "k" }]]));
+    let r = check(json!([["credential-forget", "@config.tok", { "key": "k" }]]));
     assert!(fires(&r, ErrorCode::HostEffectOptionUnknown));
     let r = check(json!([["random-bytes", 8, "not-an-object"]]));
     assert!(fires(&r, ErrorCode::HostEffectOptionUnknown));
@@ -102,6 +103,22 @@ fn the_success_payload_a_handler_declares_must_be_one_the_effect_produces() {
     assert!(!fires(&ok, ErrorCode::EmitPayloadNotProduced), "{:?}", ok.errors);
     let status = check(json!([["credential-status", "@config.tok", { "emit": { "success": "KNOWN" } }]]));
     assert!(!fires(&status, ErrorCode::EmitPayloadNotProduced), "{:?}", status.errors);
+}
+
+#[test]
+fn random_bytes_takes_a_string_key_and_only_it_and_emit() {
+    let keyed = |key: Value| json!([["random-bytes", 8, { "key": key, "emit": { "success": "DRAWN_KEYED", "failure": "DRAW_FAILED" } }]]);
+    let ok = check(keyed(json!("@entity.id")));
+    assert!(!fires(&ok, ErrorCode::HostEffectOptionUnknown) && !fires(&ok, ErrorCode::CallServiceKeyType), "{:?}", ok.errors);
+    assert!(!fires(&ok, ErrorCode::EmitPayloadNotProduced), "{:?}", ok.errors);
+    assert!(fires(&check(keyed(json!(5))), ErrorCode::CallServiceKeyType));
+    assert!(fires(&check(keyed(json!(""))), ErrorCode::CallServiceKeyType));
+    let other = check(json!([["random-bytes", 8, { "cancelled": "X" }]]));
+    assert!(fires(&other, ErrorCode::HostEffectOptionUnknown));
+    let status = check(json!([["credential-status", "@config.tok", { "key": "k" }]]));
+    assert!(fires(&status, ErrorCode::HostEffectOptionUnknown), "only random-bytes is keyed here");
+    let unkeyed = check(json!([["random-bytes", 8, { "emit": { "success": "DRAWN_KEYED" } }]]));
+    assert!(fires(&unkeyed, ErrorCode::EmitPayloadNotProduced), "an unkeyed call produces no key");
 }
 
 mod oauth {

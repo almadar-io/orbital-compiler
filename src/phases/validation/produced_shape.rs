@@ -290,6 +290,19 @@ fn page_facts_payload(args: &[SExpression]) -> Option<Vec<PayloadField>> {
     Some(fields)
 }
 
+/// The `random-bytes` payload: `value`, plus the call's `key` when it is keyed.
+fn random_bytes_payload(args: &[SExpression]) -> Option<Vec<PayloadField>> {
+    let ProducedPayload::Shape(shape) = success_payload("random-bytes", CallVariant::Plain) else {
+        return None;
+    };
+    let mut fields = shape_fields(shape);
+    if call_has_key("random-bytes", args) {
+        fields.push(scalar_field("key", "string"));
+        fields.sort_by(|a, b| a.name.cmp(&b.name));
+    }
+    Some(fields)
+}
+
 /// The payload an operator call site actually puts on the bus, expressed as
 /// `PayloadField`s so it can be compared directly against an event's declared
 /// payload.
@@ -309,8 +322,7 @@ pub(crate) fn produced_payload(
     }
     if matches!(
         op_name,
-        "random-bytes"
-            | "credential-status"
+        "credential-status"
             | "credential-forget"
             | "browser/beacon"
             | "oauth-authorize"
@@ -321,6 +333,9 @@ pub(crate) fn produced_payload(
     }
     if op_name == "browser/page-facts" {
         return page_facts_payload(args);
+    }
+    if op_name == "random-bytes" {
+        return random_bytes_payload(args);
     }
     if matches!(op_name, "call-service" | "call_service") {
         return keyed_call_service_payload(args, registry);
@@ -348,7 +363,7 @@ pub(crate) fn produced_payload(
 fn call_has_key(op_name: &str, args: &[SExpression]) -> bool {
     match op_name {
         "http" => true,
-        "browser/page-facts" => matches!(
+        "browser/page-facts" | "random-bytes" => matches!(
             args.get(2),
             Some(SExpression::Object(options)) if !matches!(options.get("key"), None | Some(SExpression::Null))
         ),

@@ -372,6 +372,7 @@ pub const VALID_FIELD_TYPES: &[&str] = &[
     // canonical {name, url, mimeType, sizeBytes} struct value.
     "money",
     "file",
+    "bytes",
     "array",
     "object",
     "enum",

@@ -1794,6 +1794,7 @@ fn parse_payload_field_type(field_type: &str) -> OirType {
         "image" => return OirType::Image,
         "money" => return OirType::Money,
         "file" => return OirType::File,
+        "bytes" => return OirType::Bytes,
         // In a payload position a relation travels as the related row's id and
         // an enum as its literal value; neither sidecar (target entity, values)
         // rides the payload schema.
@@ -1978,6 +1979,7 @@ mod tests {
             schema_version: None,
             config: None,
     egress: None,
+    os_grants: None,
         }
     }
 
@@ -2334,6 +2336,7 @@ mod tests {
             schema_version: None,
             config: None,
     egress: None,
+    os_grants: None,
         };
         let resolver = Resolver::new(&schema);
         let resolved = resolver
@@ -2487,6 +2490,7 @@ mod tests {
             schema_version: None,
             config: None,
     egress: None,
+    os_grants: None,
         };
         let resolver = Resolver::new(&schema);
         let resolved = resolver.resolve_field_shape(&field).expect("resolves");
@@ -2520,6 +2524,7 @@ mod tests {
             schema_version: None,
             config: None,
     egress: None,
+    os_grants: None,
         };
         let resolver = Resolver::new(&schema);
         for malformed in [
@@ -2917,6 +2922,7 @@ mod tests {
             schema_version: None,
             config: None,
     egress: None,
+    os_grants: None,
         };
 
         let result = resolve_to_oir(&schema);
@@ -2960,6 +2966,7 @@ mod tests {
             schema_version: None,
             config: None,
     egress: None,
+    os_grants: None,
         });
         Resolver::new(schema)
     }

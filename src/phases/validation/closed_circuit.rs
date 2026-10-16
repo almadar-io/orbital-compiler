@@ -4449,6 +4449,7 @@ mod tests {
             schema_version: None,
             ledger: None,
     egress: None,
+    os_grants: None,
         }
     }
 
