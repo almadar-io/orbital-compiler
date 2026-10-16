@@ -418,3 +418,150 @@ fn coincidentally_named_consumer_trait_does_not_capture_pulled_sibling() {
         "the trait keeping the original name must be the CONSUMER's copy"
     );
 }
+
+/// A host that embeds its clock sibling AND listens to it (std-behavior-tour's
+/// tour + transport shape).
+fn atom_with_host_listening_to_its_sibling() -> String {
+    r#"{
+  "name": "test-host-listens-atom",
+  "version": "1.0.0",
+  "orbitals": [
+    {
+      "name": "SrcOrbital",
+      "entity": {
+        "name": "Src",
+        "persistence": "runtime",
+        "fields": [ { "name": "id", "type": "string", "required": true } ]
+      },
+      "traits": [
+        {
+          "name": "Tour",
+          "linkedEntity": "Src",
+          "category": "interaction",
+          "listens": [
+            { "event": "TICK", "triggers": "STEP", "source": { "kind": "trait", "trait": "Clock" } }
+          ],
+          "stateMachine": {
+            "states": [ { "name": "idle", "isInitial": true } ],
+            "events": [ { "key": "STEP" } ],
+            "transitions": [
+              {
+                "from": "idle",
+                "to": "idle",
+                "event": "STEP",
+                "effects": [ ["render-ui", "main", { "type": "stack", "children": [ "@trait.Clock" ] }] ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "Clock",
+          "linkedEntity": "Src",
+          "category": "interaction",
+          "emits": [ { "event": "TICK" } ],
+          "stateMachine": {
+            "states": [ { "name": "idle", "isInitial": true } ],
+            "events": [ { "key": "PRESS" } ],
+            "transitions": [
+              {
+                "from": "idle",
+                "to": "idle",
+                "event": "PRESS",
+                "effects": [ ["emit", "TICK"], ["render-ui", "main", { "type": "button", "label": "Step", "event": "PRESS" }] ]
+              }
+            ]
+          }
+        }
+      ],
+      "pages": [
+        { "name": "SrcPage", "path": "/src", "linkedEntity": "Src", "traits": [ { "ref": "Tour" } ] }
+      ]
+    }
+  ]
+}"#
+    .to_string()
+}
+
+fn host_listens_consumer(names: &[&str]) -> String {
+    let traits: Vec<String> = names
+        .iter()
+        .map(|n| {
+            format!(r#"{{ "ref": "Host.traits.Tour", "linkedEntity": "Thing", "name": "{n}" }}"#)
+        })
+        .collect();
+    let refs: Vec<String> = names
+        .iter()
+        .map(|n| format!(r#"{{ "ref": "{n}" }}"#))
+        .collect();
+    format!(
+        r#"{{
+  "name": "test-host-listens-consumer",
+  "version": "1.0.0",
+  "orbitals": [
+    {{
+      "name": "AppOrbital",
+      "uses": [ {{ "from": "./atom-host-listens.orb", "as": "Host" }} ],
+      "entity": {{ "name": "Thing", "persistence": "runtime", "fields": [ {{ "name": "id", "type": "string", "required": true }} ] }},
+      "traits": [ {} ],
+      "pages": [ {{ "name": "AppPage", "path": "/app", "linkedEntity": "Thing", "traits": [ {} ] }} ]
+    }}
+  ]
+}}"#,
+        traits.join(", "),
+        refs.join(", ")
+    )
+}
+
+fn listen_source_of<'a>(traits: &'a [&TraitDefinition], host: &str) -> &'a str {
+    let td = traits
+        .iter()
+        .find(|t| t.name == host)
+        .unwrap_or_else(|| panic!("{host} inlined"));
+    match td
+        .listens
+        .as_deref()
+        .and_then(|l| l.first())
+        .and_then(|l| l.source.as_ref())
+    {
+        Some(ListenSource::Trait { trait_name, .. }) => trait_name,
+        other => panic!("{host} must keep its sourced listen, got {other:?}"),
+    }
+}
+
+#[test]
+fn each_host_composed_twice_listens_to_its_own_pulled_sibling() {
+    let schema = inline_fixture(
+        &[(
+            "atom-host-listens.orb",
+            atom_with_host_listening_to_its_sibling(),
+        )],
+        &host_listens_consumer(&["TourA", "TourB"]),
+    );
+    let traits = inline_traits_of(&schema);
+    let a_clock = embed_ref_of(traits.iter().find(|t| t.name == "TourA").unwrap());
+    let b_clock = embed_ref_of(traits.iter().find(|t| t.name == "TourB").unwrap());
+    assert_ne!(a_clock, b_clock, "each host embeds its own clock copy");
+    assert_eq!(
+        listen_source_of(&traits, "TourA"),
+        a_clock,
+        "TourA listens to the clock it embeds"
+    );
+    assert_eq!(
+        listen_source_of(&traits, "TourB"),
+        b_clock,
+        "TourB listens to the clock it embeds, not TourA's"
+    );
+}
+
+#[test]
+fn control_a_host_composed_once_listens_to_its_sibling_by_name() {
+    let schema = inline_fixture(
+        &[(
+            "atom-host-listens.orb",
+            atom_with_host_listening_to_its_sibling(),
+        )],
+        &host_listens_consumer(&["TourA"]),
+    );
+    let traits = inline_traits_of(&schema);
+    assert_eq!(listen_source_of(&traits, "TourA"), "Clock");
+}

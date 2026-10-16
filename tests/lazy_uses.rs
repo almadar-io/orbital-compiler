@@ -85,12 +85,23 @@ fn site(orbitals: &[String], with_post: bool) -> Site {
         std::fs::write(dir.path().join("post.orb"), POST).expect("write post");
     }
     let path = dir.path().join("site.orb");
-    let body = format!(r#"{{ "name": "site", "version": "1.0.0", "orbitals": [ {} ] }}"#, orbitals.join(","));
+    let body = format!(
+        r#"{{ "name": "site", "version": "1.0.0", "orbitals": [ {} ] }}"#,
+        orbitals.join(",")
+    );
     std::fs::write(&path, body).expect("write site");
     Site { _dir: dir, path }
 }
 
-fn split(site: &Site) -> Result<(OrbitalSchema, Vec<orbital_compiler::phases::lazy::ResolvedLazy>), CompilerError> {
+fn split(
+    site: &Site,
+) -> Result<
+    (
+        OrbitalSchema,
+        Vec<orbital_compiler::phases::lazy::ResolvedLazy>,
+    ),
+    CompilerError,
+> {
     let mut schema = parse_file(&site.path).expect("site parses");
     let lazy = split_lazy_and_resolve(&mut schema, &CompilerOptions::default(), Some(&site.path))?;
     Ok((schema, lazy))
@@ -107,10 +118,22 @@ fn inline_code(err: CompilerError) -> &'static str {
 fn a_lazy_reference_is_split_out_and_its_pages_stay_on_the_importer() {
     let s = site(&[home(LAZY_USE, ""), blog(LAZY_USE, REMAP)], true);
     let (schema, lazy) = split(&s).expect("split");
-    assert_eq!(schema.orbitals.iter().map(|o| o.name.as_str()).collect::<Vec<_>>(), vec!["Home"]);
+    assert_eq!(
+        schema
+            .orbitals
+            .iter()
+            .map(|o| o.name.as_str())
+            .collect::<Vec<_>>(),
+        vec!["Home"]
+    );
     assert_eq!(
         schema.lazy_pages,
-        Some(vec![LazyPage { path: "/blog/why".into(), orbital: "BlogWhy".into(), orb_ref: "lazy/BlogWhy.orb".into(), links: Vec::new() }])
+        Some(vec![LazyPage {
+            path: "/blog/why".into(),
+            orbital: "BlogWhy".into(),
+            orb_ref: "lazy/BlogWhy.orb".into(),
+            links: Vec::new()
+        }])
     );
     assert_eq!(lazy.len(), 1);
     assert_eq!(lazy[0].orb_ref, "lazy/BlogWhy.orb");
@@ -124,7 +147,11 @@ fn a_lazy_reference_is_split_out_and_its_pages_stay_on_the_importer() {
             _ => None,
         })
         .collect();
-    assert_eq!(pages, vec!["/blog/why"], "the remap applies inside the split schema");
+    assert_eq!(
+        pages,
+        vec!["/blog/why"],
+        "the remap applies inside the split schema"
+    );
 }
 
 #[test]
@@ -133,7 +160,10 @@ fn the_importer_still_resolves_after_the_split() {
     let (mut schema, _) = split(&s).expect("split");
     inline_schema(&mut schema, &InlineConfig::default(), Some(&s.path)).expect("importer inlines");
     let json = serde_json::to_string(&schema).unwrap();
-    assert!(!json.contains("Why we started"), "nothing of the lazy behavior is inlined into the importer");
+    assert!(
+        !json.contains("Why we started"),
+        "nothing of the lazy behavior is inlined into the importer"
+    );
 }
 
 #[test]
@@ -143,7 +173,9 @@ fn control_an_eager_reference_is_inlined_and_nothing_is_split() {
     assert!(lazy.is_empty());
     assert_eq!(schema.lazy_pages, None);
     inline_schema(&mut schema, &InlineConfig::default(), Some(&s.path)).expect("inline");
-    assert!(serde_json::to_string(&schema).unwrap().contains("Why we started"));
+    assert!(serde_json::to_string(&schema)
+        .unwrap()
+        .contains("Why we started"));
 }
 
 #[test]
@@ -153,16 +185,21 @@ fn composing_a_trait_from_a_lazy_import_into_an_eager_orbital_is_rejected() {
     let err = split(&s).map(|_| ()).and_then(|_| {
         let mut schema = parse_file(&s.path).unwrap();
         let _ = split_lazy_and_resolve(&mut schema, &CompilerOptions::default(), Some(&s.path))?;
-        inline_schema(&mut schema, &InlineConfig::default(), Some(&s.path)).map_err(CompilerError::from)
+        inline_schema(&mut schema, &InlineConfig::default(), Some(&s.path))
+            .map_err(CompilerError::from)
     });
-    assert_eq!(inline_code(err.expect_err("eager use of a lazy alias")), "ORB_LAZY_EAGER_REF");
+    assert_eq!(
+        inline_code(err.expect_err("eager use of a lazy alias")),
+        "ORB_LAZY_EAGER_REF"
+    );
 }
 
 #[test]
 fn inlining_a_lazy_reference_without_the_split_is_refused() {
     let s = site(&[home(LAZY_USE, ""), blog(LAZY_USE, REMAP)], true);
     let mut schema = parse_file(&s.path).unwrap();
-    let err = inline_schema(&mut schema, &InlineConfig::default(), Some(&s.path)).expect_err("unsplit");
+    let err =
+        inline_schema(&mut schema, &InlineConfig::default(), Some(&s.path)).expect_err("unsplit");
     assert_eq!(err.structured_code(), "ORB_LAZY_NOT_SPLIT");
 }
 
@@ -171,7 +208,10 @@ fn edge_a_lazy_behavior_with_no_pages_is_rejected() {
     let no_pages = POST.replace(r#""pages": [ { "name": "PostPage", "path": "/post", "traits": [ { "ref": "PostView" } ] } ]"#, r#""pages": []"#);
     let s = site(&[home(LAZY_USE, ""), blog(LAZY_USE, "")], false);
     std::fs::write(s.path.parent().unwrap().join("post.orb"), no_pages).unwrap();
-    assert_eq!(inline_code(split(&s).expect_err("no pages")), "ORB_LAZY_NO_PAGES");
+    assert_eq!(
+        inline_code(split(&s).expect_err("no pages")),
+        "ORB_LAZY_NO_PAGES"
+    );
 }
 
 #[test]
@@ -184,10 +224,15 @@ fn edge_a_missing_lazy_file_is_reported() {
 #[test]
 fn the_compiled_path_compiles_the_lazy_pages_into_the_program() {
     let s = site(&[home(LAZY_USE, ""), blog(LAZY_USE, REMAP)], true);
-    let oir = orbital_compiler::phases::compile_file(&s.path, &CompilerOptions::default()).expect("compile");
+    let oir = orbital_compiler::phases::compile_file(&s.path, &CompilerOptions::default())
+        .expect("compile");
     let mut paths: Vec<&str> = oir.pages.iter().map(|p| p.path.as_str()).collect();
     paths.sort();
-    assert_eq!(paths, vec!["/", "/blog/why"], "each page is its own route chunk in the compiled app");
+    assert_eq!(
+        paths,
+        vec!["/", "/blog/why"],
+        "each page is its own route chunk in the compiled app"
+    );
 }
 
 /// A compiled client's own runtime (the browser store for `[persistent, local]` entities)
@@ -198,20 +243,31 @@ fn the_compiled_path_compiles_the_lazy_pages_into_the_program() {
 fn the_compiled_program_schema_carries_the_lazy_orbitals() {
     let s = site(&[home(LAZY_USE, ""), blog(LAZY_USE, REMAP)], true);
     let schema = parse_file(&s.path).expect("site parses");
-    let program = orbital_compiler::phases::resolve_compiled_program_with_path(schema, &CompilerOptions::default(), Some(&s.path))
-        .expect("resolve");
+    let program = orbital_compiler::phases::resolve_compiled_program_with_path(
+        schema,
+        &CompilerOptions::default(),
+        Some(&s.path),
+    )
+    .expect("resolve");
     let mut names: Vec<&str> = program.orbitals.iter().map(|o| o.name.as_str()).collect();
     names.sort();
     assert_eq!(names, vec!["BlogWhy", "Home"]);
-    assert_eq!(program.lazy_pages, None, "nothing is left to load separately");
+    assert_eq!(
+        program.lazy_pages, None,
+        "nothing is left to load separately"
+    );
 }
 
 #[test]
 fn control_the_compiled_program_schema_is_unchanged_without_lazy_uses() {
     let s = site(&[home(EAGER_USE, ""), blog(EAGER_USE, REMAP)], true);
     let schema = parse_file(&s.path).expect("site parses");
-    let program = orbital_compiler::phases::resolve_compiled_program_with_path(schema, &CompilerOptions::default(), Some(&s.path))
-        .expect("resolve");
+    let program = orbital_compiler::phases::resolve_compiled_program_with_path(
+        schema,
+        &CompilerOptions::default(),
+        Some(&s.path),
+    )
+    .expect("resolve");
     assert_eq!(program.orbitals.len(), 2);
     assert_eq!(program.lazy_pages, None);
 }
@@ -219,8 +275,29 @@ fn control_the_compiled_program_schema_is_unchanged_without_lazy_uses() {
 #[test]
 fn control_the_compiled_path_is_unchanged_without_lazy_uses() {
     let s = site(&[home(EAGER_USE, ""), blog(EAGER_USE, REMAP)], true);
-    let oir = orbital_compiler::phases::compile_file(&s.path, &CompilerOptions::default()).expect("compile");
+    let oir = orbital_compiler::phases::compile_file(&s.path, &CompilerOptions::default())
+        .expect("compile");
     assert_eq!(oir.pages.len(), 2);
+}
+
+#[test]
+fn the_split_schema_keeps_the_importers_egress() {
+    let s = site(&[home(LAZY_USE, ""), blog(LAZY_USE, REMAP)], true);
+    let mut schema = parse_file(&s.path).unwrap();
+    schema.egress = Some(vec!["https://analytics.example.com".into()]);
+    let artifacts = orbital_compiler::phases::lazy::split_lazy(&mut schema);
+    assert_eq!(
+        artifacts[0].schema.egress, schema.egress,
+        "a lazy behavior's http and beacon calls reach the importer's declared origins"
+    );
+}
+
+#[test]
+fn control_an_importer_without_egress_splits_without_one() {
+    let s = site(&[home(LAZY_USE, ""), blog(LAZY_USE, REMAP)], true);
+    let mut schema = parse_file(&s.path).unwrap();
+    let artifacts = orbital_compiler::phases::lazy::split_lazy(&mut schema);
+    assert_eq!(artifacts[0].schema.egress, None);
 }
 
 #[test]
@@ -241,10 +318,13 @@ fn the_split_moves_the_lazy_orbitals_ledger_row_to_its_own_schema() {
     schema.orbitals[1].id = Some("orb_BLOG".into());
     schema.ledger = Some(IdentityLedger {
         schema_version: 1,
-        entries: [row("orb_HOME", IdKind::Orbital, "Home"), row("orb_BLOG", IdKind::Orbital, "BlogWhy")]
-            .into_iter()
-            .map(|e| (e.id.clone(), e))
-            .collect(),
+        entries: [
+            row("orb_HOME", IdKind::Orbital, "Home"),
+            row("orb_BLOG", IdKind::Orbital, "BlogWhy"),
+        ]
+        .into_iter()
+        .map(|e| (e.id.clone(), e))
+        .collect(),
     });
     let artifacts = orbital_compiler::phases::lazy::split_lazy(&mut schema);
     let ids = |l: &Option<IdentityLedger>| {
@@ -252,8 +332,16 @@ fn the_split_moves_the_lazy_orbitals_ledger_row_to_its_own_schema() {
         v.sort();
         v
     };
-    assert_eq!(ids(&schema.ledger), vec!["orb_HOME"], "the importer no longer carries the split orbital");
-    assert_eq!(ids(&artifacts[0].schema.ledger), vec!["orb_BLOG"], "the split schema carries only its own orbital");
+    assert_eq!(
+        ids(&schema.ledger),
+        vec!["orb_HOME"],
+        "the importer no longer carries the split orbital"
+    );
+    assert_eq!(
+        ids(&artifacts[0].schema.ledger),
+        vec!["orb_BLOG"],
+        "the split schema carries only its own orbital"
+    );
 }
 
 #[test]
@@ -262,8 +350,12 @@ fn a_schema_compiled_from_elsewhere_resolves_imports_against_its_source() {
     let elsewhere = tempfile::TempDir::new().unwrap();
     let lowered = elsewhere.path().join("lowered.orb");
     std::fs::copy(&s.path, &lowered).unwrap();
-    let oir = orbital_compiler::phases::compile_file_with_source(&lowered, &s.path, &CompilerOptions::default())
-        .expect("imports resolve beside the source, not beside the lowered copy");
+    let oir = orbital_compiler::phases::compile_file_with_source(
+        &lowered,
+        &s.path,
+        &CompilerOptions::default(),
+    )
+    .expect("imports resolve beside the source, not beside the lowered copy");
     assert_eq!(oir.pages.len(), 2);
 }
 
@@ -282,9 +374,20 @@ fn a_program_with_locales_records_where_each_loaded_behavior_lives() {
     let mut schema = parse_file(&s.path).unwrap();
     schema.locales = Some(vec!["en".into(), "ar".into()]);
     inline_schema(&mut schema, &InlineConfig::default(), Some(&s.path)).expect("inline");
-    let sources = schema.metadata.and_then(|m| m.message_sources).expect("message sources");
-    assert_eq!(sources.get("site").map(String::as_str), Some("."), "the program itself");
-    assert_eq!(sources.get("post").map(String::as_str), Some("."), "an imported behavior, relative to the program");
+    let sources = schema
+        .metadata
+        .and_then(|m| m.message_sources)
+        .expect("message sources");
+    assert_eq!(
+        sources.get("site").map(String::as_str),
+        Some("."),
+        "the program itself"
+    );
+    assert_eq!(
+        sources.get("post").map(String::as_str),
+        Some("."),
+        "an imported behavior, relative to the program"
+    );
 }
 
 #[test]

@@ -2758,9 +2758,12 @@ pub(crate) fn inline_traits(
             // map, not the orbital-wide `rename_map`: the map holds one entry per
             // source name, so when one atom is bound twice the second rebind
             // overwrites the first and every copy would point at the last host.
+            // An owner resolves through its own map too: its siblings may have
+            // landed under disambiguated names when another owner pulled them first.
             let own_subs = pulled_owner
                 .get(&trait_def.name)
-                .and_then(|owner| owner_subs.get(owner));
+                .and_then(|owner| owner_subs.get(owner))
+                .or_else(|| owner_subs.get(&trait_def.name));
             // A `Trait.EVENT` config value is the same address as a sourced
             // listen: it follows the host rename and the host's event renames.
             crate::phases::inline::rewrite::map_config_event_addresses(

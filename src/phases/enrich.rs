@@ -53,6 +53,9 @@ pub fn enrich_schema(schema: &mut OrbitalSchema, config: &EnrichmentConfig) {
         enrich_orbital(orbital, config);
     }
 
+    orbital_core::evaluator::bake_list_shapes(schema)
+        .expect("an orbital serializes to JSON and back");
+
     // Second pass: build cross-references
     build_cross_references(schema, &mut ctx);
 }
@@ -182,6 +185,71 @@ fn build_cross_references(schema: &OrbitalSchema, ctx: &mut EnrichmentContext) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn schema_with_parse(shape: &str) -> OrbitalSchema {
+        serde_json::from_value(serde_json::json!({
+            "name": "app",
+            "orbitals": [{
+                "name": "O",
+                "entity": { "name": "E", "persistence": "runtime", "fields": [] },
+                "traits": [{
+                    "name": "T",
+                    "stateMachine": {
+                        "states": [{ "name": "idle", "isInitial": true }],
+                        "events": [{ "key": "GO" }],
+                        "transitions": [{
+                            "from": "idle", "to": "idle", "event": "GO",
+                            "effects": [["set", "@entity.x", ["xml/parse", "@payload.body", shape]]]
+                        }]
+                    }
+                }],
+                "types": {
+                    "Feed": [{ "name": "entry", "type": "[object]", "properties": [
+                        { "name": "author", "type": "[object]", "properties": [{ "name": "name", "type": "string" }] },
+                        { "name": "id", "type": "string" }
+                    ] }],
+                    "Row": [{ "name": "id", "type": "string" }]
+                }
+            }]
+        }))
+        .unwrap()
+    }
+
+    fn parse_call(schema: &OrbitalSchema) -> serde_json::Value {
+        let tree = serde_json::to_value(schema).unwrap();
+        tree["orbitals"][0]["traits"][0]["stateMachine"]["transitions"][0]["effects"][0][2].clone()
+    }
+
+    #[test]
+    fn enrich_bakes_the_declared_list_paths_into_an_xml_parse_call() {
+        let mut schema = schema_with_parse("Feed");
+        enrich_schema(&mut schema, &EnrichmentConfig::all());
+        assert_eq!(
+            parse_call(&schema),
+            serde_json::json!([
+                "xml/parse",
+                "@payload.body",
+                "Feed",
+                ["list", ["list", "entry"], ["list", "entry", "author"]]
+            ])
+        );
+        enrich_schema(&mut schema, &EnrichmentConfig::all());
+        assert_eq!(
+            parse_call(&schema).as_array().unwrap().len(),
+            4,
+            "idempotent"
+        );
+    }
+
+    #[test]
+    fn enrich_leaves_a_shape_without_list_fields_bare() {
+        let mut schema = schema_with_parse("Row");
+        enrich_schema(&mut schema, &EnrichmentConfig::all());
+        assert_eq!(
+            parse_call(&schema),
+            serde_json::json!(["xml/parse", "@payload.body", "Row"])
+        );
+    }
 
     #[test]
     fn test_to_snake_case() {
