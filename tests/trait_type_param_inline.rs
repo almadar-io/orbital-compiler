@@ -23,7 +23,7 @@
 use orbital_compiler::phases::inline::{inline_schema, InlineConfig};
 use orbital_compiler::phases::parse::parse_file;
 use orbital_compiler::phases::validation::{type_param_sweep, ValidationContext};
-use orbital_core::schema::{OrbitalSchema, TraitReference};
+use orbital_core_base::schema::{OrbitalSchema, TraitReference};
 
 /// Atom fixture: one orbital with a single trait declaring `typeParams` (the
 /// caller supplies the raw JSON array) and an `emits { CandidateFound {
@@ -315,7 +315,7 @@ fn materialize_import_scope_result(
     inline_schema(&mut schema, &config, Some(&composer_path)).map(|()| schema)
 }
 
-fn lookup_run_trait(schema: &OrbitalSchema) -> &orbital_core::schema::TraitDefinition {
+fn lookup_run_trait(schema: &OrbitalSchema) -> &orbital_core_base::schema::TraitDefinition {
     schema.orbitals[0]
         .traits
         .iter()
@@ -327,8 +327,8 @@ fn lookup_run_trait(schema: &OrbitalSchema) -> &orbital_core::schema::TraitDefin
 }
 
 fn candidate_field(
-    trait_def: &orbital_core::schema::TraitDefinition,
-) -> &orbital_core::schema::PayloadField {
+    trait_def: &orbital_core_base::schema::TraitDefinition,
+) -> &orbital_core_base::schema::PayloadField {
     &trait_def.emits.as_ref().unwrap()[0]
         .payload_schema
         .as_ref()

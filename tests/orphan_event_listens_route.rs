@@ -14,7 +14,7 @@
 //! errors (3 view variants x 3 transitions).
 
 use orbital_compiler::phases::validation::validate_comprehensive_without_services;
-use orbital_core::schema::OrbitalSchema;
+use orbital_core_base::schema::OrbitalSchema;
 use serde_json::{json, Value};
 
 const ORPHAN: &str = "CIRCUIT_ORPHAN_EVENT";

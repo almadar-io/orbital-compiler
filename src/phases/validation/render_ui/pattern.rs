@@ -9,7 +9,7 @@ use super::sync::patterns::{
 };
 use super::sync::ExtraPatterns;
 use super::{ErrorCode, ValidationError, ValidationResult};
-use orbital_core::schema::{EntityDefinition, SExpression};
+use orbital_core_base::schema::{EntityDefinition, SExpression};
 use std::collections::{HashMap, HashSet};
 
 /// The field names that EVERY element of an array-of-objects prop must carry,
@@ -210,7 +210,7 @@ fn expand_children_operators(children: &SExpression) -> SExpression {
 /// hidden (`aria-hidden` set to anything but a literal `false`). A present key
 /// counts even when empty (`alt: ""` declares a decorative image).
 pub(crate) fn lacks_accessible_name(
-    obj: &orbital_core::schema::SObject,
+    obj: &orbital_core_base::schema::SObject,
     name_props: &[String],
 ) -> bool {
     let hidden =
@@ -232,8 +232,8 @@ pub(crate) fn validate_pattern(
 
     // A trait value is an embed (resolved by the inline phase), not a pattern.
     if matches!(pattern, SExpression::Object(_))
-        && orbital_core::schema::behavior_value::is_trait_value(
-            &orbital_core::evaluator::Value::from(pattern.clone()),
+        && orbital_core_base::schema::behavior_value::is_trait_value(
+            &orbital_core_base::value::Value::from(pattern.clone()),
         )
     {
         return result;
@@ -972,7 +972,7 @@ pub(crate) fn validate_pattern(
 /// object.
 fn validate_entity_prop_contract(
     pattern_type: &str,
-    obj: &orbital_core::schema::SObject,
+    obj: &orbital_core_base::schema::SObject,
     path: &str,
     entity_definitions: &HashMap<String, EntityDefinition>,
     linked_entity: Option<&str>,
@@ -996,7 +996,7 @@ fn validate_entity_prop_contract(
 fn validate_entity_prop_contract_inner(
     pattern_type: &str,
     embedded_pattern: &crate::embedded::EmbeddedPattern,
-    obj: &orbital_core::schema::SObject,
+    obj: &orbital_core_base::schema::SObject,
     path: &str,
     entity_definitions: &HashMap<String, EntityDefinition>,
     linked_entity: Option<&str>,
@@ -1055,7 +1055,7 @@ fn validate_entity_prop_contract_inner(
 /// node's bound entity exactly the same way — never two definitions of
 /// "what this node is bound to".
 fn resolve_node_bound_entity<'a>(
-    obj: &'a orbital_core::schema::SObject,
+    obj: &'a orbital_core_base::schema::SObject,
     linked_entity: Option<&'a str>,
 ) -> Option<&'a str> {
     match obj.get("entity") {
@@ -1091,7 +1091,7 @@ fn resolve_node_bound_entity<'a>(
 /// as the validator checks them.
 pub(crate) fn required_entity_fields_for_node(
     pattern_type: &str,
-    obj: &orbital_core::schema::SObject,
+    obj: &orbital_core_base::schema::SObject,
     entity_name: &str,
     linked_entity: Option<&str>,
 ) -> HashSet<String> {
@@ -1139,7 +1139,7 @@ fn is_whole_entity_binding(binding: &str) -> bool {
 /// (iii) any `@entity.f` reference appears anywhere in the resolved obj.
 fn is_field_provided(
     field: &str,
-    obj: &orbital_core::schema::SObject,
+    obj: &orbital_core_base::schema::SObject,
     entity_def: Option<&EntityDefinition>,
 ) -> bool {
     // (i) entity declares the field
@@ -1276,7 +1276,7 @@ mod suggest_pattern_type_tests {
 mod entity_prop_contract_tests {
     use super::*;
     use crate::embedded::EmbeddedPattern;
-    use orbital_core::schema::{EntityDefinition, FieldDefinition, FieldType};
+    use orbital_core_base::schema::{EntityDefinition, FieldDefinition, FieldType};
 
     /// A pattern whose `entity` prop is typed `EntityWith<"title" | "subtitle">`:
     /// pattern-sync writes `requiredFields: ["title","subtitle"]` onto it. The
@@ -1337,7 +1337,7 @@ mod entity_prop_contract_tests {
         }
     }
 
-    fn pattern_obj(entries: Vec<(&str, SExpression)>) -> orbital_core::schema::SObject {
+    fn pattern_obj(entries: Vec<(&str, SExpression)>) -> orbital_core_base::schema::SObject {
         entries
             .into_iter()
             .map(|(k, v)| (k.to_string(), v))
@@ -1569,7 +1569,7 @@ pub(super) fn classify_prop_type(value: &SExpression) -> &'static str {
         // Some("array") for a genuine literal array; classify the computed case as
         // "binding" so the static literal-type check defers to the binding resolver
         // instead of mis-typing every operator call as "array".
-        SExpression::Array(_) => match orbital_core::type_compat::literal_value_type(value) {
+        SExpression::Array(_) => match orbital_core_eval::literal_type::literal_value_type(value) {
             Some(t) => t,
             None => "binding",
         },
@@ -1657,7 +1657,7 @@ mod children_operator_tests {
         SExpression::String(v.to_string())
     }
     fn obj(pairs: &[(&str, SExpression)]) -> SExpression {
-        let mut m: orbital_core::schema::SObject = orbital_core::schema::SObject::new();
+        let mut m: orbital_core_base::schema::SObject = orbital_core_base::schema::SObject::new();
         for (k, v) in pairs {
             m.insert((*k).to_string(), v.clone());
         }
@@ -1717,9 +1717,9 @@ mod children_operator_tests {
 #[cfg(test)]
 mod accessible_name_tests {
     use super::lacks_accessible_name;
-    use orbital_core::schema::SExpression;
+    use orbital_core_base::schema::SExpression;
 
-    fn obj(pairs: &[(&str, SExpression)]) -> orbital_core::schema::SObject {
+    fn obj(pairs: &[(&str, SExpression)]) -> orbital_core_base::schema::SObject {
         pairs
             .iter()
             .map(|(k, v)| ((*k).to_string(), v.clone()))
@@ -1850,7 +1850,7 @@ mod conditional_enum_and_node_list_tests {
 mod trait_value_child_tests {
     use super::validate_pattern;
     use crate::phases::validation::ErrorCode;
-    use orbital_core::schema::SExpression;
+    use orbital_core_base::schema::SExpression;
     use std::collections::HashMap;
 
     fn stack_with(child: serde_json::Value) -> SExpression {

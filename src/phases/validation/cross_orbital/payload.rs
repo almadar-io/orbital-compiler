@@ -1,5 +1,5 @@
 use crate::phases::validation::{ErrorCode, ValidationError, ValidationResult};
-use orbital_core::schema::{ListenSource, OrbitalSchema, TraitReference};
+use orbital_core_base::schema::{ListenSource, OrbitalSchema, TraitReference};
 use std::collections::{HashMap, HashSet};
 
 /// Validate that external emits with an empty payload actually reach a consumer.
@@ -19,7 +19,7 @@ use std::collections::{HashMap, HashSet};
 /// In single-orbital scope there are no other orbitals, so the check is silent
 /// by construction.
 pub(crate) fn validate_external_emit_payloads(schema: &OrbitalSchema) -> ValidationResult {
-    use orbital_core::schema::EventScope;
+    use orbital_core_base::schema::EventScope;
 
     let mut result = ValidationResult::new();
 
@@ -185,7 +185,7 @@ pub(crate) fn validate_external_emit_payloads(schema: &OrbitalSchema) -> Validat
 #[cfg(test)]
 mod tests {
     use super::*;
-    use orbital_core::schema::{
+    use orbital_core_base::schema::{
         EmitDefinition, EntityDefinition, EntityRef, EventScope, ListenDefinition, Orbital,
         PayloadField, StateMachine, TraitDefinition, TraitReference,
     };
@@ -258,14 +258,14 @@ mod tests {
     ) -> TraitReference {
         let mut tr = trait_with(name, None, Some(listens));
         if let TraitReference::Inline(def) = &mut tr {
-            def.state_machine.events = Some(vec![orbital_core::schema::EventDefinition {
+            def.state_machine.events = Some(vec![orbital_core_base::schema::EventDefinition {
                 key: event.to_string(),
                 id: None,
                 name: None,
                 description: None,
                 synonyms: None,
                 tier: None,
-                payload_schema: Some(vec![orbital_core::schema::PayloadField {
+                payload_schema: Some(vec![orbital_core_base::schema::PayloadField {
                     values: None,
                     name: field.to_string(),
                     field_type: "string".to_string(),

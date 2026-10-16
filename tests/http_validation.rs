@@ -6,9 +6,9 @@ use orbital_compiler::phases::validation::{
     validate_comprehensive_without_services, validate_comprehensive_full, ErrorCode, ValidationResult,
 };
 use orbital_compiler::SchemaLanguage;
-use orbital_core::language::registry::baked_service_registry;
-use orbital_core::schema::OrbitalSchema;
-use orbital_core::secrets::{
+use orbital_core_base::language::registry::baked_service_registry;
+use orbital_core_base::schema::OrbitalSchema;
+use orbital_core_base::secrets::{
     secret_flow_violations, CREDENTIAL_NOT_SECRET_CODE, SECRET_OUTSIDE_AUTH_CODE,
 };
 use serde_json::{json, Value};
@@ -1298,7 +1298,7 @@ mod browser_effects_validation {
     // and a control that stays silent.
 
     use orbital_compiler::phases::validation::{validate_comprehensive_without_services, ErrorCode, ValidationResult};
-    use orbital_core::schema::OrbitalSchema;
+    use orbital_core_base::schema::OrbitalSchema;
     use serde_json::{json, Value};
 
     const COLLECTOR: &str = "https://collector.example.com";

@@ -5,8 +5,8 @@ use super::{ErrorCode, ValidationError, ValidationResult};
 use crate::embedded::{patterns, EmbeddedPatternProp};
 use crate::phases::embed_graph::EmbedGraph;
 use crate::phases::validation::value_walk::live_sources;
-use orbital_core::events::is_bus_excluded_event;
-use orbital_core::schema::{
+use orbital_core_base::events::is_bus_excluded_event;
+use orbital_core_base::schema::{
     ListenDefinition, ListenSource, OrbitalSchema, SExpression, TraitDefinition, TraitReference,
 };
 use std::collections::{BTreeMap, HashSet};
@@ -155,7 +155,7 @@ pub fn unhandled_controls(schema: &OrbitalSchema) -> Vec<UnhandledControl> {
 /// the event is left for an embedding organism to handle (each emit for it carries `scope: external`
 /// with `scopeOverridden`). An unhandled control without that declaration is a defect, not a forward.
 pub fn forwarded_controls(schema: &OrbitalSchema) -> Vec<UnhandledControl> {
-    use orbital_core::schema::EventScope;
+    use orbital_core_base::schema::EventScope;
     unhandled_controls(schema)
         .into_iter()
         .filter(|c| {

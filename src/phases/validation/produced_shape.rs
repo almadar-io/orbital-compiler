@@ -16,10 +16,8 @@
 
 use std::collections::HashMap;
 
-use orbital_core::effects::{
-    failure_payload, message_payload, success_payload, CallVariant, ProducedPayload, ShapeField,
-};
-use orbital_core::schema::{EntityDefinition, PayloadField, SExpression};
+use orbital_core_base::emit_contract::{failure_payload, message_payload, success_payload, CallVariant, ProducedPayload, ShapeField};
+use orbital_core_base::schema::{EntityDefinition, PayloadField, SExpression};
 
 use crate::embedded::{get_operator, ServiceRegistryData, OperatorTypeRef, OperatorTypeRefKind};
 
@@ -254,7 +252,7 @@ fn http_variant(args: &[SExpression]) -> CallVariant<'static> {
     let Some(SExpression::Object(request)) = args.get(4) else { return CallVariant::Plain };
     if let Some(SExpression::Object(auth)) = request.get("auth") {
         if matches!(auth.get("scheme"), Some(SExpression::String(scheme)) if scheme == "oauth-client") {
-            if let Some(op) = auth.get("op").and_then(SExpression::as_str).and_then(orbital_core::oauth::client::OAuthOp::parse) {
+            if let Some(op) = auth.get("op").and_then(SExpression::as_str).and_then(orbital_core_base::oauth_client::OAuthOp::parse) {
                 return CallVariant::HttpOAuth(op);
             }
         }

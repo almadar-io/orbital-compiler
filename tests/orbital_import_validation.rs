@@ -32,7 +32,7 @@ use orbital_compiler::phases::validation::orbital_ref_config::{
 };
 use orbital_compiler::phases::validation::page::validate_page_path_uniqueness;
 use orbital_compiler::phases::validation::validate_comprehensive_without_services;
-use orbital_core::schema::OrbitalSchema;
+use orbital_core_base::schema::OrbitalSchema;
 use serde_json::{json, Value};
 
 // ============================================================================
@@ -371,7 +371,7 @@ fn orbital_ref_app_level_forward_resolves_from_the_alias_schema_not_the_consumer
         .find(|o| o.name == "Local")
         .expect("Local orbital");
     let title = orbital.traits.iter().find_map(|t| {
-        if let orbital_core::schema::TraitReference::Inline(td) = t {
+        if let orbital_core_base::schema::TraitReference::Inline(td) = t {
             if td.name == "LocalShellHeader" {
                 return td.config.as_ref().and_then(|c| c.get("title")).cloned();
             }
@@ -381,7 +381,7 @@ fn orbital_ref_app_level_forward_resolves_from_the_alias_schema_not_the_consumer
     let title = title.expect("LocalShellHeader.config.title present");
     assert_eq!(
         title.default,
-        Some(orbital_core::schema::SExpression::String("Probe".to_string())),
+        Some(orbital_core_base::schema::SExpression::String("Probe".to_string())),
         "app-level forward must resolve to the `uses … {{ config }}` override, from the ALIAS's OWN schema (folded), not the consumer's — got: {:#?}",
         title
     );
@@ -406,7 +406,7 @@ fn orbital_ref_app_level_forward_without_uses_override_keeps_upstream_default() 
         .find(|o| o.name == "Local")
         .expect("Local orbital");
     let title = orbital.traits.iter().find_map(|t| {
-        if let orbital_core::schema::TraitReference::Inline(td) = t {
+        if let orbital_core_base::schema::TraitReference::Inline(td) = t {
             if td.name == "LocalShellHeader" {
                 return td.config.as_ref().and_then(|c| c.get("title")).cloned();
             }
@@ -416,7 +416,7 @@ fn orbital_ref_app_level_forward_without_uses_override_keeps_upstream_default() 
     let title = title.expect("LocalShellHeader.config.title present");
     assert_eq!(
         title.default,
-        Some(orbital_core::schema::SExpression::String("App".to_string())),
+        Some(orbital_core_base::schema::SExpression::String("App".to_string())),
         "with no `uses … {{ config }}` override, the alias's own declared app default must resolve: {:#?}",
         title
     );
@@ -599,7 +599,7 @@ fn entities_map_onto_a_sibling_reference_form_orbitals_materialized_entity_is_or
         .find(|o| o.name == "ImportB")
         .expect("ImportB present");
 
-    let orbital_core::schema::EntityRef::Inline(b_entity) = &import_b.entity else {
+    let orbital_core_base::schema::EntityRef::Inline(b_entity) = &import_b.entity else {
         panic!("ImportB.entity must be inline");
     };
     assert_eq!(b_entity.name, "LocalB");
@@ -608,7 +608,7 @@ fn entities_map_onto_a_sibling_reference_form_orbitals_materialized_entity_is_or
     // The relation field on ImportA's materialized primary must retarget to
     // "LocalB" with LocalB's OWN id — not a fresh/foreign id, and not left
     // unmapped.
-    let orbital_core::schema::EntityRef::Inline(a_entity) = &import_a.entity else {
+    let orbital_core_base::schema::EntityRef::Inline(a_entity) = &import_a.entity else {
         panic!("ImportA.entity must be inline");
     };
     let rel_field = a_entity
@@ -627,7 +627,7 @@ fn entities_map_onto_a_sibling_reference_form_orbitals_materialized_entity_is_or
     // The `["fetch", "BItem", …]` positional token in the fetcher trait must
     // also retarget.
     let fetcher = import_a.traits.iter().find_map(|t| {
-        if let orbital_core::schema::TraitReference::Inline(td) = t {
+        if let orbital_core_base::schema::TraitReference::Inline(td) = t {
             if td.name == "ImportAAItemFetcher" {
                 return Some(td);
             }
@@ -985,7 +985,7 @@ fn ref_entry_forwarded_app_and_orbital_knobs_do_not_fire_dead_knob() {
         .iter()
         .find_map(|o| {
             o.traits.iter().find_map(|t| match t {
-                orbital_core::schema::TraitReference::Inline(td) if td.name == "TitleView" => {
+                orbital_core_base::schema::TraitReference::Inline(td) if td.name == "TitleView" => {
                     Some(td)
                 }
                 _ => None,
@@ -996,7 +996,7 @@ fn ref_entry_forwarded_app_and_orbital_knobs_do_not_fire_dead_knob() {
     let title_field = cfg.get("title").expect("title carried");
     assert_eq!(
         title_field.default,
-        Some(orbital_core::schema::SExpression::String(
+        Some(orbital_core_base::schema::SExpression::String(
             "Time Tracking".to_string()
         )),
         "title must resolve to the app-level appName literal"
@@ -1009,7 +1009,7 @@ fn ref_entry_forwarded_app_and_orbital_knobs_do_not_fire_dead_knob() {
     let limit_field = cfg.get("limit").expect("limit carried");
     assert_eq!(
         limit_field.default,
-        Some(orbital_core::schema::SExpression::Number(25.0)),
+        Some(orbital_core_base::schema::SExpression::Number(25.0)),
         "limit must resolve to the orbital-level pageSize literal"
     );
     assert_eq!(

@@ -11,7 +11,7 @@
 
 use super::{ErrorCode, ValidationContext, ValidationError, ValidationResult};
 use crate::embedded;
-use orbital_core::schema::{OrbitalSchema, SExpression, TraitDefinition};
+use orbital_core_base::schema::{OrbitalSchema, SExpression, TraitDefinition};
 use std::collections::HashSet;
 
 /// Allowed sigil context names that map to entries in `BINDING_CONTEXT_RULES`.

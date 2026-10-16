@@ -21,7 +21,7 @@ use orbital_compiler::phases::validation::binding::{
     detect_trait_binding_cycles, validate_trait_binding_usage,
 };
 use orbital_compiler::phases::validation::ErrorCode;
-use orbital_core::schema::{
+use orbital_core_base::schema::{
     SExpression, StateDefinition, StateMachine, StringOrArray, TraitDefinition, TraitReference,
     TransitionDefinition,
 };
@@ -107,7 +107,7 @@ fn object_to_sexpr(v: serde_json::Value) -> SExpression {
             SExpression::Array(items.into_iter().map(object_to_sexpr).collect())
         }
         serde_json::Value::Object(map) => {
-            let mut out = orbital_core::schema::SObject::new();
+            let mut out = orbital_core_base::schema::SObject::new();
             for (k, v) in map {
                 out.insert(k, object_to_sexpr(v));
             }
@@ -300,7 +300,7 @@ fn trait_with_binding_outside_render(effect_kind: &str, binding: &str) -> TraitD
                 SExpression::String("fetch".to_string()),
                 SExpression::String("Item".to_string()),
                 SExpression::Object({
-                    let mut m = orbital_core::schema::SObject::new();
+                    let mut m = orbital_core_base::schema::SObject::new();
                     m.insert("emit".to_string(), binding_sexpr.clone());
                     m
                 }),

@@ -7,7 +7,7 @@
 
 use orbital_compiler::phases::inline::{inline_schema, InlineConfig};
 use orbital_compiler::phases::parse::parse_file;
-use orbital_core::schema::{OrbitalSchema, TraitReference};
+use orbital_core_base::schema::{OrbitalSchema, TraitReference};
 
 const UPSTREAM: &str = r#"{
   "name": "sibling-remap-upstream",

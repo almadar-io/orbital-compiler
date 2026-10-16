@@ -7,7 +7,7 @@
 use orbital_compiler::phases::inline::{inline_schema, InlineConfig};
 use orbital_compiler::phases::parse::parse_file;
 use orbital_compiler::phases::validation::{validate_comprehensive_without_services, ErrorCode};
-use orbital_core::schema::{OrbitalSchema, SExpression, TraitReference};
+use orbital_core_base::schema::{OrbitalSchema, SExpression, TraitReference};
 
 const CHROME: &str = r#"{
   "name": "test-chrome",

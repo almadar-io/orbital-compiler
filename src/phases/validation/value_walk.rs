@@ -6,7 +6,7 @@
 //! module only supplies the lookup. No operator is named anywhere on this path.
 
 use super::canonical_operators::get_canonical_operator;
-use orbital_core::schema::{OperatorReturn, ValueWalk};
+use orbital_core_base::schema::{OperatorReturn, ValueWalk};
 
 fn operator_return(name: &str) -> Option<OperatorReturn> {
     get_canonical_operator(name).map(|meta| OperatorReturn {

@@ -1,7 +1,7 @@
 //! Effect validation helpers: payload extraction + identifier checks.
 
 use crate::phases::validation::sexpr::EFFECT_OPERATORS;
-use orbital_core::schema::SExpression;
+use orbital_core_base::schema::SExpression;
 use std::collections::HashSet;
 use std::sync::OnceLock;
 
@@ -121,7 +121,7 @@ pub fn effect_operators() -> &'static [&'static str] {
     ALL.get_or_init(|| {
         let mut v = EFFECT_OPERATORS.to_vec();
         v.extend_from_slice(EFFECT_POSITION_EXTRA);
-        v.extend(orbital_core::language::registry::program_host_effects());
+        v.extend(orbital_core_base::language::registry::program_host_effects());
         v
     })
 }
@@ -174,7 +174,7 @@ mod tests {
     use super::super::navigate::path_matches_pattern;
     use super::super::{validate_effect, validate_emit_against_declaration, DeclaredEmit};
     use super::is_upper_snake_case;
-    use orbital_core::schema::{EntityDefinition, FieldType, SExpression};
+    use orbital_core_base::schema::{EntityDefinition, FieldType, SExpression};
     use std::collections::{HashMap, HashSet};
 
     #[test]
@@ -955,7 +955,7 @@ mod tests {
 
     #[test]
     fn test_fetch_include_valid_relation() {
-        use orbital_core::schema::{FieldDefinition, RelationDefinition};
+        use orbital_core_base::schema::{FieldDefinition, RelationDefinition};
 
         // Create an entity with a relation field
         let mut entity_defs: HashMap<String, EntityDefinition> = HashMap::new();
@@ -1076,7 +1076,7 @@ mod tests {
 
     #[test]
     fn test_fetch_include_invalid_relation() {
-        use orbital_core::schema::{FieldDefinition, RelationDefinition};
+        use orbital_core_base::schema::{FieldDefinition, RelationDefinition};
 
         // Create an entity with a relation field
         let mut entity_defs: HashMap<String, EntityDefinition> = HashMap::new();

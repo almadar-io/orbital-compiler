@@ -16,7 +16,7 @@
 //! config knobs and payload fields (raw type strings), `[json]`/`object`
 //! entity fields (lowered to shapeless `object`) — is visible and checked.
 
-use orbital_core::schema::{FieldDefinition, FieldType, OrbitalSchema, PayloadField};
+use orbital_core_base::schema::{FieldDefinition, FieldType, OrbitalSchema, PayloadField};
 
 use super::{
     error::{ErrorCode, ValidationError, ValidationResult},

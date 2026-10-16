@@ -12,7 +12,7 @@
 
 use orbital_compiler::phases::inline::{inline_schema, InlineConfig};
 use orbital_compiler::phases::parse::parse_file;
-use orbital_core::schema::EntityRef;
+use orbital_core_base::schema::EntityRef;
 
 const ATOM: &str = r#"{
   "name": "test-rel-atom",

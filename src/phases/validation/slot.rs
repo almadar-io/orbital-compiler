@@ -7,7 +7,7 @@ use super::{
     render_ui::{extract_slot, is_render_ui_effect},
     Domain, ErrorCode, ValidationContext, ValidationError, ValidationResult,
 };
-use orbital_core::schema::{
+use orbital_core_base::schema::{
     Orbital, OrbitalSchema, PageDefinition, StateMachine, TraitDefinition, TraitReference,
 };
 use std::collections::{HashMap, HashSet, VecDeque};
@@ -315,20 +315,20 @@ pub(crate) fn reachable_states(state_machine: &StateMachine, initial: &str) -> H
 }
 
 /// Return every `from` state as a flat slice of `&str`.
-pub(crate) fn transition_from_states(from: &orbital_core::schema::StringOrArray) -> Vec<&str> {
+pub(crate) fn transition_from_states(from: &orbital_core_base::schema::StringOrArray) -> Vec<&str> {
     match from {
-        orbital_core::schema::StringOrArray::Single(s) => vec![s.as_str()],
-        orbital_core::schema::StringOrArray::Multiple(arr) => {
+        orbital_core_base::schema::StringOrArray::Single(s) => vec![s.as_str()],
+        orbital_core_base::schema::StringOrArray::Multiple(arr) => {
             arr.iter().map(|s| s.as_str()).collect()
         }
     }
 }
 
 /// Check if a transition 'from' matches a state name
-fn matches_state(from: &orbital_core::schema::StringOrArray, state: &str) -> bool {
+fn matches_state(from: &orbital_core_base::schema::StringOrArray, state: &str) -> bool {
     match from {
-        orbital_core::schema::StringOrArray::Single(s) => s == state || s == "*",
-        orbital_core::schema::StringOrArray::Multiple(states) => {
+        orbital_core_base::schema::StringOrArray::Single(s) => s == state || s == "*",
+        orbital_core_base::schema::StringOrArray::Multiple(states) => {
             states.iter().any(|s| s == state || s == "*")
         }
     }
@@ -549,7 +549,7 @@ fn format_trait_list(names: &[&str]) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use orbital_core::schema::{
+    use orbital_core_base::schema::{
         SExpression, StateDefinition, StateMachine, StringOrArray, TransitionDefinition,
     };
 

@@ -11,8 +11,8 @@
 //! of the local `OrbitalIds` map. The `uses` block and reference position are
 //! left intact (no inlining): this is id resolution, not composition.
 
-use orbital_core::identity::{IdKind, IdentityLedger};
-use orbital_core::schema::{
+use orbital_core_base::identity::{IdKind, IdentityLedger};
+use orbital_core_base::schema::{
     EntityRef, FieldDefinition, Orbital, OrbitalSchema, PageRef, TraitReference,
 };
 use std::collections::{HashMap, HashSet};
@@ -485,8 +485,8 @@ pub fn resolve_cross_file_id_edges(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use orbital_core::identity::{IdentityLedger, LedgerEntry, LedgerOwner};
-    use orbital_core::schema::{EntityDefinition, Orbital, OrbitalSchema, UseDeclaration};
+    use orbital_core_base::identity::{IdentityLedger, LedgerEntry, LedgerOwner};
+    use orbital_core_base::schema::{EntityDefinition, Orbital, OrbitalSchema, UseDeclaration};
 
     fn trait_ledger_entry(id: &str, baked_name: &str) -> LedgerEntry {
         LedgerEntry {

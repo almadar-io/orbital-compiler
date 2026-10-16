@@ -1,10 +1,10 @@
 use orbital_compiler::phases::resolve::{resolve_sexpr_standalone, ResolveError};
-use orbital_core::schema::SExpression;
+use orbital_core_base::schema::SExpression;
 
 #[test]
 fn a_lowering_error_reaches_compiler_callers_with_the_same_message() {
     let malformed = SExpression::Array(vec![SExpression::String("if".into()), SExpression::Bool(true)]);
-    let core_message = orbital_core::lower::lower_sexpr(&malformed).unwrap_err().to_string();
+    let core_message = orbital_core_eval::lower::lower_sexpr(&malformed).unwrap_err().to_string();
     let Err(ResolveError::InvalidSExpr(message)) = resolve_sexpr_standalone(&malformed) else {
         panic!("expected InvalidSExpr");
     };
@@ -18,5 +18,5 @@ fn control_a_valid_expression_lowers_identically_through_the_compiler() {
         SExpression::Number(1.0),
         SExpression::String("@entity.count".into()),
     ]);
-    assert_eq!(resolve_sexpr_standalone(&sum).ok(), orbital_core::lower::lower_sexpr(&sum).ok());
+    assert_eq!(resolve_sexpr_standalone(&sum).ok(), orbital_core_eval::lower::lower_sexpr(&sum).ok());
 }

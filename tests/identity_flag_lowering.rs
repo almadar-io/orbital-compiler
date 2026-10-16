@@ -7,10 +7,10 @@
 //! name the collection a generated app reads its persona roster from.
 
 use orbital_compiler::phases::resolve_to_oir;
-use orbital_core::schema::OrbitalSchema;
+use orbital_core_base::schema::OrbitalSchema;
 use serde_json::json;
 
-fn lower(schema: serde_json::Value) -> orbital_core::ir::OirModule {
+fn lower(schema: serde_json::Value) -> orbital_core_base::ir::OirModule {
     let schema: OrbitalSchema =
         serde_json::from_value(schema).expect("schema fixture must deserialize");
     resolve_to_oir(&schema).expect("fixture must lower")

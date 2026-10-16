@@ -1,5 +1,5 @@
 use crate::phases::validation::{ErrorCode, ValidationError, ValidationResult};
-use orbital_core::schema::OrbitalSchema;
+use orbital_core_base::schema::OrbitalSchema;
 use std::collections::HashMap;
 
 /// Validate entity names are unique across all orbitals
@@ -71,7 +71,7 @@ pub(crate) fn validate_orbital_name_uniqueness(schema: &OrbitalSchema) -> Valida
 #[cfg(test)]
 mod tests {
     use super::*;
-    use orbital_core::schema::{EntityDefinition, EntityRef, Orbital, OrbitalSchema};
+    use orbital_core_base::schema::{EntityDefinition, EntityRef, Orbital, OrbitalSchema};
 
     fn create_minimal_schema() -> OrbitalSchema {
         OrbitalSchema {

@@ -4,7 +4,7 @@
 
 use orbital_compiler::phases::inline::{inline_schema, InlineConfig, InlineSession};
 use orbital_compiler::phases::parse::parse_file;
-use orbital_core::secrets::secret_flow_violations;
+use orbital_core_base::secrets::secret_flow_violations;
 use serde_json::{json, Value};
 
 fn upstream(effects: Value) -> String {

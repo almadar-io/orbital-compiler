@@ -15,10 +15,10 @@
 
 use std::cell::RefCell;
 
-use orbital_core::evaluator::operator_signature;
-use orbital_core::ir::{OirBinaryOp, OirBinding, OirBindingRoot, OirExpr, OirField, OirModule, OirType, OirUnaryOp};
-use orbital_core::language::registry::{get_operator, OperatorTypeRef, OperatorTypeRefKind};
-use orbital_core::signature::{type_at_path, Actual, CallBindings, Known, Mismatch, Mode, Signature};
+use orbital_core_eval::evaluator::operator_signature;
+use orbital_core_base::ir::{OirBinaryOp, OirBinding, OirBindingRoot, OirExpr, OirField, OirModule, OirType, OirUnaryOp};
+use orbital_core_base::language::registry::{get_operator, OperatorTypeRef, OperatorTypeRefKind};
+use orbital_core_base::signature::{type_at_path, Actual, CallBindings, Known, Mismatch, Mode, Signature};
 
 /// Binding-resolution context the inferencer needs (and only that). Each consumer supplies its own — the
 /// validator from the resolved entity/payload field types, the codegen from its `CodegenContext` catalog — so the
@@ -95,7 +95,7 @@ pub(crate) fn signature_of(name: &str) -> Option<Signature<'static>> {
 
 /// Whether `name` is an effect: it runs for what it does and produces no value.
 pub(crate) fn is_effect(name: &str) -> bool {
-    orbital_core::ir::is_substrate_operator(name) || get_operator(name).is_some_and(|meta| meta.has_side_effects)
+    orbital_core_base::ir::is_substrate_operator(name) || get_operator(name).is_some_and(|meta| meta.has_side_effects)
 }
 
 /// Whether `name` is an operator that evaluates to a value (not an effect).
@@ -385,7 +385,7 @@ impl<'c> Inferer<'c> {
         match expr {
             OirExpr::String { value } => Some(value.clone()),
             OirExpr::Call { function, args } => match quoted_literal(function, args)? {
-                orbital_core::schema::SExpression::String(text) => Some(text),
+                orbital_core_base::schema::SExpression::String(text) => Some(text),
                 _ => None,
             },
             _ => None,
@@ -428,7 +428,7 @@ impl<'c> Inferer<'c> {
             let outcome = match arg {
                 OirExpr::Lambda { params, body } => {
                     // A callback the operator also hands the element's index: that parameter is a number.
-                    let index_at = orbital_core::evaluator::callback_index_position(name);
+                    let index_at = orbital_core_eval::evaluator::callback_index_position(name);
                     let run = |types: &[Option<OirType>]| {
                         let mut typed = types.to_vec();
                         if let Some(at) = index_at {
@@ -623,10 +623,10 @@ fn binary_name(op: &OirBinaryOp) -> &'static str {
 
 /// A call's name and arguments, however the lowering spelled it.
 /// The literal a `(quote <literal>)` holds, decoded from its IR body.
-fn quoted_literal(function: &str, args: &[OirExpr]) -> Option<orbital_core::schema::SExpression> {
+fn quoted_literal(function: &str, args: &[OirExpr]) -> Option<orbital_core_base::schema::SExpression> {
     match args {
-        [OirExpr::String { value }] if function == orbital_core::schema::quote::QUOTE_HEAD => {
-            orbital_core::schema::quote::decode_quote_body(value)
+        [OirExpr::String { value }] if function == orbital_core_base::schema::quote::QUOTE_HEAD => {
+            orbital_core_base::schema::quote::decode_quote_body(value)
         }
         _ => None,
     }
@@ -634,7 +634,7 @@ fn quoted_literal(function: &str, args: &[OirExpr]) -> Option<orbital_core::sche
 
 /// `(quote <string|number|boolean literal>)` is that scalar; a quote of anything else stays `SExpr`.
 fn quoted_scalar(function: &str, args: &[OirExpr]) -> Option<OirType> {
-    use orbital_core::schema::SExpression as S;
+    use orbital_core_base::schema::SExpression as S;
     match quoted_literal(function, args)? {
         S::String(_) => Some(OirType::String),
         S::Number(_) => Some(OirType::Number),
@@ -762,11 +762,11 @@ fn live_branch(expr: &OirExpr) -> Option<(&OirExpr, &OirExpr)> {
 }
 
 fn printed_arg(arg: Option<&&OirExpr>) -> String {
-    arg.map(|a| orbital_core::ir::pretty_print_expr(a)).unwrap_or_default()
+    arg.map(|a| orbital_core_base::ir::pretty_print_expr(a)).unwrap_or_default()
 }
 
 fn printed(name: &str, args: &[&OirExpr]) -> String {
-    orbital_core::ir::pretty_print_expr(&OirExpr::call(
+    orbital_core_base::ir::pretty_print_expr(&OirExpr::call(
         name,
         args.iter().map(|a| (*a).clone()).collect(),
     ))
@@ -847,7 +847,7 @@ pub fn collect_guard_type_warnings(module: &OirModule) -> Vec<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use orbital_core::ir::OirBindingRoot;
+    use orbital_core_base::ir::OirBindingRoot;
 
     struct NoCtx;
     impl TypeCtx for NoCtx {
@@ -928,12 +928,12 @@ mod tests {
         assert_eq!(infer_oir_expr_type(&call("quote", vec![text("[\">\",1,0]")]), &NoCtx), Some(OirType::SExpr));
     }
 
-    fn quoted(value: orbital_core::schema::SExpression) -> OirExpr {
-        call("quote", vec![text(&orbital_core::schema::quote::encode_quote_body(&value))])
+    fn quoted(value: orbital_core_base::schema::SExpression) -> OirExpr {
+        call("quote", vec![text(&orbital_core_base::schema::quote::encode_quote_body(&value))])
     }
 
     fn quoted_text(v: &str) -> OirExpr {
-        quoted(orbital_core::schema::SExpression::String(v.to_string()))
+        quoted(orbital_core_base::schema::SExpression::String(v.to_string()))
     }
 
     fn attribute_row() -> Row {
@@ -942,7 +942,7 @@ mod tests {
 
     #[test]
     fn quote_of_a_scalar_literal_is_that_scalar() {
-        use orbital_core::schema::SExpression as S;
+        use orbital_core_base::schema::SExpression as S;
         assert_eq!(infer_oir_expr_type(&quoted_text("@href"), &NoCtx), Some(OirType::String));
         assert_eq!(infer_oir_expr_type(&quoted(S::Number(3.0)), &NoCtx), Some(OirType::Number));
         assert_eq!(infer_oir_expr_type(&quoted(S::Bool(true)), &NoCtx), Some(OirType::Boolean));
@@ -950,7 +950,7 @@ mod tests {
 
     #[test]
     fn quote_of_anything_else_stays_sexpr() {
-        use orbital_core::schema::SExpression as S;
+        use orbital_core_base::schema::SExpression as S;
         let list = quoted(S::Array(vec![S::String(">".into()), S::Number(1.0), S::Number(0.0)]));
         assert_eq!(infer_oir_expr_type(&list, &NoCtx), Some(OirType::SExpr));
         assert_eq!(infer_oir_expr_type(&quoted(S::Null), &NoCtx), Some(OirType::SExpr));
@@ -1152,8 +1152,8 @@ mod tests {
     }
 
     fn lowered(value: serde_json::Value) -> OirExpr {
-        let sexpr: orbital_core::schema::SExpression = serde_json::from_value(value).expect("s-expression");
-        orbital_core::lower::lower_sexpr(&sexpr).expect("lowers")
+        let sexpr: orbital_core_base::schema::SExpression = serde_json::from_value(value).expect("s-expression");
+        orbital_core_eval::lower::lower_sexpr(&sexpr).expect("lowers")
     }
 
     /// The maps of two reads inside a lambda merge into one map, so the lambda's result is typed.
@@ -1214,7 +1214,7 @@ mod tests {
     }
 
     // ---- Phase 4: collect_guard_type_warnings (C-GUARD-NO-BOOLEAN-CHECK) ----
-    use orbital_core::ir::{OirInterval, OirListener, OirModule, OirTick, OirTrait, OirTransition};
+    use orbital_core_base::ir::{OirInterval, OirListener, OirModule, OirTick, OirTrait, OirTransition};
 
     fn binop(op: OirBinaryOp, l: OirExpr, r: OirExpr) -> OirExpr {
         OirExpr::BinaryOp {

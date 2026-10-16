@@ -13,7 +13,7 @@
 
 use orbital_compiler::phases::inline::{inline_schema, InlineConfig};
 use orbital_compiler::phases::parse::parse_file;
-use orbital_core::schema::{ListenSource, TraitDefinition, TraitReference};
+use orbital_core_base::schema::{ListenSource, TraitDefinition, TraitReference};
 
 /// One atom whose main trait embeds a listening sub-view via `@trait.RowView`.
 const ATOM: &str = r#"{
@@ -111,7 +111,7 @@ const TWO_REBIND_CONSUMER: &str = r#"{
   ]
 }"#;
 
-fn inline_fixture(files: &[(&str, String)], consumer: &str) -> orbital_core::schema::OrbitalSchema {
+fn inline_fixture(files: &[(&str, String)], consumer: &str) -> orbital_core_base::schema::OrbitalSchema {
     let dir = tempfile::TempDir::new().expect("temp dir");
     for (name, content) in files {
         std::fs::write(dir.path().join(name), content).expect("write dep");
@@ -124,7 +124,7 @@ fn inline_fixture(files: &[(&str, String)], consumer: &str) -> orbital_core::sch
     schema
 }
 
-fn inline_traits_of(schema: &orbital_core::schema::OrbitalSchema) -> Vec<&TraitDefinition> {
+fn inline_traits_of(schema: &orbital_core_base::schema::OrbitalSchema) -> Vec<&TraitDefinition> {
     schema.orbitals[0]
         .traits
         .iter()

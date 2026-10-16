@@ -2,7 +2,7 @@
 
 use super::super::{ErrorCode, ValidationError, ValidationResult};
 use super::{extract_emit_object_ref, validate_emit_config, DeclaredEmit};
-use orbital_core::schema::{EntityDefinition, FieldType, SExpression};
+use orbital_core_base::schema::{EntityDefinition, FieldType, SExpression};
 use std::collections::HashMap;
 
 /// Validate set effect (array form)
@@ -160,7 +160,7 @@ pub(crate) fn validate_set_value_type(
     };
     let entity_ty = &entity_meta.field_type;
 
-    if !orbital_core::oir_type_accepts_kind(&entity_meta.shape, payload_ty) {
+    if !orbital_core_base::type_compat::oir_type_accepts_kind(&entity_meta.shape, payload_ty) {
         result.add_error(
             ValidationError::error(
                 ErrorCode::SetValueTypeMismatch,
@@ -321,7 +321,7 @@ pub(crate) fn validate_set_enum_value(
         return result; // a binding/payload read, not a literal
     }
 
-    if !orbital_core::enum_value_is_member(value, &meta.enum_values) {
+    if !orbital_core_base::type_compat::enum_value_is_member(value, &meta.enum_values) {
         result.add_error(
             ValidationError::error(
                 ErrorCode::EnumValueNotMember,
@@ -386,7 +386,7 @@ pub(crate) fn validate_set_return_type(
                      '{}'; the declared types are incompatible.",
                     entity_field,
                     meta.field_type,
-                    orbital_core::oir_type_kind(&inferred)
+                    orbital_core_base::type_compat::oir_type_kind(&inferred)
                 ),
             )
             .with_suggestion(if meta.field_type == "relation" {
@@ -426,10 +426,10 @@ pub(crate) fn validate_set_return_type(
 /// type all yield `None`.
 pub(crate) fn expr_return_incompatible(
     value: &SExpression,
-    declared: &orbital_core::ir::OirType,
+    declared: &orbital_core_base::ir::OirType,
     entity_field_types: &HashMap<String, EntityFieldMeta>,
     payload_field_types: &HashMap<String, String>,
-) -> Option<orbital_core::ir::OirType> {
+) -> Option<orbital_core_base::ir::OirType> {
     // Only an array-form value (operator call / conditional / array literal)
     // carries an inferrable result type worth checking here.
     if !matches!(value, SExpression::Array(_)) {
@@ -443,7 +443,7 @@ pub(crate) fn expr_return_incompatible(
         schema: None,
     };
     let inferred = crate::type_infer::infer_oir_expr_type(&oir_value, &ctx)?;
-    if orbital_core::oir_type_satisfies(&inferred, declared) {
+    if orbital_core_base::type_compat::oir_type_satisfies(&inferred, declared) {
         None
     } else {
         Some(inferred)
@@ -508,7 +508,7 @@ fn collect_comparison_mismatches(
 /// `number` / `string` for an operand whose inferred type is known to be one
 /// of those kinds; `None` for anything else (never rejects).
 fn operand_kind(operand: &SExpression, ctx: &ExprReturnCtx<'_>) -> Option<&'static str> {
-    use orbital_core::ir::OirType;
+    use orbital_core_base::ir::OirType;
     let ty = match operand {
         SExpression::Number(_) => OirType::Number,
         SExpression::String(v) if !v.starts_with('@') && !v.starts_with('?') => OirType::String,
@@ -538,20 +538,20 @@ pub(super) struct ExprReturnCtx<'a> {
     /// The full declared types of the bindings in scope. `None` for a consumer that only compares the primitive
     /// kinds (it never reports an undetermined value).
     pub(super) types: Option<&'a BindingTypes>,
-    pub(super) schema: Option<&'a orbital_core::schema::OrbitalSchema>,
+    pub(super) schema: Option<&'a orbital_core_base::schema::OrbitalSchema>,
 }
 
 impl crate::type_infer::TypeCtx for ExprReturnCtx<'_> {
     fn binding_type(
         &self,
-        binding: &orbital_core::ir::OirBinding,
-    ) -> Option<orbital_core::ir::OirType> {
-        use orbital_core::ir::{OirBindingRoot, OirField, OirType};
+        binding: &orbital_core_base::ir::OirBinding,
+    ) -> Option<orbital_core_base::ir::OirType> {
+        use orbital_core_base::ir::{OirBindingRoot, OirField, OirType};
         // The whole `@entity` / `@payload` is a record of unknown extent: besides the declared fields a row carries
         // the system fields (id, timestamps, frame fields) and a payload carries whatever its emitter sent.
         match (&binding.root, self.types) {
-            (OirBindingRoot::User, Some(types)) => return orbital_core::signature::type_at_path(&types.user, &binding.path),
-            (OirBindingRoot::Config, Some(types)) => return orbital_core::signature::type_at_path(&types.config_struct(), &binding.path),
+            (OirBindingRoot::User, Some(types)) => return orbital_core_base::signature::type_at_path(&types.user, &binding.path),
+            (OirBindingRoot::Config, Some(types)) => return orbital_core_base::signature::type_at_path(&types.config_struct(), &binding.path),
             _ => {}
         }
         let whole = match binding.root {
@@ -602,20 +602,20 @@ impl crate::type_infer::TypeCtx for ExprReturnCtx<'_> {
                 OirType::Struct {
                     fields: names
                         .into_iter()
-                        .map(|n| OirField::new(n.clone(), orbital_core::compat_kind_oir(&self.payload[n])))
+                        .map(|n| OirField::new(n.clone(), orbital_core_base::type_compat::compat_kind_oir(&self.payload[n])))
                         .collect(),
                 }
             }
         };
-        orbital_core::signature::type_at_path(&root, &binding.path)
+        orbital_core_base::signature::type_at_path(&root, &binding.path)
     }
 
     fn object_literals_are_exact(&self) -> bool {
         self.types.is_some()
     }
 
-    fn may_be_absent(&self, binding: &orbital_core::ir::OirBinding) -> bool {
-        use orbital_core::ir::OirBindingRoot;
+    fn may_be_absent(&self, binding: &orbital_core_base::ir::OirBinding) -> bool {
+        use orbital_core_base::ir::OirBindingRoot;
         let [field] = binding.path.as_slice() else {
             return false;
         };
@@ -626,17 +626,17 @@ impl crate::type_infer::TypeCtx for ExprReturnCtx<'_> {
         }
     }
 
-    fn delivery_payload(&self) -> Option<orbital_core::ir::OirType> {
+    fn delivery_payload(&self) -> Option<orbital_core_base::ir::OirType> {
         self.types.map(BindingTypes::payload_struct)
     }
 
-    fn prev_delivery_payload(&self) -> Option<orbital_core::ir::OirType> {
+    fn prev_delivery_payload(&self) -> Option<orbital_core_base::ir::OirType> {
         self.types.and_then(|t| t.prev_payload.clone())
     }
 
-    fn entity_type(&self, name: &str) -> Option<orbital_core::ir::OirType> {
-        use orbital_core::ir::{OirField, OirType};
-        use orbital_core::schema::EntityRef;
+    fn entity_type(&self, name: &str) -> Option<orbital_core_base::ir::OirType> {
+        use orbital_core_base::ir::{OirField, OirType};
+        use orbital_core_base::schema::EntityRef;
         let schema = self.schema?;
         let declared = schema.orbitals.iter().find_map(|o| {
             std::iter::once(&o.entity)
@@ -650,10 +650,10 @@ impl crate::type_infer::TypeCtx for ExprReturnCtx<'_> {
         let promised = || {
             schema.orbitals.iter().find_map(|o| {
                 o.expects.iter().flatten().find_map(|expectation| match expectation {
-                    orbital_core::schema::ExpectDeclaration::Entity { name: n, shape: Some(shape) } if n == name => {
+                    orbital_core_base::schema::ExpectDeclaration::Entity { name: n, shape: Some(shape) } if n == name => {
                         Some(shape.as_slice())
                     }
-                    orbital_core::schema::ExpectDeclaration::Identity { name: Some(n), shape: Some(shape), .. }
+                    orbital_core_base::schema::ExpectDeclaration::Identity { name: Some(n), shape: Some(shape), .. }
                         if n == name =>
                     {
                         Some(shape.as_slice())
@@ -665,7 +665,7 @@ impl crate::type_infer::TypeCtx for ExprReturnCtx<'_> {
         let source = declared.or_else(promised)?;
         let mut fields: Vec<OirField> = source
             .iter()
-            .filter_map(|f| Some(OirField::new(f.name.clone()?, orbital_core::field_shape(f))))
+            .filter_map(|f| Some(OirField::new(f.name.clone()?, orbital_core_base::ir::types::field_shape(f))))
             .collect();
         for (system, ty) in [("id", OirType::String), ("createdAt", OirType::DateTime), ("updatedAt", OirType::DateTime)] {
             if !fields.iter().any(|f| f.name == system) {
@@ -675,7 +675,7 @@ impl crate::type_infer::TypeCtx for ExprReturnCtx<'_> {
         Some(OirType::Struct { fields })
     }
 
-    fn named_type(&self, name: &str) -> Option<orbital_core::ir::OirType> {
+    fn named_type(&self, name: &str) -> Option<orbital_core_base::ir::OirType> {
         crate::phases::resolve::declared_struct_type(self.schema?, name)
     }
 
@@ -694,30 +694,30 @@ impl crate::type_infer::TypeCtx for ExprReturnCtx<'_> {
 /// config knobs.
 #[derive(Debug, Clone)]
 pub(crate) struct BindingTypes {
-    pub payload: HashMap<String, orbital_core::ir::OirType>,
-    pub user: orbital_core::ir::OirType,
-    pub config: HashMap<String, orbital_core::ir::OirType>,
+    pub payload: HashMap<String, orbital_core_base::ir::OirType>,
+    pub user: orbital_core_base::ir::OirType,
+    pub config: HashMap<String, orbital_core_base::ir::OirType>,
     /// The payload shared by every event the trait listens to, when they agree.
-    pub prev_payload: Option<orbital_core::ir::OirType>,
+    pub prev_payload: Option<orbital_core_base::ir::OirType>,
     /// The payload fields of the delivery the declaration does not require: an emitter may omit them.
     pub optional_payload: std::collections::HashSet<String>,
 }
 
 impl BindingTypes {
-    pub(crate) fn record_of(fields: &HashMap<String, orbital_core::ir::OirType>) -> orbital_core::ir::OirType {
-        let mut fields: Vec<orbital_core::ir::OirField> = fields
+    pub(crate) fn record_of(fields: &HashMap<String, orbital_core_base::ir::OirType>) -> orbital_core_base::ir::OirType {
+        let mut fields: Vec<orbital_core_base::ir::OirField> = fields
             .iter()
-            .map(|(n, t)| orbital_core::ir::OirField::new(n.clone(), t.clone()))
+            .map(|(n, t)| orbital_core_base::ir::OirField::new(n.clone(), t.clone()))
             .collect();
         fields.sort_by(|a, b| a.name.cmp(&b.name));
-        orbital_core::ir::OirType::Struct { fields }
+        orbital_core_base::ir::OirType::Struct { fields }
     }
 
-    pub(crate) fn payload_struct(&self) -> orbital_core::ir::OirType {
+    pub(crate) fn payload_struct(&self) -> orbital_core_base::ir::OirType {
         Self::record_of(&self.payload)
     }
 
-    pub(crate) fn config_struct(&self) -> orbital_core::ir::OirType {
+    pub(crate) fn config_struct(&self) -> orbital_core_base::ir::OirType {
         Self::record_of(&self.config)
     }
 }
@@ -765,7 +765,7 @@ fn payload_field_ref(value: &SExpression) -> Option<&str> {
 /// `"array"` tag.
 pub(crate) struct EntityFieldMeta {
     pub field_type: String,
-    pub shape: orbital_core::ir::OirType,
+    pub shape: orbital_core_base::ir::OirType,
     pub enum_values: Vec<String>,
     pub required: bool,
     /// Whether the field declares a default, so a row never lacks it.
@@ -786,7 +786,7 @@ pub(crate) fn entity_field_type_map(entity: &EntityDefinition) -> HashMap<String
                     name,
                     EntityFieldMeta {
                         field_type: field_type_str(&f.field_type).to_string(),
-                        shape: orbital_core::field_shape(f),
+                        shape: orbital_core_base::ir::types::field_shape(f),
                         enum_values: f.values.clone().unwrap_or_default(),
                         required: f.required.unwrap_or(false),
                         defaulted: f.default.is_some(),
@@ -871,7 +871,7 @@ mod enum_tests {
             "status".to_string(),
             EntityFieldMeta {
                 field_type: "string".into(),
-                shape: orbital_core::compat_kind_oir("string"),
+                shape: orbital_core_base::type_compat::compat_kind_oir("string"),
                 enum_values: vec!["open".into(), "closed".into(), "pending".into()],
                 required: false,
                 defaulted: false,
@@ -912,7 +912,7 @@ mod enum_tests {
             "title".to_string(),
             EntityFieldMeta {
                 field_type: "string".into(),
-                shape: orbital_core::compat_kind_oir("string"),
+                shape: orbital_core_base::type_compat::compat_kind_oir("string"),
                 enum_values: vec![],
                 required: false,
                 defaulted: false,
@@ -941,7 +941,7 @@ mod enum_tests {
             "subMenu".to_string(),
             EntityFieldMeta {
                 field_type: "union".into(),
-                shape: orbital_core::ir::OirType::Json,
+                shape: orbital_core_base::ir::OirType::Json,
                 enum_values: vec!["MenuItem".into()],
                 required: false,
                 defaulted: false,
@@ -965,7 +965,7 @@ mod return_type_tests {
             name.to_string(),
             EntityFieldMeta {
                 field_type: ty.into(),
-                shape: orbital_core::compat_kind_oir(ty),
+                shape: orbital_core_base::type_compat::compat_kind_oir(ty),
                 enum_values: vec![],
                 required: false,
                 defaulted: false,
@@ -1057,7 +1057,7 @@ mod return_type_tests {
         // not the erased `Array<Json>` — so a return-type comparison against
         // it sees the element type, not just "it's an array".
         use crate::type_infer::TypeCtx;
-        use orbital_core::ir::{OirBinding, OirBindingRoot, OirType};
+        use orbital_core_base::ir::{OirBinding, OirBindingRoot, OirType};
 
         let entity = field("tags", "[string]");
         let payload = HashMap::new();
@@ -1079,9 +1079,9 @@ mod return_type_tests {
     #[test]
     fn an_expected_entity_or_identity_is_a_declared_row_type() {
         use crate::type_infer::TypeCtx;
-        use orbital_core::ir::OirType;
+        use orbital_core_base::ir::OirType;
 
-        let schema: orbital_core::schema::OrbitalSchema = serde_json::from_value(serde_json::json!({
+        let schema: orbital_core_base::schema::OrbitalSchema = serde_json::from_value(serde_json::json!({
             "name": "App",
             "orbitals": [{
                 "name": "O",
@@ -1119,7 +1119,7 @@ mod required_field_from_optional_knob_tests {
             "value".to_string(),
             EntityFieldMeta {
                 field_type: ty.into(),
-                shape: orbital_core::compat_kind_oir(ty),
+                shape: orbital_core_base::type_compat::compat_kind_oir(ty),
                 enum_values: vec![],
                 required,
                 defaulted: false,
@@ -1219,7 +1219,7 @@ mod comparison_operand_tests {
             name.to_string(),
             EntityFieldMeta {
                 field_type: ty.into(),
-                shape: orbital_core::compat_kind_oir(ty),
+                shape: orbital_core_base::type_compat::compat_kind_oir(ty),
                 enum_values: vec![],
                 required: false,
                 defaulted: false,

@@ -14,7 +14,7 @@
 //! information the usage does not carry.
 
 use orbital_compiler::phases::validation::validate_comprehensive_without_services;
-use orbital_core::schema::OrbitalSchema;
+use orbital_core_base::schema::OrbitalSchema;
 use serde_json::{json, Value};
 
 const NAV_UNREACHABLE: &str = "ORB_EFF_NAVIGATE_TARGET_UNREACHABLE";

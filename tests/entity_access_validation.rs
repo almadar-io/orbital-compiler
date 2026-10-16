@@ -5,7 +5,7 @@
 //! root is legal there, and both halves must resolve against a real field.
 
 use orbital_compiler::phases::validation::{entity_access, ValidationContext};
-use orbital_core::schema::OrbitalSchema;
+use orbital_core_base::schema::OrbitalSchema;
 use serde_json::{json, Value};
 
 fn run(schema: Value) -> Vec<String> {

@@ -4,8 +4,8 @@
 //! compiled shells load the themes the program actually names.
 
 use orbital_compiler::phases::{compile_schema, CompilerOptions};
-use orbital_core::ir::OirModule;
-use orbital_core::schema::OrbitalSchema;
+use orbital_core_base::ir::OirModule;
+use orbital_core_base::schema::OrbitalSchema;
 use serde_json::{json, Value};
 
 fn fixture() -> Value {

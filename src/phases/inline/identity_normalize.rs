@@ -20,7 +20,7 @@
 //! rename is byte-identical through this pass.
 
 use super::rewrite::{rewrite_identifiers, rewrite_payload_entity_refs};
-use orbital_core::schema::{
+use orbital_core_base::schema::{
     ConfigField, EntityRef, Orbital, OrbitalSchema, PageRef, SExpression, TraitDefinition,
     TraitReference,
 };

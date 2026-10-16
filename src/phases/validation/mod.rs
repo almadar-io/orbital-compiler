@@ -40,7 +40,7 @@
 
 pub(crate) mod async_results;
 pub mod binding;
-pub use orbital_core::language::canonical_operators;
+pub use orbital_core_base::language::canonical_operators;
 pub(crate) mod client_tick_locality;
 pub mod closed_circuit;
 pub mod composed_wiring;
@@ -91,7 +91,7 @@ pub(crate) mod value_walk;
 // Re-export main types
 pub use error::{ErrorCode, Severity, ValidationError, ValidationResult};
 
-use orbital_core::schema::{EntityDefinition, OrbitalSchema, TraitReference};
+use orbital_core_base::schema::{EntityDefinition, OrbitalSchema, TraitReference};
 use std::collections::HashSet;
 use sync::ExtraPatterns;
 
@@ -186,7 +186,7 @@ pub struct ValidationContext {
     /// validator that needs to read a std/io `.orb`'s content (e.g. the
     /// scope-boundary check's std-emits lookup) resolves it against this
     /// list rather than an embedded registry.
-    pub packages: Vec<orbital_core::behavior_packages::BehaviorPackage>,
+    pub packages: Vec<orbital_core_base::behavior_packages::BehaviorPackage>,
 }
 
 /// Domain type for context-aware validation
@@ -289,7 +289,7 @@ pub fn is_std_trait(name: &str) -> bool {
 
 /// Field type in the lowercase kind vocabulary `set_value_type_compatible`
 /// speaks (the serde spelling IS that vocabulary).
-pub(crate) fn field_type_str(field: &orbital_core::schema::FieldDefinition) -> String {
+pub(crate) fn field_type_str(field: &orbital_core_base::schema::FieldDefinition) -> String {
     serde_json::to_value(&field.field_type)
         .ok()
         .and_then(|v| v.as_str().map(String::from))
@@ -305,8 +305,8 @@ pub(crate) fn field_type_str(field: &orbital_core::schema::FieldDefinition) -> S
 /// repeated across the per-trait validators.
 pub fn inline_traits(
     schema: &OrbitalSchema,
-) -> impl Iterator<Item = (&orbital_core::schema::TraitDefinition, String)> {
-    use orbital_core::schema::TraitReference;
+) -> impl Iterator<Item = (&orbital_core_base::schema::TraitDefinition, String)> {
+    use orbital_core_base::schema::TraitReference;
     schema.orbitals.iter().enumerate().flat_map(|(i, orbital)| {
         orbital
             .traits
@@ -447,7 +447,7 @@ pub fn validate_comprehensive_full(
     extra_patterns: Option<ExtraPatterns>,
     schema_language: SchemaLanguage,
     service_registry: crate::embedded::ServiceRegistryData,
-    packages: Vec<orbital_core::behavior_packages::BehaviorPackage>,
+    packages: Vec<orbital_core_base::behavior_packages::BehaviorPackage>,
 ) -> ValidationResult {
     let mut ctx = ValidationContext::new();
     ctx.extra_patterns = extra_patterns;
@@ -636,10 +636,10 @@ pub fn validate_comprehensive_full(
 
 /// Collect all names for cross-reference validation (Phase 1)
 fn collect_names(schema: &OrbitalSchema, ctx: &mut ValidationContext) {
-    use orbital_core::schema::TraitReference;
+    use orbital_core_base::schema::TraitReference;
 
     // Build a map of trait name -> trait definition for looking up page traits
-    let mut trait_map: std::collections::HashMap<String, &orbital_core::schema::TraitDefinition> =
+    let mut trait_map: std::collections::HashMap<String, &orbital_core_base::schema::TraitDefinition> =
         std::collections::HashMap::new();
 
     // Collect entity names, trait names, page paths, and service names from orbitals
@@ -738,7 +738,7 @@ fn collect_names(schema: &OrbitalSchema, ctx: &mut ValidationContext) {
         // it does for a declared page that has no INIT. `entry` keeps a real
         // declaration's payload authoritative when both are present.
         for expectation in orbital.expects.iter().flatten() {
-            if let orbital_core::schema::ExpectDeclaration::Page { path } = expectation {
+            if let orbital_core_base::schema::ExpectDeclaration::Page { path } = expectation {
                 ctx.page_paths.insert(path.clone());
                 ctx.page_init_payloads.entry(path.clone()).or_default();
             }
@@ -747,7 +747,7 @@ fn collect_names(schema: &OrbitalSchema, ctx: &mut ValidationContext) {
         // Service names (only for inline services, not references)
         if let Some(services) = &orbital.services {
             for service_ref in services {
-                if let orbital_core::schema::ServiceRef::Inline(service_def) = service_ref {
+                if let orbital_core_base::schema::ServiceRef::Inline(service_def) = service_ref {
                     ctx.service_names.insert(service_def.name().to_string());
                 }
             }
@@ -772,10 +772,10 @@ fn collect_names(schema: &OrbitalSchema, ctx: &mut ValidationContext) {
 
 /// Collect INIT payload requirements for a page from its traits
 fn collect_page_init_payload(
-    page: &orbital_core::schema::PageDefinition,
-    trait_map: &std::collections::HashMap<String, &orbital_core::schema::TraitDefinition>,
+    page: &orbital_core_base::schema::PageDefinition,
+    trait_map: &std::collections::HashMap<String, &orbital_core_base::schema::TraitDefinition>,
 ) -> PageInitPayload {
-    use orbital_core::schema::TraitReference;
+    use orbital_core_base::schema::TraitReference;
 
     let mut payload = PageInitPayload::default();
 
@@ -888,7 +888,7 @@ mod tests {
 #[cfg(test)]
 mod valid_field_types_tests {
     use super::VALID_FIELD_TYPES;
-    use orbital_core::schema::FieldType;
+    use orbital_core_base::schema::FieldType;
 
     #[test]
     fn the_behavior_value_types_are_valid_field_types() {

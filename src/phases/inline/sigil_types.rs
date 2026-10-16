@@ -19,7 +19,7 @@
 //! shape. That is what lets a generated atom validate standalone, where the
 //! knob still holds its own default and nothing has declared that event.
 
-use orbital_core::schema::{
+use orbital_core_base::schema::{
     ConfigField, EntityRef, ExpectDeclaration, FieldDefinition, FieldType, OrbitalSchema,
     PayloadField, SExpression, TraitReference,
 };
@@ -450,7 +450,7 @@ fn pascal(s: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::{payload_field_of, substitute_entity_sentinel, substitute_named_entity_sentinels};
-    use orbital_core::schema::{FieldDefinition, PayloadField};
+    use orbital_core_base::schema::{FieldDefinition, PayloadField};
 
     fn payload(json: serde_json::Value) -> PayloadField {
         serde_json::from_value(json).expect("PayloadField")

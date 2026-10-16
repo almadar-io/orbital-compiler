@@ -11,7 +11,7 @@
 
 // Re-export core shell types so existing consumers of `orbital_compiler::shell`
 // continue to compile without changes.
-pub use orbital_core::shell::{Shell, ShellConfig, ShellError, ShellResult};
+pub use orbital_core_base::shell::{Shell, ShellConfig, ShellError, ShellResult};
 
 /// Registry of all available shells
 pub struct ShellRegistry {
@@ -54,7 +54,7 @@ impl Default for ShellRegistry {
     }
 }
 
-pub use orbital_core::shell::BaseShell;
+pub use orbital_core_base::shell::BaseShell;
 
 #[cfg(test)]
 mod tests {

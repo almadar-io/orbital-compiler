@@ -8,7 +8,7 @@ use super::super::{ErrorCode, ValidationError, ValidationResult};
 use super::call_service::literal_kind;
 use super::extract_emit_object_ref;
 use super::set::ExprReturnCtx;
-use orbital_core::schema::{OrbitalSchema, SExpression};
+use orbital_core_base::schema::{OrbitalSchema, SExpression};
 
 /// The `emit` slots a keyed call may declare (`onMessage` is accepted as the
 /// camelCase spelling of `on_message`).
@@ -22,7 +22,7 @@ pub(super) const KEYED_CALL_OPERATORS: [&str; 3] = ["call-service", "call_servic
 /// last element past arity 4, an object carrying `emit` and/or `key`. Mirrors
 /// the resolver's split — a plain trailing object is the args payload, not
 /// options.
-pub(super) fn trailing_options(arr: &[SExpression]) -> Option<&orbital_core::schema::SObject> {
+pub(super) fn trailing_options(arr: &[SExpression]) -> Option<&orbital_core_base::schema::SObject> {
     if arr.len() <= 4 {
         return None;
     }
@@ -36,14 +36,14 @@ pub(super) fn trailing_options(arr: &[SExpression]) -> Option<&orbital_core::sch
     }
 }
 
-pub(super) fn declared_key(options: &orbital_core::schema::SObject) -> Option<&SExpression> {
+pub(super) fn declared_key(options: &orbital_core_base::schema::SObject) -> Option<&SExpression> {
     options.get("key")
 }
 
 /// `key` must be string-typed: a non-string literal can never name a call;
 /// expressions (bindings, calls) are not decidable here and pass.
 pub(super) fn check_key_and_cancelled(
-    options: &orbital_core::schema::SObject,
+    options: &orbital_core_base::schema::SObject,
     path: &str,
     operator: &str,
 ) -> ValidationResult {
@@ -113,11 +113,11 @@ pub(super) fn check_key_expression_type(
         return result;
     };
     if let Some(inferred) = crate::type_infer::infer_oir_expr_type(&expr, ctx) {
-        if !orbital_core::oir_type_satisfies(&inferred, &orbital_core::ir::OirType::String) {
+        if !orbital_core_base::type_compat::oir_type_satisfies(&inferred, &orbital_core_base::ir::OirType::String) {
             result.add_error(ValidationError::error(
                 ErrorCode::CallServiceKeyType,
                 path,
-                format!("{operator} `key` must evaluate to a string, got {}", orbital_core::oir_type_kind(&inferred)),
+                format!("{operator} `key` must evaluate to a string, got {}", orbital_core_base::type_compat::oir_type_kind(&inferred)),
             ));
         }
     }

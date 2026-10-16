@@ -6,7 +6,7 @@ use orbital_compiler::phases::inline::{inline_schema_with_orbital_diagnostics, I
 use orbital_compiler::phases::lazy::{resolve_program_with_path, split_lazy};
 use orbital_compiler::phases::parse::parse_file;
 use orbital_compiler::phases::{resolve_schema_with_path, CompilerOptions};
-use orbital_core::schema::{Orbital, OrbitalSchema};
+use orbital_core_base::schema::{Orbital, OrbitalSchema};
 use std::path::{Path, PathBuf};
 
 const LEAF: &str = r#"{

@@ -5,9 +5,9 @@
 //! - Standard library (std/...)
 //! - Scoped packages (@name/...)
 
-use orbital_core::behavior_packages::{BehaviorPackage, DiscoverError, RegistrySource};
-pub use orbital_core::behavior_packages::index_registry_source;
-use orbital_core::schema::OrbitalSchema;
+use orbital_core_base::behavior_packages::{BehaviorPackage, DiscoverError, RegistrySource};
+pub use orbital_core_base::behavior_packages::index_registry_source;
+use orbital_core_base::schema::OrbitalSchema;
 use std::cell::RefCell;
 use std::collections::hash_map::Entry;
 use std::collections::{HashMap, HashSet};
@@ -97,7 +97,7 @@ pub enum LoaderError {
     )]
     PackageNotInstalled { prefix: String },
 
-    #[error("{}", orbital_core::behavior_packages::not_installed_message(package))]
+    #[error("{}", orbital_core_base::behavior_packages::not_installed_message(package))]
     BehaviorPackageNotInstalled { package: String },
 
     #[error("Behavior '{name}' not found in {searched:?}.")]
@@ -421,7 +421,7 @@ pub(crate) fn lower_source(path: &Path) -> Result<OrbitalSchema, String> {
         .get()
         .ok_or_else(|| "no .lolo lowerer is registered in this process".to_string())?;
     let mut schema = lower(path)?;
-    orbital_core::stamp::ensure_stamped(&mut schema);
+    orbital_core_base::stamp::ensure_stamped(&mut schema);
     Ok(schema)
 }
 
@@ -559,7 +559,7 @@ impl ExternalOrbitalLoader {
 
         let Some(pkg) = &std_package else {
             return Err(LoaderError::BehaviorPackageNotInstalled {
-                package: orbital_core::behavior_packages::STD_PACKAGE.to_string(),
+                package: orbital_core_base::behavior_packages::STD_PACKAGE.to_string(),
             });
         };
         let std_source_label = format!("{}@{}", pkg.name, pkg.version);
@@ -797,7 +797,7 @@ impl ExternalOrbitalLoader {
                     .any(|p| p.prefix == "almadar-std")
                 {
                     return Err(LoaderError::BehaviorPackageNotInstalled {
-                        package: orbital_core::behavior_packages::STD_PACKAGE.to_string(),
+                        package: orbital_core_base::behavior_packages::STD_PACKAGE.to_string(),
                     });
                 }
                 // std is installed (packages is therefore non-empty): the
@@ -924,7 +924,7 @@ impl ExternalOrbitalLoader {
             if let (Some(lower), true) = (SOURCE_LOWERER.get(), source.exists()) {
                 let mut schema = lower(&source)
                     .map_err(|e| LoaderError::SourceLowering(source.display().to_string(), e))?;
-                orbital_core::stamp::ensure_stamped(&mut schema);
+                orbital_core_base::stamp::ensure_stamped(&mut schema);
                 return Ok(LoadedSchema {
                     schema,
                     source_path: source,
@@ -940,7 +940,7 @@ impl ExternalOrbitalLoader {
         // Deserialize directly into the schema (single parse).
         let mut schema: OrbitalSchema = serde_json::from_str(&content)
             .map_err(|e| LoaderError::InvalidJson(path.display().to_string(), e.to_string()))?;
-        orbital_core::stamp::ensure_stamped(&mut schema);
+        orbital_core_base::stamp::ensure_stamped(&mut schema);
 
         Ok(LoadedSchema {
             schema,
@@ -1001,8 +1001,8 @@ impl ExternalOrbitalLoader {
     /// construction). Used by the inline phase to preserve cross-file ids: a
     /// cloned node that references a source id gets that source's ledger row
     /// copied into the consumer schema.
-    pub fn source_ledger_union(&self) -> HashMap<String, orbital_core::identity::LedgerEntry> {
-        let mut union: HashMap<String, orbital_core::identity::LedgerEntry> = HashMap::new();
+    pub fn source_ledger_union(&self) -> HashMap<String, orbital_core_base::identity::LedgerEntry> {
+        let mut union: HashMap<String, orbital_core_base::identity::LedgerEntry> = HashMap::new();
         let schemas = self
             .touched
             .iter()
@@ -1369,7 +1369,7 @@ mod tests {
         // project root rather than falling back to a user store.
         let _ = std::fs::write(tmp.join("package.json"), "{}");
 
-        orbital_core::behavior_packages::discover(tmp, &tmp.join("unused-user-store"))
+        orbital_core_base::behavior_packages::discover(tmp, &tmp.join("unused-user-store"))
             .unwrap()
             .into_iter()
             .find(|p| p.name == name)
@@ -1518,7 +1518,7 @@ mod tests {
         )
         .unwrap();
         let _ = std::fs::write(tmp.path().join("package.json"), "{}");
-        let pkg = orbital_core::behavior_packages::discover(
+        let pkg = orbital_core_base::behavior_packages::discover(
             tmp.path(),
             &tmp.path().join("unused-user-store"),
         )

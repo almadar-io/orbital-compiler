@@ -18,7 +18,7 @@ use crate::composition::{
     compose_behaviors, ComposeBehaviorsInput, ComposeError, EventWiringEntry,
 };
 use crate::phases::sexpr_json::sexpr_to_json;
-use orbital_core::schema::{
+use orbital_core_base::schema::{
     Orbital, OrbitalSchema, SExpression, StateMachine, TickDefinition, TraitDefinition,
     TraitReference, TransitionDefinition,
 };

@@ -64,7 +64,7 @@
 use orbital_compiler::phases::inline::{inline_schema, InlineConfig};
 use orbital_compiler::phases::parse::parse_file;
 use orbital_compiler::phases::validation::{render_ui, ValidationContext};
-use orbital_core::schema::{
+use orbital_core_base::schema::{
     EntityRef, OrbitalSchema, PayloadField, TraitDefinition, TraitReference,
 };
 
@@ -427,7 +427,7 @@ fn narrowing_requires_declared_type_when() {
 /// independent of whatever the `action` knob resolved the outbound emit to.
 fn action_transition_effects(
     trait_def: &TraitDefinition,
-) -> Vec<orbital_core::schema::SExpression> {
+) -> Vec<orbital_core_base::schema::SExpression> {
     trait_def
         .state_machine
         .transitions
@@ -450,12 +450,12 @@ fn narrowed_display_buffer_set_gets_str_concat() {
     let trait_def = inlined_input_trait(&composer_path);
     let effects = action_transition_effects(&trait_def);
 
-    let expected = orbital_core::schema::SExpression::Array(vec![
-        orbital_core::schema::SExpression::String("set".to_string()),
-        orbital_core::schema::SExpression::String("@entity.value".to_string()),
-        orbital_core::schema::SExpression::Array(vec![
-            orbital_core::schema::SExpression::String("str/concat".to_string()),
-            orbital_core::schema::SExpression::String("?value".to_string()),
+    let expected = orbital_core_base::schema::SExpression::Array(vec![
+        orbital_core_base::schema::SExpression::String("set".to_string()),
+        orbital_core_base::schema::SExpression::String("@entity.value".to_string()),
+        orbital_core_base::schema::SExpression::Array(vec![
+            orbital_core_base::schema::SExpression::String("str/concat".to_string()),
+            orbital_core_base::schema::SExpression::String("?value".to_string()),
         ]),
     ]);
     assert_eq!(
@@ -477,10 +477,10 @@ fn unnarrowed_number_field_set_is_untouched() {
     let trait_def = inlined_input_trait(&composer_path);
     let effects = action_transition_effects(&trait_def);
 
-    let untouched = orbital_core::schema::SExpression::Array(vec![
-        orbital_core::schema::SExpression::String("set".to_string()),
-        orbital_core::schema::SExpression::String("@entity.count".to_string()),
-        orbital_core::schema::SExpression::String("?value".to_string()),
+    let untouched = orbital_core_base::schema::SExpression::Array(vec![
+        orbital_core_base::schema::SExpression::String("set".to_string()),
+        orbital_core_base::schema::SExpression::String("@entity.count".to_string()),
+        orbital_core_base::schema::SExpression::String("?value".to_string()),
     ]);
     assert_eq!(
         effects[1], untouched,

@@ -11,7 +11,7 @@
 
 use orbital_compiler::phases::inline::{inline_schema, InlineConfig};
 use orbital_compiler::phases::validation::{generic_types, type_param_sweep, ValidationContext};
-use orbital_core::schema::{EntityRef, OrbitalSchema, TraitReference};
+use orbital_core_base::schema::{EntityRef, OrbitalSchema, TraitReference};
 use serde_json::json;
 
 fn schema_with_trait(linked_entity: Option<&str>) -> OrbitalSchema {
@@ -51,7 +51,7 @@ fn schema_with_trait(linked_entity: Option<&str>) -> OrbitalSchema {
     serde_json::from_value(schema_json).expect("schema fixture must deserialize")
 }
 
-fn thing_trait(schema: &OrbitalSchema) -> &orbital_core::schema::TraitDefinition {
+fn thing_trait(schema: &OrbitalSchema) -> &orbital_core_base::schema::TraitDefinition {
     let TraitReference::Inline(trait_def) = &schema.orbitals[0].traits[0] else {
         panic!("expected an inline trait definition");
     };
@@ -446,7 +446,7 @@ fn at_entity_naming_an_undeclared_entity_is_swept() {
         let cfg = td.config.as_mut().expect("fixture declares config");
         cfg.get_mut("targetEntity")
             .expect("fixture declares targetEntity")
-            .default = Some(orbital_core::schema::SExpression::String(
+            .default = Some(orbital_core_base::schema::SExpression::String(
             "Ghost".to_string(),
         ));
     }

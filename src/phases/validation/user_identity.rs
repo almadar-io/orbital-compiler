@@ -21,8 +21,8 @@
 //! very organism that motivated the rule.
 
 use super::{ErrorCode, ValidationContext, ValidationError, ValidationResult};
-use orbital_core::schema::{EntityDefinition, EntityRef, Orbital, OrbitalSchema, TraitReference};
-use orbital_core::type_compat::enum_value_is_member;
+use orbital_core_base::schema::{EntityDefinition, EntityRef, Orbital, OrbitalSchema, TraitReference};
+use orbital_core_base::type_compat::enum_value_is_member;
 use serde_json::Value;
 
 /// Where the identity shape a `@user` check resolves against came from. An
@@ -52,7 +52,7 @@ pub(super) enum IdentitySource<'a> {
 /// which imports `identity_field`/`user_field_of` via
 /// `super::user_identity::{...}`) is unaffected; `check_comparison`'s
 /// behavior is byte-identical to before this move.
-pub(crate) use orbital_core::runtime::{identity_field, user_field_of, vocabulary, EQUALITY_OPS};
+pub(crate) use orbital_core_base::entity_vocabulary::{identity_field, user_field_of, vocabulary, EQUALITY_OPS};
 
 /// Every `[identity]`-tagged entity in `orbitals`, primaries first, each
 /// paired with whether it is an orbital's PRIMARY entity (`true`) or an
@@ -299,7 +299,7 @@ fn check_page_nav_roles(
     }
     for (i, orbital) in schema.orbitals.iter().enumerate() {
         for (k, page_ref) in orbital.pages.iter().flatten().enumerate() {
-            let orbital_core::schema::PageRef::Inline(page) = page_ref else {
+            let orbital_core_base::schema::PageRef::Inline(page) = page_ref else {
                 continue;
             };
             for role in page.roles.iter().flatten() {
@@ -340,7 +340,7 @@ fn check_page_nav_roles(
 /// orbital-import remap uses (`inline::rewrite::role_list_sites`), so a list
 /// that is never compared to a role source is never checked.
 fn check_config_role_lists(
-    trait_def: &orbital_core::schema::TraitDefinition,
+    trait_def: &orbital_core_base::schema::TraitDefinition,
     path: &str,
     identity: &EntityDefinition,
     result: &mut ValidationResult,
@@ -409,11 +409,11 @@ fn role_literal_error(
 
 /// The type of `@user` for the trait named `trait_name`: the program's `[identity]` roster, else the declaring
 /// orbital's `expects identity { … }` shape, else the implicit default shape.
-pub(crate) fn identity_type(schema: &OrbitalSchema, trait_name: &str) -> orbital_core::ir::OirType {
+pub(crate) fn identity_type(schema: &OrbitalSchema, trait_name: &str) -> orbital_core_base::ir::OirType {
     let orbital = schema.orbitals.iter().find(|o| {
         o.traits
             .iter()
-            .any(|t| matches!(t, orbital_core::schema::TraitReference::Inline(def) if def.name == trait_name))
+            .any(|t| matches!(t, orbital_core_base::schema::TraitReference::Inline(def) if def.name == trait_name))
     });
     let expected = orbital
         .and_then(super::expectations::identity_expectation)
@@ -422,12 +422,12 @@ pub(crate) fn identity_type(schema: &OrbitalSchema, trait_name: &str) -> orbital
     let fields = roster
         .or(expected)
         .unwrap_or_else(|| default_identity_shape().fields);
-    orbital_core::ir::OirType::Struct {
+    orbital_core_base::ir::OirType::Struct {
         fields: fields
             .iter()
             .filter_map(|f| {
                 let name = f.name.clone()?;
-                Some(orbital_core::ir::OirField::new(name, orbital_core::field_shape(f)))
+                Some(orbital_core_base::ir::OirField::new(name, orbital_core_base::ir::types::field_shape(f)))
             })
             .collect(),
     }
@@ -738,7 +738,7 @@ mod tests {
     fn primary_shadows_auxiliary_import_over_an_arbitrary_orbital_slice() {
         let primary = orbital_with_identity("Main", "Person");
         let mut imported = orbital_no_identity("Imported", "Widget");
-        imported.auxiliary_entities = Some(vec![orbital_core::schema::EntityRef::Inline(
+        imported.auxiliary_entities = Some(vec![orbital_core_base::schema::EntityRef::Inline(
             serde_json::from_value(serde_json::json!({
                 "name": "ImportedOwner",
                 "identity": true,
@@ -763,7 +763,7 @@ mod tests {
     #[test]
     fn no_primary_roster_falls_back_to_imported_copies() {
         let mut imported = orbital_no_identity("Imported", "Widget");
-        imported.auxiliary_entities = Some(vec![orbital_core::schema::EntityRef::Inline(
+        imported.auxiliary_entities = Some(vec![orbital_core_base::schema::EntityRef::Inline(
             serde_json::from_value(serde_json::json!({
                 "name": "ImportedOwner",
                 "identity": true,

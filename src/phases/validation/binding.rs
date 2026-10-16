@@ -7,8 +7,8 @@ use super::canonical_operators::get_canonical_operator;
 use super::entity_mutation::collect_entity_mutators;
 use super::render_ui::is_render_ui_effect;
 use super::{trait_path, ErrorCode, ValidationContext, ValidationError, ValidationResult};
-use orbital_core::events::BUS_EXCLUDED_EVENTS;
-use orbital_core::schema::{
+use orbital_core_base::events::BUS_EXCLUDED_EVENTS;
+use orbital_core_base::schema::{
     EntityDefinition, Orbital, OrbitalSchema, PayloadField, Persistence, SExpression,
     TraitDefinition, TraitReference,
 };
@@ -98,7 +98,7 @@ fn validate_dispatch_root(
         [] | ["event"] => true,
         ["payload", ..] => true,
         ["source"] => true,
-        ["source", field] => orbital_core::effects::BUS_EVENT_SOURCE_FIELDS.contains(field),
+        ["source", field] => orbital_core_base::bus_event::BUS_EVENT_SOURCE_FIELDS.contains(field),
         _ => false,
     };
     if !valid {
@@ -117,7 +117,7 @@ fn validate_dispatch_root(
                     .into_iter()
                     .map(str::to_string)
                     .chain(
-                        orbital_core::effects::BUS_EVENT_SOURCE_FIELDS
+                        orbital_core_base::bus_event::BUS_EVENT_SOURCE_FIELDS
                             .iter()
                             .map(|f| format!("source.{f}")),
                     )
@@ -692,7 +692,7 @@ fn validate_callsite_payload_captures(
             if let Some(cfg) = def.config.as_ref() {
                 for field in cfg.values() {
                     if let Some(default) = field.default.as_ref() {
-                        orbital_core::schema::collect_callsite_payload_paths(default, &mut paths);
+                        orbital_core_base::schema::collect_callsite_payload_paths(default, &mut paths);
                     }
                 }
             }
@@ -2409,7 +2409,7 @@ mod tests {
     /// Twin of `@almadar/core` `__tests__/binding-roots.test.ts`: both lists are pinned to the author vocabulary.
     #[test]
     fn every_author_sigil_is_a_core_root_and_the_set_matches_the_ts_mirror() {
-        let en = &orbital_core::i18n::tables::definitions()["en"];
+        let en = &orbital_core_base::i18n::tables::definitions()["en"];
         for sigil in en.sigils.keys() {
             assert!(
                 CORE_BINDING_ROOTS.contains(&sigil.as_str()),
@@ -2852,7 +2852,7 @@ mod tests {
 
     #[test]
     fn test_entity_field_not_found() {
-        use orbital_core::schema::{FieldDefinition, FieldType};
+        use orbital_core_base::schema::{FieldDefinition, FieldType};
 
         let entity_def = EntityDefinition {
             shared: false,
@@ -2937,7 +2937,7 @@ mod tests {
 
     #[test]
     fn test_entity_field_id_skipped() {
-        use orbital_core::schema::{FieldDefinition, FieldType};
+        use orbital_core_base::schema::{FieldDefinition, FieldType};
 
         let entity_def = EntityDefinition {
             shared: false,
@@ -2986,7 +2986,7 @@ mod tests {
 
     #[test]
     fn test_named_entity_field_validation() {
-        use orbital_core::schema::{FieldDefinition, FieldType};
+        use orbital_core_base::schema::{FieldDefinition, FieldType};
 
         let entity_def = EntityDefinition {
             shared: false,
@@ -3112,8 +3112,8 @@ mod tests {
         name: &str,
         linked_entity: Option<&str>,
         transitions: Vec<(&str, Vec<SExpression>)>,
-    ) -> orbital_core::schema::TraitDefinition {
-        use orbital_core::schema::{
+    ) -> orbital_core_base::schema::TraitDefinition {
+        use orbital_core_base::schema::{
             StateDefinition, StateMachine, StringOrArray, TransitionDefinition,
         };
         let trans = transitions
@@ -3131,7 +3131,7 @@ mod tests {
                 },
             })
             .collect();
-        orbital_core::schema::TraitDefinition {
+        orbital_core_base::schema::TraitDefinition {
             local: false,
             effect_row: None,
             type_params: None,
@@ -3184,7 +3184,7 @@ mod tests {
             s("render-ui"),
             s("main"),
             SExpression::Object({
-                let mut m = orbital_core::schema::SObject::new();
+                let mut m = orbital_core_base::schema::SObject::new();
                 m.insert("currentPage".to_string(), s("@entity.currentPage"));
                 m
             }),
@@ -3296,7 +3296,7 @@ mod tests {
             s("render-ui"),
             s("main"),
             SExpression::Object({
-                let mut m = orbital_core::schema::SObject::new();
+                let mut m = orbital_core_base::schema::SObject::new();
                 m.insert("range".to_string(), s("@entity.selectedRange"));
                 m
             }),
@@ -3333,7 +3333,7 @@ mod tests {
             s("render-ui"),
             s("main"),
             SExpression::Object({
-                let mut m = orbital_core::schema::SObject::new();
+                let mut m = orbital_core_base::schema::SObject::new();
                 m.insert("currentPage".to_string(), s("@entity.currentPage"));
                 m
             }),
@@ -3370,7 +3370,7 @@ mod tests {
             s("render-ui"),
             s("main"),
             SExpression::Object({
-                let mut m = orbital_core::schema::SObject::new();
+                let mut m = orbital_core_base::schema::SObject::new();
                 m.insert("currentPage".to_string(), s("@entity.currentPage"));
                 m
             }),
@@ -3401,7 +3401,7 @@ mod tests {
             s("render-ui"),
             s("main"),
             SExpression::Object({
-                let mut m = orbital_core::schema::SObject::new();
+                let mut m = orbital_core_base::schema::SObject::new();
                 m.insert("entityId".to_string(), s("@entity.id"));
                 m
             }),
@@ -3432,7 +3432,7 @@ mod tests {
             s("render-ui"),
             s("main"),
             SExpression::Object({
-                let mut m = orbital_core::schema::SObject::new();
+                let mut m = orbital_core_base::schema::SObject::new();
                 m.insert("anything".to_string(), s("@entity.anything"));
                 m
             }),
@@ -3462,7 +3462,7 @@ mod tests {
             s("render-ui"),
             s("main"),
             SExpression::Object({
-                let mut m = orbital_core::schema::SObject::new();
+                let mut m = orbital_core_base::schema::SObject::new();
                 m.insert("currentPage".to_string(), s("@entity.currentPage"));
                 m
             }),
@@ -3490,10 +3490,10 @@ mod tests {
     fn test_entity_field_only_in_guard_no_setter_fails() {
         // Guard reads @entity.locked but no transition (set)s it. Must fail.
         let guard_only_trait = {
-            use orbital_core::schema::{
+            use orbital_core_base::schema::{
                 StateDefinition, StateMachine, StringOrArray, TransitionDefinition,
             };
-            orbital_core::schema::TraitDefinition {
+            orbital_core_base::schema::TraitDefinition {
                 local: false,
                 effect_row: None,
                 type_params: None,
@@ -3588,7 +3588,7 @@ mod tests {
             expects: None,
             theme: None,
             services: None,
-            entity: orbital_core::schema::EntityRef::Inline(shared_entity_def("Unused")),
+            entity: orbital_core_base::schema::EntityRef::Inline(shared_entity_def("Unused")),
             auxiliary_entities: None,
             traits: traits.into_iter().map(TraitReference::Inline).collect(),
             pages: None,
@@ -3605,14 +3605,14 @@ mod tests {
 
     #[test]
     fn callsite_payload_capture_validates_against_composing_event() {
-        use orbital_core::schema::{ConfigField, EventDefinition};
+        use orbital_core_base::schema::{ConfigField, EventDefinition};
 
         // Composer trait renders `@trait.Child` on event `Failed` (payload {error}).
         let render = arr(vec![
             s("render-ui"),
             s("main"),
             SExpression::Object({
-                let mut m = orbital_core::schema::SObject::new();
+                let mut m = orbital_core_base::schema::SObject::new();
                 m.insert("type".to_string(), s("stack"));
                 m.insert("children".to_string(), arr(vec![s("@trait.Child")]));
                 m
@@ -3677,7 +3677,7 @@ mod tests {
             s("render-ui"),
             s("main"),
             SExpression::Object({
-                let mut m = orbital_core::schema::SObject::new();
+                let mut m = orbital_core_base::schema::SObject::new();
                 m.insert(
                     "children".to_string(),
                     arr(refs.into_iter().map(s).collect()),
@@ -3687,7 +3687,7 @@ mod tests {
         ])
     }
 
-    fn callsite_content(field: &str) -> HashMap<String, orbital_core::schema::ConfigField> {
+    fn callsite_content(field: &str) -> HashMap<String, orbital_core_base::schema::ConfigField> {
         serde_json::from_value(serde_json::json!({
             "content": { "type": "string", "default": format!("@callsitePayload.{field}") }
         }))
@@ -3699,7 +3699,7 @@ mod tests {
     // real host event — not the wrapper's own payload-less INIT self-loop.
     #[test]
     fn callsite_payload_capture_resolves_through_nested_render_wrapper() {
-        use orbital_core::schema::EventDefinition;
+        use orbital_core_base::schema::EventDefinition;
         // Host.Failed (payload {error}) renders @trait.Wrapper; Wrapper.INIT (no
         // payload) renders @trait.Child; Child captures @callsitePayload.error.
         let mut host = build_trait_fixture(
@@ -3770,7 +3770,7 @@ mod tests {
             s("render-ui"),
             s("main"),
             SExpression::Object({
-                let mut m = orbital_core::schema::SObject::new();
+                let mut m = orbital_core_base::schema::SObject::new();
                 m.insert("text".to_string(), s("@entity.title"));
                 m
             }),
@@ -3840,7 +3840,7 @@ mod tests {
             s("render-ui"),
             s("main"),
             SExpression::Object({
-                let mut m = orbital_core::schema::SObject::new();
+                let mut m = orbital_core_base::schema::SObject::new();
                 m.insert("text".to_string(), s("@entity.title"));
                 m
             }),
@@ -3905,7 +3905,7 @@ mod tests {
             s("render-ui"),
             s("main"),
             SExpression::Object({
-                let mut m = orbital_core::schema::SObject::new();
+                let mut m = orbital_core_base::schema::SObject::new();
                 m.insert("done".to_string(), s("@entity.done"));
                 m
             }),
@@ -3946,7 +3946,7 @@ mod tests {
             s("render-ui"),
             s("main"),
             SExpression::Object({
-                let mut m = orbital_core::schema::SObject::new();
+                let mut m = orbital_core_base::schema::SObject::new();
                 m.insert("val".to_string(), s("@entity.sharedX"));
                 m
             }),
@@ -3989,7 +3989,7 @@ mod tests {
             s("render-ui"),
             s("main"),
             SExpression::Object({
-                let mut m = orbital_core::schema::SObject::new();
+                let mut m = orbital_core_base::schema::SObject::new();
                 m.insert("val".to_string(), s("@entity.neverSet"));
                 m
             }),
@@ -4032,7 +4032,7 @@ mod tests {
             s("render-ui"),
             s("main"),
             SExpression::Object({
-                let mut m = orbital_core::schema::SObject::new();
+                let mut m = orbital_core_base::schema::SObject::new();
                 m.insert("val".to_string(), s("@entity.x"));
                 m
             }),
@@ -4116,7 +4116,7 @@ mod tests {
 
     /// An embedded trait on `entity` whose call-site config carries `values`.
     fn embed(name: &str, entity: &str, values: serde_json::Value) -> TraitDefinition {
-        use orbital_core::schema::ConfigField;
+        use orbital_core_base::schema::ConfigField;
         let mut child = build_trait_fixture(name, Some(entity), vec![]);
         let cfg: HashMap<String, ConfigField> = serde_json::from_value(values).unwrap();
         child.config = Some(cfg);

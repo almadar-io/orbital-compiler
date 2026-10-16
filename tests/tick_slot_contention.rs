@@ -12,7 +12,7 @@
 //! a live-guard clause separates the real defect from the ordinary pattern.
 
 use orbital_compiler::phases::validation::validate_comprehensive_without_services;
-use orbital_core::schema::OrbitalSchema;
+use orbital_core_base::schema::OrbitalSchema;
 use serde_json::{json, Value};
 
 fn parse(schema: Value) -> OrbitalSchema {

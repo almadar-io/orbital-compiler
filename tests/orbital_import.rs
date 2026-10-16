@@ -14,7 +14,7 @@
 use orbital_compiler::phases::inline::{inline_schema, InlineConfig};
 use orbital_compiler::phases::parse::parse_file;
 use orbital_compiler::phases::validation::validate_comprehensive_without_services;
-use orbital_core::schema::{EntityRef, ListenSource, OrbitalSchema, PageRef, TraitReference};
+use orbital_core_base::schema::{EntityRef, ListenSource, OrbitalSchema, PageRef, TraitReference};
 
 /// One orbital ("ThingOrbital"): two traits (`ThingList` embeds
 /// `@trait.ThingDetail` and listens on it via a `ListenSource::Orbital` —
@@ -203,7 +203,7 @@ fn find_trait<'a>(
     schema: &'a OrbitalSchema,
     orbital_idx: usize,
     name: &str,
-) -> &'a orbital_core::schema::TraitDefinition {
+) -> &'a orbital_core_base::schema::TraitDefinition {
     schema.orbitals[orbital_idx]
         .traits
         .iter()
@@ -379,7 +379,7 @@ fn config_override_folds_and_forwards_to_the_declaring_trait() {
             .as_ref()
             .and_then(|c| c.get("pageSize"))
             .and_then(|f| f.default.clone()),
-        Some(orbital_core::schema::SExpression::Number(25.0)),
+        Some(orbital_core_base::schema::SExpression::Number(25.0)),
         "orbital.config must fold the call-site override"
     );
     let list = find_trait(&schema, 0, "FirstImportThingList");
@@ -388,7 +388,7 @@ fn config_override_folds_and_forwards_to_the_declaring_trait() {
             .as_ref()
             .and_then(|c| c.get("limit"))
             .and_then(|f| f.default.clone()),
-        Some(orbital_core::schema::SExpression::Number(25.0)),
+        Some(orbital_core_base::schema::SExpression::Number(25.0)),
         "the forwarding trait's own declared default must resolve through the orbital rung"
     );
 }
@@ -444,7 +444,7 @@ fn two_imports_of_one_upstream_are_disjoint_by_name_and_id() {
             .as_ref()
             .and_then(|c| c.get("limit"))
             .and_then(|f| f.default.clone()),
-        Some(orbital_core::schema::SExpression::Number(10.0)),
+        Some(orbital_core_base::schema::SExpression::Number(10.0)),
         "with no override, the forward must resolve to the upstream's own default"
     );
 }
@@ -683,8 +683,8 @@ fn two_imports_of_one_upstream_produce_no_duplicate_page_names() {
     options.inline.skip_inline = true; // already inlined above
     let module = orbital_compiler::compile_schema(schema, &options)
         .expect("compile already-inlined schema to OIR");
-    let oir_result = orbital_core::ir::OirValidator::new(&module).validate();
-    let dup_page_name_errors: Vec<&orbital_core::ir::ValidationError> = oir_result
+    let oir_result = orbital_core_base::ir::OirValidator::new(&module).validate();
+    let dup_page_name_errors: Vec<&orbital_core_base::ir::ValidationError> = oir_result
         .errors
         .iter()
         .filter(|e| e.message.contains("Duplicate page name"))
@@ -827,7 +827,7 @@ fn config_forward_resolves_against_embedder_through_orbital_import() {
             .as_ref()
             .and_then(|c| c.get("itemClickEvent"))
             .and_then(|f| f.default.clone()),
-        Some(orbital_core::schema::SExpression::String(
+        Some(orbital_core_base::schema::SExpression::String(
             "VIEW".to_string()
         )),
         "config forward must resolve against the embedder (Embedder), not stay the raw \
@@ -997,7 +997,7 @@ fn inline_stage_b_consumer() -> (
 
 /// `LocalMain` is the SECOND orbital in `schema.orbitals` (`OtherHolder`
 /// is first).
-fn stage_b_local_main(schema: &OrbitalSchema) -> &orbital_core::schema::Orbital {
+fn stage_b_local_main(schema: &OrbitalSchema) -> &orbital_core_base::schema::Orbital {
     &schema.orbitals[1]
 }
 
@@ -1562,7 +1562,7 @@ fn g2_entity_rebind_rewrites_entity_typed_config_knob_value() {
         .expect("targetEntity knob carried");
     assert_eq!(
         target_entity.default,
-        Some(orbital_core::schema::SExpression::String(
+        Some(orbital_core_base::schema::SExpression::String(
             "Gadget".to_string()
         )),
         "an `entity`-typed knob's literal default must follow the SAME \
@@ -1687,14 +1687,14 @@ fn g3_fields_rename_reaches_bare_config_defaults_item_sigil_and_object_get_polic
     let read_policy = entity.read_policy.as_ref().expect("read_policy carried");
     assert_eq!(
         read_policy,
-        &orbital_core::schema::SExpression::Array(vec![
-            orbital_core::schema::SExpression::String("=".to_string()),
-            orbital_core::schema::SExpression::Array(vec![
-                orbital_core::schema::SExpression::String("object/get".to_string()),
-                orbital_core::schema::SExpression::String("@entity".to_string()),
-                orbital_core::schema::SExpression::String("company".to_string()),
+        &orbital_core_base::schema::SExpression::Array(vec![
+            orbital_core_base::schema::SExpression::String("=".to_string()),
+            orbital_core_base::schema::SExpression::Array(vec![
+                orbital_core_base::schema::SExpression::String("object/get".to_string()),
+                orbital_core_base::schema::SExpression::String("@entity".to_string()),
+                orbital_core_base::schema::SExpression::String("company".to_string()),
             ]),
-            orbital_core::schema::SExpression::String("@user.id".to_string()),
+            orbital_core_base::schema::SExpression::String("@user.id".to_string()),
         ]),
         "`(object/get @entity title)` in the entity's OWN read_policy must \
          follow the rename to `company`, not stay pinned to 'title'"
@@ -1706,9 +1706,9 @@ fn g3_fields_rename_reaches_bare_config_defaults_item_sigil_and_object_get_polic
     let form_fields = cfg.get("formFields").expect("formFields knob carried");
     assert_eq!(
         form_fields.default,
-        Some(orbital_core::schema::SExpression::Array(vec![
-            orbital_core::schema::SExpression::String("company".to_string()),
-            orbital_core::schema::SExpression::String("value".to_string()),
+        Some(orbital_core_base::schema::SExpression::Array(vec![
+            orbital_core_base::schema::SExpression::String("company".to_string()),
+            orbital_core_base::schema::SExpression::String("value".to_string()),
         ])),
         "a bare `[string]` field-name list must be rewritten element-by-element"
     );
@@ -1716,7 +1716,7 @@ fn g3_fields_rename_reaches_bare_config_defaults_item_sigil_and_object_get_polic
     let search_field = cfg.get("searchField").expect("searchField knob carried");
     assert_eq!(
         search_field.default,
-        Some(orbital_core::schema::SExpression::String(
+        Some(orbital_core_base::schema::SExpression::String(
             "company".to_string()
         )),
         "a bare `string` field-name default must be rewritten"
@@ -1727,7 +1727,7 @@ fn g3_fields_rename_reaches_bare_config_defaults_item_sigil_and_object_get_polic
         .expect("cardTitleBinding knob carried");
     assert_eq!(
         card_title_binding.default,
-        Some(orbital_core::schema::SExpression::String(
+        Some(orbital_core_base::schema::SExpression::String(
             "@item.company".to_string()
         )),
         "`@item.<f>` must follow the SAME field rename `@entity.<f>` already did"
@@ -2074,22 +2074,22 @@ fn g3_field_rename_reaches_a_hoisted_renders_forwarded_columns() {
         .and_then(|cfg| cfg.get("columns"))
         .and_then(|f| f.default.as_ref())
         .expect("columns default carried (forwarded)");
-    let orbital_core::schema::SExpression::Array(items) = columns else {
+    let orbital_core_base::schema::SExpression::Array(items) = columns else {
         panic!("columns default must be an array, got {columns:?}");
     };
-    let orbital_core::schema::SExpression::Object(entry) = &items[0] else {
+    let orbital_core_base::schema::SExpression::Object(entry) = &items[0] else {
         panic!("columns[0] must be an object, got {:?}", items[0]);
     };
     assert_eq!(
         entry.get("field"),
-        Some(&orbital_core::schema::SExpression::String(
+        Some(&orbital_core_base::schema::SExpression::String(
             "billRate".to_string()
         )),
         "the forwarded columns[0].field must follow the rename, not stay pinned to 'hourlyRate'"
     );
     assert_eq!(
         entry.get("key"),
-        Some(&orbital_core::schema::SExpression::String(
+        Some(&orbital_core_base::schema::SExpression::String(
             "billRate".to_string()
         )),
         "the forwarded columns[0].key must follow the rename, not stay pinned to 'hourlyRate'"

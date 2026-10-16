@@ -2,7 +2,7 @@
 //!
 //! Reads schema files and deserializes them into OrbitalSchema types.
 
-use orbital_core::schema::OrbitalSchema;
+use orbital_core_base::schema::OrbitalSchema;
 use std::fs;
 use std::path::Path;
 use thiserror::Error;
@@ -44,7 +44,7 @@ pub fn parse_file(path: impl AsRef<Path>) -> Result<OrbitalSchema, ParseError> {
 /// Parse a JSON string into OrbitalSchema
 pub fn parse_json(json: &str) -> Result<OrbitalSchema, ParseError> {
     let mut schema: OrbitalSchema = serde_json::from_str(json)?;
-    orbital_core::stamp::ensure_stamped(&mut schema);
+    orbital_core_base::stamp::ensure_stamped(&mut schema);
     Ok(schema)
 }
 

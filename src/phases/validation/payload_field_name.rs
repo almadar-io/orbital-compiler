@@ -11,7 +11,7 @@
 //! Also checks (same walker): a field typed the bare `"array"` string with
 //! no declared element type (`ORB_X_UNTYPED_ARRAY`).
 
-use orbital_core::schema::{OrbitalSchema, PayloadField, TraitReference};
+use orbital_core_base::schema::{OrbitalSchema, PayloadField, TraitReference};
 
 use super::error::{ErrorCode, ValidationError};
 use super::{trait_path, ValidationContext};
@@ -94,7 +94,7 @@ fn is_valid_ts_identifier(s: &str) -> bool {
 #[cfg(test)]
 mod tests {
     use super::{check_fields, is_valid_ts_identifier, ErrorCode, ValidationContext};
-    use orbital_core::schema::PayloadField;
+    use orbital_core_base::schema::PayloadField;
 
     fn payload_field(name: &str, field_type: &str) -> PayloadField {
         PayloadField {

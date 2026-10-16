@@ -20,7 +20,7 @@ use super::final_program::{embedder_closure, routes};
 use super::fired_events::{collect_schema_fired_events, fold_knobs, literal_knobs, FiredEvents};
 use super::{ErrorCode, ValidationContext, ValidationError};
 use crate::phases::embed_graph::EmbedGraph;
-use orbital_core::schema::{
+use orbital_core_base::schema::{
     EntityRef, EventScope, ListenDefinition, ListenSource, Orbital, OrbitalSchema, Persistence,
     SExpression, StringOrArray, TraitDefinition, TraitReference,
 };
@@ -177,7 +177,7 @@ fn unreachable_states(
 fn trait_inputs(td: &TraitDefinition, produced: &HashSet<String>) -> HashSet<String> {
     let mut inputs: HashSet<String> = produced.clone();
     inputs.extend(
-        orbital_core::events::BUS_EXCLUDED_EVENTS
+        orbital_core_base::events::BUS_EXCLUDED_EVENTS
             .iter()
             .map(|e| e.to_string()),
     );
@@ -196,7 +196,7 @@ fn trait_inputs(td: &TraitDefinition, produced: &HashSet<String>) -> HashSet<Str
 }
 
 /// Transitions the composition leaves on (a guard folded to `false` switches one off).
-fn live_transitions(td: &TraitDefinition) -> Vec<&orbital_core::schema::TransitionDefinition> {
+fn live_transitions(td: &TraitDefinition) -> Vec<&orbital_core_base::schema::TransitionDefinition> {
     let knobs = literal_knobs(td);
     td.state_machine
         .transitions
@@ -211,7 +211,7 @@ fn live_transitions(td: &TraitDefinition) -> Vec<&orbital_core::schema::Transiti
 
 fn reached_states<'a>(
     initial: &'a str,
-    live: &[&'a orbital_core::schema::TransitionDefinition],
+    live: &[&'a orbital_core_base::schema::TransitionDefinition],
     inputs: &HashSet<String>,
 ) -> HashSet<&'a str> {
     let mut reached: HashSet<&str> = HashSet::from([initial]);

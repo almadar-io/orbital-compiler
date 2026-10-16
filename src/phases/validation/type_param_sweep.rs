@@ -13,7 +13,7 @@
 //! `.orb`/codegen would otherwise carry a literal `"$<param>"` type, which is
 //! not a real type in any downstream shell.
 
-use orbital_core::schema::{Orbital, PayloadField, TraitDefinition, TraitReference};
+use orbital_core_base::schema::{Orbital, PayloadField, TraitDefinition, TraitReference};
 
 use super::{
     error::{ErrorCode, ValidationError},
@@ -171,7 +171,7 @@ fn check_payload_field(
 /// `@entity <knob>`, `@user`) resolve in config position, so an unresolved one
 /// must be reported here rather than silently emitted.
 pub fn validate_type_param_sentinels(
-    schema: &orbital_core::schema::OrbitalSchema,
+    schema: &orbital_core_base::schema::OrbitalSchema,
     ctx: &mut ValidationContext,
 ) {
     let mut result = super::ValidationResult::new();

@@ -6,7 +6,7 @@
 //! Faithful Rust port of `packages/almadar-core/src/builders/layout-strategy.ts`.
 
 use super::event_wiring::EventWiringEntry;
-use orbital_core::schema::Orbital;
+use orbital_core_base::schema::Orbital;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::collections::{HashMap, HashSet};

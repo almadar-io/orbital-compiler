@@ -3,7 +3,7 @@
 
 use super::sync::patterns::{is_valid_item_action_prop, VALID_ITEM_ACTION_PROPS};
 use super::{ErrorCode, ValidationError, ValidationResult};
-use orbital_core::schema::SExpression;
+use orbital_core_base::schema::SExpression;
 
 /// Validate itemActions array
 pub(super) fn validate_item_actions(item_actions: &SExpression, path: &str) -> ValidationResult {

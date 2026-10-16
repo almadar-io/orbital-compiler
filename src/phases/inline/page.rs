@@ -3,7 +3,7 @@
 use super::context::{parse_reference, InlineContext, ParsedReference};
 use super::rewrite::{rewrite_identifiers, stale_entity_rebind_subs};
 use super::InlineError;
-use orbital_core::schema::{
+use orbital_core_base::schema::{
     PageAccess, PageDefinition, PageModifiers, PageRef, PageRefObject, TraitReference,
 };
 use std::collections::HashMap;

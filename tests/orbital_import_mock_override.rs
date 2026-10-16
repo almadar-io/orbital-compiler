@@ -6,7 +6,7 @@
 use orbital_compiler::phases::inline::{inline_schema_with_orbital_diagnostics, InlineConfig};
 use orbital_compiler::phases::parse::parse_file;
 use orbital_compiler::phases::validation::orbital_ref_config::validate_orbital_ref_diagnostics;
-use orbital_core::schema::{EntityRef, OrbitalSchema};
+use orbital_core_base::schema::{EntityRef, OrbitalSchema};
 
 const UPSTREAM: &str = r#"{
   "name": "test-mock-upstream",

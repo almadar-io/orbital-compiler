@@ -58,7 +58,7 @@ fn pascal_to_kebab(name: &str) -> String {
 }
 
 /// Convert kebab-case to PascalCase
-pub use orbital_core::str_utils::kebab_to_pascal;
+pub use orbital_core_base::str_utils::kebab_to_pascal;
 
 /// Find similar icon names for suggestions
 pub fn find_similar_icons(name: &str, max_suggestions: usize) -> Vec<&'static str> {

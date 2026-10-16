@@ -7,7 +7,7 @@
 //! Faithful Rust port of `packages/almadar-core/src/builders/event-wiring.ts`.
 
 use super::compose_behaviors::ComposeError;
-use orbital_core::schema::{
+use orbital_core_base::schema::{
     EmitDefinition, EventScope, ListenDefinition, Orbital, TraitDefinition, TraitReference,
 };
 use serde::{Deserialize, Serialize};

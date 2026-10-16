@@ -85,7 +85,7 @@ fn aux_names(rebind: bool, owner: bool) -> Vec<String> {
         .iter()
         .flatten()
         .filter_map(|e| match e {
-            orbital_core::schema::EntityRef::Inline(def) => Some(def.name.clone()),
+            orbital_core_base::schema::EntityRef::Inline(def) => Some(def.name.clone()),
             _ => None,
         })
         .collect()

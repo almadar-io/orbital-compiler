@@ -11,7 +11,7 @@
 //! Runs POST-inline so `use`-imported atoms/molecules are checked too.
 
 use crate::phases::validation::{ErrorCode, ValidationError, ValidationResult};
-use orbital_core::schema::{OrbitalSchema, TraitReference};
+use orbital_core_base::schema::{OrbitalSchema, TraitReference};
 use std::collections::HashSet;
 
 /// Validate that every `listens[].triggers` resolves to a transition in the

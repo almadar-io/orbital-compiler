@@ -25,7 +25,7 @@
 
 use orbital_compiler::phases::validation::render_ui::validate_render_ui_effect;
 use orbital_compiler::phases::validation::{ErrorCode, ValidationResult};
-use orbital_core::schema::{EntityDefinition, FieldDefinition, FieldType, SExpression};
+use orbital_core_base::schema::{EntityDefinition, FieldDefinition, FieldType, SExpression};
 use std::collections::HashMap;
 
 // ============================================================================

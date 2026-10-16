@@ -2,7 +2,7 @@
 //!
 //! Validates the parsed schema for structural correctness and consistency.
 
-use orbital_core::schema::{
+use orbital_core_base::schema::{
     EntityDefinition, ExpectDeclaration, Orbital, OrbitalSchema, PageDefinition, StringOrArray,
     TraitDefinition, TraitReference,
 };
@@ -402,7 +402,7 @@ fn validate_state_machine(trait_def: &TraitDefinition, path: &str, ctx: &mut Val
 }
 
 /// Check if an effect is a render-ui to modal or drawer slot
-fn is_modal_render_effect(effect: &orbital_core::schema::SExpression) -> bool {
+fn is_modal_render_effect(effect: &orbital_core_base::schema::SExpression) -> bool {
     if let Some(op) = effect.operator() {
         if op == "render-ui" {
             if let Some(args) = effect.arguments() {
@@ -422,7 +422,7 @@ fn is_modal_render_effect(effect: &orbital_core::schema::SExpression) -> bool {
 }
 
 /// Check if an effect clears a modal/drawer slot
-fn is_modal_clear_effect(effect: &orbital_core::schema::SExpression) -> bool {
+fn is_modal_clear_effect(effect: &orbital_core_base::schema::SExpression) -> bool {
     if let Some(op) = effect.operator() {
         if op == "render-ui" {
             if let Some(args) = effect.arguments() {
@@ -562,7 +562,7 @@ fn validate_page(page: &PageDefinition, path: &str, ctx: &mut ValidationContext)
 #[cfg(test)]
 mod tests {
     use super::*;
-    use orbital_core::schema::{
+    use orbital_core_base::schema::{
         EntityRef, SExpression, StateDefinition, StateMachine, TraitDefinition,
         TransitionDefinition,
     };

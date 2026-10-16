@@ -5,15 +5,15 @@
 //! This module provides the high-level API for generating code from Orbital schemas.
 
 use crate::phases::{compile_file_with_source, parse_file, CompilerOptions};
-use orbital_core::ir::OirModule;
-use orbital_core::shell::{Shell, ShellError};
+use orbital_core_base::ir::OirModule;
+use orbital_core_base::shell::{Shell, ShellError};
 use std::collections::HashMap;
 use std::path::Path;
 use thiserror::Error;
 
 // Re-export core generation types so existing consumers of
 // `orbital_compiler::generate` continue to compile without changes.
-pub use orbital_core::generate::{locale_alternates, Backend, GeneratedFile, GeneratedOutput, ShellMode};
+pub use orbital_core_base::generate::{locale_alternates, Backend, GeneratedFile, GeneratedOutput, ShellMode};
 
 /// Generation error
 #[derive(Debug, Error)]
@@ -32,12 +32,12 @@ pub enum GenerateError {
 
     /// A shell program refused the request (`orbital_core::shell_protocol`).
     #[error("{0}")]
-    ShellProgram(#[from] orbital_core::shell_protocol::ShellFailure),
+    ShellProgram(#[from] orbital_core_base::shell_protocol::ShellFailure),
 }
 
-impl From<orbital_core::project::WriteError> for GenerateError {
-    fn from(error: orbital_core::project::WriteError) -> Self {
-        use orbital_core::project::WriteError;
+impl From<orbital_core_base::project::WriteError> for GenerateError {
+    fn from(error: orbital_core_base::project::WriteError) -> Self {
+        use orbital_core_base::project::WriteError;
         match error {
             WriteError::Shell(e) => GenerateError::Shell(e),
             WriteError::Io(e) => GenerateError::Io(e),
@@ -58,13 +58,13 @@ where
     S: Shell,
     B: Backend,
 {
-    Ok(orbital_core::project::write_project(oir, output_dir.as_ref(), shell, backend, &options.write_options())?)
+    Ok(orbital_core_base::project::write_project(oir, output_dir.as_ref(), shell, backend, &options.write_options())?)
 }
 
 impl GenerateOptions {
     /// The project-writing half of these options, as a shell receives it.
-    pub fn write_options(&self) -> orbital_core::project::WriteOptions {
-        orbital_core::project::WriteOptions {
+    pub fn write_options(&self) -> orbital_core_base::project::WriteOptions {
+        orbital_core_base::project::WriteOptions {
             copy_template: self.copy_template,
             clean: self.clean,
             verbose: self.verbose,
@@ -222,7 +222,7 @@ pub fn generate_from_file_with_source_using<R>(
             let resolved_path = output_dir.join("resolved.orb");
             let program_dir = source_path.parent().unwrap_or(Path::new("."));
             if let Err(err) = crate::phases::lazy::write_lazy(output_dir, &lazy, program_dir, &|schema| {
-                orbital_core::util::canonical_json::to_canonical_string_pretty(schema).map_err(std::io::Error::other)
+                orbital_core_eval::util::canonical_json::to_canonical_string_pretty(schema).map_err(std::io::Error::other)
             }) {
                 eprintln!(
                     "[generate_from_file] Failed to write lazy behaviors under {}: {}",
@@ -230,7 +230,7 @@ pub fn generate_from_file_with_source_using<R>(
                     err
                 );
             }
-            if let Ok(json) = orbital_core::util::canonical_json::to_canonical_string_pretty(&resolved) {
+            if let Ok(json) = orbital_core_eval::util::canonical_json::to_canonical_string_pretty(&resolved) {
                 if let Err(err) = std::fs::write(&resolved_path, json) {
                     eprintln!(
                         "[generate_from_file] Failed to write resolved.orb at {}: {}",
@@ -287,10 +287,10 @@ impl Default for BackendRegistry {
 /// catalog is an error — validation guarantees every key, so this never
 /// guesses.
 pub fn route_manifest(
-    oir: &orbital_core::ir::OirModule,
+    oir: &orbital_core_base::ir::OirModule,
     catalogs: &std::collections::BTreeMap<String, std::collections::BTreeMap<String, String>>,
 ) -> Result<serde_json::Value, String> {
-    use orbital_core::schema::{PageAccess, PageIndexing, PageMessage, PageMeta};
+    use orbital_core_base::schema::{PageAccess, PageIndexing, PageMessage, PageMeta};
     let resolve = |meta: &PageMeta, locale: Option<&str>, path: &str| -> Result<String, String> {
         match meta {
             PageMeta::Literal(s) => Ok(s.clone()),
@@ -304,14 +304,14 @@ pub fn route_manifest(
     if let Some(page) = oir
         .pages
         .iter()
-        .find(|p| orbital_core::schema::is_host_sign_in_route(&p.path))
+        .find(|p| orbital_core_base::schema::is_host_sign_in_route(&p.path))
     {
         return Err(format!(
             "ORB_P_HOST_RESERVED_ROUTE: page {} is declared on route {}, the host's own sign-in route",
             page.name, page.path
         ));
     }
-    if let Some((group, locale, paths)) = orbital_core::messages::duplicate_translation_locales(
+    if let Some((group, locale, paths)) = orbital_core_base::messages::duplicate_translation_locales(
         oir.pages
             .iter()
             .map(|p| (p.path.as_str(), p.translation_of.as_deref())),
@@ -336,7 +336,7 @@ pub fn route_manifest(
         });
         let obj = route.as_object_mut().expect("route is an object");
         if let Some(l) = locale {
-            obj.insert("dir".into(), orbital_core::messages::locale_direction(l).into());
+            obj.insert("dir".into(), orbital_core_base::messages::locale_direction(l).into());
         }
         if let Some(access) = page.access {
             obj.insert(
@@ -398,7 +398,7 @@ pub fn route_manifest(
 mod tests {
     use super::*;
     use crate::shell::BaseShell;
-    use orbital_core::ir::OirModule;
+    use orbital_core_base::ir::OirModule;
 
     #[test]
     fn test_generated_file() {
@@ -449,7 +449,7 @@ mod tests {
 
     fn module_with_local_entity() -> OirModule {
         let mut module = OirModule::new("Test", "0.1.0");
-        let mut invoice = orbital_core::ir::OirEntity::new("Invoice");
+        let mut invoice = orbital_core_base::ir::OirEntity::new("Invoice");
         invoice.local = true;
         module.entities.push(invoice);
         module
@@ -476,7 +476,7 @@ mod tests {
     }
 
     fn module_calling(service: &str) -> OirModule {
-        use orbital_core::ir::{OirEffect, OirExpr, OirState, OirTrait, OirTransition};
+        use orbital_core_base::ir::{OirEffect, OirExpr, OirState, OirTrait, OirTransition};
         let mut t = OirTrait::new("Caller");
         t.states.push(OirState::initial("idle"));
         t.transitions.push(OirTransition::new("idle", "idle", "INIT").with_effects(vec![OirExpr::effect(
@@ -593,7 +593,7 @@ mod tests {
         );
 
         let manifest: std::collections::BTreeSet<String> = serde_json::from_str(
-            &std::fs::read_to_string(output_dir.join(orbital_core::project::ORB_MANIFEST_FILE)).unwrap(),
+            &std::fs::read_to_string(output_dir.join(orbital_core_base::project::ORB_MANIFEST_FILE)).unwrap(),
         )
         .unwrap();
         assert_eq!(
@@ -630,6 +630,6 @@ mod tests {
         generate_from_oir(&module, output_dir, &shell, &backend, &options).expect("compiles");
         assert!(output_dir.join("generated/a.ts").exists());
         assert!(output_dir.join("generated/nested/b.ts").exists());
-        assert!(output_dir.join(orbital_core::project::ORB_MANIFEST_FILE).exists());
+        assert!(output_dir.join(orbital_core_base::project::ORB_MANIFEST_FILE).exists());
     }
 }

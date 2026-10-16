@@ -6,7 +6,7 @@
 use super::error::{ErrorCode, ValidationError, ValidationResult};
 use super::ValidationContext;
 use crate::embedded::builtin_theme_names;
-use orbital_core::schema::{
+use orbital_core_base::schema::{
     OrbitalSchema, SExpression, ThemeDefinition, ThemeRef, TraitReference, TypeScaleTokens,
 };
 use regex::Regex;
@@ -256,7 +256,7 @@ pub fn validate_theme_definition(theme: &ThemeDefinition, path: &str) -> Validat
 /// `@almadar/core`'s `isWellFormedFontStack`.
 fn check_font_stacks(
     type_scale: Option<&TypeScaleTokens>,
-    typography: Option<&orbital_core::schema::ThemeMap>,
+    typography: Option<&orbital_core_base::schema::ThemeMap>,
     path: &str,
     result: &mut ValidationResult,
 ) {
@@ -413,7 +413,7 @@ fn is_valid_css_length(value: &str) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use orbital_core::schema::ThemeTokens;
+    use orbital_core_base::schema::ThemeTokens;
 
     #[test]
     fn test_valid_theme_reference() {

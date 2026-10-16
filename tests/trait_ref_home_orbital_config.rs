@@ -26,7 +26,7 @@
 use orbital_compiler::phases::inline::{inline_schema, InlineConfig};
 use orbital_compiler::phases::parse::parse_file;
 use orbital_compiler::phases::validation::{validate_comprehensive_without_services, ErrorCode};
-use orbital_core::schema::{OrbitalSchema, SExpression, TraitReference};
+use orbital_core_base::schema::{OrbitalSchema, SExpression, TraitReference};
 
 /// `HomeOrbital` declares the orbital-level knob `browseColumns` (default
 /// `["upstreamCol"]`) and the app declares `appName` (default `"Upstream
@@ -148,7 +148,7 @@ fn materialize(consumer_source: &str) -> OrbitalSchema {
     schema
 }
 
-fn local_trait(schema: &OrbitalSchema) -> &orbital_core::schema::TraitDefinition {
+fn local_trait(schema: &OrbitalSchema) -> &orbital_core_base::schema::TraitDefinition {
     schema.orbitals[0]
         .traits
         .iter()
@@ -159,11 +159,11 @@ fn local_trait(schema: &OrbitalSchema) -> &orbital_core::schema::TraitDefinition
         .expect("expected inlined trait Local")
 }
 
-fn config_default(td: &orbital_core::schema::TraitDefinition, key: &str) -> Option<SExpression> {
+fn config_default(td: &orbital_core_base::schema::TraitDefinition, key: &str) -> Option<SExpression> {
     td.config.as_ref()?.get(key)?.default.clone()
 }
 
-fn config_forwarded_from(td: &orbital_core::schema::TraitDefinition, key: &str) -> Option<String> {
+fn config_forwarded_from(td: &orbital_core_base::schema::TraitDefinition, key: &str) -> Option<String> {
     td.config.as_ref()?.get(key)?.forwarded_from.clone()
 }
 

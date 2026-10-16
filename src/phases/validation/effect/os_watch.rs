@@ -2,7 +2,7 @@
 
 use super::super::ValidationResult;
 use super::{extract_emit_object_ref, validate_emit_config, DeclaredEmit};
-use orbital_core::schema::SExpression;
+use orbital_core_base::schema::SExpression;
 
 /// Validate any `os/watch-*` effect. Each is a streaming subscription —
 /// `on_message` fires per event, `failure` fires if the subscription breaks.

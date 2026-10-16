@@ -15,7 +15,7 @@
 
 use std::collections::HashMap;
 
-use orbital_core::schema::{
+use orbital_core_base::schema::{
     EntityDefinition, EventScope, OrbitalSchema, PayloadField, SExpression, TraitReference,
 };
 
@@ -283,7 +283,7 @@ fn validate_emit_literal(
                     let empty_list_in_list_slot = matches!(value, SExpression::Array(items) if items.is_empty())
                         && (expected.starts_with('[') || *expected == "array");
                     if empty_list_in_list_slot {
-                    } else if let Some(actual) = orbital_core::literal_value_type(value) {
+                    } else if let Some(actual) = orbital_core_eval::literal_type::literal_value_type(value) {
                         if !primitive_types_compatible(expected, actual) {
                             result.add_error(
                                 ValidationError::error(
@@ -302,7 +302,7 @@ fn validate_emit_literal(
                         }
                     } else if let Some(inferred) = expr_return_incompatible(
                         value,
-                        &orbital_core::compat_kind_oir(expected),
+                        &orbital_core_base::type_compat::compat_kind_oir(expected),
                         entity_field_types,
                         payload_field_types,
                     ) {
@@ -319,7 +319,7 @@ fn validate_emit_literal(
                                     "Emit '{}' field '{}' evaluates to '{}', declared as '{}'",
                                     event_name,
                                     key,
-                                    orbital_core::oir_type_kind(&inferred),
+                                    orbital_core_base::type_compat::oir_type_kind(&inferred),
                                     expected
                                 ),
                             )
@@ -586,7 +586,7 @@ fn emit_event_for_key(args: &[SExpression], key: &str) -> Option<String> {
 /// string/number, entity/relation vs object/string). The fork was deduped in
 /// Phase 4.1; the differential harness pins zero baseline movement.
 fn primitive_types_compatible(declared: &str, actual: &str) -> bool {
-    orbital_core::set_value_type_compatible(declared, actual)
+    orbital_core_base::type_compat::set_value_type_compatible(declared, actual)
 }
 
 #[cfg(test)]

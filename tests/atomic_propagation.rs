@@ -42,7 +42,7 @@
 //!    are cleaned up after the test exits, even on failure.
 
 use orbital_compiler::{compile_file, CompilerOptions};
-use orbital_core::ir::OirModule;
+use orbital_core_base::ir::OirModule;
 use std::fs;
 use std::path::PathBuf;
 use tempfile::TempDir;

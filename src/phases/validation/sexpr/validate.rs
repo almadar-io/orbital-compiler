@@ -4,7 +4,7 @@ use super::arity::get_arity_rule;
 use super::binding::validate_binding;
 use super::operators::{has_namespace_hit, is_known_operator, EFFECT_OPERATORS};
 use crate::phases::validation::{ErrorCode, ValidationContext, ValidationError, ValidationResult};
-use orbital_core::schema::{
+use orbital_core_base::schema::{
     EntityRef, FieldDefinition, OrbitalSchema, SExpression, TraitDefinition,
 };
 use std::collections::HashSet;

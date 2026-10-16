@@ -1,6 +1,6 @@
 use crate::phases::validation::{ErrorCode, ValidationError, ValidationResult};
-use orbital_core::events::is_bus_excluded_event;
-use orbital_core::schema::{EventScope, OrbitalSchema, TraitDefinition, TraitReference};
+use orbital_core_base::events::is_bus_excluded_event;
+use orbital_core_base::schema::{EventScope, OrbitalSchema, TraitDefinition, TraitReference};
 use std::collections::{HashMap, HashSet};
 
 /// Validate event wiring between orbitals
@@ -324,7 +324,7 @@ pub(crate) fn validate_event_wiring(schema: &OrbitalSchema) -> ValidationResult 
 /// terminates in nothing. UI-control events (render-ui event props) are not
 /// in scope: the bus delivers those by name.
 fn validate_sibling_handlers_routed(schema: &OrbitalSchema, result: &mut ValidationResult) {
-    use orbital_core::schema::{ListenSource, SExpression};
+    use orbital_core_base::schema::{ListenSource, SExpression};
 
     fn walk_emits(expr: &SExpression, out: &mut HashSet<String>) {
         if let Some(event) = extract_emit_event(expr) {
@@ -521,7 +521,7 @@ pub(crate) fn collect_trait_events(
     // firing MEMORIZED). If a wildcard has no intra-orbital source, that is
     // the author's explicit intent, not an orphan.
     if let Some(listens) = &trait_def.listens {
-        use orbital_core::schema::ListenSource;
+        use orbital_core_base::schema::ListenSource;
         for listen in listens {
             if listen.scope == Some(EventScope::External) {
                 continue;
@@ -595,7 +595,7 @@ pub(crate) fn collect_trait_events(
 /// `@`-prefixed values (unresolved bindings) are never credited.
 pub(crate) fn collect_effect_produced_events(trait_def: &TraitDefinition) -> HashSet<String> {
     use crate::phases::validation::value_walk::all_sources;
-    use orbital_core::schema::SExpression;
+    use orbital_core_base::schema::SExpression;
 
     fn credit(value: &SExpression, out: &mut HashSet<String>) {
         if let SExpression::String(ev) = value {
@@ -714,9 +714,9 @@ pub(crate) fn collect_effect_produced_events(trait_def: &TraitDefinition) -> Has
 /// tuple's own operator name + `emit: {failure: X}` map, no name/text
 /// matching beyond that fixed 3-operator allowlist.
 pub(crate) fn collect_failure_events(
-    effects: &[orbital_core::schema::SExpression],
+    effects: &[orbital_core_base::schema::SExpression],
 ) -> HashSet<String> {
-    use orbital_core::schema::SExpression;
+    use orbital_core_base::schema::SExpression;
     fn walk(expr: &SExpression, out: &mut HashSet<String>) {
         let SExpression::Array(items) = expr else {
             return;
@@ -764,9 +764,9 @@ pub(crate) fn collect_failure_events(
 /// key in the `emit` object, since a target state must hear success too,
 /// not only failure).
 pub(crate) fn collect_async_result_events(
-    effects: &[orbital_core::schema::SExpression],
+    effects: &[orbital_core_base::schema::SExpression],
 ) -> HashSet<String> {
-    use orbital_core::schema::SExpression;
+    use orbital_core_base::schema::SExpression;
     fn walk(expr: &SExpression, out: &mut HashSet<String>) {
         let SExpression::Array(items) = expr else {
             return;
@@ -807,7 +807,7 @@ pub(crate) fn collect_async_result_events(
 /// only `set`s state, renders UI, or otherwise has no event-producing
 /// effect is terminal: the cycle-detector should skip its inbound edges.
 pub(crate) fn transition_can_propagate(trait_def: &TraitDefinition, event: &str) -> bool {
-    use orbital_core::schema::SExpression;
+    use orbital_core_base::schema::SExpression;
     for transition in &trait_def.state_machine.transitions {
         if transition.event != event {
             continue;
@@ -842,8 +842,8 @@ pub(crate) fn transition_can_propagate(trait_def: &TraitDefinition, event: &str)
     false
 }
 
-pub(crate) fn extract_emit_event(effect: &orbital_core::schema::SExpression) -> Option<String> {
-    use orbital_core::schema::SExpression;
+pub(crate) fn extract_emit_event(effect: &orbital_core_base::schema::SExpression) -> Option<String> {
+    use orbital_core_base::schema::SExpression;
 
     match effect {
         SExpression::Array(arr) if arr.len() >= 2 => {
@@ -875,7 +875,7 @@ pub(crate) fn extract_emit_event(effect: &orbital_core::schema::SExpression) -> 
 /// use and the finding should stay reported rather than being silently
 /// dropped as stale.
 fn event_referenced_in_persist_or_effect_flow(schema: &OrbitalSchema, event: &str) -> bool {
-    use orbital_core::schema::SExpression;
+    use orbital_core_base::schema::SExpression;
 
     fn is_persist_effect(expr: &SExpression) -> bool {
         matches!(expr, SExpression::Array(arr) if matches!(arr.first(), Some(SExpression::String(op)) if op == "persist"))
@@ -928,7 +928,7 @@ mod tests {
         validate_event_wiring(schema)
     }
     use super::*;
-    use orbital_core::schema::{
+    use orbital_core_base::schema::{
         EntityDefinition, EntityRef, Orbital, StateMachine, TraitDefinition,
     };
 
@@ -1014,7 +1014,7 @@ mod tests {
             description: None,
             linked_entity: Some("Order".to_string()),
             emits: None,
-            listens: Some(vec![orbital_core::schema::ListenDefinition {
+            listens: Some(vec![orbital_core_base::schema::ListenDefinition {
                 event: "USER_LOGGED_IN".to_string(),
                 triggers: None,
                 scope: Some(EventScope::External),
@@ -1076,7 +1076,7 @@ mod tests {
             description: None,
             linked_entity: Some("Order".to_string()),
             emits: None,
-            listens: Some(vec![orbital_core::schema::ListenDefinition {
+            listens: Some(vec![orbital_core_base::schema::ListenDefinition {
                 event: "SOMETHING_WITHIN_ORBITAL".to_string(),
                 triggers: None,
                 scope: Some(EventScope::Internal),
@@ -1157,7 +1157,7 @@ mod tests {
     }
 
     fn render_ui_with_event_prop(pattern_type: &str, prop: &str, event: &str) -> SExpression {
-        let mut node: orbital_core::schema::SObject = orbital_core::schema::SObject::new();
+        let mut node: orbital_core_base::schema::SObject = orbital_core_base::schema::SObject::new();
         node.insert(
             "type".to_string(),
             SExpression::String(pattern_type.to_string()),
@@ -1172,11 +1172,11 @@ mod tests {
 
     fn scoped_listener(name: &str, source_trait: &str, event: &str) -> TraitDefinition {
         let mut td = bare_trait(name);
-        td.listens = Some(vec![orbital_core::schema::ListenDefinition {
+        td.listens = Some(vec![orbital_core_base::schema::ListenDefinition {
             event: event.to_string(),
             triggers: Some("REFRESH".to_string()),
             scope: None,
-            source: Some(orbital_core::schema::ListenSource::Trait {
+            source: Some(orbital_core_base::schema::ListenSource::Trait {
                 trait_name: source_trait.to_string(),
                 trait_id: None,
             }),
@@ -1191,7 +1191,7 @@ mod tests {
         td
     }
 
-    use orbital_core::schema::{SExpression, StateDefinition, TransitionDefinition};
+    use orbital_core_base::schema::{SExpression, StateDefinition, TransitionDefinition};
 
     fn trait_with_effect(name: &str, effect: SExpression) -> TraitDefinition {
         let mut td = bare_trait(name);
@@ -1205,7 +1205,7 @@ mod tests {
             }],
             events: None,
             transitions: vec![TransitionDefinition {
-                from: orbital_core::StringOrArray::Single("idle".to_string()),
+                from: orbital_core_base::schema::types::StringOrArray::Single("idle".to_string()),
                 to: "idle".to_string(),
                 event: "INIT".to_string(),
                 event_id: None,
@@ -1262,12 +1262,12 @@ mod tests {
     /// fetch `emit: {success}` map satisfies a scoped std-stats-style listener.
     #[test]
     fn fetch_emit_map_satisfies_scoped_listener() {
-        let mut emit_map: orbital_core::schema::SObject = orbital_core::schema::SObject::new();
+        let mut emit_map: orbital_core_base::schema::SObject = orbital_core_base::schema::SObject::new();
         emit_map.insert(
             "success".to_string(),
             SExpression::String("SummaryLoaded".to_string()),
         );
-        let mut options: orbital_core::schema::SObject = orbital_core::schema::SObject::new();
+        let mut options: orbital_core_base::schema::SObject = orbital_core_base::schema::SObject::new();
         options.insert("emit".to_string(), SExpression::Object(emit_map));
         let fetch_effect = SExpression::Array(vec![
             SExpression::String("fetch".to_string()),
@@ -1299,7 +1299,7 @@ mod tests {
     /// branch is an itemActions-style array of `{event: <name>}` descriptors.
     fn conditional_item_actions(then_event: &str, else_event: &str) -> SExpression {
         let descriptor = |event: &str| {
-            let mut dm: orbital_core::schema::SObject = orbital_core::schema::SObject::new();
+            let mut dm: orbital_core_base::schema::SObject = orbital_core_base::schema::SObject::new();
             dm.insert("name".to_string(), SExpression::String("Edit".to_string()));
             dm.insert("event".to_string(), SExpression::String(event.to_string()));
             SExpression::Object(dm)
@@ -1313,7 +1313,7 @@ mod tests {
     }
 
     fn render_ui_with_item_actions(pattern_type: &str, item_actions: SExpression) -> SExpression {
-        let mut node: orbital_core::schema::SObject = orbital_core::schema::SObject::new();
+        let mut node: orbital_core_base::schema::SObject = orbital_core_base::schema::SObject::new();
         node.insert(
             "type".to_string(),
             SExpression::String(pattern_type.to_string()),
@@ -1357,7 +1357,7 @@ mod tests {
     #[test]
     fn nested_conditional_item_actions_credits_every_leaf_branch() {
         let descriptor = |event: &str| {
-            let mut dm: orbital_core::schema::SObject = orbital_core::schema::SObject::new();
+            let mut dm: orbital_core_base::schema::SObject = orbital_core_base::schema::SObject::new();
             dm.insert("name".to_string(), SExpression::String("Edit".to_string()));
             dm.insert("event".to_string(), SExpression::String(event.to_string()));
             SExpression::Object(dm)
@@ -1394,7 +1394,7 @@ mod tests {
     #[test]
     fn filtered_item_actions_credit_the_same_events_as_a_bare_binding() {
         let descriptor = |event: &str| {
-            let mut dm: orbital_core::schema::SObject = orbital_core::schema::SObject::new();
+            let mut dm: orbital_core_base::schema::SObject = orbital_core_base::schema::SObject::new();
             dm.insert("event".to_string(), SExpression::String(event.to_string()));
             SExpression::Object(dm)
         };
@@ -1425,7 +1425,7 @@ mod tests {
             events
                 .iter()
                 .map(|event| {
-                    let mut dm: orbital_core::schema::SObject = orbital_core::schema::SObject::new();
+                    let mut dm: orbital_core_base::schema::SObject = orbital_core_base::schema::SObject::new();
                     dm.insert(
                         "event".to_string(),
                         SExpression::String((*event).to_string()),
@@ -1679,15 +1679,15 @@ mod tests {
         let mut td = externally_emitting_trait(name, event, true);
         if let TraitReference::Inline(def) = &mut td {
             def.config = None;
-            def.state_machine.transitions = vec![orbital_core::schema::TransitionDefinition {
+            def.state_machine.transitions = vec![orbital_core_base::schema::TransitionDefinition {
                 event_id: None,
-                from: orbital_core::schema::StringOrArray::Single("idle".to_string()),
+                from: orbital_core_base::schema::StringOrArray::Single("idle".to_string()),
                 to: "idle".to_string(),
                 event: "TICK".to_string(),
                 guard: None,
-                effects: Some(vec![orbital_core::schema::SExpression::Array(vec![
-                    orbital_core::schema::SExpression::String("emit".to_string()),
-                    orbital_core::schema::SExpression::String(event.to_string()),
+                effects: Some(vec![orbital_core_base::schema::SExpression::Array(vec![
+                    orbital_core_base::schema::SExpression::String("emit".to_string()),
+                    orbital_core_base::schema::SExpression::String(event.to_string()),
                 ])]),
             }];
         }
@@ -1707,7 +1707,7 @@ mod tests {
             capabilities: vec![],
             description: None,
             linked_entity: Some("Task".to_string()),
-            emits: Some(vec![orbital_core::schema::EmitDefinition {
+            emits: Some(vec![orbital_core_base::schema::EmitDefinition {
                 definer_knob: None,
                 scope_overridden: None,
                 event: event.to_string(),
@@ -1735,9 +1735,9 @@ mod tests {
             config: Some(
                 [(
                     "action".to_string(),
-                    orbital_core::schema::ConfigField {
+                    orbital_core_base::schema::ConfigField {
                         field_type: "event".to_string(),
-                        default: Some(orbital_core::schema::SExpression::String(event.to_string())),
+                        default: Some(orbital_core_base::schema::SExpression::String(event.to_string())),
                         label: None,
                         description: None,
                         synonyms: None,
@@ -1759,7 +1759,7 @@ mod tests {
             data_entities: None,
             scope: None,
             source_behavior: if imported {
-                Some(orbital_core::schema::SourceBehaviorMetadata {
+                Some(orbital_core_base::schema::SourceBehaviorMetadata {
                     behavior: "ui-input".to_string(),
                     alias: "Input".to_string(),
                     original_name: "InputRender".to_string(),
@@ -1784,31 +1784,31 @@ mod tests {
         let TraitReference::Inline(def) = td else {
             return;
         };
-        def.state_machine.states = vec![orbital_core::schema::StateDefinition {
+        def.state_machine.states = vec![orbital_core_base::schema::StateDefinition {
             name: "idle".to_string(),
             is_initial: Some(true),
             is_terminal: None,
             description: None,
             time_bound_ms: None,
         }];
-        def.state_machine.transitions = vec![orbital_core::schema::TransitionDefinition {
+        def.state_machine.transitions = vec![orbital_core_base::schema::TransitionDefinition {
             event_id: None,
-            from: orbital_core::schema::StringOrArray::Single("idle".to_string()),
+            from: orbital_core_base::schema::StringOrArray::Single("idle".to_string()),
             to: "idle".to_string(),
             event: "INIT".to_string(),
             guard: None,
-            effects: Some(vec![orbital_core::schema::SExpression::Array(vec![
-                orbital_core::schema::SExpression::String("render-ui".to_string()),
-                orbital_core::schema::SExpression::String("main".to_string()),
-                orbital_core::schema::SExpression::Object(
+            effects: Some(vec![orbital_core_base::schema::SExpression::Array(vec![
+                orbital_core_base::schema::SExpression::String("render-ui".to_string()),
+                orbital_core_base::schema::SExpression::String("main".to_string()),
+                orbital_core_base::schema::SExpression::Object(
                     [
                         (
                             "type".to_string(),
-                            orbital_core::schema::SExpression::String("button".to_string()),
+                            orbital_core_base::schema::SExpression::String("button".to_string()),
                         ),
                         (
                             "action".to_string(),
-                            orbital_core::schema::SExpression::String(event.to_string()),
+                            orbital_core_base::schema::SExpression::String(event.to_string()),
                         ),
                     ]
                     .into_iter()
@@ -1897,13 +1897,13 @@ mod tests {
         event: &str,
         imported: bool,
     ) -> TraitReference {
-        use orbital_core::schema::SExpression;
+        use orbital_core_base::schema::SExpression;
         // Unscoped (not `external`), so `exempt_external` never applies —
         // isolates the undecidable predicate from the separate scope-based
         // exemption tested elsewhere.
         let mut td = externally_emitting_trait(name, event, imported);
         if let TraitReference::Inline(def) = &mut td {
-            def.emits = Some(vec![orbital_core::schema::EmitDefinition {
+            def.emits = Some(vec![orbital_core_base::schema::EmitDefinition {
                 definer_knob: None,
                 scope_overridden: None,
                 event: event.to_string(),
@@ -1916,16 +1916,16 @@ mod tests {
                 payload_entity: None,
             }]);
             def.config = None;
-            def.state_machine.states = vec![orbital_core::schema::StateDefinition {
+            def.state_machine.states = vec![orbital_core_base::schema::StateDefinition {
                 name: "idle".to_string(),
                 is_initial: Some(true),
                 is_terminal: None,
                 description: None,
                 time_bound_ms: None,
             }];
-            def.state_machine.transitions = vec![orbital_core::schema::TransitionDefinition {
+            def.state_machine.transitions = vec![orbital_core_base::schema::TransitionDefinition {
                 event_id: None,
-                from: orbital_core::schema::StringOrArray::Single("idle".to_string()),
+                from: orbital_core_base::schema::StringOrArray::Single("idle".to_string()),
                 to: "idle".to_string(),
                 event: "INIT".to_string(),
                 guard: None,
@@ -1988,14 +1988,14 @@ mod tests {
     /// being silently dropped as stale.
     #[test]
     fn an_unproduced_emit_referenced_by_persist_logic_still_reports() {
-        use orbital_core::schema::SExpression;
+        use orbital_core_base::schema::SExpression;
         let mut schema = create_minimal_schema();
         let mut td = externally_emitting_trait("GridRender", "SORT", true);
         if let TraitReference::Inline(def) = &mut td {
             def.config = None; // nothing in this composition fires SORT
-            def.state_machine.transitions = vec![orbital_core::schema::TransitionDefinition {
+            def.state_machine.transitions = vec![orbital_core_base::schema::TransitionDefinition {
                 event_id: None,
-                from: orbital_core::schema::StringOrArray::Single("idle".to_string()),
+                from: orbital_core_base::schema::StringOrArray::Single("idle".to_string()),
                 to: "idle".to_string(),
                 event: "INIT".to_string(),
                 guard: None,
@@ -2048,18 +2048,18 @@ mod tests {
         if let TraitReference::Inline(def) = &mut td {
             if let Some(effects) = def.state_machine.transitions[0].effects.as_mut() {
                 effects.clear();
-                effects.push(orbital_core::schema::SExpression::Array(vec![
-                    orbital_core::schema::SExpression::String("render-ui".to_string()),
-                    orbital_core::schema::SExpression::String("main".to_string()),
-                    orbital_core::schema::SExpression::Object(
+                effects.push(orbital_core_base::schema::SExpression::Array(vec![
+                    orbital_core_base::schema::SExpression::String("render-ui".to_string()),
+                    orbital_core_base::schema::SExpression::String("main".to_string()),
+                    orbital_core_base::schema::SExpression::Object(
                         [
                             (
                                 "type".to_string(),
-                                orbital_core::schema::SExpression::String("button".to_string()),
+                                orbital_core_base::schema::SExpression::String("button".to_string()),
                             ),
                             (
                                 "action".to_string(),
-                                orbital_core::schema::SExpression::String("GAME_END".to_string()),
+                                orbital_core_base::schema::SExpression::String("GAME_END".to_string()),
                             ),
                         ]
                         .into_iter()
@@ -2146,14 +2146,14 @@ mod tests {
 #[cfg(test)]
 mod async_result_collector_tests {
     use super::*;
-    use orbital_core::schema::SExpression;
+    use orbital_core_base::schema::SExpression;
 
     fn effect_with_emit(op: &str, emit: &[(&str, &str)]) -> SExpression {
-        let mut emit_map = orbital_core::schema::SObject::new();
+        let mut emit_map = orbital_core_base::schema::SObject::new();
         for (k, v) in emit {
             emit_map.insert((*k).to_string(), SExpression::String((*v).to_string()));
         }
-        let mut options = orbital_core::schema::SObject::new();
+        let mut options = orbital_core_base::schema::SObject::new();
         options.insert("emit".to_string(), SExpression::Object(emit_map));
         SExpression::Array(vec![
             SExpression::String(op.to_string()),

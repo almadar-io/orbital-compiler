@@ -6,7 +6,7 @@
 
 use orbital_compiler::phases::inline::{inline_schema, InlineConfig};
 use orbital_compiler::phases::parse::parse_file;
-use orbital_core::schema::TraitReference;
+use orbital_core_base::schema::TraitReference;
 
 const ATOM: &str = r#"{
   "name": "test-ticket-atom",
@@ -96,7 +96,7 @@ const CONSUMER: &str = r#"{
   ]
 }"#;
 
-fn linked(schema: &orbital_core::schema::OrbitalSchema, name: &str) -> Option<String> {
+fn linked(schema: &orbital_core_base::schema::OrbitalSchema, name: &str) -> Option<String> {
     schema.orbitals[0].traits.iter().find_map(|t| match t {
         TraitReference::Inline(td) if td.name == name => td.linked_entity.clone(),
         _ => None,
@@ -106,7 +106,7 @@ fn linked(schema: &orbital_core::schema::OrbitalSchema, name: &str) -> Option<St
 fn inline_consumer(
     atom: &str,
     dependencies: &[(&str, &str)],
-) -> orbital_core::schema::OrbitalSchema {
+) -> orbital_core_base::schema::OrbitalSchema {
     let dir = tempfile::TempDir::new().expect("temp dir");
     std::fs::write(dir.path().join("atom.orb"), atom).expect("write atom");
     for (name, source) in dependencies {
@@ -296,7 +296,7 @@ fn receiver_consumer(host_route: bool) -> String {
     )
 }
 
-fn inline_receiver_consumer(host_route: bool) -> orbital_core::schema::OrbitalSchema {
+fn inline_receiver_consumer(host_route: bool) -> orbital_core_base::schema::OrbitalSchema {
     let dir = tempfile::TempDir::new().expect("temp dir");
     std::fs::write(
         dir.path().join("atom.orb"),
@@ -311,13 +311,13 @@ fn inline_receiver_consumer(host_route: bool) -> orbital_core::schema::OrbitalSc
     schema
 }
 
-fn page_mounts(schema: &orbital_core::schema::OrbitalSchema) -> Vec<String> {
+fn page_mounts(schema: &orbital_core_base::schema::OrbitalSchema) -> Vec<String> {
     schema.orbitals[0]
         .pages
         .iter()
         .flatten()
         .filter_map(|p| match p {
-            orbital_core::schema::PageRef::Inline(page) => Some(page),
+            orbital_core_base::schema::PageRef::Inline(page) => Some(page),
             _ => None,
         })
         .flat_map(|page| page.traits.iter().flatten().filter_map(|t| t.trait_name().map(str::to_string)))

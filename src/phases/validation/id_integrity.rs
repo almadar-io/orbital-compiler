@@ -23,8 +23,8 @@
 //! (`parent`) is still live — event ids have no id-bearing declaration node, so
 //! the parent trait is their carrier.
 
-use orbital_core::identity::{id_kind_of, IdKind};
-use orbital_core::schema::{
+use orbital_core_base::identity::{id_kind_of, IdKind};
+use orbital_core_base::schema::{
     EntityDefinition, EntityRef, FieldDefinition, ListenSource, Orbital, OrbitalSchema, PageRef,
     SExpression, TraitReference,
 };
@@ -36,7 +36,7 @@ use super::{ValidationContext, ValidationResult};
 /// Arena of declared node ids (`id → (kind, name)`) plus the ledger, shared by
 /// all four rules.
 struct IdIndex<'a> {
-    ledger: Option<&'a orbital_core::identity::IdentityLedger>,
+    ledger: Option<&'a orbital_core_base::identity::IdentityLedger>,
     declared: HashMap<String, (IdKind, String)>,
     trait_ids: HashSet<String>,
     /// Per-trait string config values (`trait id → key → value`), from
@@ -631,7 +631,7 @@ pub fn validate_id_integrity(schema: &OrbitalSchema, ctx: &mut ValidationContext
 #[cfg(test)]
 mod tests {
     use super::*;
-    use orbital_core::schema::OrbitalSchema;
+    use orbital_core_base::schema::OrbitalSchema;
 
     /// Healthy stamped schema: one orbital, inline entity, one inline trait with
     /// a linked entity + emit + listen (with source), one page, full ledger.

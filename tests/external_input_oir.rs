@@ -2,7 +2,7 @@
 //! codegen backend can build its input table from the IR.
 
 use orbital_compiler::phases::resolve::resolve_to_oir;
-use orbital_core::schema::OrbitalSchema;
+use orbital_core_base::schema::OrbitalSchema;
 use serde_json::json;
 
 fn schema(events: serde_json::Value) -> OrbitalSchema {
@@ -31,7 +31,7 @@ fn schema(events: serde_json::Value) -> OrbitalSchema {
     .expect("fixture deserializes")
 }
 
-fn external_of(module: &orbital_core::ir::OirModule, key: &str) -> bool {
+fn external_of(module: &orbital_core_base::ir::OirModule, key: &str) -> bool {
     module
         .traits
         .iter()

@@ -7,7 +7,7 @@
 
 use orbital_compiler::phases::inline::{inline_schema, InlineConfig};
 use orbital_compiler::phases::parse::parse_file;
-use orbital_core::schema::TraitReference;
+use orbital_core_base::schema::TraitReference;
 
 const ATOM: &str = r#"{
   "name": "test-trials-atom",
@@ -114,7 +114,7 @@ const CONSUMER: &str = r#"{
   ]
 }"#;
 
-fn embed_tokens(td: &orbital_core::schema::TraitDefinition) -> Vec<String> {
+fn embed_tokens(td: &orbital_core_base::schema::TraitDefinition) -> Vec<String> {
     let json = serde_json::to_string(td).expect("trait serialises");
     let mut tokens = Vec::new();
     let mut rest = json.as_str();
@@ -140,7 +140,7 @@ fn renamed_explicit_companion_suppresses_pull_per_entity() {
     inline_schema(&mut schema, &InlineConfig::default(), Some(&consumer_path))
         .expect("inline succeeds — renamed companions must not collide");
 
-    let traits: Vec<&orbital_core::schema::TraitDefinition> = schema.orbitals[0]
+    let traits: Vec<&orbital_core_base::schema::TraitDefinition> = schema.orbitals[0]
         .traits
         .iter()
         .filter_map(|t| match t {

@@ -15,8 +15,8 @@
 //! map documents `viewer-stranded` needing the same facts when it ports.
 
 use crate::embedded::get_pattern;
-use orbital_core::schema::SExpression;
-use orbital_core::slots::MAIN_SLOTS;
+use orbital_core_base::schema::SExpression;
+use orbital_core_base::slots::MAIN_SLOTS;
 
 /// True when the pattern type declares a data inlet — any `propsSchema`
 /// prop stamped `kind: "entity"`. Mirrors `isContentBodyPatternType`

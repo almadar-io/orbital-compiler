@@ -12,11 +12,11 @@
 
 use std::collections::{HashMap, HashSet};
 
-use orbital_core::schema::{
+use orbital_core_base::schema::{
     config_ref_event_knob, definer_knobs_for_trait, ConfigField, EntityDefinition, FieldDefinition,
     FieldType, Orbital, OrbitalSchema, PayloadField, SExpression, TraitDefinition, TraitReference,
 };
-use orbital_core::type_compat::set_value_type_compatible;
+use orbital_core_base::type_compat::set_value_type_compatible;
 
 use super::error::{ErrorCode, ValidationError};
 use super::render_ui_binding::{resolve_binding_type, BindingContext, BindingType};
@@ -284,7 +284,7 @@ impl EventRefIndex {
                 }
             }
         }
-        for input in orbital_core::runtime::external_inputs::external_inputs_of(schema) {
+        for input in orbital_core_base::external_inputs::external_inputs_of(schema) {
             inputs_by_trait
                 .entry((input.orbital, input.trait_name))
                 .or_default()
@@ -297,7 +297,7 @@ impl EventRefIndex {
     /// must exist (a `Trait.EVENT` form within the owner's orbital) and the
     /// event must be one of its declared external inputs.
     fn check(&self, value: &str, owner_orbital: &str, path: &str) -> Vec<ValidationError> {
-        use orbital_core::schema::{join_event_address, split_event_address, ListenSource};
+        use orbital_core_base::schema::{join_event_address, split_event_address, ListenSource};
         let (event, source) = split_event_address(value);
         let (orbital, trait_name) = match &source {
             Some(ListenSource::Trait { trait_name, .. }) => {
@@ -766,7 +766,7 @@ pub fn validate_all_config_types(schema: &OrbitalSchema, ctx: &mut ValidationCon
 /// (`check_reference_binding_type`), which needs the base atom's declared
 /// type to already be in hand (see that function's doc comment).
 fn validate_config_field(
-    field: &orbital_core::schema::ConfigField,
+    field: &orbital_core_base::schema::ConfigField,
     path: &str,
     event_ctx: Option<(&TraitEventCtx, &str)>,
     orbital_events: &EventScope<'_>,
@@ -887,7 +887,7 @@ fn validate_config_field(
                 SExpression::Object(_) | SExpression::Array(_) => {
                     let empty: std::collections::HashMap<
                         String,
-                        orbital_core::schema::EntityDefinition,
+                        orbital_core_base::schema::EntityDefinition,
                     > = std::collections::HashMap::new();
                     // A node knob legally holds one pattern object OR an array
                     // of them — validate per element so the array root itself
@@ -1158,8 +1158,8 @@ fn check_config_default_shape(
         return result;
     }
     // Tuple slot — `field_type` is `[T1, T2, …]`; the slots ride `properties` by index.
-    if orbital_core::type_compat::tuple_type_slots(&field.field_type).is_some() {
-        let slots = orbital_core::schema::tuple_slots_of(field.properties.as_ref());
+    if orbital_core_base::type_compat::tuple_type_slots(&field.field_type).is_some() {
+        let slots = orbital_core_base::schema::tuple_slots_of(field.properties.as_ref());
         return check_tuple_shape(
             &slots,
             default,
@@ -1861,7 +1861,7 @@ enum VariantChoice<'a> {
 }
 
 fn select_union_variant<'a>(
-    value: &orbital_core::schema::SObject,
+    value: &orbital_core_base::schema::SObject,
     names: &[String],
     variants: &'a HashMap<String, FieldDefinition>,
 ) -> VariantChoice<'a> {
@@ -2983,7 +2983,7 @@ mod groupby_enum_column_gap_tests {
 #[cfg(test)]
 mod node_config_tests {
     use super::*;
-    use orbital_core::schema::ConfigField;
+    use orbital_core_base::schema::ConfigField;
 
     fn field(field_type: &str, default: SExpression) -> ConfigField {
         serde_json::from_value(serde_json::json!({ "type": field_type }))
@@ -3709,7 +3709,7 @@ mod recursive_type_literal_tests {
     }
 
     fn item(label: &str, sub_menu: Vec<SExpression>) -> SExpression {
-        let mut obj = orbital_core::schema::SObject::new();
+        let mut obj = orbital_core_base::schema::SObject::new();
         obj.insert("label".to_string(), SExpression::String(label.to_string()));
         obj.insert("subMenu".to_string(), SExpression::Array(sub_menu));
         SExpression::Object(obj)
@@ -3749,7 +3749,7 @@ mod recursive_type_literal_tests {
     fn depth_3_literal_with_wrong_inner_field_name_errors() {
         let field = menu_item_config_field();
         let events = HashSet::new();
-        let mut typo_leaf = orbital_core::schema::SObject::new();
+        let mut typo_leaf = orbital_core_base::schema::SObject::new();
         typo_leaf.insert(
             "labell".to_string(), // typo: required "label" is now absent
             SExpression::String("C".to_string()),
@@ -3831,7 +3831,7 @@ mod skip_required_members_tests {
     #[test]
     fn strict_mode_rejects_incomplete_object_literal() {
         let schema = alias_with_required_members();
-        let empty = SExpression::Object(orbital_core::schema::SObject::new());
+        let empty = SExpression::Object(orbital_core_base::schema::SObject::new());
         let result = check_field_def_shape(
             &schema,
             &empty,
@@ -3852,7 +3852,7 @@ mod skip_required_members_tests {
     #[test]
     fn lenient_mode_accepts_incomplete_object_literal_for_entity_defaults() {
         let schema = alias_with_required_members();
-        let empty = SExpression::Object(orbital_core::schema::SObject::new());
+        let empty = SExpression::Object(orbital_core_base::schema::SObject::new());
         let result = check_field_def_shape(
             &schema,
             &empty,
@@ -4084,7 +4084,7 @@ mod union_variant_selection_tests {
         order.iter().map(|s| s.to_string()).collect()
     }
 
-    fn value(pairs: &[(&str, &str)]) -> orbital_core::schema::SObject {
+    fn value(pairs: &[(&str, &str)]) -> orbital_core_base::schema::SObject {
         pairs
             .iter()
             .map(|(k, v)| (k.to_string(), SExpression::String(v.to_string())))

@@ -1,6 +1,6 @@
 use super::{collect_all_traits, extract_emit_event, transition_can_propagate};
 use crate::phases::validation::{ErrorCode, ValidationError, ValidationResult};
-use orbital_core::schema::{EventScope, ListenSource, OrbitalSchema};
+use orbital_core_base::schema::{EventScope, ListenSource, OrbitalSchema};
 use std::collections::{HashMap, HashSet};
 
 /// Validate circular event dependencies.
@@ -18,11 +18,11 @@ pub(crate) fn validate_circular_dependencies(schema: &OrbitalSchema) -> Validati
     // (emitting trait, orbital, arm event, emitted event, arm guarded)
     let mut arm_emits: Vec<(String, String, String, String, bool)> = Vec::new();
 
-    fn walk_emits(expr: &orbital_core::schema::SExpression, out: &mut HashSet<String>) {
+    fn walk_emits(expr: &orbital_core_base::schema::SExpression, out: &mut HashSet<String>) {
         if let Some(event) = extract_emit_event(expr) {
             out.insert(event);
         }
-        if let orbital_core::schema::SExpression::Array(items) = expr {
+        if let orbital_core_base::schema::SExpression::Array(items) = expr {
             for item in items {
                 walk_emits(item, out);
             }
@@ -168,7 +168,7 @@ pub(crate) fn detect_cycle<'a>(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use orbital_core::schema::{
+    use orbital_core_base::schema::{
         EmitDefinition, EntityDefinition, EntityRef, ListenDefinition, Orbital, SExpression,
         StateDefinition, StateMachine, StringOrArray, TraitDefinition, TraitReference,
         TransitionDefinition,

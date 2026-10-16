@@ -2,7 +2,7 @@
 
 use super::super::{ErrorCode, ValidationError, ValidationResult};
 use super::{extract_emit_object_ref, validate_emit_config, DeclaredEmit};
-use orbital_core::schema::{EntityDefinition, FieldType, SExpression};
+use orbital_core_base::schema::{EntityDefinition, FieldType, SExpression};
 use std::collections::{HashMap, HashSet};
 
 /// Validate fetch effect (array form)

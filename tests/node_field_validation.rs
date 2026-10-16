@@ -16,7 +16,7 @@
 //!   `ORB_RUI_RENDERABLE_IN_GENERIC_FIELD` (anti-loophole)
 
 use orbital_compiler::phases::validation::{render_ui, ValidationContext};
-use orbital_core::schema::OrbitalSchema;
+use orbital_core_base::schema::OrbitalSchema;
 use serde_json::{json, Value};
 
 fn run(schema: Value) -> (Vec<String>, Vec<String>) {
@@ -24,7 +24,7 @@ fn run(schema: Value) -> (Vec<String>, Vec<String>) {
         serde_json::from_value(schema).expect("schema fixture must deserialize");
     let mut ctx = ValidationContext::new();
     for orbital in &schema.orbitals {
-        if let orbital_core::schema::EntityRef::Inline(e) = &orbital.entity {
+        if let orbital_core_base::schema::EntityRef::Inline(e) = &orbital.entity {
             ctx.entity_definitions.insert(e.name.clone(), e.clone());
         }
     }

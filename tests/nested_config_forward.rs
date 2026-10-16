@@ -8,7 +8,7 @@ use orbital_compiler::phases::inline::inline_schema;
 use orbital_compiler::phases::parse::parse_file;
 use orbital_compiler::phases::validation::orbital_config::validate_orbital_config_forwarding;
 use orbital_compiler::phases::InlineConfig;
-use orbital_core::schema::{SExpression, TraitReference};
+use orbital_core_base::schema::{SExpression, TraitReference};
 
 const ATOM: &str = r#"{
   "name": "stats-atom",
@@ -54,7 +54,7 @@ fn composer(metrics: &str) -> String {
     )
 }
 
-fn inlined(metrics: &str) -> orbital_core::schema::OrbitalSchema {
+fn inlined(metrics: &str) -> orbital_core_base::schema::OrbitalSchema {
     let dir = tempfile::TempDir::new().expect("temp dir");
     std::fs::write(dir.path().join("atom.orb"), ATOM).expect("atom");
     let path = dir.path().join("composer.orb");
@@ -64,7 +64,7 @@ fn inlined(metrics: &str) -> orbital_core::schema::OrbitalSchema {
     schema
 }
 
-fn metrics_field(schema: &orbital_core::schema::OrbitalSchema) -> orbital_core::schema::ConfigField {
+fn metrics_field(schema: &orbital_core_base::schema::OrbitalSchema) -> orbital_core_base::schema::ConfigField {
     schema.orbitals[0]
         .traits
         .iter()
@@ -104,7 +104,7 @@ fn control_an_override_that_never_reads_the_app_knob_leaves_it_dead() {
     assert!(codes.contains(&"ORB_O_CONFIG_DEAD_KNOB".to_string()), "{codes:?}");
 }
 
-fn inlined_with_knobs(metrics: &str) -> orbital_core::schema::OrbitalSchema {
+fn inlined_with_knobs(metrics: &str) -> orbital_core_base::schema::OrbitalSchema {
     let dir = tempfile::TempDir::new().expect("temp dir");
     std::fs::write(dir.path().join("atom.orb"), ATOM).expect("atom");
     let path = dir.path().join("composer.orb");

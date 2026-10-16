@@ -200,7 +200,7 @@ fn generate_pages(orbitals: &[Value], strategy: LayoutStrategy) -> Vec<Value> {
                     if index == 0 {
                         "/".to_string()
                     } else {
-                        format!("/{}", orbital_core::str_utils::to_kebab_case(&orbital_name))
+                        format!("/{}", orbital_core_base::str_utils::to_kebab_case(&orbital_name))
                     },
                     index == 0,
                     primary_entity,

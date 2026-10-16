@@ -24,7 +24,7 @@ use super::r#trait::collect_sibling_trait_refs;
 use super::rewrite::trait_ref_name;
 use super::InlineError;
 use crate::phases::validation::render_ui::is_render_ui_effect;
-use orbital_core::schema::{
+use orbital_core_base::schema::{
     EmitDefinition, Orbital, PageRef, SExpression, StringOrArray, TraitDefinition, TraitReference,
 };
 use std::collections::{HashMap, HashSet};
@@ -424,7 +424,7 @@ fn remove_consumed_wrappers(orbital: &mut Orbital, spliced: &HashSet<String>) {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use orbital_core::schema::{
+    use orbital_core_base::schema::{
         EntityDefinition, EntityRef, PayloadField, StateDefinition, StateMachine,
         TransitionDefinition,
     };
@@ -615,7 +615,7 @@ mod tests {
         );
 
         let mut listening = base.clone();
-        listening.listens = Some(vec![orbital_core::schema::ListenDefinition {
+        listening.listens = Some(vec![orbital_core_base::schema::ListenDefinition {
             event: "E".to_string(),
             triggers: None,
             scope: None,

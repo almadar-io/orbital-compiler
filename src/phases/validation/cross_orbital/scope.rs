@@ -1,7 +1,7 @@
 use super::collect_all_traits;
 use crate::phases::validation::{ErrorCode, ValidationError, ValidationResult};
-use orbital_core::behavior_packages::BehaviorPackage;
-use orbital_core::schema::{EmitDefinition, EventScope, OrbitalSchema, TraitReference};
+use orbital_core_base::behavior_packages::BehaviorPackage;
+use orbital_core_base::schema::{EmitDefinition, EventScope, OrbitalSchema, TraitReference};
 use std::collections::HashMap;
 
 // =============================================================================
@@ -61,7 +61,7 @@ pub(crate) fn validate_scope_boundary(
     // so we don't retry it.
     let mut parsed_std_cache: HashMap<
         &str,
-        Result<Option<OrbitalSchema>, orbital_core::behavior_packages::DiscoverError>,
+        Result<Option<OrbitalSchema>, orbital_core_base::behavior_packages::DiscoverError>,
     > = HashMap::new();
     let std_package = packages.iter().find(|p| p.prefix == "almadar-std");
 
@@ -139,7 +139,7 @@ pub(crate) fn validate_scope_boundary(
                     Ok(parsed) => parsed,
                     Err(error) => {
                         let code = match error {
-                            orbital_core::behavior_packages::DiscoverError::DuplicateBehaviorName { .. } => ErrorCode::BehaviorNameDuplicate,
+                            orbital_core_base::behavior_packages::DiscoverError::DuplicateBehaviorName { .. } => ErrorCode::BehaviorNameDuplicate,
                             _ => ErrorCode::BehaviorPackageInvalid,
                         };
                         result.add_error(ValidationError::error(
@@ -246,7 +246,7 @@ fn emits_for_trait(schema: &OrbitalSchema, trait_name: &str) -> Option<Vec<EmitD
 #[cfg(test)]
 mod tests {
     use super::*;
-    use orbital_core::schema::{
+    use orbital_core_base::schema::{
         EntityDefinition, EntityRef, Orbital, StateMachine, TraitDefinition,
     };
     use std::collections::HashMap;
@@ -359,7 +359,7 @@ mod tests {
         let composer_orbital = Orbital {
             types: None,
             name: "Composer".to_string(),
-            uses: Some(vec![orbital_core::schema::UseDeclaration {
+            uses: Some(vec![orbital_core_base::schema::UseDeclaration {
                 lazy: None,
                 from: "local/does-not-matter".to_string(),
                 alias: "Lib".to_string(),

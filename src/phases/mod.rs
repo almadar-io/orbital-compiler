@@ -49,8 +49,8 @@ pub use validation::{
 };
 
 use crate::composition::ComposeError;
-use orbital_core::ir::OirModule;
-use orbital_core::schema::OrbitalSchema;
+use orbital_core_base::ir::OirModule;
+use orbital_core_base::schema::OrbitalSchema;
 use std::path::{Path, PathBuf};
 use thiserror::Error;
 
@@ -112,7 +112,7 @@ pub struct CompilerOptions {
     /// must not silently treat as "no packages installed": `orb validate` /
     /// `compile` report this before parsing, as validator infrastructure, not
     /// a schema authoring error.
-    pub discovery_error: Option<orbital_core::behavior_packages::DiscoverError>,
+    pub discovery_error: Option<orbital_core_base::behavior_packages::DiscoverError>,
     /// Service name → declared runtimes, from the services registry the caller
     /// loaded; `None` reads the baked registry. Decides which calls run in the
     /// browser (`OirModule::browser_services`).
@@ -144,8 +144,8 @@ impl CompilerOptions {
             Err(_) => return opts,
         };
         let user_store =
-            orbital_core::behavior_packages::user_store_dir().unwrap_or_else(|| cwd.clone());
-        match orbital_core::behavior_packages::discover(&cwd, &user_store) {
+            orbital_core_base::behavior_packages::user_store_dir().unwrap_or_else(|| cwd.clone());
+        match orbital_core_base::behavior_packages::discover(&cwd, &user_store) {
             Ok(packages) => opts.inline.loader_config.packages = packages,
             Err(e) => opts.discovery_error = Some(e),
         }
@@ -242,7 +242,7 @@ pub(crate) fn resolve_schema_with_inline(
     // inline/compose/resolve/codegen never see a ledger-less schema and the
     // name-fallback rewriters are dead. `.lolo`-emitted and factory-stamped
     // schemas already carry a ledger and pass through untouched (zero churn).
-    orbital_core::stamp::ensure_stamped(&mut schema);
+    orbital_core_base::stamp::ensure_stamped(&mut schema);
 
     // Phase 2: Inline (resolve uses declarations — must happen before validation
     //           so that trait/entity/page references are present when checked).
@@ -269,9 +269,9 @@ pub(crate) fn resolve_schema_with_inline(
 
     // The theme presets the program references travel with it, so a runtime
     // with no installed `@almadar/core` (wasm, mobile) resolves its theme.
-    orbital_core::runtime::theme::carry_theme_definitions(
+    orbital_core_base::theme::carry_theme_definitions(
         &mut schema,
-        orbital_core::runtime::theme::ThemePresets::installed(),
+        orbital_core_base::theme::ThemePresets::installed(),
     );
 
     Ok(schema)
@@ -303,7 +303,7 @@ fn resolve_compiled_program_as_written(
     // Canonicalize flat `fn` lambdas post-inline so raw `.orb` input (which skips
     // the lolo lowerer) is normalized before validation + codegen, and inlined
     // reference traits are caught too.
-    orbital_core::schema::normalize_fn_shapes(&mut schema);
+    orbital_core_base::schema::normalize_fn_shapes(&mut schema);
     Ok(schema)
 }
 
@@ -377,7 +377,7 @@ fn compile_schema_with_path(
         .filter(|s| {
             runtimes
                 .get(s)
-                .is_some_and(|r| orbital_core::effects::runs_on::is_browser_only(r))
+                .is_some_and(|r| orbital_core_base::runs_on::is_browser_only(r))
         })
         .collect();
 
@@ -541,7 +541,7 @@ mod tests {
     // become `TraitReference::Inline`.
     #[test]
     fn resolves_installed_std_uses_with_no_source_path() {
-        use orbital_core::schema::TraitReference;
+        use orbital_core_base::schema::TraitReference;
         use std::path::Path;
 
         let schema = orbital_test_support::installed_schema(
@@ -569,9 +569,9 @@ mod tests {
         // dir (the monorepo workspace link), not the process cwd — mirrors
         // `CompilerOptions::from_env` rooted at a stable path for tests.
         let start = Path::new(env!("CARGO_MANIFEST_DIR"));
-        let user_store = orbital_core::behavior_packages::user_store_dir()
+        let user_store = orbital_core_base::behavior_packages::user_store_dir()
             .unwrap_or_else(|| start.to_path_buf());
-        let packages = orbital_core::behavior_packages::discover(start, &user_store)
+        let packages = orbital_core_base::behavior_packages::discover(start, &user_store)
             .expect("behavior package discovery failed");
         let mut options = CompilerOptions::default();
         options.inline.loader_config.packages = packages;

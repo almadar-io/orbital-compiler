@@ -13,7 +13,7 @@
 //! `orbital_core::effects::emit_contract` disagree.
 
 use orbital_compiler::embedded::{get_operator, OperatorTypeRef, OperatorTypeRefKind};
-use orbital_core::effects::{success_payload, CallVariant, ProducedPayload};
+use orbital_core_base::emit_contract::{success_payload, CallVariant, ProducedPayload};
 
 /// The registry's `produces` branch for a call site, narrowed the way the
 /// validator narrows it, reduced to the same vocabulary the core table speaks.

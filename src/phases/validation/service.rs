@@ -5,7 +5,7 @@
 
 use super::error::{ErrorCode, ValidationError, ValidationResult};
 use super::ValidationContext;
-use orbital_core::schema::{OrbitalSchema, ServiceDefinition, ServiceRef};
+use orbital_core_base::schema::{OrbitalSchema, ServiceDefinition, ServiceRef};
 use regex::Regex;
 use std::sync::LazyLock;
 
@@ -117,7 +117,7 @@ pub fn validate_service_definition(service: &ServiceDefinition, path: &str) -> V
             // Validate auth config
             if let Some(auth) = &rest.auth {
                 // For api-key auth, keyName should be provided
-                if auth.auth_type == orbital_core::schema::RestAuthType::ApiKey
+                if auth.auth_type == orbital_core_base::schema::RestAuthType::ApiKey
                     && auth.key_name.is_none()
                 {
                     result.add_error(ValidationError::error(
@@ -250,7 +250,7 @@ fn is_valid_env_var_name(name: &str) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use orbital_core::schema::{RestAuthConfig, RestAuthType, RestServiceDefInner};
+    use orbital_core_base::schema::{RestAuthConfig, RestAuthType, RestServiceDefInner};
 
     #[test]
     fn test_valid_service_reference() {

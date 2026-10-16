@@ -22,7 +22,7 @@ pub use self::item_actions::{extract_slot, is_render_ui_effect};
 use self::pattern::validate_pattern;
 use self::sync::ExtraPatterns;
 
-use orbital_core::schema::{EntityDefinition, OrbitalSchema, SExpression, TraitDefinition};
+use orbital_core_base::schema::{EntityDefinition, OrbitalSchema, SExpression, TraitDefinition};
 use std::collections::{HashMap, HashSet};
 
 // Pattern types and itemAction props are imported from sync::patterns
@@ -81,8 +81,8 @@ pub fn validate_trait_render_ui(
     let mut successors: HashMap<&str, HashSet<&str>> = HashMap::new();
     for transition in &trait_def.state_machine.transitions {
         let from_states = match &transition.from {
-            orbital_core::schema::StringOrArray::Single(s) => vec![s.as_str()],
-            orbital_core::schema::StringOrArray::Multiple(v) => {
+            orbital_core_base::schema::StringOrArray::Single(s) => vec![s.as_str()],
+            orbital_core_base::schema::StringOrArray::Multiple(v) => {
                 v.iter().map(|s| s.as_str()).collect()
             }
         };
@@ -104,8 +104,8 @@ pub fn validate_trait_render_ui(
         iterations += 1;
         for transition in &trait_def.state_machine.transitions {
             let from_states = match &transition.from {
-                orbital_core::schema::StringOrArray::Single(s) => vec![s.as_str()],
-                orbital_core::schema::StringOrArray::Multiple(v) => {
+                orbital_core_base::schema::StringOrArray::Single(s) => vec![s.as_str()],
+                orbital_core_base::schema::StringOrArray::Multiple(v) => {
                     v.iter().map(|s| s.as_str()).collect()
                 }
             };
@@ -475,7 +475,7 @@ mod tests {
         let effect = SExpression::Array(vec![
             SExpression::String("render-ui".to_string()),
             SExpression::String("main".to_string()),
-            SExpression::Object(orbital_core::schema::SObject::new()),
+            SExpression::Object(orbital_core_base::schema::SObject::new()),
         ]);
 
         let entity_defs = HashMap::new();
@@ -1132,7 +1132,7 @@ mod tests {
 
     #[test]
     fn test_nested_field_path_valid() {
-        use orbital_core::schema::{
+        use orbital_core_base::schema::{
             EntityDefinition, FieldDefinition, FieldType, RelationDefinition,
         };
 
@@ -1283,7 +1283,7 @@ mod tests {
 
     #[test]
     fn test_nested_field_path_invalid_relation() {
-        use orbital_core::schema::{EntityDefinition, FieldDefinition, FieldType};
+        use orbital_core_base::schema::{EntityDefinition, FieldDefinition, FieldType};
 
         // Create mock entity definitions
         let mut entity_defs = HashMap::new();
@@ -1403,7 +1403,7 @@ mod tests {
 
     /// Helper to build a minimal TraitDefinition with given effects in a single INIT transition
     fn make_trait_with_effects(effects: Vec<SExpression>) -> TraitDefinition {
-        use orbital_core::schema::{
+        use orbital_core_base::schema::{
             StateDefinition, StateMachine, StringOrArray, TransitionDefinition,
         };
 

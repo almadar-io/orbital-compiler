@@ -6,7 +6,7 @@
 //! reserve-before-recurse cycle guard.
 
 use orbital_compiler::phases::nominalize::nominalize_module;
-use orbital_core::ir::{OirEntity, OirField, OirModule, OirType};
+use orbital_core_base::ir::{OirEntity, OirField, OirModule, OirType};
 
 fn module_with(entity: OirEntity) -> OirModule {
     let mut module = OirModule::new("nominalize-test", "1.0.0");
@@ -202,9 +202,9 @@ fn same_shape_from_both_resolve_paths_dedups_to_one_entry() {
     entity.fields.push(OirField::new("meta", shape_a()));
     let mut module = module_with(entity);
     module.traits.push({
-        let mut t = orbital_core::ir::OirTrait::new("viewer");
-        let mut event = orbital_core::ir::OirEvent::new("LOAD");
-        event.payload_schema = Some(orbital_core::ir::OirTypeMap::from([(
+        let mut t = orbital_core_base::ir::OirTrait::new("viewer");
+        let mut event = orbital_core_base::ir::OirEvent::new("LOAD");
+        event.payload_schema = Some(orbital_core_base::ir::OirTypeMap::from([(
             "meta".to_string(),
             shape_b(),
         )]));

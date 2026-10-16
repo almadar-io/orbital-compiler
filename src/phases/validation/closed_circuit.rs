@@ -32,12 +32,12 @@ use crate::phases::page_content_owner::{
 };
 use crate::phases::sexpr_json::sexpr_obj_to_json_map;
 use crate::phases::validation::value_walk::all_sources;
-use orbital_core::events::is_bus_excluded_event;
-use orbital_core::schema::{
+use orbital_core_base::events::is_bus_excluded_event;
+use orbital_core_base::schema::{
     json_value_leaves, ConfigField, Orbital, OrbitalSchema, PageDefinition, PageRef, SExpression,
     StateMachine, StringOrArray, TraitDefinition, TraitReference, TransitionDefinition,
 };
-use orbital_core::slots::SELF_OVERLAY_PATTERN_TYPES;
+use orbital_core_base::slots::SELF_OVERLAY_PATTERN_TYPES;
 use std::collections::{HashMap, HashSet};
 
 /// Information about a render-ui effect
@@ -152,7 +152,7 @@ use super::sync::content::is_main_slot_render_ui;
 /// with `(render-ui <slot> null)` — otherwise the overlay keeps the previous
 /// state's content mounted across the transition (gap #15 in
 /// `docs/Almadar_Std_Verification.md`).
-use orbital_core::slots::OVERLAY_SLOTS;
+use orbital_core_base::slots::OVERLAY_SLOTS;
 
 /// Events that are valid exit events for overlay slots
 const OVERLAY_EXIT_EVENTS: &[&str] = &["CLOSE", "CANCEL", "DISMISS", "SAVE", "SUBMIT", "CONFIRM"];
@@ -442,8 +442,8 @@ fn get_state_transitions(
         }
         // Handle StringOrArray for from states
         let from_states = match &transition.from {
-            orbital_core::schema::StringOrArray::Single(s) => vec![s.as_str()],
-            orbital_core::schema::StringOrArray::Multiple(arr) => {
+            orbital_core_base::schema::StringOrArray::Single(s) => vec![s.as_str()],
+            orbital_core_base::schema::StringOrArray::Multiple(arr) => {
                 arr.iter().map(|s| s.as_str()).collect()
             }
         };
@@ -790,8 +790,8 @@ fn validate_overlay_exit_transitions(
             for effect in effects {
                 if is_overlay_close_effect(effect) {
                     let from_states = match &transition.from {
-                        orbital_core::schema::StringOrArray::Single(s) => vec![s.as_str()],
-                        orbital_core::schema::StringOrArray::Multiple(arr) => {
+                        orbital_core_base::schema::StringOrArray::Single(s) => vec![s.as_str()],
+                        orbital_core_base::schema::StringOrArray::Multiple(arr) => {
                             arr.iter().map(|s| s.as_str()).collect()
                         }
                     };
@@ -1030,8 +1030,8 @@ fn validate_overlay_close_on_exit(
 
     for transition in &state_machine.transitions {
         let from_states: Vec<&str> = match &transition.from {
-            orbital_core::schema::StringOrArray::Single(s) => vec![s.as_str()],
-            orbital_core::schema::StringOrArray::Multiple(v) => {
+            orbital_core_base::schema::StringOrArray::Single(s) => vec![s.as_str()],
+            orbital_core_base::schema::StringOrArray::Multiple(v) => {
                 v.iter().map(|s| s.as_str()).collect()
             }
         };
@@ -2396,7 +2396,7 @@ fn is_pattern_node_tree_shape(expr: &SExpression) -> bool {
 /// opaque — `None`, not a false literal.
 fn resolve_value_literal_candidates(
     expr: &SExpression,
-    lets: &orbital_core::schema::SObject,
+    lets: &orbital_core_base::schema::SObject,
     depth: u32,
 ) -> Option<Vec<SExpression>> {
     if depth > 32 {
@@ -2472,7 +2472,7 @@ fn collect_entity_field_literal_candidates(
 ) -> HashMap<String, Vec<SExpression>> {
     fn walk(
         expr: &SExpression,
-        lets: &mut orbital_core::schema::SObject,
+        lets: &mut orbital_core_base::schema::SObject,
         fields: &mut HashMap<String, Vec<SExpression>>,
     ) {
         let SExpression::Array(items) = expr else {
@@ -2512,7 +2512,7 @@ fn collect_entity_field_literal_candidates(
         }
     }
 
-    let mut lets = orbital_core::schema::SObject::new();
+    let mut lets = orbital_core_base::schema::SObject::new();
     let mut fields = HashMap::new();
     for effect in effects {
         walk(effect, &mut lets, &mut fields);
@@ -2546,7 +2546,7 @@ fn collect_entity_field_literal_candidates(
 /// inclusion of `event-list`.
 fn pattern_node_has_live_event_outlet(
     pattern_type: &str,
-    map: &orbital_core::schema::SObject,
+    map: &orbital_core_base::schema::SObject,
 ) -> bool {
     let Some(entry) = crate::embedded::get_pattern(pattern_type) else {
         return false;
@@ -2989,7 +2989,7 @@ fn validate_second_content_body(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use orbital_core::schema::{
+    use orbital_core_base::schema::{
         StateDefinition, StateMachine, StringOrArray, TransitionDefinition,
     };
 
@@ -3406,7 +3406,7 @@ mod tests {
             entity_ref_ids: None,
             trait_embed_ids: None,
             emits: None,
-            listens: Some(vec![orbital_core::schema::ListenDefinition {
+            listens: Some(vec![orbital_core_base::schema::ListenDefinition {
                 event: "EVT".to_string(),
                 event_id: None,
                 triggers: Some("INIT".to_string()),
@@ -3417,7 +3417,7 @@ mod tests {
                 tier: None,
                 payload_mapping: None,
                 guard: None,
-                source: Some(orbital_core::schema::ListenSource::Trait {
+                source: Some(orbital_core_base::schema::ListenSource::Trait {
                     trait_name: "X".to_string(),
                     trait_id: None,
                 }),
@@ -4081,12 +4081,12 @@ mod tests {
     // --- ORB_CIRCUIT_CLIENT_UNBOUND_STATE_MACHINE ---
 
     fn orbital_json(traits: Vec<serde_json::Value>, pages: serde_json::Value) -> Orbital {
-        use orbital_core::schema::EntityRef;
+        use orbital_core_base::schema::EntityRef;
         let traits: Vec<TraitReference> = traits
             .into_iter()
             .map(|t| serde_json::from_value(t).expect("trait reference fixture deserializes"))
             .collect();
-        let pages: Vec<orbital_core::schema::PageRef> =
+        let pages: Vec<orbital_core_base::schema::PageRef> =
             serde_json::from_value(pages).expect("pages fixture deserializes");
         Orbital {
             types: None,

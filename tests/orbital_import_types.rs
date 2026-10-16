@@ -4,7 +4,7 @@
 
 use orbital_compiler::phases::inline::{inline_schema_with_orbital_diagnostics, InlineConfig};
 use orbital_compiler::phases::parse::parse_file;
-use orbital_core::schema::OrbitalSchema;
+use orbital_core_base::schema::OrbitalSchema;
 
 fn upstream() -> &'static str {
     r#"{

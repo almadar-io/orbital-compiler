@@ -4,7 +4,7 @@
 //! Ported from `builder/packages/shared/src/orbitals/validation/entity-validator.ts`.
 
 use super::{ErrorCode, ValidationContext, ValidationError, ValidationResult, VALID_FIELD_TYPES};
-use orbital_core::schema::{
+use orbital_core_base::schema::{
     EntityDefinition, FieldDefinition, FieldType, OrbitalSchema, Persistence,
 };
 use regex::Regex;
@@ -317,7 +317,7 @@ fn validate_browser_storage(entity: &EntityDefinition, path: &str, result: &mut 
 /// and (browser-stored) a stable `id`.
 fn check_instance_rows<'a>(
     entity: &EntityDefinition,
-    rows: impl Iterator<Item = &'a orbital_core::schema::SObject>,
+    rows: impl Iterator<Item = &'a orbital_core_base::schema::SObject>,
     rows_path: &str,
     result: &mut ValidationResult,
 ) {
@@ -375,10 +375,10 @@ fn check_instance_rows<'a>(
 /// block per declared non-default locale (the default locale's rows are
 /// `instances`), each checked like the default rows.
 pub fn validate_all_locale_instances(
-    schema: &orbital_core::schema::OrbitalSchema,
+    schema: &orbital_core_base::schema::OrbitalSchema,
     result: &mut ValidationResult,
 ) {
-    use orbital_core::schema::EntityRef;
+    use orbital_core_base::schema::EntityRef;
     let declared: Vec<String> = schema.locales.clone().unwrap_or_default();
     for (oi, orbital) in schema.orbitals.iter().enumerate() {
         let primary = std::iter::once((format!("orbitals[{}].entity", oi), &orbital.entity));
@@ -534,9 +534,9 @@ pub fn validate_field(
     // rotation), so each candidate must be a member.
     if let (Some(values), Some(declared)) = (field.values.as_ref(), field.mock.as_deref()) {
         if field.field_type != FieldType::Union && !values.is_empty() {
-            let outside: Vec<&str> = orbital_core::runtime::seed::mock_candidates(declared)
+            let outside: Vec<&str> = orbital_core_base::policy::mock_candidates(declared)
                 .into_iter()
-                .filter(|c| !orbital_core::type_compat::enum_value_is_member(c, values))
+                .filter(|c| !orbital_core_base::type_compat::enum_value_is_member(c, values))
                 .collect();
             if !outside.is_empty() {
                 result.add_error(
@@ -558,8 +558,8 @@ pub fn validate_field(
     // A literal default on a semantic-domain field must satisfy that domain.
     // Routes through orbital-core's single owner so L1 (lolo) and L2 cannot drift
     // on what counts as a valid email/url/phone/uuid.
-    if let Some(kind) = orbital_core::type_compat::semantic_string_kind(&type_str) {
-        if let Some(orbital_core::schema::SExpression::String(literal)) = field.default.as_ref() {
+    if let Some(kind) = orbital_core_base::type_compat::semantic_string_kind(&type_str) {
+        if let Some(orbital_core_base::schema::SExpression::String(literal)) = field.default.as_ref() {
             if literal.is_empty() {
                 result.add_error(
                     ValidationError::error(
@@ -571,7 +571,7 @@ pub fn validate_field(
                         "Drop the default — the mock generator synthesizes a valid value",
                     ),
                 );
-            } else if !orbital_core::type_compat::semantic_string_value_valid(kind, literal) {
+            } else if !orbital_core_base::type_compat::semantic_string_value_valid(kind, literal) {
                 result.add_error(
                     ValidationError::error(
                         ErrorCode::EntitySemanticValueInvalid,
@@ -596,7 +596,7 @@ pub fn validate_field(
     // — one diagnostic per defect, not two.
     if let Some(default) = &field.default {
         let enum_string_case = field.values.is_some()
-            && matches!(default, orbital_core::schema::SExpression::String(_));
+            && matches!(default, orbital_core_base::schema::SExpression::String(_));
         // A non-`!` field is an OPTIONAL position, and `null` is a legal
         // initial value there for every type — the same rule
         // `render_default`'s `(OirType::Optional { .. }, OirValue::Null)`
@@ -606,7 +606,7 @@ pub fn validate_field(
         // absent" — a required field with a null default still goes through
         // the shape check below.
         let null_on_optional = !field.required.unwrap_or(false)
-            && matches!(default, orbital_core::schema::SExpression::Null);
+            && matches!(default, orbital_core_base::schema::SExpression::Null);
         if !enum_string_case && !null_on_optional {
             // `skip_required_members: true` — a struct/alias member's `!`
             // is enforced at PERSIST time (lifecycle ruling), not on an
@@ -734,7 +734,7 @@ fn field_type_to_string(field_type: &FieldType) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use orbital_core::schema::{Cardinality, RelationDefinition, SExpression};
+    use orbital_core_base::schema::{Cardinality, RelationDefinition, SExpression};
 
     fn create_valid_entity() -> EntityDefinition {
         EntityDefinition {
@@ -923,7 +923,7 @@ mod tests {
             cardinality: None,
             entity_id: None,
         });
-        field.default = Some(SExpression::Object(orbital_core::schema::SObject::new()));
+        field.default = Some(SExpression::Object(orbital_core_base::schema::SObject::new()));
         entity.fields.push(field);
 
         let known_entities: HashSet<String> = ["Task".to_string()].into_iter().collect();
@@ -1027,7 +1027,7 @@ mod tests {
         let mut entity = create_valid_entity();
         entity.fields.push(many_relation_field(
             "children",
-            SExpression::Array(vec![SExpression::Object(orbital_core::schema::SObject::new())]),
+            SExpression::Array(vec![SExpression::Object(orbital_core_base::schema::SObject::new())]),
         ));
 
         let result = validate_entity(&entity, "test", &HashSet::new(), true);
@@ -1046,7 +1046,7 @@ mod tests {
         let mut entity = create_valid_entity();
         entity.fields.push(many_relation_field(
             "children",
-            SExpression::Object(orbital_core::schema::SObject::new()),
+            SExpression::Object(orbital_core_base::schema::SObject::new()),
         ));
 
         let result = validate_entity(&entity, "test", &HashSet::new(), true);
@@ -1238,7 +1238,7 @@ mod tests {
 
         let mut field = create_field("source", FieldType::Object);
         field.properties = Some(props);
-        field.default = Some(SExpression::Object(orbital_core::schema::SObject::new()));
+        field.default = Some(SExpression::Object(orbital_core_base::schema::SObject::new()));
         entity.fields.push(field);
 
         let result = validate_entity(&entity, "test", &HashSet::new(), true);

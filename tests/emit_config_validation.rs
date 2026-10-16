@@ -14,7 +14,7 @@
 //!   - Undeclared event         → `ORB_EFF_EMIT_UNDECLARED_EVENT` (warning)
 
 use orbital_compiler::phases::validation::{validate_comprehensive_without_services, ErrorCode};
-use orbital_core::schema::{
+use orbital_core_base::schema::{
     EmitDefinition, EntityDefinition, EntityRef, EventScope, FieldDefinition, FieldType, Orbital,
     OrbitalSchema, SExpression, StateDefinition, StateMachine, StringOrArray, TraitDefinition,
     TraitReference, TransitionDefinition,
@@ -25,7 +25,7 @@ use orbital_core::schema::{
 // ============================================================================
 
 fn emit_object(entries: &[(&str, &str)]) -> SExpression {
-    let mut m: orbital_core::schema::SObject = orbital_core::schema::SObject::new();
+    let mut m: orbital_core_base::schema::SObject = orbital_core_base::schema::SObject::new();
     for (k, v) in entries {
         m.insert((*k).to_string(), SExpression::String((*v).to_string()));
     }
@@ -33,7 +33,7 @@ fn emit_object(entries: &[(&str, &str)]) -> SExpression {
 }
 
 fn options_with_emit(emit: SExpression) -> SExpression {
-    let mut opts: orbital_core::schema::SObject = orbital_core::schema::SObject::new();
+    let mut opts: orbital_core_base::schema::SObject = orbital_core_base::schema::SObject::new();
     opts.insert("emit".to_string(), emit);
     SExpression::Object(opts)
 }
@@ -442,7 +442,7 @@ fn options(entries: Vec<(&str, SExpression)>) -> SExpression {
         entries
             .into_iter()
             .map(|(k, v)| (k.to_string(), v))
-            .collect::<orbital_core::schema::SObject>(),
+            .collect::<orbital_core_base::schema::SObject>(),
     )
 }
 

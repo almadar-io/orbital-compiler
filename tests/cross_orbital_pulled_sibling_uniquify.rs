@@ -8,7 +8,7 @@
 
 use orbital_compiler::phases::inline::{inline_schema, InlineConfig};
 use orbital_compiler::phases::parse::parse_file;
-use orbital_core::schema::{ListenSource, TraitReference};
+use orbital_core_base::schema::{ListenSource, TraitReference};
 
 const ATOM: &str = r#"{
   "name": "test-checkin-atom",
@@ -112,7 +112,7 @@ const CONSUMER: &str = r#"{
   ]
 }"#;
 
-fn orbital_trait_names(schema: &orbital_core::schema::OrbitalSchema, idx: usize) -> Vec<String> {
+fn orbital_trait_names(schema: &orbital_core_base::schema::OrbitalSchema, idx: usize) -> Vec<String> {
     schema.orbitals[idx]
         .traits
         .iter()

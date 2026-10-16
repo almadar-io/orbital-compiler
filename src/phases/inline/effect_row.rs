@@ -16,8 +16,8 @@
 //! Re-derivation runs through the same `EffectRowBuilder` the lowerer uses, so the
 //! two layers cannot disagree about what an effect row contains.
 
-use orbital_core::effects::{EffectRowBuilder, EffectSite};
-use orbital_core::schema::{Orbital, TraitReference};
+use orbital_core_base::effect_row::{EffectRowBuilder, EffectSite};
+use orbital_core_base::schema::{Orbital, TraitReference};
 
 /// Re-derive the effect row of every inline trait on `orbital` from its
 /// post-inline effects. Call once per orbital, after `inline_orbital`.

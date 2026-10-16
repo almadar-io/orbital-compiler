@@ -2,7 +2,7 @@
 
 use super::super::ValidationResult;
 use super::{extract_emit_object_ref, validate_emit_config, DeclaredEmit};
-use orbital_core::schema::SExpression;
+use orbital_core_base::schema::SExpression;
 
 /// Validate `ref` effect. Ref is a reactive subscription — `on_change` fires
 /// on each update; `failure` fires on initial subscription error.

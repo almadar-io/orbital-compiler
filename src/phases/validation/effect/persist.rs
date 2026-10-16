@@ -2,7 +2,7 @@
 
 use super::super::{ErrorCode, ValidationError, ValidationResult};
 use super::{extract_emit_object_ref, validate_emit_config, DeclaredEmit};
-use orbital_core::schema::{EntityDefinition, SExpression};
+use orbital_core_base::schema::{EntityDefinition, SExpression};
 use std::collections::{HashMap, HashSet};
 
 /// Position of the entity-name literal in a `persist` call array: 2 for the
@@ -36,10 +36,7 @@ fn validate_persist_batch(
     entity_definitions: &HashMap<String, EntityDefinition>,
     declared_emits: Option<&[DeclaredEmit]>,
 ) -> ValidationResult {
-    use orbital_core::effects::persist_batch::{
-        batch_entities, batch_op_arity, classify_ops, is_op_tuple, mapped_body, BatchOps,
-        BatchPlacement,
-    };
+    use orbital_core_base::persist_batch::{batch_entities, batch_op_arity, classify_ops, is_op_tuple, mapped_body, BatchOps, BatchPlacement};
     let mut result = ValidationResult::new();
 
     let Some(ops) = arr.get(2) else {
@@ -162,7 +159,7 @@ fn validate_persist_batch(
                                         &oir,
                                         &crate::type_infer::NoBindingCtx
                                     ),
-                                    Some(ty) if !matches!(ty, orbital_core::ir::OirType::Array { .. })
+                                    Some(ty) if !matches!(ty, orbital_core_base::ir::OirType::Array { .. })
                                 )
                             })
                             .unwrap_or(false),
@@ -184,8 +181,8 @@ fn validate_persist_batch(
         }
     }
 
-    let residence = orbital_core::effects::Residence::of_entities(entity_definitions.values());
-    if orbital_core::effects::persist_batch::batch_placement(ops, &residence)
+    let residence = orbital_core_base::runs_on::Residence::of_entities(entity_definitions.values());
+    if orbital_core_base::persist_batch::batch_placement(ops, &residence)
         == BatchPlacement::Mixed
     {
         let mut browser: Vec<&str> = Vec::new();
@@ -429,7 +426,7 @@ mod tests {
     }
 
     fn persist_create_arr(entity: &str, fields: Vec<(&str, SExpression)>) -> Vec<SExpression> {
-        let mut obj = orbital_core::schema::SObject::new();
+        let mut obj = orbital_core_base::schema::SObject::new();
         for (k, v) in fields {
             obj.insert(k.to_string(), v);
         }

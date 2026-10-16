@@ -5,7 +5,7 @@
 //! shapes; that class is tracked separately and not reported here.
 
 use super::{ErrorCode, ValidationError, ValidationResult};
-use orbital_core::schema::{PayloadField, SExpression, TraitDefinition};
+use orbital_core_base::schema::{PayloadField, SExpression, TraitDefinition};
 use std::collections::HashSet;
 
 pub(crate) fn validate_fetch_by_id_payload(

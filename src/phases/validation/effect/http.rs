@@ -11,14 +11,11 @@ use super::emit_declaration::collect_declared_emits;
 use super::keyed_call::{check_key_and_cancelled, trailing_options, KEYED_CALL_EMIT_KEYS};
 use super::set::ExprReturnCtx;
 use super::{extract_emit_object_ref, validate_emit_config, DeclaredEmit};
-use orbital_core::evaluator::{Value, ValueMap};
-use orbital_core::ir::{OirExpr, OirType};
-use orbital_core::runtime::http_request::{
-    is_header_name, parse_grant_request, parse_http_headers, parse_origin, parse_origin_prefix,
-    parse_retry, parse_timeout_ms, split_url, GrantRequest, HttpRetry, OriginParts, RetryOperand,
-};
-use orbital_core::secrets::config_knob;
-use orbital_core::schema::{ConfigField, OrbitalSchema, SExpression, SObject, TraitDefinition};
+use orbital_core_base::value::{Value, ValueMap};
+use orbital_core_base::ir::{OirExpr, OirType};
+use orbital_core_base::http_wire::{is_header_name, parse_grant_request, parse_http_headers, parse_origin, parse_origin_prefix, parse_retry, parse_timeout_ms, split_url, GrantRequest, HttpRetry, OriginParts, RetryOperand};
+use orbital_core_base::secrets::config_knob;
+use orbital_core_base::schema::{ConfigField, OrbitalSchema, SExpression, SObject, TraitDefinition};
 use std::collections::HashMap;
 
 const METHODS: [&str; 5] = ["GET", "POST", "PUT", "PATCH", "DELETE"];
@@ -248,7 +245,7 @@ fn check_auth(auth: &SObject, site: &Site, result: &mut ValidationResult) {
         || (scheme == "api-key" && matches!(auth.get("in"), Some(SExpression::String(location)) if location == "header"));
     if header_auth {
         if let Some(SExpression::String(name)) = auth.get("name") {
-            if !name.starts_with('@') && !orbital_core::runtime::http_request::is_header_name(name) {
+            if !name.starts_with('@') && !orbital_core_base::http_wire::is_header_name(name) {
                 result.add_error(ValidationError::error(ErrorCode::HttpHeaderInvalid, site.path, "HTTP auth header name must be a token"));
             }
         }
@@ -258,7 +255,7 @@ fn check_auth(auth: &SObject, site: &Site, result: &mut ValidationResult) {
     }
     if scheme == "jwt-bearer" {
         let invalid_alg = match auth.get("alg") {
-            Some(SExpression::String(alg)) => !alg.starts_with('@') && orbital_core::codec::jwt::JwtAlg::parse(alg).is_none(),
+            Some(SExpression::String(alg)) => !alg.starts_with('@') && orbital_core_base::jwt_alg::JwtAlg::parse(alg).is_none(),
             Some(SExpression::Array(_)) => false,
             _ => true,
         };
@@ -284,7 +281,7 @@ fn check_auth(auth: &SObject, site: &Site, result: &mut ValidationResult) {
                         check_closed(retry, HttpRetry::KEYS, "auth.grantRequest.retry", site, result);
                     }
                 }
-                _ if orbital_core::lower::lower_sexpr(grant_request).is_ok_and(|expr| expr.is_literal()) => {
+                _ if orbital_core_eval::lower::lower_sexpr(grant_request).is_ok_and(|expr| expr.is_literal()) => {
                     if let Err(error) = parse_grant_request(&Value::from(grant_request.clone())) {
                         result.add_error(ValidationError::error(ErrorCode::HttpAuthInvalid, site.path, error.message()));
                     }
@@ -385,7 +382,7 @@ fn check_token_exchange(auth: &SObject, site: &Site, result: &mut ValidationResu
                 return;
             }
         };
-        if app_scope && json.as_object().is_some_and(orbital_core::secrets::auth_uses_user_credentials) {
+        if app_scope && json.as_object().is_some_and(orbital_core_base::secrets::auth_uses_user_credentials) {
             result.add_error(ValidationError::error(ErrorCode::HttpAuthInvalid,site.path,"a token exchange using user credentials requires a user-scoped cache"));
         }
     }
@@ -539,7 +536,7 @@ fn check_headers(expr: &SExpression, grant: bool, path: &str, ctx: &ExprReturnCt
     let SExpression::Object(headers) = expr else {
         let error = match operand(expr, ctx) {
             RetryOperand::Literal(value) => parse_http_headers(Some(&value)).err().map(|error| error.message()),
-            RetryOperand::Typed(ty) if !orbital_core::oir_type_satisfies(&ty, &OirType::Struct { fields: Vec::new() }) => Some("headers must evaluate to an object".to_string()),
+            RetryOperand::Typed(ty) if !orbital_core_base::type_compat::oir_type_satisfies(&ty, &OirType::Struct { fields: Vec::new() }) => Some("headers must evaluate to an object".to_string()),
             RetryOperand::Items(_) => Some("headers must be an object".to_string()),
             _ => None,
         };
@@ -563,7 +560,7 @@ fn check_headers(expr: &SExpression, grant: bool, path: &str, ctx: &ExprReturnCt
                 header.insert(name.clone(), value);
                 parse_http_headers(Some(&Value::Object(header))).err().map(|error| error.message())
             }
-            RetryOperand::Typed(ty) if !orbital_core::oir_type_satisfies(&ty, &OirType::String) => Some(format!("HTTP header `{name}` must evaluate to a string")),
+            RetryOperand::Typed(ty) if !orbital_core_base::type_compat::oir_type_satisfies(&ty, &OirType::String) => Some(format!("HTTP header `{name}` must evaluate to a string")),
             RetryOperand::Items(_) => Some(format!("HTTP header `{name}` must evaluate to a string")),
             _ => None,
         };
@@ -576,7 +573,7 @@ fn check_headers(expr: &SExpression, grant: bool, path: &str, ctx: &ExprReturnCt
 fn check_timeout(expr: &SExpression, path: &str, ctx: &ExprReturnCtx<'_>, result: &mut ValidationResult) {
     let error = match operand(expr, ctx) {
         RetryOperand::Literal(value) => parse_timeout_ms(Some(&value)).err().map(|error| error.message()),
-        RetryOperand::Typed(ty) if !orbital_core::oir_type_satisfies(&ty, &OirType::Number) => Some("timeoutMs must evaluate to a number".to_string()),
+        RetryOperand::Typed(ty) if !orbital_core_base::type_compat::oir_type_satisfies(&ty, &OirType::Number) => Some("timeoutMs must evaluate to a number".to_string()),
         RetryOperand::Items(_) => Some("timeoutMs must be a whole number".to_string()),
         _ => None,
     };
@@ -596,7 +593,7 @@ fn check_retry(expr: &SExpression, path: &str, ctx: &ExprReturnCtx<'_>, result: 
         }
         _ => match operand(expr, ctx) {
             RetryOperand::Literal(value) => parse_retry(&value).err().map(|error| error.message()),
-            RetryOperand::Typed(ty) if !orbital_core::oir_type_satisfies(&ty, &OirType::Struct { fields: Vec::new() }) => Some("retry must evaluate to an object".to_string()),
+            RetryOperand::Typed(ty) if !orbital_core_base::type_compat::oir_type_satisfies(&ty, &OirType::Struct { fields: Vec::new() }) => Some("retry must evaluate to an object".to_string()),
             RetryOperand::Items(_) => Some("retry must be an object".to_string()),
             _ => None,
         },
@@ -633,7 +630,7 @@ pub(super) fn check_http_operand_types(arr: &[SExpression], path: &str, ctx: &Ex
                     SExpression::Object(options) => check_request_operands(options, true, path, ctx, &mut result),
                     _ => {
                         if let RetryOperand::Typed(ty) = operand(grant_request, ctx) {
-                            if !orbital_core::oir_type_satisfies(&ty, &OirType::Struct { fields: Vec::new() }) {
+                            if !orbital_core_base::type_compat::oir_type_satisfies(&ty, &OirType::Struct { fields: Vec::new() }) {
                                 result.add_error(ValidationError::error(ErrorCode::HttpAuthInvalid, path, "auth.grantRequest must evaluate to an object"));
                             }
                         }
@@ -842,7 +839,7 @@ fn text_required(site: &Site) -> ValidationError {
 fn check_page_facts_call(arr: &[SExpression], site: &Site, result: &mut ValidationResult) {
     let invalid = |message: String| {
         ValidationError::error(ErrorCode::PageFactsFieldInvalid, site.path, message)
-            .with_valid_values(orbital_core::ir::PageFactField::ALL.iter().map(|f| f.as_str().to_string()).collect())
+            .with_valid_values(orbital_core_base::ir::PageFactField::ALL.iter().map(|f| f.as_str().to_string()).collect())
             .with_suggestion("List the facts to read, e.g. [referrer, screenWidth]")
     };
     let Some(SExpression::Array(words)) = arr.get(1) else {
@@ -854,7 +851,7 @@ fn check_page_facts_call(arr: &[SExpression], site: &Site, result: &mut Validati
     }
     let mut seen: Vec<&str> = Vec::new();
     for word in words {
-        match word.as_str().and_then(orbital_core::ir::PageFactField::parse) {
+        match word.as_str().and_then(orbital_core_base::ir::PageFactField::parse) {
             None => result.add_error(invalid(format!("{} is not a page fact", serde_json::to_string(word).unwrap_or_default()))),
             Some(field) if seen.contains(&field.as_str()) => {
                 result.add_error(invalid(format!("page fact '{}' is listed twice", field.as_str())));

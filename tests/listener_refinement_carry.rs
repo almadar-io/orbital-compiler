@@ -5,8 +5,8 @@
 //! lost what the interpreter honored (C-OIR-LISTENER-DROPS-WITH-AND-GUARD).
 
 use orbital_compiler::phases::resolve_to_oir;
-use orbital_core::ir::OirExpr;
-use orbital_core::schema::OrbitalSchema;
+use orbital_core_base::ir::OirExpr;
+use orbital_core_base::schema::OrbitalSchema;
 
 fn schema_with_refined_listen() -> OrbitalSchema {
     let json = r#"{

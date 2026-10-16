@@ -9,7 +9,7 @@
 use orbital_compiler::phases::validation::{
     entity_access, expectations, user_identity, validate_comprehensive_without_services, ValidationContext,
 };
-use orbital_core::schema::OrbitalSchema;
+use orbital_core_base::schema::OrbitalSchema;
 use serde_json::{json, Value};
 
 fn parse(schema: Value) -> OrbitalSchema {

@@ -10,7 +10,7 @@
 
 use orbital_compiler::embedded;
 use orbital_compiler::phases::validation::sigil_context::validate_trait_sigil_contexts;
-use orbital_core::schema::{
+use orbital_core_base::schema::{
     OrbitalSchema, SExpression, StateDefinition, StateMachine, StringOrArray, StringOrNumber,
     TickDefinition, TraitDefinition, TransitionDefinition,
 };
@@ -300,7 +300,7 @@ fn installed_std_corpus_validates() {
     // corpus is orbital-cli's `live_std_corpus_lowers` test.
     if matches!(
         std_pkg.registry,
-        orbital_core::behavior_packages::RegistrySource::Live(_)
+        orbital_core_base::behavior_packages::RegistrySource::Live(_)
     ) {
         return;
     }

@@ -7,7 +7,7 @@
 use super::closed_circuit::arms_in;
 use super::cross_orbital::collect_async_result_events;
 use super::{ErrorCode, ValidationError, ValidationResult};
-use orbital_core::schema::StateMachine;
+use orbital_core_base::schema::StateMachine;
 use std::collections::HashSet;
 
 /// `ORB_CIRCUIT_ASYNC_RESULT_DEAF_TARGET`. For every state-CHANGING
@@ -83,7 +83,7 @@ pub(crate) fn validate_async_result_deaf_target(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use orbital_core::schema::{SExpression, StateDefinition, StringOrArray, TransitionDefinition};
+    use orbital_core_base::schema::{SExpression, StateDefinition, StringOrArray, TransitionDefinition};
 
     fn effects_from(json_val: serde_json::Value) -> Vec<SExpression> {
         serde_json::from_value(json_val).expect("effects fixture deserializes")

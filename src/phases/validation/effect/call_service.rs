@@ -12,7 +12,7 @@ use super::keyed_call::{
 };
 use super::{extract_emit_object_ref, validate_emit_config, DeclaredEmit};
 use crate::embedded::ServiceRegistryData;
-use orbital_core::schema::SExpression;
+use orbital_core_base::schema::SExpression;
 use std::collections::HashSet;
 
 /// Envelope keys the call-service form itself owns; never param-checked.
@@ -142,10 +142,10 @@ fn check_params(
         return result;
     };
 
-    static EMPTY: std::sync::OnceLock<orbital_core::schema::SObject> =
+    static EMPTY: std::sync::OnceLock<orbital_core_base::schema::SObject> =
         std::sync::OnceLock::new();
     let obj = match params {
-        None => EMPTY.get_or_init(orbital_core::schema::SObject::new),
+        None => EMPTY.get_or_init(orbital_core_base::schema::SObject::new),
         Some(SExpression::Object(map)) => map,
         // Dynamic params expression — keys unknowable, skip all param checks.
         Some(_) => return result,
@@ -191,7 +191,7 @@ fn check_params(
                 .with_suggestion("Supply the required param in the call's args object"),
             );
         }
-        if let (Some(expected), Some(value)) = (orbital_core::runtime::service_params::checkable_type(&p.param_type).map(|k| k.as_str()), obj.get(&p.name)) {
+        if let (Some(expected), Some(value)) = (orbital_core_base::service_params::checkable_type(&p.param_type).map(|k| k.as_str()), obj.get(&p.name)) {
             if let Some(actual) = literal_kind(value) {
                 if actual != expected {
                     result.add_error(
@@ -335,7 +335,7 @@ pub(crate) fn validate_call_service(
 
 /// Validate call_service effect (object form)
 pub(crate) fn validate_call_service_object(
-    obj: &orbital_core::schema::SObject,
+    obj: &orbital_core_base::schema::SObject,
     path: &str,
     known_services: &HashSet<String>,
     registry: &ServiceRegistryData,

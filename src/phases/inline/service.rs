@@ -2,7 +2,7 @@
 
 use super::context::{parse_reference, InlineContext, ParsedReference};
 use super::InlineError;
-use orbital_core::schema::{ServiceDefinition, ServiceRef, ServiceRefObject};
+use orbital_core_base::schema::{ServiceDefinition, ServiceRef, ServiceRefObject};
 
 /// Apply override fields from a `ServiceRefObject` to a resolved
 /// `ServiceDefinition`. Mirrors `apply_overrides_to_trait` (Phase 3.5.G.A.1)

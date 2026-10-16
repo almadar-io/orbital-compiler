@@ -9,7 +9,7 @@
 //! Severity is hard error: a default that can't be the value is a typing
 //! bug, not a stylistic suggestion.
 
-use orbital_core::schema::{EntityRef, OrbitalSchema, SExpression};
+use orbital_core_base::schema::{EntityRef, OrbitalSchema, SExpression};
 
 use super::error::{ErrorCode, ValidationError};
 use super::ValidationContext;

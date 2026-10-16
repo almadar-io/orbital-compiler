@@ -13,7 +13,7 @@
 use crate::phases::embed_graph::EmbedGraph;
 use crate::phases::validation::fired_events::{collect_schema_fired_events, FiredEvents};
 use crate::phases::validation::{ErrorCode, ValidationError, ValidationResult};
-use orbital_core::schema::{ListenSource, Orbital, OrbitalSchema, TraitReference};
+use orbital_core_base::schema::{ListenSource, Orbital, OrbitalSchema, TraitReference};
 use std::collections::HashSet;
 
 /// Every ancestor trait name of `trait_name`, following `EmbedGraph::direct_host` upward.

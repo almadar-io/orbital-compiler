@@ -10,7 +10,7 @@
 //! All classes are warn-only in V2 Phase 0; tests verify warnings surface on
 //! the result but do not block validation.
 use orbital_compiler::phases::validation::{validate_comprehensive_without_services, ErrorCode};
-use orbital_core::schema::{
+use orbital_core_base::schema::{
     EmitDefinition, EntityDefinition, EntityRef, EventScope, FieldDefinition, FieldType, Orbital,
     OrbitalSchema, PayloadField, SExpression, StateDefinition, StateMachine, StringOrArray,
     TraitDefinition, TraitReference, TransitionDefinition,
@@ -190,7 +190,7 @@ fn schema_with_emit(emit: SExpression, declared: EmitDefinition) -> OrbitalSchem
 fn missing_required_field_emits_warning() {
     // USER_SAVED declares { id: string! (required), name: string }.
     // Emit omits `id`.
-    let mut literal = orbital_core::schema::SObject::new();
+    let mut literal = orbital_core_base::schema::SObject::new();
     literal.insert("name".to_string(), string_sexpr("Ada"));
     let emit = emit_effect("USER_SAVED", Some(SExpression::Object(literal)));
     let declared = declared_emit_with_payload(
@@ -217,7 +217,7 @@ fn missing_required_field_emits_warning() {
 #[test]
 fn extra_field_emits_warning() {
     // USER_SAVED declares { id: string }. Emit provides `nickname` too.
-    let mut literal = orbital_core::schema::SObject::new();
+    let mut literal = orbital_core_base::schema::SObject::new();
     literal.insert("id".to_string(), string_sexpr("u-1"));
     literal.insert("nickname".to_string(), string_sexpr("ada"));
     let emit = emit_effect("USER_SAVED", Some(SExpression::Object(literal)));
@@ -240,7 +240,7 @@ fn extra_field_emits_warning() {
 #[test]
 fn primitive_type_mismatch_emits_warning() {
     // USER_SAVED declares { count: number }. Emit provides a string literal.
-    let mut literal = orbital_core::schema::SObject::new();
+    let mut literal = orbital_core_base::schema::SObject::new();
     literal.insert("count".to_string(), string_sexpr("seventeen"));
     let emit = emit_effect("USER_SAVED", Some(SExpression::Object(literal)));
     let declared =
@@ -262,7 +262,7 @@ fn primitive_type_mismatch_emits_warning() {
 #[test]
 fn valid_emit_passes_without_warnings() {
     // USER_SAVED declares { id: string!, name: string }. Emit satisfies both.
-    let mut literal = orbital_core::schema::SObject::new();
+    let mut literal = orbital_core_base::schema::SObject::new();
     literal.insert("id".to_string(), string_sexpr("u-1"));
     literal.insert("name".to_string(), string_sexpr("Ada"));
     let emit = emit_effect("USER_SAVED", Some(SExpression::Object(literal)));
@@ -293,7 +293,7 @@ fn valid_emit_passes_without_warnings() {
 #[test]
 fn number_literal_matches_number_declared_type() {
     // Guard against false positives on numeric literals.
-    let mut literal = orbital_core::schema::SObject::new();
+    let mut literal = orbital_core_base::schema::SObject::new();
     literal.insert("count".to_string(), number_sexpr(42.0));
     let emit = emit_effect("COUNT_UPDATED", Some(SExpression::Object(literal)));
     let declared = declared_emit_with_payload(
@@ -314,7 +314,7 @@ fn number_literal_matches_number_declared_type() {
 }
 
 fn list_field_emit(value: SExpression) -> bool {
-    let mut literal = orbital_core::schema::SObject::new();
+    let mut literal = orbital_core_base::schema::SObject::new();
     literal.insert("icons".to_string(), value);
     let emit = emit_effect("USER_SAVED", Some(SExpression::Object(literal)));
     let declared =

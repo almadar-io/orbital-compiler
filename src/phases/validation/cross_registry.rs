@@ -15,7 +15,7 @@
 
 use super::{ErrorCode, ValidationContext, ValidationError, ValidationResult};
 use crate::embedded;
-use orbital_core::schema::{OrbitalSchema, SExpression, TraitDefinition};
+use orbital_core_base::schema::{OrbitalSchema, SExpression, TraitDefinition};
 
 /// Run all cross-registry consistency checks across the schema.
 pub fn validate_cross_registry(schema: &OrbitalSchema, ctx: &mut ValidationContext) {

@@ -5,7 +5,7 @@
 //! validation with `ORB_EFF_NOTIFY_RETIRED`, never panic the effect parser.
 
 use orbital_compiler::phases::validation::{validate_comprehensive_without_services, ErrorCode};
-use orbital_core::schema::{
+use orbital_core_base::schema::{
     EntityDefinition, EntityRef, FieldDefinition, FieldType, Orbital, OrbitalSchema, SExpression,
     StateDefinition, StateMachine, StringOrArray, TraitDefinition, TraitReference,
     TransitionDefinition,

@@ -9,7 +9,7 @@ use orbital_compiler::phases::inline::{inline_schema, InlineConfig};
 use orbital_compiler::phases::parse::parse_file;
 use orbital_compiler::phases::validation::error::ErrorCode;
 use orbital_compiler::phases::validation::validate_comprehensive_without_services;
-use orbital_core::schema::{EntityRef, OrbitalSchema};
+use orbital_core_base::schema::{EntityRef, OrbitalSchema};
 use std::path::Path;
 
 const BASE: &str = r#"{

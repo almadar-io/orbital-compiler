@@ -40,8 +40,8 @@
 use crate::phases::embed_graph::client_bound_traits;
 use crate::phases::validation::user_identity::identity_entity_names;
 use crate::phases::validation::{ErrorCode, ValidationError, ValidationResult};
-use orbital_core::evaluator::{BindingContext, Evaluator, Value};
-use orbital_core::schema::{
+use {orbital_core_eval::evaluator::{BindingContext, Evaluator}, orbital_core_base::value::Value};
+use orbital_core_base::schema::{
     EntityDefinition, EntityRef, OrbitalSchema, SExpression, TraitDefinition, TraitReference,
 };
 use std::collections::{HashMap, HashSet};
@@ -172,7 +172,7 @@ fn fold_comparand_literal(comparand: &SExpression, trait_def: &TraitDefinition) 
     }
     let mut ctx = BindingContext::new();
     if let Some(config) = &trait_def.config {
-        let mut map = orbital_core::ValueMap::new();
+        let mut map = orbital_core_base::value::ValueMap::new();
         for (key, field) in config {
             if let Some(default) = &field.default {
                 map.insert(key.clone(), Value::from(default.clone()));
@@ -237,7 +237,7 @@ fn collect_persist_writes(
             {
                 if op == "persist" && action == "batch" {
                     if let Some(ops) = items.get(2) {
-                        for w in orbital_core::effects::persist_batch::batch_writes(ops) {
+                        for w in orbital_core_base::persist_batch::batch_writes(ops) {
                             if w.action != "delete" {
                                 record_persist_write(
                                     w.action,
@@ -491,7 +491,7 @@ pub(crate) fn validate_filter_field_never_written(schema: &OrbitalSchema) -> Val
 #[cfg(test)]
 mod tests {
     use super::*;
-    use orbital_core::schema::{
+    use orbital_core_base::schema::{
         ConfigField, FieldDefinition, FieldType, Orbital, PageDefinition, PageRef, StateMachine,
         StringOrArray,
     };
@@ -507,8 +507,8 @@ mod tests {
         to: &str,
         event: &str,
         effects: Vec<SExpression>,
-    ) -> orbital_core::schema::TransitionDefinition {
-        orbital_core::schema::TransitionDefinition {
+    ) -> orbital_core_base::schema::TransitionDefinition {
+        orbital_core_base::schema::TransitionDefinition {
             event_id: None,
             from: StringOrArray::Single(from.to_string()),
             to: to.to_string(),
@@ -521,7 +521,7 @@ mod tests {
     fn trait_def_with(
         name: &str,
         config: Option<Map<String, ConfigField>>,
-        transitions: Vec<orbital_core::schema::TransitionDefinition>,
+        transitions: Vec<orbital_core_base::schema::TransitionDefinition>,
     ) -> TraitReference {
         TraitReference::Inline(TraitDefinition {
             local: false,

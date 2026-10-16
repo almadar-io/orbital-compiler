@@ -8,14 +8,14 @@
 
 use super::value_walk::all_sources;
 use super::{ErrorCode, ValidationError, ValidationResult};
-use orbital_core::effects::BusEventSource;
-use orbital_core::ir::{OirBinding, OirBindingRoot, OirExpr};
-use orbital_core::runtime::listener::matches_listen_source;
-use orbital_core::schema::{
+use orbital_core_base::bus_event::BusEventSource;
+use orbital_core_base::ir::{OirBinding, OirBindingRoot, OirExpr};
+use orbital_core_base::listen_match::matches_listen_source;
+use orbital_core_base::schema::{
     split_event_address, Orbital, OrbitalSchema, SExpression, TraitDefinition, TraitReference,
     ValueSlot,
 };
-use orbital_core::BindingContext;
+use orbital_core_eval::evaluator::context::BindingContext;
 use std::collections::{BTreeMap, HashMap, HashSet};
 
 const DATA_REF: &str = "@payload.data";
@@ -470,7 +470,7 @@ impl<'a> Checker<'a> {
                 source
             }
             SExpression::Array(items) => {
-                let Some(op) = orbital_core::lower::recognized_call_head(expr) else {
+                let Some(op) = orbital_core_eval::lower::recognized_call_head(expr) else {
                     let mut source = Annotations::default();
                     for (index, item) in items.iter().enumerate() {
                         source.union(
@@ -539,7 +539,7 @@ impl<'a> Checker<'a> {
         let mut declaration = header.to_vec();
         declaration.push(SExpression::Null);
         let declaration = SExpression::Array(declaration);
-        let OirExpr::Lambda { params, .. } = orbital_core::lower::lower_sexpr(&declaration).ok()? else {
+        let OirExpr::Lambda { params, .. } = orbital_core_eval::lower::lower_sexpr(&declaration).ok()? else {
             return None;
         };
         let depth = self.locals.len();
@@ -602,7 +602,7 @@ impl<'a> Checker<'a> {
     fn projection(
         &mut self,
         args: &[SExpression],
-        projection: orbital_core::signature::FieldProjection,
+        projection: orbital_core_base::signature::FieldProjection,
         at: &str,
         mode: Consumption,
     ) -> Annotations {

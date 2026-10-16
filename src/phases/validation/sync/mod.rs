@@ -14,7 +14,7 @@ pub mod action_affinity;
 // `patterns.rs` itself.
 pub mod content;
 pub mod icons;
-pub use orbital_core::language::pattern_props as patterns;
+pub use orbital_core_base::language::pattern_props as patterns;
 pub mod services;
 
 pub use action_affinity::{

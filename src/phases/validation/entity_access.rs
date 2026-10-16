@@ -16,7 +16,7 @@ use super::user_identity::{
     identity_field, user_field_of, IdentitySource,
 };
 use super::{field_type_str, ErrorCode, ValidationContext, ValidationError, ValidationResult};
-use orbital_core::schema::{EntityDefinition, EntityRef, FieldDefinition, OrbitalSchema};
+use orbital_core_base::schema::{EntityDefinition, EntityRef, FieldDefinition, OrbitalSchema};
 use serde_json::Value;
 
 /// `@entity.field` → `Some("field")`. Mirrors `user_identity::user_field_of`
@@ -118,7 +118,7 @@ fn validate_collection_policy_agreement(schema: &OrbitalSchema, result: &mut Val
 /// id, so this check and the seeder can never disagree about what an owner
 /// column is. JS twin: `unscoped-owned-entity` in `wiring-lint.ts`.
 fn validate_owner_columns_scoped(schema: &OrbitalSchema, result: &mut ValidationResult) {
-    let owner_fields = orbital_core::runtime::owner_fields_from_schema(schema);
+    let owner_fields = orbital_core_base::policy::owner_fields_from_schema(schema);
     if owner_fields.is_empty() {
         return;
     }

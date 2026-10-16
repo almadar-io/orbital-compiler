@@ -10,7 +10,7 @@ use super::rewrite::{
     rewrite_payload_entity_refs, rewrite_trait_event_fields, stale_entity_rebind_subs,
 };
 use super::InlineError;
-use orbital_core::schema::{
+use orbital_core_base::schema::{
     ConfigField, ConfigProvenanceRecord, EntityDefinition, EntityRef, FieldType, OrbitalSchema,
     SExpression, SourceBehaviorMetadata, TraitDefinition, TraitReference,
 };
@@ -169,7 +169,7 @@ pub(crate) fn apply_overrides_to_trait(
                 let mut cf = cf.clone();
                 if let Some(default) = cf.default.as_mut() {
                     let local = local_payload_fields_for_knob(trait_def, k);
-                    orbital_core::schema::retag_callsite_payload(default, &local);
+                    orbital_core_base::schema::retag_callsite_payload(default, &local);
                 }
                 (k.clone(), cf)
             })
@@ -196,7 +196,7 @@ pub(crate) fn apply_overrides_to_trait(
     if trait_def.name != original_name {
         let new_name = trait_def.name.clone();
         super::rewrite::map_config_event_addresses(trait_def, &mut |event, source| {
-            let orbital_core::schema::ListenSource::Trait { trait_name, .. } = source else {
+            let orbital_core_base::schema::ListenSource::Trait { trait_name, .. } = source else {
                 return None;
             };
             if *trait_name != original_name {
@@ -208,14 +208,14 @@ pub(crate) fn apply_overrides_to_trait(
                 .unwrap_or_else(|| event.to_string());
             Some((
                 event,
-                orbital_core::schema::ListenSource::Trait {
+                orbital_core_base::schema::ListenSource::Trait {
                     trait_name: new_name.clone(),
                     trait_id: None,
                 },
             ))
         });
     }
-    let mut effective_config: orbital_core::schema::SObject = orbital_core::schema::SObject::new();
+    let mut effective_config: orbital_core_base::schema::SObject = orbital_core_base::schema::SObject::new();
     if let Some(declared) = trait_def.config.as_ref() {
         for (k, field) in declared.iter() {
             if let Some(default) = field.default.as_ref() {
@@ -257,8 +257,8 @@ pub(crate) fn apply_overrides_to_trait(
                 emits
                     .iter()
                     .filter_map(|emit| {
-                        let knob = orbital_core::schema::config_ref_event_knob(&emit.event)?;
-                        let resolved = orbital_core::schema::resolve_config_ref_event_name(
+                        let knob = orbital_core_base::schema::config_ref_event_knob(&emit.event)?;
+                        let resolved = orbital_core_base::schema::resolve_config_ref_event_name(
                             &emit.event,
                             &effective_config,
                             trait_def.config.as_ref(),
@@ -457,7 +457,7 @@ pub(crate) fn apply_overrides_to_trait(
         // never a reference into the event set, so a call-site `events:`
         // rename must not fold onto it (that would rewrite the DEFINITION,
         // not a reference to it).
-        let definer_knobs = orbital_core::schema::definer_knobs_for_trait(trait_def);
+        let definer_knobs = orbital_core_base::schema::definer_knobs_for_trait(trait_def);
         let event_knob_renames: Vec<(String, String)> = trait_def
             .config
             .as_ref()
@@ -567,9 +567,9 @@ pub(crate) fn apply_overrides_to_trait(
             })
             .unwrap_or_default();
         coerce_trait_knob_conditions(trait_def, &trait_knobs, &effective_config);
-        let subst_config: orbital_core::schema::SObject = effective_config
+        let subst_config: orbital_core_base::schema::SObject = effective_config
             .iter()
-            .filter(|(_, v)| !orbital_core::schema::contains_callsite_payload(v))
+            .filter(|(_, v)| !orbital_core_base::schema::contains_callsite_payload(v))
             .map(|(k, v)| (k.clone(), v.clone()))
             .collect();
         let cfg = &subst_config;
@@ -614,13 +614,13 @@ pub(crate) fn apply_overrides_to_trait(
 /// any future `@typeWhen` declaration on any field gets the same treatment.
 fn apply_payload_type_conditionals(trait_def: &mut TraitDefinition) {
     let config = trait_def.config.clone();
-    let resolve_fields = |fields: &mut [orbital_core::schema::PayloadField]| {
+    let resolve_fields = |fields: &mut [orbital_core_base::schema::PayloadField]| {
         for f in fields.iter_mut() {
             let Some(conditions) = f.type_when.as_ref() else {
                 continue;
             };
             if let Some(ty) =
-                orbital_core::schema::resolve_payload_type_when(conditions, config.as_ref())
+                orbital_core_base::schema::resolve_payload_type_when(conditions, config.as_ref())
             {
                 f.field_type = ty;
             }
@@ -659,7 +659,7 @@ fn is_array_shaped_payload_type(ty: &str) -> bool {
 /// `false` here.
 fn finalize_payload_type_conditionals(trait_def: &mut TraitDefinition) -> bool {
     let mut value_narrowed_to_scalar = false;
-    let mut sweep = |fields: &mut [orbital_core::schema::PayloadField]| {
+    let mut sweep = |fields: &mut [orbital_core_base::schema::PayloadField]| {
         for f in fields.iter_mut() {
             let was_conditional = f.type_when.take().is_some();
             if was_conditional
@@ -717,7 +717,7 @@ fn finalize_payload_type_conditionals(trait_def: &mut TraitDefinition) -> bool {
 /// `apply_payload_type_conditionals` pass) has landed — this IS the point
 /// that finalizes and clears every trait's `type_when`, gated trait or not.
 pub(crate) fn rewrite_narrowed_number_display_writes(schema: &mut OrbitalSchema) {
-    let mut entities: HashMap<String, Vec<orbital_core::schema::FieldDefinition>> = HashMap::new();
+    let mut entities: HashMap<String, Vec<orbital_core_base::schema::FieldDefinition>> = HashMap::new();
     for orbital in &schema.orbitals {
         if let EntityRef::Inline(def) = &orbital.entity {
             entities.insert(def.name.clone(), def.fields.clone());
@@ -825,7 +825,7 @@ fn set_entity_field(target: &SExpression) -> Option<&str> {
 /// just the resolved default, or `ORB_X_RENDER_UI_EVENT_LITERAL_STALE` fires.
 pub(crate) fn resolve_config_ref_emit_names(
     trait_def: &mut TraitDefinition,
-    effective_config: &orbital_core::schema::SObject,
+    effective_config: &orbital_core_base::schema::SObject,
 ) -> Vec<String> {
     let mut resolved_triples: Vec<(String, String, String)> = Vec::new();
     {
@@ -833,10 +833,10 @@ pub(crate) fn resolve_config_ref_emit_names(
             return Vec::new();
         };
         for emit in emits.iter() {
-            let Some(knob) = orbital_core::schema::config_ref_event_knob(&emit.event) else {
+            let Some(knob) = orbital_core_base::schema::config_ref_event_knob(&emit.event) else {
                 continue;
             };
-            match orbital_core::schema::resolve_config_ref_event_name(
+            match orbital_core_base::schema::resolve_config_ref_event_name(
                 &emit.event,
                 effective_config,
                 trait_def.config.as_ref(),
@@ -909,8 +909,8 @@ pub(crate) fn resolve_config_ref_emit_names(
 /// by the time these structural changes apply.
 pub(crate) fn apply_post_subst_overrides_to_trait(
     trait_def: &mut TraitDefinition,
-    listens: Option<&Vec<orbital_core::schema::ListenDefinition>>,
-    emits_scope: Option<&orbital_core::schema::EventScope>,
+    listens: Option<&Vec<orbital_core_base::schema::ListenDefinition>>,
+    emits_scope: Option<&orbital_core_base::schema::EventScope>,
 ) {
     if let Some(new_listens) = listens {
         trait_def.listens = Some(new_listens.clone());
@@ -1303,7 +1303,7 @@ fn substitute_nested_forwards(
         }
         SExpression::Object(map) => {
             let mut changed = false;
-            let next: orbital_core::schema::SObject = map
+            let next: orbital_core_base::schema::SObject = map
                 .iter()
                 .map(|(k, v)| {
                     match substitute_nested_forwards(v, own, rungs, tokens, schema_only) {
@@ -1420,7 +1420,7 @@ pub(crate) fn sibling_trait_refs_of(
     let mut config_events = HashSet::new();
     if let Some(mut config) = trait_def.config.clone() {
         super::rewrite::map_fields_event_values(&mut config, &mut |value| {
-            let (event, source) = orbital_core::schema::split_event_address(value);
+            let (event, source) = orbital_core_base::schema::split_event_address(value);
             // A consumer route for this event out of the composed trait is the
             // receiver; pulling the upstream's own would handle it twice.
             if source.is_none()
@@ -1452,17 +1452,17 @@ pub(crate) fn sibling_trait_refs_of(
                             return false;
                         }
                         match &listen.source {
-                            Some(orbital_core::schema::ListenSource::Trait {
+                            Some(orbital_core_base::schema::ListenSource::Trait {
                                 trait_name, ..
                             }) => trait_name == source_trait_name,
-                            Some(orbital_core::schema::ListenSource::Orbital {
+                            Some(orbital_core_base::schema::ListenSource::Orbital {
                                 orbital: source_orbital,
                                 trait_name,
                                 ..
                             }) => {
                                 source_orbital == &orbital.name && trait_name == source_trait_name
                             }
-                            Some(orbital_core::schema::ListenSource::Any) => true,
+                            Some(orbital_core_base::schema::ListenSource::Any) => true,
                             None => false,
                         }
                     });
@@ -1647,7 +1647,7 @@ pub(crate) fn inline_traits(
                 TraitReference::Reference { listens, .. } => listens.as_deref().unwrap_or_default(),
             };
             listens.iter().filter_map(|listen| match &listen.source {
-                Some(orbital_core::schema::ListenSource::Trait { trait_name, .. }) => {
+                Some(orbital_core_base::schema::ListenSource::Trait { trait_name, .. }) => {
                     Some((trait_name.clone(), listen.event.clone()))
                 }
                 _ => None,
@@ -1906,8 +1906,8 @@ pub(crate) fn inline_traits(
                                         // source key is checked against the
                                         // RESOLVED `@config.<knob>` emit name,
                                         // not the raw unresolved token.
-                                        let mut effective_config: orbital_core::schema::SObject =
-                                            orbital_core::schema::SObject::new();
+                                        let mut effective_config: orbital_core_base::schema::SObject =
+                                            orbital_core_base::schema::SObject::new();
                                         if let Some(declared) = trait_def.config.as_ref() {
                                             for (k, field) in declared.iter() {
                                                 if let Some(default) = field.default.as_ref() {
@@ -1945,12 +1945,12 @@ pub(crate) fn inline_traits(
                                         );
                                         if let Some(emits) = &trait_def.emits {
                                             for e in emits {
-                                                if orbital_core::schema::config_ref_event_knob(
+                                                if orbital_core_base::schema::config_ref_event_knob(
                                                     &e.event,
                                                 )
                                                 .is_some()
                                                 {
-                                                    match orbital_core::schema::resolve_config_ref_event_name(
+                                                    match orbital_core_base::schema::resolve_config_ref_event_name(
                                                         &e.event,
                                                         &effective_config,
                                                         trait_def.config.as_ref(),
@@ -2638,7 +2638,7 @@ pub(crate) fn inline_traits(
                 sibling_def.name = final_name.clone();
                 // A distinct declaration needs a distinct id: listens match sources by id.
                 if let Some(source_id) = sibling_def.id.clone() {
-                    sibling_def.id = Some(orbital_core::identity::derive_id(&source_id, &owner));
+                    sibling_def.id = Some(orbital_core_base::identity::derive_id(&source_id, &owner));
                 }
                 rewrite_parent(&mut result, &parent_name, &sibling_name, &final_name);
             }
@@ -2769,7 +2769,7 @@ pub(crate) fn inline_traits(
             crate::phases::inline::rewrite::map_config_event_addresses(
                 trait_def,
                 &mut |event, source| {
-                    let orbital_core::schema::ListenSource::Trait { trait_name, .. } = source
+                    let orbital_core_base::schema::ListenSource::Trait { trait_name, .. } = source
                     else {
                         return None;
                     };
@@ -2785,7 +2785,7 @@ pub(crate) fn inline_traits(
                         .unwrap_or_else(|| event.to_string());
                     Some((
                         new_event,
-                        orbital_core::schema::ListenSource::Trait {
+                        orbital_core_base::schema::ListenSource::Trait {
                             trait_name: renamed,
                             trait_id: None,
                         },
@@ -2801,7 +2801,7 @@ pub(crate) fn inline_traits(
                 // the retain below sees a non-local name and silently drops
                 // the route — and renaming the host is the universal case.
                 for listen in listens.iter_mut() {
-                    if let Some(orbital_core::schema::ListenSource::Trait { trait_name, .. }) =
+                    if let Some(orbital_core_base::schema::ListenSource::Trait { trait_name, .. }) =
                         listen.source.as_mut()
                     {
                         if let Some(renamed) = own_subs
@@ -2817,7 +2817,7 @@ pub(crate) fn inline_traits(
                     // the host's emit was renamed, or the route (and the
                     // emitter index) dangles on the pre-rename name.
                     let source_name = match listen.source.as_ref() {
-                        Some(orbital_core::schema::ListenSource::Trait { trait_name, .. }) => {
+                        Some(orbital_core_base::schema::ListenSource::Trait { trait_name, .. }) => {
                             Some(trait_name.clone())
                         }
                         _ => None,
@@ -2831,13 +2831,13 @@ pub(crate) fn inline_traits(
                     }
                 }
                 listens.retain(|listen| match &listen.source {
-                    Some(orbital_core::schema::ListenSource::Trait { trait_name, .. }) => {
+                    Some(orbital_core_base::schema::ListenSource::Trait { trait_name, .. }) => {
                         local_trait_names.contains(trait_name)
                     }
                     _ => true,
                 });
                 for listen in listens.iter_mut() {
-                    if let Some(orbital_core::schema::ListenSource::Trait {
+                    if let Some(orbital_core_base::schema::ListenSource::Trait {
                         trait_name,
                         trait_id,
                     }) = listen.source.as_mut()
@@ -2888,7 +2888,7 @@ fn sexpr_references_config(expr: &SExpression, token: &str) -> bool {
 /// call-site capture, preserving the leaf-embed error case
 /// (`content={?error}` on a TypographyRender rendered under `INIT {}`).
 fn local_payload_fields_for_knob(trait_def: &TraitDefinition, knob: &str) -> HashSet<String> {
-    let event_fields: HashMap<&str, &Vec<orbital_core::schema::PayloadField>> = trait_def
+    let event_fields: HashMap<&str, &Vec<orbital_core_base::schema::PayloadField>> = trait_def
         .state_machine
         .events
         .as_ref()
@@ -2925,7 +2925,7 @@ fn local_payload_fields_for_knob(trait_def: &TraitDefinition, knob: &str) -> Has
 #[cfg(test)]
 mod entity_id_reader_tests {
     use super::*;
-    use orbital_core::schema::{
+    use orbital_core_base::schema::{
         EventDefinition, PayloadField, StateDefinition, StateMachine, StringOrArray,
         TransitionDefinition,
     };
@@ -3394,7 +3394,7 @@ mod entity_id_reader_tests {
                 s("persist"),
                 s("create"),
                 s("WikiPageRevision"),
-                SExpression::Object(orbital_core::schema::SObject::new()),
+                SExpression::Object(orbital_core_base::schema::SObject::new()),
             ]));
         td.linked_entity = Some("WikiPage".to_string());
         td.linked_entity_id = Some("ent-page".to_string());
@@ -3997,7 +3997,7 @@ mod config_ref_emit_name_tests {
     #[test]
     fn a_knob_resolved_to_empty_declares_no_event_and_no_emit() {
         let mut td = calendar_trait();
-        let config = orbital_core::schema::SObject::from([(
+        let config = orbital_core_base::schema::SObject::from([(
             "onEventClick".to_string(),
             SExpression::String(String::new()),
         )]);
@@ -4024,7 +4024,7 @@ mod config_ref_emit_name_tests {
     #[test]
     fn control_a_knob_resolved_to_a_name_renames_both() {
         let mut td = calendar_trait();
-        let config = orbital_core::schema::SObject::from([(
+        let config = orbital_core_base::schema::SObject::from([(
             "onEventClick".to_string(),
             SExpression::String("OPEN_NOTE".to_string()),
         )]);

@@ -17,7 +17,7 @@
 //! for `ListenSource::Trait`/`ListenSource::Orbital`.
 
 use crate::phases::validation::{ErrorCode, ValidationError, ValidationResult};
-use orbital_core::schema::{
+use orbital_core_base::schema::{
     ListenSource, OrbitalSchema, PayloadField, SExpression, TraitDefinition, TraitReference,
 };
 use std::collections::{HashMap, HashSet};
@@ -254,7 +254,7 @@ pub(crate) fn validate_listen_route_starves_required_field(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use orbital_core::schema::{
+    use orbital_core_base::schema::{
         ConfigField, EmitDefinition, EntityDefinition, EntityRef, EventDefinition, EventScope,
         ListenDefinition, Orbital, StateMachine,
     };
@@ -641,10 +641,10 @@ mod tests {
             vec![],
         );
         let mut listen = listen_from("SAVE", "ChatComposer", "DO_CREATE");
-        let mut mapping = orbital_core::schema::SObject::new();
+        let mut mapping = orbital_core_base::schema::SObject::new();
         mapping.insert(
             "content".to_string(),
-            orbital_core::schema::SExpression::String("?text".to_string()),
+            orbital_core_base::schema::SExpression::String("?text".to_string()),
         );
         listen.payload_mapping = Some(mapping);
         let listener = trait_with(
@@ -778,7 +778,7 @@ mod tests {
             "actionPayload".to_string(),
             payload_companion_field(
                 "action",
-                SExpression::Object(orbital_core::schema::SObject::from([(
+                SExpression::Object(orbital_core_base::schema::SObject::from([(
                     "prompt".to_string(),
                     SExpression::String("@payload.text".to_string()),
                 )])),

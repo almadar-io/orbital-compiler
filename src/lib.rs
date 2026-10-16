@@ -26,12 +26,12 @@
 //! ```
 
 pub mod composition;
-pub use orbital_core::language::registry as embedded;
+pub use orbital_core_base::language::registry as embedded;
 pub mod exhaustive_tests;
 pub mod generate;
 pub mod ir_helpers;
 pub mod loader;
-pub use orbital_core::language::pattern_registry;
+pub use orbital_core_base::language::pattern_registry;
 pub mod phases;
 pub mod shell;
 pub mod test_generator;

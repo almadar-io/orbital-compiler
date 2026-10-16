@@ -2,7 +2,7 @@
 //! `orb validate` makes decidable. One positive case and one control per code.
 
 use orbital_compiler::phases::validation::{validate_comprehensive_without_services, ErrorCode, ValidationResult};
-use orbital_core::schema::OrbitalSchema;
+use orbital_core_base::schema::OrbitalSchema;
 use serde_json::{json, Value};
 
 fn schema(entities: Vec<Value>, traits: Vec<Value>) -> OrbitalSchema {

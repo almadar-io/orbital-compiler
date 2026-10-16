@@ -3,7 +3,7 @@
 //! route, and that route is a page anonymous viewers can open.
 
 use orbital_compiler::phases::validation::page::{validate_page_modifiers, validate_sign_in_route};
-use orbital_core::schema::OrbitalSchema;
+use orbital_core_base::schema::OrbitalSchema;
 use serde_json::{json, Value};
 
 fn schema(site: Value, pages: Value) -> OrbitalSchema {

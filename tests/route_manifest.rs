@@ -3,8 +3,8 @@
 //! locale's text direction and the app's site modifiers.
 
 use orbital_compiler::generate::route_manifest;
-use orbital_core::ir::{OirModule, OirPage};
-use orbital_core::schema::{PageAccess, PageIndexing, PageMeta, SiteMeta};
+use orbital_core_base::ir::{OirModule, OirPage};
+use orbital_core_base::schema::{PageAccess, PageIndexing, PageMeta, SiteMeta};
 use std::collections::BTreeMap;
 
 fn module() -> OirModule {

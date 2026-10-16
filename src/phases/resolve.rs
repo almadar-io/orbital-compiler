@@ -3,15 +3,15 @@
 //! Resolves all references and produces the final OIR (Orbital Intermediate Representation).
 
 use crate::phases::embed_graph::EmbedGraph;
-use orbital_core::ir::{
+use orbital_core_base::ir::{
     OirBindingRoot, OirCardinality, OirConfigFieldType, OirConstraint, OirEffect, OirEmit,
     OirEntity, OirEvent, OirEventScope, OirExpr, OirField, OirInterval, OirListener, OirMetadata,
     OirModule, OirPage, OirPattern, OirPayloadField, OirPersistence, OirRelation, OirSection,
     OirState, OirTick, OirTrait, OirTraitBinding, OirTraitSource, OirTransition, OirTransitionFrom,
     OirType, OirValue,
 };
-use orbital_core::lower::{ExprLowerer, LowerError};
-use orbital_core::schema::{
+use orbital_core_eval::lower::{ExprLowerer, LowerError};
+use orbital_core_base::schema::{
     Cardinality, EntityDefinition, EntityRef, FieldDefinition, FieldType, OrbitalSchema,
     PageDefinition, PageRef, SExpression, SectionDefinition, ServiceRef, StringOrArray, ThemeRef,
     TraitDefinition, TraitReference, TransitionDefinition,
@@ -40,7 +40,7 @@ pub enum ResolveError {
 }
 
 /// A schema id map (unordered) as the IR's, keys sorted so the IR is deterministic.
-fn sorted_id_map(map: &HashMap<String, String>) -> orbital_core::ir::OirIdMap {
+fn sorted_id_map(map: &HashMap<String, String>) -> orbital_core_base::ir::OirIdMap {
     let mut entries: Vec<(String, String)> =
         map.iter().map(|(k, v)| (k.clone(), v.clone())).collect();
     entries.sort();
@@ -75,7 +75,7 @@ pub fn resolve_to_oir(schema: &OrbitalSchema) -> Result<OirModule, ResolveError>
 /// Lower a standalone expression through the one canonical lowering
 /// (`orbital_core::lower`).
 pub fn resolve_sexpr_standalone(sexpr: &SExpression) -> Result<OirExpr, ResolveError> {
-    Ok(orbital_core::lower::lower_sexpr(sexpr)?)
+    Ok(orbital_core_eval::lower::lower_sexpr(sexpr)?)
 }
 
 /// Substrate operators — async ops that reach outside the app via
@@ -89,7 +89,7 @@ pub fn resolve_sexpr_standalone(sexpr: &SExpression) -> Result<OirExpr, ResolveE
 /// `orbital_core::ir::is_substrate_operator` — the single source of truth
 /// shared with the TS and Python shells (closes C-EMIT-SUBSTRATE-OPS-MARKER).
 pub(crate) fn is_substrate_op(name: &str) -> bool {
-    orbital_core::ir::is_substrate_operator(name)
+    orbital_core_base::ir::is_substrate_operator(name)
 }
 
 /// Resolver state
@@ -197,8 +197,8 @@ impl<'a> Resolver<'a> {
             };
             for expectation in expects {
                 let name = match expectation {
-                    orbital_core::schema::ExpectDeclaration::Entity { name, .. } => Some(name),
-                    orbital_core::schema::ExpectDeclaration::Identity { name, .. } => name.as_ref(),
+                    orbital_core_base::schema::ExpectDeclaration::Entity { name, .. } => Some(name),
+                    orbital_core_base::schema::ExpectDeclaration::Identity { name, .. } => name.as_ref(),
                     _ => None,
                 };
                 if let Some(name) = name {
@@ -282,7 +282,7 @@ impl<'a> Resolver<'a> {
         // each orbital's — deduped by name. An inline theme is carried as-is; a
         // preset key (`"clay-dark"`) carries the installed preset definition, so
         // the shells emit its CSS the same way they emit an inline theme's.
-        let presets = orbital_core::runtime::theme::ThemePresets::installed();
+        let presets = orbital_core_base::theme::ThemePresets::installed();
         let declared = self
             .schema
             .theme
@@ -318,9 +318,9 @@ impl<'a> Resolver<'a> {
                 for service_ref in services {
                     if let ServiceRef::Inline(service) = service_ref {
                         let service_name = match service {
-                            orbital_core::schema::ServiceDefinition::Rest(r) => r.name.clone(),
-                            orbital_core::schema::ServiceDefinition::Socket(s) => s.name.clone(),
-                            orbital_core::schema::ServiceDefinition::Mcp(m) => m.name.clone(),
+                            orbital_core_base::schema::ServiceDefinition::Rest(r) => r.name.clone(),
+                            orbital_core_base::schema::ServiceDefinition::Socket(s) => s.name.clone(),
+                            orbital_core_base::schema::ServiceDefinition::Mcp(m) => m.name.clone(),
                         };
                         if seen_services.insert(service_name) {
                             module.services.push(service_ref.clone());
@@ -448,7 +448,7 @@ fn substitute_schema_sigils(expr: OirExpr, pages: &[NavEntry], theme_key: &str) 
                 pages
                     .iter()
                     .map(|entry| {
-                        let mut fields = orbital_core::ir::OirFields::new();
+                        let mut fields = orbital_core_base::ir::OirFields::new();
                         fields.insert("href".to_string(), OirExpr::string(entry.href.clone()));
                         fields.insert("label".to_string(), OirExpr::string(entry.label.clone()));
                         if let Some(ic) = &entry.icon {
@@ -602,8 +602,8 @@ impl<'a> Resolver<'a> {
 
         if let Some(persistence) = &entity.persistence {
             oir_entity.persistence = match persistence {
-                orbital_core::schema::Persistence::Persistent => OirPersistence::Persistent,
-                orbital_core::schema::Persistence::Runtime => OirPersistence::Runtime,
+                orbital_core_base::schema::Persistence::Persistent => OirPersistence::Persistent,
+                orbital_core_base::schema::Persistence::Runtime => OirPersistence::Runtime,
             };
         }
 
@@ -640,7 +640,7 @@ impl<'a> Resolver<'a> {
         // Copy pre-authored instances, converting SExpression values to OirValue
         if let Some(instances) = &entity.instances {
             for instance in instances {
-                let mut oir_instance = orbital_core::ir::OirObject::new();
+                let mut oir_instance = orbital_core_base::ir::OirObject::new();
                 for (key, value) in instance {
                     oir_instance.insert(key.clone(), self.sexpr_to_value(value));
                 }
@@ -828,12 +828,12 @@ impl<'a> Resolver<'a> {
                 }
             }
             FieldType::Relation => match &field.relation {
-                Some(_) => Ok(orbital_core::field_shape(field)),
+                Some(_) => Ok(orbital_core_base::ir::types::field_shape(field)),
                 None => Err(ResolveError::InvalidType(
                     "Relation type requires relation definition".to_string(),
                 )),
             },
-            _ => Ok(orbital_core::field_shape(field)),
+            _ => Ok(orbital_core_base::ir::types::field_shape(field)),
         }
     }
 
@@ -848,10 +848,10 @@ impl<'a> Resolver<'a> {
     /// Mirrors `resolve_field_shape` on `FieldDefinition` — same recursion
     /// rules so a typed config slot's TS shape parallels what entity fields
     /// emit.
-    fn resolve_config_field_shape(&self, field: &orbital_core::schema::ConfigField) -> OirType {
+    fn resolve_config_field_shape(&self, field: &orbital_core_base::schema::ConfigField) -> OirType {
         // Tuple slot: `[T1, T2, …]` with each slot's shape riding `properties` by index.
-        if orbital_core::type_compat::tuple_type_slots(&field.field_type).is_some() {
-            let slots = orbital_core::schema::tuple_slots_of(field.properties.as_ref());
+        if orbital_core_base::type_compat::tuple_type_slots(&field.field_type).is_some() {
+            let slots = orbital_core_base::schema::tuple_slots_of(field.properties.as_ref());
             if !slots.is_empty() {
                 return OirType::Tuple {
                     items: slots
@@ -931,7 +931,7 @@ impl<'a> Resolver<'a> {
     /// the inner base type, and `[T]` form (lolo array notation).
     fn type_string_to_oir(&self, type_str: &str) -> OirType {
         let trimmed = type_str.trim();
-        if let Some(slots) = orbital_core::type_compat::tuple_type_slots(trimmed) {
+        if let Some(slots) = orbital_core_base::type_compat::tuple_type_slots(trimmed) {
             return OirType::Tuple {
                 items: slots
                     .into_iter()
@@ -1032,7 +1032,7 @@ impl<'a> Resolver<'a> {
                 let mut oir_event = OirEvent::new(event_key);
                 oir_event.description = event.name.clone();
                 // The owning orbital is stamped with `orbital_name` after this returns.
-                oir_event.external = orbital_core::runtime::external_inputs::external_input_of(
+                oir_event.external = orbital_core_base::external_inputs::external_input_of(
                     "",
                     &trait_def.name,
                     event,
@@ -1051,7 +1051,7 @@ impl<'a> Resolver<'a> {
                 // reach the TypeScript codegen as `data: CartItem[]` instead
                 // of collapsing to `EventPayload`.
                 if let Some(payload_fields) = &event.payload_schema {
-                    let mut schema = orbital_core::ir::OirTypeMap::new();
+                    let mut schema = orbital_core_base::ir::OirTypeMap::new();
                     let mut required = std::collections::BTreeSet::new();
                     for field in payload_fields {
                         let oir_type = payload_field_to_oir_type(field, &self.named_type_ctx());
@@ -1126,17 +1126,17 @@ impl<'a> Resolver<'a> {
                 // so the codegen can emit source-filtered `eventBus.on(…)` hooks.
                 if let Some(src) = &listen.source {
                     match src {
-                        orbital_core::schema::ListenSource::Any => {
+                        orbital_core_base::schema::ListenSource::Any => {
                             oir.source_any = true;
                         }
-                        orbital_core::schema::ListenSource::Trait {
+                        orbital_core_base::schema::ListenSource::Trait {
                             trait_name,
                             trait_id,
                         } => {
                             oir.source_trait = Some(trait_name.clone());
                             oir.source_trait_id = trait_id.clone();
                         }
-                        orbital_core::schema::ListenSource::Orbital {
+                        orbital_core_base::schema::ListenSource::Orbital {
                             orbital,
                             orbital_id,
                             trait_name,
@@ -1156,7 +1156,7 @@ impl<'a> Resolver<'a> {
                     oir.guard = Some(self.resolve_sexpr(guard)?);
                 }
                 if let Some(mapping) = &listen.payload_mapping {
-                    let mut resolved = orbital_core::ir::OirFields::new();
+                    let mut resolved = orbital_core_base::ir::OirFields::new();
                     for (field, expr) in mapping {
                         resolved.insert(field.clone(), self.resolve_sexpr(expr)?);
                     }
@@ -1185,8 +1185,8 @@ impl<'a> Resolver<'a> {
         // .lolo's `config { ... }` block flow through to the runtime.
         if let Some(cfg) = &trait_def.config {
             if !cfg.is_empty() {
-                let mut schema = orbital_core::ir::OirConfigSchema::new();
-                let mut defaults = orbital_core::ir::OirObject::new();
+                let mut schema = orbital_core_base::ir::OirConfigSchema::new();
+                let mut defaults = orbital_core_base::ir::OirObject::new();
                 for (key, field) in cfg {
                     schema.insert(
                         key.clone(),
@@ -1211,7 +1211,7 @@ impl<'a> Resolver<'a> {
 
     fn resolve_emit(
         &self,
-        emit: &orbital_core::schema::EmitDefinition,
+        emit: &orbital_core_base::schema::EmitDefinition,
     ) -> Result<OirEmit, ResolveError> {
         let mut oir_emit = OirEmit::new(&emit.event);
         oir_emit.event_id = emit.event_id.clone();
@@ -1220,8 +1220,8 @@ impl<'a> Resolver<'a> {
         // Convert scope
         if let Some(scope) = &emit.scope {
             oir_emit.scope = match scope {
-                orbital_core::schema::EventScope::Internal => OirEventScope::Internal,
-                orbital_core::schema::EventScope::External => OirEventScope::External,
+                orbital_core_base::schema::EventScope::Internal => OirEventScope::Internal,
+                orbital_core_base::schema::EventScope::External => OirEventScope::External,
             };
         }
 
@@ -1276,10 +1276,10 @@ impl<'a> Resolver<'a> {
 
     fn resolve_tick(
         &self,
-        tick: &orbital_core::schema::TickDefinition,
+        tick: &orbital_core_base::schema::TickDefinition,
     ) -> Result<OirTick, ResolveError> {
         let interval = match &tick.interval {
-            orbital_core::schema::StringOrNumber::String(s) => {
+            orbital_core_base::schema::StringOrNumber::String(s) => {
                 // Order matters: check "ms" before "s" (a suffix of "ms").
                 if s == "frame" {
                     OirInterval::Frame
@@ -1312,7 +1312,7 @@ impl<'a> Resolver<'a> {
                     OirInterval::Milliseconds {
                         value: days * 24 * 60 * 60 * 1000,
                     }
-                } else if orbital_core::cron::is_valid_cron_expression(s) {
+                } else if orbital_core_base::cron::is_valid_cron_expression(s) {
                     // A real 5-field cron expression (e.g. "0 9 * * *") —
                     // previously silently collapsed to `Seconds { value: 1 }`.
                     OirInterval::Cron { expression: s.clone() }
@@ -1320,7 +1320,7 @@ impl<'a> Resolver<'a> {
                     return Err(ResolveError::InvalidTickInterval(s.clone()));
                 }
             }
-            orbital_core::schema::StringOrNumber::Number(n) => {
+            orbital_core_base::schema::StringOrNumber::Number(n) => {
                 OirInterval::Milliseconds { value: *n as u64 }
             }
         };
@@ -1497,12 +1497,12 @@ struct NamedTypeCtx<'a> {
 }
 
 /// The `OirType` a declared trait config knob has.
-pub(crate) fn config_field_oir_type(field: &orbital_core::schema::ConfigField, schema: &OrbitalSchema) -> OirType {
+pub(crate) fn config_field_oir_type(field: &orbital_core_base::schema::ConfigField, schema: &OrbitalSchema) -> OirType {
     Resolver::new(schema).resolve_config_field_shape(field)
 }
 
 /// The `OirType` a declared payload field has, named types resolved against the schema.
-pub(crate) fn payload_field_oir_type(field: &orbital_core::schema::PayloadField, schema: &OrbitalSchema) -> OirType {
+pub(crate) fn payload_field_oir_type(field: &orbital_core_base::schema::PayloadField, schema: &OrbitalSchema) -> OirType {
     let named_types = RefCell::new(BTreeMap::new());
     let in_progress = RefCell::new(HashSet::new());
     let entity_names = declared_entity_names(schema);
@@ -1560,7 +1560,7 @@ fn declared_entity_names(schema: &OrbitalSchema) -> HashSet<String> {
 }
 
 fn payload_field_to_oir_type(
-    field: &orbital_core::schema::PayloadField,
+    field: &orbital_core_base::schema::PayloadField,
     ctx: &NamedTypeCtx,
 ) -> OirType {
     // Recursive back-reference marker: `properties: Some([])` — present but
@@ -1749,7 +1749,7 @@ fn lookup_named_type_shape(name: &str, ctx: &NamedTypeCtx) -> Option<OirType> {
 
 fn parse_payload_field_type(field_type: &str) -> OirType {
     let trimmed = field_type.trim();
-    if let Some(slots) = orbital_core::type_compat::tuple_type_slots(trimmed) {
+    if let Some(slots) = orbital_core_base::type_compat::tuple_type_slots(trimmed) {
         return OirType::Tuple {
             items: slots.into_iter().map(parse_payload_field_type).collect(),
         };
@@ -1837,7 +1837,7 @@ fn parse_payload_field_type(field_type: &str) -> OirType {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use orbital_core::ir::{OirBinaryOp, OirBinding};
+    use orbital_core_base::ir::{OirBinaryOp, OirBinding};
 
     /// `OirTrait.slots_used` gates whether the TS backend even imports and
     /// mounts `ModalSlot`/`DrawerSlot`/`ToastSlot` on the page
@@ -1989,7 +1989,7 @@ mod tests {
     /// keys that the value a control actually sends (`"hello"`) does not satisfy.
     #[test]
     fn union_payload_field_resolves_to_a_union_not_a_struct() {
-        let variant = |name: &str, ty: &str| orbital_core::schema::PayloadField {
+        let variant = |name: &str, ty: &str| orbital_core_base::schema::PayloadField {
             values: None,
             name: name.to_string(),
             field_type: ty.to_string(),
@@ -2000,7 +2000,7 @@ mod tests {
             entity: None,
             projected_from: None,
         };
-        let field = orbital_core::schema::PayloadField {
+        let field = orbital_core_base::schema::PayloadField {
             values: None,
             name: "value".to_string(),
             field_type: "union".to_string(),
@@ -2075,13 +2075,13 @@ mod tests {
     /// STRUCT and must stay one — the union arm keys strictly off `"union"`.
     #[test]
     fn object_payload_field_with_properties_still_resolves_to_a_struct() {
-        let field = orbital_core::schema::PayloadField {
+        let field = orbital_core_base::schema::PayloadField {
             values: None,
             name: "change".to_string(),
             field_type: "object".to_string(),
             required: Some(true),
             description: None,
-            properties: Some(vec![orbital_core::schema::PayloadField {
+            properties: Some(vec![orbital_core_base::schema::PayloadField {
                 values: None,
                 name: "fieldId".to_string(),
                 field_type: "string".to_string(),
@@ -2124,13 +2124,13 @@ mod tests {
     /// `NoteTagNotesOverlay`).
     #[test]
     fn entity_marked_payload_field_resolves_to_reference_when_entity_is_declared() {
-        let field = orbital_core::schema::PayloadField {
+        let field = orbital_core_base::schema::PayloadField {
             values: None,
             name: "data".to_string(),
             field_type: "[object]".to_string(),
             required: None,
             description: None,
-            properties: Some(vec![orbital_core::schema::PayloadField {
+            properties: Some(vec![orbital_core_base::schema::PayloadField {
                 values: None,
                 name: "id".to_string(),
                 field_type: "string".to_string(),
@@ -2174,13 +2174,13 @@ mod tests {
     /// cannot import.
     #[test]
     fn entity_marked_payload_field_falls_back_to_struct_when_entity_is_not_declared() {
-        let field = orbital_core::schema::PayloadField {
+        let field = orbital_core_base::schema::PayloadField {
             values: None,
             name: "data".to_string(),
             field_type: "[object]".to_string(),
             required: None,
             description: None,
-            properties: Some(vec![orbital_core::schema::PayloadField {
+            properties: Some(vec![orbital_core_base::schema::PayloadField {
                 values: None,
                 name: "id".to_string(),
                 field_type: "string".to_string(),
@@ -2226,7 +2226,7 @@ mod tests {
     /// registers `MenuItem`'s definition in the named-types registry.
     #[test]
     fn recursive_struct_payload_field_resolves_to_type_ref_and_registers() {
-        let sub_menu_backref = orbital_core::schema::PayloadField {
+        let sub_menu_backref = orbital_core_base::schema::PayloadField {
             values: None,
             name: "subMenu".to_string(),
             field_type: "[MenuItem]".to_string(),
@@ -2237,14 +2237,14 @@ mod tests {
             entity: None,
             projected_from: None,
         };
-        let row = orbital_core::schema::PayloadField {
+        let row = orbital_core_base::schema::PayloadField {
             values: None,
             name: "row".to_string(),
             field_type: "object".to_string(),
             required: Some(true),
             description: None,
             properties: Some(vec![
-                orbital_core::schema::PayloadField {
+                orbital_core_base::schema::PayloadField {
                     values: None,
                     name: "label".to_string(),
                     field_type: "string".to_string(),
@@ -2601,7 +2601,7 @@ mod tests {
         )
         .unwrap();
         assert_eq!(resolver.resolve_field_shape(&member).expect("resolves"), n3);
-        let knob: orbital_core::schema::ConfigField = serde_json::from_value(
+        let knob: orbital_core_base::schema::ConfigField = serde_json::from_value(
             serde_json::json!({ "type": "[number, number, number]", "properties": slots }),
         )
         .unwrap();
@@ -2934,9 +2934,9 @@ mod tests {
     }
 
     fn tick_with_interval(
-        interval: orbital_core::schema::StringOrNumber,
-    ) -> orbital_core::schema::TickDefinition {
-        orbital_core::schema::TickDefinition {
+        interval: orbital_core_base::schema::StringOrNumber,
+    ) -> orbital_core_base::schema::TickDefinition {
+        orbital_core_base::schema::TickDefinition {
             name: "testTick".to_string(),
             interval,
             guard: None,
@@ -3036,7 +3036,7 @@ mod tests {
     #[test]
     fn resolve_tick_keeps_the_states_it_applies_to() {
         let resolver = empty_resolver();
-        let mut tick = tick_with_interval(orbital_core::schema::StringOrNumber::String(
+        let mut tick = tick_with_interval(orbital_core_base::schema::StringOrNumber::String(
             "1s".to_string(),
         ));
         tick.applies_to = Some(vec!["editing".to_string(), "review".to_string()]);
@@ -3050,7 +3050,7 @@ mod tests {
     #[test]
     fn control_a_tick_without_applies_to_runs_in_every_state() {
         let resolver = empty_resolver();
-        let tick = tick_with_interval(orbital_core::schema::StringOrNumber::String(
+        let tick = tick_with_interval(orbital_core_base::schema::StringOrNumber::String(
             "1s".to_string(),
         ));
         assert!(resolver
@@ -3063,7 +3063,7 @@ mod tests {
     #[test]
     fn resolve_tick_cron_expression_becomes_oir_cron() {
         let resolver = empty_resolver();
-        let tick = tick_with_interval(orbital_core::schema::StringOrNumber::String(
+        let tick = tick_with_interval(orbital_core_base::schema::StringOrNumber::String(
             "0 9 * * *".to_string(),
         ));
         let resolved = resolver
@@ -3078,7 +3078,7 @@ mod tests {
     #[test]
     fn resolve_tick_garbage_string_is_rejected_not_silently_1s() {
         let resolver = empty_resolver();
-        let tick = tick_with_interval(orbital_core::schema::StringOrNumber::String(
+        let tick = tick_with_interval(orbital_core_base::schema::StringOrNumber::String(
             "not a valid interval".to_string(),
         ));
         let err = resolver
@@ -3109,7 +3109,7 @@ mod tests {
             ("frame", OirInterval::Frame),
         ];
         for (input, expected) in cases {
-            let tick = tick_with_interval(orbital_core::schema::StringOrNumber::String(
+            let tick = tick_with_interval(orbital_core_base::schema::StringOrNumber::String(
                 input.to_string(),
             ));
             let resolved = resolver
@@ -3256,7 +3256,7 @@ mod tests {
     fn resolve_field_carries_intrinsic_true() {
         let schema = empty_schema();
         let resolver = Resolver::new(&schema);
-        let field: orbital_core::schema::FieldDefinition =
+        let field: orbital_core_base::schema::FieldDefinition =
             serde_json::from_value(serde_json::json!({
                 "name": "currentStepIndex",
                 "type": "number",
@@ -3271,7 +3271,7 @@ mod tests {
     fn resolve_field_defaults_intrinsic_false_when_absent() {
         let schema = empty_schema();
         let resolver = Resolver::new(&schema);
-        let field: orbital_core::schema::FieldDefinition =
+        let field: orbital_core_base::schema::FieldDefinition =
             serde_json::from_value(serde_json::json!({
                 "name": "title",
                 "type": "string"
@@ -3289,7 +3289,7 @@ mod tests {
     fn resolve_trait_carries_local_true() {
         let schema = empty_schema();
         let resolver = Resolver::new(&schema);
-        let trait_def: orbital_core::schema::TraitDefinition =
+        let trait_def: orbital_core_base::schema::TraitDefinition =
             serde_json::from_value(serde_json::json!({
                 "name": "DraftEditor",
                 "local": true,
@@ -3307,7 +3307,7 @@ mod tests {
     fn resolve_trait_defaults_local_false_when_absent() {
         let schema = empty_schema();
         let resolver = Resolver::new(&schema);
-        let trait_def: orbital_core::schema::TraitDefinition =
+        let trait_def: orbital_core_base::schema::TraitDefinition =
             serde_json::from_value(serde_json::json!({
                 "name": "ServerTrait",
                 "stateMachine": {

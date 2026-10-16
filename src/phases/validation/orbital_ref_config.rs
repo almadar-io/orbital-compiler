@@ -31,7 +31,7 @@
 
 use std::collections::{HashMap, HashSet};
 
-use orbital_core::schema::OrbitalSchema;
+use orbital_core_base::schema::OrbitalSchema;
 
 use super::error::{ErrorCode, ValidationError};
 use super::user_identity::{identity_entities, vocabulary};

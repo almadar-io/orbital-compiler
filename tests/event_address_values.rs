@@ -3,7 +3,7 @@
 //! the contract `llm call-tools` reads. Unlike `event`, a bare name is never one.
 
 use orbital_compiler::phases::validation::validate_comprehensive_without_services;
-use orbital_core::schema::OrbitalSchema;
+use orbital_core_base::schema::OrbitalSchema;
 use serde_json::{json, Value};
 
 const UNRESOLVED: &str = "ORB_T_EVENT_REF_UNRESOLVED";

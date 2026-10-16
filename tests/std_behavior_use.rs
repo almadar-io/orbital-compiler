@@ -17,7 +17,7 @@ use orbital_compiler::phases::parse::parse_file;
 use orbital_compiler::phases::validation::error::ErrorCode;
 use orbital_compiler::phases::validation::trait_ref_config::validate_trait_ref_config_diagnostics;
 use orbital_compiler::{compile_file, CompilerError, CompilerOptions};
-use orbital_core::{EntityRef, PageRef, TraitReference};
+use orbital_core_base::schema::types::{EntityRef, PageRef, TraitReference};
 use std::path::PathBuf;
 
 /// Installed behavior packages discovered from this crate's manifest dir
@@ -25,12 +25,12 @@ use std::path::PathBuf;
 /// this file `uses` std behaviors, and Phase 2 (`docs/Almadar_Behavior_
 /// Packages.md` §10) removed the embedded std fallback the default
 /// `InlineConfig`/`CompilerOptions` used to resolve through.
-fn discovered_packages() -> Vec<orbital_core::behavior_packages::BehaviorPackage> {
+fn discovered_packages() -> Vec<orbital_core_base::behavior_packages::BehaviorPackage> {
     orbital_compiler::loader::register_source_lowerer(orbital_test_support::lower_lolo_file);
     let start = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
     let user_store =
-        orbital_core::behavior_packages::user_store_dir().unwrap_or_else(|| start.clone());
-    orbital_core::behavior_packages::discover(&start, &user_store)
+        orbital_core_base::behavior_packages::user_store_dir().unwrap_or_else(|| start.clone());
+    orbital_core_base::behavior_packages::discover(&start, &user_store)
         .expect("behavior package discovery failed")
 }
 
@@ -880,7 +880,7 @@ fn fixloop_tool_call_clears_listens_via_listens_override() {
 
 #[test]
 fn fixloop_tool_call_sets_emit_scope_via_emits_scope_override() {
-    use orbital_core::ir::OirEventScope;
+    use orbital_core_base::ir::OirEventScope;
     let path = fixloop_tool_call_fixture_path();
     let oir = compile_file(&path, &lowered_oir_options())
         .expect("compile_file must succeed on the fixloop-tool-call fixture");

@@ -23,8 +23,8 @@
 //! the retired shared rows are dropped. A document with no shared event ids
 //! passes through byte-identical.
 
-use orbital_core::identity::{derive_id, IdKind, LedgerEntry, LedgerOwner};
-use orbital_core::schema::{
+use orbital_core_base::identity::{derive_id, IdKind, LedgerEntry, LedgerOwner};
+use orbital_core_base::schema::{
     Orbital, OrbitalSchema, PageRef, SExpression, TraitDefinition, TraitReference,
 };
 use std::collections::{HashMap, HashSet};
@@ -305,7 +305,7 @@ fn reresolve(
 }
 
 fn reresolve_config(
-    config: Option<&mut HashMap<String, orbital_core::schema::ConfigField>>,
+    config: Option<&mut HashMap<String, orbital_core_base::schema::ConfigField>>,
     retired: &HashSet<String>,
     key_to_id: &HashMap<String, String>,
 ) {

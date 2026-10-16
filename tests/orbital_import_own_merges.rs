@@ -5,7 +5,7 @@
 
 use orbital_compiler::phases::inline::{inline_schema, InlineConfig};
 use orbital_compiler::phases::parse::parse_file;
-use orbital_core::schema::{EntityRef, OrbitalSchema};
+use orbital_core_base::schema::{EntityRef, OrbitalSchema};
 
 const UPSTREAM: &str = r#"{
   "name": "test-own-merges-upstream",

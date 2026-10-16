@@ -21,9 +21,9 @@
 //! never a guess.
 
 use crate::pattern_registry::get_props_schema;
-use orbital_core::effects::runs_on::RunsOn;
-use orbital_core::ir::{AwaitRender, SkeletonNode, SkeletonShape, SKELETON_VARIANTS};
-use orbital_core::schema::{
+use orbital_core_base::runs_on::RunsOn;
+use orbital_core_base::ir::{AwaitRender, SkeletonNode, SkeletonShape, SKELETON_VARIANTS};
+use orbital_core_base::schema::{
     ConfigField, OrbitalSchema, SExpression, StringOrArray, TraitDefinition, TraitReference,
 };
 use std::collections::{BTreeMap, HashMap};
@@ -43,11 +43,11 @@ pub fn predict_await_renders(schema: &OrbitalSchema) -> AwaitRenderMap {
         .collect();
 
     let residence =
-        orbital_core::effects::Residence::of_entities(schema.orbitals.iter().flat_map(|o| {
+        orbital_core_base::runs_on::Residence::of_entities(schema.orbitals.iter().flat_map(|o| {
             std::iter::once(&o.entity)
                 .chain(o.auxiliary_entities.iter().flatten())
                 .filter_map(|e| match e {
-                    orbital_core::schema::EntityRef::Inline(def) => Some(def),
+                    orbital_core_base::schema::EntityRef::Inline(def) => Some(def),
                     _ => None,
                 })
         }));
@@ -173,13 +173,13 @@ fn op(expr: &SExpression) -> Option<&str> {
 /// effect on a browser-stored entity runs locally, so it awaits no server render.
 fn server_success_events(
     effects: &[SExpression],
-    residence: &orbital_core::effects::Residence,
+    residence: &orbital_core_base::runs_on::Residence,
 ) -> Vec<String> {
     let mut out = Vec::new();
     for effect in effects {
         walk(effect, &mut |e| {
             if let (Some(name), SExpression::Array(items)) = (op(e), e) {
-                if orbital_core::effects::effect_site(name, &items[1..], residence)
+                if orbital_core_base::runs_on::effect_site(name, &items[1..], residence)
                     == RunsOn::Server
                 {
                     for arg in items.iter().skip(1) {
@@ -467,7 +467,7 @@ mod tests {
             ]),
             serde_json::json!([])
         )]));
-        if let orbital_core::schema::EntityRef::Inline(item) = &mut s.orbitals[0].entity {
+        if let orbital_core_base::schema::EntityRef::Inline(item) = &mut s.orbitals[0].entity {
             item.local = true;
             item.collection = Some("items".into());
         }

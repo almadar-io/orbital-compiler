@@ -1,7 +1,7 @@
 // `orbital_core::effects::runs_on` must agree with the baked registry's `runsOn` for every operator; twin of `emit_contract_drift.rs`.
 
 use orbital_compiler::embedded::{operators, EmbeddedOperator};
-use orbital_core::effects::{entity_arg, runs_on, EFFECT_SITES, ENTITY_ARGS};
+use orbital_core_base::runs_on::{entity_arg, runs_on, EFFECT_SITES, ENTITY_ARGS};
 use std::collections::HashMap;
 
 /// Every disagreement between the core table and `registry`, as readable lines.

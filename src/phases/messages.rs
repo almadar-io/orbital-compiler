@@ -3,8 +3,8 @@
 //! merged per declared locale with keys qualified `<name>:<key>` — the shape
 //! `i18n/t` reads at runtime.
 
-use orbital_core::messages::NAMESPACE_SEPARATOR;
-use orbital_core::schema::OrbitalSchema;
+use orbital_core_base::messages::NAMESPACE_SEPARATOR;
+use orbital_core_base::schema::OrbitalSchema;
 use std::collections::BTreeMap;
 use std::path::Path;
 
@@ -48,7 +48,7 @@ pub fn merged_catalogs(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use orbital_core::schema::SchemaMetadata;
+    use orbital_core_base::schema::SchemaMetadata;
 
     fn program(locales: Option<Vec<&str>>, sources: &[(&str, &str)]) -> OrbitalSchema {
         let mut schema: OrbitalSchema =

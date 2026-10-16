@@ -9,8 +9,8 @@
 use super::super::{ErrorCode, ValidationError, ValidationResult};
 use super::set::{BindingTypes, EntityFieldMeta, ExprReturnCtx};
 use crate::type_infer::{check_oir_expr, is_effect, is_value_operator};
-use orbital_core::schema::SExpression;
-use orbital_core::signature::Mismatch;
+use orbital_core_base::schema::SExpression;
+use orbital_core_base::signature::Mismatch;
 use std::collections::HashMap;
 
 pub(crate) fn validate_operator_arg_types(
@@ -19,7 +19,7 @@ pub(crate) fn validate_operator_arg_types(
     entity_field_types: &HashMap<String, EntityFieldMeta>,
     payload_field_types: &HashMap<String, String>,
     types: &BindingTypes,
-    schema: Option<&orbital_core::schema::OrbitalSchema>,
+    schema: Option<&orbital_core_base::schema::OrbitalSchema>,
 ) -> ValidationResult {
     let mut result = ValidationResult::new();
     let ctx = ExprReturnCtx {
@@ -149,7 +149,7 @@ mod tests {
     fn no_types() -> BindingTypes {
         BindingTypes {
             payload: HashMap::new(),
-            user: orbital_core::ir::OirType::Struct { fields: Vec::new() },
+            user: orbital_core_base::ir::OirType::Struct { fields: Vec::new() },
             config: HashMap::new(),
             prev_payload: None,
             optional_payload: Default::default(),
@@ -162,7 +162,7 @@ mod tests {
             name.to_string(),
             EntityFieldMeta {
                 field_type: ty.into(),
-                shape: orbital_core::compat_kind_oir(ty),
+                shape: orbital_core_base::type_compat::compat_kind_oir(ty),
                 enum_values: vec![],
                 required: false,
                 defaulted: false,
@@ -322,7 +322,7 @@ mod tests {
         assert_eq!(mismatches(r#"["==", "@event.payload", 3]"#, HashMap::new()).len(), 1, "a delivery's payload is the triggering event's record");
     }
 
-    fn with_payload(json: &str, shapes: &[(&str, orbital_core::ir::OirType)]) -> Vec<String> {
+    fn with_payload(json: &str, shapes: &[(&str, orbital_core_base::ir::OirType)]) -> Vec<String> {
         let types = BindingTypes {
             payload: shapes.iter().map(|(n, t)| ((*n).to_string(), t.clone())).collect(),
             ..no_types()
@@ -337,7 +337,7 @@ mod tests {
 
     #[test]
     fn a_declared_payload_field_has_its_full_type() {
-        use orbital_core::ir::{OirField, OirType};
+        use orbital_core_base::ir::{OirField, OirType};
         let row = OirType::Struct { fields: vec![OirField::new("name".to_string(), OirType::String)] };
         let declared = [("data", OirType::array(row))];
         assert!(with_payload(r#"["array/len", "@payload.data"]"#, &declared).is_empty());
@@ -355,7 +355,7 @@ mod tests {
 
     #[test]
     fn the_viewer_and_the_config_knobs_have_their_declared_types() {
-        use orbital_core::ir::{OirField, OirType};
+        use orbital_core_base::ir::{OirField, OirType};
         let types = BindingTypes {
             payload: HashMap::new(),
             user: OirType::Struct { fields: vec![OirField::new("role".to_string(), OirType::String)] },
@@ -379,7 +379,7 @@ mod tests {
 
     #[test]
     fn a_sequential_let_over_an_entity_list_is_typed() {
-        use orbital_core::ir::{OirField, OirType};
+        use orbital_core_base::ir::{OirField, OirType};
         let band = OirType::Struct {
             fields: vec![
                 OirField::new("upperBound".to_string(), OirType::Number),
@@ -433,8 +433,8 @@ mod tests {
 
     #[test]
     fn a_reference_to_a_row_is_read_through_its_entity() {
-        use orbital_core::ir::OirType;
-        let schema: orbital_core::schema::OrbitalSchema = serde_json::from_value(serde_json::json!({
+        use orbital_core_base::ir::OirType;
+        let schema: orbital_core_base::schema::OrbitalSchema = serde_json::from_value(serde_json::json!({
             "name": "App",
             "orbitals": [{
                 "name": "O",
@@ -489,7 +489,7 @@ mod tests {
 
     #[test]
     fn the_delivery_is_typed_by_the_event_that_triggers_the_transition() {
-        use orbital_core::ir::OirType;
+        use orbital_core_base::ir::OirType;
         let declared = [("id", OirType::String)];
         for expr in [
             r#"["==", "@event.payload.id", "x"]"#,
@@ -554,7 +554,7 @@ mod tests {
 
     #[test]
     fn an_earlier_delivery_has_the_payload_every_listened_event_declares() {
-        use orbital_core::ir::{OirField, OirType};
+        use orbital_core_base::ir::{OirField, OirType};
         let with = |prev: Option<OirType>| BindingTypes { prev_payload: prev, ..no_types() };
         let expr = r#"["array/some", "@prevEvents", ["fn", "e", ["==", ["object/get", ["object/get", "@e", "payload", {}], "id"], "x"]]]"#;
         let run = |types: &BindingTypes| {
@@ -643,14 +643,14 @@ mod tests {
         assert_eq!(mismatches(r#"["upper", 5]"#, HashMap::new()).len(), 1);
     }
 
-    fn shaped(fields: &[(&str, orbital_core::ir::OirType)]) -> HashMap<String, EntityFieldMeta> {
+    fn shaped(fields: &[(&str, orbital_core_base::ir::OirType)]) -> HashMap<String, EntityFieldMeta> {
         fields
             .iter()
             .map(|(name, shape)| {
                 (
                     (*name).to_string(),
                     EntityFieldMeta {
-                        field_type: orbital_core::oir_type_kind(shape),
+                        field_type: orbital_core_base::type_compat::oir_type_kind(shape),
                         shape: shape.clone(),
                         enum_values: vec![],
                         required: false,
@@ -662,7 +662,7 @@ mod tests {
     }
 
     fn tags() -> HashMap<String, EntityFieldMeta> {
-        use orbital_core::ir::{OirField, OirType};
+        use orbital_core_base::ir::{OirField, OirType};
         let profile = OirType::Struct {
             fields: vec![OirField::new("name".to_string(), OirType::String)],
         };
@@ -733,7 +733,7 @@ mod tests {
     }
 
     fn with_types(json: &str) -> Vec<String> {
-        let schema: orbital_core::schema::OrbitalSchema = serde_json::from_value(serde_json::json!({
+        let schema: orbital_core_base::schema::OrbitalSchema = serde_json::from_value(serde_json::json!({
             "name": "App",
             "orbitals": [{
                 "name": "O",
@@ -807,7 +807,7 @@ mod tests {
                 "p".to_string(),
                 EntityFieldMeta {
                     field_type: "number".into(),
-                    shape: orbital_core::ir::OirType::Number,
+                    shape: orbital_core_base::ir::OirType::Number,
                     enum_values: vec![],
                     required,
                     defaulted,
@@ -817,8 +817,8 @@ mod tests {
         }
 
         fn findings(json: &str, entity: HashMap<String, EntityFieldMeta>, optional_payload: &[&str]) -> usize {
-            let payload: HashMap<String, orbital_core::ir::OirType> =
-                [("q".to_string(), orbital_core::ir::OirType::Number)].into_iter().collect();
+            let payload: HashMap<String, orbital_core_base::ir::OirType> =
+                [("q".to_string(), orbital_core_base::ir::OirType::Number)].into_iter().collect();
             let types = BindingTypes {
                 payload,
                 optional_payload: optional_payload.iter().map(|n| n.to_string()).collect(),

@@ -8,7 +8,7 @@
 use super::inline::InlineConfig;
 use super::inline::InlineError;
 use super::{resolve_schema_with_inline, CompileResult, CompilerOptions};
-use orbital_core::schema::{LazyPage, Orbital, OrbitalSchema, PageRef};
+use orbital_core_base::schema::{LazyPage, Orbital, OrbitalSchema, PageRef};
 use std::path::Path;
 
 /// One lazily-loaded behavior, split out of its importer.
@@ -105,9 +105,9 @@ pub fn split_lazy(schema: &mut OrbitalSchema) -> Vec<LazyArtifact> {
 /// ledger row (and any row parented to it) moves with it; the importer keeps
 /// the rest.
 fn take_ledger_rows(
-    ledger: &mut Option<orbital_core::identity::IdentityLedger>,
+    ledger: &mut Option<orbital_core_base::identity::IdentityLedger>,
     orbital_id: Option<&str>,
-) -> Option<orbital_core::identity::IdentityLedger> {
+) -> Option<orbital_core_base::identity::IdentityLedger> {
     let (ledger, orbital_id) = (ledger.as_mut()?, orbital_id?);
     let ids: Vec<String> = ledger
         .entries
@@ -115,7 +115,7 @@ fn take_ledger_rows(
         .filter(|e| e.id == orbital_id || e.parent.as_deref() == Some(orbital_id))
         .map(|e| e.id.clone())
         .collect();
-    Some(orbital_core::identity::IdentityLedger {
+    Some(orbital_core_base::identity::IdentityLedger {
         schema_version: ledger.schema_version,
         entries: ids
             .into_iter()

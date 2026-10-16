@@ -113,7 +113,7 @@ fn inlined_identities(expects: &str, own_expects: &str) -> Vec<(Option<String>, 
         .iter()
         .flatten()
         .filter_map(|e| match e {
-            orbital_core::schema::ExpectDeclaration::Identity { name, shape } => Some((
+            orbital_core_base::schema::ExpectDeclaration::Identity { name, shape } => Some((
                 name.clone(),
                 shape
                     .iter()
@@ -173,7 +173,7 @@ fn inherited_role_values(role_values: &str, roles: &str) -> Vec<String> {
         .iter()
         .flatten()
         .find_map(|e| match e {
-            orbital_core::schema::ExpectDeclaration::Identity { shape, .. } => shape
+            orbital_core_base::schema::ExpectDeclaration::Identity { shape, .. } => shape
                 .iter()
                 .flatten()
                 .find(|f| f.name.as_deref() == Some("role"))
@@ -237,7 +237,7 @@ fn reconciled_consumer() -> serde_json::Value {
 fn inline_reconciled_consumer(
     mut input: serde_json::Value,
     whole_orbital: bool,
-) -> orbital_core::schema::OrbitalSchema {
+) -> orbital_core_base::schema::OrbitalSchema {
     if whole_orbital {
         input["orbitals"][0]["traits"] = serde_json::json!([]);
         input["orbitals"][0]["reference"] =
@@ -257,7 +257,7 @@ fn inline_reconciled_consumer(
 }
 
 fn validate_reconciled_contracts(
-    schema: &orbital_core::schema::OrbitalSchema,
+    schema: &orbital_core_base::schema::OrbitalSchema,
 ) -> orbital_compiler::phases::validation::ValidationResult {
     use orbital_compiler::phases::validation::{
         entity_access, expectations, user_identity, ValidationContext,
@@ -271,7 +271,7 @@ fn validate_reconciled_contracts(
 
 #[test]
 fn explicit_reconciled_viewer_and_record_expectations_survive_both_import_paths() {
-    use orbital_core::schema::ExpectDeclaration;
+    use orbital_core_base::schema::ExpectDeclaration;
     for whole_orbital in [false, true] {
         let schema = inline_reconciled_consumer(reconciled_consumer(), whole_orbital);
         let declarations = schema.orbitals[0]

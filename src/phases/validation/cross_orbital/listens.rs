@@ -1,7 +1,7 @@
 use crate::phases::embed_graph::EmbedGraph;
 use crate::phases::validation::fired_events::{collect_schema_fired_events, FiredEvents};
 use crate::phases::validation::{ErrorCode, ValidationError, ValidationResult};
-use orbital_core::schema::{ListenSource, Orbital, OrbitalSchema, TraitReference};
+use orbital_core_base::schema::{ListenSource, Orbital, OrbitalSchema, TraitReference};
 use std::collections::{HashMap, HashSet};
 
 /// Listens-integrity backstop (error).
@@ -276,7 +276,7 @@ pub(crate) fn validate_listen_source_never_produces(schema: &OrbitalSchema) -> V
 #[cfg(test)]
 mod tests {
     use super::*;
-    use orbital_core::schema::{
+    use orbital_core_base::schema::{
         EntityDefinition, EntityRef, ListenDefinition, Orbital, SExpression, StateDefinition,
         StateMachine, TraitDefinition, TransitionDefinition,
     };
@@ -376,7 +376,7 @@ mod tests {
     /// `EDIT_ITEM`, the else-branch fires `VIEW_ITEM`.
     fn trait_with_conditional_item_actions(name: &str) -> TraitDefinition {
         let descriptor = |event: &str| {
-            let mut dm: orbital_core::schema::SObject = orbital_core::schema::SObject::new();
+            let mut dm: orbital_core_base::schema::SObject = orbital_core_base::schema::SObject::new();
             dm.insert("name".to_string(), SExpression::String("Edit".to_string()));
             dm.insert("event".to_string(), SExpression::String(event.to_string()));
             SExpression::Object(dm)
@@ -387,7 +387,7 @@ mod tests {
             SExpression::Array(vec![descriptor("EDIT_ITEM")]),
             SExpression::Array(vec![descriptor("VIEW_ITEM")]),
         ]);
-        let mut node: orbital_core::schema::SObject = orbital_core::schema::SObject::new();
+        let mut node: orbital_core_base::schema::SObject = orbital_core_base::schema::SObject::new();
         node.insert(
             "type".to_string(),
             SExpression::String("data-list".to_string()),
@@ -410,7 +410,7 @@ mod tests {
             }],
             events: None,
             transitions: vec![TransitionDefinition {
-                from: orbital_core::StringOrArray::Single("idle".to_string()),
+                from: orbital_core_base::schema::types::StringOrArray::Single("idle".to_string()),
                 to: "idle".to_string(),
                 event: "INIT".to_string(),
                 event_id: None,

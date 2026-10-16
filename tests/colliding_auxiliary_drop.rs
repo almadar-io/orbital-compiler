@@ -14,7 +14,7 @@
 //! because two live shapes under one name is a real conflict.
 
 use orbital_compiler::phases::{inline_schema, InlineConfig};
-use orbital_core::schema::{EntityRef, OrbitalSchema};
+use orbital_core_base::schema::{EntityRef, OrbitalSchema};
 use serde_json::{json, Value};
 
 /// Two orbitals: one owns `Shared` as its primary, the other carries an imported

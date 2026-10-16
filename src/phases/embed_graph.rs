@@ -31,7 +31,7 @@
 //! its own yet — every transition's guard + effects and every tick's guard +
 //! effects.
 
-use orbital_core::schema::{
+use orbital_core_base::schema::{
     collect_state_machine_trait_tokens, collect_trait_tokens, ConfigField, Orbital, PageRef,
     SExpression, TraitReference,
 };
@@ -227,7 +227,7 @@ impl EmbedGraph {
 /// Traits this trait paints only into non-main slots (`drawer`, `modal`, …):
 /// every `render-ui` effect whose payload embeds them, directly or through a
 /// `@config.<knob>` payload, targets an overlay slot.
-fn overlay_only_embeds(td: &orbital_core::schema::TraitDefinition) -> HashSet<String> {
+fn overlay_only_embeds(td: &orbital_core_base::schema::TraitDefinition) -> HashSet<String> {
     fn scan(
         node: &SExpression,
         config: &HashMap<String, ConfigField>,
@@ -277,7 +277,7 @@ fn overlay_only_embeds(td: &orbital_core::schema::TraitDefinition) -> HashSet<St
         .filter(|(_, slots)| {
             slots
                 .iter()
-                .all(|slot| !orbital_core::slots::MAIN_SLOTS.contains(&slot.as_str()))
+                .all(|slot| !orbital_core_base::slots::MAIN_SLOTS.contains(&slot.as_str()))
         })
         .map(|(name, _)| name)
         .collect()
@@ -647,7 +647,7 @@ mod tests {
     // --- client_bound_traits ---
 
     fn orbital_with_pages(traits: Vec<TraitReference>, pages_json: serde_json::Value) -> Orbital {
-        use orbital_core::schema::EntityRef;
+        use orbital_core_base::schema::EntityRef;
         let pages: Vec<PageRef> =
             serde_json::from_value(pages_json).expect("pages fixture deserializes");
         Orbital {

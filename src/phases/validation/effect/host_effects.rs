@@ -7,7 +7,7 @@ use super::emit_declaration::collect_declared_emits;
 use super::http::visit_effects;
 use super::keyed_call::check_key_and_cancelled;
 use super::{extract_emit_object_ref, validate_emit_config};
-use orbital_core::schema::{OrbitalSchema, SExpression};
+use orbital_core_base::schema::{OrbitalSchema, SExpression};
 
 const HOST_EFFECTS: [&str; 3] = ["random-bytes", "credential-status", "credential-forget"];
 const HOST_EMIT_KEYS: [&str; 2] = ["success", "failure"];

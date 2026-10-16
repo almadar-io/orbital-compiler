@@ -31,7 +31,7 @@
 use orbital_compiler::phases::inline::{inline_schema, InlineConfig};
 use orbital_compiler::phases::parse::parse_file;
 use orbital_compiler::phases::validation::{validate_comprehensive_without_services, ErrorCode};
-use orbital_core::schema::{OrbitalSchema, SExpression, TraitReference};
+use orbital_core_base::schema::{OrbitalSchema, SExpression, TraitReference};
 
 /// Shared atom fixture. Declares a single orbital with a trait whose OPEN
 /// transition embeds three `@config.*` binding forms inside a render-ui
@@ -172,7 +172,7 @@ fn extract_render_ui_payload(path: &std::path::Path) -> SExpression {
 /// a `orbital_core::schema::SObject`. Panics on shape mismatch.
 fn extract_render_ui_object(
     payload: &SExpression,
-) -> orbital_core::schema::SObject {
+) -> orbital_core_base::schema::SObject {
     match payload {
         SExpression::Array(items) => {
             assert_eq!(items.len(), 3, "render-ui effect must be 3 elements");

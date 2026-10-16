@@ -28,11 +28,11 @@
 
 use super::user_identity::vocabulary;
 use super::{field_type_str, ErrorCode, ValidationContext, ValidationError, ValidationResult};
-use orbital_core::schema::{
+use orbital_core_base::schema::{
     EntityDefinition, EntityRef, ExpectDeclaration, FieldDefinition, Orbital, OrbitalSchema,
     SExpression, TraitReference,
 };
-use orbital_core::type_compat::{enum_value_is_member, set_value_type_compatible};
+use orbital_core_base::type_compat::{enum_value_is_member, set_value_type_compatible};
 
 /// An orbital's `expects identity` declaration, if it carries one.
 pub(super) struct IdentityExpectation<'a> {
@@ -136,7 +136,7 @@ fn validate_persist_payload_self_consistency(
             continue;
         }
         for (j, trait_ref) in orbital.traits.iter().enumerate() {
-            let orbital_core::schema::TraitReference::Inline(trait_def) = trait_ref else {
+            let orbital_core_base::schema::TraitReference::Inline(trait_def) = trait_ref else {
                 continue;
             };
             // Same authored-surface rule as user_identity: persist effects
@@ -184,7 +184,7 @@ fn check_persist_payload(
         return;
     }
     if matches!(&arr[1], SExpression::String(op) if op == "batch") {
-        for w in orbital_core::effects::persist_batch::batch_writes(&arr[2]) {
+        for w in orbital_core_base::persist_batch::batch_writes(&arr[2]) {
             if let Some(SExpression::Object(payload)) = w.data {
                 check_persist_payload_keys(w.entity, payload, path, orbital, result);
             }
@@ -214,7 +214,7 @@ fn check_persist_payload(
 
 fn check_persist_payload_keys(
     entity_name: &str,
-    payload: &orbital_core::schema::SObject,
+    payload: &orbital_core_base::schema::SObject,
     path: &str,
     orbital: &Orbital,
     result: &mut ValidationResult,

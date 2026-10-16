@@ -10,10 +10,10 @@
 
 use super::InlineError;
 use crate::loader::{ExternalOrbitalLoader, ImportChain};
-use orbital_core::evaluator::Value;
-use orbital_core::schema::behavior_value::{is_behavior_specifier, OrbitalValueRef, TraitValueRef};
-use orbital_core::schema::quote::UNQUOTE_HEAD;
-use orbital_core::schema::{
+use orbital_core_base::value::Value;
+use orbital_core_base::schema::behavior_value::{is_behavior_specifier, OrbitalValueRef, TraitValueRef};
+use orbital_core_base::schema::quote::UNQUOTE_HEAD;
+use orbital_core_base::schema::{
     EntityRef, FieldDefinition, FieldType, OrbitalSchema, SExpression, TraitReference,
 };
 use std::collections::HashMap;
@@ -133,7 +133,7 @@ impl Pass<'_> {
             if let Some(declared) = f.mock.clone() {
                 let at = format!("{here}.mock");
                 let mut canonical = Vec::new();
-                for spec in orbital_core::runtime::seed::mock_candidates(&declared) {
+                for spec in orbital_core_base::policy::mock_candidates(&declared) {
                     if !is_behavior_specifier(spec) {
                         return Err(InlineError::BehaviorRefUnresolved {
                             literal: spec.to_string(),
@@ -411,7 +411,7 @@ mod tests {
 
     #[test]
     fn control_a_behavior_ref_inside_a_quasiquote_body_is_left_alone() {
-        let body = orbital_core::schema::quote::quasiquote_expr(
+        let body = orbital_core_base::schema::quote::quasiquote_expr(
             &serde_json::from_value::<SExpression>(serde_json::json!([
                 "behavior/ref",
                 ["unquote", "@payload.behavior"]
@@ -588,7 +588,7 @@ mod tests {
 
     #[test]
     fn control_an_unquote_inside_a_quasiquote_body_is_not_a_call() {
-        let body = orbital_core::schema::quote::quasiquote_expr(
+        let body = orbital_core_base::schema::quote::quasiquote_expr(
             &serde_json::from_value::<SExpression>(serde_json::json!([
                 "list",
                 ["unquote", "@entity.id"]

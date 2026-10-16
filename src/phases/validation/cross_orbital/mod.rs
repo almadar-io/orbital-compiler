@@ -4,7 +4,7 @@
 //! Ported from `builder/packages/shared/src/orbitals/validation/orbital-validator.ts`.
 
 use super::{ErrorCode, ValidationContext, ValidationError, ValidationResult};
-use orbital_core::schema::{OrbitalSchema, TraitDefinition, TraitReference};
+use orbital_core_base::schema::{OrbitalSchema, TraitDefinition, TraitReference};
 
 mod cycles;
 mod entity;
@@ -165,7 +165,7 @@ pub(crate) fn collect_all_traits(schema: &OrbitalSchema) -> Vec<(&str, &TraitDef
 #[cfg(test)]
 mod tests {
     use super::*;
-    use orbital_core::schema::{EntityDefinition, EntityRef, Orbital};
+    use orbital_core_base::schema::{EntityDefinition, EntityRef, Orbital};
 
     fn create_minimal_schema() -> OrbitalSchema {
         OrbitalSchema {

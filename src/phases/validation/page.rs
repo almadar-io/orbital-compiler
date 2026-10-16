@@ -6,7 +6,7 @@
 use super::{
     is_std_trait, ErrorCode, ValidationContext, ValidationError, ValidationResult, VALID_VIEW_TYPES,
 };
-use orbital_core::schema::{OrbitalSchema, PageDefinition, SExpression, TraitReference};
+use orbital_core_base::schema::{OrbitalSchema, PageDefinition, SExpression, TraitReference};
 use regex::Regex;
 use std::collections::{HashMap, HashSet};
 use std::sync::LazyLock;
@@ -77,7 +77,7 @@ fn inline_pages_of(schema: &OrbitalSchema) -> Vec<&PageDefinition> {
 /// Run on the top-level program after its lazy children are recorded — a lazy
 /// child alone cannot see the route.
 pub fn validate_sign_in_route(schema: &OrbitalSchema) -> ValidationResult {
-    use orbital_core::schema::{is_host_sign_in_route, PageAccess, HOST_SIGN_IN_ROUTE};
+    use orbital_core_base::schema::{is_host_sign_in_route, PageAccess, HOST_SIGN_IN_ROUTE};
     let mut result = ValidationResult::new();
     let reserved = inline_pages_of(schema)
         .into_iter()
@@ -139,7 +139,7 @@ pub fn validate_sign_in_route(schema: &OrbitalSchema) -> ValidationResult {
 /// route manifest is built — a reusable page atom has none of its own); an
 /// authenticated page has a `signIn` route to send a non-admitted viewer to.
 pub fn validate_page_modifiers(schema: &OrbitalSchema) -> ValidationResult {
-    use orbital_core::schema::{PageAccess, PageIndexing};
+    use orbital_core_base::schema::{PageAccess, PageIndexing};
     let mut result = ValidationResult::new();
     let site = schema.site.clone().unwrap_or_default();
     let pages: Vec<(String, &PageDefinition)> = schema
@@ -216,7 +216,7 @@ pub fn validate_page_modifiers(schema: &OrbitalSchema) -> ValidationResult {
     }
 
     let locales = schema.locales.clone().unwrap_or_default();
-    for (group, locale, paths) in orbital_core::messages::duplicate_translation_locales(
+    for (group, locale, paths) in orbital_core_base::messages::duplicate_translation_locales(
         pages
             .iter()
             .map(|(_, p)| (p.path.as_str(), p.translation_of.as_deref())),
@@ -422,7 +422,7 @@ fn mentions_pages_sigil(expr: &SExpression) -> bool {
 }
 
 fn schema_uses_pages_sigil(schema: &OrbitalSchema) -> bool {
-    let config_uses = |config: Option<&HashMap<String, orbital_core::schema::ConfigField>>| {
+    let config_uses = |config: Option<&HashMap<String, orbital_core_base::schema::ConfigField>>| {
         config
             .into_iter()
             .flat_map(|c| c.values())
@@ -533,7 +533,7 @@ pub(crate) fn validate_page_reachability(schema: &OrbitalSchema) -> ValidationRe
     // itself reached; walk that to a fixpoint so an unreached page's links reach nothing.
     let mut hrefs = signals.hrefs.clone();
     let navigate_targets = signals.navigate_targets.clone();
-    let lazy_pages: Vec<&orbital_core::schema::LazyPage> =
+    let lazy_pages: Vec<&orbital_core_base::schema::LazyPage> =
         schema.lazy_pages.iter().flatten().collect();
     let is_reached = |path: &str, hrefs: &HashSet<String>, targets: &HashSet<String>| {
         hrefs.contains(path)
@@ -1222,7 +1222,7 @@ mod tests {
         // duplicate-NAME stays).
         let module =
             crate::phases::resolve::resolve_to_oir(&schema).expect("schema resolves to OIR");
-        let oir_result = orbital_core::ir::OirValidator::new(&module).validate();
+        let oir_result = orbital_core_base::ir::OirValidator::new(&module).validate();
         assert!(
             !oir_result
                 .errors
@@ -1268,7 +1268,7 @@ mod tests {
         schema.lazy_pages = Some(
             paths
                 .iter()
-                .map(|p| orbital_core::schema::LazyPage {
+                .map(|p| orbital_core_base::schema::LazyPage {
                     path: p.to_string(),
                     orbital: "BlogPost".into(),
                     orb_ref: "lazy/BlogPost.orb".into(),
@@ -1287,7 +1287,7 @@ mod tests {
         schema.lazy_pages = Some(
             pages
                 .iter()
-                .map(|(path, links)| orbital_core::schema::LazyPage {
+                .map(|(path, links)| orbital_core_base::schema::LazyPage {
                     path: path.to_string(),
                     orbital: format!("Doc{}", path.replace('/', "_")),
                     orb_ref: format!("lazy/Doc{}.orb", path.replace('/', "_")),
@@ -1394,7 +1394,7 @@ mod tests {
             1,
             "control: undeclared it is unreachable"
         );
-        schema.site = Some(orbital_core::schema::SiteMeta {
+        schema.site = Some(orbital_core_base::schema::SiteMeta {
             sign_in: Some("/welcome".into()),
             ..Default::default()
         });

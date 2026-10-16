@@ -13,8 +13,8 @@
 //! expression) is not knowable and is left to the evaluator.
 
 use super::{ErrorCode, ValidationContext, ValidationError, ValidationResult};
-use orbital_core::evaluator::TimeUnit;
-use orbital_core::schema::{OrbitalSchema, SExpression, TraitDefinition};
+use orbital_core_eval::evaluator::TimeUnit;
+use orbital_core_base::schema::{OrbitalSchema, SExpression, TraitDefinition};
 
 /// `time/*` operators whose unit argument sits at a known position. `time/diff`
 /// and `time/isSame` take an OPTIONAL unit, which is why the index is checked
@@ -90,7 +90,7 @@ fn walk(expr: &SExpression, path: &str, result: &mut ValidationResult) {
                                      predicate that silently drops every row.",
                                     unit,
                                     op,
-                                    orbital_core::evaluator::TIME_UNIT_VOCABULARY
+                                    orbital_core_eval::evaluator::TIME_UNIT_VOCABULARY
                                 ),
                             ));
                         }

@@ -3,8 +3,8 @@
 //! Helper functions for resolving S-expressions to OIR.
 
 use crate::phases::resolve::{ResolveError, Resolver};
-use orbital_core::ir::OirExpr;
-use orbital_core::schema::SExpression;
+use orbital_core_base::ir::OirExpr;
+use orbital_core_base::schema::SExpression;
 
 /// Helper for binary operations
 pub fn binary_op<F>(

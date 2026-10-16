@@ -12,7 +12,7 @@
 //!
 //! TODO: full pipe implementation; pipe is sugar resolved at .lolo lowering time.
 
-use orbital_core::schema::SExpression;
+use orbital_core_base::schema::SExpression;
 
 /// Resolve a `behavior/pipe` call by returning the seed value unchanged.
 ///

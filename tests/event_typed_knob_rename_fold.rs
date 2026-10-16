@@ -9,7 +9,7 @@
 
 use orbital_compiler::phases::inline::{inline_schema, InlineConfig};
 use orbital_compiler::phases::parse::parse_file;
-use orbital_core::schema::{OrbitalSchema, SExpression, TraitDefinition, TraitReference};
+use orbital_core_base::schema::{OrbitalSchema, SExpression, TraitDefinition, TraitReference};
 
 /// Consumer-knob atom: the event-typed knob feeds a render prop only —
 /// nothing in `emits` or the event keys references it (NOT a definer).

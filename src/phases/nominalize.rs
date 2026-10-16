@@ -46,8 +46,8 @@
 //! registered entry untouched — the shells' field-layer enum handling reads
 //! them off the hoisted declaration exactly as it does off an inline one.
 
-use orbital_core::ir::{OirEntity, OirField, OirModule, OirType};
-use orbital_core::str_utils::split_to_pascal_case;
+use orbital_core_base::ir::{OirEntity, OirField, OirModule, OirType};
+use orbital_core_base::str_utils::split_to_pascal_case;
 use std::collections::{BTreeMap, HashMap, HashSet};
 
 /// Outcome counters of one [`nominalize_module`] run — surfaced so a caller

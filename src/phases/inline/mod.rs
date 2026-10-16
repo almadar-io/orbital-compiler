@@ -84,7 +84,7 @@ use r#trait::apply_overrides_to_trait;
 use rewrite::{rewrite_entity_refs, rewrite_identifiers, rewrite_trait_event_fields};
 
 use crate::loader::{ExternalOrbitalLoader, ImportChain, LoaderConfig, LoaderError};
-use orbital_core::schema::{
+use orbital_core_base::schema::{
     ConfigField, ConfigProvenanceRecord, EntityDefinition, EntityRef, ExpectDeclaration,
     ListenSource, Orbital, OrbitalSchema, PayloadField, SchemaMetadata, ThemeRef, TraitDefinition,
     TraitReference,
@@ -96,7 +96,7 @@ use thiserror::Error;
 // orbital_core schema types referenced only by the `tests` module via
 // `use super::*`. Gated so a non-test build doesn't flag them as unused.
 #[cfg(test)]
-use orbital_core::schema::{
+use orbital_core_base::schema::{
     EntityRefExtends, FieldDefinition, PageRef, SExpression, ServiceDefinition, ServiceRef,
     ServiceRefObject,
 };
@@ -313,7 +313,7 @@ impl InlineError {
             InlineError::Loader(LoaderError::BehaviorNotFound { .. }) => "ORB_BEHAVIOR_NOT_FOUND",
             InlineError::Loader(LoaderError::BehaviorAmbiguous { .. }) => "ORB_BEHAVIOR_AMBIGUOUS",
             InlineError::Loader(LoaderError::BehaviorPackage(
-                orbital_core::behavior_packages::DiscoverError::DuplicateBehaviorName { .. },
+                orbital_core_base::behavior_packages::DiscoverError::DuplicateBehaviorName { .. },
             )) => "ORB_BEHAVIOR_NAME_DUPLICATE",
             InlineError::Loader(LoaderError::BehaviorPackage(_)) => "ORB_BEHAVIOR_PACKAGE_INVALID",
             InlineError::Loader(LoaderError::PrefixConflict { .. }) => {
@@ -464,7 +464,7 @@ pub fn inline_schema_with_orbital_diagnostics(
     // the id side-maps (`trait_embed_ids`/`entity_ref_ids`) always cover their
     // tokens by the time the cross-orbital dedup rename runs — the invariant
     // that lets the name-fallback rewriters be deleted. No-op when stamped.
-    orbital_core::stamp::ensure_stamped(schema);
+    orbital_core_base::stamp::ensure_stamped(schema);
 
     // V4-W4 identity normalization (compiled-path twin of the runtime's id-first
     // resolution). Rewrite every id-carrying reference token — entity tokens
@@ -906,7 +906,7 @@ fn uniquify_cross_orbital_pulled_siblings(
                                 ledger_ops.push((source_id, new_name.clone(), None));
                             } else {
                                 let copy_id =
-                                    orbital_core::identity::derive_id(&source_id, &orbital_name);
+                                    orbital_core_base::identity::derive_id(&source_id, &orbital_name);
                                 td.id = Some(copy_id.clone());
                                 ledger_ops.push((source_id, new_name.clone(), Some(copy_id)));
                             }
@@ -916,7 +916,7 @@ fn uniquify_cross_orbital_pulled_siblings(
                     // `listens` source at the old sibling name; track the rename.
                     if let Some(listens) = td.listens.as_mut() {
                         for listen in listens.iter_mut() {
-                            if let Some(orbital_core::schema::ListenSource::Trait {
+                            if let Some(orbital_core_base::schema::ListenSource::Trait {
                                 trait_name,
                                 ..
                             }) = listen.source.as_mut()
@@ -933,21 +933,21 @@ fn uniquify_cross_orbital_pulled_siblings(
         }
         if !ledger_ops.is_empty() {
             if let Some(ledger) = schema.ledger.as_mut() {
-                let at = orbital_core::time_util::now_rfc3339();
+                let at = orbital_core_base::time_util::now_rfc3339();
                 for (source_id, new_name, copy_id) in &ledger_ops {
                     match copy_id {
                         None => ledger.rename(source_id, new_name, &at),
                         Some(copy_id) => {
                             if let Some(src) = ledger.entries.get(source_id).cloned() {
                                 let mut rename_hist = src.renames;
-                                rename_hist.push(orbital_core::identity::RenameRecord {
+                                rename_hist.push(orbital_core_base::identity::RenameRecord {
                                     from: src.cur_name,
                                     to: new_name.clone(),
                                     at: at.clone(),
                                 });
                                 ledger.entries.insert(
                                     copy_id.clone(),
-                                    orbital_core::identity::LedgerEntry {
+                                    orbital_core_base::identity::LedgerEntry {
                                         id: copy_id.clone(),
                                         kind: src.kind,
                                         baked_name: src.baked_name,
@@ -1044,7 +1044,7 @@ fn precompute_reference_form_primary_ids(
                 upstream_id.as_deref(),
                 &up_name,
                 &orbital.name,
-                orbital_core::identity::IdKind::Entity,
+                orbital_core_base::identity::IdKind::Entity,
             );
             out.insert(primary_name, primary_id);
         }
@@ -1093,12 +1093,12 @@ fn flattened_primary_entity(
         upstream_id.as_deref(),
         &up_name,
         &orbital.name,
-        orbital_core::identity::IdKind::Entity,
+        orbital_core_base::identity::IdKind::Entity,
     );
     let effective_id = orbital.id.clone().or_else(|| {
         upstream_id
             .as_deref()
-            .map(|uid| orbital_core::identity::derive_id(uid, &orbital.name))
+            .map(|uid| orbital_core_base::identity::derive_id(uid, &orbital.name))
     });
     Some((final_name, Some(final_id), effective_id))
 }
@@ -1172,7 +1172,7 @@ fn precompute_reference_form_listen_targets(
                         upstream_id.as_deref(),
                         &n,
                         &orbital.name,
-                        orbital_core::identity::IdKind::Trait,
+                        orbital_core_base::identity::IdKind::Trait,
                     );
                     (n.clone(), (format!("{}{n}", orbital.name), final_id))
                 })
@@ -1265,7 +1265,7 @@ fn flattened_traits(
                 upstream_id.as_deref(),
                 &n,
                 &orbital.name,
-                orbital_core::identity::IdKind::Trait,
+                orbital_core_base::identity::IdKind::Trait,
             );
             traits.push((format!("{}{n}", orbital.name), Some(final_id)));
         }
@@ -1273,7 +1273,7 @@ fn flattened_traits(
     let effective_id = own_id.or_else(|| {
         upstream_id
             .as_deref()
-            .map(|uid| orbital_core::identity::derive_id(uid, &orbital.name))
+            .map(|uid| orbital_core_base::identity::derive_id(uid, &orbital.name))
     });
     (traits, effective_id)
 }
@@ -2028,7 +2028,7 @@ fn inline_orbital(
             referenced: HashSet<String>,
         }
         let mut travel_by_name: HashMap<String, TravelCandidate> = HashMap::new();
-        let mut pulled_types: std::collections::BTreeMap<String, Vec<orbital_core::schema::PayloadField>> =
+        let mut pulled_types: std::collections::BTreeMap<String, Vec<orbital_core_base::schema::PayloadField>> =
             Default::default();
         for trait_ref in &orbital.traits {
             if let TraitReference::Reference {
@@ -2448,7 +2448,7 @@ fn mount_pulled_receivers(orbital: &mut Orbital, receiver_mounts: &[(String, Str
         })
         .collect();
     for page in orbital.pages.iter_mut().flatten() {
-        let orbital_core::PageRef::Inline(page) = page else {
+        let orbital_core_base::schema::types::PageRef::Inline(page) = page else {
             continue;
         };
         let Some(mounted) = page.traits.as_mut() else {
@@ -2634,7 +2634,7 @@ fn reconcile_orbital_ref_event_id_renames(
         } else if seen.insert(site.old_id.as_str()) {
             derive_sites.push((
                 site,
-                orbital_core::identity::derive_id(&site.old_id, &site.new_key),
+                orbital_core_base::identity::derive_id(&site.old_id, &site.new_key),
             ));
         }
     }
@@ -2718,7 +2718,7 @@ fn reconcile_orbital_ref_event_id_renames(
         .collect();
 
     let ledger = schema.ledger.as_mut().expect("checked Some above");
-    let at = orbital_core::time_util::now_rfc3339();
+    let at = orbital_core_base::time_util::now_rfc3339();
     for (old_id, new_key) in rename_in_place {
         ledger.rename(&old_id, &new_key, &at);
     }
@@ -2727,14 +2727,14 @@ fn reconcile_orbital_ref_event_id_renames(
             continue;
         };
         let mut renames = src.renames.clone();
-        renames.push(orbital_core::identity::RenameRecord {
+        renames.push(orbital_core_base::identity::RenameRecord {
             from: src.cur_name.clone(),
             to: site.new_key.clone(),
             at: at.clone(),
         });
         ledger.entries.insert(
             new_id.clone(),
-            orbital_core::identity::LedgerEntry {
+            orbital_core_base::identity::LedgerEntry {
                 id: new_id,
                 kind: src.kind,
                 baked_name: src.baked_name.clone(),
@@ -2769,7 +2769,7 @@ fn reconcile_orbital_ref_event_id_renames(
 /// loaded import's ledger (`id → row`).
 fn merge_source_ledgers(
     schema: &mut OrbitalSchema,
-    source_union: &HashMap<String, orbital_core::identity::LedgerEntry>,
+    source_union: &HashMap<String, orbital_core_base::identity::LedgerEntry>,
 ) {
     if source_union.is_empty() {
         return;
@@ -2782,7 +2782,7 @@ fn merge_source_ledgers(
         .map(|l| l.entries.keys().cloned().collect())
         .unwrap_or_default();
 
-    let mut to_add: Vec<orbital_core::identity::LedgerEntry> = Vec::new();
+    let mut to_add: Vec<orbital_core_base::identity::LedgerEntry> = Vec::new();
     for id in &referenced {
         if declared.contains(id) || have.contains(id) {
             continue;
@@ -2796,7 +2796,7 @@ fn merge_source_ledgers(
     }
     let ledger = schema
         .ledger
-        .get_or_insert_with(|| orbital_core::identity::IdentityLedger {
+        .get_or_insert_with(|| orbital_core_base::identity::IdentityLedger {
             schema_version: 1,
             entries: std::collections::BTreeMap::new(),
         });
@@ -2809,7 +2809,7 @@ fn merge_source_ledgers(
 /// these are arena-known without a ledger row. Mirrors the declaration sites
 /// that `validation::id_integrity::IdIndex::build` treats as arena nodes.
 fn collect_declared_ids(schema: &OrbitalSchema) -> HashSet<String> {
-    fn decl_entity(e: Option<&orbital_core::schema::EntityDefinition>, out: &mut HashSet<String>) {
+    fn decl_entity(e: Option<&orbital_core_base::schema::EntityDefinition>, out: &mut HashSet<String>) {
         if let Some(id) = e.and_then(|e| e.id.as_ref()) {
             out.insert(id.clone());
         }
@@ -2844,7 +2844,7 @@ fn collect_declared_ids(schema: &OrbitalSchema) -> HashSet<String> {
             decl_trait(tr, &mut out);
         }
         for page in orbital.pages.iter().flatten() {
-            if let orbital_core::schema::PageRef::Inline(p) = page {
+            if let orbital_core_base::schema::PageRef::Inline(p) = page {
                 if let Some(id) = &p.id {
                     out.insert(id.clone());
                 }
@@ -2861,7 +2861,7 @@ fn collect_declared_ids(schema: &OrbitalSchema) -> HashSet<String> {
 /// resolves against the arena ∪ ledger. Mirrors the reference walk in
 /// `validation::id_integrity`; kept in step with it.
 fn collect_referenced_ids(schema: &OrbitalSchema) -> HashSet<String> {
-    use orbital_core::schema::{EntityRef, ListenSource, PageRef, TraitReference};
+    use orbital_core_base::schema::{EntityRef, ListenSource, PageRef, TraitReference};
     let mut out = HashSet::new();
     let add = |id: &Option<String>, out: &mut HashSet<String>| {
         if let Some(id) = id {
@@ -2869,7 +2869,7 @@ fn collect_referenced_ids(schema: &OrbitalSchema) -> HashSet<String> {
         }
     };
 
-    fn field_relations(field: &orbital_core::schema::FieldDefinition, out: &mut HashSet<String>) {
+    fn field_relations(field: &orbital_core_base::schema::FieldDefinition, out: &mut HashSet<String>) {
         if let Some(rel) = &field.relation {
             if let Some(id) = &rel.entity_id {
                 out.insert(id.clone());
@@ -2988,8 +2988,8 @@ fn collect_referenced_ids(schema: &OrbitalSchema) -> HashSet<String> {
 /// expectation is never silently retyped by an import.
 pub(super) fn merge_expectation(into: &mut Vec<ExpectDeclaration>, incoming: ExpectDeclaration) {
     fn union_shape(
-        existing: &mut Option<Vec<orbital_core::schema::FieldDefinition>>,
-        incoming: Option<Vec<orbital_core::schema::FieldDefinition>>,
+        existing: &mut Option<Vec<orbital_core_base::schema::FieldDefinition>>,
+        incoming: Option<Vec<orbital_core_base::schema::FieldDefinition>>,
     ) {
         let Some(add) = incoming else { return };
         let target = existing.get_or_insert_with(Vec::new);
@@ -3353,7 +3353,7 @@ mod tests {
     fn rewrite_entity_refs_rewrites_nested_lists() {
         // Nested: ["render-ui", "main", { children: [ ["ref", "ModalRecord"] ] }]
         // plus a nested binding root inside a sibling array.
-        let mut obj: orbital_core::schema::SObject = orbital_core::schema::SObject::new();
+        let mut obj: orbital_core_base::schema::SObject = orbital_core_base::schema::SObject::new();
         obj.insert(
             "children".to_string(),
             SExpression::Array(vec![SExpression::Array(vec![s("ref"), s("ModalRecord")])]),
@@ -3393,7 +3393,7 @@ mod tests {
     /// Build a minimal `TraitDefinition` with the given name so the rename
     /// tests don't have to hand-construct every field.
     fn make_trait(name: &str) -> TraitDefinition {
-        use orbital_core::schema::StateMachine;
+        use orbital_core_base::schema::StateMachine;
         TraitDefinition {
             local: false,
             effect_row: None,
@@ -3499,7 +3499,7 @@ mod tests {
         // Seed a transition effect that references the original entity so
         // we can assert the linked_entity rewrite still fires when the
         // rename is in play.
-        use orbital_core::schema::{StringOrArray, TransitionDefinition};
+        use orbital_core_base::schema::{StringOrArray, TransitionDefinition};
         trait_def
             .state_machine
             .transitions
@@ -3627,7 +3627,7 @@ mod tests {
     fn merge_source_ledgers_preserves_cross_file_id() {
         use crate::phases::validation::error::ErrorCode;
         use crate::phases::validation::{id_integrity, ValidationContext};
-        use orbital_core::identity::{IdKind, LedgerEntry, LedgerOwner};
+        use orbital_core_base::identity::{IdKind, LedgerEntry, LedgerOwner};
 
         // Consumer schema: one orbital whose inline trait references a FOREIGN
         // entity id (`ent_SRC...`) that is neither a declared consumer node nor
@@ -3718,7 +3718,7 @@ mod tests {
     /// Build an `Orbital` whose only trait is the supplied `TraitDefinition`,
     /// suitable for stashing in an `InlineContext` under an alias.
     fn make_orbital_with_trait(name: &str, trait_def: TraitDefinition) -> Orbital {
-        use orbital_core::schema::EntityDefinition;
+        use orbital_core_base::schema::EntityDefinition;
         Orbital {
             types: None,
             name: name.to_string(),
@@ -3986,7 +3986,7 @@ mod tests {
     /// Build a minimal REST `ServiceDefinition` so the service-override
     /// tests don't have to hand-construct every field.
     fn make_rest_service(name: &str, base_url: &str) -> ServiceDefinition {
-        use orbital_core::schema::RestServiceDefInner;
+        use orbital_core_base::schema::RestServiceDefInner;
         ServiceDefinition::Rest(RestServiceDefInner {
             name: name.to_string(),
             description: Some("upstream description".to_string()),
@@ -4000,7 +4000,7 @@ mod tests {
     /// Build an `Orbital` whose only service is the supplied REST
     /// `ServiceDefinition`. Mirrors `make_orbital_with_trait` for services.
     fn make_orbital_with_service(name: &str, service_def: ServiceDefinition) -> Orbital {
-        use orbital_core::schema::EntityDefinition;
+        use orbital_core_base::schema::EntityDefinition;
         Orbital {
             types: None,
             name: name.to_string(),
@@ -4192,7 +4192,7 @@ mod tests {
     // inline_entity + EntityRef::Extends — Phase 3.5.G.A.5
     // ------------------------------------------------------------------
 
-    use orbital_core::schema::{FieldType, Persistence};
+    use orbital_core_base::schema::{FieldType, Persistence};
 
     /// Build a minimal `EntityDefinition` mirroring the upstream
     /// `ModalRecord` shape from the embedded std-modal registry: 5 fields
@@ -4558,7 +4558,7 @@ mod tests {
     fn rewrite_entity_refs_noop_when_no_match() {
         // An expression with no entity references anywhere should be
         // byte-identical after rewrite.
-        let mut obj: orbital_core::schema::SObject = orbital_core::schema::SObject::new();
+        let mut obj: orbital_core_base::schema::SObject = orbital_core_base::schema::SObject::new();
         obj.insert("type".to_string(), s("stack"));
         obj.insert("direction".to_string(), s("vertical"));
         obj.insert(
@@ -4746,7 +4746,7 @@ mod tests {
         let mut event_subs: HashMap<String, String> = HashMap::new();
         event_subs.insert("FILTER".to_string(), "NARROW".to_string());
 
-        let mut payload_obj: orbital_core::schema::SObject = orbital_core::schema::SObject::new();
+        let mut payload_obj: orbital_core_base::schema::SObject = orbital_core_base::schema::SObject::new();
         payload_obj.insert("value".to_string(), SExpression::String("".to_string()));
         payload_obj.insert("field".to_string(), SExpression::String("".to_string()));
         let mut expr = SExpression::Array(vec![
@@ -4812,7 +4812,7 @@ mod tests {
         let mut event_subs: HashMap<String, String> = HashMap::new();
         event_subs.insert("OPEN".to_string(), "ADD_ITEM".to_string());
 
-        let mut object = orbital_core::schema::SObject::new();
+        let mut object = orbital_core_base::schema::SObject::new();
         object.insert(
             "type".to_string(),
             SExpression::String("button".to_string()),
@@ -4850,7 +4850,7 @@ mod tests {
         let mut event_subs: HashMap<String, String> = HashMap::new();
         event_subs.insert("OPEN".to_string(), "ADD_ITEM".to_string());
 
-        let mut object = orbital_core::schema::SObject::new();
+        let mut object = orbital_core_base::schema::SObject::new();
         object.insert(
             "content".to_string(),
             SExpression::String("OPEN".to_string()),
@@ -4870,7 +4870,7 @@ mod tests {
 
     #[test]
     fn rewrite_trait_event_fields_renames_state_machine_events_and_transitions() {
-        use orbital_core::schema::{
+        use orbital_core_base::schema::{
             EventDefinition, StateDefinition, StateMachine, StringOrArray, TransitionDefinition,
         };
         let mut trait_def = TraitDefinition {
@@ -4983,7 +4983,7 @@ mod tests {
         // transition + a corresponding event entry, pass an `events` arg
         // renaming OPEN → ADD_ITEM, and confirm both the structured fields
         // and (would-be) SExpression payloads agree.
-        use orbital_core::schema::{
+        use orbital_core_base::schema::{
             EventDefinition, StateDefinition, StateMachine, StringOrArray, TransitionDefinition,
         };
         let mut trait_def = TraitDefinition {
@@ -5098,7 +5098,7 @@ mod tests {
         let mut entity_subs: HashMap<String, String> = HashMap::new();
         entity_subs.insert("Source".to_string(), "Target".to_string());
 
-        let mut criteria = orbital_core::schema::SObject::new();
+        let mut criteria = orbital_core_base::schema::SObject::new();
         criteria.insert("limit".to_string(), SExpression::Number(10.0));
 
         let mut expr = SExpression::Array(vec![
@@ -5121,7 +5121,7 @@ mod tests {
         let mut entity_subs: HashMap<String, String> = HashMap::new();
         entity_subs.insert("Source".to_string(), "Target".to_string());
 
-        let mut payload = orbital_core::schema::SObject::new();
+        let mut payload = orbital_core_base::schema::SObject::new();
         payload.insert("data".to_string(), s("@payload.data"));
 
         let mut expr = SExpression::Array(vec![
@@ -5173,9 +5173,9 @@ mod tests {
         let mut entity_subs: HashMap<String, String> = HashMap::new();
         entity_subs.insert("Source".to_string(), "Target".to_string());
 
-        let mut row1 = orbital_core::schema::SObject::new();
+        let mut row1 = orbital_core_base::schema::SObject::new();
         row1.insert("name".to_string(), s("row-1"));
-        let mut row2 = orbital_core::schema::SObject::new();
+        let mut row2 = orbital_core_base::schema::SObject::new();
         row2.insert("name".to_string(), s("row-2"));
 
         let rows = SExpression::Array(vec![
@@ -5203,7 +5203,7 @@ mod tests {
         let mut entity_subs: HashMap<String, String> = HashMap::new();
         entity_subs.insert("Source".to_string(), "Target".to_string());
 
-        let mut obj: orbital_core::schema::SObject = orbital_core::schema::SObject::new();
+        let mut obj: orbital_core_base::schema::SObject = orbital_core_base::schema::SObject::new();
         obj.insert(
             "children".to_string(),
             SExpression::Array(vec![SExpression::Array(vec![s("fetch"), s("Source")])]),
@@ -5252,7 +5252,7 @@ mod tests {
         // effects targeting the atom's original entity. Call
         // apply_overrides_to_trait with a linked_entity override and assert
         // both effect shapes are rewritten to the new entity.
-        use orbital_core::schema::{StateMachine, StringOrArray, TransitionDefinition};
+        use orbital_core_base::schema::{StateMachine, StringOrArray, TransitionDefinition};
 
         let mut trait_def = TraitDefinition {
             local: false,
@@ -5577,7 +5577,7 @@ mod tests {
         // Same coverage as the trait-in-orbital-1 test, but for pages.
         // Pages follow the same code path in the resolver, so this
         // pins the fix for `Alias.pages.X` as well.
-        use orbital_core::schema::{EntityDefinition, PageDefinition};
+        use orbital_core_base::schema::{EntityDefinition, PageDefinition};
 
         let orb0 = Orbital {
             types: None,
@@ -5700,7 +5700,7 @@ mod tests {
     // ------------------------------------------------------------------
 
     /// Helper to build a FieldDefinition with just a name and type.
-    fn make_field(name: &str, ft: orbital_core::schema::FieldType) -> FieldDefinition {
+    fn make_field(name: &str, ft: orbital_core_base::schema::FieldType) -> FieldDefinition {
         FieldDefinition {
             mock: None,
             merged_from: None,
@@ -5734,7 +5734,7 @@ mod tests {
     fn merge_entity_fields_basic_collision_and_addition() {
         // Caller has [id, price], imported has [id, name, pendingId].
         // After merge: [id, price, name, pendingId] — id from caller wins.
-        use orbital_core::schema::FieldType;
+        use orbital_core_base::schema::FieldType;
 
         let mut caller = EntityDefinition {
             shared: false,
@@ -5799,7 +5799,7 @@ mod tests {
     fn merge_entity_fields_no_collision() {
         // Caller has [id, title], imported has [description, status].
         // After merge: [id, title, description, status].
-        use orbital_core::schema::FieldType;
+        use orbital_core_base::schema::FieldType;
 
         let mut caller = EntityDefinition {
             shared: false,
@@ -5858,7 +5858,7 @@ mod tests {
     fn merge_entity_fields_full_collision_no_change() {
         // Caller already has all fields the imported entity declares.
         // After merge: no change.
-        use orbital_core::schema::FieldType;
+        use orbital_core_base::schema::FieldType;
 
         let mut caller = EntityDefinition {
             shared: false,
@@ -5944,7 +5944,7 @@ mod tests {
     #[test]
     fn merge_entity_fields_multiple_imports() {
         // Caller uses std-browse AND std-modal; each contributes different fields.
-        use orbital_core::schema::FieldType;
+        use orbital_core_base::schema::FieldType;
 
         let mut caller = EntityDefinition {
             shared: false,
@@ -6042,7 +6042,7 @@ mod tests {
     #[test]
     fn merge_entity_fields_no_uses_no_change() {
         // Standalone orbital with no imports — entity unchanged.
-        use orbital_core::schema::FieldType;
+        use orbital_core_base::schema::FieldType;
 
         let caller = EntityDefinition {
             shared: false,
@@ -6081,7 +6081,7 @@ mod tests {
         // relation must be retargeted to the caller BOTH by name and by id — a
         // dual-carry mismatch (ORB_ID_NAME_MISMATCH) fires if the id sibling is
         // left pointing at the imported entity's own ledger row.
-        use orbital_core::schema::{Cardinality, FieldType, RelationDefinition};
+        use orbital_core_base::schema::{Cardinality, FieldType, RelationDefinition};
 
         let mut caller = EntityDefinition {
             shared: false,
@@ -6165,7 +6165,7 @@ mod tests {
         // is BrowseItem's own write contract, never ChatMessage's — while
         // `content`, authored by the host itself, must carry `merged_from
         // == None` even though it was already present before the merge ran.
-        use orbital_core::schema::FieldType;
+        use orbital_core_base::schema::FieldType;
 
         let mut content_field = make_field("content", FieldType::String);
         content_field.required = Some(true);
@@ -6238,7 +6238,7 @@ mod tests {
     fn get_entity_for_trait_orbital_finds_correct_orbital() {
         // Multi-orbital import: trait lives in orbital 1, its entity should
         // be returned (not orbital 0's entity).
-        use orbital_core::schema::FieldType;
+        use orbital_core_base::schema::FieldType;
 
         let orb0 = Orbital {
             types: None,
@@ -6444,7 +6444,7 @@ mod tests {
             types: None,
             name: "ConsumerOrbital".to_string(),
             id: None,
-            uses: Some(vec![orbital_core::schema::UseDeclaration {
+            uses: Some(vec![orbital_core_base::schema::UseDeclaration {
                 lazy: None,
                 from: "./pickup.orb".to_string(),
                 alias: "Pickup".to_string(),
@@ -6489,7 +6489,7 @@ mod tests {
         let mut schema = pickup_consumer_schema(None);
         schema.orbitals[0].uses = Some(
             uses.iter()
-                .map(|(alias, from)| orbital_core::schema::UseDeclaration {
+                .map(|(alias, from)| orbital_core_base::schema::UseDeclaration {
                     lazy: None,
                     from: from.to_string(),
                     alias: alias.to_string(),
@@ -7141,8 +7141,8 @@ mod tests {
         }
     }
 
-    fn toolkit_uses_decl() -> orbital_core::schema::UseDeclaration {
-        orbital_core::schema::UseDeclaration {
+    fn toolkit_uses_decl() -> orbital_core_base::schema::UseDeclaration {
+        orbital_core_base::schema::UseDeclaration {
             lazy: None,
             from: "./toolkit.orb".to_string(),
             alias: "Toolkit".to_string(),
@@ -7675,8 +7675,8 @@ mod tests {
         }
     }
 
-    fn refs_uses_decl() -> orbital_core::schema::UseDeclaration {
-        orbital_core::schema::UseDeclaration {
+    fn refs_uses_decl() -> orbital_core_base::schema::UseDeclaration {
+        orbital_core_base::schema::UseDeclaration {
             lazy: None,
             from: "./refs.orb".to_string(),
             alias: "Refs".to_string(),
@@ -7994,7 +7994,7 @@ mod tests {
         // two call sites — `validation/entity_mutation.rs` and
         // `inline/mod.rs`, both via `crate::phases::inline::…`). This
         // exercises its own-entity vs cross-entity branch directly.
-        use orbital_core::schema::{StringOrArray, TransitionDefinition};
+        use orbital_core_base::schema::{StringOrArray, TransitionDefinition};
         let bound = make_entity("Bound", &["id", "note"]);
         let other = make_entity("Other", &["id", "flag"]);
         let mut trait_def = make_trait("T");
@@ -8071,7 +8071,7 @@ fn move_copy_merges_to_owners(orbitals: &mut [Orbital]) {
             _ => None,
         })
         .collect();
-    let mut moves: Vec<(usize, orbital_core::schema::FieldDefinition)> = Vec::new();
+    let mut moves: Vec<(usize, orbital_core_base::schema::FieldDefinition)> = Vec::new();
     for (i, orbital) in orbitals.iter().enumerate() {
         for aux in orbital.auxiliary_entities.iter().flatten() {
             let EntityRef::Inline(copy) = aux else {

@@ -32,7 +32,7 @@ use super::rewrite::{
 };
 use super::InlineError;
 use crate::phases::validation::user_identity::{identity_entities_of, vocabulary};
-use orbital_core::schema::{
+use orbital_core_base::schema::{
     ConfigField, EntityDefinition, EntityRef, FieldDefinition, ListenSource, Orbital,
     OrbitalRefObject, PageRef, Persistence, SExpression, TraitDefinition, TraitReference,
 };
@@ -232,7 +232,7 @@ pub(crate) fn materialized_primary_entity(
         upstream.id.as_deref(),
         &upstream_entity.name,
         local_name,
-        orbital_core::identity::IdKind::Entity,
+        orbital_core_base::identity::IdKind::Entity,
     );
     Some((primary_final, primary_id))
 }
@@ -370,7 +370,7 @@ pub(crate) fn materialized_trait_subs(
             upstream.id.as_deref(),
             &name,
             local_name,
-            orbital_core::identity::IdKind::Trait,
+            orbital_core_base::identity::IdKind::Trait,
         );
         out.insert(name, (final_name, final_id));
     }
@@ -741,7 +741,7 @@ pub(crate) fn resolve_orbital_reference(
             upstream.id.as_deref(),
             &td.name,
             &local_name,
-            orbital_core::identity::IdKind::Trait,
+            orbital_core_base::identity::IdKind::Trait,
         );
         td.name = final_name.clone();
         td.id = Some(final_id.clone());
@@ -760,7 +760,7 @@ pub(crate) fn resolve_orbital_reference(
             upstream.id.as_deref(),
             &e.name,
             &local_name,
-            orbital_core::identity::IdKind::Entity,
+            orbital_core_base::identity::IdKind::Entity,
         );
         entity_ids.insert(final_name.clone(), final_id.clone());
         let mut ed = e.clone();
@@ -989,7 +989,7 @@ pub(crate) fn resolve_orbital_reference(
         .iter()
         .flat_map(|o| o.expects.iter().flatten())
         .filter_map(|e| match e {
-            orbital_core::schema::ExpectDeclaration::Identity { name: Some(n), .. } => {
+            orbital_core_base::schema::ExpectDeclaration::Identity { name: Some(n), .. } => {
                 Some(n.clone())
             }
             _ => None,
@@ -1079,7 +1079,7 @@ pub(crate) fn resolve_orbital_reference(
             upstream.id.as_deref(),
             name,
             &local_name,
-            orbital_core::identity::IdKind::Entity,
+            orbital_core_base::identity::IdKind::Entity,
         );
         subs.insert(name.clone(), final_name.clone());
         entity_ids.insert(final_name.clone(), final_id.clone());
@@ -1112,7 +1112,7 @@ pub(crate) fn resolve_orbital_reference(
     // expectation's declared role values are then the upstream vocabulary.
     if role_fields.is_empty() {
         for expect in upstream.expects.iter().flatten() {
-            if let orbital_core::schema::ExpectDeclaration::Identity {
+            if let orbital_core_base::schema::ExpectDeclaration::Identity {
                 shape: Some(shape), ..
             } = expect
             {
@@ -1467,7 +1467,7 @@ pub(crate) fn resolve_orbital_reference(
                 upstream.id.as_deref(),
                 &page_def.name,
                 &local_name,
-                orbital_core::identity::IdKind::Page,
+                orbital_core_base::identity::IdKind::Page,
             ));
             if let Some(traits) = pd.traits.as_mut() {
                 traits.retain_mut(|tr| {
@@ -1838,7 +1838,7 @@ pub(crate) fn resolve_orbital_reference(
                 path: diag_path.clone(),
             })?;
         let mut listen = entry.listen.clone();
-        if let Some(orbital_core::schema::ListenSource::Trait {
+        if let Some(orbital_core_base::schema::ListenSource::Trait {
             trait_name,
             trait_id,
         }) = listen.source.as_mut()
@@ -1883,7 +1883,7 @@ pub(crate) fn resolve_orbital_reference(
             TraitReference::Reference { listens, .. } => listens.as_mut(),
         };
         for listen in listens.into_iter().flatten() {
-            if let Some(orbital_core::schema::ListenSource::Trait {
+            if let Some(orbital_core_base::schema::ListenSource::Trait {
                 trait_name,
                 trait_id,
             }) = listen.source.as_mut()
@@ -1929,8 +1929,8 @@ pub(crate) fn resolve_orbital_reference(
         for expect in upstream_expects {
             let mut expect = expect.clone();
             match &mut expect {
-                orbital_core::schema::ExpectDeclaration::Entity { name, .. }
-                | orbital_core::schema::ExpectDeclaration::Identity {
+                orbital_core_base::schema::ExpectDeclaration::Entity { name, .. }
+                | orbital_core_base::schema::ExpectDeclaration::Identity {
                     name: Some(name), ..
                 } => {
                     if let Some(local) = obj.entities.as_ref().and_then(|m| m.get(name.as_str())) {
@@ -1940,7 +1940,7 @@ pub(crate) fn resolve_orbital_reference(
                 _ => {}
             }
             // The import's `roles {}` remap carries the upstream role vocabulary into the consumer's.
-            if let orbital_core::schema::ExpectDeclaration::Identity {
+            if let orbital_core_base::schema::ExpectDeclaration::Identity {
                 shape: Some(fields),
                 ..
             } = &mut expect
@@ -1965,17 +1965,17 @@ pub(crate) fn resolve_orbital_reference(
                     }
                 }
             }
-            if let orbital_core::schema::ExpectDeclaration::Identity {
+            if let orbital_core_base::schema::ExpectDeclaration::Identity {
                 name: Some(upstream_name),
                 ..
             } = &expect
             {
-                if let Some(orbital_core::schema::ExpectDeclaration::Identity {
+                if let Some(orbital_core_base::schema::ExpectDeclaration::Identity {
                     name: own_name @ None,
                     ..
                 }) = own
                     .iter_mut()
-                    .find(|e| matches!(e, orbital_core::schema::ExpectDeclaration::Identity { .. }))
+                    .find(|e| matches!(e, orbital_core_base::schema::ExpectDeclaration::Identity { .. }))
                 {
                     *own_name = Some(upstream_name.clone());
                 }
@@ -1993,7 +1993,7 @@ pub(crate) fn resolve_orbital_reference(
         orbital.id = upstream
             .id
             .as_deref()
-            .map(|uid| orbital_core::identity::derive_id(uid, &local_name));
+            .map(|uid| orbital_core_base::identity::derive_id(uid, &local_name));
     }
 
     if !unknown_config_keys.is_empty()
@@ -2064,7 +2064,7 @@ pub(crate) fn derive_materialized_id(
     upstream_orbital_id: Option<&str>,
     source_name: &str,
     local_name: &str,
-    kind: orbital_core::identity::IdKind,
+    kind: orbital_core_base::identity::IdKind,
 ) -> String {
     let seed;
     let parent: &str = match source_id {
@@ -2078,7 +2078,7 @@ pub(crate) fn derive_materialized_id(
             &seed
         }
     };
-    orbital_core::identity::derive_id(parent, local_name)
+    orbital_core_base::identity::derive_id(parent, local_name)
 }
 
 /// Multi-hop embedder chain for the config-forward step-6 fallback: starting
@@ -3007,7 +3007,7 @@ fn rewrite_trait_navigate_targets(td: &mut TraitDefinition, path_map: &HashMap<S
 #[cfg(test)]
 mod tests {
     use super::*;
-    use orbital_core::schema::{OrbitalSchema, UseDeclaration};
+    use orbital_core_base::schema::{OrbitalSchema, UseDeclaration};
     use serde_json::json;
 
     /// Upstream orbital fixture: `A` embeds `@trait.B` and listens on it via
@@ -4399,7 +4399,7 @@ mod tests {
     /// (`orbital_core::util::canonical_json`), shared with the CLI's schema
     /// serialization sites and the other three test-only copies this
     /// replaced.
-    use orbital_core::util::canonical_json;
+    use orbital_core_eval::util::canonical_json;
 
     /// The `uses[].from` string shared between the synthesized
     /// pre-materialization `OrbitalSchema` (`stage_b_fixture_inputs`) and its
@@ -4939,7 +4939,7 @@ mod tests {
             .iter()
             .find(|f| f.name.as_deref() == Some("overtimeHours"))
             .expect("scalar extend field appended");
-        assert_eq!(hours.field_type, orbital_core::schema::FieldType::Number);
+        assert_eq!(hours.field_type, orbital_core_base::schema::FieldType::Number);
         let workspace = entity
             .fields
             .iter()
@@ -5573,7 +5573,7 @@ mod tests {
         let routed = b.listens.as_deref().unwrap_or(&[]).iter().any(|l| {
             l.event == "GO"
                 && l.triggers.as_deref() == Some("PING")
-                && matches!(&l.source, Some(orbital_core::schema::ListenSource::Trait { trait_name, .. }) if trait_name == "Host")
+                && matches!(&l.source, Some(orbital_core_base::schema::ListenSource::Trait { trait_name, .. }) if trait_name == "Host")
         });
         assert!(routed, "{:?}", b.listens);
     }
@@ -5588,7 +5588,7 @@ mod tests {
         let b = kept_trait(&orbital, "LocalB");
         assert!(b.listens.as_deref().unwrap_or(&[]).iter().any(|l| matches!(
             &l.source,
-            Some(orbital_core::schema::ListenSource::Trait { trait_name, .. }) if trait_name == "LocalA"
+            Some(orbital_core_base::schema::ListenSource::Trait { trait_name, .. }) if trait_name == "LocalA"
         )), "{:?}", b.listens);
     }
 
@@ -5839,7 +5839,7 @@ mod tests {
             .iter()
             .find(|f| f.name.as_deref() == Some("overtimeHours"))
             .expect("extend field appended");
-        assert_eq!(field.field_type, orbital_core::schema::FieldType::Number);
+        assert_eq!(field.field_type, orbital_core_base::schema::FieldType::Number);
 
         // Unread: no trait/config on the tiny `upstream_orbital` fixture
         // reads/forwards `overtimeHours`.

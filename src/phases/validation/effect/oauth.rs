@@ -8,10 +8,10 @@ use super::emit_declaration::collect_declared_emits;
 use super::http::{each_call_of, http_objects, visit_effects};
 use super::keyed_call::check_key_and_cancelled;
 use super::{extract_emit_object_ref, validate_emit_config, DeclaredEmit};
-use orbital_core::oauth::ask::OAuthProvider;
-use orbital_core::oauth::client::{OAuthClientDecl, OAuthEndpointKind, OAuthOp};
-use orbital_core::runtime::http_request::{parse_origin, split_url};
-use orbital_core::schema::{OrbitalSchema, SExpression, SObject};
+use orbital_core_base::oauth_ask::OAuthProvider;
+use orbital_core_base::oauth_client::{OAuthClientDecl, OAuthEndpointKind, OAuthOp};
+use orbital_core_base::http_wire::{parse_origin, split_url};
+use orbital_core_base::schema::{OrbitalSchema, SExpression, SObject};
 
 const CLIENT_MODES: [&str; 2] = ["real", "mock"];
 const CLIENT_AUTHS: [&str; 3] = ["basic", "post", "none"];

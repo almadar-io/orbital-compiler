@@ -10,9 +10,9 @@
 //! reads a browser-stored and a server-stored entity.
 
 use super::super::{inline_traits, ErrorCode, ValidationContext, ValidationError, ValidationResult};
-use orbital_core::effects::{http_auth, sexpr_runs_server_effect, HttpAuth, Residence};
-use orbital_core::runtime::dispatch_mode::DispatchMode;
-use orbital_core::schema::{OrbitalSchema, SExpression, TraitDefinition};
+use orbital_core_base::runs_on::{http_auth, sexpr_runs_server_effect, HttpAuth, Residence};
+use orbital_core_base::dispatch_mode::DispatchMode;
+use orbital_core_base::schema::{OrbitalSchema, SExpression, TraitDefinition};
 
 fn keyed_http_calls<'a>(expr: &'a SExpression, out: &mut Vec<&'a [SExpression]>) {
     match expr {

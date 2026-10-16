@@ -7,7 +7,7 @@ use super::{
     is_std_trait, render_ui::is_render_ui_effect, trait_path, ErrorCode, ValidationContext,
     ValidationError, ValidationResult, VALID_TRAIT_CATEGORIES,
 };
-use orbital_core::schema::{
+use orbital_core_base::schema::{
     EntityDefinition, Orbital, OrbitalSchema, Persistence, SExpression, StateMachine,
     StringOrArray, TraitCategory, TraitDefinition, TraitReference, TransitionDefinition,
 };
@@ -450,8 +450,8 @@ pub fn validate_trait_definition(
             match default {
                 SExpression::Null => {}
                 SExpression::Object(_)
-                    if orbital_core::schema::behavior_value::is_trait_value(
-                        &orbital_core::evaluator::Value::from(default.clone()),
+                    if orbital_core_base::schema::behavior_value::is_trait_value(
+                        &orbital_core_base::value::Value::from(default.clone()),
                     ) => {}
                 SExpression::String(s) => {
                     if !is_trait_ref_string(s) {
@@ -525,7 +525,7 @@ fn validate_unbound_trait_knob_embeds(trait_def: &TraitDefinition, path: &str) -
 /// `(if @entity.<field> …)`.
 pub(crate) fn validate_unbound_trait_field_embeds(
     trait_def: &TraitDefinition,
-    entity: &orbital_core::schema::EntityDefinition,
+    entity: &orbital_core_base::schema::EntityDefinition,
     path: &str,
 ) -> ValidationResult {
     let trait_fields: HashSet<&str> = entity
@@ -534,7 +534,7 @@ pub(crate) fn validate_unbound_trait_field_embeds(
         .filter(|f| {
             matches!(
                 f.field_type,
-                orbital_core::schema::FieldType::Trait | orbital_core::schema::FieldType::Behavior
+                orbital_core_base::schema::FieldType::Trait | orbital_core_base::schema::FieldType::Behavior
             )
         })
         .filter_map(|f| f.name.as_deref())
@@ -548,14 +548,14 @@ pub(crate) fn validate_unbound_trait_field_embeds(
 /// embed legal.
 pub(crate) fn validate_orbital_field_embeds(
     trait_def: &TraitDefinition,
-    entity: &orbital_core::schema::EntityDefinition,
+    entity: &orbital_core_base::schema::EntityDefinition,
     path: &str,
 ) -> ValidationResult {
     let mut result = ValidationResult::new();
     let orbital_fields: HashSet<&str> = entity
         .fields
         .iter()
-        .filter(|f| f.field_type == orbital_core::schema::FieldType::Orbital)
+        .filter(|f| f.field_type == orbital_core_base::schema::FieldType::Orbital)
         .filter_map(|f| f.name.as_deref())
         .collect();
     if orbital_fields.is_empty() {
@@ -1492,7 +1492,7 @@ mod empty_event_name_tests {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use orbital_core::schema::{
+    use orbital_core_base::schema::{
         EntityFieldContract, EventDefinition, FieldDefinition, FieldType, SourceBehaviorMetadata,
         StateDefinition,
     };
@@ -1551,14 +1551,14 @@ mod tests {
                     to: "idle".to_string(),
                     event: "INIT".to_string(),
                     guard: None,
-                    effects: Some(vec![orbital_core::schema::SExpression::Array(vec![
-                        orbital_core::schema::SExpression::String("render-ui".to_string()),
-                        orbital_core::schema::SExpression::String("main".to_string()),
-                        orbital_core::schema::SExpression::Object({
-                            let mut m = orbital_core::schema::SObject::new();
+                    effects: Some(vec![orbital_core_base::schema::SExpression::Array(vec![
+                        orbital_core_base::schema::SExpression::String("render-ui".to_string()),
+                        orbital_core_base::schema::SExpression::String("main".to_string()),
+                        orbital_core_base::schema::SExpression::Object({
+                            let mut m = orbital_core_base::schema::SObject::new();
                             m.insert(
                                 "type".to_string(),
-                                orbital_core::schema::SExpression::String("box".to_string()),
+                                orbital_core_base::schema::SExpression::String("box".to_string()),
                             );
                             m
                         }),
@@ -1622,7 +1622,7 @@ mod tests {
     // =========================================================================
     mod unbound_trait_knob {
         use super::*;
-        use orbital_core::schema::ConfigField;
+        use orbital_core_base::schema::ConfigField;
 
         fn s(v: &str) -> SExpression {
             SExpression::String(v.to_string())
@@ -2217,7 +2217,7 @@ mod tests {
             expects: None,
             theme: None,
             services: None,
-            entity: orbital_core::schema::EntityRef::Inline(make_entity("Item", &["id"])),
+            entity: orbital_core_base::schema::EntityRef::Inline(make_entity("Item", &["id"])),
             auxiliary_entities: None,
             traits: traits.into_iter().map(TraitReference::Inline).collect(),
             pages: None,
@@ -2233,7 +2233,7 @@ mod tests {
     }
 
     fn with_render(mut t: TraitDefinition, prop: &str) -> TraitDefinition {
-        let mut props = orbital_core::schema::SObject::new();
+        let mut props = orbital_core_base::schema::SObject::new();
         props.insert("type".to_string(), SExpression::String("stack".to_string()));
         props.insert(
             "children".to_string(),
@@ -2358,7 +2358,7 @@ mod tests {
 #[cfg(test)]
 mod trait_field_embed_tests {
     use super::*;
-    use orbital_core::schema::EntityDefinition;
+    use orbital_core_base::schema::EntityDefinition;
 
     fn entity() -> EntityDefinition {
         serde_json::from_value(serde_json::json!({
@@ -2467,7 +2467,7 @@ mod trait_field_embed_tests {
     #[test]
     fn a_trait_value_object_is_a_valid_trait_typed_config_default() {
         let mut t = trait_with(serde_json::json!(["log", "x"]));
-        let mut cf: orbital_core::schema::ConfigField =
+        let mut cf: orbital_core_base::schema::ConfigField =
             serde_json::from_value(serde_json::json!({ "type": "trait" })).expect("cf");
         cf.default = Some(
             serde_json::from_value(
@@ -2489,7 +2489,7 @@ mod trait_field_embed_tests {
     #[test]
     fn control_any_other_object_is_not_a_trait_typed_default() {
         let mut t = trait_with(serde_json::json!(["log", "x"]));
-        let mut cf: orbital_core::schema::ConfigField =
+        let mut cf: orbital_core_base::schema::ConfigField =
             serde_json::from_value(serde_json::json!({ "type": "trait" })).expect("cf");
         cf.default =
             Some(serde_json::from_value(serde_json::json!({ "label": "x" })).expect("default"));
@@ -2507,7 +2507,7 @@ mod behavior_field_embed_tests {
     //! A `behavior`-typed field can be `none` like a `trait` field, so its
     //! render embed (which runs the program in place) must be guarded too.
     use super::*;
-    use orbital_core::schema::EntityDefinition;
+    use orbital_core_base::schema::EntityDefinition;
 
     fn entity() -> EntityDefinition {
         serde_json::from_value(serde_json::json!({

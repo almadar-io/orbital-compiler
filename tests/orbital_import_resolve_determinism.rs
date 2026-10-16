@@ -44,7 +44,7 @@
 
 use orbital_compiler::phases::inline::{inline_schema, InlineConfig};
 use orbital_compiler::phases::parse::parse_file;
-use orbital_core::schema::{OrbitalSchema, TraitReference};
+use orbital_core_base::schema::{OrbitalSchema, TraitReference};
 
 /// One upstream orbital importable by reference — kept minimal (no roles,
 /// no policies) since this fixture exists only to exercise "≥2 orbital
@@ -277,7 +277,7 @@ fn mask_minted_ids(value: &serde_json::Value) -> serde_json::Value {
 /// object-key order (which carries no meaning in JSON); array order is
 /// preserved and compared as-is, which is what this test is actually proving
 /// deterministic.
-use orbital_core::util::canonical_json;
+use orbital_core_eval::util::canonical_json;
 
 #[test]
 fn panel_orbital_auto_pulls_all_three_siblings() {

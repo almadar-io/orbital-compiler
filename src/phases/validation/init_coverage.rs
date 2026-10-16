@@ -4,7 +4,7 @@
 
 use super::slot::{get_initial_state, reachable_states, transition_from_states};
 use super::{ErrorCode, ValidationError, ValidationResult};
-use orbital_core::schema::TraitDefinition;
+use orbital_core_base::schema::TraitDefinition;
 
 const INIT: &str = "INIT";
 

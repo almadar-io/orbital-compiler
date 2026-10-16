@@ -21,7 +21,7 @@
 
 use std::collections::HashSet;
 
-use orbital_core::schema::{ConfigField, OrbitalSchema, SExpression, TraitReference};
+use orbital_core_base::schema::{ConfigField, OrbitalSchema, SExpression, TraitReference};
 
 use super::config_type::declared_config_keys;
 use super::error::{ErrorCode, ValidationError};

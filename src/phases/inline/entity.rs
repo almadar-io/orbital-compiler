@@ -5,7 +5,7 @@ use super::InlineError;
 use crate::phases::validation::effect::{
     parse_fetch_include_literals, persist_entity_index, resolve_fetch_include_field,
 };
-use orbital_core::schema::{
+use orbital_core_base::schema::{
     EntityDefinition, EntityRef, EntityRefExtends, FieldDefinition, Orbital, SExpression,
     TraitDefinition, TraitReference,
 };
@@ -522,7 +522,7 @@ fn collect_fetch_persist_fields(
                     && matches!(arr.get(1), Some(SExpression::String(a)) if a == "batch") =>
             {
                 if let Some(ops) = arr.get(2) {
-                    for w in orbital_core::effects::persist_batch::batch_writes(ops) {
+                    for w in orbital_core_base::persist_batch::batch_writes(ops) {
                         if w.entity == entity_def.name {
                             *matched = true;
                             if let Some(SExpression::Object(data_fields)) = w.data {
@@ -654,7 +654,7 @@ pub(crate) fn inline_entity(
 #[cfg(test)]
 mod render_ui_pattern_contract_reference_tests {
     use super::*;
-    use orbital_core::schema::{
+    use orbital_core_base::schema::{
         FieldDefinition, FieldType, Persistence, StateDefinition, StateMachine, StringOrArray,
         TransitionDefinition,
     };
@@ -749,7 +749,7 @@ mod render_ui_pattern_contract_reference_tests {
     }
 
     fn calendar_grid_node() -> SExpression {
-        let mut obj = orbital_core::schema::SObject::new();
+        let mut obj = orbital_core_base::schema::SObject::new();
         obj.insert(
             "type".to_string(),
             SExpression::String("calendar-grid".to_string()),

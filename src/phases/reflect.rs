@@ -5,8 +5,8 @@
 //! answer. Runs on the program a runtime receives, after validation has seen the program as written.
 
 use super::{CompileResult, CompilerError};
-use orbital_core::schema::quote::quote_expr;
-use orbital_core::schema::{OrbitalSchema, SExpression, TraitReference};
+use orbital_core_base::schema::quote::quote_expr;
+use orbital_core_base::schema::{OrbitalSchema, SExpression, TraitReference};
 use std::path::Path;
 use std::sync::OnceLock;
 
@@ -107,7 +107,7 @@ fn answer(expr: &SExpression, from: Option<&Path>) -> CompileResult<Option<SExpr
     };
     let description: SExpression = serde_json::from_value(description)
         .map_err(|e| reflection_error(format!("the description is not program data: {e}")))?;
-    let mut payload = orbital_core::schema::SObject::new();
+    let mut payload = orbital_core_base::schema::SObject::new();
     payload.insert("result".to_string(), quote_expr(&description));
     Ok(Some(SExpression::Array(vec![
         SExpression::String("emit".into()),
@@ -172,7 +172,7 @@ fn reflection_error(message: String) -> CompilerError {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use orbital_core::schema::quote::{decode_quote_body, quote_body_of};
+    use orbital_core_base::schema::quote::{decode_quote_body, quote_body_of};
 
     static CALLS: std::sync::Mutex<Vec<String>> = std::sync::Mutex::new(Vec::new());
 

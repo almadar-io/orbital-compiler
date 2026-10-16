@@ -5,7 +5,7 @@
 
 use super::{PageInitPayload, ValidationContext, ValidationResult};
 use crate::embedded::ServiceRegistryData;
-use orbital_core::schema::{EntityDefinition, OrbitalSchema, TraitDefinition};
+use orbital_core_base::schema::{EntityDefinition, OrbitalSchema, TraitDefinition};
 use std::collections::{HashMap, HashSet};
 
 mod call_service;
@@ -257,7 +257,7 @@ pub fn validate_trait_effects(
 /// Each event gets its own scope so that `?result` resolves against the
 /// triggering event's payload, not a flat merge of all emits.
 pub(crate) fn collect_per_event_payload_field_types(
-    trait_def: &orbital_core::schema::TraitDefinition,
+    trait_def: &orbital_core_base::schema::TraitDefinition,
 ) -> HashMap<String, HashMap<String, String>> {
     let mut map: HashMap<String, HashMap<String, String>> = HashMap::new();
     if let Some(emits) = &trait_def.emits {
@@ -297,10 +297,10 @@ pub(crate) fn collect_per_event_payload_field_types(
 /// field (lists, maps, structs, named types resolved), not the bare kind string. The same precedence as
 /// [`collect_per_event_payload_field_types`]: an inbound event's declared payload wins over an emit's.
 pub(crate) fn collect_per_event_payload_shapes(
-    trait_def: &orbital_core::schema::TraitDefinition,
+    trait_def: &orbital_core_base::schema::TraitDefinition,
     schema: &OrbitalSchema,
-) -> HashMap<String, HashMap<String, orbital_core::ir::OirType>> {
-    let shapes = |fields: &[orbital_core::schema::PayloadField]| -> HashMap<String, orbital_core::ir::OirType> {
+) -> HashMap<String, HashMap<String, orbital_core_base::ir::OirType>> {
+    let shapes = |fields: &[orbital_core_base::schema::PayloadField]| -> HashMap<String, orbital_core_base::ir::OirType> {
         fields
             .iter()
             .map(|f| (f.name.clone(), crate::phases::resolve::payload_field_oir_type(f, schema)))
@@ -326,15 +326,15 @@ pub(crate) fn collect_per_event_payload_shapes(
 
 /// The full declared types of the bindings one transition (or tick) of `trait_def` reads.
 fn binding_types(
-    trait_def: &orbital_core::schema::TraitDefinition,
+    trait_def: &orbital_core_base::schema::TraitDefinition,
     schema: &OrbitalSchema,
-    payload: HashMap<String, orbital_core::ir::OirType>,
-    per_event: &HashMap<String, HashMap<String, orbital_core::ir::OirType>>,
+    payload: HashMap<String, orbital_core_base::ir::OirType>,
+    per_event: &HashMap<String, HashMap<String, orbital_core_base::ir::OirType>>,
 ) -> set::BindingTypes {
     // The events the trait receives: an earlier delivery in the dispatch is one of them, so its payload is the record
     // carrying every field any of them declares, a field optional when not all declare it. A field the events
     // declare with different types has no one type and is left out.
-    let mut merged: HashMap<String, (orbital_core::ir::OirType, usize)> = HashMap::new();
+    let mut merged: HashMap<String, (orbital_core_base::ir::OirType, usize)> = HashMap::new();
     let mut conflicting: HashSet<String> = HashSet::new();
     let mut deliveries = 0usize;
     let received: std::collections::BTreeSet<&str> = trait_def
@@ -366,7 +366,7 @@ fn binding_types(
                 .into_iter()
                 .filter(|(name, _)| !conflicting.contains(name))
                 .map(|(name, (ty, seen))| {
-                    (name, if seen == deliveries { ty } else { orbital_core::ir::OirType::optional(ty) })
+                    (name, if seen == deliveries { ty } else { orbital_core_base::ir::OirType::optional(ty) })
                 })
                 .collect(),
         )
@@ -389,10 +389,10 @@ fn binding_types(
 /// require. The same precedence as [`collect_per_event_payload_shapes`]: an inbound event's declared payload
 /// wins over an emit's.
 fn optional_payload_fields(
-    trait_def: &orbital_core::schema::TraitDefinition,
+    trait_def: &orbital_core_base::schema::TraitDefinition,
     event: Option<&str>,
 ) -> HashSet<String> {
-    let optional_of = |fields: &[orbital_core::schema::PayloadField]| -> HashSet<String> {
+    let optional_of = |fields: &[orbital_core_base::schema::PayloadField]| -> HashSet<String> {
         fields
             .iter()
             .filter(|f| f.required != Some(true))
@@ -428,9 +428,9 @@ fn optional_payload_fields(
 
 /// The payload shapes of a trait with no triggering event (ticks): the first declared emit's type of each field.
 pub(crate) fn collect_payload_shapes(
-    trait_def: &orbital_core::schema::TraitDefinition,
+    trait_def: &orbital_core_base::schema::TraitDefinition,
     schema: &OrbitalSchema,
-) -> HashMap<String, orbital_core::ir::OirType> {
+) -> HashMap<String, orbital_core_base::ir::OirType> {
     let mut map = HashMap::new();
     if let Some(emits) = &trait_def.emits {
         for emit in emits {
@@ -447,7 +447,7 @@ pub(crate) fn collect_payload_shapes(
 /// lack a triggering event. On duplicate field names across multiple
 /// emits, the first declared type wins.
 pub(crate) fn collect_payload_field_types(
-    trait_def: &orbital_core::schema::TraitDefinition,
+    trait_def: &orbital_core_base::schema::TraitDefinition,
 ) -> HashMap<String, String> {
     let mut map: HashMap<String, String> = HashMap::new();
     if let Some(emits) = &trait_def.emits {
@@ -477,7 +477,7 @@ pub(crate) struct DeclaredEmit {
 mod per_event_payload_tests {
     use super::*;
 
-    fn listening_trait() -> orbital_core::schema::TraitDefinition {
+    fn listening_trait() -> orbital_core_base::schema::TraitDefinition {
         serde_json::from_value(serde_json::json!({
             "name": "Listener",
             "stateMachine": {
@@ -499,7 +499,7 @@ mod per_event_payload_tests {
 
     #[test]
     fn an_earlier_delivery_is_the_merge_of_the_listened_payloads() {
-        use orbital_core::ir::OirType;
+        use orbital_core_base::ir::OirType;
         let schema: OrbitalSchema = serde_json::from_value(serde_json::json!({ "name": "App", "orbitals": [] })).unwrap();
         let trait_def = listening_trait();
         let per_event = collect_per_event_payload_shapes(&trait_def, &schema);
@@ -522,7 +522,7 @@ mod per_event_payload_tests {
     /// a false ORB_X_SET_VALUE_TYPE_MISMATCH on every writeback in the trait.
     #[test]
     fn inbound_event_payload_wins_over_same_named_emit_field() {
-        let trait_def: orbital_core::schema::TraitDefinition = serde_json::from_value(
+        let trait_def: orbital_core_base::schema::TraitDefinition = serde_json::from_value(
             serde_json::json!({
                 "name": "SvcTrait",
                 "stateMachine": {

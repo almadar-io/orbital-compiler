@@ -1,7 +1,7 @@
 //! Reference parsing and the inline alias context.
 
 use super::InlineError;
-use orbital_core::schema::{
+use orbital_core_base::schema::{
     ConfigField, EntityDefinition, EntityRef, ExpectDeclaration, Orbital, PageRef, PayloadField,
     ServiceRef, ThemeRef, TraitReference,
 };

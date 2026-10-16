@@ -8,7 +8,7 @@
 use orbital_compiler::phases::validation::{
     validate_comprehensive_full, ErrorCode, SchemaLanguage,
 };
-use orbital_core::schema::{
+use orbital_core_base::schema::{
     EmitDefinition, EntityDefinition, EntityRef, EventScope, FieldDefinition, FieldType,
     ListenDefinition, ListenSource, Orbital, OrbitalSchema, PayloadField, SExpression,
     StateDefinition, StateMachine, StringOrArray, TraitDefinition, TraitReference,
@@ -110,7 +110,7 @@ fn run(schema: &OrbitalSchema) -> orbital_compiler::phases::validation::Validati
 fn schema_for_f1(strict_target_event: &str) -> OrbitalSchema {
     // Trait declares EVT with a required field, but a transition emits EVT
     // without the field.
-    let mut payload_obj = orbital_core::schema::SObject::new();
+    let mut payload_obj = orbital_core_base::schema::SObject::new();
     payload_obj.insert("name".to_string(), s("Ada"));
     let emit = SExpression::Array(vec![
         s("emit"),
@@ -523,10 +523,10 @@ fn f2_wildcard_listener_still_reachable_across_orbitals() {
 /// `emits { @config.action -> external {} }` pairs with `actionPayload :
 /// @payload @config.action`, registry `payloadFor: "action"`).
 fn button_action_payload_effect(event: &str, payload_key: &str, entity_field: &str) -> SExpression {
-    let mut node = orbital_core::schema::SObject::new();
+    let mut node = orbital_core_base::schema::SObject::new();
     node.insert("type".to_string(), s("button"));
     node.insert("action".to_string(), s(event));
-    let mut payload = orbital_core::schema::SObject::new();
+    let mut payload = orbital_core_base::schema::SObject::new();
     payload.insert(
         payload_key.to_string(),
         s(&format!("@entity.{}", entity_field)),

@@ -12,11 +12,11 @@ use crate::phases::validation::render_ui_binding::{
     resolve_array_element_type, resolve_binding_type, BindingContext, BindingType,
 };
 use crate::phases::validation::trait_path;
-use orbital_core::schema::{
+use orbital_core_base::schema::{
     resolve_payload_type_when, OrbitalSchema, PayloadField, SExpression, TraitDefinition,
     TraitReference,
 };
-use orbital_core::type_compat::{
+use orbital_core_base::type_compat::{
     bound_shape_of_payload_field, record_prop_binding_mismatch, BoundShape, RecordBindingMismatch,
 };
 use std::collections::HashMap;
@@ -502,7 +502,7 @@ fn check_event_binding_payload(
     // first (the canonical declaration site for produced events); the
     // event must be declared somewhere on the trait or its parent for
     // the comparison to make sense.
-    let declared_payload: Option<Vec<orbital_core::schema::PayloadField>> = bctx
+    let declared_payload: Option<Vec<orbital_core_base::schema::PayloadField>> = bctx
         .trait_def
         .emits
         .as_deref()
@@ -869,8 +869,8 @@ fn recurse_into_value(
 /// recognizes it while leaving a shapeless `object` (no `items`) and a struct
 /// (`properties`, no `items`) correctly outside — those stay the loophole this
 /// gate exists to close.
-fn is_node_field(field: &orbital_core::schema::FieldDefinition) -> bool {
-    use orbital_core::schema::FieldType;
+fn is_node_field(field: &orbital_core_base::schema::FieldDefinition) -> bool {
+    use orbital_core_base::schema::FieldType;
     match field.field_type {
         FieldType::Node => true,
         FieldType::Array | FieldType::Object => field.items.as_deref().is_some_and(is_node_field),
@@ -887,10 +887,10 @@ fn is_node_field(field: &orbital_core::schema::FieldDefinition) -> bool {
 /// two disagree exactly where it matters: a map's key object and a pattern
 /// object are both `SExpression::Object`, and guessing picks the wrong one.
 fn node_leaf_values<'a>(
-    field: &orbital_core::schema::FieldDefinition,
+    field: &orbital_core_base::schema::FieldDefinition,
     value: &'a SExpression,
 ) -> Vec<&'a SExpression> {
-    use orbital_core::schema::FieldType;
+    use orbital_core_base::schema::FieldType;
     let Some(item) = field.items.as_deref() else {
         return vec![value];
     };
@@ -918,7 +918,7 @@ fn node_leaf_values<'a>(
 /// that pattern's prop. The second condition disambiguates canvas-shape data
 /// (`{type: "grid", xStep: …}`) from real UI literals (`{type: "grid",
 /// columns: …}`) on the one name the two vocabularies share.
-fn is_pattern_literal_object(obj: &orbital_core::schema::SObject) -> bool {
+fn is_pattern_literal_object(obj: &orbital_core_base::schema::SObject) -> bool {
     let Some(SExpression::String(t)) = obj.get("type") else {
         return false;
     };
@@ -1257,7 +1257,7 @@ mod array_into_record_tests {
     //! validated 0/0 and failed at runtime with "expected object, got array"
     //! (2026-09-30: ui-form-section / ui-form / ui-detail-panel).
     use super::*;
-    use orbital_core::schema::{EntityDefinition, PayloadField, TraitDefinition};
+    use orbital_core_base::schema::{EntityDefinition, PayloadField, TraitDefinition};
 
     fn bare_trait() -> TraitDefinition {
         serde_json::from_value(serde_json::json!({
@@ -1469,7 +1469,7 @@ mod array_element_kind_tests {
     //! A `[FieldSpec]` config knob bound into `timeline.fields` (`string[]`)
     //! validated 0/0 and rendered object cells (G-ORB-029).
     use super::*;
-    use orbital_core::schema::{EntityDefinition, TraitDefinition};
+    use orbital_core_base::schema::{EntityDefinition, TraitDefinition};
 
     fn trait_with_config(config: serde_json::Value) -> TraitDefinition {
         serde_json::from_value(serde_json::json!({

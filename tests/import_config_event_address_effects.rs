@@ -7,7 +7,7 @@
 
 use orbital_compiler::phases::inline::{inline_schema, InlineConfig};
 use orbital_compiler::phases::parse::parse_file;
-use orbital_core::schema::{OrbitalSchema, SExpression, TraitReference};
+use orbital_core_base::schema::{OrbitalSchema, SExpression, TraitReference};
 
 const THINGS: &str = r#"{
   "name": "things",
@@ -119,7 +119,7 @@ fn inline(tool: &str) -> OrbitalSchema {
     schema
 }
 
-fn assistant_loop(schema: &OrbitalSchema) -> &orbital_core::schema::TraitDefinition {
+fn assistant_loop(schema: &OrbitalSchema) -> &orbital_core_base::schema::TraitDefinition {
     schema
         .orbitals
         .iter()

@@ -3,7 +3,7 @@
 
 use super::error::{ErrorCode, ValidationError, ValidationResult};
 use super::ValidationContext;
-use orbital_core::schema::{OrbitalSchema, TraitReference};
+use orbital_core_base::schema::{OrbitalSchema, TraitReference};
 use std::collections::BTreeMap;
 
 pub fn validate_unique_trait_ids(schema: &OrbitalSchema, ctx: &mut ValidationContext) {
@@ -42,7 +42,7 @@ fn check(schema: &OrbitalSchema) -> ValidationResult {
 mod tests {
     use super::check;
     use crate::phases::validation::error::ErrorCode;
-    use orbital_core::schema::OrbitalSchema;
+    use orbital_core_base::schema::OrbitalSchema;
 
     fn program(ids: [Option<&str>; 2]) -> OrbitalSchema {
         let trait_json = |name: &str, id: Option<&str>| {

@@ -4,7 +4,7 @@ use crate::embedded::get_pattern;
 use crate::phases::validation::sync::patterns::{PATTERN_EVENT_LIST_PROPS, PATTERN_EVENT_PROPS};
 use crate::phases::validation::user_identity::{user_field_of, EQUALITY_OPS};
 use crate::phases::validation::value_walk::all_sources;
-use orbital_core::schema::{
+use orbital_core_base::schema::{
     ConfigField, ConfigProvenanceRecord, EntityDefinition, EntityRef, FieldDefinition, FieldType,
     ListenSource, Orbital, PayloadField, SExpression, TraitDefinition, TraitReference,
 };
@@ -28,7 +28,7 @@ use std::collections::{BTreeMap, HashMap, HashSet};
 /// event-typed member is.
 pub(crate) fn fold_event_typed_members(
     value: &mut SExpression,
-    items: Option<&orbital_core::schema::FieldDefinition>,
+    items: Option<&orbital_core_base::schema::FieldDefinition>,
     event_subs: &HashMap<String, String>,
 ) -> bool {
     map_event_typed_members(value, items, None, &mut |current| {
@@ -41,7 +41,7 @@ pub(crate) fn fold_event_typed_members(
 /// resolve elsewhere and `""` is the default-off outlet, so neither reaches `f`.
 pub(crate) fn map_event_typed_members(
     value: &mut SExpression,
-    items: Option<&orbital_core::schema::FieldDefinition>,
+    items: Option<&orbital_core_base::schema::FieldDefinition>,
     properties: Option<&HashMap<String, FieldDefinition>>,
     f: &mut dyn FnMut(&str) -> Option<String>,
 ) -> bool {
@@ -63,7 +63,7 @@ pub(crate) fn map_event_typed_members(
             // A union's `properties` are its VARIANTS; each element carries one
             // variant's members, so walk every variant's members, each key once.
             if items
-                .is_some_and(|schema| schema.field_type == orbital_core::schema::FieldType::Union)
+                .is_some_and(|schema| schema.field_type == orbital_core_base::schema::FieldType::Union)
             {
                 let mut seen: std::collections::HashSet<String> = std::collections::HashSet::new();
                 let mut touched = false;
@@ -118,10 +118,10 @@ pub(crate) fn map_event_typed_members(
     }
 }
 
-fn is_event_typed(ft: &orbital_core::schema::FieldType) -> bool {
+fn is_event_typed(ft: &orbital_core_base::schema::FieldType) -> bool {
     matches!(
         ft,
-        orbital_core::schema::FieldType::Event | orbital_core::schema::FieldType::EventAddress
+        orbital_core_base::schema::FieldType::Event | orbital_core_base::schema::FieldType::EventAddress
     )
 }
 
@@ -134,7 +134,7 @@ pub(crate) type AddressMap<'a> =
 /// `event`-typed struct members alike. `f` gets the split address and returns
 /// the replacement source and event, or `None` to keep it.
 pub(crate) fn map_config_event_addresses(td: &mut TraitDefinition, f: &mut AddressMap<'_>) {
-    use orbital_core::schema::{join_event_address, split_event_address};
+    use orbital_core_base::schema::{join_event_address, split_event_address};
     let mut on_value = |current: &str| -> Option<String> {
         let (event, Some(source)) = split_event_address(current) else {
             return None;
@@ -154,10 +154,10 @@ pub(crate) fn map_config_event_addresses(td: &mut TraitDefinition, f: &mut Addre
 /// [`map_config_event_addresses`] over a bare knob map: an import's folded
 /// orbital-level config, before its values are substituted into effects.
 pub(crate) fn map_config_fields_event_addresses(
-    cfg: &mut HashMap<String, orbital_core::schema::ConfigField>,
+    cfg: &mut HashMap<String, orbital_core_base::schema::ConfigField>,
     f: &mut AddressMap<'_>,
 ) {
-    use orbital_core::schema::{join_event_address, split_event_address};
+    use orbital_core_base::schema::{join_event_address, split_event_address};
     let mut on_value = |current: &str| -> Option<String> {
         let (event, Some(source)) = split_event_address(current) else {
             return None;
@@ -172,7 +172,7 @@ pub(crate) fn map_config_fields_event_addresses(
 }
 
 pub(crate) fn map_fields_event_values(
-    cfg: &mut HashMap<String, orbital_core::schema::ConfigField>,
+    cfg: &mut HashMap<String, orbital_core_base::schema::ConfigField>,
     on_value: &mut dyn FnMut(&str) -> Option<String>,
 ) {
     for field in cfg.values_mut() {
@@ -322,7 +322,7 @@ pub(crate) fn visit_entity_slots(expr: &mut SExpression, f: &mut dyn FnMut(&mut 
 
 /// Apply `f` to the entity name of every op tuple a batch's `<ops>` writes out.
 fn visit_batch_op_entities(ops: &mut SExpression, f: &mut dyn FnMut(&mut String)) {
-    use orbital_core::effects::persist_batch::is_op_tuple;
+    use orbital_core_base::persist_batch::is_op_tuple;
     fn tuple(t: &mut SExpression, f: &mut dyn FnMut(&mut String)) {
         if !is_op_tuple(t) {
             return;
@@ -1502,7 +1502,7 @@ fn mark_field_literal_lists(value: &mut SExpression, shape: &FieldDefinition) {
 }
 
 fn mark_object_members(
-    map: &mut orbital_core::schema::SObject,
+    map: &mut orbital_core_base::schema::SObject,
     props: &HashMap<String, FieldDefinition>,
 ) {
     for (key, member) in map.iter_mut() {
@@ -1523,7 +1523,7 @@ fn literal_list_elements_mut(elems: &mut [SExpression]) -> &mut [SExpression] {
 /// validation + OIR resolution) must accept the `["list", …]` constructor the
 /// wrap produces. The evaluators strip the head at eval time (ListOp); readers
 /// that treat the array as inert data strip it here instead.
-pub(crate) use orbital_core::lower::strip_literal_list_marker;
+pub(crate) use orbital_core_eval::lower::strip_literal_list_marker;
 
 /// Deep check: does any leaf in the tree resolve as a binding (`@…`)? A
 /// binding makes the value a live expression the evaluator must resolve, not
@@ -1549,7 +1549,7 @@ pub(crate) fn apply_inline_config_defaults(
     let Some(declared) = trait_def.config.as_ref() else {
         return;
     };
-    let mut effective_config: orbital_core::schema::SObject = orbital_core::schema::SObject::new();
+    let mut effective_config: orbital_core_base::schema::SObject = orbital_core_base::schema::SObject::new();
     let mut trait_knobs: HashSet<String> = HashSet::new();
     for (k, field) in declared.iter() {
         if field.field_type == "trait" {
@@ -1624,7 +1624,7 @@ pub(crate) fn apply_inline_config_defaults(
 pub(crate) fn coerce_trait_knob_conditions(
     trait_def: &mut TraitDefinition,
     trait_knobs: &HashSet<String>,
-    effective_config: &orbital_core::schema::SObject,
+    effective_config: &orbital_core_base::schema::SObject,
 ) {
     if trait_knobs.is_empty() {
         return;
@@ -1635,7 +1635,7 @@ pub(crate) fn coerce_trait_knob_conditions(
     fn walk(
         expr: &mut SExpression,
         trait_knobs: &HashSet<String>,
-        effective_config: &orbital_core::schema::SObject,
+        effective_config: &orbital_core_base::schema::SObject,
     ) {
         let SExpression::Array(arr) = expr else {
             return;
@@ -1686,7 +1686,7 @@ pub(crate) fn coerce_trait_knob_conditions(
 /// rewritten in one walk.
 pub(crate) fn rewrite_config_bindings(
     expr: &mut SExpression,
-    config_subs: &orbital_core::schema::SObject,
+    config_subs: &orbital_core_base::schema::SObject,
 ) {
     if config_subs.is_empty() {
         return;
@@ -1786,7 +1786,7 @@ pub(crate) fn rewrite_config_bindings(
 }
 
 /// Whether `expr` is a bare `@config.<knob>` whose value is the empty list.
-fn is_empty_list_knob(expr: &SExpression, config_subs: &orbital_core::schema::SObject) -> bool {
+fn is_empty_list_knob(expr: &SExpression, config_subs: &orbital_core_base::schema::SObject) -> bool {
     let SExpression::String(s) = expr else {
         return false;
     };
@@ -1809,7 +1809,7 @@ fn is_empty_list_knob(expr: &SExpression, config_subs: &orbital_core::schema::SO
 /// effects, for knobs present in `cfg` (those about to be substituted).
 pub(crate) fn record_config_provenance(
     trait_def: &TraitDefinition,
-    cfg: &orbital_core::schema::SObject,
+    cfg: &orbital_core_base::schema::SObject,
     recorder: &mut Vec<ConfigProvenanceRecord>,
 ) {
     let trait_name = trait_def.name.as_str();
@@ -1832,7 +1832,7 @@ pub(crate) fn record_config_provenance(
 /// Detect a `["render-ui", slot, {pattern}]` effect and walk its pattern tree.
 fn record_render_ui_effect(
     effect: &SExpression,
-    cfg: &orbital_core::schema::SObject,
+    cfg: &orbital_core_base::schema::SObject,
     trait_name: &str,
     recorder: &mut Vec<ConfigProvenanceRecord>,
 ) {
@@ -1854,8 +1854,8 @@ fn record_render_ui_effect(
 /// every other prop is scanned for `@config.X` bindings attributed to this
 /// node + prop key.
 fn record_pattern_node(
-    pattern: &orbital_core::schema::SObject,
-    cfg: &orbital_core::schema::SObject,
+    pattern: &orbital_core_base::schema::SObject,
+    cfg: &orbital_core_base::schema::SObject,
     trait_name: &str,
     path: &str,
     recorder: &mut Vec<ConfigProvenanceRecord>,
@@ -1882,7 +1882,7 @@ fn record_pattern_node(
 /// walked separately by `record_pattern_node`).
 fn scan_config_in_value(
     value: &SExpression,
-    cfg: &orbital_core::schema::SObject,
+    cfg: &orbital_core_base::schema::SObject,
     trait_name: &str,
     path: &str,
     prop_key: &str,
@@ -2203,7 +2203,7 @@ pub(crate) fn resolve_type_param_sentinels(
     types_by_name: &BTreeMap<String, Vec<PayloadField>>,
 ) -> bool {
     let type_args = trait_def.type_args.take();
-    let declared: Vec<orbital_core::schema::TraitTypeParamDef> =
+    let declared: Vec<orbital_core_base::schema::TraitTypeParamDef> =
         trait_def.type_params.clone().unwrap_or_default();
     let mut subs: HashMap<String, ParamSub> = HashMap::new();
     let mut declared_names: HashSet<String> = HashSet::new();
@@ -2900,7 +2900,7 @@ mod literal_list_tests {
         // A reactive drawables S-expr composed into a `[json]` slot: the head
         // is string-headed but the tree carries `@entity` bindings — it must
         // reach the runtime as a call, not as inert data.
-        let mut food = orbital_core::schema::SObject::new();
+        let mut food = orbital_core_base::schema::SObject::new();
         food.insert(
             "x".to_string(),
             arr(vec![
@@ -2909,7 +2909,7 @@ mod literal_list_tests {
                 SExpression::String("x".to_string()),
             ]),
         );
-        let mut cell = orbital_core::schema::SObject::new();
+        let mut cell = orbital_core_base::schema::SObject::new();
         cell.insert(
             "type".to_string(),
             SExpression::String("draw-shape".to_string()),
@@ -2934,7 +2934,7 @@ mod literal_list_tests {
         let mut scalar = arr(vec![SExpression::String("path".to_string())]);
         mark_literal_list_in_place(&mut scalar, "string");
         assert_eq!(scalar, arr(vec![SExpression::String("path".to_string())]));
-        let mut object_headed = arr(vec![SExpression::Object(orbital_core::schema::SObject::new())]);
+        let mut object_headed = arr(vec![SExpression::Object(orbital_core_base::schema::SObject::new())]);
         mark_literal_list_in_place(&mut object_headed, "[json]");
         match &object_headed {
             SExpression::Array(items) => assert_eq!(items.len(), 1),
@@ -2948,14 +2948,14 @@ mod conditional_event_list_tests {
     use super::*;
 
     fn descriptor(event: &str) -> SExpression {
-        let mut dm = orbital_core::schema::SObject::new();
+        let mut dm = orbital_core_base::schema::SObject::new();
         dm.insert("name".to_string(), SExpression::String("Edit".to_string()));
         dm.insert("event".to_string(), SExpression::String(event.to_string()));
         SExpression::Object(dm)
     }
 
     fn data_list_with_item_actions(item_actions: SExpression) -> SExpression {
-        let mut node = orbital_core::schema::SObject::new();
+        let mut node = orbital_core_base::schema::SObject::new();
         node.insert(
             "type".to_string(),
             SExpression::String("data-list".to_string()),
@@ -3794,7 +3794,7 @@ mod payload_entity_marker_tests {
         );
     }
 
-    fn entity_fixture(name: &str) -> orbital_core::schema::EntityDefinition {
+    fn entity_fixture(name: &str) -> orbital_core_base::schema::EntityDefinition {
         serde_json::from_value(json!({
             "name": name,
             "persistence": "persistent",
@@ -3914,7 +3914,7 @@ mod payload_entity_marker_tests {
     fn entity_with_fields(
         name: &str,
         fields: &[(&str, &str)],
-    ) -> orbital_core::schema::EntityDefinition {
+    ) -> orbital_core_base::schema::EntityDefinition {
         serde_json::from_value(json!({
             "name": name,
             "persistence": "persistent",
@@ -3945,7 +3945,7 @@ mod payload_entity_marker_tests {
                 { "name": "content", "type": "string", "required": true }
             ]),
         );
-        let message: orbital_core::schema::EntityDefinition = serde_json::from_value(json!({
+        let message: orbital_core_base::schema::EntityDefinition = serde_json::from_value(json!({
             "name": "Message",
             "persistence": "persistent",
             "fields": [
@@ -4105,11 +4105,11 @@ mod cancelled_event_rename_tests {
 mod event_typed_union_fold_tests {
     use super::*;
 
-    fn def(json: serde_json::Value) -> orbital_core::schema::FieldDefinition {
+    fn def(json: serde_json::Value) -> orbital_core_base::schema::FieldDefinition {
         serde_json::from_value(json).expect("field definition")
     }
 
-    fn agent_tool_items() -> orbital_core::schema::FieldDefinition {
+    fn agent_tool_items() -> orbital_core_base::schema::FieldDefinition {
         def(
             serde_json::json!({ "type": "union", "values": ["Scope", "Input", "Read"], "properties": {
             "Scope": { "name": "Scope", "type": "object", "properties": {
@@ -4123,7 +4123,7 @@ mod event_typed_union_fold_tests {
     }
 
     fn entry(k: &str, v: &str) -> SExpression {
-        let mut m = orbital_core::schema::SObject::new();
+        let mut m = orbital_core_base::schema::SObject::new();
         m.insert(k.to_string(), SExpression::String(v.to_string()));
         SExpression::Object(m)
     }

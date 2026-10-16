@@ -32,7 +32,7 @@
 //!   to have already substituted `uses` imports before validate runs.
 
 use super::canonical_operators::get_canonical_operator;
-use orbital_core::schema::{
+use orbital_core_base::schema::{
     ConfigField, EntityDefinition, FieldDefinition, FieldType, PayloadField, SExpression,
     TraitDefinition,
 };
@@ -576,18 +576,18 @@ fn resolve_array_value(arr: &[SExpression], ctx: &BindingContext) -> BindingType
 /// itself, a list/record result is `Array`/`Object`, and a result that is a type variable is the type its
 /// arguments of that variable share (`(or @payload.n 10)` is a `Number`), else `Unknown`.
 fn declared_return_to_binding(
-    meta: &orbital_core::language::canonical_operators::OperatorMeta,
+    meta: &orbital_core_base::language::canonical_operators::OperatorMeta,
     arr: &[SExpression],
     ctx: &BindingContext,
 ) -> BindingType {
-    use orbital_core::language::registry::{get_operator, OperatorTypeRef, OperatorTypeRefKind};
+    use orbital_core_base::language::registry::{get_operator, OperatorTypeRef, OperatorTypeRefKind};
     match meta.returns {
         OperatorTypeRef::Primitive(name) => static_return_to_binding(name),
         OperatorTypeRef::Tagged(OperatorTypeRefKind::Var { name, .. }) => {
             let Some(op) = get_operator(meta.name) else {
                 return BindingType::Unknown;
             };
-            let signature = orbital_core::signature::Signature::of(op);
+            let signature = orbital_core_base::signature::Signature::of(op);
             let mut shared: Option<BindingType> = None;
             for (index, arg) in arr.iter().skip(1).enumerate() {
                 let bare = matches!(
@@ -628,7 +628,7 @@ fn static_return_to_binding(s: &str) -> BindingType {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use orbital_core::schema::{StateMachine, StringOrArray, TransitionDefinition};
+    use orbital_core_base::schema::{StateMachine, StringOrArray, TransitionDefinition};
 
     fn empty_trait(name: &str, linked: Option<&str>) -> TraitDefinition {
         TraitDefinition {
@@ -875,7 +875,7 @@ mod tests {
         // resolver must skip rather than type-check against the consumer's
         // identity shape, even though `name` exists on the default shape.
         let mut t = empty_trait("T", None);
-        t.source_behavior = Some(orbital_core::schema::SourceBehaviorMetadata {
+        t.source_behavior = Some(orbital_core_base::schema::SourceBehaviorMetadata {
             behavior: "std-browse".to_string(),
             alias: "Browse".to_string(),
             original_name: "BrowseList".to_string(),

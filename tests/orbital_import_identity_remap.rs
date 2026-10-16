@@ -9,7 +9,7 @@ use orbital_compiler::phases::inline::{inline_schema_with_orbital_diagnostics, I
 use orbital_compiler::phases::parse::parse_file;
 use orbital_compiler::phases::validation::orbital_ref_config::validate_orbital_ref_diagnostics;
 use orbital_compiler::phases::validation::{entity_access, ValidationContext};
-use orbital_core::schema::{EntityRef, ExpectDeclaration, OrbitalSchema};
+use orbital_core_base::schema::{EntityRef, ExpectDeclaration, OrbitalSchema};
 
 const OWNER_POLICY: &str = r#"["=", ["object/get", "@entity", "ownerId"], "@user.id"]"#;
 

@@ -7,7 +7,7 @@
 
 use orbital_compiler::phases::inline::{inline_schema_with_orbital_diagnostics, InlineConfig};
 use orbital_compiler::phases::parse::parse_file;
-use orbital_core::schema::{OrbitalSchema, TraitReference};
+use orbital_core_base::schema::{OrbitalSchema, TraitReference};
 
 /// The atom: its user orbital fetches `Rec`, which a sibling orbital owns.
 const ATOM: &str = r#"{

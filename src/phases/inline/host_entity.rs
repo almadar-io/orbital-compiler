@@ -2,7 +2,7 @@
 //! its end-to-end tests through `inline_schema` (`tools/parity-cascade` fixture
 //! `dispatch-mode`).
 
-use orbital_core::schema::OrbitalSchema;
+use orbital_core_base::schema::OrbitalSchema;
 
 pub(super) fn bind_unlinked_traits_to_host_entity(schema: &mut OrbitalSchema) {
     schema.bind_unlinked_traits_to_host_entity();
@@ -11,8 +11,8 @@ pub(super) fn bind_unlinked_traits_to_host_entity(schema: &mut OrbitalSchema) {
 #[cfg(test)]
 mod tests {
     use super::super::{inline_schema, InlineConfig};
-    use orbital_core::runtime::DispatchMode;
-    use orbital_core::schema::{EntityRef, OrbitalSchema, TraitDefinition, TraitReference};
+    use orbital_core_base::dispatch_mode::DispatchMode;
+    use orbital_core_base::schema::{EntityRef, OrbitalSchema, TraitDefinition, TraitReference};
 
     fn inlined(traits: serde_json::Value) -> OrbitalSchema {
         let mut schema: OrbitalSchema = serde_json::from_value(serde_json::json!({
@@ -102,7 +102,7 @@ mod tests {
                     .as_deref()
                     .filter(|e| *e == frame.name)
                     .map(|_| frame),
-                &orbital_core::effects::Residence::of_entities([frame]),
+                &orbital_core_base::runs_on::Residence::of_entities([frame]),
             )
         };
         assert_eq!(mode("Pure"), DispatchMode::HybridClientOnly);

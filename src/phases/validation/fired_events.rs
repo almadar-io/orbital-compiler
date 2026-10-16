@@ -26,8 +26,8 @@
 //! pattern-sync because a component author typed the prop that way. No name
 //! heuristics.
 
-use orbital_core::events::is_bus_excluded_event;
-use orbital_core::schema::{OrbitalSchema, SExpression, TraitDefinition, TraitReference};
+use orbital_core_base::events::is_bus_excluded_event;
+use orbital_core_base::schema::{OrbitalSchema, SExpression, TraitDefinition, TraitReference};
 
 use crate::embedded::patterns;
 use crate::phases::validation::value_walk::live_sources;
@@ -135,7 +135,7 @@ pub(crate) fn collect_schema_fired_events(schema: &OrbitalSchema) -> FiredEvents
 /// folded into `default` by the inline phase): what a `(if @config.<knob> …)` condition reads.
 pub(crate) fn literal_knobs(
     td: &TraitDefinition,
-) -> orbital_core::schema::SObject {
+) -> orbital_core_base::schema::SObject {
     td.config
         .iter()
         .flat_map(|c| c.iter())
@@ -155,7 +155,7 @@ pub(crate) fn literal_knobs(
 /// literal, so a branch the composition's config switched off folds to statically false.
 pub(crate) fn fold_knobs(
     condition: &SExpression,
-    knobs: &orbital_core::schema::SObject,
+    knobs: &orbital_core_base::schema::SObject,
 ) -> SExpression {
     match condition {
         SExpression::String(s) => s
@@ -343,7 +343,7 @@ fn event_map_prop_names() -> &'static std::collections::HashSet<String> {
 fn collect_fired_with_knobs(
     trait_name: &str,
     expr: &SExpression,
-    knobs: &orbital_core::schema::SObject,
+    knobs: &orbital_core_base::schema::SObject,
     fired: &mut FiredEvents,
 ) {
     match expr {
@@ -464,7 +464,7 @@ fn collect_fired_with_knobs(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use orbital_core::schema::{
+    use orbital_core_base::schema::{
         EntityDefinition, EntityRef, Orbital, StateDefinition, StateMachine, StringOrArray,
         TransitionDefinition,
     };
@@ -652,7 +652,7 @@ mod tests {
     #[test]
     fn by_control_is_keyed_per_trait_not_per_event_name() {
         let mut browse = bare_trait("ArticleBrowse");
-        browse.emits = Some(vec![orbital_core::schema::EmitDefinition {
+        browse.emits = Some(vec![orbital_core_base::schema::EmitDefinition {
             definer_knob: None,
             scope_overridden: None,
             event: "EDIT".to_string(),
@@ -691,7 +691,7 @@ mod tests {
     #[test]
     fn contains_any_trait_preserves_file_scope_semantics() {
         let mut browse = bare_trait("ArticleBrowse");
-        browse.emits = Some(vec![orbital_core::schema::EmitDefinition {
+        browse.emits = Some(vec![orbital_core_base::schema::EmitDefinition {
             definer_knob: None,
             scope_overridden: None,
             event: "EDIT".to_string(),
@@ -734,7 +734,7 @@ mod tests {
             SExpression::Array(vec![s("emit"), s("LIVE")]),
         ]);
         let mut fired = FiredEvents::default();
-        collect_fired_with_knobs("T", &tree, &orbital_core::schema::SObject::new(), &mut fired);
+        collect_fired_with_knobs("T", &tree, &orbital_core_base::schema::SObject::new(), &mut fired);
         assert!(
             !fired
                 .by_effect
@@ -764,7 +764,7 @@ mod tests {
             SExpression::Array(vec![s("emit"), s("B")]),
         ]);
         let mut fired = FiredEvents::default();
-        collect_fired_with_knobs("T", &tree, &orbital_core::schema::SObject::new(), &mut fired);
+        collect_fired_with_knobs("T", &tree, &orbital_core_base::schema::SObject::new(), &mut fired);
         assert!(fired
             .by_effect
             .contains(&("T".to_string(), "A".to_string())));
@@ -818,7 +818,7 @@ mod tests {
             .collect(),
         );
         let mut fired = FiredEvents::default();
-        collect_fired_with_knobs("T", &node, &orbital_core::schema::SObject::new(), &mut fired);
+        collect_fired_with_knobs("T", &node, &orbital_core_base::schema::SObject::new(), &mut fired);
         assert!(
             fired
                 .by_control
@@ -848,7 +848,7 @@ mod tests {
             .collect(),
         );
         let mut fired = FiredEvents::default();
-        collect_fired_with_knobs("T", &node, &orbital_core::schema::SObject::new(), &mut fired);
+        collect_fired_with_knobs("T", &node, &orbital_core_base::schema::SObject::new(), &mut fired);
         assert!(fired.by_control.is_empty(), "{:?}", fired.by_control);
     }
 }

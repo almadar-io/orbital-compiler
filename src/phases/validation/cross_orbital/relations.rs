@@ -1,5 +1,5 @@
 use crate::phases::validation::{ErrorCode, ValidationError, ValidationResult};
-use orbital_core::schema::{FieldDefinition, FieldType, OrbitalSchema};
+use orbital_core_base::schema::{FieldDefinition, FieldType, OrbitalSchema};
 use std::collections::HashSet;
 
 // =============================================================================
@@ -123,7 +123,7 @@ pub(crate) fn check_field_relation(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use orbital_core::schema::{EntityDefinition, EntityRef, Orbital};
+    use orbital_core_base::schema::{EntityDefinition, EntityRef, Orbital};
 
     fn create_minimal_schema() -> OrbitalSchema {
         OrbitalSchema {
@@ -190,7 +190,7 @@ mod tests {
     /// another orbital in the same schema must not produce a warning.
     #[test]
     fn test_relation_targets_in_schema_ok() {
-        use orbital_core::schema::{FieldDefinition, FieldType, RelationDefinition};
+        use orbital_core_base::schema::{FieldDefinition, FieldType, RelationDefinition};
 
         let mut schema = create_minimal_schema();
         // Add a second orbital that declares "Patient".
@@ -272,7 +272,7 @@ mod tests {
     /// anywhere in the schema — expect ORB_X_UNRESOLVED_RELATION_TARGET.
     #[test]
     fn test_relation_targets_dangling_warns() {
-        use orbital_core::schema::{FieldDefinition, FieldType, RelationDefinition};
+        use orbital_core_base::schema::{FieldDefinition, FieldType, RelationDefinition};
 
         let mut schema = create_minimal_schema();
         if let EntityRef::Inline(task) = &mut schema.orbitals[0].entity {
@@ -320,7 +320,7 @@ mod tests {
     /// be validated, proving the recursive walker works.
     #[test]
     fn test_relation_targets_nested_in_array_items() {
-        use orbital_core::schema::{FieldDefinition, FieldType, RelationDefinition};
+        use orbital_core_base::schema::{FieldDefinition, FieldType, RelationDefinition};
 
         let mut schema = create_minimal_schema();
         if let EntityRef::Inline(task) = &mut schema.orbitals[0].entity {

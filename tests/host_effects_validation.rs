@@ -2,7 +2,7 @@
 //! (`docs/Almadar_Embedded_Kernel.md` H.7 P4, P6): every code has a positive case and a control that stays silent.
 
 use orbital_compiler::phases::validation::{validate_comprehensive_without_services, ErrorCode, ValidationResult};
-use orbital_core::schema::OrbitalSchema;
+use orbital_core_base::schema::OrbitalSchema;
 use serde_json::{json, Value};
 
 fn program(effects: Value) -> OrbitalSchema {

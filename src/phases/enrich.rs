@@ -2,10 +2,10 @@
 //!
 //! Adds derived information and defaults to the schema.
 
-use orbital_core::schema::{
+use orbital_core_base::schema::{
     EntityDefinition, EntityRef, Orbital, OrbitalSchema, PageRef, TraitDefinition, TraitReference,
 };
-use orbital_core::str_utils::to_snake_case;
+use orbital_core_base::str_utils::to_snake_case;
 use std::collections::HashMap;
 
 /// Enrichment configuration
@@ -53,7 +53,7 @@ pub fn enrich_schema(schema: &mut OrbitalSchema, config: &EnrichmentConfig) {
         enrich_orbital(orbital, config);
     }
 
-    orbital_core::evaluator::bake_list_shapes(schema)
+    orbital_core_eval::evaluator::bake_list_shapes(schema)
         .expect("an orbital serializes to JSON and back");
 
     // Second pass: build cross-references
@@ -165,7 +165,7 @@ fn build_cross_references(schema: &OrbitalSchema, ctx: &mut EnrichmentContext) {
                         for section in sections {
                             // Check props for entity references
                             if let Some(props) = &section.props {
-                                if let Some(orbital_core::schema::SExpression::String(entity)) =
+                                if let Some(orbital_core_base::schema::SExpression::String(entity)) =
                                     props.get("entity")
                                 {
                                     ctx.entity_used_by_pages

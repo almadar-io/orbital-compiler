@@ -10,7 +10,7 @@
 
 use orbital_compiler::phases::inline::{inline_schema, InlineConfig};
 use orbital_compiler::phases::parse::parse_file;
-use orbital_core::schema::{EntityRef, ListenSource, OrbitalSchema, TraitReference};
+use orbital_core_base::schema::{EntityRef, ListenSource, OrbitalSchema, TraitReference};
 
 const UPSTREAM: &str = r#"{
   "name": "test-view-swap-upstream",
@@ -468,7 +468,7 @@ fn page_paths(schema: &OrbitalSchema) -> Vec<String> {
         .iter()
         .flatten()
         .filter_map(|p| match p {
-            orbital_core::schema::PageRef::Inline(pd) => Some(pd.path.clone()),
+            orbital_core_base::schema::PageRef::Inline(pd) => Some(pd.path.clone()),
             _ => None,
         })
         .collect()
@@ -527,7 +527,7 @@ fn page_trait_refs(schema: &OrbitalSchema) -> Vec<String> {
         .iter()
         .flatten()
         .filter_map(|p| match p {
-            orbital_core::schema::PageRef::Inline(pd) => Some(pd),
+            orbital_core_base::schema::PageRef::Inline(pd) => Some(pd),
             _ => None,
         })
         .flat_map(|pd| pd.traits.iter().flatten())

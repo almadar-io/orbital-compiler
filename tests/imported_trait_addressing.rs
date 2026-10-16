@@ -6,7 +6,7 @@
 use orbital_compiler::phases::inline::{inline_schema, InlineConfig};
 use orbital_compiler::phases::parse::parse_file;
 use orbital_compiler::phases::validation::validate_comprehensive_without_services;
-use orbital_core::schema::{ListenSource, OrbitalSchema, SExpression, TraitReference};
+use orbital_core_base::schema::{ListenSource, OrbitalSchema, SExpression, TraitReference};
 
 const UPSTREAM: &str = r#"{
   "name": "upstream",
@@ -110,7 +110,7 @@ fn inline_src(src: &str) -> OrbitalSchema {
     schema
 }
 
-fn note_log(schema: &OrbitalSchema) -> &orbital_core::schema::TraitDefinition {
+fn note_log(schema: &OrbitalSchema) -> &orbital_core_base::schema::TraitDefinition {
     schema
         .orbitals
         .iter()

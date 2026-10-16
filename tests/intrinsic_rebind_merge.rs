@@ -9,7 +9,7 @@ use orbital_compiler::phases::inline::{inline_schema, InlineConfig};
 use orbital_compiler::phases::parse::parse_file;
 use orbital_compiler::phases::validation::error::ErrorCode;
 use orbital_compiler::phases::validation::validate_comprehensive_without_services;
-use orbital_core::schema::{EntityRef, OrbitalSchema};
+use orbital_core_base::schema::{EntityRef, OrbitalSchema};
 use std::path::Path;
 
 /// True when the comprehensive validation result contains a
@@ -220,7 +220,7 @@ fn fields_remap_satisfies_renamed_data_field() {
 
     // The trait's @entity.payload read must be rewritten to @entity.body.
     let body_referenced = match &schema.orbitals[0].traits[0] {
-        orbital_core::schema::TraitReference::Inline(td) => {
+        orbital_core_base::schema::TraitReference::Inline(td) => {
             let s = serde_json::to_string(&td.state_machine).unwrap();
             s.contains("@entity.body") && !s.contains("@entity.payload")
         }

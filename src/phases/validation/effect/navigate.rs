@@ -2,7 +2,7 @@
 
 use super::super::{ErrorCode, PageInitPayload, ValidationError, ValidationResult};
 use super::extract_payload_fields;
-use orbital_core::schema::SExpression;
+use orbital_core_base::schema::SExpression;
 use std::collections::HashMap;
 
 fn is_external_url(path: &str) -> bool {
@@ -70,7 +70,7 @@ pub(crate) fn validate_navigate(
         let route = nav_path
             .split_once('?')
             .map_or(nav_path.as_str(), |(route, _)| route);
-        if orbital_core::schema::is_host_sign_in_route(route) {
+        if orbital_core_base::schema::is_host_sign_in_route(route) {
             return result;
         }
     }
@@ -165,7 +165,7 @@ pub(crate) fn validate_navigate(
     result
 }
 
-pub(crate) use orbital_core::route::{extract_static_path_prefix, path_matches_pattern};
+pub(crate) use orbital_core_base::route::{extract_static_path_prefix, path_matches_pattern};
 
 /// Find a matching page path pattern for a given navigation path
 pub(crate) fn find_matching_page_path<'a>(

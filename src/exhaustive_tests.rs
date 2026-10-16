@@ -6,7 +6,7 @@
 //! 3. Invalid Transition Tests - Events that should NOT cause transitions
 //! 4. Journey Tests - Graph traversal visiting all states
 
-use orbital_core::ir::{
+use orbital_core_base::ir::{
     OirBinaryOp, OirBindingRoot, OirExpr, OirModule, OirTrait, OirTransitionFrom,
 };
 use serde::Serialize;
@@ -97,7 +97,7 @@ pub fn resolve_transition(
     payload: Option<&serde_json::Value>,
     entity_data: Option<&serde_json::Value>,
 ) -> Option<String> {
-    use orbital_core::{BindingContext, Evaluator, Value};
+    use {orbital_core_eval::evaluator::context::BindingContext, orbital_core_eval::evaluator::Evaluator, orbital_core_base::value::Value};
 
     let mut ctx = BindingContext::new();
     if let Some(p) = payload {
@@ -452,7 +452,7 @@ impl<'a> ExhaustiveTestGenerator<'a> {
     fn get_from_states(
         &self,
         trait_def: &OirTrait,
-        transition: &orbital_core::ir::OirTransition,
+        transition: &orbital_core_base::ir::OirTransition,
     ) -> Vec<String> {
         let states: Vec<String> = trait_def.states.iter().map(|s| s.name.clone()).collect();
 
@@ -991,7 +991,7 @@ impl<'a> ExhaustiveTestGenerator<'a> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use orbital_core::ir::{OirEvent, OirMetadata, OirState, OirTransition};
+    use orbital_core_base::ir::{OirEvent, OirMetadata, OirState, OirTransition};
 
     fn create_simple_trait() -> OirTrait {
         OirTrait {

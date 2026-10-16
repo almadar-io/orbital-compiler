@@ -2,7 +2,7 @@
 //! definitions.
 
 use super::{ErrorCode, ValidationError, ValidationResult};
-use orbital_core::schema::{EntityDefinition, FieldType, SExpression};
+use orbital_core_base::schema::{EntityDefinition, FieldType, SExpression};
 use std::collections::HashMap;
 
 /// Validate nested field paths in a pattern's `fields` prop

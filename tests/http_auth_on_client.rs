@@ -3,7 +3,7 @@
 //! allowed there. Each refusal has a keyless control.
 
 use orbital_compiler::phases::validation::{validate_comprehensive_without_services, ErrorCode};
-use orbital_core::schema::OrbitalSchema;
+use orbital_core_base::schema::OrbitalSchema;
 use serde_json::{json, Value};
 
 const ORIGIN: &str = "https://api.example.com";

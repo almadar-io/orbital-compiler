@@ -5,7 +5,7 @@
 //! entities are client work and stay allowed (owner ruling 2026-10-12, drift D-1).
 
 use orbital_compiler::phases::validation::{validate_comprehensive_without_services, ErrorCode, ValidationResult};
-use orbital_core::schema::OrbitalSchema;
+use orbital_core_base::schema::OrbitalSchema;
 use serde_json::{json, Value};
 
 fn schema(traits: Vec<Value>) -> OrbitalSchema {

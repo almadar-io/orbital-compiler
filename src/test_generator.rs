@@ -2,8 +2,8 @@
 //!
 //! Generates tests alongside application code for each backend.
 
-use orbital_core::ir::{OirEffect, OirEntity, OirModule, OirPage, OirTrait};
-use orbital_core::str_utils::to_snake_case;
+use orbital_core_base::ir::{OirEffect, OirEntity, OirModule, OirPage, OirTrait};
+use orbital_core_base::str_utils::to_snake_case;
 use std::path::PathBuf;
 
 /// Generated file
@@ -193,9 +193,9 @@ describe('{name}', () => {{
         // Verify transition occurred
     }});"#,
                     match &t.from {
-                        orbital_core::ir::OirTransitionFrom::Single(s) => s.clone(),
-                        orbital_core::ir::OirTransitionFrom::Multiple(states) => states.join("|"),
-                        orbital_core::ir::OirTransitionFrom::Any => "*".to_string(),
+                        orbital_core_base::ir::OirTransitionFrom::Single(s) => s.clone(),
+                        orbital_core_base::ir::OirTransitionFrom::Multiple(states) => states.join("|"),
+                        orbital_core_base::ir::OirTransitionFrom::Any => "*".to_string(),
                     },
                     t.to,
                     t.event,
@@ -392,7 +392,7 @@ mod tests {{
             name_lower = to_snake_case(&trait_def.name),
             initial_state = trait_def
                 .initial_state()
-                .map(|s| orbital_core::str_utils::split_to_pascal_case(&s.name))
+                .map(|s| orbital_core_base::str_utils::split_to_pascal_case(&s.name))
                 .unwrap_or_else(|| "Unknown".to_string()),
             transition_tests = trait_def
                 .transitions
@@ -711,8 +711,8 @@ class TestIntegration:
 
 // Helper functions
 
-fn default_value_for_type(ty: &orbital_core::ir::OirType) -> &'static str {
-    use orbital_core::ir::OirType;
+fn default_value_for_type(ty: &orbital_core_base::ir::OirType) -> &'static str {
+    use orbital_core_base::ir::OirType;
     match ty {
         OirType::String => "'test'",
         OirType::Number => "0",
@@ -747,8 +747,8 @@ fn default_value_for_type(ty: &orbital_core::ir::OirType) -> &'static str {
     }
 }
 
-fn rust_default_value(ty: &orbital_core::ir::OirType) -> &'static str {
-    use orbital_core::ir::OirType;
+fn rust_default_value(ty: &orbital_core_base::ir::OirType) -> &'static str {
+    use orbital_core_base::ir::OirType;
     match ty {
         OirType::String => "String::new()",
         OirType::Number => "0.0",
@@ -780,8 +780,8 @@ fn rust_default_value(ty: &orbital_core::ir::OirType) -> &'static str {
     }
 }
 
-fn python_default_value(ty: &orbital_core::ir::OirType) -> &'static str {
-    use orbital_core::ir::OirType;
+fn python_default_value(ty: &orbital_core_base::ir::OirType) -> &'static str {
+    use orbital_core_base::ir::OirType;
     match ty {
         OirType::String => "\"test\"",
         OirType::Number | OirType::Integer => "0",
@@ -815,7 +815,7 @@ fn python_default_value(ty: &orbital_core::ir::OirType) -> &'static str {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use orbital_core::ir::{OirEntity, OirField, OirState, OirTrait, OirTransition, OirType};
+    use orbital_core_base::ir::{OirEntity, OirField, OirState, OirTrait, OirTransition, OirType};
 
     #[test]
     fn test_vitest_entity_tests() {

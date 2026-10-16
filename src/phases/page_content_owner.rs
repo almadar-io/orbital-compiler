@@ -23,7 +23,7 @@
 
 use crate::phases::embed_graph::EmbedAdjacency;
 use crate::phases::validation::sync::content::{is_content_body_pattern, is_main_slot_render_ui};
-use orbital_core::schema::{PageDefinition, SExpression, TraitDefinition, TraitReference};
+use orbital_core_base::schema::{PageDefinition, SExpression, TraitDefinition, TraitReference};
 use std::collections::{HashMap, HashSet, VecDeque};
 
 /// Which trait owns a page's content region, and how that was established.
@@ -310,7 +310,7 @@ pub(crate) fn resolve_page_content_owner(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use orbital_core::schema::{Orbital, TraitReference};
+    use orbital_core_base::schema::{Orbital, TraitReference};
     use serde_json::json;
 
     fn trait_def(json_val: serde_json::Value) -> TraitDefinition {
@@ -381,7 +381,7 @@ mod tests {
             expects: None,
             theme: None,
             services: None,
-            entity: orbital_core::schema::EntityRef::Reference("Item".to_string()),
+            entity: orbital_core_base::schema::EntityRef::Reference("Item".to_string()),
             auxiliary_entities: None,
             traits: refs,
             pages: None,

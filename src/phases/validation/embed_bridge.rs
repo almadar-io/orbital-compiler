@@ -11,7 +11,7 @@
 
 use std::collections::HashSet;
 
-use orbital_core::schema::{OrbitalSchema, SExpression, TraitReference};
+use orbital_core_base::schema::{OrbitalSchema, SExpression, TraitReference};
 
 use super::{
     error::{ErrorCode, ValidationError, ValidationResult},
@@ -103,7 +103,7 @@ fn collect_listen_bindings(expr: &SExpression, out: &mut HashSet<String>) {
 /// Every event a bridged embed in these traits listens for: delivered into the embed, so a
 /// control firing one is handled (`ORB_EMIT_CONTROL_UNHANDLED`).
 pub(crate) fn bridged_listens<'a>(
-    traits: impl IntoIterator<Item = &'a orbital_core::schema::TraitDefinition>,
+    traits: impl IntoIterator<Item = &'a orbital_core_base::schema::TraitDefinition>,
 ) -> HashSet<String> {
     let mut bridges = Vec::new();
     for td in traits {

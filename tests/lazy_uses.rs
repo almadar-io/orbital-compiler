@@ -6,7 +6,7 @@ use orbital_compiler::phases::inline::{inline_schema, InlineConfig};
 use orbital_compiler::phases::lazy::split_lazy_and_resolve;
 use orbital_compiler::phases::parse::parse_file;
 use orbital_compiler::phases::{CompilerError, CompilerOptions};
-use orbital_core::schema::{LazyPage, OrbitalSchema, PageRef};
+use orbital_core_base::schema::{LazyPage, OrbitalSchema, PageRef};
 use std::path::PathBuf;
 
 const POST: &str = r#"{
@@ -302,7 +302,7 @@ fn control_an_importer_without_egress_splits_without_one() {
 
 #[test]
 fn the_split_moves_the_lazy_orbitals_ledger_row_to_its_own_schema() {
-    use orbital_core::identity::{IdKind, IdentityLedger, LedgerEntry, LedgerOwner};
+    use orbital_core_base::identity::{IdKind, IdentityLedger, LedgerEntry, LedgerOwner};
     let s = site(&[home(LAZY_USE, ""), blog(LAZY_USE, REMAP)], true);
     let mut schema = parse_file(&s.path).unwrap();
     let row = |id: &str, kind: IdKind, name: &str| LedgerEntry {

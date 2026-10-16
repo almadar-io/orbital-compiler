@@ -17,7 +17,7 @@
 
 use orbital_compiler::phases::inline::{inline_schema, InlineConfig};
 use orbital_compiler::phases::parse::parse_file;
-use orbital_core::schema::TraitReference;
+use orbital_core_base::schema::TraitReference;
 
 const CONFIRMATION_ATOM: &str = r#"{
   "name": "test-confirmation-atom",

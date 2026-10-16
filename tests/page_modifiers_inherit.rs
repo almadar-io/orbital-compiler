@@ -6,7 +6,7 @@
 use orbital_compiler::phases::inline::{inline_schema, InlineConfig, InlineError};
 use orbital_compiler::phases::parse::parse_file;
 use orbital_compiler::phases::{compile_schema, CompilerOptions};
-use orbital_core::schema::{
+use orbital_core_base::schema::{
     OrbitalSchema, PageAccess, PageDefinition, PageIndexing, PageMeta, PageRef, SiteMeta,
 };
 

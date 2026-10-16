@@ -9,15 +9,15 @@
 //! and for a `[shared]` entity every trait bound to it.
 
 use crate::phases::validation::{ErrorCode, ValidationError, ValidationResult};
-use orbital_core::runtime::dispatch_mode::DispatchMode;
-use orbital_core::schema::{
+use orbital_core_base::dispatch_mode::DispatchMode;
+use orbital_core_base::schema::{
     EntityRef, OrbitalSchema, Persistence, TraitDefinition, TraitReference,
 };
 
 pub(crate) fn validate_client_tick_locality(schema: &OrbitalSchema) -> ValidationResult {
     let mut result = ValidationResult::new();
     let residence =
-        orbital_core::effects::Residence::of_entities(schema.orbitals.iter().flat_map(|o| {
+        orbital_core_base::runs_on::Residence::of_entities(schema.orbitals.iter().flat_map(|o| {
             std::iter::once(&o.entity)
                 .chain(o.auxiliary_entities.iter().flatten())
                 .filter_map(|e| match e {

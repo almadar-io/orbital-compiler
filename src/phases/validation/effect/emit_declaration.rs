@@ -12,7 +12,7 @@ use super::{
     validate_set_value_type, DeclaredEmit, EntityFieldMeta,
 };
 use crate::embedded::ServiceRegistryData;
-use orbital_core::schema::{EntityDefinition, SExpression, TraitDefinition};
+use orbital_core_base::schema::{EntityDefinition, SExpression, TraitDefinition};
 use std::collections::{HashMap, HashSet};
 
 /// Collect all declared emits from a trait definition
@@ -42,7 +42,7 @@ pub(crate) fn collect_declared_emits(trait_def: &TraitDefinition) -> Vec<Declare
             let is_external = emit
                 .scope
                 .as_ref()
-                .map(|s| *s == orbital_core::schema::EventScope::External)
+                .map(|s| *s == orbital_core_base::schema::EventScope::External)
                 .unwrap_or(false);
 
             declared.push(DeclaredEmit {

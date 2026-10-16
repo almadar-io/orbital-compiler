@@ -15,8 +15,8 @@
 
 use super::render_ui::is_render_ui_effect;
 use super::{ErrorCode, Severity, ValidationContext, ValidationError, ValidationResult};
-use orbital_core::effects::Residence;
-use orbital_core::schema::{
+use orbital_core_base::runs_on::Residence;
+use orbital_core_base::schema::{
     EntityDefinition, ListenSource, Orbital, OrbitalSchema, PageRef, Persistence, SExpression,
     StringOrNumber, TraitDefinition, TraitReference, TransitionDefinition,
 };
@@ -676,7 +676,7 @@ pub fn validate_all_merged_field_usage(schema: &OrbitalSchema, ctx: &mut Validat
             let Some(entity_def) = ctx.entity_definitions.get(entity_name) else {
                 continue;
             };
-            let mut merged_fields: Vec<&orbital_core::schema::FieldDefinition> = entity_def
+            let mut merged_fields: Vec<&orbital_core_base::schema::FieldDefinition> = entity_def
                 .fields
                 .iter()
                 .filter(|f| f.merged_from.is_some() && f.name.is_some())
@@ -801,7 +801,7 @@ fn validate_trait_tick_guards(
 fn tick_is_cron(interval: &StringOrNumber) -> bool {
     match interval {
         StringOrNumber::Number(_) => false,
-        StringOrNumber::String(s) => orbital_core::cron::is_valid_cron_expression(s),
+        StringOrNumber::String(s) => orbital_core_base::cron::is_valid_cron_expression(s),
     }
 }
 
@@ -836,7 +836,7 @@ fn find_async_operator_call(expr: &SExpression) -> Option<&str> {
 /// (`OirTrait::dispatch_mode`) carrying one is mis-tagged, since `local`
 /// declares its transitions never await a server round trip.
 fn contains_server_bound_effect(expr: &SExpression, residence: &Residence) -> bool {
-    orbital_core::effects::sexpr_runs_server_effect(expr, residence)
+    orbital_core_base::runs_on::sexpr_runs_server_effect(expr, residence)
 }
 
 /// Effect operators that reach a server-owned resource — the subset of
@@ -1123,11 +1123,11 @@ fn data_effect_entities<'a>(expr: &'a SExpression, out: &mut Vec<&'a str>) {
         SExpression::Array(arr) => {
             if let Some(op) = arr.first().and_then(|h| h.as_str()) {
                 let batch_ops = (op == "persist")
-                    .then(|| orbital_core::effects::persist_batch::batch_ops_arg(&arr[1..]))
+                    .then(|| orbital_core_base::persist_batch::batch_ops_arg(&arr[1..]))
                     .flatten();
                 if let Some(ops) = batch_ops {
-                    out.extend(orbital_core::effects::persist_batch::batch_entities(ops));
-                } else if let Some(entity) = orbital_core::effects::entity_arg(op)
+                    out.extend(orbital_core_base::persist_batch::batch_entities(ops));
+                } else if let Some(entity) = orbital_core_base::runs_on::entity_arg(op)
                     .and_then(|i| arr.get(i + 1))
                     .and_then(|a| a.as_str())
                     .filter(|e| !e.starts_with('@'))
@@ -1181,8 +1181,8 @@ pub fn validate_all_mixed_residence(schema: &OrbitalSchema, ctx: &mut Validation
 /// `[background]`) carrying a server effect. A `local` trait is reported by
 /// `ORB_T_LOCAL_TRAIT_TOUCHES_SERVER` instead, so it is not reported twice.
 pub fn validate_all_client_tick_server_effects(schema: &OrbitalSchema, ctx: &mut ValidationContext) {
-    use orbital_core::effects::sexpr_runs_server_effect;
-    use orbital_core::runtime::dispatch_mode::DispatchMode;
+    use orbital_core_base::runs_on::sexpr_runs_server_effect;
+    use orbital_core_base::dispatch_mode::DispatchMode;
     let residence = Residence::of_entities(ctx.entity_definitions.values());
     for (trait_def, path) in super::inline_traits(schema) {
         if trait_def.local {
@@ -1346,7 +1346,7 @@ fn expr_persists_entity_create_or_update(expr: &SExpression, entity_name: &str) 
             let batch_hit = is_persist
                 && matches!(items.get(1), Some(SExpression::String(a)) if a == "batch")
                 && items.get(2).is_some_and(|ops| {
-                    orbital_core::effects::persist_batch::batch_writes(ops)
+                    orbital_core_base::persist_batch::batch_writes(ops)
                         .iter()
                         .any(|w| w.entity == entity_name && w.action != "delete")
                 });
@@ -1821,7 +1821,7 @@ fn validate_trait_set_column_without_row(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use orbital_core::schema::{
+    use orbital_core_base::schema::{
         EmitDefinition, EntityRef, FieldDefinition, FieldType, ListenDefinition, PageDefinition,
         PayloadField, StateDefinition, StateMachine, StringOrArray, TickDefinition,
         TransitionDefinition,
@@ -1885,7 +1885,7 @@ mod tests {
             s("render-ui"),
             s("main"),
             SExpression::Object({
-                let mut m = orbital_core::schema::SObject::new();
+                let mut m = orbital_core_base::schema::SObject::new();
                 m.insert("val".to_string(), s(&format!("@entity.{}", field)));
                 m
             }),
@@ -1898,7 +1898,7 @@ mod tests {
             s("create"),
             s(entity_name),
             SExpression::Object({
-                let mut m = orbital_core::schema::SObject::new();
+                let mut m = orbital_core_base::schema::SObject::new();
                 m.insert(field.to_string(), SExpression::Number(1.into()));
                 m
             }),
@@ -2087,7 +2087,7 @@ mod tests {
                     s("redis"),
                     s("set"),
                     SExpression::Object({
-                        let mut m = orbital_core::schema::SObject::new();
+                        let mut m = orbital_core_base::schema::SObject::new();
                         m.insert("ttl".to_string(), s("@entity.ttl"));
                         m
                     }),
@@ -2143,7 +2143,7 @@ mod tests {
         behavior: &str,
         original_name: &str,
     ) -> TraitDefinition {
-        td.source_behavior = Some(orbital_core::schema::SourceBehaviorMetadata {
+        td.source_behavior = Some(orbital_core_base::schema::SourceBehaviorMetadata {
             behavior: behavior.to_string(),
             alias: td.name.clone(),
             original_name: original_name.to_string(),
@@ -2470,7 +2470,7 @@ mod tests {
             s("render-ui"),
             s(slot),
             SExpression::Object({
-                let mut m = orbital_core::schema::SObject::new();
+                let mut m = orbital_core_base::schema::SObject::new();
                 m.insert("val".to_string(), s(&format!("@entity.{}", field)));
                 m
             }),
@@ -2514,7 +2514,7 @@ mod tests {
             s("render-ui"),
             s("main"),
             SExpression::Object({
-                let mut m = orbital_core::schema::SObject::new();
+                let mut m = orbital_core_base::schema::SObject::new();
                 m.insert("val".to_string(), s(&format!("@entity.{}", field)));
                 m.insert(
                     "children".to_string(),
@@ -2747,7 +2747,7 @@ mod tests {
             s("persist"),
             s("create"),
             s("Message"),
-            SExpression::Object(orbital_core::schema::SObject::new()),
+            SExpression::Object(orbital_core_base::schema::SObject::new()),
         ]);
         let t = local_trait_with_guard("ChatComposer", "Message", None, vec![persist_effect]);
         let mut defs = HashMap::new();
@@ -2907,7 +2907,7 @@ mod tests {
             s("persist"),
             s("create"),
             s("Message"),
-            SExpression::Object(orbital_core::schema::SObject::new()),
+            SExpression::Object(orbital_core_base::schema::SObject::new()),
         ]);
         let t = trait_with_init_effects("Composer", "Message", vec![persist_effect]);
         let mut defs = HashMap::new();
@@ -2953,7 +2953,7 @@ mod tests {
             s("persist"),
             s("create"),
             s(entity_name),
-            SExpression::Object(orbital_core::schema::SObject::new()),
+            SExpression::Object(orbital_core_base::schema::SObject::new()),
         ])
     }
 
@@ -3172,7 +3172,7 @@ mod tests {
             s("update"),
             s(entity_name),
             s(&format!("@payload.{var}")),
-            SExpression::Object(orbital_core::schema::SObject::new()),
+            SExpression::Object(orbital_core_base::schema::SObject::new()),
         ])
     }
 
@@ -3308,7 +3308,7 @@ mod tests {
         let fetch_effect = arr(vec![
             s("fetch"),
             s("Progress"),
-            SExpression::Object(orbital_core::schema::SObject::from([("filter".to_string(), filter_expr)])),
+            SExpression::Object(orbital_core_base::schema::SObject::from([("filter".to_string(), filter_expr)])),
         ]);
         let t = trait_with_init_effects(
             "MyProgressDisplay",
@@ -3555,7 +3555,7 @@ mod tests {
             s("persist"),
             s("update"),
             s("Message"),
-            SExpression::Object(orbital_core::schema::SObject::new()),
+            SExpression::Object(orbital_core_base::schema::SObject::new()),
         ]);
         let t = local_trait_with_guard("Composer", "Message", Some(guard), vec![persist_effect]);
         let mut defs = HashMap::new();
@@ -3592,7 +3592,7 @@ mod tests {
             arr(vec![
                 s("fetch"),
                 s("Cursor"),
-                SExpression::Object(orbital_core::schema::SObject::new()),
+                SExpression::Object(orbital_core_base::schema::SObject::new()),
             ]),
         ]);
         let t = trait_with_guard("Cursor", "Cursor", Some(guard), vec![nested_fetch]);
@@ -3652,7 +3652,7 @@ mod tests {
         arr(vec![
             s("fetch"),
             s("Message"),
-            SExpression::Object(orbital_core::schema::SObject::new()),
+            SExpression::Object(orbital_core_base::schema::SObject::new()),
         ])
     }
 
@@ -3661,7 +3661,7 @@ mod tests {
             s("persist"),
             s("update"),
             s("Message"),
-            SExpression::Object(orbital_core::schema::SObject::new()),
+            SExpression::Object(orbital_core_base::schema::SObject::new()),
         ])
     }
 

@@ -4,7 +4,7 @@
 //! is `ORB_T_EXTERNAL_INPUT_NOT_RESTING`.
 
 use orbital_compiler::phases::validation::validate_comprehensive_without_services;
-use orbital_core::schema::OrbitalSchema;
+use orbital_core_base::schema::OrbitalSchema;
 use serde_json::{json, Value};
 
 const CODE: &str = "ORB_T_EXTERNAL_INPUT_NOT_RESTING";

@@ -3,7 +3,7 @@
 
 use super::super::{ErrorCode, ValidationError, ValidationResult};
 use super::{extract_emit_object_ref, validate_emit_config, DeclaredEmit};
-use orbital_core::schema::SExpression;
+use orbital_core_base::schema::SExpression;
 
 pub(crate) fn validate_program_eval(
     arr: &[SExpression],
