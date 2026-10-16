@@ -5,7 +5,8 @@
 //! - Standard library (std/...)
 //! - Scoped packages (@name/...)
 
-use orbital_core::behavior_packages::{BehaviorPackage, RegistrySource};
+use orbital_core::behavior_packages::{BehaviorPackage, DiscoverError, RegistrySource};
+pub use orbital_core::behavior_packages::index_registry_source;
 use orbital_core::schema::OrbitalSchema;
 use std::cell::RefCell;
 use std::collections::hash_map::Entry;
@@ -45,6 +46,8 @@ fn canonical_key(path: &Path) -> PathBuf {
 
 #[derive(Debug, Error)]
 pub enum LoaderError {
+    #[error(transparent)]
+    BehaviorPackage(#[from] DiscoverError),
     #[error("File not found: {0}")]
     FileNotFound(String),
 
@@ -338,53 +341,19 @@ impl Default for LoaderCache {
 // Behavior-package registry resolution
 // ============================================================================
 
-/// Walk `root` once and index every `<name>.orb` under it by behavior name
-/// (registry trees are flat by name; on a collision the first entry seen
-/// wins). The entry's own `file_type` decides recursion, so the walk costs
-/// one `opendir` per directory and no `stat` per file; only a symlink pays a
-/// `stat` to learn what it points at. Pure function — no mutation, no caching.
-pub fn index_registry(root: &Path) -> HashMap<String, PathBuf> {
-    index_behavior_files(root, "orb")
-}
-
-/// Behavior name → file for a package's [`RegistrySource`]: `.orb` programs in a
-/// materialized registry, `.lolo` sources in a live one.
-pub fn index_registry_source(source: &RegistrySource) -> HashMap<String, PathBuf> {
-    index_behavior_files(source.root(), source.extension())
-}
-
-fn index_behavior_files(root: &Path, extension: &str) -> HashMap<String, PathBuf> {
-    let mut index = HashMap::new();
-    let mut stack = vec![root.to_path_buf()];
-    while let Some(dir) = stack.pop() {
-        let Ok(entries) = std::fs::read_dir(&dir) else {
-            continue;
-        };
-        for entry in entries.flatten() {
-            let path = entry.path();
-            let is_dir = match entry.file_type() {
-                Ok(ft) if ft.is_symlink() => path.is_dir(),
-                Ok(ft) => ft.is_dir(),
-                Err(_) => continue,
-            };
-            if is_dir {
-                stack.push(path);
-            } else if path.extension().map(|e| e == extension).unwrap_or(false) {
-                if let Some(stem) = path.file_stem().and_then(|s| s.to_str()) {
-                    index.entry(stem.to_string()).or_insert(path);
-                }
-            }
-        }
-    }
-    index
+pub fn index_registry(root: &Path) -> Result<HashMap<String, PathBuf>, DiscoverError> {
+    index_registry_source(&RegistrySource::Materialized(root.to_path_buf()))
 }
 
 /// Recursively search `root` for a behavior named `name` (file `<name>.orb`).
 /// One full walk per call — `ExternalOrbitalLoader` keeps a per-root index
 /// instead, so it walks each root once per compile rather than once per
 /// import hop.
-pub fn resolve_behavior_in_registry(name: &str, source: &RegistrySource) -> Option<PathBuf> {
-    index_registry_source(source).remove(name)
+pub fn resolve_behavior_in_registry(
+    name: &str,
+    source: &RegistrySource,
+) -> Result<Option<PathBuf>, DiscoverError> {
+    Ok(index_registry_source(source)?.remove(name))
 }
 
 // ============================================================================
@@ -532,13 +501,13 @@ impl ExternalOrbitalLoader {
     }
 
     /// `<name>.orb` under `root`, through the per-root index.
-    fn registry_lookup(&self, name: &str, source: &RegistrySource) -> Option<PathBuf> {
+    fn registry_lookup(&self, name: &str, source: &RegistrySource) -> Result<Option<PathBuf>, LoaderError> {
         let mut indexes = self.registry_index.borrow_mut();
         let index = match indexes.entry(source.root().to_path_buf()) {
             Entry::Occupied(e) => e.into_mut(),
-            Entry::Vacant(e) => e.insert(index_registry_source(source)),
+            Entry::Vacant(e) => e.insert(index_registry_source(source)?),
         };
-        index.get(name).cloned()
+        Ok(index.get(name).cloned())
     }
 
     /// Load `absolute_path` from the filesystem into `self.cache`, keyed by
@@ -594,7 +563,7 @@ impl ExternalOrbitalLoader {
             });
         };
         let std_source_label = format!("{}@{}", pkg.name, pkg.version);
-        if let Some(path) = self.registry_lookup(behavior_name, &pkg.registry) {
+        if let Some(path) = self.registry_lookup(behavior_name, &pkg.registry)? {
             return self.load_from_path(path, import_path, chain);
         }
 
@@ -604,7 +573,7 @@ impl ExternalOrbitalLoader {
             if pkg.prefix == "almadar-std" {
                 continue;
             }
-            if let Some(path) = self.registry_lookup(behavior_name, &pkg.registry) {
+            if let Some(path) = self.registry_lookup(behavior_name, &pkg.registry)? {
                 hits.push((pkg.name.clone(), path));
             }
         }
@@ -660,7 +629,7 @@ impl ExternalOrbitalLoader {
                 prefix: prefix.to_string(),
             });
         };
-        match self.registry_lookup(name, &pkg.registry) {
+        match self.registry_lookup(name, &pkg.registry)? {
             Some(path) => self.load_from_path(path, import_path, chain),
             None => Err(LoaderError::BehaviorNotFound {
                 name: name.to_string(),
@@ -803,12 +772,15 @@ impl ExternalOrbitalLoader {
                 // Canonical-form detection now asks every installed package's
                 // registry (including std's, when installed) — there is no
                 // embedded phf map left to consult.
-                let known_canonically = canonical != import_path
-                    && self
-                        .config
-                        .packages
-                        .iter()
-                        .any(|pkg| self.registry_lookup(basename, &pkg.registry).is_some());
+                let mut known_canonically = false;
+                if canonical != import_path {
+                    for pkg in &self.config.packages {
+                        if self.registry_lookup(basename, &pkg.registry)?.is_some() {
+                            known_canonically = true;
+                            break;
+                        }
+                    }
+                }
                 if known_canonically {
                     return Err(LoaderError::StdImportNotCanonical {
                         given: import_path.to_string(),
@@ -1295,16 +1267,26 @@ mod tests {
     #[test]
     fn index_registry_maps_every_nested_orb_by_stem() {
         let dir = tempdir_registry();
-        let index = index_registry(dir.path());
+        let index = index_registry(dir.path()).unwrap();
         assert_eq!(index.len(), 2);
         assert!(index["std-realtime-chat"].ends_with("app/organisms/std-realtime-chat.orb"));
         assert!(index["std-modal"].ends_with("ui/core/atoms/std-modal.orb"));
         let source = RegistrySource::Materialized(dir.path().to_path_buf());
         assert_eq!(
-            resolve_behavior_in_registry("std-modal", &source),
+            resolve_behavior_in_registry("std-modal", &source).unwrap(),
             Some(index["std-modal"].clone())
         );
-        assert_eq!(resolve_behavior_in_registry("notes", &source), None);
+        assert_eq!(resolve_behavior_in_registry("notes", &source).unwrap(), None);
+    }
+
+    #[test]
+    fn index_registry_refuses_duplicate_names_instead_of_selecting_one() {
+        let dir = tempdir_registry();
+        std::fs::write(dir.path().join("app/organisms/std-modal.orb"), "{}").unwrap();
+        let error = index_registry(dir.path()).unwrap_err();
+        assert!(matches!(error, DiscoverError::DuplicateBehaviorName { .. }));
+        let source = RegistrySource::Materialized(dir.path().to_path_buf());
+        assert!(resolve_behavior_in_registry("std-modal", &source).is_err());
     }
 
     #[test]
@@ -1316,7 +1298,7 @@ mod tests {
             prefix: "almadar-behaviors".to_string(),
             root: dir.path().to_path_buf(),
             registry: RegistrySource::Materialized(dir.path().to_path_buf()),
-            index: dir.path().to_path_buf(),
+            files: Vec::new(),
             lolo_source: None,
             vectors: None,
             sidecars: vec![],
@@ -1332,16 +1314,17 @@ mod tests {
         };
         let loader = ExternalOrbitalLoader::new(config);
 
-        let first = loader.registry_lookup("std-modal", &pkg.registry).unwrap();
+        let first = loader.registry_lookup("std-modal", &pkg.registry).unwrap().unwrap();
         assert!(first.ends_with("ui/core/atoms/std-modal.orb"));
         // A file written after the index was built is invisible to this
         // loader — one walk per root per compile, same freshness as a
         // process that read the directory once.
         std::fs::write(dir.path().join("ui/core/atoms/std-late.orb"), "{}").unwrap();
-        assert_eq!(loader.registry_lookup("std-late", &pkg.registry), None);
+        assert_eq!(loader.registry_lookup("std-late", &pkg.registry).unwrap(), None);
         assert_eq!(loader.registry_index.borrow().len(), 1);
         let second = loader
             .registry_lookup("std-realtime-chat", &pkg.registry)
+            .unwrap()
             .unwrap();
         assert!(second.ends_with("app/organisms/std-realtime-chat.orb"));
         assert_eq!(loader.registry_index.borrow()[pkg.registry.root()].len(), 2);
@@ -1363,29 +1346,16 @@ mod tests {
         let registry_dir = pkg_dir.join("behaviors/registry");
         std::fs::create_dir_all(&registry_dir).unwrap();
         let health = std::fs::read_to_string(fixtures_dir().join("health.orb")).unwrap();
-        let mut index = serde_json::Map::new();
         for b in behaviors {
             let content = health.replacen("\"HealthModule\"", &format!("\"{b}\""), 1);
             std::fs::write(registry_dir.join(format!("{b}.orb")), content).unwrap();
-            index.insert(
-                (*b).to_string(),
-                serde_json::json!({"name": b, "level": "atom"}),
-            );
         }
-        std::fs::write(
-            pkg_dir.join("behaviors/behaviors-registry.json"),
-            serde_json::to_string(&serde_json::json!({ "behaviors": index })).unwrap(),
-        )
-        .unwrap();
-        std::fs::write(pkg_dir.join("behaviors/lolo-behavior-contracts.json"), "{}").unwrap();
         let pkg_json = serde_json::json!({
             "name": name,
             "version": version,
             "orb": {
                 "prefix": prefix,
                 "registry": "behaviors/registry",
-                "index": "behaviors/behaviors-registry.json",
-                "loloContracts": "behaviors/lolo-behavior-contracts.json",
                 "compiler": ">=0.0.0",
             },
         });
@@ -1533,13 +1503,6 @@ mod tests {
             );
         std::fs::write(registry_dir.join("std-modal.orb"), content).unwrap();
         std::fs::write(
-            pkg_dir.join("behaviors/behaviors-registry.json"),
-            serde_json::json!({"behaviors": {"std-modal": {"name": "std-modal", "level": "atom"}}})
-                .to_string(),
-        )
-        .unwrap();
-        std::fs::write(pkg_dir.join("behaviors/lolo-behavior-contracts.json"), "{}").unwrap();
-        std::fs::write(
             pkg_dir.join("package.json"),
             serde_json::json!({
                 "name": "@almadar/std",
@@ -1547,9 +1510,7 @@ mod tests {
                 "orb": {
                     "prefix": "almadar-std",
                     "registry": "behaviors/registry",
-                    "index": "behaviors/behaviors-registry.json",
-                    "loloContracts": "behaviors/lolo-behavior-contracts.json",
-                    "compiler": ">=0.0.0",
+                        "compiler": ">=0.0.0",
                 },
             })
             .to_string(),
@@ -1652,16 +1613,22 @@ mod tests {
         // std IS installed (so resolution doesn't short-circuit on
         // BehaviorPackageNotInstalled) but doesn't carry `shared-name`.
         let tmp = tempfile::tempdir().unwrap();
-        let std_pkg = fake_package(tmp.path(), "@almadar/std", "almadar-std", "16.223.0", &[]);
+        let std_pkg = fake_package(
+            &tmp.path().join("std"),
+            "@almadar/std",
+            "almadar-std",
+            "16.223.0",
+            &[],
+        );
         let pkg_a = fake_package(
-            tmp.path(),
+            &tmp.path().join("a"),
             "pkg-a",
             "pkg-a-prefix",
             "1.0.0",
             &["shared-name"],
         );
         let pkg_b = fake_package(
-            tmp.path(),
+            &tmp.path().join("b"),
             "pkg-b",
             "pkg-b-prefix",
             "1.0.0",

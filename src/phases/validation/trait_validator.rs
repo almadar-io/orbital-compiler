@@ -1280,20 +1280,6 @@ fn has_render_ui_effects(sm: &StateMachine) -> bool {
     false
 }
 
-/// Check if an S-expression is a fetch effect for the given entity
-fn is_fetch_effect(expr: &SExpression, entity_name: &str) -> bool {
-    match expr {
-        SExpression::Array(arr) if arr.len() >= 2 => {
-            if let (SExpression::String(op), SExpression::String(entity)) = (&arr[0], &arr[1]) {
-                (op == "fetch" || op == "ref") && entity == entity_name
-            } else {
-                false
-            }
-        }
-        _ => false,
-    }
-}
-
 /// Entity names fetched (`["fetch", E]` / `["ref", E]`) by INIT transitions
 /// leaving the state machine's initial state.
 fn init_fetch_targets(sm: &StateMachine) -> Vec<&str> {

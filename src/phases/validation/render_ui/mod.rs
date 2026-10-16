@@ -981,6 +981,41 @@ mod tests {
         ])));
     }
 
+    fn a11y_unnamed_suggestion(pattern: &str) -> String {
+        let effect = SExpression::Array(vec![
+            SExpression::String("render-ui".to_string()),
+            SExpression::String("main".to_string()),
+            SExpression::Object(
+                [("type".to_string(), SExpression::String(pattern.to_string()))]
+                    .into_iter()
+                    .collect(),
+            ),
+        ]);
+        let result = validate_render_ui_effect(&effect, "test", &HashMap::new(), None, None);
+        result
+            .errors
+            .iter()
+            .find(|e| e.code == ErrorCode::A11yUnnamed)
+            .and_then(|e| e.suggestion.clone())
+            .unwrap_or_else(|| panic!("expected ORB_A11Y_UNNAMED for {pattern}: {:?}", result.errors))
+    }
+
+    /// The suggestion names only props the pattern accepts: `input` takes no aria props, so
+    /// suggesting `aria-label` sent authors straight into ORB_RUI_INVALID_PROP.
+    #[test]
+    fn a11y_unnamed_suggests_only_props_the_pattern_accepts() {
+        assert_eq!(a11y_unnamed_suggestion("input"), "set one of: label");
+        assert_eq!(
+            a11y_unnamed_suggestion("atlas-image"),
+            "set one of: alt (or aria-hidden: true if it is decorative)"
+        );
+        assert_eq!(
+            a11y_unnamed_suggestion("button"),
+            "set one of: label, aria-label, aria-labelledby (or aria-hidden: true if it is decorative)",
+            "control: a pattern that takes the aria props keeps them"
+        );
+    }
+
     #[test]
     fn test_unknown_pattern_prop() {
         // Test that inventorySlots (non-existent prop) on game-menu triggers warning

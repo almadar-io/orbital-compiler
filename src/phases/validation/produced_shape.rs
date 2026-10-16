@@ -250,12 +250,44 @@ fn produced_to_fields(produced: ProducedPayload) -> Option<Vec<PayloadField>> {
 
 /// True when the `http` call's request object (the fifth array element, head
 /// included) carries a `paginate` entry.
-fn http_paginates(args: &[SExpression]) -> bool {
-    matches!(
-        args.get(4),
-        Some(SExpression::Object(request))
-            if !matches!(request.get("paginate"), None | Some(SExpression::Null))
-    )
+fn http_variant(args: &[SExpression]) -> CallVariant<'static> {
+    let Some(SExpression::Object(request)) = args.get(4) else { return CallVariant::Plain };
+    if let Some(SExpression::Object(auth)) = request.get("auth") {
+        if matches!(auth.get("scheme"), Some(SExpression::String(scheme)) if scheme == "oauth-client") {
+            if let Some(op) = auth.get("op").and_then(SExpression::as_str).and_then(orbital_core::oauth::client::OAuthOp::parse) {
+                return CallVariant::HttpOAuth(op);
+            }
+        }
+    }
+    if !matches!(request.get("presign"), None | Some(SExpression::Null)) {
+        CallVariant::HttpPresign
+    } else if !matches!(request.get("paginate"), None | Some(SExpression::Null)) {
+        CallVariant::HttpPaginate
+    } else {
+        CallVariant::Plain
+    }
+}
+
+/// The `browser/page-facts` payload: `available` plus the facts the call requested; a fact left out is not
+/// readable. An undecidable field list yields no shape (no check).
+fn page_facts_payload(args: &[SExpression]) -> Option<Vec<PayloadField>> {
+    let SExpression::Array(words) = args.get(1)? else { return None };
+    let keyed = call_has_key("browser/page-facts", args);
+    let requested: Vec<&str> = words.iter().map(SExpression::as_str).collect::<Option<_>>()?;
+    let ProducedPayload::Shape(shape) = success_payload("browser/page-facts", CallVariant::Plain) else {
+        return None;
+    };
+    let kept: Vec<ShapeField> = shape
+        .iter()
+        .filter(|f| f.name == "available" || requested.contains(&f.name))
+        .copied()
+        .collect();
+    let mut fields = shape_fields(&kept);
+    if keyed {
+        fields.push(scalar_field("key", "string"));
+        fields.sort_by(|a, b| a.name.cmp(&b.name));
+    }
+    Some(fields)
 }
 
 /// The payload an operator call site actually puts on the bus, expressed as
@@ -272,11 +304,23 @@ pub(crate) fn produced_payload(
     registry: &ServiceRegistryData,
 ) -> Option<Vec<PayloadField>> {
     if op_name == "http" {
-        let variant = if http_paginates(args) { CallVariant::HttpPaginate } else { CallVariant::Plain };
+        let variant = http_variant(args);
         return produced_to_fields(success_payload("http", variant));
     }
-    if matches!(op_name, "random-bytes" | "credential-status" | "credential-forget") {
+    if matches!(
+        op_name,
+        "random-bytes"
+            | "credential-status"
+            | "credential-forget"
+            | "browser/beacon"
+            | "oauth-authorize"
+            | "oauth-connection-status"
+            | "oauth-connection-forget"
+    ) {
         return produced_to_fields(success_payload(op_name, CallVariant::Plain));
+    }
+    if op_name == "browser/page-facts" {
+        return page_facts_payload(args);
     }
     if matches!(op_name, "call-service" | "call_service") {
         return keyed_call_service_payload(args, registry);
@@ -304,6 +348,10 @@ pub(crate) fn produced_payload(
 fn call_has_key(op_name: &str, args: &[SExpression]) -> bool {
     match op_name {
         "http" => true,
+        "browser/page-facts" => matches!(
+            args.get(2),
+            Some(SExpression::Object(options)) if !matches!(options.get("key"), None | Some(SExpression::Null))
+        ),
         _ => matches!(
             args.last(),
             Some(SExpression::Object(options))

@@ -540,6 +540,12 @@ pub enum ErrorCode {
     HttpOptionUnknown,
     /// `http` `auth.scheme` is not in the closed scheme set
     HttpAuthSchemeUnknown,
+    /// An HTTP auth, grant-cache, presign, or webpush configuration violates its contract.
+    HttpAuthInvalid,
+    /// A token-exchange `rotate` is not a `{ field, credential }` rotation of the body's `refresh_token` slot.
+    HttpTokenRotateInvalid,
+    /// An HTTP request/auth header name is not a token, or its value is not a single-line string.
+    HttpHeaderInvalid,
     /// an `http` with `auth` sits where its trait runs on the client (a `local` trait, a browser-run tick)
     HttpAuthOnClient,
     /// an `http` request has more than one body kind, or a body on GET
@@ -550,10 +556,32 @@ pub enum ErrorCode {
     HostEffectOptionUnknown,
     /// a literal `random-bytes` count that is not an integer from 1 to 1024
     RandomBytesCount,
+    /// an OAuth client object with an unknown or missing key, both or neither of `issuer`/`endpoints`, or a bad word
+    OAuthClientInvalid,
+    /// an `oauth-client` `op` outside the closed set, or an input the op does not take or requires
+    OAuthOpUnknown,
+    /// `oauth-endpoint` without an `oauth-client` auth, or a target word or method that does not serve the op
+    OAuthEndpointMismatch,
+    /// an `oauth-client` request that carries anything but `auth`
+    OAuthRequestConflict,
+    /// a provider word outside `google | github | auth0`
+    OAuthProviderUnknown,
+    /// an unknown key, or a missing `redirectUri`, in `oauth-authorize` options
+    OAuthOptionUnknown,
     /// `http` `paginate` without `max`
     HttpPaginateMaxMissing,
     /// `http` `stream` without `emit.onMessage`
     HttpStreamWithoutOnMessage,
+    /// `browser/page-facts` fields: an unknown word, an empty list or a duplicate
+    PageFactsFieldInvalid,
+    /// an event reads a page fact the `browser/page-facts` call did not request
+    PageFactsUnrequestedRead,
+    /// a `browser/beacon` request or option key outside its closed set
+    BeaconOptionUnknown,
+    /// a `browser/beacon` request without `text`
+    BeaconTextRequired,
+    /// a literal `browser/beacon` URL that is not an absolute http(s) URL
+    BeaconUrlNotAbsolute,
     /// set effect using invalid binding
     EffectSetInvalidBinding,
     /// set effect using @payload (should use @entity)
@@ -1362,6 +1390,10 @@ pub enum ErrorCode {
     BehaviorAmbiguous,
     /// Two different installed packages declare the same `orb.prefix`.
     BehaviorPrefixConflict,
+    /// A behavior name is duplicated within or across installed package sources.
+    BehaviorNameDuplicate,
+    /// An installed behavior package's registry cannot be read or indexed.
+    BehaviorPackageInvalid,
 
     // =========================================================================
     // Generic Errors (ORB_GEN_*)
@@ -1548,13 +1580,27 @@ impl ErrorCode {
             ErrorCode::HttpMethodUnknown => "ORB_HTTP_METHOD_UNKNOWN",
             ErrorCode::HttpOptionUnknown => "ORB_HTTP_OPTION_UNKNOWN",
             ErrorCode::HttpAuthSchemeUnknown => "ORB_HTTP_AUTH_SCHEME_UNKNOWN",
+            ErrorCode::HttpAuthInvalid => "ORB_HTTP_AUTH_INVALID",
+            ErrorCode::HttpTokenRotateInvalid => "ORB_HTTP_TOKEN_ROTATE_INVALID",
+            ErrorCode::HttpHeaderInvalid => "ORB_HTTP_HEADER_INVALID",
             ErrorCode::HttpAuthOnClient => "ORB_HTTP_AUTH_ON_CLIENT",
             ErrorCode::HttpBodyConflict => "ORB_HTTP_BODY_CONFLICT",
             ErrorCode::HostEffectArity => "ORB_HOST_EFFECT_ARITY",
             ErrorCode::HostEffectOptionUnknown => "ORB_HOST_EFFECT_OPTION_UNKNOWN",
             ErrorCode::RandomBytesCount => "ORB_RANDOM_BYTES_COUNT",
+            ErrorCode::OAuthClientInvalid => "ORB_OAUTH_CLIENT_INVALID",
+            ErrorCode::OAuthOpUnknown => "ORB_OAUTH_OP_UNKNOWN",
+            ErrorCode::OAuthEndpointMismatch => "ORB_OAUTH_ENDPOINT_MISMATCH",
+            ErrorCode::OAuthRequestConflict => "ORB_OAUTH_REQUEST_CONFLICT",
+            ErrorCode::OAuthProviderUnknown => "ORB_OAUTH_PROVIDER_UNKNOWN",
+            ErrorCode::OAuthOptionUnknown => "ORB_OAUTH_OPTION_UNKNOWN",
             ErrorCode::HttpPaginateMaxMissing => "ORB_HTTP_PAGINATE_MAX_MISSING",
             ErrorCode::HttpStreamWithoutOnMessage => "ORB_HTTP_STREAM_WITHOUT_ON_MESSAGE",
+            ErrorCode::PageFactsFieldInvalid => "ORB_PAGE_FACTS_FIELD_INVALID",
+            ErrorCode::PageFactsUnrequestedRead => "ORB_PAGE_FACTS_UNREQUESTED_READ",
+            ErrorCode::BeaconOptionUnknown => "ORB_BEACON_OPTION_UNKNOWN",
+            ErrorCode::BeaconTextRequired => "ORB_BEACON_TEXT_REQUIRED",
+            ErrorCode::BeaconUrlNotAbsolute => "ORB_BEACON_URL_NOT_ABSOLUTE",
             ErrorCode::EffectSetInvalidBinding => "ORB_EFF_SET_INVALID_BINDING",
             ErrorCode::EffectSetPayloadNotAllowed => "ORB_EFF_SET_PAYLOAD_NOT_ALLOWED",
             ErrorCode::EffectFetchInvalidEntity => "ORB_EFF_FETCH_INVALID_ENTITY",
@@ -1785,6 +1831,8 @@ impl ErrorCode {
             ErrorCode::BehaviorNotFound => "ORB_BEHAVIOR_NOT_FOUND",
             ErrorCode::BehaviorAmbiguous => "ORB_BEHAVIOR_AMBIGUOUS",
             ErrorCode::BehaviorPrefixConflict => "ORB_BEHAVIOR_PREFIX_CONFLICT",
+            ErrorCode::BehaviorNameDuplicate => "ORB_BEHAVIOR_NAME_DUPLICATE",
+            ErrorCode::BehaviorPackageInvalid => "ORB_BEHAVIOR_PACKAGE_INVALID",
 
             // Generic
             ErrorCode::InvalidValue => "ORB_GEN_INVALID_VALUE",
@@ -1957,13 +2005,27 @@ impl ErrorCode {
             | ErrorCode::HttpMethodUnknown
             | ErrorCode::HttpOptionUnknown
             | ErrorCode::HttpAuthSchemeUnknown
+            | ErrorCode::HttpAuthInvalid
+            | ErrorCode::HttpTokenRotateInvalid
+            | ErrorCode::HttpHeaderInvalid
             | ErrorCode::HttpAuthOnClient
             | ErrorCode::HttpBodyConflict
             | ErrorCode::HostEffectArity
             | ErrorCode::HostEffectOptionUnknown
             | ErrorCode::RandomBytesCount
+            | ErrorCode::OAuthClientInvalid
+            | ErrorCode::OAuthOpUnknown
+            | ErrorCode::OAuthEndpointMismatch
+            | ErrorCode::OAuthRequestConflict
+            | ErrorCode::OAuthProviderUnknown
+            | ErrorCode::OAuthOptionUnknown
             | ErrorCode::HttpPaginateMaxMissing
             | ErrorCode::HttpStreamWithoutOnMessage
+            | ErrorCode::PageFactsFieldInvalid
+            | ErrorCode::PageFactsUnrequestedRead
+            | ErrorCode::BeaconOptionUnknown
+            | ErrorCode::BeaconTextRequired
+            | ErrorCode::BeaconUrlNotAbsolute
             | ErrorCode::EffectNotifyRetired
             | ErrorCode::EffectSetInvalidBinding
             | ErrorCode::EffectSetPayloadNotAllowed
@@ -2157,7 +2219,9 @@ impl ErrorCode {
             ErrorCode::BehaviorPackageNotInstalled
             | ErrorCode::BehaviorNotFound
             | ErrorCode::BehaviorAmbiguous
-            | ErrorCode::BehaviorPrefixConflict => "behavior_package",
+            | ErrorCode::BehaviorPrefixConflict
+            | ErrorCode::BehaviorNameDuplicate
+            | ErrorCode::BehaviorPackageInvalid => "behavior_package",
 
             ErrorCode::InvalidValue
             | ErrorCode::InvalidReference

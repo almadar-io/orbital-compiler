@@ -426,6 +426,15 @@ fn validate_emit_success_return(
     result
 }
 
+/// The code of a declared field the operator does not emit: `browser/page-facts` names the unrequested fact.
+fn not_produced_code(op_name: &str) -> ErrorCode {
+    if op_name == "browser/page-facts" {
+        ErrorCode::PageFactsUnrequestedRead
+    } else {
+        ErrorCode::EmitPayloadNotProduced
+    }
+}
+
 fn check_declared_against_produced(
     op_name: &str,
     emit_key: &str,
@@ -440,7 +449,7 @@ fn check_declared_against_produced(
             None => {
                 result.add_error(
                     ValidationError::error(
-                        ErrorCode::EmitPayloadNotProduced,
+                        not_produced_code(op_name),
                         path,
                         format!(
                             "Event '{}' declares payload field '{}', but '{}' emits {} on '{}' — '{}' is not one of them, so '?{}' reads undefined at runtime",

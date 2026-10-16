@@ -84,3 +84,63 @@ fn control_an_atom_keeping_its_secret_in_auth_is_clean() {
     let (loaded, _) = violation_codes(call);
     assert!(loaded.is_empty(), "{loaded:?}");
 }
+
+fn grant_auths() -> [Value; 3] {
+    [
+        json!({"scheme":"token-exchange","tokenUrl":"https://a.example/token","grant":"refresh_token",
+            "body":{"form":{"refresh_token":{"credential":"@config.apiKey","scope":"user"}}},
+            "clientAuth":"post","clientId":"@config.apiKey","clientSecret":"@config.apiKey"}),
+        json!({"scheme":"oauth2-client","tokenUrl":"https://a.example/token",
+            "clientId":"@config.apiKey","clientSecret":"@config.apiKey"}),
+        json!({"scheme":"jwt-bearer","tokenUrl":"https://a.example/token","key":"@config.apiKey",
+            "alg":"RS256","claims":{"aud":"https://a.example/token","iat":1000,"exp":4600}}),
+    ]
+}
+
+#[test]
+fn loaded_grant_atoms_keep_declared_credentials_legal_with_public_grant_options() {
+    for mut auth in grant_auths() {
+        auth["grantRequest"] = json!({"headers":{"X-Grant":"public"},"timeoutMs":15000,
+            "retry":{"max":3,"on":["1xx","408","5xx","429","timeout","failed"],
+                "scheduleMs":[100,500,1500],"noResponseMax":2}});
+        let effects = json!([["http","POST","https://a.example","/s",{"auth":auth},{"emit":{"success":"GO"}}]]);
+        let (loaded, after_inline) = violation_codes(effects);
+        assert!(loaded.is_empty(), "{auth}: {loaded:?}");
+        assert!(!after_inline.contains(&"ORB_SECRET_OUTSIDE_AUTH"), "{auth}: {after_inline:?}");
+    }
+}
+
+#[test]
+fn grant_request_secret_leaks_are_found_before_loaded_atom_knobs_are_substituted() {
+    for auth in grant_auths() {
+        for options in [
+            json!({"headers":{"X-Grant":"@config.apiKey"}}),
+            json!({"headers":{"X-Grant":["str/concat","public:","@config.apiKey"]}}),
+            json!({"headers":{"X-Grant":{"credential":"@config.apiKey","scope":"user"}}}),
+            json!({"timeoutMs":"@config.apiKey"}),
+            json!({"retry":{"max":1,"on":["failed"],"scheduleMs":["@config.apiKey"]}}),
+        ] {
+            let mut configured = auth.clone();
+            configured["grantRequest"] = options.clone();
+            let effects = json!([["http","POST","https://a.example","/s",{"auth":configured},{"emit":{"success":"GO"}}]]);
+            let (loaded, after_inline) = violation_codes(effects);
+            assert_eq!(loaded, vec!["ORB_SECRET_OUTSIDE_AUTH"], "{auth}: {options}");
+            assert!(!after_inline.contains(&"ORB_SECRET_OUTSIDE_AUTH"), "the secret read was already substituted: {auth}: {options}: {after_inline:?}");
+        }
+    }
+}
+
+#[test]
+fn loaded_grant_atoms_still_reject_non_secret_fixed_credential_slots() {
+    for auth in grant_auths() {
+        let slots: &[&str] = if auth["scheme"] == "jwt-bearer" { &["key"] } else { &["clientId", "clientSecret"] };
+        for slot in slots {
+            let mut configured = auth.clone();
+            configured[*slot] = json!("LITERAL");
+            configured["grantRequest"] = json!({"headers":{"X-Grant":"public"}});
+            let effects = json!([["http","POST","https://a.example","/s",{"auth":configured},{"emit":{"success":"GO"}}]]);
+            let (loaded, _) = violation_codes(effects);
+            assert_eq!(loaded, vec!["ORB_HTTP_AUTH_CREDENTIAL_NOT_SECRET"], "{auth}: {slot}");
+        }
+    }
+}

@@ -86,7 +86,7 @@ pub struct Diagnostic {
 
 /// The signature of an operator that evaluates to a value: the evaluator's (alias-aware) first, then the
 /// installed table's for operators the evaluator does not run (the Python-target ones).
-fn signature_of(name: &str) -> Option<Signature<'static>> {
+pub(crate) fn signature_of(name: &str) -> Option<Signature<'static>> {
     operator_signature(name).or_else(|| {
         let meta = get_operator(name)?;
         (!meta.has_side_effects).then(|| Signature::of(meta))
@@ -301,6 +301,7 @@ impl<'c> Inferer<'c> {
                 None => self.call("if", &[condition, then_branch, else_branch]),
             },
             OirExpr::Call { function, args } if function == "let" => self.infer_let(args),
+            OirExpr::Call { function, args } if quoted_scalar(function, args).is_some() => quoted_scalar(function, args),
             OirExpr::Call { function, args } => self.call(function, &args.iter().collect::<Vec<_>>()),
             OirExpr::Map {
                 source,
@@ -383,6 +384,10 @@ impl<'c> Inferer<'c> {
     fn literal_text(expr: &OirExpr) -> Option<String> {
         match expr {
             OirExpr::String { value } => Some(value.clone()),
+            OirExpr::Call { function, args } => match quoted_literal(function, args)? {
+                orbital_core::schema::SExpression::String(text) => Some(text),
+                _ => None,
+            },
             _ => None,
         }
     }
@@ -617,6 +622,27 @@ fn binary_name(op: &OirBinaryOp) -> &'static str {
 }
 
 /// A call's name and arguments, however the lowering spelled it.
+/// The literal a `(quote <literal>)` holds, decoded from its IR body.
+fn quoted_literal(function: &str, args: &[OirExpr]) -> Option<orbital_core::schema::SExpression> {
+    match args {
+        [OirExpr::String { value }] if function == orbital_core::schema::quote::QUOTE_HEAD => {
+            orbital_core::schema::quote::decode_quote_body(value)
+        }
+        _ => None,
+    }
+}
+
+/// `(quote <string|number|boolean literal>)` is that scalar; a quote of anything else stays `SExpr`.
+fn quoted_scalar(function: &str, args: &[OirExpr]) -> Option<OirType> {
+    use orbital_core::schema::SExpression as S;
+    match quoted_literal(function, args)? {
+        S::String(_) => Some(OirType::String),
+        S::Number(_) => Some(OirType::Number),
+        S::Bool(_) => Some(OirType::Boolean),
+        _ => None,
+    }
+}
+
 fn as_call(expr: &OirExpr) -> Option<(&str, Vec<&OirExpr>)> {
     match expr {
         OirExpr::Call { function, args } => Some((function.as_str(), args.iter().collect())),
@@ -633,14 +659,21 @@ fn as_call(expr: &OirExpr) -> Option<(&str, Vec<&OirExpr>)> {
 fn operand_binding(expr: &OirExpr) -> Option<OirBinding> {
     match expr {
         OirExpr::Binding { binding } => Some(binding.clone()),
-        OirExpr::Call { function, args } if function == "object/get" => match args.as_slice() {
-            [OirExpr::Binding { binding }, OirExpr::String { value }] => {
-                let mut read = binding.clone();
-                read.path.push(value.clone());
-                Some(read)
+        OirExpr::Call { function, args } => {
+            let projection = signature_of(function)?.field_projection()?;
+            if projection.default_arg.is_some_and(|i| args.get(i).is_some()) {
+                return None;
             }
-            _ => None,
-        },
+            let OirExpr::Binding { binding } = args.get(projection.source_arg)? else {
+                return None;
+            };
+            let OirExpr::String { value } = args.get(projection.key_arg)? else {
+                return None;
+            };
+            let mut read = binding.clone();
+            read.path.push(value.clone());
+            Some(read)
+        }
         _ => None,
     }
 }
@@ -895,6 +928,54 @@ mod tests {
         assert_eq!(infer_oir_expr_type(&call("quote", vec![text("[\">\",1,0]")]), &NoCtx), Some(OirType::SExpr));
     }
 
+    fn quoted(value: orbital_core::schema::SExpression) -> OirExpr {
+        call("quote", vec![text(&orbital_core::schema::quote::encode_quote_body(&value))])
+    }
+
+    fn quoted_text(v: &str) -> OirExpr {
+        quoted(orbital_core::schema::SExpression::String(v.to_string()))
+    }
+
+    fn attribute_row() -> Row {
+        Row(vec![("@href", OirType::String), ("#text", OirType::Number), ("rel", OirType::Boolean)])
+    }
+
+    #[test]
+    fn quote_of_a_scalar_literal_is_that_scalar() {
+        use orbital_core::schema::SExpression as S;
+        assert_eq!(infer_oir_expr_type(&quoted_text("@href"), &NoCtx), Some(OirType::String));
+        assert_eq!(infer_oir_expr_type(&quoted(S::Number(3.0)), &NoCtx), Some(OirType::Number));
+        assert_eq!(infer_oir_expr_type(&quoted(S::Bool(true)), &NoCtx), Some(OirType::Boolean));
+    }
+
+    #[test]
+    fn quote_of_anything_else_stays_sexpr() {
+        use orbital_core::schema::SExpression as S;
+        let list = quoted(S::Array(vec![S::String(">".into()), S::Number(1.0), S::Number(0.0)]));
+        assert_eq!(infer_oir_expr_type(&list, &NoCtx), Some(OirType::SExpr));
+        assert_eq!(infer_oir_expr_type(&quoted(S::Null), &NoCtx), Some(OirType::SExpr));
+        assert_eq!(infer_oir_expr_type(&quoted(S::Object(Default::default())), &NoCtx), Some(OirType::SExpr));
+    }
+
+    #[test]
+    fn object_get_with_a_quoted_key_reads_the_declared_field_type() {
+        let row = attribute_row();
+        let get = |key: OirExpr| call("object/get", vec![entity(&[]), key]);
+        assert_eq!(infer_oir_expr_type(&get(quoted_text("@href")), &row), Some(OirType::String));
+        assert_eq!(infer_oir_expr_type(&get(quoted_text("#text")), &row), Some(OirType::Number));
+        // control: a bare-identifier field reads the same way through a plain key.
+        assert_eq!(infer_oir_expr_type(&get(text("rel")), &row), Some(OirType::Boolean));
+    }
+
+    #[test]
+    fn a_quoted_key_that_names_no_field_is_reported() {
+        let row = attribute_row();
+        let found = check_oir_expr(&call("object/get", vec![entity(&[]), quoted_text("@nope")]), &row);
+        assert_eq!(found.len(), 1, "{found:?}");
+        assert!(matches!(found[0].mismatch, Mismatch::NoField { .. }));
+        assert!(check_oir_expr(&call("object/get", vec![entity(&[]), quoted_text("@href")]), &row).is_empty());
+    }
+
     #[test]
     fn a_polymorphic_call_is_the_concrete_type_of_its_arguments() {
         // (array/first @entity.tags) is a string when tags is [string]; the control is a [number].
@@ -1009,6 +1090,31 @@ mod tests {
         assert_eq!(found.len(), 1, "{found:?}");
         assert!(matches!(found[0].mismatch, Mismatch::NoField { .. }));
         assert!(check_oir_expr(&call("object/get", vec![entity(&[]), text("count")]), &row).is_empty());
+    }
+
+    #[test]
+    fn an_operand_projection_is_a_binding_only_without_a_supplied_default() {
+        assert_eq!(
+            operand_binding(&call("object/get", vec![entity(&[]), text("count")])),
+            Some(OirBinding::entity(vec!["count".into()]))
+        );
+        for expression in [
+            call("object/get", vec![entity(&[]), text("count"), num(0.0)]),
+            call("object/get", vec![entity(&[]), entity(&["name"])]),
+            call("object/get", vec![text("not-a-binding"), text("count")]),
+        ] {
+            assert_eq!(operand_binding(&expression), None);
+        }
+    }
+
+    #[test]
+    fn operand_projection_keeps_the_declared_dot_path_and_literal_bracket_key() {
+        for path in ["profile.id", "data[0]"] {
+            assert_eq!(
+                operand_binding(&call("object/get", vec![entity(&[]), text(path)])),
+                Some(OirBinding::entity(vec![path.into()]))
+            );
+        }
     }
 
     #[test]

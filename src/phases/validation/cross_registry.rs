@@ -2,7 +2,7 @@
 //!
 //! Walks the schema and verifies every operator, pattern, and behavior
 //! reference exists in the embedded registries (operators.json,
-//! patterns-registry.json, behaviors-registry.json).
+//! patterns-registry.json, installed behavior packages).
 //!
 //! - Unknown operators are reported as warnings (some are still in the
 //!   legacy hardcoded `sexpr.rs` constants and will move to operators.json
@@ -208,12 +208,12 @@ fn check_behavior_reference(name: &str, path: &str, result: &mut ValidationResul
             ErrorCode::SExprInvalidOperator,
             path,
             format!(
-                "Behavior '{}' is not in behaviors-registry.json (cross-registry check)",
+                "Behavior '{}' is not shipped by any installed behavior package (cross-registry check)",
                 name
             ),
         )
         .with_suggestion(format!(
-            "Create packages/almadar-std/behaviors/registry/<atoms|molecules|organisms>/{}.orb (the registry is the canonical source of truth since Phase E, 2026-04-08), then run `npx tsx tools/behavior-registry-sync/index.ts` to refresh behaviors-registry.json.",
+            "Author {}.lolo under <topic>/<atoms|molecules|organisms>/ in a behavior package's `orb.source` tree, or install the package that ships it (`orb add`).",
             name
         )),
     );
@@ -252,7 +252,7 @@ mod tests {
         result
             .errors
             .iter()
-            .filter(|e| e.message.contains("behaviors-registry"))
+            .filter(|e| e.message.contains("any installed behavior package"))
             .count()
     }
 

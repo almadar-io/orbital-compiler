@@ -48,6 +48,8 @@ fn collect(
             }
         }
         SExpression::Array(items) => {
+            result.merge(super::keyed_call::check_key_expression_type(items, path, ctx));
+            result.merge(super::http::check_http_operand_types(items, path, ctx));
             let mut covered = covered;
             let mut children = items.as_slice();
             if let Some(SExpression::String(head)) = items.first() {

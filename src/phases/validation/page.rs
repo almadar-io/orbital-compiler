@@ -532,7 +532,7 @@ pub(crate) fn validate_page_reachability(schema: &OrbitalSchema) -> ValidationRe
     // A lazy page is reached by the program's own links, or by the links inside a lazy page that is
     // itself reached; walk that to a fixpoint so an unreached page's links reach nothing.
     let mut hrefs = signals.hrefs.clone();
-    let mut navigate_targets = signals.navigate_targets.clone();
+    let navigate_targets = signals.navigate_targets.clone();
     let lazy_pages: Vec<&orbital_core::schema::LazyPage> =
         schema.lazy_pages.iter().flatten().collect();
     let is_reached = |path: &str, hrefs: &HashSet<String>, targets: &HashSet<String>| {

@@ -7,6 +7,7 @@
 use super::super::{ErrorCode, ValidationError, ValidationResult};
 use super::call_service::literal_kind;
 use super::extract_emit_object_ref;
+use super::set::ExprReturnCtx;
 use orbital_core::schema::{OrbitalSchema, SExpression};
 
 /// The `emit` slots a keyed call may declare (`onMessage` is accepted as the
@@ -36,10 +37,7 @@ pub(super) fn trailing_options(arr: &[SExpression]) -> Option<&orbital_core::sch
 }
 
 pub(super) fn declared_key(options: &orbital_core::schema::SObject) -> Option<&SExpression> {
-    match options.get("key") {
-        None | Some(SExpression::Null) => None,
-        Some(k) => Some(k),
-    }
+    options.get("key")
 }
 
 /// `key` must be string-typed: a non-string literal can never name a call;
@@ -51,6 +49,15 @@ pub(super) fn check_key_and_cancelled(
 ) -> ValidationResult {
     let mut result = ValidationResult::new();
     let key = declared_key(options);
+    if matches!(key, Some(SExpression::Null))
+        || matches!(key, Some(SExpression::String(text)) if text.is_empty())
+    {
+        result.add_error(ValidationError::error(
+            ErrorCode::CallServiceKeyType,
+            path,
+            format!("{operator} `key` must be a non-empty string"),
+        ));
+    }
     if let Some(kind) = key.and_then(literal_kind) {
         if kind != "string" {
             result.add_error(
@@ -80,6 +87,39 @@ pub(super) fn check_key_and_cancelled(
                 "Add `key: <string expression>` to the {operator} options, and cancel it with (cancel-call <key>)"
             )),
         );
+    }
+    result
+}
+
+pub(super) fn check_key_expression_type(
+    arr: &[SExpression],
+    path: &str,
+    ctx: &ExprReturnCtx<'_>,
+) -> ValidationResult {
+    let mut result = ValidationResult::new();
+    let Some(operator) = arr.first().and_then(SExpression::as_str) else {
+        return result;
+    };
+    if !KEYED_CALL_OPERATORS.contains(&operator) {
+        return result;
+    }
+    let Some(key) = trailing_options(arr).and_then(declared_key) else {
+        return result;
+    };
+    if literal_kind(key).is_some() || matches!(key, SExpression::Null) {
+        return result;
+    }
+    let Ok(expr) = crate::phases::resolve::resolve_sexpr_standalone(key) else {
+        return result;
+    };
+    if let Some(inferred) = crate::type_infer::infer_oir_expr_type(&expr, ctx) {
+        if !orbital_core::oir_type_satisfies(&inferred, &orbital_core::ir::OirType::String) {
+            result.add_error(ValidationError::error(
+                ErrorCode::CallServiceKeyType,
+                path,
+                format!("{operator} `key` must evaluate to a string, got {}", orbital_core::oir_type_kind(&inferred)),
+            ));
+        }
     }
     result
 }

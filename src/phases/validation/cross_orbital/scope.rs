@@ -59,7 +59,10 @@ pub(crate) fn validate_scope_boundary(
     // reference into it; parse each distinct behavior at most once per run.
     // `None` records a parse failure (or a missing/unresolvable std package)
     // so we don't retry it.
-    let mut parsed_std_cache: HashMap<&str, Option<OrbitalSchema>> = HashMap::new();
+    let mut parsed_std_cache: HashMap<
+        &str,
+        Result<Option<OrbitalSchema>, orbital_core::behavior_packages::DiscoverError>,
+    > = HashMap::new();
     let std_package = packages.iter().find(|p| p.prefix == "almadar-std");
 
     for (oi, orbital) in schema.orbitals.iter().enumerate() {
@@ -128,9 +131,25 @@ pub(crate) fn validate_scope_boundary(
                 };
                 let parsed = parsed_std_cache.entry(*src).or_insert_with(|| {
                     crate::loader::resolve_behavior_in_registry(behavior_name, &std_pkg.registry)
-                        .and_then(|path| std::fs::read_to_string(path).ok())
-                        .and_then(|content| serde_json::from_str::<OrbitalSchema>(&content).ok())
+                        .map(|resolved| resolved
+                            .and_then(|path| std::fs::read_to_string(path).ok())
+                            .and_then(|content| serde_json::from_str::<OrbitalSchema>(&content).ok()))
                 });
+                let parsed = match parsed {
+                    Ok(parsed) => parsed,
+                    Err(error) => {
+                        let code = match error {
+                            orbital_core::behavior_packages::DiscoverError::DuplicateBehaviorName { .. } => ErrorCode::BehaviorNameDuplicate,
+                            _ => ErrorCode::BehaviorPackageInvalid,
+                        };
+                        result.add_error(ValidationError::error(
+                            code,
+                            format!("orbitals[{}].uses", oi),
+                            error.to_string(),
+                        ));
+                        continue;
+                    }
+                };
                 owned_holder = parsed
                     .as_ref()
                     .and_then(|schema| emits_for_trait(schema, target_trait_name));

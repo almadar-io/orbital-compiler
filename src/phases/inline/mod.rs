@@ -312,6 +312,10 @@ impl InlineError {
             }
             InlineError::Loader(LoaderError::BehaviorNotFound { .. }) => "ORB_BEHAVIOR_NOT_FOUND",
             InlineError::Loader(LoaderError::BehaviorAmbiguous { .. }) => "ORB_BEHAVIOR_AMBIGUOUS",
+            InlineError::Loader(LoaderError::BehaviorPackage(
+                orbital_core::behavior_packages::DiscoverError::DuplicateBehaviorName { .. },
+            )) => "ORB_BEHAVIOR_NAME_DUPLICATE",
+            InlineError::Loader(LoaderError::BehaviorPackage(_)) => "ORB_BEHAVIOR_PACKAGE_INVALID",
             InlineError::Loader(LoaderError::PrefixConflict { .. }) => {
                 "ORB_BEHAVIOR_PREFIX_CONFLICT"
             }

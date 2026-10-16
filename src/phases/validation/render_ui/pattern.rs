@@ -735,9 +735,12 @@ pub(crate) fn validate_pattern(
                                 "{} has no accessible name: screen readers announce it as an unlabeled control",
                                 pattern_type
                             ),
-                        ).with_suggestion(format!(
-                            "set one of: {}, aria-label, aria-labelledby (or aria-hidden: true if it is decorative)",
-                            name_props.join(", ")
+                        ).with_suggestion(a11y_unnamed_suggestion(
+                            name_props,
+                            |prop| {
+                                core_props.is_some_and(|p| p.contains(prop))
+                                    || extra_props.is_some_and(|p| p.contains(prop))
+                            },
                         )));
                     }
                 }
@@ -1886,4 +1889,15 @@ mod trait_value_child_tests {
         }));
         assert!(missing_type(&pattern));
     }
+}
+
+/// `ORB_A11Y_UNNAMED`'s fix: the pattern's own name props, then only the aria props it accepts.
+fn a11y_unnamed_suggestion(name_props: &[String], accepts: impl Fn(&str) -> bool) -> String {
+    let mut props: Vec<&str> = name_props.iter().map(String::as_str).collect();
+    props.extend(["aria-label", "aria-labelledby"].into_iter().filter(|p| accepts(p)));
+    let mut suggestion = format!("set one of: {}", props.join(", "));
+    if accepts("aria-hidden") {
+        suggestion.push_str(" (or aria-hidden: true if it is decorative)");
+    }
+    suggestion
 }

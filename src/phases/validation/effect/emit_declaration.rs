@@ -482,9 +482,14 @@ fn validate_leaf_effect(
                         for arg in arr.iter().skip(1) {
                             if let SExpression::Object(options) = arg {
                                 if let Some(emit_obj) = extract_emit_object_ref(options) {
+                                    let keys: &[&str] = if browser_op == "browser/beacon" {
+                                        &["success", "failure", "cancelled"]
+                                    } else {
+                                        &["success", "failure"]
+                                    };
                                     result.merge(validate_emit_config(
                                         emit_obj,
-                                        &["success", "failure"],
+                                        keys,
                                         declared_emits,
                                         path,
                                     ));
