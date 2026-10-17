@@ -19,9 +19,9 @@ const PROGRAM: &str = r#"{
         "events": [ { "key": "INIT" }, { "key": "ASK" }, { "key": "SENT" }, { "key": "NOT_SENT" } ],
         "transitions": [
           { "from": "active", "to": "active", "event": "INIT",
-            "effects": [ ["call-service", "analytics", "pageview", { "endpoint": "", "path": "/" }, { "emit": { "success": "SENT", "failure": "NOT_SENT" } }] ] },
+            "effects": [ ["call-service", "page", "openTab", { "url": "https://example.com", "active": true }, { "emit": { "success": "SENT", "failure": "NOT_SENT" } }] ] },
           { "from": "active", "to": "active", "event": "ASK",
-            "effects": [ ["call-service", "llm", "generate", { "userPrompt": "hi" }, { "emit": { "success": "SENT", "failure": "NOT_SENT" } }] ] },
+            "effects": [ ["call-service", "webhook", "send", { "userPrompt": "hi" }, { "emit": { "success": "SENT", "failure": "NOT_SENT" } }] ] },
           { "from": "active", "to": "active", "event": "SENT" },
           { "from": "active", "to": "active", "event": "NOT_SENT" }
         ]
@@ -46,18 +46,18 @@ fn options(runtimes: &[(&str, &[&str])]) -> CompilerOptions {
 
 #[test]
 fn a_called_browser_only_service_is_stamped() {
-    let oir = compile_json(PROGRAM, &options(&[("analytics", &["browser"]), ("llm", &["node", "browser"])])).expect("compiles");
-    assert_eq!(oir.browser_services, vec!["analytics".to_string()]);
+    let oir = compile_json(PROGRAM, &options(&[("page", &["browser"]), ("webhook", &["node", "browser"])])).expect("compiles");
+    assert_eq!(oir.browser_services, vec!["page".to_string()]);
 }
 
 #[test]
 fn control_a_service_that_also_runs_on_node_or_is_undeclared_is_not() {
-    let oir = compile_json(PROGRAM, &options(&[("llm", &["node", "browser"])])).expect("compiles");
+    let oir = compile_json(PROGRAM, &options(&[("webhook", &["node", "browser"])])).expect("compiles");
     assert!(oir.browser_services.is_empty(), "{:?}", oir.browser_services);
 }
 
 #[test]
 fn control_an_uncalled_browser_only_service_is_not_stamped() {
-    let oir = compile_json(PROGRAM, &options(&[("analytics", &["browser"]), ("page", &["browser"])])).expect("compiles");
-    assert_eq!(oir.browser_services, vec!["analytics".to_string()]);
+    let oir = compile_json(PROGRAM, &options(&[("page", &["browser"]), ("clipboard", &["browser"])])).expect("compiles");
+    assert_eq!(oir.browser_services, vec!["page".to_string()]);
 }

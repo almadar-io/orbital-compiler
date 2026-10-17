@@ -367,6 +367,8 @@ fn compile_schema_with_path(
     }
     let mut oir = resolve_to_oir(&schema)?;
     oir.egress = schema.egress.clone().unwrap_or_default();
+    oir.inbound = orbital_core_base::inbound::inbound_routes_of(&schema);
+    oir.os_grants = schema.program_os_grants();
     let runtimes = options
         .service_runtimes
         .as_ref()
@@ -475,21 +477,24 @@ mod tests {
     use super::*;
     use serde_json::{json, Value};
 
-    fn keyed_upload_program(options: Value) -> OrbitalSchema {
+    fn watch_program(event: &str) -> OrbitalSchema {
         serde_json::from_value(json!({
             "name": "fixture", "version": "1.0.0",
             "orbitals": [{
-                "name": "Files",
+                "name": "Feed",
                 "entity": { "name": "Row", "persistence": "runtime",
                     "fields": [{ "name": "id", "type": "string", "required": true }] },
                 "traits": [{
-                    "name": "Uploader", "linkedEntity": "Row", "category": "interaction",
-                    "emits": [{ "event": "DONE", "payloadSchema": [{ "name": "key", "type": "string" }] }],
+                    "name": "Watcher", "linkedEntity": "Row", "category": "interaction",
                     "stateMachine": {
                         "states": [{ "name": "idle", "isInitial": true }],
-                        "events": [{ "key": "INIT" }],
-                        "transitions": [{ "from": "idle", "to": "idle", "event": "INIT",
-                            "effects": [["call-service", "storage", "upload", {}, options]] }]
+                        "events": [{ "key": "INIT" }, { "key": "SEEN", "external": true }],
+                        "transitions": [
+                            { "from": "idle", "to": "idle", "event": "INIT",
+                              "effects": [["call-service", "page", "watch",
+                                { "match": "https://example.com/*", "selector": "a", "fields": {}, "event": event }]] },
+                            { "from": "idle", "to": "idle", "event": "SEEN", "effects": [] }
+                        ]
                     }
                 }],
                 "pages": []
@@ -498,23 +503,24 @@ mod tests {
         .expect("schema")
     }
 
-    fn has_result_has_key(result: &ComprehensiveValidationResult) -> bool {
-        result
-            .errors
-            .iter()
-            .chain(result.warnings.iter())
-            .any(|e| e.code == validation::ErrorCode::CallServiceResultHasKey)
+    fn has_event_address_error(result: &ComprehensiveValidationResult) -> bool {
+        result.errors.iter().chain(result.warnings.iter()).any(|e| {
+            matches!(
+                e.code,
+                validation::ErrorCode::TraitEventRefUnresolved
+                    | validation::ErrorCode::TraitEventRefNotExternalInput
+            )
+        })
     }
 
     #[test]
     fn compile_validation_reads_the_installed_services_registry() {
-        use serde_json::json;
-        let keyed = keyed_upload_program(json!({ "key": "@entity.id", "emit": { "success": "DONE" } }));
-        let result = validate_for_compile(&keyed, &CompilerOptions::default());
-        assert!(has_result_has_key(&result), "{:?}", result.errors);
-        assert!(!has_result_has_key(&validate_comprehensive_without_services(&keyed)));
-        let unkeyed = keyed_upload_program(json!({ "emit": { "success": "DONE" } }));
-        assert!(!has_result_has_key(&validate_for_compile(&unkeyed, &CompilerOptions::default())));
+        let misspelled = watch_program("Watcher.SEN");
+        let result = validate_for_compile(&misspelled, &CompilerOptions::default());
+        assert!(has_event_address_error(&result), "{:?}", result.errors);
+        assert!(!has_event_address_error(&validate_comprehensive_without_services(&misspelled)));
+        let declared = watch_program("Watcher.SEEN");
+        assert!(!has_event_address_error(&validate_for_compile(&declared, &CompilerOptions::default())));
     }
 
     #[test]

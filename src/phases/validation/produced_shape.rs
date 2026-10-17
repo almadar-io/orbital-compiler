@@ -323,6 +323,8 @@ pub(crate) fn produced_payload(
         "credential-status"
             | "credential-forget"
             | "browser/beacon"
+            | "browser/prompt"
+            | "browser/embed"
             | "oauth-authorize"
             | "oauth-connection-status"
             | "oauth-connection-forget"

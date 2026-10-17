@@ -168,6 +168,7 @@ fn schema_with_emit(emit: SExpression, declared: EmitDefinition) -> OrbitalSchem
             listens: None,
             exposes: None,
             domain_context: None,
+            os_grants: None,
             design: None,
             id: None,
             reference: None,
@@ -178,7 +179,9 @@ fn schema_with_emit(emit: SExpression, declared: EmitDefinition) -> OrbitalSchem
         schema_version: None,
         config: None,
     egress: None,
+    inbound: None,
     os_grants: None,
+    deployment: None,
     }
 }
 

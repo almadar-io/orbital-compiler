@@ -143,7 +143,7 @@ fn control_a_local_trait_still_may_not_fetch_a_server_entity() {
 
 #[test]
 fn control_a_local_trait_still_may_not_call_a_service() {
-    let t = browse("Invoice", true, json!([["call-service", "llm", "call", {}]]));
+    let t = browse("Invoice", true, json!([["call-service", "webhook", "send", {}]]));
     let r = validate_comprehensive_without_services(&schema(vec![invoice(json!({}))], vec![t]));
     assert!(has(&r, ErrorCode::TraitLocalTouchesServer), "{:?}", codes(&r));
 }

@@ -293,6 +293,7 @@ mod tests {
             listens: None,
             exposes: None,
             domain_context: None,
+            os_grants: None,
             design: None,
             id: None,
             reference: None,
@@ -317,7 +318,9 @@ mod tests {
             schema_version: None,
             config: None,
     egress: None,
+    inbound: None,
     os_grants: None,
+    deployment: None,
         }
     }
 

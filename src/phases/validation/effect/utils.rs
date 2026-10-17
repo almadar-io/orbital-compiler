@@ -27,15 +27,8 @@ const EFFECT_POSITION_EXTRA: &[&str] = &[
     "let",  // Local variable binding in effects
     "when", // Conditional effect (like if but for effects)
     "fn",   // Lambda wrapping effects
-    // OS trigger operators
-    "os/watch-files",
-    "os/watch-process",
-    "os/watch-port",
+    // Legacy trigger: not in the `os/` family (no grant, no `host: 'os'`)
     "os/watch-http",
-    "os/watch-cron",
-    "os/watch-signal",
-    "os/watch-env",
-    "os/debounce",
     // Resource operators (ref/deref/swap/watch/atomic)
     "ref",    // Reactive entity subscription
     "deref",  // Snapshot read
@@ -122,6 +115,7 @@ pub fn effect_operators() -> &'static [&'static str] {
         let mut v = EFFECT_OPERATORS.to_vec();
         v.extend_from_slice(EFFECT_POSITION_EXTRA);
         v.extend(orbital_core_base::language::registry::program_host_effects());
+        v.extend(orbital_core_base::language::registry::os_host_effects());
         v
     })
 }
@@ -1204,7 +1198,8 @@ mod tests {
         let literal = r#"["persist", "create", "Message", {"id": "mix"}]"#;
         let upsert = r#"["persist", "upsert", "Message", {"id": "mix"}]"#;
         let hit = |errs: &[(ErrorCode, String)], path: &str| {
-            errs.iter().any(|(c, p)| *c == ErrorCode::PersistCreateLiteralId && p == path)
+            errs.iter()
+                .any(|(c, p)| *c == ErrorCode::PersistCreateLiteralId && p == path)
         };
         let in_do = nested_check(&format!(r#"["do", {upsert}, {literal}]"#), &[]);
         assert!(hit(&in_do, "fx.do[1]"), "{in_do:?}");
@@ -1218,14 +1213,19 @@ mod tests {
         let in_list = nested_check(&format!(r#"["if", true, [{upsert}, {literal}]]"#), &[]);
         assert!(hit(&in_list, "fx.then[1]"), "{in_list:?}");
         let clean = nested_check(&format!(r#"["do", ["if", true, {upsert}]]"#), &[]);
-        assert!(clean.is_empty(), "control: no nested defect, no error: {clean:?}");
+        assert!(
+            clean.is_empty(),
+            "control: no nested defect, no error: {clean:?}"
+        );
     }
 
     #[test]
     fn a_nested_undeclared_emit_is_flagged_and_a_declared_one_is_not() {
         let undeclared = nested_check(r#"["do", ["when", true, ["emit", "GHOST"]]]"#, &[]);
         assert!(
-            undeclared.iter().any(|(c, p)| *c == ErrorCode::TraitEventUndeclared && p == "fx.do[0].then[0]"),
+            undeclared
+                .iter()
+                .any(|(c, p)| *c == ErrorCode::TraitEventUndeclared && p == "fx.do[0].then[0]"),
             "{undeclared:?}"
         );
         let declared = vec![DeclaredEmit {
@@ -1235,6 +1235,10 @@ mod tests {
             required_fields: vec![],
         }];
         let ok = nested_check(r#"["do", ["when", true, ["emit", "GHOST"]]]"#, &declared);
-        assert!(!ok.iter().any(|(c, _)| *c == ErrorCode::TraitEventUndeclared), "{ok:?}");
+        assert!(
+            !ok.iter()
+                .any(|(c, _)| *c == ErrorCode::TraitEventUndeclared),
+            "{ok:?}"
+        );
     }
 }

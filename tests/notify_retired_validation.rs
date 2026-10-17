@@ -117,6 +117,7 @@ fn schema_with_effects(effects: Vec<SExpression>) -> OrbitalSchema {
             listens: None,
             exposes: None,
             domain_context: None,
+            os_grants: None,
             design: None,
             id: None,
             reference: None,
@@ -127,7 +128,9 @@ fn schema_with_effects(effects: Vec<SExpression>) -> OrbitalSchema {
         schema_version: None,
         config: None,
     egress: None,
+    inbound: None,
     os_grants: None,
+    deployment: None,
     }
 }
 

@@ -1892,7 +1892,7 @@ mod tests {
     #[test]
     fn call_service_options_resolve_key_and_cancelled() {
         let effect = resolved_call_service(
-            r#"["call-service", "llm", "classifyMany", {"items": "@entity.items"},
+            r#"["call-service", "webhook", "send", {"items": "@entity.items"},
                 {"key": "@entity.batchId", "emit": {"success": "OK", "failure": "BAD", "cancelled": "STOPPED"}}]"#,
         );
         let OirEffect::CallService {
@@ -1911,7 +1911,7 @@ mod tests {
     #[test]
     fn call_service_key_without_emit_is_still_options_not_args() {
         let effect = resolved_call_service(
-            r#"["call-service", "llm", "generate", {"userPrompt": "hi"}, {"key": "k1"}]"#,
+            r#"["call-service", "webhook", "send", {"userPrompt": "hi"}, {"key": "k1"}]"#,
         );
         let OirEffect::CallService {
             key, emit, args, ..
@@ -1979,7 +1979,9 @@ mod tests {
             schema_version: None,
             config: None,
     egress: None,
+    inbound: None,
     os_grants: None,
+    deployment: None,
         }
     }
 
@@ -2336,7 +2338,9 @@ mod tests {
             schema_version: None,
             config: None,
     egress: None,
+    inbound: None,
     os_grants: None,
+    deployment: None,
         };
         let resolver = Resolver::new(&schema);
         let resolved = resolver
@@ -2490,7 +2494,9 @@ mod tests {
             schema_version: None,
             config: None,
     egress: None,
+    inbound: None,
     os_grants: None,
+    deployment: None,
         };
         let resolver = Resolver::new(&schema);
         let resolved = resolver.resolve_field_shape(&field).expect("resolves");
@@ -2524,7 +2530,9 @@ mod tests {
             schema_version: None,
             config: None,
     egress: None,
+    inbound: None,
     os_grants: None,
+    deployment: None,
         };
         let resolver = Resolver::new(&schema);
         for malformed in [
@@ -2922,7 +2930,9 @@ mod tests {
             schema_version: None,
             config: None,
     egress: None,
+    inbound: None,
     os_grants: None,
+    deployment: None,
         };
 
         let result = resolve_to_oir(&schema);
@@ -2966,7 +2976,9 @@ mod tests {
             schema_version: None,
             config: None,
     egress: None,
+    inbound: None,
     os_grants: None,
+    deployment: None,
         });
         Resolver::new(schema)
     }

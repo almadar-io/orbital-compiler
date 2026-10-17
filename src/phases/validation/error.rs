@@ -532,6 +532,32 @@ pub enum ErrorCode {
     HttpEgressUndeclared,
     /// an `egress` entry is not `scheme://host[:port]`
     HttpEgressEntryInvalid,
+    /// an inbound handler (`listens { EVENT -> inbound "name" … }`) is reachable in a program whose app does not declare `name` in `inbound`
+    InboundUndeclared,
+    /// an `inbound` entry is not one lower-case hook name (letters, digits, `-`), or is listed twice
+    InboundEntryInvalid,
+    /// two traits handle the same inbound hook name
+    InboundDuplicate,
+    /// an inbound handler answers with an event its trait does not declare in `emits`
+    InboundAnswerUndeclared,
+    /// an inbound `verifies` header is not a lower-case header name, or its credential is not a credential name
+    InboundVerifyInvalid,
+    /// an `os/` call needs something the calling orbital's grants do not cover
+    OsGrantMissing,
+    /// an `os/` call's target (path, command, host, port, variable, flags) is not a literal
+    OsTargetNotStatic,
+    /// a declared `os/` grant entry that no `os/` call of the orbitals holding it uses (warning)
+    OsGrantUnused,
+    /// a declared `os/` grant entry whose shape cannot match anything
+    OsGrantEntryInvalid,
+    /// a `deployment` unit lists an orbital the program does not declare
+    PlacementOrbitalUnknown,
+    /// an orbital is listed in more than one `deployment` unit, or twice in one
+    PlacementOrbitalDuplicate,
+    /// a `deployment` is declared and an orbital is in none of its units
+    PlacementOrbitalUnplaced,
+    /// a `deployment` unit lists no orbital
+    PlacementUnitEmpty,
     /// an `http` origin is neither a string literal nor a `url`-typed `@config` knob
     HttpOriginNotStatic,
     /// an `http` method is not one of GET POST PUT PATCH DELETE
@@ -582,6 +608,10 @@ pub enum ErrorCode {
     BeaconTextRequired,
     /// a literal `browser/beacon` URL that is not an absolute http(s) URL
     BeaconUrlNotAbsolute,
+    /// a `browser/prompt` or `browser/embed` where the server runs the transition: a `[background]` tick
+    OnDeviceEffectOnServer,
+    /// a literal `browser/prompt` response schema that is not a JSON object
+    OnDeviceSchemaInvalid,
     /// set effect using invalid binding
     EffectSetInvalidBinding,
     /// set effect using @payload (should use @entity)
@@ -1576,6 +1606,19 @@ impl ErrorCode {
             ErrorCode::CallServiceResultHasKey => "ORB_CALL_SERVICE_RESULT_HAS_KEY",
             ErrorCode::HttpEgressUndeclared => "ORB_HTTP_EGRESS_UNDECLARED",
             ErrorCode::HttpEgressEntryInvalid => "ORB_HTTP_EGRESS_ENTRY_INVALID",
+            ErrorCode::InboundUndeclared => "ORB_INBOUND_UNDECLARED",
+            ErrorCode::InboundEntryInvalid => "ORB_INBOUND_ENTRY_INVALID",
+            ErrorCode::InboundDuplicate => "ORB_INBOUND_DUPLICATE",
+            ErrorCode::InboundAnswerUndeclared => "ORB_INBOUND_ANSWER_UNDECLARED",
+            ErrorCode::InboundVerifyInvalid => "ORB_INBOUND_VERIFY_INVALID",
+            ErrorCode::OsGrantMissing => "ORB_OS_GRANT_MISSING",
+            ErrorCode::OsTargetNotStatic => "ORB_OS_TARGET_NOT_STATIC",
+            ErrorCode::OsGrantUnused => "ORB_OS_GRANT_UNUSED",
+            ErrorCode::OsGrantEntryInvalid => "ORB_OS_GRANT_ENTRY_INVALID",
+            ErrorCode::PlacementOrbitalUnknown => "ORB_PLACEMENT_ORBITAL_UNKNOWN",
+            ErrorCode::PlacementOrbitalDuplicate => "ORB_PLACEMENT_ORBITAL_DUPLICATE",
+            ErrorCode::PlacementOrbitalUnplaced => "ORB_PLACEMENT_ORBITAL_UNPLACED",
+            ErrorCode::PlacementUnitEmpty => "ORB_PLACEMENT_UNIT_EMPTY",
             ErrorCode::HttpOriginNotStatic => "ORB_HTTP_ORIGIN_NOT_STATIC",
             ErrorCode::HttpMethodUnknown => "ORB_HTTP_METHOD_UNKNOWN",
             ErrorCode::HttpOptionUnknown => "ORB_HTTP_OPTION_UNKNOWN",
@@ -1601,6 +1644,8 @@ impl ErrorCode {
             ErrorCode::BeaconOptionUnknown => "ORB_BEACON_OPTION_UNKNOWN",
             ErrorCode::BeaconTextRequired => "ORB_BEACON_TEXT_REQUIRED",
             ErrorCode::BeaconUrlNotAbsolute => "ORB_BEACON_URL_NOT_ABSOLUTE",
+            ErrorCode::OnDeviceEffectOnServer => "ORB_ON_DEVICE_EFFECT_ON_SERVER",
+            ErrorCode::OnDeviceSchemaInvalid => "ORB_ON_DEVICE_SCHEMA_INVALID",
             ErrorCode::EffectSetInvalidBinding => "ORB_EFF_SET_INVALID_BINDING",
             ErrorCode::EffectSetPayloadNotAllowed => "ORB_EFF_SET_PAYLOAD_NOT_ALLOWED",
             ErrorCode::EffectFetchInvalidEntity => "ORB_EFF_FETCH_INVALID_ENTITY",
@@ -2001,6 +2046,19 @@ impl ErrorCode {
             | ErrorCode::CallServiceResultHasKey
             | ErrorCode::HttpEgressUndeclared
             | ErrorCode::HttpEgressEntryInvalid
+            | ErrorCode::InboundUndeclared
+            | ErrorCode::InboundEntryInvalid
+            | ErrorCode::InboundDuplicate
+            | ErrorCode::InboundAnswerUndeclared
+            | ErrorCode::InboundVerifyInvalid
+            | ErrorCode::OsGrantMissing
+            | ErrorCode::OsTargetNotStatic
+            | ErrorCode::OsGrantUnused
+            | ErrorCode::OsGrantEntryInvalid
+            | ErrorCode::PlacementOrbitalUnknown
+            | ErrorCode::PlacementOrbitalDuplicate
+            | ErrorCode::PlacementOrbitalUnplaced
+            | ErrorCode::PlacementUnitEmpty
             | ErrorCode::HttpOriginNotStatic
             | ErrorCode::HttpMethodUnknown
             | ErrorCode::HttpOptionUnknown
@@ -2026,6 +2084,8 @@ impl ErrorCode {
             | ErrorCode::BeaconOptionUnknown
             | ErrorCode::BeaconTextRequired
             | ErrorCode::BeaconUrlNotAbsolute
+            | ErrorCode::OnDeviceEffectOnServer
+            | ErrorCode::OnDeviceSchemaInvalid
             | ErrorCode::EffectNotifyRetired
             | ErrorCode::EffectSetInvalidBinding
             | ErrorCode::EffectSetPayloadNotAllowed

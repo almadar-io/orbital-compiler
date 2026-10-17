@@ -2968,6 +2968,7 @@ mod entity_id_reader_tests {
                 payload_entity: None,
                 external: None,
                 listened: None,
+                inbound: None,
             }]
         });
         TraitDefinition {
@@ -3040,6 +3041,7 @@ mod entity_id_reader_tests {
                     payload_entity: None,
                     external: None,
                     listened: None,
+                    inbound: None,
                 });
             }
             let mut tr = td.state_machine.transitions[0].clone();

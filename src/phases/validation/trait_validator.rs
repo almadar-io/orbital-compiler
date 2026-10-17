@@ -1527,6 +1527,7 @@ mod tests {
                     payload_entity: None,
                     external: None,
                     listened: None,
+                    inbound: None,
                 },
                 EventDefinition {
                     id: None,
@@ -1539,6 +1540,7 @@ mod tests {
                     payload_entity: None,
                     external: None,
                     listened: None,
+                    inbound: None,
                 },
             ]),
             transitions: vec![
@@ -2225,6 +2227,7 @@ mod tests {
             listens: None,
             exposes: None,
             domain_context: None,
+            os_grants: None,
             design: None,
             id: None,
             reference: None,

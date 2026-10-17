@@ -242,16 +242,6 @@ pub const CORE_OPERATORS: &[&str] = &[
     "format/percent",
     "format/phone",
     "format/plural",
-    // GAP-V004: Async operators from operators.json
-    "async/all",
-    "async/debounce",
-    "async/delay",
-    "async/interval",
-    "async/race",
-    "async/retry",
-    "async/sequence",
-    "async/throttle",
-    "async/timeout",
     // GAP-V004: Missing core operators from operators.json
     "clamp",
     "when",
@@ -306,7 +296,6 @@ pub const OS_OPERATORS: &[&str] = &[
     "os/watch-cron",
     "os/watch-signal",
     "os/watch-env",
-    "os/debounce",
 ];
 
 /// Check if an operator is known.
@@ -430,5 +419,13 @@ mod tests {
         }
         let hint = suggest_operator("array/length").unwrap_or_default();
         assert!(!hint.contains("'array/length'"), "{hint}");
+    }
+
+    #[test]
+    fn the_retired_async_family_is_no_longer_a_known_operator() {
+        for name in ["async/delay", "async/race", "async/all", "async/timeout"] {
+            assert!(!is_known_operator(name), "{name} should be retired");
+        }
+        assert!(is_known_operator("array/map"));
     }
 }

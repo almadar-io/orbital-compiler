@@ -3873,7 +3873,7 @@ mod skip_required_members_tests {
 mod effect_event_address_tests {
     use super::*;
 
-    const REGISTRY: &str = r#"{ "services": { "llm": { "actions": [ { "name": "call-tools", "params": [
+    const REGISTRY: &str = r#"{ "services": { "webhook": { "actions": [ { "name": "send", "params": [
         { "name": "tools", "type": "AgentTool[]", "required": true,
           "items": { "type": "AgentTool", "properties": { "event": { "type": "EventAddress" }, "read": { "type": "string" } } } }
     ] } ] } } }"#;
@@ -3904,7 +3904,7 @@ mod effect_event_address_tests {
               "states": [{{ "name": "idle", "isInitial": true }}],
               "events": [{{ "key": "ASK" }}],
               "transitions": [{{ "from": "idle", "to": "idle", "event": "ASK", "effects": [
-                ["call-service", "llm", "call-tools", {{ "tools": [ {{ "event": "{tool_event}" }}, {{ "read": "Task" }} ] }}]
+                ["call-service", "webhook", "send", {{ "tools": [ {{ "event": "{tool_event}" }}, {{ "read": "Task" }} ] }}]
               ] }}]
             }}
           }}]

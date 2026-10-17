@@ -2,7 +2,7 @@
 //! import's trait (`Things.ThingPersistor.DO_SAVE`, local orbital + upstream
 //! trait) must land on the materialized `ThingsThingPersistor` everywhere the
 //! knob's value reaches, including the copy substituted into an effect arg
-//! (`call-service llm call-tools { tools: @config.tools }`), not only the
+//! (`call-service webhook send { tools: @config.tools }`), not only the
 //! config default.
 
 use orbital_compiler::phases::inline::{inline_schema, InlineConfig};
@@ -71,7 +71,7 @@ const ASSISTANT: &str = r#"{
         "transitions": [
           { "from": "idle", "to": "idle", "event": "INIT" },
           { "from": "idle", "to": "idle", "event": "ASK",
-            "effects": [ ["call-service", "llm", "call-tools", { "messages": [], "tools": "@config.tools" }, { "emit": { "success": "ANSWERED" } }] ] },
+            "effects": [ ["call-service", "webhook", "send", { "messages": [], "tools": "@config.tools" }, { "emit": { "success": "ANSWERED" } }] ] },
           { "from": "idle", "to": "idle", "event": "ANSWERED" }
         ]
       }

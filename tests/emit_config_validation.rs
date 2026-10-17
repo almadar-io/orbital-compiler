@@ -152,6 +152,7 @@ fn schema_with_effects(
             listens: None,
             exposes: None,
             domain_context: None,
+            os_grants: None,
             design: None,
             id: None,
             reference: None,
@@ -162,7 +163,9 @@ fn schema_with_effects(
         schema_version: None,
         config: None,
     egress: None,
+    inbound: None,
     os_grants: None,
+    deployment: None,
     }
 }
 
@@ -417,11 +420,11 @@ fn camel_case_on_message_alias_accepted() {
     // should see them as the same canonical key, not report `onMessage`
     // as unknown.
     let effects = vec![SExpression::Array(vec![
-        SExpression::String("os/watch-cron".to_string()),
-        SExpression::String("*/5 * * * *".to_string()),
-        options_with_emit(emit_object(&[("onMessage", "CRON_TICKED")])),
+        SExpression::String("os/watch-http".to_string()),
+        SExpression::String("wss://push".to_string()),
+        options_with_emit(emit_object(&[("onMessage", "PUSH_RECEIVED")])),
     ])];
-    let schema = schema_with_effects(effects, vec![declared_emit("CRON_TICKED", false)]);
+    let schema = schema_with_effects(effects, vec![declared_emit("PUSH_RECEIVED", false)]);
     let result = validate_comprehensive_without_services(&schema);
     assert!(
         !result

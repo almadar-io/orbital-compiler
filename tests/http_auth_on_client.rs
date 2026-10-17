@@ -98,7 +98,7 @@ fn edge_an_authenticated_http_nested_in_a_conditional_is_found() {
 
 #[test]
 fn a_transition_mixing_a_keyless_http_with_a_server_effect_is_mixed_residence() {
-    let call = json!(["call-service", "stripe", "createCustomer", {}]);
+    let call = json!(["call-service", "webhook", "send", {}]);
     let found = codes(&program(false, "persistent", json!([keyless(), call]), json!([])));
     assert!(found.contains(&ErrorCode::CrossMixedResidence), "{found:?}");
 }
@@ -112,7 +112,7 @@ fn control_a_keyless_http_beside_only_client_work_is_not_mixed() {
 
 #[test]
 fn control_a_server_effect_beside_an_authenticated_http_is_not_mixed() {
-    let call = json!(["call-service", "stripe", "createCustomer", {}]);
+    let call = json!(["call-service", "webhook", "send", {}]);
     let found = codes(&program(false, "persistent", json!([keyed(), call]), json!([])));
     assert!(!found.contains(&ErrorCode::CrossMixedResidence), "{found:?}");
 }

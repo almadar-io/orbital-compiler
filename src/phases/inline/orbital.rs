@@ -4484,7 +4484,9 @@ mod tests {
             schema_version: None,
             ledger: None,
     egress: None,
+    inbound: None,
     os_grants: None,
+    deployment: None,
         };
         let upstream_orbitals = vec![stage_b_main_orbital(), stage_b_other_orbital()];
         let referenced_name = obj

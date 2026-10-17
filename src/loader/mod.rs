@@ -1097,7 +1097,9 @@ mod tests {
             schema_version: None,
             config: None,
     egress: None,
+    inbound: None,
     os_grants: None,
+    deployment: None,
         };
         let loaded = LoadedSchema {
             schema,

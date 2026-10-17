@@ -18,6 +18,9 @@ pub(super) const KEYED_CALL_EMIT_KEYS: [&str; 4] =
 /// Operator heads that start a keyed call.
 pub(super) const KEYED_CALL_OPERATORS: [&str; 3] = ["call-service", "call_service", "http"];
 
+/// The on-device model effects: keyed like a call, with their options as the last argument.
+pub(super) const ON_DEVICE_OPERATORS: [&str; 2] = ["browser/prompt", "browser/embed"];
+
 /// The trailing options object of a keyed-call array (head included): the
 /// last element past arity 4, an object carrying `emit` and/or `key`. Mirrors
 /// the resolver's split — a plain trailing object is the args payload, not
@@ -76,7 +79,7 @@ pub(super) fn check_key_and_cancelled(
         extract_emit_object_ref(options).and_then(|e| e.get("cancelled")),
         Some(v) if !matches!(v, SExpression::Null)
     );
-    if declares_cancelled && key.is_none() {
+    if declares_cancelled && matches!(key, None | Some(SExpression::Null)) {
         result.add_error(
             ValidationError::error(
                 ErrorCode::CallServiceCancelledWithoutKey,
@@ -134,6 +137,10 @@ pub(crate) fn validate_cancel_calls_have_a_keyed_call(schema: &OrbitalSchema) ->
                 if let Some(SExpression::String(head)) = arr.first() {
                     if KEYED_CALL_OPERATORS.contains(&head.as_str()) {
                         if trailing_options(arr).is_some_and(|o| declared_key(o).is_some()) {
+                            *keyed = true;
+                        }
+                    } else if ON_DEVICE_OPERATORS.contains(&head.as_str()) {
+                        if matches!(arr.last(), Some(SExpression::Object(o)) if declared_key(o).is_some()) {
                             *keyed = true;
                         }
                     } else if head == "cancel-call" {

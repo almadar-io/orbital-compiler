@@ -13,13 +13,13 @@ use super::set::ExprReturnCtx;
 use super::{extract_emit_object_ref, validate_emit_config, DeclaredEmit};
 use orbital_core_base::value::{Value, ValueMap};
 use orbital_core_base::ir::{OirExpr, OirType};
-use orbital_core_base::http_wire::{is_header_name, parse_grant_request, parse_http_headers, parse_origin, parse_origin_prefix, parse_retry, parse_timeout_ms, split_url, GrantRequest, HttpRetry, OriginParts, RetryOperand};
+use orbital_core_base::http_wire::{is_header_name, parse_grant_request, parse_http_headers, parse_origin, parse_origin_prefix, parse_delay_ms, parse_retry, parse_timeout_ms, split_url, GrantRequest, HttpRetry, OriginParts, RetryOperand};
 use orbital_core_base::secrets::config_knob;
 use orbital_core_base::schema::{ConfigField, OrbitalSchema, SExpression, SObject, TraitDefinition};
 use std::collections::HashMap;
 
 const METHODS: [&str; 5] = ["GET", "POST", "PUT", "PATCH", "DELETE"];
-const REQUEST_KEYS: [&str; 17] = [
+const REQUEST_KEYS: [&str; 18] = [
     "query",
     "headers",
     "json",
@@ -29,6 +29,7 @@ const REQUEST_KEYS: [&str; 17] = [
     "multipart",
     "auth",
     "timeoutMs",
+    "delayMs",
     "responseAs",
     "paginate",
     "stream",
@@ -582,6 +583,18 @@ fn check_timeout(expr: &SExpression, path: &str, ctx: &ExprReturnCtx<'_>, result
     }
 }
 
+fn check_delay(expr: &SExpression, path: &str, ctx: &ExprReturnCtx<'_>, result: &mut ValidationResult) {
+    let error = match operand(expr, ctx) {
+        RetryOperand::Literal(value) => parse_delay_ms(Some(&value)).err().map(|error| error.message()),
+        RetryOperand::Typed(ty) if !orbital_core_base::type_compat::oir_type_satisfies(&ty, &OirType::Number) => Some("delayMs must evaluate to a number".to_string()),
+        RetryOperand::Items(_) => Some("delayMs must be a whole number of milliseconds, zero or more".to_string()),
+        _ => None,
+    };
+    if let Some(error) = error {
+        result.add_error(ValidationError::error(ErrorCode::HttpAuthInvalid, path, error));
+    }
+}
+
 fn check_retry(expr: &SExpression, path: &str, ctx: &ExprReturnCtx<'_>, result: &mut ValidationResult) {
     let error = match expr {
         SExpression::Object(fields) => {
@@ -609,6 +622,11 @@ fn check_request_operands(request: &SObject, grant: bool, path: &str, ctx: &Expr
     }
     if let Some(timeout) = request.get("timeoutMs") {
         check_timeout(timeout, path, ctx, result);
+    }
+    if !grant {
+        if let Some(delay) = request.get("delayMs") {
+            check_delay(delay, path, ctx, result);
+        }
     }
     if let Some(retry) = request.get("retry") {
         check_retry(retry, path, ctx, result);
@@ -867,6 +885,64 @@ fn check_page_facts_call(arr: &[SExpression], site: &Site, result: &mut Validati
     }
 }
 
+/// `browser/prompt` / `browser/embed`: the positional arity, a closed `{ key, emit }` options object whose emit
+/// routes are `success`, `failure` and `cancelled`, a string `key`, and a literal response schema that is a JSON object.
+fn check_on_device_call(arr: &[SExpression], site: &Site, result: &mut ValidationResult) {
+    let head = arr.first().and_then(SExpression::as_str).unwrap_or_default();
+    let positional = if head == "browser/prompt" { 2 } else { 1 };
+    let suggestion = if head == "browser/prompt" {
+        "Write (browser/prompt <text> <response schema text> { key: <string>, emit: { success: <EVENT>, failure: <EVENT>, cancelled: <EVENT> } })"
+    } else {
+        "Write (browser/embed [<text>, …] { key: <string>, emit: { success: <EVENT>, failure: <EVENT>, cancelled: <EVENT> } })"
+    };
+    if !(positional + 1..=positional + 2).contains(&arr.len()) {
+        result.add_error(
+            ValidationError::error(
+                ErrorCode::HostEffectArity,
+                site.path,
+                format!("`{head}` takes {positional} argument(s) and an optional options object, got {}", arr.len() - 1),
+            )
+            .with_suggestion(suggestion),
+        );
+        return;
+    }
+    if let Some(SExpression::String(schema)) = arr.get(2).filter(|_| head == "browser/prompt").filter(|s| !matches!(s, SExpression::String(text) if is_dynamic(text))) {
+        if !matches!(serde_json::from_str::<serde_json::Value>(schema), Ok(serde_json::Value::Object(_))) {
+            result.add_error(
+                ValidationError::error(
+                    ErrorCode::OnDeviceSchemaInvalid,
+                    site.path,
+                    "browser/prompt response schema must be JSON Schema text: a JSON object",
+                )
+                .with_suggestion("Build it with (json/stringify { type: \"object\", … })"),
+            );
+        }
+    }
+    match arr.get(positional + 1) {
+        None => {}
+        Some(SExpression::Object(options)) => {
+            if let Some(unknown) = options.keys().find(|k| !["key", "emit"].contains(&k.as_str())) {
+                result.add_error(
+                    ValidationError::error(
+                        ErrorCode::HostEffectOptionUnknown,
+                        site.path,
+                        format!("`{head}` options accept only key and emit, got `{unknown}`"),
+                    )
+                    .with_valid_values(vec!["key".to_string(), "emit".to_string()]),
+                );
+            }
+            result.merge(check_key_and_cancelled(options, site.path, head));
+            if let Some(emit) = extract_emit_object_ref(options) {
+                result.merge(validate_emit_config(emit, &["success", "failure", "cancelled"], Some(site.declared), site.path));
+            }
+        }
+        Some(_) => result.add_error(
+            ValidationError::error(ErrorCode::HostEffectOptionUnknown, site.path, format!("`{head}` options must be an object"))
+                .with_suggestion(suggestion),
+        ),
+    }
+}
+
 /// Shape, egress and keyed-call checks for every `http` effect, plus the
 /// program's own `egress` entries.
 pub(crate) fn validate_http_effects(schema: &OrbitalSchema) -> ValidationResult {
@@ -895,7 +971,26 @@ pub(crate) fn validate_http_effects(schema: &OrbitalSchema) -> ValidationResult 
             each_http_call(expr, &mut |arr| check_http_call(arr, &site, &mut result));
             each_call_of(expr, "browser/beacon", &mut |arr| check_beacon_call(arr, &site, &mut result));
             each_call_of(expr, "browser/page-facts", &mut |arr| check_page_facts_call(arr, &site, &mut result));
+            for head in super::keyed_call::ON_DEVICE_OPERATORS {
+                each_call_of(expr, head, &mut |arr| check_on_device_call(arr, &site, &mut result));
+            }
         });
+        for (i, tick) in trait_def.ticks.iter().flatten().enumerate().filter(|(_, tick)| tick.background) {
+            for (j, effect) in tick.effects.iter().enumerate() {
+                for head in super::keyed_call::ON_DEVICE_OPERATORS {
+                    each_call_of(effect, head, &mut |_| {
+                        result.add_error(
+                            ValidationError::error(
+                                ErrorCode::OnDeviceEffectOnServer,
+                                format!("{path}.ticks[{i}].effects[{j}]"),
+                                format!("`{head}` asks the on-device model, which only a browser host holds, but the `[background]` tick '{}' runs on the server", tick.name),
+                            )
+                            .with_suggestion("Drop [background] so the browser runs the tick, or emit an event a browser-side trait handles"),
+                        );
+                    });
+                }
+            }
+        }
     }
     result
 }

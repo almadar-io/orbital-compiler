@@ -452,25 +452,21 @@ fn keyed_options() -> Value {
     json!({ "key": "@entity.id", "emit": { "success": "SEARCHED" } })
 }
 
-#[test]
-fn keyed_call_service_whose_result_has_key_is_an_error() {
-    let r = check_with_installed_services(call_service("storage", "upload", keyed_options()));
-    assert!(fires(&r, ErrorCode::CallServiceResultHasKey));
-}
-
+/// No installed service answers a record with a `key` field, so the rule's positive case is pinned on a test-local
+/// registry (`the_result_has_key_check_reads_the_registry_it_is_given` below); against the installed services a keyed call is clean.
 #[test]
 fn call_service_result_has_key_controls() {
-    let unkeyed = json!({ "emit": { "success": "SEARCHED" } });
-    let r = check_with_installed_services(call_service("storage", "upload", unkeyed));
+    let r = check_with_installed_services(call_service("queue", "enqueue", keyed_options()));
     assert!(!fires(&r, ErrorCode::CallServiceResultHasKey));
-    let r = check_with_installed_services(call_service("llm", "generate", keyed_options()));
+    let unkeyed = json!({ "emit": { "success": "SEARCHED" } });
+    let r = check_with_installed_services(call_service("queue", "enqueue", unkeyed));
     assert!(!fires(&r, ErrorCode::CallServiceResultHasKey));
 }
 
 #[test]
 fn a_keyed_call_service_success_payload_is_the_record_plus_key() {
     let reads = |name: &str| {
-        let mut value = serde_json::to_value(program(ok_egress(), config(), call_service("llm", "generate", keyed_options()))).unwrap();
+        let mut value = serde_json::to_value(program(ok_egress(), config(), call_service("queue", "enqueue", keyed_options()))).unwrap();
         value["orbitals"][0]["traits"][0]["emits"][0]["payloadSchema"] = json!([{ "name": name, "type": "string" }]);
         validate_comprehensive_full(
             &serde_json::from_value::<OrbitalSchema>(value).unwrap(),
@@ -481,7 +477,7 @@ fn a_keyed_call_service_success_payload_is_the_record_plus_key() {
         )
     };
     assert!(!fires(&reads("key"), ErrorCode::EmitPayloadNotProduced));
-    assert!(!fires(&reads("content"), ErrorCode::EmitPayloadNotProduced));
+    assert!(!fires(&reads("jobId"), ErrorCode::EmitPayloadNotProduced));
     assert!(fires(&reads("nonsense"), ErrorCode::EmitPayloadNotProduced));
 }
 
@@ -535,14 +531,14 @@ fn the_http_stream_event_is_data_event_id_key() {
 
 #[test]
 fn a_keyed_call_service_failure_is_error_and_key() {
-    let keyed = json!([["call-service", "llm", "generate", {},
+    let keyed = json!([["call-service", "webhook", "send", {},
         { "key": "@entity.id", "emit": { "success": "SEARCHED", "failure": "SEARCH_FAILED" } }]]);
     let r = with_event_payload(keyed.clone(), "SEARCH_FAILED", json!([field("error", "string"), field("key", "string")]));
     assert!(!fires(&r, ErrorCode::EmitPayloadNotProduced), "{:?}", r.errors);
     let r = with_event_payload(keyed, "SEARCH_FAILED", json!([field("status", "number")]));
     assert!(fires(&r, ErrorCode::EmitPayloadNotProduced));
 
-    let unkeyed = json!([["call-service", "llm", "generate", {},
+    let unkeyed = json!([["call-service", "webhook", "send", {},
         { "emit": { "success": "SEARCHED", "failure": "SEARCH_FAILED" } }]]);
     let r = with_event_payload(unkeyed, "SEARCH_FAILED", json!([field("status", "number")]));
     assert!(!fires(&r, ErrorCode::EmitPayloadNotProduced), "control: an unkeyed failure shape is not decided");
@@ -869,6 +865,26 @@ fn grant_request_is_optional_and_accepts_closed_options_for_all_three_schemes() 
             assert!(secrets(post(json!(ORIGIN), request)).is_empty(), "{auth}: {options}");
         }
     }
+}
+
+#[test]
+fn delay_ms_is_a_declared_request_option_typed_as_a_whole_number_of_milliseconds() {
+    let errors = |request: Value| {
+        let result = check(ok_egress(), config(), post(json!(ORIGIN), request));
+        [ErrorCode::HttpOptionUnknown, ErrorCode::HttpAuthInvalid, ErrorCode::OperatorArgTypeMismatch]
+            .into_iter()
+            .any(|code| fires(&result, code))
+    };
+    for good in [json!(0), json!(500), json!(null), json!("@config.limit"), json!(["+", "@config.limit", 1])] {
+        assert!(!errors(json!({"delayMs": good.clone()})), "{good}");
+    }
+    // Controls: a negative, fractional or text delay, a non-number expression and a grantRequest delay are refused.
+    for bad in [json!(-1), json!(1.5), json!("soon"), json!("@config.plain"), json!(true)] {
+        assert!(errors(json!({"delayMs": bad.clone()})), "{bad}");
+    }
+    let [mut auth, ..] = grant_auths();
+    auth["grantRequest"] = json!({"delayMs": 5});
+    assert!(errors(json!({"auth": auth})));
 }
 
 #[test]
@@ -1465,5 +1481,121 @@ mod browser_effects_validation {
         assert!(fires(&r, ErrorCode::PageFactsUnrequestedRead), "{:?}", r.errors);
         let bad = json!([["browser/page-facts", ["referrer"], { "key": 5, "emit": { "success": "FACTS" } }]]);
         assert!(fires(&check(bad), ErrorCode::CallServiceKeyType));
+    }
+
+    // `browser/prompt` / `browser/embed`: the on-device model effects.
+
+    fn model_routes() -> Value {
+        json!({ "emit": { "success": "FACTS", "failure": "FACTS_FAILED", "cancelled": "BEACON_CANCELLED" } })
+    }
+
+    fn keyed_model_routes() -> Value {
+        json!({ "key": "@entity.id", "emit": model_routes()["emit"].clone() })
+    }
+
+    const SCHEMA: &str = "{\"type\":\"object\"}";
+
+    #[test]
+    fn control_well_formed_on_device_calls_raise_none_of_the_codes() {
+        let r = check(json!([
+            ["browser/prompt", "@entity.body", SCHEMA, keyed_model_routes()],
+            ["browser/prompt", "hello", ["json/stringify", { "type": "object" }]],
+            ["browser/prompt", "@payload.text", "@payload.schema", keyed_model_routes()],
+            ["browser/embed", ["a", "@entity.body"], keyed_model_routes()],
+            ["browser/embed", ["a"]],
+            ["cancel-call", "@entity.id"]
+        ]));
+        for code in [
+            ErrorCode::HostEffectArity,
+            ErrorCode::HostEffectOptionUnknown,
+            ErrorCode::OnDeviceSchemaInvalid,
+            ErrorCode::OnDeviceEffectOnServer,
+            ErrorCode::CallServiceKeyType,
+            ErrorCode::CancelCallNoKeyedCall,
+            ErrorCode::EffectUnknownType,
+        ] {
+            assert!(!fires(&r, code), "{code:?}: {:?}", r.errors);
+        }
+    }
+
+    #[test]
+    fn an_on_device_call_with_the_wrong_arity_or_an_unknown_option_is_flagged() {
+        for call in [
+            json!(["browser/prompt", "t"]),
+            json!(["browser/prompt", "t", SCHEMA, {}, {}]),
+            json!(["browser/embed"]),
+            json!(["browser/embed", ["a"], {}, {}]),
+        ] {
+            let r = check(json!([call]));
+            assert!(fires(&r, ErrorCode::HostEffectArity), "{call}: {:?}", r.errors);
+        }
+        for call in [
+            json!(["browser/prompt", "t", SCHEMA, { "retry": {}, "emit": { "success": "FACTS" } }]),
+            json!(["browser/embed", ["a"], { "timeoutMs": 5 }]),
+            json!(["browser/embed", ["a"], "FACTS"]),
+        ] {
+            let r = check(json!([call]));
+            assert!(fires(&r, ErrorCode::HostEffectOptionUnknown), "{call}: {:?}", r.errors);
+        }
+    }
+
+    #[test]
+    fn a_literal_response_schema_must_be_a_json_object() {
+        for schema in ["not json", "[1]", "\"str\"", ""] {
+            let r = check(json!([["browser/prompt", "t", schema, model_routes()]]));
+            assert!(fires(&r, ErrorCode::OnDeviceSchemaInvalid), "{schema}: {:?}", r.errors);
+        }
+    }
+
+    #[test]
+    fn an_on_device_cancelled_route_needs_a_key_and_the_key_must_be_a_string() {
+        let r = check(json!([["browser/prompt", "t", SCHEMA, model_routes()]]));
+        assert!(fires(&r, ErrorCode::CallServiceCancelledWithoutKey), "{:?}", r.errors);
+        let r = check(json!([["browser/embed", ["a"], { "key": 5, "emit": { "success": "FACTS" } }]]));
+        assert!(fires(&r, ErrorCode::CallServiceKeyType), "{:?}", r.errors);
+        let r = check(json!([["browser/embed", ["a"], { "key": "k", "emit": { "success": "FACTS", "onMessage": "FACTS" } }]]));
+        assert!(!r.errors.is_empty(), "onMessage is not an on-device route");
+    }
+
+    #[test]
+    fn an_on_device_success_event_may_read_what_the_call_produces_and_nothing_else() {
+        let prompt = json!([["browser/prompt", "t", SCHEMA, { "key": "k", "emit": { "success": "FACTS" } }]]);
+        let r = check_reading(prompt.clone(), &["reply", "key"]);
+        assert!(!fires(&r, ErrorCode::EmitPayloadNotProduced), "{:?}", r.errors);
+        let r = check_reading(prompt, &["embeddings"]);
+        assert!(fires(&r, ErrorCode::EmitPayloadNotProduced), "{:?}", r.errors);
+        let embed = json!([["browser/embed", ["a"], { "emit": { "success": "FACTS" } }]]);
+        let r = check_reading(embed, &["reply"]);
+        assert!(fires(&r, ErrorCode::EmitPayloadNotProduced), "{:?}", r.errors);
+    }
+
+    #[test]
+    fn a_cancel_call_is_reachable_through_a_keyed_on_device_call_and_stranded_without_one() {
+        let keyed = check(json!([["browser/prompt", "t", SCHEMA, keyed_model_routes()], ["cancel-call", "@entity.id"]]));
+        assert!(!fires(&keyed, ErrorCode::CancelCallNoKeyedCall), "{:?}", keyed.errors);
+        let unkeyed = check(json!([["browser/prompt", "t", SCHEMA, model_routes_without_cancel()], ["cancel-call", "@entity.id"]]));
+        assert!(fires(&unkeyed, ErrorCode::CancelCallNoKeyedCall), "{:?}", unkeyed.errors);
+    }
+
+    fn model_routes_without_cancel() -> Value {
+        json!({ "emit": { "success": "FACTS", "failure": "FACTS_FAILED" } })
+    }
+
+    fn with_tick(background: bool, effect: Value) -> ValidationResult {
+        let mut schema = serde_json::to_value(program(json!([]), json!([{ "name": "available", "type": "boolean", "required": true }]))).unwrap();
+        schema["orbitals"][0]["traits"][0]["ticks"] = json!([{
+            "name": "poll", "interval": 1000, "effects": [effect], "runsInBackground": background
+        }]);
+        validate_comprehensive_without_services(&serde_json::from_value(schema).expect("schema"))
+    }
+
+    #[test]
+    fn an_on_device_effect_is_rejected_where_the_server_runs_it_and_accepted_in_the_browser() {
+        for call in [json!(["browser/prompt", "t", SCHEMA, keyed_model_routes()]), json!(["browser/embed", ["a"], keyed_model_routes()])] {
+            let r = with_tick(true, call.clone());
+            assert!(fires(&r, ErrorCode::OnDeviceEffectOnServer), "{call}: {:?}", r.errors);
+            let r = with_tick(false, call.clone());
+            assert!(!fires(&r, ErrorCode::OnDeviceEffectOnServer), "{call}: {:?}", r.errors);
+        }
     }
 }

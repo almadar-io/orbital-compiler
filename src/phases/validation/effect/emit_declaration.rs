@@ -7,8 +7,8 @@ use super::validate_send_server;
 use super::{
     effect_operators, extract_emit_object_ref, validate_call_service, validate_call_service_object,
     validate_emit, validate_emit_config, validate_fetch, validate_fetch_object, validate_navigate,
-    validate_os_watch, validate_persist, validate_program_eval, validate_ref, validate_set,
-    validate_set_enum_value, validate_set_object, validate_set_return_type,
+    validate_os_effect, validate_os_watch, validate_persist, validate_program_eval, validate_ref,
+    validate_set, validate_set_enum_value, validate_set_object, validate_set_return_type,
     validate_set_value_type, DeclaredEmit, EntityFieldMeta,
 };
 use crate::embedded::ServiceRegistryData;
@@ -470,8 +470,14 @@ fn validate_leaf_effect(
                     "program/eval" => {
                         result.merge(validate_program_eval(arr, path, declared_emits));
                     }
-                    os_op if os_op.starts_with("os/watch-") => {
+                    "os/watch-http" => {
                         result.merge(validate_os_watch(arr, path, declared_emits));
+                    }
+                    os_op
+                        if orbital_core_base::language::registry::os_host_effects()
+                            .any(|name| name == os_op) =>
+                    {
+                        result.merge(validate_os_effect(os_op, arr, path, declared_emits));
                     }
                     browser_op if browser_op.starts_with("browser/") => {
                         // Client device effects (file picker / clipboard /
@@ -482,7 +488,10 @@ fn validate_leaf_effect(
                         for arg in arr.iter().skip(1) {
                             if let SExpression::Object(options) = arg {
                                 if let Some(emit_obj) = extract_emit_object_ref(options) {
-                                    let keys: &[&str] = if browser_op == "browser/beacon" {
+                                    let keys: &[&str] = if matches!(
+                                        browser_op,
+                                        "browser/beacon" | "browser/prompt" | "browser/embed"
+                                    ) {
                                         &["success", "failure", "cancelled"]
                                     } else {
                                         &["success", "failure"]

@@ -193,6 +193,7 @@ fn schema_for_f1(strict_target_event: &str) -> OrbitalSchema {
             listens: None,
             exposes: None,
             domain_context: None,
+            os_grants: None,
             design: None,
             id: None,
             reference: None,
@@ -203,7 +204,9 @@ fn schema_for_f1(strict_target_event: &str) -> OrbitalSchema {
         schema_version: None,
         config: None,
     egress: None,
+    inbound: None,
     os_grants: None,
+    deployment: None,
     }
 }
 
@@ -341,6 +344,7 @@ fn schema_with_two_emitters_and_listener_source(
         listens: None,
         exposes: None,
         domain_context: None,
+        os_grants: None,
         design: None,
         id: None,
         reference: None,
@@ -383,6 +387,7 @@ fn schema_with_two_emitters_and_listener_source(
                 listens: None,
                 exposes: None,
                 domain_context: None,
+                os_grants: None,
                 design: None,
                 id: None,
                 reference: None,
@@ -395,7 +400,9 @@ fn schema_with_two_emitters_and_listener_source(
         schema_version: None,
         config: None,
     egress: None,
+    inbound: None,
     os_grants: None,
+    deployment: None,
     }
 }
 
@@ -721,6 +728,7 @@ fn schema_with_render_action_payload(
         listens: None,
         exposes: None,
         domain_context: None,
+        os_grants: None,
         design: None,
         id: None,
         reference: None,
@@ -755,6 +763,7 @@ fn schema_with_render_action_payload(
                 listens: None,
                 exposes: None,
                 domain_context: None,
+                os_grants: None,
                 design: None,
                 id: None,
                 reference: None,
@@ -767,7 +776,9 @@ fn schema_with_render_action_payload(
         schema_version: None,
         config: None,
     egress: None,
+    inbound: None,
     os_grants: None,
+    deployment: None,
     }
 }
 
@@ -888,6 +899,7 @@ fn schema_with_default(field: FieldDefinition) -> OrbitalSchema {
             listens: None,
             exposes: None,
             domain_context: None,
+            os_grants: None,
             design: None,
             id: None,
             reference: None,
@@ -898,7 +910,9 @@ fn schema_with_default(field: FieldDefinition) -> OrbitalSchema {
         schema_version: None,
         config: None,
     egress: None,
+    inbound: None,
     os_grants: None,
+    deployment: None,
     }
 }
 

@@ -562,6 +562,7 @@ mod tests {
             listens: None,
             exposes: None,
             domain_context: None,
+            os_grants: None,
             design: None,
             reference: None,
             config: None,
@@ -589,7 +590,9 @@ mod tests {
             schema_version: None,
             config: None,
     egress: None,
+    inbound: None,
     os_grants: None,
+    deployment: None,
         }
     }
 
@@ -666,7 +669,9 @@ mod tests {
             schema_version: None,
             config: None,
     egress: None,
+    inbound: None,
     os_grants: None,
+    deployment: None,
         };
 
         let mut by_from = HashMap::new();
@@ -717,7 +722,9 @@ mod tests {
             schema_version: None,
             config: None,
     egress: None,
+    inbound: None,
     os_grants: None,
+    deployment: None,
         };
 
         let mut by_from = HashMap::new();
@@ -764,7 +771,9 @@ mod tests {
             schema_version: None,
             config: None,
     egress: None,
+    inbound: None,
     os_grants: None,
+    deployment: None,
         };
 
         let mut by_from = HashMap::new();
@@ -880,7 +889,9 @@ mod tests {
             schema_version: None,
             config: None,
     egress: None,
+    inbound: None,
     os_grants: None,
+    deployment: None,
         };
 
         let config = LoaderConfig {
@@ -948,7 +959,9 @@ mod tests {
             schema_version: None,
             config: None,
     egress: None,
+    inbound: None,
     os_grants: None,
+    deployment: None,
         };
 
         let config = LoaderConfig {
