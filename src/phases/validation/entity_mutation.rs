@@ -1554,7 +1554,7 @@ fn field_scopes_a_read_filter(effects: &[SExpression], field: &str) -> bool {
 /// `entity_name` anywhere (any transition's effects, or a tick) — the
 /// "the write lands eventually" exemption: a draft form that sets columns
 /// across several transitions before a final `persist create` is legitimate.
-fn trait_lands_a_write(trait_def: &TraitDefinition, entity_name: &str) -> bool {
+pub(super) fn trait_lands_a_write(trait_def: &TraitDefinition, entity_name: &str) -> bool {
     for transition in &trait_def.state_machine.transitions {
         if let Some(effects) = &transition.effects {
             if effects
@@ -2305,6 +2305,7 @@ mod tests {
         );
         let child = trait_with_init_effects("Child", "Blob", vec![set_effect("y")]);
         let orbital = Orbital {
+            spec: false,
             name: "TestOrbital".to_string(),
             id: None,
             uses: None,
@@ -3788,6 +3789,7 @@ mod tests {
         traits: Vec<TraitDefinition>,
     ) -> Orbital {
         Orbital {
+            spec: false,
             name: "TestOrbital".to_string(),
             id: None,
             uses: None,

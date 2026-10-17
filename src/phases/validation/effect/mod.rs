@@ -19,11 +19,14 @@ mod inbound;
 mod keyed_call;
 mod navigate;
 mod oauth;
+mod cast;
 mod operator_args;
 mod os_grants;
 mod os_watch;
 mod persist;
+mod postgres;
 mod program_eval;
+mod redis;
 mod r#ref;
 mod set;
 mod utils;
@@ -34,7 +37,6 @@ pub(crate) use oauth::validate_oauth_effects;
 pub(crate) use http::validate_http_effects;
 pub(crate) use inbound::validate_inbound;
 pub(crate) use http_site::validate_http_auth_placement;
-pub(crate) use keyed_call::validate_cancel_calls_have_a_keyed_call;
 pub(crate) use emit::{extract_emit_object_ref, validate_emit, validate_emit_config};
 pub(crate) use emit_declaration::{
     collect_declared_emits, validate_effect,
@@ -46,11 +48,15 @@ pub(crate) use fetch::{
     validate_fetch_object,
 };
 pub(crate) use navigate::{validate_navigate, validate_send_server};
+pub(crate) use keyed_call::{validate_call_key_literals_are_used, validate_call_service_keys_are_unique_per_transition};
+use keyed_call::CallKeyFacts;
 pub(crate) use operator_args::validate_operator_arg_types;
-pub(crate) use os_grants::{validate_os_grants, validate_placement};
+pub(crate) use os_grants::{validate_final_os_targets, validate_os_grants, validate_placement};
 pub(crate) use os_watch::{validate_os_effect, validate_os_watch};
 pub(crate) use persist::{persist_entity_index, validate_persist};
 pub(crate) use program_eval::validate_program_eval;
+pub(crate) use postgres::validate_postgres_effects;
+pub(crate) use redis::validate_redis_effects;
 pub(crate) use r#ref::validate_ref;
 pub(crate) use set::{
     entity_field_type_map, expr_return_incompatible, validate_set, validate_set_enum_value,
@@ -77,14 +83,80 @@ pub fn validate_all_effects(schema: &OrbitalSchema, ctx: &mut ValidationContext)
         );
         ctx.merge(result);
     }
-    ctx.merge(validate_cancel_calls_have_a_keyed_call(schema));
+    ctx.merge(validate_call_key_literals_are_used(schema));
+    ctx.merge(validate_call_service_keys_are_unique_per_transition(schema));
     ctx.merge(validate_http_effects(schema));
     ctx.merge(validate_inbound(schema));
     validate_http_auth_placement(schema, ctx);
     ctx.merge(validate_host_effects(schema));
+    ctx.merge(validate_redis_effects(schema));
+    ctx.merge(validate_postgres_effects(schema));
     ctx.merge(validate_oauth_effects(schema));
     ctx.merge(validate_os_grants(schema));
     ctx.merge(validate_placement(schema));
+}
+
+/// The binding types one trait's effects are checked against: the linked entity's fields, and the payload of each
+/// triggering event (a tick has none). One construction shared by the per-effect checks and the `--final` key facts.
+pub(crate) struct TraitScopes {
+    pub(crate) entity_field_types: HashMap<String, EntityFieldMeta>,
+    per_event_payloads: HashMap<String, HashMap<String, String>>,
+    pub(crate) payload_field_types: HashMap<String, String>,
+    per_event_shapes: HashMap<String, HashMap<String, orbital_core_base::ir::OirType>>,
+    pub(crate) tick_types: set::BindingTypes,
+}
+
+impl TraitScopes {
+    pub(crate) fn new(
+        schema: &OrbitalSchema,
+        trait_def: &TraitDefinition,
+        entity_definitions: &HashMap<String, EntityDefinition>,
+    ) -> Self {
+        let entity_field_types = trait_def
+            .linked_entity
+            .as_ref()
+            .and_then(|e| entity_definitions.get(e))
+            .map(entity_field_type_map)
+            .unwrap_or_default();
+        let per_event_payloads = collect_per_event_payload_field_types(trait_def);
+        let payload_field_types = collect_payload_field_types(trait_def);
+        let per_event_shapes = collect_per_event_payload_shapes(trait_def, schema);
+        let mut tick_types =
+            binding_types(trait_def, schema, collect_payload_shapes(trait_def, schema), &per_event_shapes);
+        tick_types.optional_payload = optional_payload_fields(trait_def, None);
+        Self {
+            entity_field_types,
+            per_event_payloads,
+            payload_field_types,
+            per_event_shapes,
+            tick_types,
+        }
+    }
+
+    /// The payload field kinds `?field` resolves against for a transition on `event`.
+    pub(crate) fn payload_for(&self, event: &str) -> HashMap<String, String> {
+        self.per_event_payloads
+            .get(event)
+            .cloned()
+            .unwrap_or_else(|| self.payload_field_types.clone())
+    }
+
+    /// The full binding types for a transition on `event`.
+    pub(crate) fn types_for(
+        &self,
+        schema: &OrbitalSchema,
+        trait_def: &TraitDefinition,
+        event: &str,
+    ) -> set::BindingTypes {
+        match self.per_event_shapes.get(event) {
+            Some(shapes) => {
+                let mut types = binding_types(trait_def, schema, shapes.clone(), &self.per_event_shapes);
+                types.optional_payload = optional_payload_fields(trait_def, Some(event));
+                types
+            }
+            None => self.tick_types.clone(),
+        }
+    }
 }
 
 /// Validate all effects in a trait definition
@@ -110,33 +182,16 @@ pub fn validate_trait_effects(
     // (via `payload_mapping`) but no declared types, so they cannot seed a
     // type-comparison entry — the check fires only where a declared type
     // exists on both sides.
-    let entity_field_types = trait_def
-        .linked_entity
-        .as_ref()
-        .and_then(|e| entity_definitions.get(e))
-        .map(entity_field_type_map)
-        .unwrap_or_default();
-    let per_event_payloads = collect_per_event_payload_field_types(trait_def);
-    let payload_field_types = collect_payload_field_types(trait_def);
-    let per_event_shapes = collect_per_event_payload_shapes(trait_def, schema);
-    let mut tick_types = binding_types(trait_def, schema, collect_payload_shapes(trait_def, schema), &per_event_shapes);
-    tick_types.optional_payload = optional_payload_fields(trait_def, None);
+    let scopes = TraitScopes::new(schema, trait_def, entity_definitions);
+    let entity_field_types = &scopes.entity_field_types;
+    let payload_field_types = &scopes.payload_field_types;
+    let tick_types = &scopes.tick_types;
 
     // Validate effects in transitions — scope payload types to the trigger event
     // so `?result` resolves against the correct event's payload schema.
     for (i, transition) in trait_def.state_machine.transitions.iter().enumerate() {
-        let scoped_payload = per_event_payloads
-            .get(&transition.event)
-            .cloned()
-            .unwrap_or_else(|| payload_field_types.clone());
-        let scoped_shapes = match per_event_shapes.get(&transition.event) {
-            Some(shapes) => {
-                let mut types = binding_types(trait_def, schema, shapes.clone(), &per_event_shapes);
-                types.optional_payload = optional_payload_fields(trait_def, Some(&transition.event));
-                types
-            }
-            None => tick_types.clone(),
-        };
+        let scoped_payload = scopes.payload_for(&transition.event);
+        let scoped_shapes = scopes.types_for(schema, trait_def, &transition.event);
         if let Some(guard) = &transition.guard {
             result.merge(set::validate_comparison_operands(
                 guard,
@@ -565,4 +620,63 @@ mod per_event_payload_tests {
             "the emit keeps its own payload type"
         );
     }
+}
+
+/// `orb validate --final`: in a finished program a `cancel-call` on a `CallKey` (or a list of them) must have a keyed
+/// call whose `key:` is itself `CallKey`-typed somewhere in the program. The type is how the key crosses orbitals:
+/// the cast made it, the event payload carries it, the call runs under it. An atom validated alone is exempt, because
+/// the composing program supplies the call; this is where that promise is checked.
+pub(crate) fn validate_final_cancel_keys(schema: &OrbitalSchema) -> ValidationResult {
+    let entity_definitions: HashMap<String, EntityDefinition> = schema
+        .orbitals
+        .iter()
+        .flat_map(|o| std::iter::once(&o.entity).chain(o.auxiliary_entities.iter().flatten()))
+        .filter_map(|e| e.as_inline().map(|def| (def.name.clone(), def.clone())))
+        .collect();
+    let mut facts = CallKeyFacts::default();
+    for (trait_def, path) in super::inline_traits(schema) {
+        let scopes = TraitScopes::new(schema, trait_def, &entity_definitions);
+        for (i, transition) in trait_def.state_machine.transitions.iter().enumerate() {
+            let payload = scopes.payload_for(&transition.event);
+            let types = scopes.types_for(schema, trait_def, &transition.event);
+            let ctx = set::ExprReturnCtx {
+                entity: &scopes.entity_field_types,
+                payload: &payload,
+                types: Some(&types),
+                schema: Some(schema),
+            };
+            for (j, effect) in transition.effects.iter().flatten().enumerate() {
+                let effect_path = format!("{}.stateMachine.transitions[{}].effects[{}]", path, i, j);
+                keyed_call::collect_call_key_facts(effect, &effect_path, &ctx, &mut facts);
+            }
+        }
+        for (i, tick) in trait_def.ticks.iter().flatten().enumerate() {
+            let ctx = set::ExprReturnCtx {
+                entity: &scopes.entity_field_types,
+                payload: &scopes.payload_field_types,
+                types: Some(&scopes.tick_types),
+                schema: Some(schema),
+            };
+            for (j, effect) in tick.effects.iter().enumerate() {
+                let effect_path = format!("{}.ticks[{}].effects[{}]", path, i, j);
+                keyed_call::collect_call_key_facts(effect, &effect_path, &ctx, &mut facts);
+            }
+        }
+    }
+    let mut result = ValidationResult::new();
+    if facts.call_key_calls == 0 {
+        for site in &facts.typed_cancels {
+            result.add_error(
+                super::ValidationError::error(
+                    super::ErrorCode::CancelCallKeyNeverCalled,
+                    site,
+                    "this `cancel-call` names a `CallKey`, but no keyed call in the finished program runs under a `CallKey`-typed `key:`, so it can never abort anything",
+                )
+                .with_suggestion(
+                    "Key the call it should abort with the same `CallKey` (`key: <a CallKey field or payload member>`, or `key: (as <string> CallKey)`)",
+                ),
+            );
+        }
+    }
+    result
 }

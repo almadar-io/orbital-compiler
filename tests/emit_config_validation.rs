@@ -138,6 +138,7 @@ fn schema_with_effects(
         version: Some("0.1.0".to_string()),
         description: None,
         orbitals: vec![Orbital {
+            spec: false,
             types: None,
             name: "TestOrbital".to_string(),
             uses: None,
@@ -603,6 +604,37 @@ fn cancel_call_with_no_keyed_call_anywhere_is_an_error() {
         cancelled_emit_declared(),
         ErrorCode::CancelCallNoKeyedCall
     ));
+}
+
+#[test]
+fn two_call_services_of_one_transition_with_the_same_literal_key_are_an_error() {
+    let call = |key: &str| {
+        keyed_call_service(options(vec![
+            ("key", str_expr(key)),
+            ("emit", emit_object(&[("success", "DONE")])),
+        ]))
+    };
+    assert!(has_code(
+        vec![call("same"), call("same")],
+        cancelled_emit_declared(),
+        ErrorCode::CallServiceKeyDuplicate
+    ));
+    assert!(
+        !has_code(
+            vec![call("a"), call("b")],
+            cancelled_emit_declared(),
+            ErrorCode::CallServiceKeyDuplicate
+        ),
+        "control: distinct keys"
+    );
+    assert!(
+        !has_code(
+            vec![call("same"), call("@entity.id")],
+            cancelled_emit_declared(),
+            ErrorCode::CallServiceKeyDuplicate
+        ),
+        "control: a computed key is not a literal duplicate"
+    );
 }
 
 #[test]

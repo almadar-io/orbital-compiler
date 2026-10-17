@@ -934,3 +934,16 @@ fn cart_events_lowered_output_rebinds_page_linked_entity() {
         "trait linked_entity override must apply alongside the page override"
     );
 }
+
+/// `std-queue` composed with the app's own job entity (`config { jobEntity: Job }`): the producer persists to
+/// `@config.jobEntity`, and the override must retarget the trait's entity references too, or the composed program
+/// fails `ORB_ID_UNKNOWN_REF` on the atom's own `QueueJob` (G-ORB-342).
+#[test]
+fn std_queue_composes_with_a_job_entity_override() {
+    discovered_packages();
+    let path = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../test-schemas/use-std-behavior/queue-job-entity.lolo");
+    let oir = compile_file(&path, &lowered_oir_options()).expect("std-queue with a jobEntity override must compile");
+    let producer = oir.find_trait("P").expect("the composed producer");
+    let refs = producer.entity_ref_ids.clone().unwrap_or_default();
+    assert!(!refs.contains_key("QueueJob"), "the atom's own QueueJob must not survive the override: {refs:?}");
+}

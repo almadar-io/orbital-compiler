@@ -13,7 +13,7 @@ use super::set::ExprReturnCtx;
 use super::{extract_emit_object_ref, validate_emit_config, DeclaredEmit};
 use orbital_core_base::value::{Value, ValueMap};
 use orbital_core_base::ir::{OirExpr, OirType};
-use orbital_core_base::http_wire::{is_header_name, parse_grant_request, parse_http_headers, parse_origin, parse_origin_prefix, parse_delay_ms, parse_retry, parse_timeout_ms, split_url, GrantRequest, HttpRetry, OriginParts, RetryOperand};
+use orbital_core_base::http_wire::{is_header_name, parse_grant_request, parse_http_headers, parse_egress_entry, parse_origin, parse_origin_prefix, parse_delay_ms, parse_retry, parse_timeout_ms, split_url, GrantRequest, HttpRetry, OriginParts, RetryOperand};
 use orbital_core_base::secrets::config_knob;
 use orbital_core_base::schema::{ConfigField, OrbitalSchema, SExpression, SObject, TraitDefinition};
 use std::collections::HashMap;
@@ -87,7 +87,7 @@ fn auth_keys(scheme: &str) -> &'static [&'static str] {
         "oauth-client" => &[
             "scheme", "op", "client", "clients", "code", "state", "subject", "provider", "refreshToken", "token", "accessToken",
         ],
-        "hmac-sha256" => &["scheme", "credential", "name", "signs", "encoding"],
+        "hmac-sha256" => &["scheme", "credential", "name", "signs", "encoding", "prefix"],
         _ => &[],
     }
 }
@@ -250,6 +250,9 @@ fn check_auth(auth: &SObject, site: &Site, result: &mut ValidationResult) {
                 result.add_error(ValidationError::error(ErrorCode::HttpHeaderInvalid, site.path, "HTTP auth header name must be a token"));
             }
         }
+    }
+    if scheme == "hmac-sha256" && !matches!(auth.get("prefix"), None | Some(SExpression::Null | SExpression::String(_) | SExpression::Array(_))) {
+        result.add_error(ValidationError::error(ErrorCode::HttpAuthInvalid, site.path, "hmac-sha256 auth.prefix must be text"));
     }
     if scheme == "token-exchange" || scheme == "jwt-bearer" {
         check_token_exchange(auth, site, result);
@@ -943,12 +946,98 @@ fn check_on_device_call(arr: &[SExpression], site: &Site, result: &mut Validatio
     }
 }
 
+/// Whether `value` carries nothing only run time knows: no binding, no operator call.
+fn is_literal(value: &SExpression) -> bool {
+    match value {
+        SExpression::String(text) => !is_dynamic(text),
+        SExpression::Array(items) => !matches!(items.first(), Some(SExpression::String(_))) && items.iter().all(is_literal),
+        SExpression::Object(fields) => fields.values().all(is_literal),
+        _ => true,
+    }
+}
+
+/// `browser/tab-<op>`: the arity, a request object of the op's closed keys, a closed `{ key, emit }` options object
+/// whose emit routes are `success`, `failure` and `cancelled`, a string `key`, and, when the request holds nothing only
+/// run time knows, the whole request as the kernel's one parser reads it.
+fn check_tab_call(
+    arr: &[SExpression],
+    site: &Site,
+    scope: &orbital_core_base::tab_call::WatchScope<'_>,
+    result: &mut ValidationResult,
+) {
+    use orbital_core_base::tab::TabOp;
+    let head = arr.first().and_then(SExpression::as_str).unwrap_or_default();
+    let Some(op) = TabOp::from_name(head) else { return };
+    let suggestion = format!(
+        "Write ({head} {{ {} }} {{ key: <string>, emit: {{ success: <EVENT>, failure: <EVENT>, cancelled: <EVENT> }} }})",
+        op.request_keys().join(", ")
+    );
+    if !(2..=3).contains(&arr.len()) {
+        result.add_error(
+            ValidationError::error(
+                ErrorCode::HostEffectArity,
+                site.path,
+                format!("`{head}` takes a request object and an optional options object, got {} argument(s)", arr.len() - 1),
+            )
+            .with_suggestion(suggestion),
+        );
+        return;
+    }
+    match &arr[1] {
+        SExpression::Object(request) => {
+            if let Some(unknown) = request.keys().find(|k| !op.request_keys().contains(&k.as_str())) {
+                result.add_error(
+                    ValidationError::error(
+                        ErrorCode::TabRequestInvalid,
+                        site.path,
+                        format!("`{head}` request has no key `{unknown}`"),
+                    )
+                    .with_valid_values(op.request_keys().iter().map(|k| k.to_string()).collect()),
+                );
+            } else if is_literal(&arr[1]) {
+                let value = Value::from(arr[1].clone());
+                if let Err(message) = orbital_core_base::tab_call::parse_tab_call(op, &value, Some(scope), None) {
+                    result.add_error(ValidationError::error(ErrorCode::TabRequestInvalid, site.path, message));
+                }
+            }
+        }
+        SExpression::String(text) if is_dynamic(text) => {}
+        _ => result.add_error(
+            ValidationError::error(ErrorCode::TabRequestInvalid, site.path, format!("`{head}` request must be an object"))
+                .with_suggestion(suggestion.clone()),
+        ),
+    }
+    match arr.get(2) {
+        None => {}
+        Some(SExpression::Object(options)) => {
+            if let Some(unknown) = options.keys().find(|k| !["key", "emit"].contains(&k.as_str())) {
+                result.add_error(
+                    ValidationError::error(
+                        ErrorCode::HostEffectOptionUnknown,
+                        site.path,
+                        format!("`{head}` options accept only key and emit, got `{unknown}`"),
+                    )
+                    .with_valid_values(vec!["key".to_string(), "emit".to_string()]),
+                );
+            }
+            result.merge(check_key_and_cancelled(options, site.path, head));
+            if let Some(emit) = extract_emit_object_ref(options) {
+                result.merge(validate_emit_config(emit, &["success", "failure", "cancelled"], Some(site.declared), site.path));
+            }
+        }
+        Some(_) => result.add_error(
+            ValidationError::error(ErrorCode::HostEffectOptionUnknown, site.path, format!("`{head}` options must be an object"))
+                .with_suggestion(suggestion),
+        ),
+    }
+}
+
 /// Shape, egress and keyed-call checks for every `http` effect, plus the
 /// program's own `egress` entries.
 pub(crate) fn validate_http_effects(schema: &OrbitalSchema) -> ValidationResult {
     let mut result = ValidationResult::new();
     for (i, entry) in schema.egress.iter().flatten().enumerate() {
-        if parse_origin(entry).is_none() {
+        if parse_egress_entry(entry).is_none() {
             result.add_error(
                 ValidationError::error(
                     ErrorCode::HttpEgressEntryInvalid,
@@ -959,8 +1048,17 @@ pub(crate) fn validate_http_effects(schema: &OrbitalSchema) -> ValidationResult 
             );
         }
     }
+    let inputs = orbital_core_base::external_inputs::external_inputs_of(schema);
     for (trait_def, path) in inline_traits(schema) {
         let declared = collect_declared_emits(trait_def);
+        let orbital = schema.orbitals.iter().find(|o| {
+            o.traits.iter().any(|t| matches!(t, orbital_core_base::schema::TraitReference::Inline(td) if std::ptr::eq(td, trait_def)))
+        });
+        let scope = orbital_core_base::tab_call::WatchScope {
+            caller_orbital: orbital.map(|o| o.name.as_str()),
+            caller_trait: trait_def.name.as_str(),
+            inputs: &inputs,
+        };
         visit_effects(trait_def, &path, &mut |expr, at| {
             let site = Site {
                 path: at,
@@ -974,6 +1072,9 @@ pub(crate) fn validate_http_effects(schema: &OrbitalSchema) -> ValidationResult 
             for head in super::keyed_call::ON_DEVICE_OPERATORS {
                 each_call_of(expr, head, &mut |arr| check_on_device_call(arr, &site, &mut result));
             }
+            for op in orbital_core_base::tab::TabOp::ALL {
+                each_call_of(expr, op.name(), &mut |arr| check_tab_call(arr, &site, &scope, &mut result));
+            }
         });
         for (i, tick) in trait_def.ticks.iter().flatten().enumerate().filter(|(_, tick)| tick.background) {
             for (j, effect) in tick.effects.iter().enumerate() {
@@ -984,6 +1085,18 @@ pub(crate) fn validate_http_effects(schema: &OrbitalSchema) -> ValidationResult 
                                 ErrorCode::OnDeviceEffectOnServer,
                                 format!("{path}.ticks[{i}].effects[{j}]"),
                                 format!("`{head}` asks the on-device model, which only a browser host holds, but the `[background]` tick '{}' runs on the server", tick.name),
+                            )
+                            .with_suggestion("Drop [background] so the browser runs the tick, or emit an event a browser-side trait handles"),
+                        );
+                    });
+                }
+                for op in orbital_core_base::tab::TabOp::ALL {
+                    each_call_of(effect, op.name(), &mut |_| {
+                        result.add_error(
+                            ValidationError::error(
+                                ErrorCode::TabEffectOnServer,
+                                format!("{path}.ticks[{i}].effects[{j}]"),
+                                format!("`{}` drives the browser's tabs, which only a browser host holds, but the `[background]` tick '{}' runs on the server", op.name(), tick.name),
                             )
                             .with_suggestion("Drop [background] so the browser runs the tick, or emit an event a browser-side trait handles"),
                         );

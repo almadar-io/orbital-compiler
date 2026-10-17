@@ -1108,7 +1108,7 @@ pub(crate) fn resolve_orbital_reference(
             }
         }
     }
-    // An upstream with no roster of its own declares its viewer by `expects identity`; the
+    // An upstream with no roster of its own declares its viewer by `expects entity [identity]`; the
     // expectation's declared role values are then the upstream vocabulary.
     if role_fields.is_empty() {
         for expect in upstream.expects.iter().flatten() {

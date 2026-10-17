@@ -189,7 +189,7 @@ fn collect_names(schema: &OrbitalSchema, ctx: &mut ValidationContext) {
         }
     }
 
-    // FINAL pass — expectation names. `expects entity X` / `expects identity X`
+    // FINAL pass — expectation names. `expects entity X` / `expects entity X [identity]`
     // declare something this program does NOT provide: the consumer promises
     // it, and the provider is checked at the link step once one supplies it
     // (see `validation/expectations.rs`). Relation targets, `linkedEntity`
@@ -228,6 +228,10 @@ fn validate_orbital(orbital: &Orbital, index: usize, ctx: &mut ValidationContext
     // Validate orbital name
     if orbital.name.is_empty() {
         ctx.add_error(ValidationError::missing_field(&path, "name"));
+    }
+
+    if orbital.is_spec() {
+        return;
     }
 
     // Validate entity (only if inline, references are validated during resolution)
@@ -619,6 +623,7 @@ mod tests {
         };
         let orbital =
             |name: &str, ent: EntityRef, expects: Option<Vec<ExpectDeclaration>>| Orbital {
+                spec: false,
                 types: None,
                 name: name.to_string(),
                 uses: None,
@@ -645,6 +650,15 @@ mod tests {
             Some(vec![ExpectDeclaration::Entity {
                 name: "Provided".to_string(),
                 shape: None,
+                persistence: None,
+                shared: false,
+                local: false,
+                read_policy: None,
+                create_policy: None,
+                update_policy: None,
+                delete_policy: None,
+                access_waivers: None,
+                strict: false,
             }]),
         );
         let provider = orbital("ProviderOrbital", entity("Provided"), None);
@@ -1002,5 +1016,26 @@ mod tests {
             message.contains("ORB_P_DUPLICATE_PATH"),
             "compile-time gate must surface the shared owner's code, got: {message}"
         );
+    }
+    #[test]
+    fn a_spec_orbital_needs_no_trait_but_an_empty_orbital_still_does() {
+        let spec: Orbital = serde_json::from_value(serde_json::json!({
+            "name": "ShopSpec",
+            "spec": true,
+            "expects": [{ "kind": "entity", "name": "Order", "strict": true }],
+            "entity": { "name": "ShopSpec", "fields": [] },
+            "traits": []
+        }))
+        .unwrap();
+        let mut ctx = ValidationContext::new();
+        validate_orbital(&spec, 0, &mut ctx);
+        assert!(ctx.errors.is_empty(), "{:?}", ctx.errors);
+
+        let mut lenient = spec.clone();
+        lenient.spec = false;
+        lenient.expects = None;
+        let mut ctx = ValidationContext::new();
+        validate_orbital(&lenient, 0, &mut ctx);
+        assert!(!ctx.errors.is_empty());
     }
 }

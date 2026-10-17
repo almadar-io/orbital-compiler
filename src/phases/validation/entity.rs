@@ -32,6 +32,9 @@ static RESERVED_COMPONENT_NAMES: LazyLock<HashSet<String>> = LazyLock::new(|| {
 pub fn validate_all_entities(schema: &OrbitalSchema, ctx: &mut ValidationContext) {
     let check_naming = ctx.schema_language.should_check_ascii_naming();
     for (i, orbital) in schema.orbitals.iter().enumerate() {
+        if orbital.is_spec() {
+            continue;
+        }
         // The primary entity AND every auxiliary entity (multi-entity
         // orbitals, e.g. a relation target declared inline alongside the
         // trait-bound entity) get the SAME per-entity validation — every
@@ -571,15 +574,23 @@ pub fn validate_field(
                         "Drop the default — the mock generator synthesizes a valid value",
                     ),
                 );
-            } else if !orbital_core_base::type_compat::semantic_string_value_valid(kind, literal) {
-                result.add_error(
-                    ValidationError::error(
+            } else {
+                match orbital_core_eval::evaluator::operators::system::semantic_string_value_valid(kind, literal) {
+                    Ok(true) => {}
+                    Ok(false) => result.add_error(
+                        ValidationError::error(
+                            ErrorCode::EntitySemanticValueInvalid,
+                            format!("{}.default", path),
+                            format!("'{}' is not a valid {}", literal, kind),
+                        )
+                        .with_suggestion(format!("Provide a valid {} or drop the default", kind)),
+                    ),
+                    Err(reason) => result.add_error(ValidationError::error(
                         ErrorCode::EntitySemanticValueInvalid,
                         format!("{}.default", path),
-                        format!("'{}' is not a valid {}", literal, kind),
-                    )
-                    .with_suggestion(format!("Provide a valid {} or drop the default", kind)),
-                );
+                        format!("Cannot check the {} default: {}", kind, reason),
+                    )),
+                }
             }
         }
     }
@@ -714,6 +725,7 @@ fn field_type_to_string(field_type: &FieldType) -> String {
         FieldType::Money => "money".to_string(),
         FieldType::File => "file".to_string(),
         FieldType::Bytes => "bytes".to_string(),
+        FieldType::CallKey => "CallKey".to_string(),
         FieldType::Array | FieldType::Tuple => "array".to_string(),
         FieldType::Object => "object".to_string(),
         FieldType::Enum => "enum".to_string(),
@@ -800,6 +812,22 @@ mod tests {
         let entity = create_valid_entity();
         let result = validate_entity(&entity, "test", &HashSet::new(), true);
         assert!(result.is_valid(), "Errors: {:?}", result.errors);
+    }
+
+    #[test]
+    fn a_semantic_default_is_checked_against_the_one_pattern_table() {
+        let with_default = |kind: FieldType, literal: &str| {
+            let mut entity = create_valid_entity();
+            let mut field = create_field("link", kind);
+            field.default = Some(SExpression::String(literal.to_string()));
+            entity.fields.push(field);
+            validate_entity(&entity, "test", &HashSet::new(), true)
+        };
+        let invalid = |r: &ValidationResult| r.errors.iter().any(|e| e.code == ErrorCode::EntitySemanticValueInvalid);
+        assert!(!invalid(&with_default(FieldType::Url, "http://x.y")), "a short host is a URL, as validate/url says");
+        assert!(invalid(&with_default(FieldType::Url, "Cover Image")), "control: not a URL");
+        assert!(!invalid(&with_default(FieldType::Email, "ann@example.com")));
+        assert!(invalid(&with_default(FieldType::Email, "ann@localhost")), "control: the domain needs a dot");
     }
 
     #[test]

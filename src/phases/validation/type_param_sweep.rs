@@ -27,7 +27,7 @@ const TYPE_GUIDANCE: &str = "Supply an explicit call-site argument for this para
 /// is the silent degrade wearing a different hat.
 fn unresolved_sigil_reason(field_type: &str) -> Option<&'static str> {
     if field_type == "@user" {
-        return Some("this orbital declares no identity SHAPE (a bare `expects identity` declares existence only)");
+        return Some("this orbital declares no identity SHAPE (a bare `expects entity [identity]` declares existence only)");
     }
     if field_type.starts_with("@payload(") {
         return Some("the named knob does not hold a literal event name on this trait");
@@ -46,7 +46,7 @@ fn unresolved_sigil_reason(field_type: &str) -> Option<&'static str> {
     None
 }
 
-const SIGIL_GUIDANCE: &str = "A sigil type resolves against something the schema must actually declare: `@payload <knob>` needs the knob typed `event` with a literal default; `@entity <knob>` needs an `entity`-typed knob naming a declared entity; `@user` needs `expects identity <Name> { … }` with a shape.";
+const SIGIL_GUIDANCE: &str = "A sigil type resolves against something the schema must actually declare: `@payload <knob>` needs the knob typed `event` with a literal default; `@entity <knob>` needs an `entity`-typed knob naming a declared entity; `@user` needs `expects entity <Name> [identity] { … }` with a shape.";
 
 const GENERIC_GUIDANCE: &str = "Bind the trait to a `linkedEntity` so an Entity-kind parameter can default to it, or supply an explicit call-site `:: <param> <arg>` argument.";
 
@@ -71,7 +71,7 @@ fn sentinel_param_name(field_type: &str) -> &str {
     }
 }
 
-/// An `expects entity <X>` (or, post-L-9, a named `expects identity <X>`)
+/// An `expects entity <X>` (or, post-L-9, a named `expects entity [identity] <X>`)
 /// TRANSFERS the shape-dependent obligation to compose: the provider is a
 /// sibling the slice cannot see, Gap #22 inline surfaces it there and the
 /// same sentinel resolves. Erroring here rejects a slice whose composed

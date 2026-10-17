@@ -26,7 +26,7 @@ use orbital_core_base::type_compat::enum_value_is_member;
 use serde_json::Value;
 
 /// Where the identity shape a `@user` check resolves against came from. An
-/// `expects identity X { shape }` is the consumer's own declared source of
+/// `expects entity X [identity] { shape }` is the consumer's own declared source of
 /// truth — reads outside it fail with `ORB_S_EXPECTATION_FIELD_UNDECLARED`
 /// rather than the unknown-identity-field code.
 #[derive(Clone, Copy)]
@@ -35,7 +35,7 @@ pub(super) enum IdentitySource<'a> {
     Declared,
     /// No declaration anywhere — the implicit default shape.
     Default,
-    /// The orbital's own `expects identity` declaration (shape present).
+    /// The orbital's own `expects entity [identity]` declaration (shape present).
     Expectation {
         orbital: &'a str,
         entity: Option<&'a str>,
@@ -178,9 +178,9 @@ pub fn validate_user_identity(schema: &OrbitalSchema, ctx: &mut ValidationContex
     // the shape (a typo nothing can ever carry) is an error.
     //
     // Per-orbital resolution: a declared `[identity]` entity wins schema-wide.
-    // Otherwise an orbital's own `expects identity … { shape }` is its declared
+    // Otherwise an orbital's own `expects entity [identity] … { shape }` is its declared
     // source of truth (self-consistency: reads outside the declared shape fail
-    // against the orbital's OWN declaration). A shape-less `expects identity`
+    // against the orbital's OWN declaration). A shape-less `expects entity [identity]`
     // leaves the default shape in place — existence-only, as unchecked as today.
     let default_identity = default_identity_shape();
     let declared_identity = declared.first().copied();
@@ -210,7 +210,7 @@ pub fn validate_user_identity(schema: &OrbitalSchema, ctx: &mut ValidationContex
             let TraitReference::Inline(trait_def) = trait_ref else {
                 continue;
             };
-            // An `expects identity` declaration covers the orbital's AUTHORED
+            // An `expects entity [identity]` declaration covers the orbital's AUTHORED
             // surface — its own inline traits and call-site config. Bodies
             // inlined from `uses[]` imports carry `source_behavior`; their
             // internal `@user` reads are the imported behavior's own contract
@@ -233,7 +233,7 @@ pub fn validate_user_identity(schema: &OrbitalSchema, ctx: &mut ValidationContex
         }
 
         // Self-consistency: when a REAL roster won the type environment above,
-        // the authored `expects identity { shape }` was never compared to
+        // the authored `expects entity [identity] { shape }` was never compared to
         // anything — reads resolve against the roster, which knows more than the
         // declaration, so an under-declaration passes. It only becomes the type
         // environment once the orbital is SLICED, which is where it then fails.
@@ -408,7 +408,7 @@ fn role_literal_error(
 }
 
 /// The type of `@user` for the trait named `trait_name`: the program's `[identity]` roster, else the declaring
-/// orbital's `expects identity { … }` shape, else the implicit default shape.
+/// orbital's `expects entity [identity] { … }` shape, else the implicit default shape.
 pub(crate) fn identity_type(schema: &OrbitalSchema, trait_name: &str) -> orbital_core_base::ir::OirType {
     let orbital = schema.orbitals.iter().find(|o| {
         o.traits
@@ -517,8 +517,8 @@ fn check_field_exists(
     declared.sort_unstable();
     if let IdentitySource::Expectation { orbital, entity } = source {
         let expectation = match entity {
-            Some(name) => format!("`expects identity {}`", name),
-            None => "`expects identity`".to_string(),
+            Some(name) => format!("`expects entity {} [identity]`", name),
+            None => "`expects entity [identity]`".to_string(),
         };
         result.add_error(
             ValidationError::error(

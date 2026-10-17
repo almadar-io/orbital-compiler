@@ -205,6 +205,18 @@ fn check_event_address_args(
         Some(SExpression::String(h)) => h.as_str(),
         _ => "",
     };
+    if head == "browser/tab-watch" {
+        if let Some(SExpression::Object(request)) = items.get(1) {
+            if let Some(SExpression::String(value)) = request.get("event") {
+                if !(value.starts_with('@') || value.starts_with('?') || value.starts_with('$')) {
+                    let at = format!("{path}.event");
+                    for err in refs.check(value, owner_orbital, &at) {
+                        result.add_error(err);
+                    }
+                }
+            }
+        }
+    }
     if head == "call-service" || head == "call_service" {
         if let (
             Some(SExpression::String(service)),
@@ -3873,7 +3885,7 @@ mod skip_required_members_tests {
 mod effect_event_address_tests {
     use super::*;
 
-    const REGISTRY: &str = r#"{ "services": { "webhook": { "actions": [ { "name": "send", "params": [
+    const REGISTRY: &str = r#"{ "services": { "test-svc": { "actions": [ { "name": "run", "params": [
         { "name": "tools", "type": "AgentTool[]", "required": true,
           "items": { "type": "AgentTool", "properties": { "event": { "type": "EventAddress" }, "read": { "type": "string" } } } }
     ] } ] } } }"#;
@@ -3904,7 +3916,7 @@ mod effect_event_address_tests {
               "states": [{{ "name": "idle", "isInitial": true }}],
               "events": [{{ "key": "ASK" }}],
               "transitions": [{{ "from": "idle", "to": "idle", "event": "ASK", "effects": [
-                ["call-service", "webhook", "send", {{ "tools": [ {{ "event": "{tool_event}" }}, {{ "read": "Task" }} ] }}]
+                ["call-service", "test-svc", "run", {{ "tools": [ {{ "event": "{tool_event}" }}, {{ "read": "Task" }} ] }}]
               ] }}]
             }}
           }}]
@@ -3966,7 +3978,7 @@ mod effect_event_address_tests {
 mod top_level_event_address_tests {
     use super::*;
 
-    const REGISTRY: &str = r#"{ "services": { "page": { "actions": [ { "name": "watch", "params": [
+    const REGISTRY: &str = r#"{ "services": { "test-svc": { "actions": [ { "name": "watch", "params": [
         { "name": "match", "type": "string", "required": true },
         { "name": "event", "type": "EventAddress", "required": true }
     ] }, { "name": "query", "params": [
@@ -3987,7 +3999,7 @@ mod top_level_event_address_tests {
             "events": [{{ "key": "INIT" }}, {{ "key": "ITEM_SEEN", "external": true }}],
             "transitions": [
               {{ "from": "idle", "to": "idle", "event": "INIT", "effects": [
-                ["call-service", "page", "{action}", {{ "match": "https://example.com/*", "event": "{event}" }}]
+                ["call-service", "test-svc", "{action}", {{ "match": "https://example.com/*", "event": "{event}" }}]
               ] }},
               {{ "from": "idle", "to": "idle", "event": "ITEM_SEEN", "effects": [] }}
             ]

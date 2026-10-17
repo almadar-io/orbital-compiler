@@ -296,7 +296,7 @@ impl InlineContext {
     ///
     /// Expectations must travel with an import for exactly the reason auxiliary
     /// entities do: `uses` inlines individual TRAITS, never orbitals, so an
-    /// organism's `expects identity { … }` is otherwise invisible to the app
+    /// organism's `expects entity [identity] { … }` is otherwise invisible to the app
     /// composing it. The contract would then be checked only when the organism
     /// is validated STANDALONE — where its own roster satisfies it trivially —
     /// and a composing app whose roster lacks a field the organism reads off

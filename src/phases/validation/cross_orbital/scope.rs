@@ -301,6 +301,7 @@ mod tests {
             trait_embed_ids: None,
         };
         let atom_orbital = Orbital {
+            spec: false,
             types: None,
             name: "AtomHost".to_string(),
             uses: None,
@@ -358,6 +359,7 @@ mod tests {
             ref_id: None,
         };
         let composer_orbital = Orbital {
+            spec: false,
             types: None,
             name: "Composer".to_string(),
             uses: Some(vec![orbital_core_base::schema::UseDeclaration {

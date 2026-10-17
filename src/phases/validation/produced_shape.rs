@@ -318,6 +318,12 @@ pub(crate) fn produced_payload(
         let variant = http_variant(args);
         return produced_to_fields(success_payload("http", variant));
     }
+    if orbital_core_base::tab::TabOp::is_tab_effect(op_name) {
+        return produced_to_fields(success_payload(op_name, CallVariant::Plain));
+    }
+    if orbital_core_base::credential_admin::CredentialAdminOp::from_name(op_name).is_some() {
+        return produced_to_fields(success_payload(op_name, CallVariant::Plain));
+    }
     if matches!(
         op_name,
         "credential-status"
@@ -325,6 +331,8 @@ pub(crate) fn produced_payload(
             | "browser/beacon"
             | "browser/prompt"
             | "browser/embed"
+            | "redis"
+            | "postgres"
             | "oauth-authorize"
             | "oauth-connection-status"
             | "oauth-connection-forget"
@@ -362,7 +370,7 @@ pub(crate) fn produced_payload(
 
 fn call_has_key(op_name: &str, args: &[SExpression]) -> bool {
     match op_name {
-        "http" => true,
+        "http" | "redis" | "postgres" => true,
         "browser/page-facts" | "random-bytes" => matches!(
             args.get(2),
             Some(SExpression::Object(options)) if !matches!(options.get("key"), None | Some(SExpression::Null))
@@ -381,7 +389,11 @@ pub(crate) fn produced_failure_payload(
     op_name: &str,
     args: &[SExpression],
 ) -> Option<Vec<PayloadField>> {
-    produced_to_fields(failure_payload(op_name, call_has_key(op_name, args)))
+    let variant = match (op_name, persist_action(args)) {
+        ("persist", Some(action)) => CallVariant::PersistAction(action),
+        _ => CallVariant::Plain,
+    };
+    produced_to_fields(failure_payload(op_name, variant, call_has_key(op_name, args)))
 }
 
 /// The payload an operator call site puts on `emit.onMessage` (an `http` `stream`).

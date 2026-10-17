@@ -49,6 +49,8 @@ fn collect(
         }
         SExpression::Array(items) => {
             result.merge(super::keyed_call::check_key_expression_type(items, path, ctx));
+            result.merge(super::keyed_call::check_cancel_call_arg(items, path, ctx));
+            result.merge(super::cast::check_cast(items, path, ctx));
             result.merge(super::http::check_http_operand_types(items, path, ctx));
             let mut covered = covered;
             let mut children = items.as_slice();

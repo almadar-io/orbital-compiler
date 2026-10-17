@@ -195,7 +195,7 @@ pub fn validate_entity_access(schema: &OrbitalSchema, ctx: &mut ValidationContex
 
     for orbital in &schema.orbitals {
         // Per-orbital identity environment: a declared [identity] entity wins
-        // schema-wide; otherwise the orbital's own `expects identity …
+        // schema-wide; otherwise the orbital's own `expects entity [identity] …
         // { shape }` is its declared source of truth; otherwise the implicit
         // default shape (today's behavior for undeclared programs).
         let expectation = super::expectations::identity_expectation(orbital);
@@ -217,13 +217,13 @@ pub fn validate_entity_access(schema: &OrbitalSchema, ctx: &mut ValidationContex
             }
             (None, _) => (&default_identity, IdentitySource::Default),
         };
-        // Any `expects identity` — bare included — satisfies the roster
+        // Any `expects entity [identity]` — bare included — satisfies the roster
         // requirement for this orbital's own policy directives.
         let identity_declared = declared_identity.is_some() || expectation.is_some();
         // Owner-typing asks whether a column compared to `@user.id` relates to
         // *a* roster, so every `[identity]`-tagged name counts — including a
         // copy an import dragged in and the host roster shadowed. A named
-        // `expects identity X` counts X too (owner-typing resolves against the
+        // `expects entity X [identity]` counts X too (owner-typing resolves against the
         // declaration).
         let mut identity_names: Vec<&str> = vec![identity.name.as_str()];
         for name in identity_entity_names(schema) {
@@ -406,8 +406,8 @@ fn unknown_user_field(
     declared.sort_unstable();
     if let IdentitySource::Expectation { orbital, entity } = source {
         let expectation = match entity {
-            Some(name) => format!("`expects identity {}`", name),
-            None => "`expects identity`".to_string(),
+            Some(name) => format!("`expects entity {} [identity]`", name),
+            None => "`expects entity [identity]`".to_string(),
         };
         result.add_error(
             ValidationError::error(

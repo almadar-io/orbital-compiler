@@ -179,6 +179,7 @@ fn schema_for_f1(strict_target_event: &str) -> OrbitalSchema {
         version: Some("0.1.0".to_string()),
         description: None,
         orbitals: vec![Orbital {
+            spec: false,
             types: None,
             name: "TestOrbital".to_string(),
             uses: None,
@@ -314,6 +315,7 @@ fn schema_with_two_emitters_and_listener_source(
     // second orbital with a `Listener` trait reaches every L2.6 narrowing
     // arm for the test case.
     let listener_orbital = Orbital {
+        spec: false,
         types: None,
         name: "ListenerOrbital".to_string(),
         uses: None,
@@ -362,6 +364,7 @@ fn schema_with_two_emitters_and_listener_source(
         description: None,
         orbitals: vec![
             Orbital {
+                spec: false,
                 types: None,
                 name: "TestOrbital".to_string(),
                 uses: None,
@@ -700,6 +703,7 @@ fn schema_with_render_action_payload(
     };
 
     let listener_orbital = Orbital {
+        spec: false,
         types: None,
         name: "ListenerOrbital".to_string(),
         uses: None,
@@ -746,6 +750,7 @@ fn schema_with_render_action_payload(
         description: None,
         orbitals: vec![
             Orbital {
+                spec: false,
                 types: None,
                 name: "TestOrbital".to_string(),
                 uses: None,
@@ -885,6 +890,7 @@ fn schema_with_default(field: FieldDefinition) -> OrbitalSchema {
         version: Some("0.1.0".to_string()),
         description: None,
         orbitals: vec![Orbital {
+            spec: false,
             types: None,
             name: "TestOrbital".to_string(),
             uses: None,

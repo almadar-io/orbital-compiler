@@ -1,4 +1,4 @@
-//! `random-bytes`, `credential-status` and `credential-forget` validation
+//! `random-bytes`, `credential-*` validation
 //! (`docs/Almadar_Embedded_Kernel.md` H.7 P4, P6): arity, the closed options
 //! object (`emit { success, failure }` only), and a literal byte count in range.
 
@@ -7,9 +7,20 @@ use super::emit_declaration::collect_declared_emits;
 use super::http::visit_effects;
 use super::keyed_call::check_key_and_cancelled;
 use super::{extract_emit_object_ref, validate_emit_config};
+use orbital_core_base::credential_admin::CredentialAdminOp;
 use orbital_core_base::schema::{OrbitalSchema, SExpression};
 
-const HOST_EFFECTS: [&str; 3] = ["random-bytes", "credential-status", "credential-forget"];
+const HOST_EFFECTS: [&str; 9] = [
+    "random-bytes",
+    "credential-status",
+    "credential-forget",
+    "credential-list",
+    "credential-set",
+    "credential-remove",
+    "credential-test",
+    "credential-mode",
+    "credential-rotate",
+];
 const HOST_EMIT_KEYS: [&str; 2] = ["success", "failure"];
 const RANDOM_BYTES_MAX: f64 = 1024.0;
 
@@ -55,6 +66,9 @@ pub(crate) fn validate_host_effects(schema: &OrbitalSchema) -> ValidationResult 
                 if head == "random-bytes" {
                     check_count(&arr[1], at, &mut result);
                 }
+                if let Some(op) = CredentialAdminOp::from_name(head) {
+                    check_request(op, &arr[1], at, &mut result);
+                }
                 match arr.get(2) {
                     None => {}
                     Some(SExpression::Object(options)) => {
@@ -90,6 +104,37 @@ pub(crate) fn validate_host_effects(schema: &OrbitalSchema) -> ValidationResult 
         });
     }
     result
+}
+
+/// A literal request of a credential effect: an object of the effect's declared parameters, with the required ones
+/// present. A request that is a binding is the runtime's to check.
+fn check_request(op: CredentialAdminOp, request: &SExpression, at: &str, result: &mut ValidationResult) {
+    let (required, optional) = op.params();
+    let declared: Vec<&str> = required.iter().chain(optional).copied().collect();
+    let invalid = |message: String, result: &mut ValidationResult| {
+        result.add_error(
+            ValidationError::error(ErrorCode::CredentialRequestInvalid, at, message)
+                .with_valid_values(declared.iter().map(|k| k.to_string()).collect()),
+        );
+    };
+    match request {
+        SExpression::Object(fields) => {
+            if let Some(key) = fields.keys().find(|k| !declared.contains(&k.as_str())) {
+                invalid(format!("`{}` takes only {}, got `{key}`", op.name(), declared.join(", ")), result);
+            }
+            for name in required.iter().filter(|name| !fields.contains_key(**name)) {
+                invalid(format!("`{}` needs `{name}` in its request", op.name()), result);
+            }
+        }
+        SExpression::String(_) => {
+            if !matches!(request, SExpression::String(text) if text.starts_with('@')) {
+                invalid(format!("`{}` takes a request object, not text", op.name()), result);
+            }
+        }
+        SExpression::Number(_) | SExpression::Bool(_) | SExpression::Null | SExpression::Array(_) => {
+            invalid(format!("`{}` takes a request object", op.name()), result);
+        }
+    }
 }
 
 fn check_count(count: &SExpression, at: &str, result: &mut ValidationResult) {

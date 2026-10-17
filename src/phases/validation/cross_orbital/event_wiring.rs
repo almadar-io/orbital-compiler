@@ -724,8 +724,8 @@ pub(crate) fn collect_failure_events(
         if let Some(SExpression::String(op)) = items.first() {
             if matches!(
                 op.as_str(),
-                "fetch" | "persist" | "call-service" | "http" | "random-bytes" | "credential-status" | "credential-forget" | "oauth-authorize" | "oauth-connection-status" | "oauth-connection-forget" | "program/eval" | "program/compose"
-            ) {
+                "fetch" | "persist" | "call-service" | "http" | "redis" | "postgres" | "random-bytes" | "credential-status" | "credential-forget" | "oauth-authorize" | "oauth-connection-status" | "oauth-connection-forget" | "program/eval" | "program/compose"
+            ) || orbital_core_base::credential_admin::CredentialAdminOp::from_name(op).is_some() {
                 for item in items {
                     if let SExpression::Object(map) = item {
                         if let Some(SExpression::Object(emit_map)) = map.get("emit") {
@@ -824,8 +824,8 @@ pub(crate) fn transition_can_propagate(trait_def: &TraitDefinition, event: &str)
                     if let SExpression::String(op) = &arr[0] {
                         if matches!(
                             op.as_str(),
-                            "fetch" | "persist" | "ref" | "deref" | "call-service" | "http" | "random-bytes" | "credential-status" | "credential-forget" | "oauth-authorize" | "oauth-connection-status" | "oauth-connection-forget" | "agent/invoke"
-                        ) {
+                            "fetch" | "persist" | "ref" | "deref" | "call-service" | "http" | "redis" | "postgres" | "random-bytes" | "credential-status" | "credential-forget" | "oauth-authorize" | "oauth-connection-status" | "oauth-connection-forget" | "agent/invoke"
+                        ) || orbital_core_base::credential_admin::CredentialAdminOp::from_name(op).is_some() {
                             for item in arr.iter().skip(1) {
                                 if let SExpression::Object(opts) = item {
                                     if opts.contains_key("emit") {
@@ -944,6 +944,7 @@ mod tests {
             version: Some("1.0.0".to_string()),
             description: None,
             orbitals: vec![Orbital {
+                spec: false,
                 name: "TaskOrbital".to_string(),
                 uses: None,
                 expects: None,

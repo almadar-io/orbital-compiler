@@ -346,7 +346,7 @@ fn descend_field_path(f: &FieldDefinition, rest: &[&str], ctx: &BindingContext) 
 /// `ctx.entity_definitions` is the schema-wide registry (every orbital's
 /// PRIMARY + auxiliary entities), so the declared `[identity]` entity is
 /// found there when one exists — no schema/orbital plumbing needed here.
-/// This does not see a narrower per-orbital `expects identity { shape }`
+/// This does not see a narrower per-orbital `expects entity [identity] { shape }`
 /// (that requires the orbital, which `BindingContext` doesn't carry); a
 /// field outside the wider fallback shape just resolves `Unknown` (skip),
 /// never a false mismatch.
@@ -409,6 +409,7 @@ fn field_type_to_binding(ft: &FieldType) -> BindingType {
         FieldType::Money => BindingType::Number,
         FieldType::File => BindingType::Object,
         FieldType::Bytes => BindingType::String,
+        FieldType::CallKey => BindingType::String,
         FieldType::Array | FieldType::Tuple => BindingType::Array,
         FieldType::Object => BindingType::Object,
         FieldType::Enum => BindingType::String,

@@ -85,6 +85,7 @@ mod tests {
             version: Some("1.0.0".to_string()),
             description: None,
             orbitals: vec![Orbital {
+                spec: false,
                 types: None,
                 name: "TaskOrbital".to_string(),
                 uses: None,
@@ -144,6 +145,7 @@ mod tests {
     fn test_duplicate_entity() {
         let mut schema = create_minimal_schema();
         schema.orbitals.push(Orbital {
+            spec: false,
             types: None,
             name: "AnotherOrbital".to_string(),
             uses: None,

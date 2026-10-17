@@ -20,6 +20,8 @@ pub fn validate_final_program(schema: &OrbitalSchema) -> ValidationResult {
     let mut result = ValidationResult::new();
     result.merge(super::expectations::validate_final_expectations(schema));
     result.merge(validate_controls_handled(schema));
+    result.merge(super::effect::validate_final_os_targets(schema));
+    result.merge(super::effect::validate_final_cancel_keys(schema));
     for error in super::composed_wiring::discarded_offered_values(schema) {
         result.add_error(error);
     }

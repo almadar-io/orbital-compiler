@@ -20,6 +20,9 @@ static NAME_REGEX: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"^[A-Z][a-zA-Z
 /// Validate all pages in a schema
 pub fn validate_all_pages(schema: &OrbitalSchema, ctx: &mut ValidationContext) {
     for (i, orbital) in schema.orbitals.iter().enumerate() {
+        if orbital.is_spec() {
+            continue;
+        }
         // Check if orbital has pages defined
         let has_pages = orbital
             .pages

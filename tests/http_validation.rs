@@ -208,6 +208,23 @@ fn egress_entry_invalid() {
 }
 
 #[test]
+fn egress_entry_accepts_tcp_protocol_origins_only_as_origins() {
+    for good in [
+        "redis://cache.internal:6379",
+        "rediss://cache.internal",
+        "postgres://db.internal:5432",
+        "postgresql://db.internal",
+    ] {
+        let r = check(json!([good]), config(), json!([]));
+        assert!(!fires(&r, ErrorCode::HttpEgressEntryInvalid), "{good}");
+    }
+    for bad in ["ftp://x", "redis://cache.internal/0", "postgres://u:p@db.internal", "redis://", "redis://h:x"] {
+        let r = check(json!([bad]), config(), json!([]));
+        assert!(fires(&r, ErrorCode::HttpEgressEntryInvalid), "{bad}");
+    }
+}
+
+#[test]
 fn origin_not_static() {
     for origin in [json!("@payload.base"), json!("@config.plain"), json!("@config.limit"), json!("@config.missing"), json!(["str/concat", "https://", "x"])] {
         let r = check(json!([]), config(), call(origin.clone(), json!({})));
@@ -340,6 +357,24 @@ fn credential_not_secret() {
         json!({ "scheme": "hmac-sha256", "credential": "@config.apiKey", "name": "S", "signs": "@payload.m", "encoding": "hex" }),
     ] {
         assert!(with(auth.clone()).is_empty(), "{auth}");
+    }
+}
+
+#[test]
+fn hmac_prefix_must_be_text() {
+    let hmac = |prefix: serde_json::Value| {
+        json!({"scheme":"hmac-sha256","credential":"@config.apiKey","name":"X-Sig","signs":"data","encoding":"hex","prefix":prefix})
+    };
+    let r = check(ok_egress(), config(), post(json!(ORIGIN), json!({"auth":hmac(json!("sha256="))})));
+    assert!(!r.errors.iter().any(|error| error.message.contains("prefix")), "{:?}", r.errors);
+    for bad in [json!(7), json!(true)] {
+        assert!(
+            check(ok_egress(), config(), post(json!(ORIGIN), json!({"auth":hmac(bad.clone())})))
+                .errors
+                .iter()
+                .any(|error| error.code == ErrorCode::HttpAuthInvalid && error.message.contains("auth.prefix")),
+            "{bad}"
+        );
     }
 }
 
@@ -531,14 +566,14 @@ fn the_http_stream_event_is_data_event_id_key() {
 
 #[test]
 fn a_keyed_call_service_failure_is_error_and_key() {
-    let keyed = json!([["call-service", "webhook", "send", {},
+    let keyed = json!([["call-service", "test-svc", "run", {},
         { "key": "@entity.id", "emit": { "success": "SEARCHED", "failure": "SEARCH_FAILED" } }]]);
     let r = with_event_payload(keyed.clone(), "SEARCH_FAILED", json!([field("error", "string"), field("key", "string")]));
     assert!(!fires(&r, ErrorCode::EmitPayloadNotProduced), "{:?}", r.errors);
     let r = with_event_payload(keyed, "SEARCH_FAILED", json!([field("status", "number")]));
     assert!(fires(&r, ErrorCode::EmitPayloadNotProduced));
 
-    let unkeyed = json!([["call-service", "webhook", "send", {},
+    let unkeyed = json!([["call-service", "test-svc", "run", {},
         { "emit": { "success": "SEARCHED", "failure": "SEARCH_FAILED" } }]]);
     let r = with_event_payload(unkeyed, "SEARCH_FAILED", json!([field("status", "number")]));
     assert!(!fires(&r, ErrorCode::EmitPayloadNotProduced), "control: an unkeyed failure shape is not decided");
@@ -1597,5 +1632,338 @@ mod browser_effects_validation {
             let r = with_tick(false, call.clone());
             assert!(!fires(&r, ErrorCode::OnDeviceEffectOnServer), "{call}: {:?}", r.errors);
         }
+    }
+}
+
+mod tab_effects_validation {
+    // `orb validate` rules of `browser/tab-*` (docs/Almadar_Embedded_Kernel.md D-A92): the request is a closed object,
+    // a request with nothing only run time knows is read by the kernel's one parser, a watch names a declared
+    // external input, and the effects never sit where the server runs them. Every code has a positive case and a
+    // control that stays silent.
+
+    use orbital_compiler::phases::validation::{validate_comprehensive_without_services, ErrorCode, ValidationResult};
+    use orbital_core_base::schema::OrbitalSchema;
+    use serde_json::{json, Value};
+
+    fn program(effects: Value, ticks: Value, payload: Value) -> OrbitalSchema {
+        serde_json::from_value(json!({
+            "name": "fixture", "version": "1.0.0",
+            "orbitals": [{
+                "name": "Host",
+                "entity": { "name": "Row", "persistence": "runtime", "fields": [{ "name": "id", "type": "string", "required": true }, { "name": "tab", "type": "number" }] },
+                "traits": [{
+                    "name": "Driver", "linkedEntity": "Row", "category": "interaction",
+                    "ticks": ticks,
+                    "emits": [
+                        { "event": "TAB_OK", "payloadSchema": payload },
+                        { "event": "TAB_FAILED", "payloadSchema": [{ "name": "error", "type": "string", "required": true }] },
+                        { "event": "TAB_CANCELLED" }
+                    ],
+                    "stateMachine": {
+                        "states": [{ "name": "idle", "isInitial": true }],
+                        "events": [{ "key": "INIT" }, { "key": "ITEM_FOUND", "external": true }, { "key": "CANCEL" }],
+                        "transitions": [
+                            { "from": "idle", "to": "idle", "event": "INIT", "effects": effects },
+                            { "from": "idle", "to": "idle", "event": "ITEM_FOUND" },
+                            { "from": "idle", "to": "idle", "event": "CANCEL", "effects": [["cancel-call", "@entity.id"]] }
+                        ]
+                    }
+                }],
+                "pages": []
+            }]
+        }))
+        .expect("schema")
+    }
+
+    fn check(effects: Value) -> ValidationResult {
+        validate_comprehensive_without_services(&program(effects, json!([]), json!([{ "name": "tab", "type": "number", "required": true }])))
+    }
+
+    fn check_reading(effects: Value, read: &[(&str, &str)]) -> ValidationResult {
+        let payload: Vec<Value> = read.iter().map(|(name, ty)| json!({ "name": name, "type": ty, "required": true })).collect();
+        validate_comprehensive_without_services(&program(effects, json!([]), Value::Array(payload)))
+    }
+
+    fn fires(r: &ValidationResult, code: ErrorCode) -> bool {
+        r.errors.iter().chain(r.warnings.iter()).any(|e| e.code == code)
+    }
+
+    fn routes() -> Value {
+        json!({ "emit": { "success": "TAB_OK", "failure": "TAB_FAILED", "cancelled": "TAB_CANCELLED" } })
+    }
+
+    const CODES: [ErrorCode; 3] = [ErrorCode::TabRequestInvalid, ErrorCode::TabEffectOnServer, ErrorCode::HostEffectArity];
+
+    #[test]
+    fn control_well_formed_tab_effects_raise_none_of_the_codes() {
+        let r = check(json!([
+            ["browser/tab-list", { "match": "https://example.com/*" }, routes()],
+            ["browser/tab-open", { "url": "https://example.com/search", "params": { "q": "@payload.query" }, "match": "https://example.com/*", "active": false }, routes()],
+            ["browser/tab-close", { "tab": "@entity.tab" }, routes()],
+            ["browser/tab-navigate", { "tab": "@entity.tab", "url": "https://example.com/next" }, routes()],
+            ["browser/tab-query", { "tab": "@entity.tab", "selector": ".r", "fields": { "t": { "selector": "h2" } }, "limit": 3, "waitMs": 100 }, routes()],
+            ["browser/tab-watch", { "match": "https://example.com/*", "selector": ".item", "fields": { "t": { "selector": "h2", "required": true } }, "event": "Driver.ITEM_FOUND" }, routes()],
+            ["browser/tab-unwatch", { "watchId": "@entity.id" }, routes()],
+            ["browser/tab-apply", { "tab": "@entity.tab", "elementId": "@entity.id", "treatment": "hide", "label": "x" }, routes()],
+            ["browser/tab-apply-many", { "items": "@payload.items" }, routes()],
+            ["browser/tab-act", { "tab": "@entity.tab", "elementId": "@entity.id", "action": "click" }, routes()]
+        ]));
+        for code in CODES {
+            assert!(!fires(&r, code), "{code:?}: {:?}", r.errors);
+        }
+    }
+
+    #[test]
+    fn a_request_key_outside_the_ops_closed_set_is_flagged_even_when_the_rest_is_dynamic() {
+        let r = check(json!([["browser/tab-close", { "tab": "@entity.tab", "nope": 1 }, routes()]]));
+        assert!(fires(&r, ErrorCode::TabRequestInvalid), "{:?}", r.errors);
+        let r = check(json!([["browser/tab-close", { "tab": "@entity.tab" }, routes()]]));
+        assert!(!fires(&r, ErrorCode::TabRequestInvalid), "{:?}", r.errors);
+    }
+
+    #[test]
+    fn a_literal_request_the_kernel_would_refuse_is_flagged_before_it_runs() {
+        for call in [
+            json!(["browser/tab-close", { "tab": "7" }, routes()]),
+            json!(["browser/tab-list", { "match": "example.com" }, routes()]),
+            json!(["browser/tab-open", { "url": "/relative" }, routes()]),
+            json!(["browser/tab-open", { "url": "https://a.test/", "match": "https://b.test/*" }, routes()]),
+            json!(["browser/tab-apply", { "tab": 1, "elementId": "e", "treatment": "explode" }, routes()]),
+            json!(["browser/tab-act", { "tab": 1, "elementId": "e", "action": "eval" }, routes()]),
+            json!(["browser/tab-query", { "tab": 1, "selector": ".a", "fields": { "b": { "template": "{missing}" } } }, routes()]),
+            json!(["browser/tab-watch", { "match": "https://example.com/*", "selector": ".item", "fields": {}, "event": "NOPE" }, routes()]),
+        ] {
+            let r = check(json!([call.clone()]));
+            assert!(fires(&r, ErrorCode::TabRequestInvalid), "{call}: {:?}", r.errors);
+        }
+    }
+
+    #[test]
+    fn a_request_that_is_not_an_object_or_a_call_with_the_wrong_arity_is_flagged() {
+        let r = check(json!([["browser/tab-close", 7, routes()]]));
+        assert!(fires(&r, ErrorCode::TabRequestInvalid), "{:?}", r.errors);
+        let r = check(json!([["browser/tab-close"]]));
+        assert!(fires(&r, ErrorCode::HostEffectArity), "{:?}", r.errors);
+        let r = check(json!([["browser/tab-close", { "tab": 1 }, routes(), routes()]]));
+        assert!(fires(&r, ErrorCode::HostEffectArity), "{:?}", r.errors);
+    }
+
+    #[test]
+    fn the_options_object_is_closed_and_its_emit_routes_are_success_failure_cancelled() {
+        let r = check(json!([["browser/tab-close", { "tab": 1 }, { "retry": 3, "emit": routes()["emit"].clone() }]]));
+        assert!(fires(&r, ErrorCode::HostEffectOptionUnknown), "{:?}", r.errors);
+        let r = check(json!([["browser/tab-close", { "tab": 1 }, { "emit": { "success": "TAB_OK", "onMessage": "TAB_OK" } }]]));
+        assert!(!r.errors.is_empty(), "onMessage is not a tab route");
+    }
+
+    fn with_tick(background: bool, effect: Value) -> ValidationResult {
+        validate_comprehensive_without_services(&program(
+            json!([]),
+            json!([{ "name": "poll", "interval": 1000, "effects": [effect], "runsInBackground": background }]),
+            json!([{ "name": "tab", "type": "number", "required": true }]),
+        ))
+    }
+
+    #[test]
+    fn a_tab_effect_is_rejected_where_the_server_runs_it_and_accepted_in_the_browser() {
+        let call = json!(["browser/tab-list", {}, routes()]);
+        let r = with_tick(true, call.clone());
+        assert!(fires(&r, ErrorCode::TabEffectOnServer), "{:?}", r.errors);
+        let r = with_tick(false, call);
+        assert!(!fires(&r, ErrorCode::TabEffectOnServer), "{:?}", r.errors);
+    }
+
+    #[test]
+    fn a_success_event_may_read_what_the_op_produces_and_nothing_else() {
+        let query = json!([["browser/tab-query", { "tab": "@entity.tab", "selector": ".r", "fields": {} }, routes()]]);
+        let r = check_reading(query.clone(), &[("tab", "number"), ("elements", "array"), ("key", "string")]);
+        assert!(!fires(&r, ErrorCode::EmitPayloadNotProduced), "{:?}", r.errors);
+        let r = check_reading(query, &[("tabs", "array")]);
+        assert!(fires(&r, ErrorCode::EmitPayloadNotProduced), "{:?}", r.errors);
+        let list = json!([["browser/tab-list", {}, routes()]]);
+        let r = check_reading(list.clone(), &[("tabs", "array")]);
+        assert!(!fires(&r, ErrorCode::EmitPayloadNotProduced), "{:?}", r.errors);
+        let r = check_reading(list, &[("elements", "array")]);
+        assert!(fires(&r, ErrorCode::EmitPayloadNotProduced), "{:?}", r.errors);
+    }
+
+    #[test]
+    fn a_keyed_tab_call_is_what_a_cancel_call_reaches_and_without_one_the_cancel_is_stranded() {
+        let keyed = check(json!([["browser/tab-close", { "tab": 1 }, { "key": "job", "emit": routes()["emit"].clone() }]]));
+        assert!(!fires(&keyed, ErrorCode::CancelCallNoKeyedCall), "{:?}", keyed.errors);
+        let unkeyed = check(json!([["browser/tab-close", { "tab": 1 }, routes()]]));
+        assert!(fires(&unkeyed, ErrorCode::CancelCallNoKeyedCall), "{:?}", unkeyed.errors);
+    }
+}
+
+mod call_key {
+    use super::*;
+
+    fn run(effects: Value) -> ValidationResult {
+        let mut schema = serde_json::to_value(program(ok_egress(), config(), effects)).unwrap();
+        schema["orbitals"][0]["entity"]["fields"]
+            .as_array_mut()
+            .unwrap()
+            .push(json!({ "name": "callKey", "type": "CallKey" }));
+        validate_comprehensive_without_services(&serde_json::from_value(schema).expect("schema"))
+    }
+
+    fn mismatch(r: &ValidationResult) -> bool {
+        r.errors.iter().chain(r.warnings.iter()).any(|e| {
+            matches!(
+                e.code,
+                ErrorCode::OperatorArgTypeMismatch
+                    | ErrorCode::SetValueTypeMismatch
+                    | ErrorCode::SetReturnTypeMismatch
+            )
+        })
+    }
+
+    #[test]
+    fn a_cancel_on_a_call_key_needs_no_keyed_call_in_the_program() {
+        let r = run(json!([["cancel-call", "@entity.callKey"]]));
+        assert!(!fires(&r, ErrorCode::CancelCallNoKeyedCall), "{:?}", r.errors);
+    }
+
+    #[test]
+    fn control_a_cancel_on_a_plain_string_still_needs_a_keyed_call() {
+        let r = run(json!([["cancel-call", "@entity.id"]]));
+        assert!(fires(&r, ErrorCode::CancelCallNoKeyedCall), "{:?}", r.errors);
+    }
+
+    fn run_with_key_lists(effects: Value) -> ValidationResult {
+        let mut schema = serde_json::to_value(program(ok_egress(), config(), effects)).unwrap();
+        let fields = schema["orbitals"][0]["entity"]["fields"].as_array_mut().unwrap();
+        fields.push(json!({ "name": "callKeys", "type": "array", "items": { "type": "CallKey" } }));
+        fields.push(json!({ "name": "names", "type": "array", "items": { "type": "string" } }));
+        validate_comprehensive_without_services(&serde_json::from_value(schema).expect("schema"))
+    }
+
+    #[test]
+    fn a_cancel_on_a_list_of_call_keys_needs_no_keyed_call_in_the_program() {
+        let r = run_with_key_lists(json!([["cancel-call", "@entity.callKeys"]]));
+        assert!(!fires(&r, ErrorCode::CancelCallNoKeyedCall), "{:?}", r.errors);
+        assert!(!mismatch(&r), "{:?}", r.errors);
+    }
+
+    #[test]
+    fn control_a_cancel_on_a_list_of_plain_strings_still_needs_a_keyed_call() {
+        let r = run_with_key_lists(json!([["cancel-call", "@entity.names"]]));
+        assert!(fires(&r, ErrorCode::CancelCallNoKeyedCall), "{:?}", r.errors);
+    }
+
+    #[test]
+    fn a_cancel_on_a_cast_literal_is_a_call_key_cancel() {
+        let r = run(json!([["cancel-call", ["as", "search", "CallKey"]]]));
+        assert!(!fires(&r, ErrorCode::CancelCallNoKeyedCall), "{:?}", r.errors);
+    }
+
+    #[test]
+    fn a_cast_makes_a_call_key_and_a_bare_string_cannot_be_set() {
+        let ok = run(json!([["set", "@entity.callKey", ["as", "search", "CallKey"]]]));
+        assert!(!mismatch(&ok), "{:?}", ok.errors);
+        let bare = run(json!([["set", "@entity.callKey", ["str/concat", "search", "x"]]]));
+        assert!(mismatch(&bare), "a bare string must not assign: {:?}", bare.errors);
+    }
+
+    #[test]
+    fn a_cast_of_a_value_with_no_conversion_is_rejected() {
+        let number = run(json!([["set", "@entity.callKey", ["as", 7, "CallKey"]]]));
+        assert!(mismatch(&number), "{:?}", number.errors);
+        let from_string_field = run(json!([["set", "@entity.callKey", ["as", "@entity.id", "CallKey"]]]));
+        assert!(!mismatch(&from_string_field), "control: a string field casts: {:?}", from_string_field.errors);
+    }
+
+    #[test]
+    fn a_call_key_is_accepted_as_the_key_of_a_call() {
+        let call = json!([["http", "GET", ORIGIN, "/s", {}, { "key": "@entity.callKey", "emit": { "success": "SEARCHED", "failure": "SEARCH_FAILED" } }]]);
+        let r = run(call);
+        assert!(!fires(&r, ErrorCode::CallServiceKeyType), "{:?}", r.errors);
+    }
+
+    #[test]
+    fn a_literal_call_key_no_call_runs_under_is_unused_and_a_matching_one_is_not() {
+        let unused = run(json!([["cancel-call", ["as", "search", "CallKey"]]]));
+        assert!(fires(&unused, ErrorCode::CallKeyUnused), "{:?}", unused.errors);
+        let keyed = json!([
+            ["http", "GET", ORIGIN, "/s", {}, { "key": ["as", "search", "CallKey"], "emit": { "success": "SEARCHED", "failure": "SEARCH_FAILED" } }],
+            ["cancel-call", ["as", "search", "CallKey"]]
+        ]);
+        let matched = run(keyed);
+        assert!(!fires(&matched, ErrorCode::CallKeyUnused), "control: {:?}", matched.errors);
+        let other = json!([
+            ["http", "GET", ORIGIN, "/s", {}, { "key": "other", "emit": { "success": "SEARCHED", "failure": "SEARCH_FAILED" } }],
+            ["cancel-call", ["as", "search", "CallKey"]]
+        ]);
+        assert!(fires(&run(other), ErrorCode::CallKeyUnused), "a different literal key is still unused");
+    }
+
+    #[test]
+    fn a_computed_call_key_silences_the_unused_rule() {
+        let computed = json!([
+            ["http", "GET", ORIGIN, "/s", {}, { "key": "@entity.callKey", "emit": { "success": "SEARCHED", "failure": "SEARCH_FAILED" } }],
+            ["cancel-call", ["as", "search", "CallKey"]]
+        ]);
+        let r = run(computed);
+        assert!(!fires(&r, ErrorCode::CallKeyUnused), "{:?}", r.errors);
+    }
+}
+
+mod call_key_final {
+    use super::*;
+    use orbital_compiler::phases::validation::final_program::validate_final_program;
+
+    fn final_of(effects: Value) -> ValidationResult {
+        let mut schema = serde_json::to_value(program(ok_egress(), config(), effects)).unwrap();
+        let fields = schema["orbitals"][0]["entity"]["fields"].as_array_mut().unwrap();
+        fields.push(json!({ "name": "callKey", "type": "CallKey" }));
+        fields.push(json!({ "name": "callKeys", "type": "array", "items": { "type": "CallKey" } }));
+        validate_final_program(&serde_json::from_value(schema).expect("schema"))
+    }
+
+    fn keyed(key: &str) -> Value {
+        json!(["http", "GET", ORIGIN, "/s", {}, { "key": key, "emit": { "success": "OK", "failure": "BAD" } }])
+    }
+
+    #[test]
+    fn a_call_key_cancel_with_a_call_key_typed_call_is_clean() {
+        let r = final_of(json!([keyed("@entity.callKey"), ["cancel-call", "@entity.callKey"]]));
+        assert!(!fires(&r, ErrorCode::CancelCallKeyNeverCalled), "{:?}", r.errors);
+    }
+
+    #[test]
+    fn a_call_keyed_by_a_cast_counts_as_call_key_typed() {
+        let r = final_of(json!([keyed_cast(), ["cancel-call", "@entity.callKey"]]));
+        assert!(!fires(&r, ErrorCode::CancelCallKeyNeverCalled), "{:?}", r.errors);
+    }
+
+    fn keyed_cast() -> Value {
+        json!(["http", "GET", ORIGIN, "/s", {}, { "key": ["as", "@entity.id", "CallKey"], "emit": { "success": "OK", "failure": "BAD" } }])
+    }
+
+    #[test]
+    fn a_call_key_cancel_whose_only_calls_are_keyed_by_plain_strings_never_reaches_one() {
+        let r = final_of(json!([keyed("@entity.id"), ["cancel-call", "@entity.callKey"]]));
+        assert!(fires(&r, ErrorCode::CancelCallKeyNeverCalled), "{:?}", r.errors);
+    }
+
+    #[test]
+    fn a_call_key_cancel_in_a_program_with_no_keyed_call_never_reaches_one() {
+        let r = final_of(json!([["cancel-call", "@entity.callKey"]]));
+        assert!(fires(&r, ErrorCode::CancelCallKeyNeverCalled), "{:?}", r.errors);
+    }
+
+    #[test]
+    fn a_list_of_call_keys_follows_the_same_rule() {
+        let none = final_of(json!([keyed("@entity.id"), ["cancel-call", "@entity.callKeys"]]));
+        assert!(fires(&none, ErrorCode::CancelCallKeyNeverCalled), "{:?}", none.errors);
+        let typed = final_of(json!([keyed("@entity.callKey"), ["cancel-call", "@entity.callKeys"]]));
+        assert!(!fires(&typed, ErrorCode::CancelCallKeyNeverCalled), "{:?}", typed.errors);
+    }
+
+    #[test]
+    fn control_a_string_cancel_is_not_judged_by_this_rule() {
+        let r = final_of(json!([keyed("@entity.id"), ["cancel-call", "@entity.id"]]));
+        assert!(!fires(&r, ErrorCode::CancelCallKeyNeverCalled), "{:?}", r.errors);
     }
 }

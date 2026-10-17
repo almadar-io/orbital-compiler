@@ -632,6 +632,7 @@ mod tests {
             })
             .collect();
         Orbital {
+            spec: false,
             types: None,
             name: "TestOrbital".to_string(),
             uses: None,

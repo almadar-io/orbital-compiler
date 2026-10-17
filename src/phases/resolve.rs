@@ -1795,6 +1795,7 @@ fn parse_payload_field_type(field_type: &str) -> OirType {
         "money" => return OirType::Money,
         "file" => return OirType::File,
         "bytes" => return OirType::Bytes,
+        "callkey" => return OirType::CallKey,
         // In a payload position a relation travels as the related row's id and
         // an enum as its literal value; neither sidecar (target entity, values)
         // rides the payload schema.
@@ -1892,7 +1893,7 @@ mod tests {
     #[test]
     fn call_service_options_resolve_key_and_cancelled() {
         let effect = resolved_call_service(
-            r#"["call-service", "webhook", "send", {"items": "@entity.items"},
+            r#"["call-service", "test-svc", "run", {"items": "@entity.items"},
                 {"key": "@entity.batchId", "emit": {"success": "OK", "failure": "BAD", "cancelled": "STOPPED"}}]"#,
         );
         let OirEffect::CallService {
@@ -1911,7 +1912,7 @@ mod tests {
     #[test]
     fn call_service_key_without_emit_is_still_options_not_args() {
         let effect = resolved_call_service(
-            r#"["call-service", "webhook", "send", {"userPrompt": "hi"}, {"key": "k1"}]"#,
+            r#"["call-service", "test-svc", "run", {"userPrompt": "hi"}, {"key": "k1"}]"#,
         );
         let OirEffect::CallService {
             key, emit, args, ..
@@ -1930,7 +1931,7 @@ mod tests {
     #[test]
     fn call_service_three_arg_object_with_key_field_stays_the_payload() {
         let effect =
-            resolved_call_service(r#"["call-service", "redis", "get", {"key": "@entity.key"}]"#);
+            resolved_call_service(r#"["call-service", "test-svc", "get", {"key": "@entity.key"}]"#);
         let OirEffect::CallService { key, args, .. } = effect else {
             panic!("expected CallService");
         };

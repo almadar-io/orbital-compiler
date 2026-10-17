@@ -367,6 +367,9 @@ fn compile_schema_with_path(
     }
     let mut oir = resolve_to_oir(&schema)?;
     oir.egress = schema.egress.clone().unwrap_or_default();
+    oir.program_credentials = orbital_core_base::secrets::program_credentials(
+        &serde_json::to_value(&schema).map_err(std::io::Error::from)?,
+    );
     oir.inbound = orbital_core_base::inbound::inbound_routes_of(&schema);
     oir.os_grants = schema.program_os_grants();
     let runtimes = options
@@ -491,7 +494,7 @@ mod tests {
                         "events": [{ "key": "INIT" }, { "key": "SEEN", "external": true }],
                         "transitions": [
                             { "from": "idle", "to": "idle", "event": "INIT",
-                              "effects": [["call-service", "page", "watch",
+                              "effects": [["browser/tab-watch",
                                 { "match": "https://example.com/*", "selector": "a", "fields": {}, "event": event }]] },
                             { "from": "idle", "to": "idle", "event": "SEEN", "effects": [] }
                         ]
@@ -514,12 +517,13 @@ mod tests {
     }
 
     #[test]
-    fn compile_validation_reads_the_installed_services_registry() {
+    fn a_tab_watch_event_address_is_checked_against_the_declared_inputs_in_every_validation() {
         let misspelled = watch_program("Watcher.SEN");
         let result = validate_for_compile(&misspelled, &CompilerOptions::default());
         assert!(has_event_address_error(&result), "{:?}", result.errors);
-        assert!(!has_event_address_error(&validate_comprehensive_without_services(&misspelled)));
+        assert!(has_event_address_error(&validate_comprehensive_without_services(&misspelled)));
         let declared = watch_program("Watcher.SEEN");
+        assert!(!has_event_address_error(&validate_comprehensive_without_services(&declared)));
         assert!(!has_event_address_error(&validate_for_compile(&declared, &CompilerOptions::default())));
     }
 

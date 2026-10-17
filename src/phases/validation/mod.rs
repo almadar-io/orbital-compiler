@@ -373,6 +373,8 @@ pub const VALID_FIELD_TYPES: &[&str] = &[
     "money",
     "file",
     "bytes",
+    // A nominal string: only `(as <string> CallKey)` makes one.
+    "CallKey",
     "array",
     "object",
     "enum",
@@ -738,7 +740,7 @@ fn collect_names(schema: &OrbitalSchema, ctx: &mut ValidationContext) {
         // it does for a declared page that has no INIT. `entry` keeps a real
         // declaration's payload authoritative when both are present.
         for expectation in orbital.expects.iter().flatten() {
-            if let orbital_core_base::schema::ExpectDeclaration::Page { path } = expectation {
+            if let orbital_core_base::schema::ExpectDeclaration::Page { path, .. } = expectation {
                 ctx.page_paths.insert(path.clone());
                 ctx.page_init_payloads.entry(path.clone()).or_default();
             }
@@ -892,7 +894,7 @@ mod valid_field_types_tests {
 
     #[test]
     fn the_behavior_value_types_are_valid_field_types() {
-        for ty in [FieldType::Trait, FieldType::Orbital, FieldType::Behavior] {
+        for ty in [FieldType::Trait, FieldType::Orbital, FieldType::Behavior, FieldType::CallKey] {
             let name = serde_json::to_value(&ty).expect("serializes");
             let name = name.as_str().expect("a string tag");
             assert!(

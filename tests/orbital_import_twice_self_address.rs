@@ -44,7 +44,7 @@ const UPSTREAM: &str = r#"{
             "states": [ { "name": "idle", "isInitial": true } ],
             "events": [ { "key": "INIT" } ],
             "transitions": [ { "from": "idle", "to": "idle", "event": "INIT",
-              "effects": [ ["call-service", "webhook", "send", { "tools": "@config.tools" }] ] } ]
+              "effects": [ ["call-service", "test-svc", "run", { "tools": "@config.tools" }] ] } ]
           }
         }
       ],

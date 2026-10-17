@@ -1073,6 +1073,7 @@ mod tests {
             services: vec![],
             browser_services: vec![],
             egress: vec![],
+            program_credentials: vec![],
             inbound: vec![],
             os_grants: Default::default(),
             expected_entities: vec![],

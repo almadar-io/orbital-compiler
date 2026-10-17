@@ -481,6 +481,7 @@ mod tests {
             version: Some("1.0.0".to_string()),
             description: None,
             orbitals: vec![Orbital {
+                spec: false,
                 name: "ArticleOrbital".to_string(),
                 uses: None,
                 expects: None,

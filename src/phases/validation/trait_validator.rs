@@ -2213,6 +2213,7 @@ mod tests {
 
     fn make_orbital(traits: Vec<TraitDefinition>) -> Orbital {
         Orbital {
+            spec: false,
             types: None,
             name: "TestOrbital".to_string(),
             uses: None,

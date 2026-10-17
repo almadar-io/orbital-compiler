@@ -154,6 +154,7 @@ pub(crate) fn resolve_sigil_types(schema: &mut OrbitalSchema) {
                 ExpectDeclaration::Entity {
                     name,
                     shape: Some(shape),
+                    ..
                 } => {
                     entities
                         .entry(name.clone())

@@ -113,7 +113,7 @@ fn inlined_identities(expects: &str, own_expects: &str) -> Vec<(Option<String>, 
         .iter()
         .flatten()
         .filter_map(|e| match e {
-            orbital_core_base::schema::ExpectDeclaration::Identity { name, shape } => Some((
+            orbital_core_base::schema::ExpectDeclaration::Identity { name, shape, .. } => Some((
                 name.clone(),
                 shape
                     .iter()
@@ -279,11 +279,11 @@ fn explicit_reconciled_viewer_and_record_expectations_survive_both_import_paths(
             .as_ref()
             .expect("expects retained");
         assert_eq!(declarations.len(), 2);
-        assert!(declarations.iter().any(|e| matches!(e, ExpectDeclaration::Entity { name, shape: Some(fields) } if name == "Customer" && fields.len() == 1 && fields[0].name.as_deref() == Some("email"))));
+        assert!(declarations.iter().any(|e| matches!(e, ExpectDeclaration::Entity { name, shape: Some(fields), .. } if name == "Customer" && fields.len() == 1 && fields[0].name.as_deref() == Some("email"))));
         let identity = declarations
             .iter()
             .find_map(|e| match e {
-                ExpectDeclaration::Identity { name, shape } => Some((name, shape)),
+                ExpectDeclaration::Identity { name, shape, .. } => Some((name, shape)),
                 _ => None,
             })
             .expect("viewer expectation retained");
@@ -365,4 +365,146 @@ fn an_absent_explicit_viewer_remains_a_deferred_library_requirement() {
         let result = validate_reconciled_contracts(&schema);
         assert!(result.errors.is_empty(), "{:?}", result.errors);
     }
+}
+
+const SPEC: &str = r#"{
+  "name": "shop-spec",
+  "version": "1.0.0",
+  "orbitals": [{
+    "name": "ShopSpec",
+    "spec": true,
+    "expects": [__EXPECTS__],
+    "entity": { "name": "ShopSpec", "fields": [] },
+    "traits": []
+  }]
+}"#;
+
+const SPEC_CONSUMER: &str = r#"{
+  "name": "shop",
+  "version": "1.0.0",
+  "orbitals": [{
+    "name": "Shop",
+    "uses": [ { "from": "./spec.orb", "as": "Spec" } ],
+    "entity": {
+      "name": "Order", "persistence": "persistent", "collection": "orders",
+      "fields": [ { "name": "id", "type": "string", "required": true }, { "name": "total", "type": "number" } ]
+    },
+    "traits": [{
+      "name": "OrderView", "linkedEntity": "Order", "category": "interaction",
+      "stateMachine": {
+        "states": [ { "name": "ready", "isInitial": true } ],
+        "events": [ { "key": "INIT" } ],
+        "transitions": [ { "from": "ready", "to": "ready", "event": "INIT", "effects": [ ["render-ui", "main", { "type": "stack" }] ] } ]
+      }
+    }],
+    "pages": [ { "name": "OrderPage", "path": "/orders", "traits": [ { "ref": "OrderView" } ] } ]
+  }]
+}"#;
+
+fn spec_import_codes(spec_expects: &str) -> Vec<String> {
+    let dir = tempfile::TempDir::new().expect("temp dir");
+    std::fs::write(dir.path().join("spec.orb"), SPEC.replace("__EXPECTS__", spec_expects)).expect("write spec");
+    let path = dir.path().join("shop.orb");
+    std::fs::write(&path, SPEC_CONSUMER).expect("write consumer");
+    let mut schema = parse_file(&path).expect("consumer parses");
+    inline_schema(&mut schema, &InlineConfig::default(), Some(&path)).expect("inline succeeds");
+    validate_comprehensive_without_services(&schema)
+        .errors
+        .iter()
+        .map(|e| format!("{} {}", e.code.as_str(), e.message))
+        .collect()
+}
+
+#[test]
+fn an_imported_spec_obligation_the_importer_does_not_provide_is_an_error() {
+    let codes = spec_import_codes(r#"{ "kind": "entity", "name": "Ghost", "strict": true }"#);
+    assert!(codes.iter().any(|c| c.starts_with("ORB_S_EXPECTATION_UNSATISFIED") && c.contains("Ghost")), "{codes:?}");
+}
+
+#[test]
+fn an_imported_spec_obligation_the_importer_provides_is_clean() {
+    let codes = spec_import_codes(
+        r#"{ "kind": "entity", "name": "Order", "strict": true, "shape": [ { "name": "total", "type": "number" } ] },
+           { "kind": "page", "path": "/orders", "strict": true }"#,
+    );
+    assert!(codes.is_empty(), "{codes:?}");
+}
+
+#[test]
+fn an_imported_spec_obligation_with_the_wrong_field_type_is_a_mismatch() {
+    let codes = spec_import_codes(
+        r#"{ "kind": "entity", "name": "Order", "strict": true, "shape": [ { "name": "total", "type": "string" } ] }"#,
+    );
+    assert!(codes.iter().any(|c| c.starts_with("ORB_S_EXPECTED_FIELD_TYPE_MISMATCH")), "{codes:?}");
+}
+
+#[test]
+fn control_a_lenient_expectation_in_the_imported_file_stays_deferred() {
+    let codes = spec_import_codes(r#"{ "kind": "entity", "name": "Ghost" }"#);
+    assert!(!codes.iter().any(|c| c.starts_with("ORB_S_EXPECTATION_UNSATISFIED")), "{codes:?}");
+}
+
+fn write_spec(dir: &std::path::Path, file: &str, name: &str, uses: Option<&str>, expects: &str) {
+    let uses = uses
+        .map(|from| format!(r#""uses": [ {{ "from": "{from}", "as": "Inner" }} ],"#))
+        .unwrap_or_default();
+    let body = format!(
+        r#"{{ "name": "{name}", "version": "1.0.0", "orbitals": [{{
+            "name": "{name}", "spec": true, {uses}
+            "expects": [{expects}],
+            "entity": {{ "name": "{name}", "fields": [] }}, "traits": []
+        }}] }}"#
+    );
+    std::fs::write(dir.join(file), body).expect("write spec");
+}
+
+fn composed_spec_codes(consumer_uses: &str, specs: impl FnOnce(&std::path::Path)) -> Vec<String> {
+    let dir = tempfile::TempDir::new().expect("temp dir");
+    specs(dir.path());
+    let path = dir.path().join("shop.orb");
+    std::fs::write(&path, SPEC_CONSUMER.replace("./spec.orb", consumer_uses)).expect("write consumer");
+    let mut schema = parse_file(&path).expect("consumer parses");
+    inline_schema(&mut schema, &InlineConfig::default(), Some(&path)).expect("inline succeeds");
+    validate_comprehensive_without_services(&schema)
+        .errors
+        .iter()
+        .map(|e| format!("{} {}", e.code.as_str(), e.message))
+        .collect()
+}
+
+#[test]
+fn a_spec_that_uses_another_spec_passes_both_sets_of_obligations_to_its_importer() {
+    let inner = r#"{ "kind": "entity", "name": "Ghost", "strict": true }"#;
+    let outer = r#"{ "kind": "entity", "name": "Order", "strict": true, "shape": [ { "name": "total", "type": "number" } ] }"#;
+    let codes = composed_spec_codes("./outer.orb", |d| {
+        write_spec(d, "inner.orb", "InnerSpec", None, inner);
+        write_spec(d, "outer.orb", "OuterSpec", Some("./inner.orb"), outer);
+    });
+    assert!(codes.iter().any(|c| c.starts_with("ORB_S_EXPECTATION_UNSATISFIED") && c.contains("Ghost")), "{codes:?}");
+    assert!(!codes.iter().any(|c| c.contains("Order")), "the importer provides Order: {codes:?}");
+}
+
+#[test]
+fn control_a_spec_chain_the_importer_fully_provides_is_clean() {
+    let codes = composed_spec_codes("./outer.orb", |d| {
+        write_spec(d, "inner.orb", "InnerSpec", None, r#"{ "kind": "page", "path": "/orders", "strict": true }"#);
+        write_spec(d, "outer.orb", "OuterSpec", Some("./inner.orb"), r#"{ "kind": "entity", "name": "Order", "strict": true }"#);
+    });
+    assert!(codes.is_empty(), "{codes:?}");
+}
+
+#[test]
+fn an_imported_specs_storage_and_page_facts_are_checked_against_the_importer() {
+    let wrong_mode = r#"{ "kind": "entity", "name": "Order", "strict": true, "persistence": "runtime" }"#;
+    let codes = composed_spec_codes("./spec.orb", |d| write_spec(d, "spec.orb", "ShopSpec", None, wrong_mode));
+    assert!(codes.iter().any(|c| c.starts_with("ORB_S_EXPECTATION_PROVIDER_MISMATCH")), "{codes:?}");
+    let wrong_traits = r#"{ "kind": "page", "path": "/orders", "strict": true, "traits": ["Receipt"] }"#;
+    let codes = composed_spec_codes("./spec.orb", |d| write_spec(d, "spec.orb", "ShopSpec", None, wrong_traits));
+    assert!(codes.iter().any(|c| c.starts_with("ORB_S_EXPECTATION_PROVIDER_MISMATCH") && c.contains("Receipt")), "{codes:?}");
+    let persisted = r#"{ "kind": "entity", "name": "Order", "strict": true, "persistence": "persistent" }"#;
+    let codes = composed_spec_codes("./spec.orb", |d| write_spec(d, "spec.orb", "ShopSpec", None, persisted));
+    assert!(codes.iter().any(|c| c.starts_with("ORB_S_EXPECTATION_UNSATISFIED") && c.contains("persisted")), "the importer never writes Order: {codes:?}");
+    let ok = r#"{ "kind": "entity", "name": "Order", "strict": true }, { "kind": "page", "path": "/orders", "strict": true, "traits": ["OrderView"] }, { "kind": "transition", "traitName": "OrderView", "from": "ready", "event": "INIT", "to": "ready", "strict": true }"#;
+    let codes = composed_spec_codes("./spec.orb", |d| write_spec(d, "spec.orb", "ShopSpec", None, ok));
+    assert!(codes.iter().all(|c| !c.contains("ORB_S_EXPECT")), "{codes:?}");
 }

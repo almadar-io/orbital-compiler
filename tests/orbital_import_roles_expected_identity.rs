@@ -1,4 +1,4 @@
-//! An atom with no roster of its own declares its viewer with `expects identity Person
+//! An atom with no roster of its own declares its viewer with `expects entity Person [identity]
 //! { role : "instructor" | "student" | "admin" }`. Its import's `roles {}` remaps those role
 //! words onto the consumer's roster, as it does for an upstream that declares the roster:
 //! the expectation's role values are the upstream vocabulary.

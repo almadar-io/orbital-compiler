@@ -293,6 +293,7 @@ mod tests {
             version: Some("1.0.0".to_string()),
             description: None,
             orbitals: vec![Orbital {
+                spec: false,
                 types: None,
                 name: "TaskOrbital".to_string(),
                 uses: None,

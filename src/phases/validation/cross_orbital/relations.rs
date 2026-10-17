@@ -137,6 +137,7 @@ mod tests {
             version: Some("1.0.0".to_string()),
             description: None,
             orbitals: vec![Orbital {
+                spec: false,
                 types: None,
                 name: "TaskOrbital".to_string(),
                 uses: None,
@@ -198,6 +199,7 @@ mod tests {
         let mut schema = create_minimal_schema();
         // Add a second orbital that declares "Patient".
         schema.orbitals.push(Orbital {
+            spec: false,
             types: None,
             name: "PatientOrbital".to_string(),
             uses: None,

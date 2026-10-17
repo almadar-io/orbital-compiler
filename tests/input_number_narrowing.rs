@@ -41,7 +41,7 @@
 //!      `unnarrowed_number_field_set_is_untouched` — the atom's OWN internal
 //!      `(set @entity.value ?value)` (its `string`-typed DOM display buffer,
 //!      triggered by its fixed internal `ACTION` key — the real
-//!      `std-service-redis` UiInput3 shape, where the OUTBOUND emit renames
+//!      service-atom UiInput3 shape, where the OUTBOUND emit renames
 //!      to `SET_TTL` but this internal transition still fires on `ACTION`)
 //!      gets wrapped in `(str/concat ?value)`; a sibling `set` into an
 //!      already-`number`-typed field from the SAME `?value` is left alone.
@@ -69,7 +69,7 @@ use orbital_core_base::schema::{
 };
 
 /// Atom fixture shaped like `packages/almadar-std/behaviors/lolo/ui/core/atoms/ui-input.lolo`
-/// AND verified against the real composed `std-service-redis` UiInput3
+/// AND verified against the real composed service-atom UiInput3
 /// shape (`orb resolve` on the registry `.orb`): a `config.action : event`
 /// definer knob driving `emits { @config.action -> external { value :
 /// string! } }`; a sibling `<config_knob>` config knob; and — independent of
@@ -169,7 +169,7 @@ fn type_when_number(config_knob: &str) -> String {
 /// fragment (leading-comma, matching `config_override_round_trip.rs`'s
 /// convention) applied to the sibling config knob at the `InputRender` call
 /// site. Does NOT rebind `linkedEntity` — matches the real corpus
-/// (`std-service-redis`'s `UiInput3 = UiInput.traits.InputRender { config {
+/// (a service atom's `UiInput3 = UiInput.traits.InputRender { config {
 /// action: SET_TTL, inputType: number } }` keeps the atom's own `InputItem`
 /// entity, confirmed via `orb resolve`), and keeps the atom's `value`/`count`
 /// fields visible under their own entity for the display-buffer wrap lookup.
@@ -498,7 +498,7 @@ fn rui_event_binding_check_passes_under_narrowing() {
     // condition sourced from Input.tsx's `@payloadTypeWhen` JSDoc; the
     // narrowed trait declares `value: number`. Without the shared evaluator
     // this is a primitive mismatch (`ORB_RUI_EVENT_BINDING_PAYLOAD_MISMATCH`)
-    // — the real corpus proof (std-service-redis UiInput3, pre-fix). The
+    // — the real corpus proof (a service atom's UiInput3, pre-fix). The
     // check must recognise the SAME narrowing the inline pass applied and
     // not report it.
     let config_fragment = r#",

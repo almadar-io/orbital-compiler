@@ -491,7 +491,8 @@ fn validate_leaf_effect(
                                     let keys: &[&str] = if matches!(
                                         browser_op,
                                         "browser/beacon" | "browser/prompt" | "browser/embed"
-                                    ) {
+                                    ) || orbital_core_base::tab::TabOp::is_tab_effect(browser_op)
+                                    {
                                         &["success", "failure", "cancelled"]
                                     } else {
                                         &["success", "failure"]

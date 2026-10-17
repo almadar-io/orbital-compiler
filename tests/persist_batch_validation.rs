@@ -34,6 +34,10 @@ fn saved_payload() -> Value {
 }
 
 fn validate(effects: Value, saved: Value) -> ValidationResult {
+    validate_with(effects, saved, json!([{ "name": "error", "type": "string", "required": true }]))
+}
+
+fn validate_with(effects: Value, saved: Value, failed: Value) -> ValidationResult {
     let schema: OrbitalSchema = serde_json::from_value(json!({
         "name": "fixture", "version": "1.0.0",
         "orbitals": [{
@@ -44,7 +48,7 @@ fn validate(effects: Value, saved: Value) -> ValidationResult {
                 "name": "Batcher", "linkedEntity": "Row", "category": "interaction",
                 "emits": [
                     { "event": "SAVED", "payloadSchema": saved },
-                    { "event": "FAILED", "payloadSchema": [{ "name": "error", "type": "string", "required": true }] }
+                    { "event": "FAILED", "payloadSchema": failed }
                 ],
                 "stateMachine": {
                     "states": [{ "name": "idle", "isInitial": true }],
@@ -325,4 +329,29 @@ fn control_operations_is_an_array_so_declaring_it_a_number_is_a_type_mismatch() 
         "{:?}",
         codes(&r)
     );
+}
+
+fn failed_with(fields: &[&str]) -> Value {
+    Value::Array(fields.iter().map(|f| json!({ "name": f, "type": if matches!(*f, "index" | "completedCount") { "number" } else { "string" } })).collect())
+}
+
+#[test]
+fn a_batch_failure_event_may_declare_the_failing_index_and_the_completed_count() {
+    let ops = json!([["create", "Row", { "id": "a" }]]);
+    let r = validate_with(batch(ops), saved_payload(), failed_with(&["error", "code", "index", "completedCount"]));
+    assert!(!has(&r, ErrorCode::EmitPayloadNotProduced), "{:?}", codes(&r));
+}
+
+#[test]
+fn control_a_batch_failure_event_cannot_declare_a_field_the_kernel_does_not_send() {
+    let ops = json!([["create", "Row", { "id": "a" }]]);
+    let r = validate_with(batch(ops), saved_payload(), failed_with(&["error", "totalCount"]));
+    assert!(has(&r, ErrorCode::EmitPayloadNotProduced), "{:?}", codes(&r));
+}
+
+#[test]
+fn control_a_single_persist_failure_has_no_index() {
+    let single = json!([["persist", "create", "Row", { "id": "a" }, emit()]]);
+    let r = validate_with(single, saved_payload(), failed_with(&["error", "index"]));
+    assert!(has(&r, ErrorCode::EmitPayloadNotProduced), "{:?}", codes(&r));
 }

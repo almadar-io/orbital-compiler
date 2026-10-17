@@ -472,7 +472,7 @@ fn at_entity_naming_an_undeclared_entity_is_swept() {
 
 #[test]
 fn at_user_without_a_declared_identity_shape_is_swept() {
-    // A bare `expects identity` is a sanctioned escape hatch — existence only,
+    // A bare `expects entity [identity]` is a sanctioned escape hatch — existence only,
     // no shape — so `@user` has nothing to read. That is a loud error naming
     // the fix, not a degrade to object.
     let mut schema = schema_with_sigils(Some("PAY_BILL"), false);

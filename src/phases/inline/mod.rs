@@ -2170,7 +2170,7 @@ fn inline_orbital(
     // auxiliary entities above.
     //
     // `uses` inlines individual TRAITS, never orbitals — so an organism's
-    // `expects identity { … }` is invisible to the app composing it. Left
+    // `expects entity [identity] { … }` is invisible to the app composing it. Left
     // un-propagated the contract is only ever checked when the organism is
     // validated STANDALONE, where its own roster satisfies it trivially, and a
     // composing app whose roster lacks a field the organism reads off `@user`
@@ -2178,7 +2178,7 @@ fn inline_orbital(
     // what makes `validate_expectation_links` check the host's roster.
     //
     // Merge, never append: the parser rejects duplicate expectations (two
-    // `expects identity`, or two `expects entity X`), so shapes are unioned
+    // `expects entity [identity]`, or two `expects entity X`), so shapes are unioned
     // per target. A field required by ANY contributor stays required — the
     // strictest wins, since every contributor's need must be met.
     {
@@ -2202,6 +2202,27 @@ fn inline_orbital(
         if !imported.is_empty() {
             let mut merged = orbital.expects.take().unwrap_or_default();
             for decl in imported {
+                merge_expectation(&mut merged, decl);
+            }
+            orbital.expects = Some(merged);
+        }
+    }
+
+    // ----------------------------------------------------------------
+    // A `uses` of a spec file (an orbital of only strict `expects`) binds its obligations to THIS
+    // orbital: the import is the explicit link, so nothing else names the spec.
+    {
+        let mut obligations: Vec<ExpectDeclaration> = Vec::new();
+        for use_decl in orbital.uses.iter().flatten() {
+            if let Some(entry) = ctx.aliases.get(&use_decl.alias) {
+                for spec in entry.orbitals.iter().filter(|o| o.is_spec()) {
+                    obligations.extend(spec.expects.iter().flatten().cloned());
+                }
+            }
+        }
+        if !obligations.is_empty() {
+            let mut merged = orbital.expects.take().unwrap_or_default();
+            for decl in obligations {
                 merge_expectation(&mut merged, decl);
             }
             orbital.expects = Some(merged);
@@ -2977,7 +2998,7 @@ fn collect_referenced_ids(schema: &OrbitalSchema) -> HashSet<String> {
 /// Union one imported expectation into a consuming orbital's `expects` list.
 ///
 /// The `.lolo` parser rejects duplicates (`expects_duplicate`): two
-/// `expects identity` — bare included — or two `expects entity X` are a parse
+/// `expects entity [identity]` — bare included — or two `expects entity X` are a parse
 /// error. So propagated declarations must MERGE with any same-target entry
 /// rather than append, or the composed `.orb` would carry a shape the language
 /// itself forbids.
@@ -3011,12 +3032,13 @@ pub(super) fn merge_expectation(into: &mut Vec<ExpectDeclaration>, incoming: Exp
     }
 
     match incoming {
-        ExpectDeclaration::Identity { name, shape } => {
+        ExpectDeclaration::Identity { name, shape, strict } => {
             // At most ONE identity expectation per orbital — `@user` is a single
             // viewer, and the parser enforces it. Merge into whichever exists.
             if let Some(ExpectDeclaration::Identity {
                 name: existing_name,
                 shape: existing_shape,
+                strict: existing_strict,
             }) = into
                 .iter_mut()
                 .find(|d| matches!(d, ExpectDeclaration::Identity { .. }))
@@ -3030,41 +3052,157 @@ pub(super) fn merge_expectation(into: &mut Vec<ExpectDeclaration>, incoming: Exp
                     let _ = &name;
                 }
                 union_shape(existing_shape, shape);
+                *existing_strict |= strict;
             } else {
-                into.push(ExpectDeclaration::Identity { name, shape });
+                into.push(ExpectDeclaration::Identity { name, shape, strict });
             }
         }
-        ExpectDeclaration::Entity { name, shape } => {
+        ExpectDeclaration::Entity {
+            name,
+            shape,
+            persistence,
+            shared,
+            local,
+            read_policy,
+            create_policy,
+            update_policy,
+            delete_policy,
+            access_waivers,
+            strict,
+        } => {
             if let Some(ExpectDeclaration::Entity {
                 shape: existing_shape,
+                persistence: existing_persistence,
+                shared: existing_shared,
+                local: existing_local,
+                read_policy: existing_read,
+                create_policy: existing_create,
+                update_policy: existing_update,
+                delete_policy: existing_delete,
+                access_waivers: existing_waivers,
+                strict: existing_strict,
                 ..
             }) = into
                 .iter_mut()
                 .find(|d| matches!(d, ExpectDeclaration::Entity { name: n, .. } if *n == name))
             {
                 union_shape(existing_shape, shape);
+                // What an expectation already states wins; a contributor fills only what is unstated.
+                if existing_persistence.is_none() {
+                    *existing_persistence = persistence;
+                }
+                *existing_shared |= shared;
+                *existing_local |= local;
+                for (slot, incoming) in [
+                    (existing_read, read_policy),
+                    (existing_create, create_policy),
+                    (existing_update, update_policy),
+                    (existing_delete, delete_policy),
+                ] {
+                    if slot.is_none() {
+                        *slot = incoming;
+                    }
+                }
+                if let Some(incoming) = access_waivers {
+                    let waivers = existing_waivers.get_or_insert_with(Default::default);
+                    waivers.read = waivers.read.take().or(incoming.read);
+                    waivers.create = waivers.create.take().or(incoming.create);
+                    waivers.update = waivers.update.take().or(incoming.update);
+                    waivers.delete = waivers.delete.take().or(incoming.delete);
+                }
+                *existing_strict |= strict;
             } else {
-                into.push(ExpectDeclaration::Entity { name, shape });
+                into.push(ExpectDeclaration::Entity {
+                    name,
+                    shape,
+                    persistence,
+                    shared,
+                    local,
+                    read_policy,
+                    create_policy,
+                    update_policy,
+                    delete_policy,
+                    access_waivers,
+                    strict,
+                });
             }
         }
-        // Phase 2 construct with no validation effect yet; dedup by (trait, event).
-        ExpectDeclaration::Event { trait_name, event } => {
-            let dup = into.iter().any(|d| {
-                matches!(d, ExpectDeclaration::Event { trait_name: t, event: e }
+        ExpectDeclaration::Event {
+            trait_name,
+            event,
+            payload,
+            strict,
+        } => {
+            if let Some(ExpectDeclaration::Event {
+                payload: existing_payload,
+                strict: existing_strict,
+                ..
+            }) = into.iter_mut().find(|d| {
+                matches!(d, ExpectDeclaration::Event { trait_name: t, event: e, .. }
                      if *t == trait_name && *e == event)
-            });
-            if !dup {
-                into.push(ExpectDeclaration::Event { trait_name, event });
+            }) {
+                if existing_payload.is_none() {
+                    *existing_payload = payload;
+                }
+                *existing_strict |= strict;
+            } else {
+                into.push(ExpectDeclaration::Event {
+                    trait_name,
+                    event,
+                    payload,
+                    strict,
+                });
             }
         }
         // A route has no shape to union — the path IS the declaration, so
         // dedup by path and keep the first.
-        ExpectDeclaration::Page { path } => {
-            let dup = into
-                .iter()
-                .any(|d| matches!(d, ExpectDeclaration::Page { path: p } if *p == path));
-            if !dup {
-                into.push(ExpectDeclaration::Page { path });
+        ExpectDeclaration::Page { path, traits, strict } => {
+            if let Some(ExpectDeclaration::Page {
+                traits: existing_traits,
+                strict: existing_strict,
+                ..
+            }) = into
+                .iter_mut()
+                .find(|d| matches!(d, ExpectDeclaration::Page { path: p, .. } if *p == path))
+            {
+                if let Some(incoming) = traits {
+                    let mounted = existing_traits.get_or_insert_with(Vec::new);
+                    for name in incoming {
+                        if !mounted.contains(&name) {
+                            mounted.push(name);
+                        }
+                    }
+                }
+                *existing_strict |= strict;
+            } else {
+                into.push(ExpectDeclaration::Page { path, traits, strict });
+            }
+        }
+        ExpectDeclaration::State { trait_name, state, strict } => {
+            if let Some(ExpectDeclaration::State { strict: existing_strict, .. }) = into.iter_mut().find(|d| {
+                matches!(d, ExpectDeclaration::State { trait_name: t, state: s, .. } if *t == trait_name && *s == state)
+            }) {
+                *existing_strict |= strict;
+            } else {
+                into.push(ExpectDeclaration::State { trait_name, state, strict });
+            }
+        }
+        ExpectDeclaration::Transition {
+            trait_name,
+            from,
+            event,
+            to,
+            strict,
+        } => {
+            if let Some(ExpectDeclaration::Transition { strict: existing_strict, .. }) =
+                into.iter_mut().find(|d| {
+                    matches!(d, ExpectDeclaration::Transition { trait_name: t, from: f, event: e, to: o, .. }
+                        if *t == trait_name && *f == from && *e == event && *o == to)
+                })
+            {
+                *existing_strict |= strict;
+            } else {
+                into.push(ExpectDeclaration::Transition { trait_name, from, event, to, strict });
             }
         }
     }
@@ -3720,6 +3858,7 @@ mod tests {
     fn make_orbital_with_trait(name: &str, trait_def: TraitDefinition) -> Orbital {
         use orbital_core_base::schema::EntityDefinition;
         Orbital {
+            spec: false,
             types: None,
             name: name.to_string(),
             uses: None,
@@ -4003,6 +4142,7 @@ mod tests {
     fn make_orbital_with_service(name: &str, service_def: ServiceDefinition) -> Orbital {
         use orbital_core_base::schema::EntityDefinition;
         Orbital {
+            spec: false,
             types: None,
             name: name.to_string(),
             uses: None,
@@ -4253,6 +4393,7 @@ mod tests {
     /// stash a base entity in the InlineContext under an alias.
     fn make_orbital_with_entity(name: &str, entity_def: EntityDefinition) -> Orbital {
         Orbital {
+            spec: false,
             types: None,
             name: name.to_string(),
             uses: None,
@@ -5586,6 +5727,7 @@ mod tests {
         use orbital_core_base::schema::{EntityDefinition, PageDefinition};
 
         let orb0 = Orbital {
+            spec: false,
             types: None,
             name: "ArcadeState".to_string(),
             uses: None,
@@ -5645,6 +5787,7 @@ mod tests {
         };
 
         let orb1 = Orbital {
+            spec: false,
             types: None,
             name: "ArcadeCanvas".to_string(),
             uses: None,
@@ -6249,6 +6392,7 @@ mod tests {
         use orbital_core_base::schema::FieldType;
 
         let orb0 = Orbital {
+            spec: false,
             types: None,
             name: "StateOrbital".to_string(),
             uses: None,
@@ -6288,6 +6432,7 @@ mod tests {
         };
 
         let orb1 = Orbital {
+            spec: false,
             types: None,
             name: "ActionOrbital".to_string(),
             uses: None,
@@ -6451,6 +6596,7 @@ mod tests {
             emits_scope: None,
         };
         let consumer_orbital = Orbital {
+            spec: false,
             types: None,
             name: "ConsumerOrbital".to_string(),
             id: None,
@@ -7198,6 +7344,7 @@ mod tests {
         write_toolkit_atom(dir.path());
 
         let consumer_orbital = Orbital {
+            spec: false,
             types: None,
             name: "ConsumerOrbital".to_string(),
             id: None,
@@ -7289,6 +7436,7 @@ mod tests {
         write_toolkit_atom(dir.path());
 
         let consumer_orbital = Orbital {
+            spec: false,
             types: None,
             name: "ConsumerOrbital".to_string(),
             id: None,
@@ -7310,6 +7458,7 @@ mod tests {
             config: None,
         };
         let sibling_orbital = Orbital {
+            spec: false,
             types: None,
             name: "SiblingOrbital".to_string(),
             id: None,
@@ -7395,6 +7544,7 @@ mod tests {
         write_toolkit_atom(dir.path());
 
         let consumer_orbital = Orbital {
+            spec: false,
             types: None,
             name: "ConsumerOrbital".to_string(),
             id: None,
@@ -7725,6 +7875,7 @@ mod tests {
         write_refs_atom(dir.path());
 
         let consumer_orbital = Orbital {
+            spec: false,
             types: None,
             name: "ConsumerOrbital".to_string(),
             id: None,
@@ -7804,6 +7955,7 @@ mod tests {
         write_refs_atom(dir.path());
 
         let consumer_orbital = Orbital {
+            spec: false,
             types: None,
             name: "ConsumerOrbital".to_string(),
             id: None,
@@ -7885,6 +8037,7 @@ mod tests {
 
     fn refs_consumer_schema(traits: Vec<TraitReference>) -> OrbitalSchema {
         let consumer_orbital = Orbital {
+            spec: false,
             types: None,
             name: "ConsumerOrbital".to_string(),
             id: None,

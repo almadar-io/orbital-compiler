@@ -103,6 +103,7 @@ fn schema_with_effects(effects: Vec<SExpression>) -> OrbitalSchema {
         version: Some("0.1.0".to_string()),
         description: None,
         orbitals: vec![Orbital {
+            spec: false,
             types: None,
             name: "TestOrbital".to_string(),
             uses: None,

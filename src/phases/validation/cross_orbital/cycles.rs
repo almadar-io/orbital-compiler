@@ -262,6 +262,7 @@ mod tests {
 
     fn orbital_with(name: &str, traits: Vec<TraitReference>) -> Orbital {
         Orbital {
+            spec: false,
             types: None,
             name: name.to_string(),
             uses: None,

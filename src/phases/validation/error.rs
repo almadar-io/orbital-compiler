@@ -526,6 +526,13 @@ pub enum ErrorCode {
     CallServiceKeyType,
     /// the app runs `cancel-call` but no `call-service` anywhere carries a `key`
     CancelCallNoKeyedCall,
+    /// a literal `(as "k" CallKey)` in a program whose keyed calls are all keyed by literals, none of them `"k"`
+    CallKeyUnused,
+    /// `--final`: a `cancel-call` on a `CallKey` (or a list of them) in a finished program where no keyed call has a
+    /// `CallKey`-typed `key:`, so nothing the program runs is named by a key made with `as`
+    CancelCallKeyNeverCalled,
+    /// two `call-service` effects of one transition carry the same literal `key`
+    CallServiceKeyDuplicate,
     /// a keyed call-service whose registry responseShape already has a `key` field
     CallServiceResultHasKey,
     /// an `http` origin, `tokenUrl` origin, or `url` knob default is not in `egress`
@@ -582,6 +589,15 @@ pub enum ErrorCode {
     HostEffectOptionUnknown,
     /// a literal `random-bytes` count that is not an integer from 1 to 1024
     RandomBytesCount,
+    /// a literal request of a `credential-*` administration effect that is not an object of its declared parameters, or
+    /// leaves one out
+    CredentialRequestInvalid,
+    /// a `redis` call whose origin is not `redis://` or `rediss://`, whose command is not a non-empty list of text,
+    /// or whose connection options are malformed
+    RedisCallInvalid,
+    /// a `postgres` call whose origin is not `postgres://` or `postgresql://`, whose literal statement is not a single
+    /// read-only SELECT, whose params are not a list, or whose connection options are malformed or lack a user
+    PostgresCallInvalid,
     /// an OAuth client object with an unknown or missing key, both or neither of `issuer`/`endpoints`, or a bad word
     OAuthClientInvalid,
     /// an `oauth-client` `op` outside the closed set, or an input the op does not take or requires
@@ -612,6 +628,10 @@ pub enum ErrorCode {
     OnDeviceEffectOnServer,
     /// a literal `browser/prompt` response schema that is not a JSON object
     OnDeviceSchemaInvalid,
+    /// a `browser/tab-*` request that is not an object of the op's closed keys, or whose literal values the kernel refuses
+    TabRequestInvalid,
+    /// a `browser/tab-*` effect where the server runs the transition: a `[background]` tick
+    TabEffectOnServer,
     /// set effect using invalid binding
     EffectSetInvalidBinding,
     /// set effect using @payload (should use @entity)
@@ -919,6 +939,8 @@ pub enum ErrorCode {
     /// `(emit EVT {...})` literal provides a value whose primitive type
     /// does not match the declared `PayloadField.field_type`. Error severity.
     EmitPayloadFieldTypeMismatch,
+    /// An `emit` repeats an earlier one of the same transition identically: the dispatch loop collapses the second.
+    EmitRepeatsIdentically,
     /// An event/emit `payloadSchema` field name is not a valid TypeScript
     /// identifier (contains a dot, space, or leading digit). Codegen turns
     /// each field into a struct member, so `row.category` would emit broken
@@ -1349,12 +1371,12 @@ pub enum ErrorCode {
     /// principled way to choose
     /// (`R-SHADOW-ENTITY-SHARES-COLLECTION-DIRECTIVES-DONT-APPLY`).
     SchemaCollectionPolicyConflict,
-    /// Compose link-check: an orbital's `expects entity X` / `expects identity
-    /// X` names a requirement no orbital in the program provides. The message
+    /// Compose link-check: an orbital's `expects entity X` / `expects entity X [identity]`
+    /// names a requirement no orbital in the program provides. The message
     /// names WHO ASKED — the consumer orbital — so the repair is attributable.
     SchemaExpectationUnsatisfied,
     /// Compose link-check: the named provider entity exists but lacks the
-    /// expected kind (e.g. `expects identity Customer` where `Customer`
+    /// expected kind (e.g. `expects entity Customer [identity]` where `Customer`
     /// carries no `[identity]` tag).
     SchemaExpectationProviderMismatch,
     /// Compose link-check: the provider entity declares no field with an
@@ -1603,6 +1625,9 @@ impl ErrorCode {
             ErrorCode::CallServiceCancelledWithoutKey => "ORB_CALL_SERVICE_CANCELLED_WITHOUT_KEY",
             ErrorCode::CallServiceKeyType => "ORB_CALL_SERVICE_KEY_TYPE",
             ErrorCode::CancelCallNoKeyedCall => "ORB_CANCEL_CALL_NO_KEYED_CALL",
+            ErrorCode::CallKeyUnused => "ORB_CALL_KEY_UNUSED",
+            ErrorCode::CancelCallKeyNeverCalled => "ORB_CANCEL_CALL_KEY_NEVER_CALLED",
+            ErrorCode::CallServiceKeyDuplicate => "ORB_CALL_SERVICE_KEY_DUPLICATE",
             ErrorCode::CallServiceResultHasKey => "ORB_CALL_SERVICE_RESULT_HAS_KEY",
             ErrorCode::HttpEgressUndeclared => "ORB_HTTP_EGRESS_UNDECLARED",
             ErrorCode::HttpEgressEntryInvalid => "ORB_HTTP_EGRESS_ENTRY_INVALID",
@@ -1630,7 +1655,10 @@ impl ErrorCode {
             ErrorCode::HttpBodyConflict => "ORB_HTTP_BODY_CONFLICT",
             ErrorCode::HostEffectArity => "ORB_HOST_EFFECT_ARITY",
             ErrorCode::HostEffectOptionUnknown => "ORB_HOST_EFFECT_OPTION_UNKNOWN",
+            ErrorCode::CredentialRequestInvalid => "ORB_CREDENTIAL_REQUEST_INVALID",
             ErrorCode::RandomBytesCount => "ORB_RANDOM_BYTES_COUNT",
+            ErrorCode::RedisCallInvalid => "ORB_REDIS_CALL_INVALID",
+            ErrorCode::PostgresCallInvalid => "ORB_POSTGRES_CALL_INVALID",
             ErrorCode::OAuthClientInvalid => "ORB_OAUTH_CLIENT_INVALID",
             ErrorCode::OAuthOpUnknown => "ORB_OAUTH_OP_UNKNOWN",
             ErrorCode::OAuthEndpointMismatch => "ORB_OAUTH_ENDPOINT_MISMATCH",
@@ -1646,6 +1674,8 @@ impl ErrorCode {
             ErrorCode::BeaconUrlNotAbsolute => "ORB_BEACON_URL_NOT_ABSOLUTE",
             ErrorCode::OnDeviceEffectOnServer => "ORB_ON_DEVICE_EFFECT_ON_SERVER",
             ErrorCode::OnDeviceSchemaInvalid => "ORB_ON_DEVICE_SCHEMA_INVALID",
+            ErrorCode::TabRequestInvalid => "ORB_TAB_REQUEST_INVALID",
+            ErrorCode::TabEffectOnServer => "ORB_TAB_EFFECT_ON_SERVER",
             ErrorCode::EffectSetInvalidBinding => "ORB_EFF_SET_INVALID_BINDING",
             ErrorCode::EffectSetPayloadNotAllowed => "ORB_EFF_SET_PAYLOAD_NOT_ALLOWED",
             ErrorCode::EffectFetchInvalidEntity => "ORB_EFF_FETCH_INVALID_ENTITY",
@@ -1747,6 +1777,7 @@ impl ErrorCode {
             ErrorCode::EmitPayloadMissingRequired => "ORB_EMIT_PAYLOAD_MISSING_REQUIRED",
             ErrorCode::EmitPayloadExtraField => "ORB_EMIT_PAYLOAD_EXTRA_FIELD",
             ErrorCode::EmitPayloadFieldTypeMismatch => "ORB_EMIT_PAYLOAD_FIELD_TYPE_MISMATCH",
+            ErrorCode::EmitRepeatsIdentically => "ORB_EMIT_REPEATS_IDENTICALLY",
             ErrorCode::PayloadFieldNameInvalid => "ORB_X_PAYLOAD_FIELD_NAME",
             ErrorCode::UntypedArrayField => "ORB_X_UNTYPED_ARRAY",
             ErrorCode::EntityPropContract => "ORB_X_ENTITY_PROP_CONTRACT",
@@ -2043,6 +2074,9 @@ impl ErrorCode {
             | ErrorCode::CallServiceCancelledWithoutKey
             | ErrorCode::CallServiceKeyType
             | ErrorCode::CancelCallNoKeyedCall
+            | ErrorCode::CallKeyUnused
+            | ErrorCode::CancelCallKeyNeverCalled
+            | ErrorCode::CallServiceKeyDuplicate
             | ErrorCode::CallServiceResultHasKey
             | ErrorCode::HttpEgressUndeclared
             | ErrorCode::HttpEgressEntryInvalid
@@ -2070,7 +2104,10 @@ impl ErrorCode {
             | ErrorCode::HttpBodyConflict
             | ErrorCode::HostEffectArity
             | ErrorCode::HostEffectOptionUnknown
+            | ErrorCode::CredentialRequestInvalid
             | ErrorCode::RandomBytesCount
+            | ErrorCode::RedisCallInvalid
+            | ErrorCode::PostgresCallInvalid
             | ErrorCode::OAuthClientInvalid
             | ErrorCode::OAuthOpUnknown
             | ErrorCode::OAuthEndpointMismatch
@@ -2086,6 +2123,8 @@ impl ErrorCode {
             | ErrorCode::BeaconUrlNotAbsolute
             | ErrorCode::OnDeviceEffectOnServer
             | ErrorCode::OnDeviceSchemaInvalid
+            | ErrorCode::TabRequestInvalid
+            | ErrorCode::TabEffectOnServer
             | ErrorCode::EffectNotifyRetired
             | ErrorCode::EffectSetInvalidBinding
             | ErrorCode::EffectSetPayloadNotAllowed
@@ -2181,6 +2220,7 @@ impl ErrorCode {
             | ErrorCode::EmitPayloadMissingRequired
             | ErrorCode::EmitPayloadExtraField
             | ErrorCode::EmitPayloadFieldTypeMismatch
+            | ErrorCode::EmitRepeatsIdentically
             | ErrorCode::PayloadFieldNameInvalid
             | ErrorCode::EmitSuccessPayloadReturnMismatch
             | ErrorCode::EmitSuccessPayloadWrapped

@@ -32,7 +32,7 @@ fn atom(default_address: &str) -> String {
         ],
         "transitions": [
           {{ "from": "idle", "to": "idle", "event": "INIT",
-            "effects": [ ["call-service", "page", "watch", {{ "event": "@config.itemEvent" }}] ] }},
+            "effects": [ ["browser/tab-watch", {{ "event": "@config.itemEvent" }}] ] }},
           {{ "from": "idle", "to": "idle", "event": "ITEM_FOUND" }}
         ]
       }}
@@ -94,8 +94,8 @@ fn effect_event(schema: &OrbitalSchema) -> String {
     let SExpression::Array(items) = effect else {
         panic!("effect list: {effect:?}")
     };
-    let SExpression::Object(args) = &items[3] else {
-        panic!("call-service args: {:?}", items[3])
+    let SExpression::Object(args) = &items[1] else {
+        panic!("tab-watch request: {:?}", items[1])
     };
     match args.get("event") {
         Some(SExpression::String(s)) => s.clone(),

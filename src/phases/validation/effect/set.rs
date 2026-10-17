@@ -650,7 +650,7 @@ impl crate::type_infer::TypeCtx for ExprReturnCtx<'_> {
         let promised = || {
             schema.orbitals.iter().find_map(|o| {
                 o.expects.iter().flatten().find_map(|expectation| match expectation {
-                    orbital_core_base::schema::ExpectDeclaration::Entity { name: n, shape: Some(shape) } if n == name => {
+                    orbital_core_base::schema::ExpectDeclaration::Entity { name: n, shape: Some(shape), .. } if n == name => {
                         Some(shape.as_slice())
                     }
                     orbital_core_base::schema::ExpectDeclaration::Identity { name: Some(n), shape: Some(shape), .. }
@@ -816,6 +816,7 @@ fn field_type_str(ft: &FieldType) -> &'static str {
         FieldType::Money => "money",
         FieldType::File => "file",
         FieldType::Bytes => "bytes",
+        FieldType::CallKey => "callkey",
         FieldType::Array | FieldType::Tuple => "array",
         FieldType::Object => "object",
         FieldType::Enum => "enum",

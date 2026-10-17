@@ -73,6 +73,11 @@ pub fn validate_all_emit_payloads(schema: &OrbitalSchema, ctx: &mut ValidationCo
 
             for (i, transition) in trait_def.state_machine.transitions.iter().enumerate() {
                 if let Some(effects) = &transition.effects {
+                    check_repeated_emits(
+                        effects,
+                        &format!("{}.stateMachine.transitions[{}]", trait_path, i),
+                        ctx,
+                    );
                     for (j, effect) in effects.iter().enumerate() {
                         let path = format!(
                             "{}.stateMachine.transitions[{}].effects[{}]",
@@ -282,7 +287,34 @@ fn validate_emit_literal(
                     // An empty list has no element type of its own; it takes the slot's.
                     let empty_list_in_list_slot = matches!(value, SExpression::Array(items) if items.is_empty())
                         && (expected.starts_with('[') || *expected == "array");
+                    let list_items = match value {
+                        SExpression::Array(items)
+                            if orbital_core_eval::literal_type::literal_value_type(value) == Some("array") =>
+                        {
+                            list_element_type(expected).map(|element| (element, items))
+                        }
+                        _ => None,
+                    };
                     if empty_list_in_list_slot {
+                    } else if let Some((element, items)) = list_items {
+                        if let Some(actual) =
+                            list_item_mismatch(element, items, entity_field_types, payload_field_types)
+                        {
+                            result.add_error(
+                                ValidationError::error(
+                                    ErrorCode::EmitPayloadFieldTypeMismatch,
+                                    path,
+                                    format!(
+                                        "Emit '{}' field '{}' has a list item of type '{}', declared as '{}'",
+                                        event_name, key, actual, expected
+                                    ),
+                                )
+                                .with_suggestion(format!(
+                                    "Make every list item a '{}' (the list's element type is inferred from its items)",
+                                    element
+                                )),
+                            );
+                        }
                     } else if let Some(actual) = orbital_core_eval::literal_type::literal_value_type(value) {
                         if !primitive_types_compatible(expected, actual) {
                             result.add_error(
@@ -526,6 +558,7 @@ fn produced_type_accepts(produced: &str, declared: &str) -> bool {
     match produced {
         // Unresolvable produced side, or a genuinely open shape.
         "any" | "json" | "object" | "entity" => true,
+        orbital_core_base::emit_contract::REDIS_REPLY_TYPE => orbital_core_base::emit_contract::redis_reply_accepts(declared),
         // A relation column stores an id; a payload may name the target entity
         // or type it as the id string.
         "relation" => true,
@@ -585,6 +618,80 @@ fn emit_event_for_key(args: &[SExpression], key: &str) -> Option<String> {
 /// `Map<...>` tags vs object literals, `any`, the date family vs
 /// string/number, entity/relation vs object/string). The fork was deduped in
 /// Phase 4.1; the differential harness pins zero baseline movement.
+/// An `emit` that repeats an earlier emit of the same transition with the same event and payload, with nothing
+/// between them that writes state: the dispatch loop skips a delivery it already processed (EXEC-QUEUE-4), so the
+/// second is silently dropped. A repeat across arms or rounds depends on run-time state and is left to `orb verify`.
+fn check_repeated_emits(effects: &[SExpression], path: &str, ctx: &mut ValidationContext) {
+    let mut seen: Vec<&SExpression> = Vec::new();
+    for (index, effect) in effects.iter().enumerate() {
+        let SExpression::Array(items) = effect else { continue };
+        match items.first() {
+            Some(SExpression::String(head)) if head == "emit" => {
+                if seen.contains(&effect) {
+                    let mut warning = ValidationError::error(
+                        ErrorCode::EmitRepeatsIdentically,
+                        format!("{path}.effects[{index}]"),
+                        "this `emit` repeats an earlier one of the same transition identically: the dispatch loop delivers an identical emit once, so this one is dropped",
+                    )
+                    .with_suggestion("Remove the repeat, or give the two emits different payloads if both are meant to be heard");
+                    warning.severity = super::Severity::Warning;
+                    ctx.result.add_error(warning);
+                } else {
+                    seen.push(effect);
+                }
+            }
+            Some(SExpression::String(head)) if matches!(head.as_str(), "render-ui" | "log" | "navigate" | "notify") => {}
+            _ => seen.clear(),
+        }
+    }
+}
+
+/// The element type of a `[T]` slot (`[string]` -> `string`); `None` for a bare `array`, a tuple (`[a, b]`) or
+/// anything that is not a one-element list type.
+fn list_element_type(declared: &str) -> Option<&str> {
+    let inner = declared.strip_prefix('[')?.strip_suffix(']')?.trim();
+    (!inner.is_empty() && !inner.contains(',')).then_some(inner)
+}
+
+/// The kind of the first item of a list literal that does not fit `element`: a literal by its kind, a nested list
+/// literal against a nested list slot, anything else (a binding, an operator call) by its inferred type.
+fn list_item_mismatch(
+    element: &str,
+    items: &[SExpression],
+    entity_field_types: &HashMap<String, EntityFieldMeta>,
+    payload_field_types: &HashMap<String, String>,
+) -> Option<String> {
+    for item in items {
+        match orbital_core_eval::literal_type::literal_value_type(item) {
+            Some("array") => {
+                if let (SExpression::Array(inner), Some(inner_element)) = (item, list_element_type(element)) {
+                    if let Some(bad) = list_item_mismatch(inner_element, inner, entity_field_types, payload_field_types) {
+                        return Some(bad);
+                    }
+                } else if !primitive_types_compatible(element, "array") {
+                    return Some("array".to_string());
+                }
+            }
+            Some(actual) => {
+                if !primitive_types_compatible(element, actual) {
+                    return Some(actual.to_string());
+                }
+            }
+            None => {
+                if let Some(inferred) = expr_return_incompatible(
+                    item,
+                    &orbital_core_base::type_compat::compat_kind_oir(element),
+                    entity_field_types,
+                    payload_field_types,
+                ) {
+                    return Some(orbital_core_base::type_compat::oir_type_kind(&inferred));
+                }
+            }
+        }
+    }
+    None
+}
+
 fn primitive_types_compatible(declared: &str, actual: &str) -> bool {
     orbital_core_base::type_compat::set_value_type_compatible(declared, actual)
 }
@@ -712,6 +819,101 @@ mod tests {
             has_wrapped(&ctx, "ThreadPostCreated"),
             "an inline-restated row wrapper must warn just like the alias-only form"
         );
+    }
+
+    const CREATE_FAILING: &str = r#"["persist", "create", "ThreadPost", { "content": "@entity.content" }, { "emit": { "failure": "ThreadPostFailed" } }]"#;
+
+    /// A persist failure carries `{ error, code }` (EXEC-STEP-8): an event declaring a field the kernel never
+    /// emits (the JS-only `entityType`) is reported, so a `?field` read cannot be undefined at runtime.
+    #[test]
+    fn persist_failure_declaring_a_field_it_never_emits_warns() {
+        let ctx = check(
+            r#"{ "event": "ThreadPostFailed", "payloadSchema": [{ "name": "error", "type": "string" }, { "name": "entityType", "type": "string" }] }"#,
+            CREATE_FAILING,
+        );
+        assert!(has_wrapped(&ctx, "ThreadPostFailed"));
+    }
+
+    /// NEGATIVE CONTROL — `error` and `code` are what a persist failure emits.
+    #[test]
+    fn persist_failure_declaring_error_and_code_does_not_warn() {
+        let ctx = check(
+            r#"{ "event": "ThreadPostFailed", "payloadSchema": [{ "name": "error", "type": "string" }, { "name": "code", "type": "string" }] }"#,
+            CREATE_FAILING,
+        );
+        assert!(!has_wrapped(&ctx, "ThreadPostFailed"));
+    }
+
+    const EXEC_EMIT: &str = r#"{ "event": "EXEC", "payloadSchema": [{ "name": "argv", "type": "[string]" }] }"#;
+
+    fn list_slot_mismatch(argv: &str) -> bool {
+        let effect = format!(r#"["emit", "EXEC", {{ "argv": {argv} }}]"#);
+        check(EXEC_EMIT, &effect)
+            .result
+            .errors
+            .iter()
+            .any(|e| e.code == ErrorCode::EmitPayloadFieldTypeMismatch)
+    }
+
+    /// A list literal's element type comes from its items: strings, and an `@`-reference whose type is known, fill
+    /// a `[string]` slot without wrapping the list in `array/concat`.
+    #[test]
+    fn a_list_literal_of_matching_items_fills_a_typed_list_slot() {
+        assert!(!list_slot_mismatch(r#"["stop", "x"]"#));
+        assert!(!list_slot_mismatch(r#"["stop", "@entity.content"]"#));
+        assert!(!list_slot_mismatch("[]"));
+    }
+
+    /// NEGATIVE CONTROL — an item of the wrong type is still refused, literal or `@`-referenced.
+    #[test]
+    fn a_list_literal_with_an_item_of_the_wrong_type_is_refused_in_a_typed_list_slot() {
+        assert!(list_slot_mismatch(r#"["stop", 5]"#));
+        assert!(list_slot_mismatch(r#"[true]"#));
+    }
+
+    fn repeats(effects: &str) -> bool {
+        let ctx = check(r#"{ "event": "PING", "payloadSchema": [] }"#, effects);
+        ctx.result
+            .warnings
+            .iter()
+            .chain(ctx.result.errors.iter())
+            .any(|e| e.code == ErrorCode::EmitRepeatsIdentically)
+    }
+
+    /// The dispatch loop collapses a second identical plain emit (EXEC-QUEUE-4); that is never silent.
+    #[test]
+    fn an_emit_repeated_identically_in_one_transition_is_flagged() {
+        assert!(repeats(r#"["emit", "PING", {}], ["emit", "PING", {}]"#));
+        assert!(repeats(r#"["emit", "PING", { "a": 1 }], ["render-ui", "main", { "type": "typography" }], ["emit", "PING", { "a": 1 }]"#));
+    }
+
+    /// NEGATIVE CONTROLS — a different payload, a different event, or a write between the two is not a repeat.
+    #[test]
+    fn emits_that_differ_or_straddle_a_write_are_not_flagged() {
+        assert!(!repeats(r#"["emit", "PING", { "a": 1 }], ["emit", "PING", { "a": 2 }]"#));
+        assert!(!repeats(r#"["emit", "PING", {}], ["emit", "PONG", {}]"#));
+        assert!(!repeats(r#"["emit", "PING", {}], ["set", "@entity.id", "x"], ["emit", "PING", {}]"#));
+        assert!(!repeats(r#"["emit", "PING", {}]"#));
+    }
+
+    const FETCH_FAILING: &str = r#"["fetch", "ThreadPost", { "emit": { "success": "ThreadPostsLoaded", "failure": "ThreadPostsFailed" } }]"#;
+
+    /// A fetch failure fires its event with `{ error }` (`fetch_completion_emit`): a declared `message` is
+    /// never delivered, so every `?message` read is undefined.
+    #[test]
+    fn fetch_failure_declaring_a_field_warns() {
+        let ctx = check(
+            r#"{ "event": "ThreadPostsFailed", "payloadSchema": [{ "name": "message", "type": "string" }] }"#,
+            FETCH_FAILING,
+        );
+        assert!(has_wrapped(&ctx, "ThreadPostsFailed"));
+    }
+
+    /// NEGATIVE CONTROL — `error` is what the kernel sends.
+    #[test]
+    fn fetch_failure_declaring_error_does_not_warn() {
+        let ctx = check(r#"{ "event": "ThreadPostsFailed", "payloadSchema": [{ "name": "error", "type": "string" }] }"#, FETCH_FAILING);
+        assert!(!has_wrapped(&ctx, "ThreadPostsFailed"));
     }
 
     /// NEGATIVE CONTROL — the FIXED shape. A bare `type X = Event ThreadPost`

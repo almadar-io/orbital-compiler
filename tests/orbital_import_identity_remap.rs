@@ -1,5 +1,5 @@
 //! An import's `entities {}` may retarget the identity its upstream EXPECTS
-//! (`expects identity Person`) onto the consumer's own identity roster, so an
+//! (`expects entity Person [identity]`) onto the consumer's own identity roster, so an
 //! atom whose records are owned by "the person signed in" composes under any
 //! noun (Customer, User, Member). Relations to the expected name follow the
 //! remap, including relations on aux entities an import auto-clones, and the

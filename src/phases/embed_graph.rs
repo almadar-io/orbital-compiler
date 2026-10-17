@@ -651,6 +651,7 @@ mod tests {
         let pages: Vec<PageRef> =
             serde_json::from_value(pages_json).expect("pages fixture deserializes");
         Orbital {
+            spec: false,
             types: None,
             name: "TestOrbital".to_string(),
             uses: None,

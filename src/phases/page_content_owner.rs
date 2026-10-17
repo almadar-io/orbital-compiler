@@ -375,6 +375,7 @@ mod tests {
         let refs: Vec<TraitReference> =
             traits.iter().cloned().map(TraitReference::Inline).collect();
         let orbital = Box::leak(Box::new(Orbital {
+            spec: false,
             types: None,
             name: "O".to_string(),
             uses: None,

@@ -239,6 +239,35 @@ pub(crate) fn apply_overrides_to_trait(
             }
         }
     }
+    // A call-site override of an `entity`-typed knob retargets every effect that names `@config.<knob>`; the
+    // `entity_ref_ids` side-map still carries the knob DEFAULT's entity, which names no node in the consumer's
+    // program. Follow the override like a rebind: the old key goes, the override's entity joins under its current id.
+    let knob_retargets: HashMap<String, String> = trait_def
+        .config
+        .as_ref()
+        .map(|declared| {
+            declared
+                .iter()
+                .filter(|(_, field)| field.field_type == "entity")
+                .filter_map(|(knob, field)| {
+                    let SExpression::String(default) = field.default.as_ref()? else { return None };
+                    let SExpression::String(chosen) = effective_config.get(knob)? else { return None };
+                    (chosen != default).then(|| (default.clone(), chosen.clone()))
+                })
+                .collect()
+        })
+        .unwrap_or_default();
+    if !knob_retargets.is_empty() {
+        let mut refs = trait_def.entity_ref_ids.take().unwrap_or_default();
+        for (default, chosen) in &knob_retargets {
+            if refs.remove(default).is_some() {
+                if let Some(id) = entity_ids.get(chosen) {
+                    refs.insert(chosen.clone(), id.clone());
+                }
+            }
+        }
+        trait_def.entity_ref_ids = (!refs.is_empty()).then_some(refs);
+    }
     // Fold an `events:` rename of a `@config.<knob>` emit name into BOTH the
     // knob's `effective_config` entry (so the step-6 body substitution emits
     // the final name everywhere `@config.<knob>` is read) AND the knob's
@@ -699,7 +728,7 @@ fn finalize_payload_type_conditionals(trait_def: &mut TraitDefinition) -> bool {
 /// definer-knob event: ui-input's own internal display-sync transition
 /// listens on its fixed internal key (`ACTION`), independent of whatever
 /// external name the `action` knob resolves the OUTBOUND emit to (e.g.
-/// `SET_TTL`) — confirmed against the real `std-service-redis` UiInput3
+/// `SET_TTL`) — confirmed against the real service-atom UiInput3
 /// composition, where `transitions[1].event` stays `"ACTION"` while
 /// `emits[0].event` is `"SET_TTL"`. The type-validator itself (`phases/
 /// validation/effect/mod.rs`'s `collect_payload_field_types`) already
@@ -3885,6 +3914,54 @@ mod unbound_trait_knob_override_tests {
             "stateMachine": { "states": [ { "name": "idle", "isInitial": true } ], "transitions": [] }
         }))
         .expect("trait deserializes")
+    }
+
+    fn persisting_trait(refs: &[(&str, &str)]) -> TraitDefinition {
+        let mut td: TraitDefinition = serde_json::from_value(serde_json::json!({
+            "name": "Minter",
+            "linkedEntity": "Cursor",
+            "category": "interaction",
+            "config": { "e": { "type": "entity", "default": "AtomRecord" } },
+            "stateMachine": {
+                "states": [ { "name": "idle", "isInitial": true } ],
+                "transitions": [ { "from": "idle", "to": "idle", "event": "GO",
+                    "effects": [ ["persist", "create", "@config.e", { "id": "x" }] ] } ]
+            }
+        }))
+        .expect("trait deserializes");
+        td.entity_ref_ids = Some(refs.iter().map(|(k, v)| (k.to_string(), v.to_string())).collect());
+        td
+    }
+
+    /// An atom persisting to an `entity`-typed knob (`persist create @config.e`) keeps the knob DEFAULT's entity in its
+    /// `entity_ref_ids`. A call-site override `config { e: MyEntity }` retargets the persist, so the side-map must follow
+    /// it: the stale `AtomRecord` id names no node in the consumer's program (`ORB_ID_UNKNOWN_REF`, std-queue's
+    /// `jobEntity`).
+    #[test]
+    fn an_overridden_entity_knob_retargets_the_entity_ref_ids() {
+        let mut td = persisting_trait(&[("AtomRecord", "ent-atom-record")]);
+        let overrides = HashMap::from([("e".to_string(), config_field("entity", serde_json::json!("MyEntity")))]);
+        let entity_ids = HashMap::from([("MyEntity".to_string(), "ent-my".to_string()), ("Cursor".to_string(), "ent-cursor".to_string())]);
+        let mut recorder = Vec::new();
+        apply_overrides_to_trait(&mut td, None, &entity_ids, Some(&overrides), None, None, None, false, &mut recorder);
+        let refs = td.entity_ref_ids.as_ref().expect("side-map survives");
+        assert_eq!(refs.get("MyEntity"), Some(&"ent-my".to_string()), "{refs:?}");
+        assert!(!refs.contains_key("AtomRecord"), "the default's foreign id must not survive the override: {refs:?}");
+    }
+
+    /// Control: with no override the knob keeps its default and so does the side-map; an override that names an
+    /// entity the consumer does not declare drops the stale key rather than carry a foreign id.
+    #[test]
+    fn control_an_unoverridden_entity_knob_keeps_its_entity_ref_ids() {
+        let mut td = persisting_trait(&[("AtomRecord", "ent-atom-record")]);
+        let entity_ids = HashMap::from([("Cursor".to_string(), "ent-cursor".to_string())]);
+        let mut recorder = Vec::new();
+        apply_overrides_to_trait(&mut td, None, &entity_ids, None, None, None, None, false, &mut recorder);
+        assert_eq!(td.entity_ref_ids.as_ref().and_then(|m| m.get("AtomRecord")), Some(&"ent-atom-record".to_string()));
+        let mut unknown = persisting_trait(&[("AtomRecord", "ent-atom-record")]);
+        let overrides = HashMap::from([("e".to_string(), config_field("entity", serde_json::json!("Elsewhere")))]);
+        apply_overrides_to_trait(&mut unknown, None, &entity_ids, Some(&overrides), None, None, None, false, &mut recorder);
+        assert!(unknown.entity_ref_ids.as_ref().is_none_or(|m| !m.contains_key("AtomRecord")));
     }
 
     /// A declared `uiTrait : trait = @trait.DefaultForm` atom, composed with

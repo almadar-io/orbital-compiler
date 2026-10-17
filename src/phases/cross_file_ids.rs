@@ -542,6 +542,7 @@ mod tests {
 
     fn orbital_with_use(alias: &str, from: &str, reference: &str) -> Orbital {
         Orbital {
+            spec: false,
             types: None,
             name: "Consumer".to_string(),
             id: None,

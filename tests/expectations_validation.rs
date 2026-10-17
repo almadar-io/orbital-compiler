@@ -55,7 +55,7 @@ fn expects_identity_customer() -> Value {
 }
 
 /// Single-orbital slice: `Product` with a `@create` policy reading
-/// `@user.role`, and the `expects identity Customer` declaration carrying the
+/// `@user.role`, and the `expects entity Customer [identity]` declaration carrying the
 /// role vocabulary the policy reads.
 fn slice_with_policy(policy: Value) -> Value {
     json!({
@@ -166,7 +166,7 @@ fn a_trait_guard_outside_the_declared_shape_fails_standalone() {
     );
 }
 
-/// A NAMED `expects identity Customer` satisfies the owner-field check for a
+/// A NAMED `expects entity Customer [identity]` satisfies the owner-field check for a
 /// relation typed to Customer.
 #[test]
 fn a_named_expects_identity_satisfies_owner_field_typing() {
@@ -198,7 +198,7 @@ fn a_named_expects_identity_satisfies_owner_field_typing() {
     );
 }
 
-/// A BARE `expects identity` satisfies the roster requirement but is NOT a
+/// A BARE `expects entity [identity]` satisfies the roster requirement but is NOT a
 /// name the owner-field check can resolve to.
 #[test]
 fn a_bare_expects_identity_does_not_name_an_owner_type() {
@@ -344,12 +344,12 @@ fn an_expects_licensed_linked_entity_defers_the_entity_sentinel() {
     );
 }
 
-/// A NAMED `expects identity` licenses the same targets: the dual form
-/// (`expects entity X` beside `expects identity X`) is
+/// A NAMED `expects entity [identity]` licenses the same targets: the dual form
+/// (`expects entity X` beside `expects entity X [identity]`) is
 /// ELOLO_DUPLICATE_EXPECTATION, so a derived slice whose entity holds a
 /// relation to the organism's identity entity carries ONLY the identity
 /// declaration — it must resolve standalone (measured: std-cms edit-demote,
-/// `author : Contributor` under `expects identity Contributor`).
+/// `author : Contributor` under `expects entity Contributor [identity]`).
 #[test]
 fn a_named_expects_identity_licenses_relation_targets() {
     let schema = json!({
@@ -390,7 +390,7 @@ fn a_named_expects_identity_licenses_relation_targets() {
     for unexpected in ["ORB_E_INVALID_RELATION", "ORB_X_UNRESOLVED_RELATION_TARGET"] {
         assert!(
             !codes.contains(&unexpected.to_string()),
-            "a named expects identity must license relation targets naming it, \
+            "a named `expects entity X [identity]` must license relation targets naming it, \
              found {unexpected} in {codes:?}"
         );
     }
@@ -553,7 +553,7 @@ fn a_single_orbital_schema_never_reports_unsatisfied() {
 /// This is what lets a LIBRARY organism drop its own `[identity]`, declare what
 /// it expects, and still validate standalone; the composed program is where the
 /// provider is checked. It also keeps this module consistent with
-/// `entity_access`, which already trusts any `expects identity` to satisfy
+/// `entity_access`, which already trusts any `expects entity [identity]` to satisfy
 /// `ORB_S_ACCESS_POLICY_REQUIRES_IDENTITY`.
 #[test]
 fn an_absent_provider_is_deferred_not_unsatisfied() {
@@ -620,7 +620,7 @@ fn a_present_but_incompatible_provider_still_errors() {
     );
 }
 
-/// `expects identity Customer` where Customer exists but carries no
+/// `expects entity Customer [identity]` where Customer exists but carries no
 /// [identity] tag.
 #[test]
 fn a_provider_without_the_identity_tag_is_a_kind_mismatch() {
@@ -870,7 +870,7 @@ fn a_satisfied_composed_program_is_clean() {
 // `expects` never declares
 // ---------------------------------------------------------------------------
 
-/// `expects identity` is not an identity declaration: a real [identity]
+/// `expects entity [identity]` is not an identity declaration: a real [identity]
 /// entity alongside expectations must not trip the uniqueness rule.
 #[test]
 fn expects_identity_never_counts_as_an_identity_declaration() {
@@ -1064,7 +1064,7 @@ fn an_authored_traits_user_reads_are_checked_against_the_declaration() {
 // Imported expectations travel with the trait
 //
 // `uses` inlines individual TRAITS, never orbitals, so an organism's
-// `expects identity { … }` is invisible to the app composing it unless the
+// `expects entity [identity] { … }` is invisible to the app composing it unless the
 // inline phase merges it onto the consuming orbital. Without that merge the
 // contract is only ever checked when the organism is validated STANDALONE —
 // where its own roster satisfies it trivially — and a composing app whose
@@ -1131,7 +1131,7 @@ fn a_satisfied_propagated_expectation_is_clean() {
 // =============================================================================
 // derived ⊆ authored — an expectation is a LOWER BOUND
 //
-// `expects identity { shape }` says "the roster must give me AT LEAST this", so
+// `expects entity [identity] { shape }` says "the roster must give me AT LEAST this", so
 // omitting fields the provider happens to have is legal and intended. Declaring
 // FEWER than the orbital actually reads is not: a roster satisfying the
 // declaration exactly would not carry the field, and the slice reads undefined.
@@ -1250,7 +1250,7 @@ fn unsatisfied(schema: Value) -> Vec<String> {
         .collect()
 }
 
-/// `expects event Trait.EVENT`: a present trait of that name must emit the event.
+/// `expects trait Trait { emits { EVENT } }`: a present trait of that name must emit the event.
 #[test]
 fn an_expected_event_the_present_provider_trait_does_not_emit_is_unsatisfied() {
     let consumer = consumer_expecting(
@@ -1288,4 +1288,354 @@ fn control_an_expected_event_with_no_trait_of_that_name_is_deferred() {
         provider_trait(json!([{ "event": "ORDER_SHIPPED" }]))
     ))
     .is_empty());
+}
+
+// ---------------------------------------------------------------------------
+// Strict obligations (a spec import): unprovided is an error, not deferred
+// ---------------------------------------------------------------------------
+
+fn strict(mut expectation: Value) -> Value {
+    expectation["strict"] = json!(true);
+    expectation
+}
+
+fn provider_page(path: &str) -> Value {
+    json!({
+        "name": "OrderOrbital",
+        "entity": { "name": "OrderRecord", "persistence": "persistent", "collection": "orders", "fields": [{ "name": "id", "type": "string" }] },
+        "traits": [{
+            "name": "OrderView",
+            "linkedEntity": "OrderRecord",
+            "stateMachine": { "states": [{ "name": "idle", "isInitial": true }], "events": [{ "key": "INIT", "name": "Init" }], "transitions": [{ "from": "idle", "to": "idle", "event": "INIT" }] }
+        }],
+        "pages": [{ "name": "OrderPage", "path": path, "traits": [{ "ref": "OrderView" }] }]
+    })
+}
+
+#[test]
+fn a_strict_entity_with_no_provider_is_unsatisfied() {
+    let consumer = consumer_expecting(strict(json!({ "kind": "entity", "name": "Ghost" })));
+    assert_eq!(unsatisfied(composed(consumer, provider_with(json!([{ "name": "id", "type": "string" }]), false))).len(), 1);
+}
+
+#[test]
+fn control_the_same_entity_expectation_without_strict_still_defers() {
+    let consumer = consumer_expecting(json!({ "kind": "entity", "name": "Ghost" }));
+    assert!(unsatisfied(composed(consumer, provider_with(json!([{ "name": "id", "type": "string" }]), false))).is_empty());
+}
+
+#[test]
+fn a_strict_entity_a_sibling_provides_is_satisfied() {
+    let consumer = consumer_expecting(strict(json!({ "kind": "entity", "name": "OrderRecord" })));
+    assert!(unsatisfied(composed(consumer, provider_with(json!([{ "name": "id", "type": "string" }]), false))).is_empty());
+}
+
+#[test]
+fn a_strict_expectation_in_a_single_orbital_schema_is_not_trusted() {
+    let schema = json!({ "name": "App", "orbitals": [consumer_expecting(strict(json!({ "kind": "entity", "name": "Ghost" })))] });
+    assert_eq!(unsatisfied(schema).len(), 1);
+}
+
+#[test]
+fn a_strict_identity_with_no_identity_entity_is_unsatisfied() {
+    let consumer = consumer_expecting(strict(json!({ "kind": "identity", "name": "Customer" })));
+    assert_eq!(unsatisfied(composed(consumer, provider_with(json!([{ "name": "id", "type": "string" }]), false))).len(), 1);
+}
+
+#[test]
+fn a_strict_event_with_no_trait_of_that_name_is_unsatisfied() {
+    let consumer = consumer_expecting(strict(json!({ "kind": "event", "traitName": "Elsewhere", "event": "PLACED" })));
+    assert_eq!(unsatisfied(composed(consumer, provider_trait(json!([{ "event": "PLACED" }])))).len(), 1);
+}
+
+#[test]
+fn a_strict_event_the_named_trait_emits_is_satisfied() {
+    let consumer = consumer_expecting(strict(json!({ "kind": "event", "traitName": "OrderFeed", "event": "ORDER_PLACED" })));
+    assert!(unsatisfied(composed(consumer, provider_trait_firing(true))).is_empty());
+}
+
+#[test]
+fn a_strict_page_no_orbital_declares_is_unsatisfied() {
+    let consumer = consumer_expecting(strict(json!({ "kind": "page", "path": "/orders/:id" })));
+    assert_eq!(unsatisfied(composed(consumer, provider_page("/other"))).len(), 1);
+}
+
+#[test]
+fn a_strict_page_a_sibling_declares_is_satisfied() {
+    let consumer = consumer_expecting(strict(json!({ "kind": "page", "path": "/orders/:id" })));
+    assert!(unsatisfied(composed(consumer, provider_page("/orders/:id"))).is_empty());
+}
+
+#[test]
+fn control_a_lenient_page_with_no_provider_defers() {
+    let consumer = consumer_expecting(json!({ "kind": "page", "path": "/orders/:id" }));
+    assert!(unsatisfied(composed(consumer, provider_page("/other"))).is_empty());
+}
+
+#[test]
+fn final_validation_now_reports_an_unprovided_event_and_page() {
+    let event = composed(
+        consumer_expecting(json!({ "kind": "event", "traitName": "Elsewhere", "event": "PLACED" })),
+        provider_trait(json!([{ "event": "PLACED" }])),
+    );
+    assert_eq!(expectations::validate_final_expectations(&parse(event)).errors.len(), 1);
+    let page = composed(consumer_expecting(json!({ "kind": "page", "path": "/orders/:id" })), provider_page("/other"));
+    assert_eq!(expectations::validate_final_expectations(&parse(page)).errors.len(), 1);
+    let ok = composed(consumer_expecting(json!({ "kind": "page", "path": "/orders/:id" })), provider_page("/orders/:id"));
+    assert!(expectations::validate_final_expectations(&parse(ok)).errors.is_empty());
+}
+
+fn spec_orbital() -> Value {
+    json!({
+        "name": "ShopSpec",
+        "spec": true,
+        "expects": [
+            { "kind": "entity", "name": "Order", "strict": true, "shape": [{ "name": "total", "type": "number" }] },
+            { "kind": "event", "traitName": "Checkout", "event": "PLACED", "strict": true },
+            { "kind": "page", "path": "/orders", "strict": true }
+        ],
+        "entity": { "name": "ShopSpec", "fields": [] },
+        "traits": []
+    })
+}
+
+#[test]
+fn a_spec_orbital_validates_clean_on_its_own() {
+    let schema = json!({ "name": "ShopSpec", "orbitals": [spec_orbital()] });
+    assert_eq!(run_full(schema), Vec::<String>::new());
+}
+
+#[test]
+fn control_an_orbital_with_a_real_entity_and_strict_expectations_is_still_checked() {
+    let mut orbital = consumer_expecting(strict(json!({ "kind": "entity", "name": "Ghost" })));
+    orbital["traits"] = json!([]);
+    let schema = json!({ "name": "App", "orbitals": [orbital] });
+    assert_eq!(unsatisfied(schema).len(), 1);
+}
+
+// ---------------------------------------------------------------------------
+// `expects trait T { emits { E { payload } } }`: the provider's payload is link-checked
+// ---------------------------------------------------------------------------
+
+fn emits_placed(payload: Value) -> Value {
+    provider_trait(json!([{ "event": "ORDER_PLACED", "payloadSchema": payload }]))
+}
+
+fn expecting_payload(payload: Value) -> Value {
+    consumer_expecting(json!({ "kind": "event", "traitName": "OrderFeed", "event": "ORDER_PLACED", "payload": payload }))
+}
+
+fn codes(schema: Value) -> Vec<String> {
+    run_scoped(schema)
+}
+
+#[test]
+fn an_event_payload_the_provider_carries_is_satisfied() {
+    let schema = composed(
+        expecting_payload(json!([{ "name": "orderId", "type": "string", "required": true }])),
+        emits_placed(json!([{ "name": "orderId", "type": "string", "required": true }, { "name": "total", "type": "number" }])),
+    );
+    assert_eq!(codes(schema), Vec::<String>::new());
+}
+
+#[test]
+fn an_event_payload_field_the_provider_lacks_is_not_provided() {
+    let schema = composed(
+        expecting_payload(json!([{ "name": "orderId", "type": "string" }, { "name": "extra", "type": "string" }])),
+        emits_placed(json!([{ "name": "orderId", "type": "string" }])),
+    );
+    assert_eq!(codes(schema), vec!["ORB_S_EXPECTED_FIELD_NOT_PROVIDED".to_string()]);
+}
+
+#[test]
+fn an_event_payload_field_of_another_type_is_a_mismatch() {
+    let schema = composed(
+        expecting_payload(json!([{ "name": "orderId", "type": "number" }])),
+        emits_placed(json!([{ "name": "orderId", "type": "string" }])),
+    );
+    assert_eq!(codes(schema), vec!["ORB_S_EXPECTED_FIELD_TYPE_MISMATCH".to_string()]);
+}
+
+#[test]
+fn a_required_event_payload_field_the_provider_makes_optional_is_a_mismatch() {
+    let schema = composed(
+        expecting_payload(json!([{ "name": "orderId", "type": "string", "required": true }])),
+        emits_placed(json!([{ "name": "orderId", "type": "string" }])),
+    );
+    assert_eq!(codes(schema), vec!["ORB_S_EXPECTED_FIELD_TYPE_MISMATCH".to_string()]);
+}
+
+#[test]
+fn control_an_event_expectation_without_a_payload_ignores_the_providers_payload() {
+    let schema = composed(
+        consumer_expecting(json!({ "kind": "event", "traitName": "OrderFeed", "event": "ORDER_PLACED" })),
+        emits_placed(json!([{ "name": "orderId", "type": "string" }])),
+    );
+    assert_eq!(codes(schema), Vec::<String>::new());
+}
+
+// ---------------------------------------------------------------------------
+// A strict event obligation must be FIRED, not merely declared
+// ---------------------------------------------------------------------------
+
+fn provider_trait_firing(fires: bool) -> Value {
+    let effects = if fires { json!([["emit", "ORDER_PLACED"]]) } else { json!([]) };
+    json!({
+        "name": "OrderOrbital",
+        "entity": { "name": "OrderRecord", "persistence": "persistent", "collection": "orders", "fields": [{ "name": "id", "type": "string" }] },
+        "traits": [{
+            "name": "OrderFeed",
+            "linkedEntity": "OrderRecord",
+            "emits": [{ "event": "ORDER_PLACED", "scope": "external" }],
+            "stateMachine": {
+                "states": [{ "name": "idle", "isInitial": true }],
+                "events": [{ "key": "INIT", "name": "Init" }],
+                "transitions": [{ "from": "idle", "to": "idle", "event": "INIT", "effects": effects }]
+            }
+        }],
+        "pages": []
+    })
+}
+
+#[test]
+fn a_strict_event_the_trait_declares_but_never_fires_is_unsatisfied() {
+    let consumer = consumer_expecting(strict(json!({ "kind": "event", "traitName": "OrderFeed", "event": "ORDER_PLACED" })));
+    assert_eq!(unsatisfied(composed(consumer, provider_trait_firing(false))).len(), 1);
+}
+
+#[test]
+fn a_strict_event_the_trait_fires_is_satisfied() {
+    let consumer = consumer_expecting(strict(json!({ "kind": "event", "traitName": "OrderFeed", "event": "ORDER_PLACED" })));
+    assert!(unsatisfied(composed(consumer, provider_trait_firing(true))).is_empty());
+}
+
+#[test]
+fn control_a_lenient_event_the_trait_never_fires_is_not_reported() {
+    let consumer = consumer_expecting(json!({ "kind": "event", "traitName": "OrderFeed", "event": "ORDER_PLACED" }));
+    assert!(unsatisfied(composed(consumer, provider_trait_firing(false))).is_empty());
+}
+
+// ---------------------------------------------------------------------------
+// Entity storage/marks/access, page traits, trait states and edges
+// ---------------------------------------------------------------------------
+
+fn flow_provider(entity_extra: Value, persists: bool) -> Value {
+    let mut entity = json!({
+        "name": "OrderRecord", "persistence": "persistent", "collection": "orders",
+        "fields": [{ "name": "id", "type": "string", "required": true, "primaryKey": true }, { "name": "email", "type": "string", "unique": true }]
+    });
+    for (k, v) in entity_extra.as_object().cloned().unwrap_or_default() {
+        entity[k] = v;
+    }
+    let effects = if persists { json!([["persist", "create", "OrderRecord", { "id": "@payload.id" }]]) } else { json!([]) };
+    json!({
+        "name": "OrderOrbital",
+        "entity": entity,
+        "traits": [{
+            "name": "OrderFlow",
+            "linkedEntity": "OrderRecord",
+            "stateMachine": {
+                "states": [{ "name": "idle", "isInitial": true }, { "name": "paid" }],
+                "events": [{ "key": "INIT", "name": "Init" }, { "key": "PAY", "name": "Pay" }],
+                "transitions": [
+                    { "from": "idle", "to": "idle", "event": "INIT" },
+                    { "from": "idle", "to": "paid", "event": "PAY", "effects": effects }
+                ]
+            }
+        }],
+        "pages": [{ "name": "OrderPage", "path": "/orders", "traits": [{ "ref": "OrderFlow" }] }]
+    })
+}
+
+fn expecting(expectation: Value, provider: Value) -> Vec<String> {
+    run_scoped(composed(consumer_expecting(expectation), provider))
+}
+
+const MISMATCH: &str = "ORB_S_EXPECTATION_PROVIDER_MISMATCH";
+const UNSATISFIED: &str = "ORB_S_EXPECTATION_UNSATISFIED";
+
+#[test]
+fn an_entity_expectation_checks_the_storage_mode_shared_and_local() {
+    let ok = json!({ "kind": "entity", "name": "OrderRecord", "persistence": "persistent" });
+    assert_eq!(expecting(ok, flow_provider(json!({}), false)), Vec::<String>::new());
+    let wrong = json!({ "kind": "entity", "name": "OrderRecord", "persistence": "runtime" });
+    assert_eq!(expecting(wrong, flow_provider(json!({}), false)), vec![MISMATCH.to_string()]);
+    let shared = json!({ "kind": "entity", "name": "OrderRecord", "shared": true });
+    assert_eq!(expecting(shared.clone(), flow_provider(json!({}), false)), vec![MISMATCH.to_string()]);
+    assert_eq!(expecting(shared, flow_provider(json!({ "shared": true }), false)), Vec::<String>::new());
+    let local = json!({ "kind": "entity", "name": "OrderRecord", "local": true });
+    assert_eq!(expecting(local, flow_provider(json!({}), false)), vec![MISMATCH.to_string()]);
+}
+
+#[test]
+fn control_an_entity_expectation_that_states_no_storage_constrains_none() {
+    let bare = json!({ "kind": "entity", "name": "OrderRecord" });
+    assert_eq!(expecting(bare, flow_provider(json!({ "persistence": "runtime", "shared": true }), false)), Vec::<String>::new());
+}
+
+#[test]
+fn an_entity_expectation_checks_key_and_unique_marks() {
+    let ok = json!({ "kind": "entity", "name": "OrderRecord", "shape": [{ "name": "id", "type": "string", "primaryKey": true }, { "name": "email", "type": "string", "unique": true }] });
+    assert_eq!(expecting(ok, flow_provider(json!({}), false)), Vec::<String>::new());
+    let unmarked = json!({ "kind": "entity", "name": "OrderRecord", "shape": [{ "name": "email", "type": "string", "unique": true }] });
+    let mut provider = flow_provider(json!({}), false);
+    provider["entity"]["fields"][1]["unique"] = json!(false);
+    assert_eq!(expecting(unmarked, provider), vec![MISMATCH.to_string()]);
+    let keyed = json!({ "kind": "entity", "name": "OrderRecord", "shape": [{ "name": "id", "type": "string", "primaryKey": true }] });
+    let mut unkeyed = flow_provider(json!({}), false);
+    unkeyed["entity"]["fields"][0]["primaryKey"] = json!(false);
+    assert_eq!(expecting(keyed, unkeyed), vec![MISMATCH.to_string()]);
+    let control = json!({ "kind": "entity", "name": "OrderRecord", "shape": [{ "name": "email", "type": "string" }] });
+    assert_eq!(expecting(control, flow_provider(json!({}), false)), Vec::<String>::new(), "a mark the spec does not state is not constrained");
+}
+
+#[test]
+fn an_entity_expectation_compares_access_policies_structurally() {
+    let policy = json!(["!=", "@entity.id", ""]);
+    let ok = json!({ "kind": "entity", "name": "OrderRecord", "read_policy": policy });
+    assert_eq!(expecting(ok.clone(), flow_provider(json!({ "read_policy": policy }), false)), Vec::<String>::new());
+    assert_eq!(expecting(ok.clone(), flow_provider(json!({ "read_policy": ["==", "@entity.id", "x"] }), false)), vec![MISMATCH.to_string()]);
+    assert_eq!(expecting(ok, flow_provider(json!({}), false)), vec![MISMATCH.to_string()], "a stated policy the provider lacks");
+    let waived = json!({ "kind": "entity", "name": "OrderRecord", "access_waivers": { "update": "joins another entity" } });
+    assert_eq!(expecting(waived.clone(), flow_provider(json!({ "access_waivers": { "update": "a different reason" } }), false)), Vec::<String>::new(), "the reason text is not compared");
+    assert_eq!(expecting(waived, flow_provider(json!({}), false)), vec![MISMATCH.to_string()]);
+}
+
+#[test]
+fn a_strict_persistent_entity_must_be_written_by_the_program() {
+    let spec = strict(json!({ "kind": "entity", "name": "OrderRecord", "persistence": "persistent" }));
+    assert_eq!(unsatisfied(composed(consumer_expecting(spec.clone()), flow_provider(json!({}), false))).len(), 1);
+    assert!(unsatisfied(composed(consumer_expecting(spec), flow_provider(json!({}), true))).is_empty());
+    let lenient = json!({ "kind": "entity", "name": "OrderRecord", "persistence": "persistent" });
+    assert!(unsatisfied(composed(consumer_expecting(lenient), flow_provider(json!({}), false))).is_empty(), "control: only an imported spec obliges a write");
+}
+
+#[test]
+fn a_page_expectation_checks_the_traits_the_provider_page_mounts() {
+    let ok = json!({ "kind": "page", "path": "/orders", "traits": ["OrderFlow"] });
+    assert_eq!(expecting(ok, flow_provider(json!({}), false)), Vec::<String>::new());
+    let wrong = json!({ "kind": "page", "path": "/orders", "traits": ["Receipt"] });
+    assert_eq!(expecting(wrong, flow_provider(json!({}), false)), vec![MISMATCH.to_string()]);
+    let bare = json!({ "kind": "page", "path": "/orders" });
+    assert_eq!(expecting(bare, flow_provider(json!({}), false)), Vec::<String>::new(), "control: no traits stated");
+}
+
+#[test]
+fn a_state_expectation_needs_the_provider_trait_to_declare_it() {
+    let ok = json!({ "kind": "state", "traitName": "OrderFlow", "state": "paid" });
+    assert_eq!(expecting(ok, flow_provider(json!({}), false)), Vec::<String>::new());
+    let missing = json!({ "kind": "state", "traitName": "OrderFlow", "state": "refunded" });
+    assert_eq!(expecting(missing, flow_provider(json!({}), false)), vec![UNSATISFIED.to_string()]);
+    let absent = json!({ "kind": "state", "traitName": "Elsewhere", "state": "paid" });
+    assert_eq!(expecting(absent.clone(), flow_provider(json!({}), false)), Vec::<String>::new(), "a lenient state of an absent trait defers");
+    assert_eq!(expecting(strict(absent), flow_provider(json!({}), false)).len(), 1);
+}
+
+#[test]
+fn a_transition_expectation_needs_that_edge_in_the_provider_trait() {
+    let edge = |from: &str, event: &str, to: &str| json!({ "kind": "transition", "traitName": "OrderFlow", "from": from, "event": event, "to": to });
+    assert_eq!(expecting(edge("idle", "PAY", "paid"), flow_provider(json!({}), false)), Vec::<String>::new());
+    assert_eq!(expecting(edge("idle", "PAY", "idle"), flow_provider(json!({}), false)), vec![UNSATISFIED.to_string()]);
+    assert_eq!(expecting(edge("paid", "PAY", "paid"), flow_provider(json!({}), false)), vec![UNSATISFIED.to_string()]);
+    assert_eq!(expecting(edge("idle", "NOPE", "paid"), flow_provider(json!({}), false)), vec![UNSATISFIED.to_string()]);
 }
