@@ -1037,6 +1037,9 @@ pub enum ErrorCode {
     /// or singleton re-save is an authored `persist upsert` (create-or-replace by id).
     /// Error severity.
     PersistCreateLiteralId,
+    /// `persist delete E <expression>` / `persist update E <expression> data`: the single forms take the row id as a
+    /// binding path or a literal, so an expression resolves no row key at run time. Error severity.
+    PersistIdNotAPath,
     /// `@trait` binding with no trait name — bare `@trait` is not resolvable.
     BindingTraitMissingName,
     /// `@trait.X` trait name doesn't match the `PascalCase` identifier pattern.
@@ -1796,6 +1799,7 @@ impl ErrorCode {
             ErrorCode::BindingPersistRowIdNeverSet => "ORB_BINDING_PERSIST_ROW_ID_NEVER_SET",
             ErrorCode::PersistCreateMissingPolicyField => "ORB_PERSIST_CREATE_MISSING_POLICY_FIELD",
             ErrorCode::PersistCreateLiteralId => "ORB_PERSIST_CREATE_LITERAL_ID",
+            ErrorCode::PersistIdNotAPath => "ORB_PERSIST_ID_NOT_A_PATH",
             ErrorCode::BindingTraitMissingName => "ORB_BINDING_TRAIT_MISSING_NAME",
             ErrorCode::BindingTraitInvalidFormat => "ORB_BINDING_TRAIT_INVALID_FORMAT",
             ErrorCode::BindingTraitUnknown => "ORB_BINDING_TRAIT_UNKNOWN",
@@ -2237,7 +2241,8 @@ impl ErrorCode {
             | ErrorCode::BindingTraitInvalidPosition
             | ErrorCode::BindingTraitOutsideRenderUi
             | ErrorCode::PersistCreateMissingPolicyField
-            | ErrorCode::PersistCreateLiteralId => "binding",
+            | ErrorCode::PersistCreateLiteralId
+            | ErrorCode::PersistIdNotAPath => "binding",
 
             ErrorCode::EntitySplitMutation
             | ErrorCode::SharedEntityFieldConflict

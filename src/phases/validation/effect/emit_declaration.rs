@@ -12,7 +12,7 @@ use super::{
     validate_set_value_type, DeclaredEmit, EntityFieldMeta,
 };
 use crate::embedded::ServiceRegistryData;
-use orbital_core_base::schema::{EntityDefinition, SExpression, TraitDefinition};
+use orbital_core_base::schema::{EntityDefinition, OrbitalSchema, SExpression, TraitDefinition};
 use std::collections::{HashMap, HashSet};
 
 /// Collect all declared emits from a trait definition
@@ -252,6 +252,36 @@ pub(crate) fn validate_effect(
     entity_field_types: &HashMap<String, EntityFieldMeta>,
     payload_field_types: &HashMap<String, String>,
 ) -> ValidationResult {
+    validate_effect_in(
+        effect,
+        path,
+        known_entities,
+        entity_definitions,
+        known_services,
+        page_init_payloads,
+        service_registry,
+        declared_emits,
+        entity_field_types,
+        payload_field_types,
+        None,
+    )
+}
+
+/// [`validate_effect`] with the program's declared types, which `json/parse` over a type alias needs.
+#[allow(clippy::too_many_arguments)]
+pub(crate) fn validate_effect_in(
+    effect: &SExpression,
+    path: &str,
+    known_entities: &HashSet<String>,
+    entity_definitions: &HashMap<String, EntityDefinition>,
+    known_services: &HashSet<String>,
+    page_init_payloads: &HashMap<String, PageInitPayload>,
+    service_registry: &ServiceRegistryData,
+    declared_emits: Option<&[DeclaredEmit]>,
+    entity_field_types: &HashMap<String, EntityFieldMeta>,
+    payload_field_types: &HashMap<String, String>,
+    schema: Option<&OrbitalSchema>,
+) -> ValidationResult {
     let mut result = ValidationResult::new();
     let head = match effect {
         SExpression::Array(arr) => arr.first().and_then(|e| e.as_str()),
@@ -270,6 +300,7 @@ pub(crate) fn validate_effect(
             declared_emits,
             entity_field_types,
             payload_field_types,
+            schema,
         ));
         if let Some(declared) = declared_emits {
             result.merge(validate_emit_against_declaration(effect, path, declared));
@@ -297,7 +328,7 @@ pub(crate) fn validate_effect(
             _ => vec![(expr, child_path)],
         };
         for (member, member_path) in members {
-            result.merge(validate_effect(
+            result.merge(validate_effect_in(
                 member,
                 &member_path,
                 known_entities,
@@ -308,6 +339,7 @@ pub(crate) fn validate_effect(
                 declared_emits,
                 entity_field_types,
                 payload_field_types,
+                schema,
             ));
         }
     };
@@ -371,6 +403,7 @@ fn validate_leaf_effect(
     // field types (`{ name -> type }`).
     entity_field_types: &HashMap<String, EntityFieldMeta>,
     payload_field_types: &HashMap<String, String>,
+    schema: Option<&OrbitalSchema>,
 ) -> ValidationResult {
     let mut result = ValidationResult::new();
 
@@ -410,6 +443,7 @@ fn validate_leaf_effect(
                             path,
                             entity_field_types,
                             payload_field_types,
+                            schema,
                         ));
                     }
                     "fetch" => {

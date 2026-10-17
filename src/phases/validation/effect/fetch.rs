@@ -78,6 +78,15 @@ pub(crate) fn validate_fetch(
                             ),
                         }
                     }
+                    if let Some(nearest) = obj.get("nearest").filter(|n| !n.is_null()) {
+                        result.merge(validate_fetch_nearest(
+                            nearest,
+                            obj,
+                            path,
+                            entity_name,
+                            entity_definitions,
+                        ));
+                    }
                     // fetch is one-shot async — success + failure allowed.
                     if let Some(emit_obj) = extract_emit_object_ref(obj) {
                         result.merge(validate_emit_config(
@@ -144,6 +153,125 @@ pub(crate) fn validate_fetch(
         );
     }
 
+    result
+}
+
+fn nearest_error(path: &str, message: impl Into<String>) -> ValidationError {
+    ValidationError::error(ErrorCode::EffectFetchInvalidOption, path, message).with_suggestion(
+        "Use: { \"nearest\": { \"field\": \"embedding\", \"vector\": <[number]>, \"k\": <positive integer> } }",
+    )
+}
+
+/// The structure of a fetch `nearest` option (EXEC-FETCH-2): `{ field, vector, k }` and nothing else, no `id`,
+/// `orderBy`, `offset` or `limit` beside it, `field` a literal naming a `[number]` field of the fetched entity, and a
+/// literal `k` a positive integer. The expressions' types are checked by [`check_fetch_nearest`].
+fn validate_fetch_nearest(
+    nearest: &SExpression,
+    options: &orbital_core_base::schema::SObject,
+    path: &str,
+    entity_name: &str,
+    entity_definitions: &HashMap<String, EntityDefinition>,
+) -> ValidationResult {
+    let mut result = ValidationResult::new();
+    for excluded in ["id", "orderBy", "offset", "limit"] {
+        if options.get(excluded).is_some_and(|v| !v.is_null()) {
+            result.add_error(nearest_error(
+                path,
+                format!("fetch `nearest` cannot be combined with `{excluded}`: it returns the nearest k rows, ordered by similarity"),
+            ));
+        }
+    }
+    let SExpression::Object(members) = nearest else {
+        result.add_error(nearest_error(path, "fetch `nearest` must be { field, vector, k }"));
+        return result;
+    };
+    for key in members.keys() {
+        if !["field", "vector", "k"].contains(&key.as_str()) {
+            result.add_error(nearest_error(path, format!("fetch `nearest` has no `{key}`; it takes field, vector and k")));
+        }
+    }
+    for required in ["field", "vector", "k"] {
+        if members.get(required).is_none_or(SExpression::is_null) {
+            result.add_error(nearest_error(path, format!("fetch `nearest` needs `{required}`")));
+        }
+    }
+    match members.get("field") {
+        Some(SExpression::String(field)) => {
+            if let Some(entity_def) = entity_definitions.get(entity_name) {
+                let vectors: Vec<String> = entity_def
+                    .fields
+                    .iter()
+                    .filter(|f| {
+                        f.field_type == FieldType::Array
+                            && f.items.as_ref().is_some_and(|i| i.field_type == FieldType::Number)
+                    })
+                    .filter_map(|f| f.name.clone())
+                    .collect();
+                if !vectors.contains(field) {
+                    result.add_error(
+                        nearest_error(
+                            path,
+                            format!("fetch `nearest.field` '{field}' is not a [number] field of {entity_name}"),
+                        )
+                        .with_valid_values(vectors),
+                    );
+                }
+            }
+        }
+        Some(SExpression::Null) | None => {}
+        Some(_) => result.add_error(nearest_error(path, "fetch `nearest.field` must be a field name literal")),
+    }
+    if let Some(SExpression::Number(k)) = members.get("k") {
+        if *k < 1.0 || k.fract() != 0.0 {
+            result.add_error(nearest_error(path, format!("fetch `nearest.k` must be a positive integer, got {k}")));
+        }
+    }
+    result
+}
+
+/// The types of a fetch `nearest`'s `vector` (a `[number]`) and `k` (a number), over the one `OirExpr` inference.
+/// An expression whose type is not determined never rejects.
+pub(super) fn check_fetch_nearest(
+    arr: &[SExpression],
+    path: &str,
+    ctx: &super::set::ExprReturnCtx<'_>,
+) -> ValidationResult {
+    use orbital_core_base::ir::OirType;
+    let mut result = ValidationResult::new();
+    if arr.first().and_then(SExpression::as_str) != Some("fetch") {
+        return result;
+    }
+    let Some(SExpression::Object(options)) = arr.get(2) else {
+        return result;
+    };
+    let Some(SExpression::Object(nearest)) = options.get("nearest") else {
+        return result;
+    };
+    for (member, expected) in [
+        ("vector", OirType::Array { inner: Box::new(OirType::Number) }),
+        ("k", OirType::Number),
+    ] {
+        let Some(expr) = nearest.get(member) else {
+            continue;
+        };
+        let Ok(resolved) = crate::phases::resolve::resolve_sexpr_standalone(expr) else {
+            continue;
+        };
+        let Some(inferred) = crate::type_infer::infer_oir_expr_type(&resolved, ctx) else {
+            continue;
+        };
+        if !orbital_core_base::type_compat::oir_type_satisfies(&inferred, &expected) {
+            result.add_error(ValidationError::error(
+                ErrorCode::OperatorArgTypeMismatch,
+                path,
+                format!(
+                    "fetch `nearest.{member}` must be a {}, got {}",
+                    orbital_core_base::type_compat::oir_type_kind(&expected),
+                    orbital_core_base::type_compat::oir_type_kind(&inferred)
+                ),
+            ));
+        }
+    }
     result
 }
 

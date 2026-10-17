@@ -276,6 +276,38 @@ pub(crate) fn validate_persist(
         }
     }
 
+    // ORB_PERSIST_ID_NOT_A_PATH: `delete` and the id+data `update` carry their id as a binding path or a literal;
+    // an expression there resolves to no row key at run time (`no-row-key`).
+    if entity_index == 2 {
+        let args_after_entity = &arr[entity_index + 1..];
+        let positional = match args_after_entity.last() {
+            Some(SExpression::Object(options)) if extract_emit_object_ref(options).is_some() => {
+                &args_after_entity[..args_after_entity.len() - 1]
+            }
+            _ => args_after_entity,
+        };
+        let id_arg = match arr[1].as_str() {
+            Some("delete") => positional.first(),
+            Some("update") if positional.len() >= 2 => positional.first(),
+            _ => None,
+        };
+        if let Some(SExpression::Array(_)) = id_arg {
+            result.add_error(
+                ValidationError::error(
+                    ErrorCode::PersistIdNotAPath,
+                    path,
+                    format!(
+                        "persist {} names its row id with an expression; the single form takes a binding path or a literal id, so the run resolves no row key (`no-row-key`)",
+                        arr[1].as_str().unwrap_or("delete")
+                    ),
+                )
+                .with_suggestion(
+                    "Bind the id first with (set @entity.pendingId <expression>) and write (persist delete Entity @entity.pendingId), or use (persist batch [[\"delete\" Entity <expression>]]), whose ops evaluate expressions",
+                ),
+            );
+        }
+    }
+
     // Wave 2 rules 1 & 3 — only when the data argument is an explicit Object
     // LITERAL (a bare whole-frame `@entity`/`@payload` binding is not a hit
     // for either rule: it carries no key set to inspect).
@@ -599,6 +631,34 @@ mod tests {
             .all_issues()
             .filter(|e| e.code == ErrorCode::PersistCreateLiteralId)
             .count()
+    }
+
+    fn id_not_a_path_hits(json: &str) -> usize {
+        let arr: Vec<SExpression> = serde_json::from_str(json).unwrap();
+        let known = ["Message".to_string()].into_iter().collect();
+        validate_persist(&arr, "test", &known, &HashMap::new(), None)
+            .all_issues()
+            .filter(|e| e.code == ErrorCode::PersistIdNotAPath)
+            .count()
+    }
+
+    /// The single `persist delete`/`update` forms take their id as a path or a literal: an expression there
+    /// resolves to no row key at run time, so `orb validate` refuses it.
+    #[test]
+    fn a_computed_id_on_a_single_delete_or_update_is_refused() {
+        let computed = r#"["object/get", ["array/first", "@payload.data"], "id", ""]"#;
+        assert_eq!(id_not_a_path_hits(&format!(r#"["persist", "delete", "Message", {computed}]"#)), 1);
+        assert_eq!(id_not_a_path_hits(&format!(r#"["persist", "delete", "Message", {computed}, {{ "emit": {{ "success": "OK" }} }}]"#)), 1);
+        assert_eq!(id_not_a_path_hits(&format!(r#"["persist", "update", "Message", {computed}, {{ "text": "x" }}]"#)), 1);
+    }
+
+    #[test]
+    fn control_a_path_or_literal_id_is_accepted() {
+        assert_eq!(id_not_a_path_hits(r#"["persist", "delete", "Message", "@entity.pendingId"]"#), 0);
+        assert_eq!(id_not_a_path_hits(r#"["persist", "delete", "Message", "m1", { "emit": { "success": "OK" } }]"#), 0);
+        assert_eq!(id_not_a_path_hits(r#"["persist", "update", "Message", "@payload.id", { "text": "x" }]"#), 0);
+        assert_eq!(id_not_a_path_hits(r#"["persist", "update", "Message", { "id": ["str/concat", "a", "b"], "text": "x" }]"#), 0, "the data form names its id inside the row");
+        assert_eq!(id_not_a_path_hits(r#"["persist", "batch", [["delete", "Message", ["str/concat", "a", "b"]]]]"#), 0, "a batch op takes an expression");
     }
 
     #[test]

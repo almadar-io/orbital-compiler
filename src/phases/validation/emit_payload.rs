@@ -90,6 +90,7 @@ pub fn validate_all_emit_payloads(schema: &OrbitalSchema, ctx: &mut ValidationCo
                                 &emit_schemas,
                                 &entity_field_types,
                                 &payload_field_types,
+                                schema,
                             );
                             ctx.merge(result);
                         }
@@ -118,6 +119,7 @@ pub fn validate_all_emit_payloads(schema: &OrbitalSchema, ctx: &mut ValidationCo
                                 &emit_schemas,
                                 &entity_field_types,
                                 &payload_field_types,
+                                schema,
                             );
                             ctx.merge(result);
                         }
@@ -208,6 +210,7 @@ fn validate_emit_literal(
     emit_schemas: &HashMap<&str, &[PayloadField]>,
     entity_field_types: &HashMap<String, EntityFieldMeta>,
     payload_field_types: &HashMap<String, String>,
+    schema_types: &OrbitalSchema,
 ) -> ValidationResult {
     let mut result = ValidationResult::new();
 
@@ -298,7 +301,7 @@ fn validate_emit_literal(
                     if empty_list_in_list_slot {
                     } else if let Some((element, items)) = list_items {
                         if let Some(actual) =
-                            list_item_mismatch(element, items, entity_field_types, payload_field_types)
+                            list_item_mismatch(element, items, entity_field_types, payload_field_types, schema_types)
                         {
                             result.add_error(
                                 ValidationError::error(
@@ -337,6 +340,7 @@ fn validate_emit_literal(
                         &orbital_core_base::type_compat::compat_kind_oir(expected),
                         entity_field_types,
                         payload_field_types,
+                        Some(schema_types),
                     ) {
                         // Operator-call payload value (e.g. `(object/get (array/find …) id)`):
                         // `literal_value_type` returned `None`, so infer its result type through
@@ -660,12 +664,13 @@ fn list_item_mismatch(
     items: &[SExpression],
     entity_field_types: &HashMap<String, EntityFieldMeta>,
     payload_field_types: &HashMap<String, String>,
+    schema_types: &OrbitalSchema,
 ) -> Option<String> {
     for item in items {
         match orbital_core_eval::literal_type::literal_value_type(item) {
             Some("array") => {
                 if let (SExpression::Array(inner), Some(inner_element)) = (item, list_element_type(element)) {
-                    if let Some(bad) = list_item_mismatch(inner_element, inner, entity_field_types, payload_field_types) {
+                    if let Some(bad) = list_item_mismatch(inner_element, inner, entity_field_types, payload_field_types, schema_types) {
                         return Some(bad);
                     }
                 } else if !primitive_types_compatible(element, "array") {
@@ -683,6 +688,7 @@ fn list_item_mismatch(
                     &orbital_core_base::type_compat::compat_kind_oir(element),
                     entity_field_types,
                     payload_field_types,
+                    Some(schema_types),
                 ) {
                     return Some(orbital_core_base::type_compat::oir_type_kind(&inferred));
                 }
@@ -869,6 +875,74 @@ mod tests {
     fn a_list_literal_with_an_item_of_the_wrong_type_is_refused_in_a_typed_list_slot() {
         assert!(list_slot_mismatch(r#"["stop", 5]"#));
         assert!(list_slot_mismatch(r#"[true]"#));
+    }
+
+    fn list_alias_mismatch(shape: &str) -> bool {
+        let json = persist_trait_json(
+            r#"{ "event": "LISTED", "payloadSchema": [{ "name": "items", "type": "[object]" }] }"#,
+            &format!(r#"["emit", "LISTED", {{ "items": ["json/parse", "[]", "{shape}"] }}]"#),
+        )
+        .replacen(
+            r#""name": "ThreadOrbital","#,
+            r#""name": "ThreadOrbital", "types": { "Point": [{ "name": "x", "type": "number" }], "Points": [{ "name": "", "type": "[Point]" }] },"#,
+            1,
+        );
+        let schema: OrbitalSchema = serde_json::from_str(&json).expect("schema parses");
+        let mut ctx = ctx_with_seeded_entities(&schema);
+        validate_all_emit_payloads(&schema, &mut ctx);
+        ctx.result.errors.iter().any(|e| e.code == ErrorCode::EmitPayloadFieldTypeMismatch)
+    }
+
+    /// `json/parse` over a list alias is the list the alias names, so it fills a list slot.
+    #[test]
+    fn json_parse_over_a_list_alias_fills_a_list_slot() {
+        assert!(!list_alias_mismatch("Points"));
+    }
+
+    /// NEGATIVE CONTROL — a struct alias is a record, not a list.
+    #[test]
+    fn json_parse_over_a_struct_alias_does_not_fill_a_list_slot() {
+        assert!(list_alias_mismatch("Point"));
+    }
+
+    const EMBED_TYPES: &str = r#""types": {
+        "EmbedDatum": [{ "name": "index", "type": "number" }, { "name": "embedding", "type": "[number]" }],
+        "EmbedReply": [{ "name": "data", "type": "[EmbedDatum]" }]
+    },"#;
+
+    fn embeddings_mismatch(value: &str) -> bool {
+        let json = persist_trait_json(
+            r#"{ "event": "EMBEDDED", "payloadSchema": [{ "name": "embeddings", "type": "[[number]]" }] }"#,
+            &format!(r#"["emit", "EMBEDDED", {{ "embeddings": {value} }}]"#),
+        )
+        .replacen(r#""name": "ThreadOrbital","#, &format!(r#""name": "ThreadOrbital", {EMBED_TYPES}"#), 1);
+        let schema: OrbitalSchema = serde_json::from_str(&json).expect("schema parses");
+        let mut ctx = ctx_with_seeded_entities(&schema);
+        validate_all_emit_payloads(&schema, &mut ctx);
+        ctx.result.errors.iter().any(|e| e.code == ErrorCode::EmitPayloadFieldTypeMismatch)
+    }
+
+    fn embeddings_expr(inner: &str) -> String {
+        format!(
+            r#"["let", [["data", ["object/get", ["json/parse", "@payload.body", "EmbedReply"], "data", []]]],
+                ["let", [["n", ["array/len", "@data"]]],
+                  ["array/map", ["array/sort", ["array/map", "@data", ["fn", "x", ["+", ["*", ["object/get", "@x", "index", 0], "@n"], "@index"]]]],
+                    ["fn", "k", {inner}]]]]"#
+        )
+    }
+
+    /// The element type survives `array/map` over `array/sort`, `array/nth` and `object/get` with a default.
+    #[test]
+    fn a_mapped_list_of_embeddings_keeps_its_element_type() {
+        let embedding = r#"["object/get", ["array/nth", "@data", ["math/mod", "@k", "@n"]], "embedding", []]"#;
+        assert!(!embeddings_mismatch(&embeddings_expr(embedding)));
+    }
+
+    /// NEGATIVE CONTROL: a genuinely wrong element type is still refused.
+    #[test]
+    fn a_mapped_list_of_numbers_is_not_a_list_of_embeddings() {
+        let index = r#"["object/get", ["array/nth", "@data", ["math/mod", "@k", "@n"]], "index", 0]"#;
+        assert!(embeddings_mismatch(&embeddings_expr(index)));
     }
 
     fn repeats(effects: &str) -> bool {

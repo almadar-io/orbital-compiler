@@ -51,6 +51,7 @@ fn collect(
             result.merge(super::keyed_call::check_key_expression_type(items, path, ctx));
             result.merge(super::keyed_call::check_cancel_call_arg(items, path, ctx));
             result.merge(super::cast::check_cast(items, path, ctx));
+            result.merge(super::fetch::check_fetch_nearest(items, path, ctx));
             result.merge(super::http::check_http_operand_types(items, path, ctx));
             let mut covered = covered;
             let mut children = items.as_slice();
@@ -682,6 +683,22 @@ mod tests {
         assert!(got[0].contains("argument 2 is a number"), "{got:?}");
         assert!(got[0].contains("an earlier argument is a string"), "{got:?}");
         assert!(mismatches(r#"["array/append", "@entity.tags", "x"]"#, tags()).is_empty());
+    }
+
+    #[test]
+    fn lists_of_op_tuples_of_unlike_widths_join_into_one_list() {
+        let updates = r#"["array/map", "@entity.tags", ["fn", "t", ["upd", "E", "@t", { "a": 1 }]]]"#;
+        let prepended = format!(r#"["array/prepend", {updates}, ["del", "E", "x"]]"#);
+        assert!(mismatches(&prepended, tags()).is_empty(), "{:?}", mismatches(&prepended, tags()));
+        let deletes = r#"["array/map", "@entity.tags", ["fn", "t", ["del", "E", "@t"]]]"#;
+        let concatenated = format!(r#"["array/concat", {deletes}, {updates}]"#);
+        assert!(mismatches(&concatenated, tags()).is_empty(), "{:?}", mismatches(&concatenated, tags()));
+    }
+
+    #[test]
+    fn control_lists_of_unlike_scalars_still_do_not_join() {
+        assert_eq!(mismatches(r#"["array/concat", [1], ["a"]]"#, tags()).len(), 1);
+        assert_eq!(mismatches(r#"["array/prepend", "@entity.tags", 1]"#, tags()).len(), 1);
     }
 
     #[test]

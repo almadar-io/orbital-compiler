@@ -212,7 +212,7 @@ pub fn validate_trait_effects(
             for (j, effect) in effects.iter().enumerate() {
                 let effect_path =
                     format!("{}.stateMachine.transitions[{}].effects[{}]", path, i, j);
-                let effect_result = validate_effect(
+                let effect_result = emit_declaration::validate_effect_in(
                     effect,
                     &effect_path,
                     known_entities,
@@ -223,6 +223,7 @@ pub fn validate_trait_effects(
                     Some(&declared_emits),
                     &entity_field_types,
                     &scoped_payload,
+                    Some(schema),
                 );
                 result.merge(effect_result);
 
@@ -266,7 +267,7 @@ pub fn validate_trait_effects(
             }
             for (j, effect) in tick.effects.iter().enumerate() {
                 let effect_path = format!("{}.ticks[{}].effects[{}]", path, i, j);
-                let effect_result = validate_effect(
+                let effect_result = emit_declaration::validate_effect_in(
                     effect,
                     &effect_path,
                     known_entities,
@@ -277,6 +278,7 @@ pub fn validate_trait_effects(
                     Some(&declared_emits),
                     &entity_field_types,
                     &payload_field_types,
+                    Some(schema),
                 );
                 result.merge(effect_result);
 
