@@ -155,6 +155,21 @@ fn report(expr: &SExpression, path: &str, ctx: &ExprReturnCtx<'_>, result: &mut 
             );
             continue;
         }
+        if let Mismatch::NullOperand { operator, operand } = &found.mismatch {
+            result.add_error(
+                ValidationError::error(
+                    ErrorCode::OperatorNullOperand,
+                    path,
+                    format!(
+                        "`({operator} …)` argument {position}, `{operand}`, can be missing (an optional field with no default), and `{operator}` raises on a null operand: {call}"
+                    ),
+                )
+                .with_suggestion(format!(
+                    "Say what a missing value means: default it (`(math/default {operand} …)`), guard it, `(and (validate/required {operand}) ({operator} {operand} …))`, or put the call under an `if`/`when` on its presence, or give the field a default or make it required (`!`)"
+                )),
+            );
+            continue;
+        }
         let (message, suggestion) = match &found.mismatch {
             Mismatch::Type { expected, actual } => (
                 format!("`({function} …)` argument {position} is a {actual}, but the operator declares {expected}: {call}"),
@@ -164,7 +179,7 @@ fn report(expr: &SExpression, path: &str, ctx: &ExprReturnCtx<'_>, result: &mut 
                 format!("`({function} …)` argument {position} is a {actual}, but the arguments of one type variable must share a type and an earlier argument is a {expected}: {call}"),
                 "Make the arguments one type: convert one of them, or compare/combine only values of the same type".to_string(),
             ),
-            Mismatch::Undetermined { .. } | Mismatch::MaybeAbsent { .. } => continue,
+            Mismatch::Undetermined { .. } | Mismatch::MaybeAbsent { .. } | Mismatch::NullOperand { .. } => continue,
             Mismatch::NoField { path: field, record } => (
                 format!("`({function} …)` argument {position} names `{field}`, which is not a field of the {record} it reads: {call}"),
                 "Name a field the record declares, or read a record that has it".to_string(),
@@ -902,6 +917,48 @@ mod tests {
                 .iter()
                 .filter(|e| e.code == ErrorCode::OrderingOptionalOperand)
                 .count()
+        }
+
+        fn null_findings(json: &str, entity: HashMap<String, EntityFieldMeta>) -> usize {
+            let types = BindingTypes {
+                payload: HashMap::new(),
+                ..no_types()
+            };
+            validate_operator_arg_types(&parse(json), "p", &entity, &HashMap::new(), &types, None)
+                .errors
+                .iter()
+                .filter(|e| e.code == ErrorCode::OperatorNullOperand)
+                .count()
+        }
+
+        #[test]
+        fn an_optional_field_at_a_null_rejecting_position_is_an_error() {
+            for json in [
+                r#"["/", 1, "@entity.p"]"#,
+                r#"["%", 7, "@entity.p"]"#,
+                r#"["math/mod", 7, "@entity.p"]"#,
+                r#"["math/randomInt", 1, "@entity.p"]"#,
+            ] {
+                assert_eq!(null_findings(json, entity(false, false)), 1, "{json}");
+            }
+        }
+
+        #[test]
+        fn control_a_required_defaulted_guarded_or_tolerant_operand_is_fine() {
+            assert_eq!(null_findings(r#"["/", 1, "@entity.p"]"#, entity(true, false)), 0, "required");
+            assert_eq!(null_findings(r#"["/", 1, "@entity.p"]"#, entity(false, true)), 0, "defaulted");
+            assert_eq!(null_findings(r#"["/", "@entity.p", 2]"#, entity(false, false)), 0, "the numerator reads null as 0");
+            assert_eq!(
+                null_findings(r#"["and", ["validate/required", "@entity.p"], ["/", 1, "@entity.p"]]"#, entity(false, false)),
+                0,
+                "a presence guard narrows the operand"
+            );
+            assert_eq!(
+                null_findings(r#"["when", ["!=", "@entity.p", null], ["/", 1, "@entity.p"]]"#, entity(false, false)),
+                0,
+                "a null comparison narrows the operand"
+            );
+            assert_eq!(null_findings(r#"["+", 1, "@entity.p"]"#, entity(false, false)), 0, "an operator that reads null as a default");
         }
 
         #[test]

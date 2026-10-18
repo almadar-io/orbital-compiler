@@ -122,7 +122,60 @@ pub fn validate_expectations(schema: &OrbitalSchema, ctx: &mut ValidationContext
     // library as complete; the real distinction is now made per expectation —
     // absent provider = deferred, present-but-incompatible = error.
     validate_expectation_links(schema, &mut result);
+    validate_propositions(schema, &mut result);
     ctx.merge(result);
+}
+
+// =============================================================================
+// Spec propositions: `@invariant` / `@holds`, proved by `orbital_core_eval::proof`
+// =============================================================================
+
+/// Every spec proposition the program cannot be proved to keep is an error: a confirmed counterexample is
+/// `ORB_S_INVARIANT_VIOLATED`, anything the prover cannot decide is `ORB_S_INVARIANT_UNPROVED`.
+fn validate_propositions(schema: &OrbitalSchema, result: &mut ValidationResult) {
+    use orbital_core_base::schema::format_sexpr;
+    use orbital_core_eval::proof::{obligations::Proposition, prove, Verdict};
+    for finding in prove(schema) {
+        let (code, detail) = match &finding.verdict {
+            Verdict::Proved => continue,
+            Verdict::Violated { counterexample } => (
+                ErrorCode::SchemaInvariantViolated,
+                format!("is broken by {} — counterexample, confirmed by the evaluator: {counterexample}", finding.site),
+            ),
+            Verdict::Unproved { reason, counterexample } => (
+                ErrorCode::SchemaInvariantUnproved,
+                match counterexample {
+                    Some(c) => format!("cannot be proved at {}: {reason} (possible counterexample: {c})", finding.site),
+                    None => format!("cannot be proved at {}: {reason}", finding.site),
+                },
+            ),
+        };
+        let (what, path) = match &finding.proposition {
+            Proposition::Row { entity, expr } => (
+                format!("`@invariant {}` of entity `{entity}`", format_sexpr(expr)),
+                proposition_path(schema, |e| matches!(e, ExpectDeclaration::Entity { name, invariants: Some(list), .. } if name == entity && list.contains(expr))),
+            ),
+            Proposition::State { trait_name, state, expr } => (
+                format!("`state {state} @holds {}` of trait `{trait_name}`", format_sexpr(expr)),
+                proposition_path(schema, |e| matches!(e, ExpectDeclaration::State { trait_name: t, state: s, holds: Some(_), .. } if t == trait_name && s == state)),
+            ),
+        };
+        let suggestion = match code {
+            ErrorCode::SchemaInvariantViolated => "Guard the transition so the write keeps the proposition, or change what it writes.",
+            _ => "State the proposition and the guards it needs with comparisons, and/or/not and arithmetic by constants over number, string, boolean and enum fields; write values the prover can follow (a literal record, not a whole-record binding).",
+        };
+        result.add_error(ValidationError::error(code, &path, format!("{what} {detail}.")).with_suggestion(suggestion.to_string()));
+    }
+}
+
+/// The path of the first `expects` entry that carries the proposition.
+fn proposition_path(schema: &OrbitalSchema, matches: impl Fn(&ExpectDeclaration) -> bool) -> String {
+    schema
+        .orbitals
+        .iter()
+        .enumerate()
+        .find_map(|(i, o)| o.expects.iter().flatten().position(&matches).map(|j| format!("orbitals[{i}].expects[{j}]")))
+        .unwrap_or_else(|| "orbitals".to_string())
 }
 
 // =============================================================================

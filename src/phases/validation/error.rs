@@ -929,6 +929,10 @@ pub enum ErrorCode {
     /// Both evaluators read a missing value as below any number; every push-down store fails the comparison, so
     /// the meaning is the program's to state.
     OrderingOptionalOperand,
+    /// An operand that can be missing or null — an optional entity field with no default, an optional payload field —
+    /// handed to a position the kernel raises on when it is null (`rejectsNull` in the operator table), with no presence
+    /// check or default in front of it. The program says what a missing value means: a guard, a default, or a required field.
+    OperatorNullOperand,
     /// `(set @entity.X @config.<knob>)` where the value is STILL the literal
     /// `@config.<knob>` token post-inline (no default resolved it, no
     /// call-site override supplied one) and `X` is a REQUIRED entity field.
@@ -1402,6 +1406,12 @@ pub enum ErrorCode {
     /// identity` shape, or a `persist` payload field outside its `expects
     /// entity` shape. The consumer's declaration is its own source of truth.
     SchemaExpectationFieldUndeclared,
+    /// A spec proposition (`@invariant` on `expects entity`, `@holds` on an `expects trait` state) is broken: a
+    /// write or transition of the program falsifies it on a counterexample the evaluator confirms.
+    SchemaInvariantViolated,
+    /// A spec proposition the prover could not decide (an expression outside the decidable fragment, or a write
+    /// whose effect on the proposition is over-approximated). Never a pass.
+    SchemaInvariantUnproved,
     /// A `uses A from "…" { config { … } }` call-site override names a key
     /// the imported behavior's app-level `config {}` (`OrbitalSchema.config`,
     /// `Almadar_Orbital_Import.md` §4.5) does not declare.
@@ -1784,6 +1794,7 @@ impl ErrorCode {
             ErrorCode::OperatorArgTypeMismatch => "ORB_X_OPERATOR_ARG_TYPE_MISMATCH",
             ErrorCode::OperatorArgUndetermined => "ORB_X_OPERATOR_ARG_UNDETERMINED",
             ErrorCode::OrderingOptionalOperand => "ORB_X_ORDERING_OPTIONAL_OPERAND",
+            ErrorCode::OperatorNullOperand => "ORB_X_OPERATOR_NULL_OPERAND",
             ErrorCode::SetRequiredFieldFromOptionalKnob => {
                 "ORB_X_SET_REQUIRED_FIELD_FROM_OPTIONAL_KNOB"
             }
@@ -1905,6 +1916,8 @@ impl ErrorCode {
             ErrorCode::SchemaExpectedFieldNotProvided => "ORB_S_EXPECTED_FIELD_NOT_PROVIDED",
             ErrorCode::SchemaExpectedFieldTypeMismatch => "ORB_S_EXPECTED_FIELD_TYPE_MISMATCH",
             ErrorCode::SchemaExpectationFieldUndeclared => "ORB_S_EXPECTATION_FIELD_UNDECLARED",
+            ErrorCode::SchemaInvariantViolated => "ORB_S_INVARIANT_VIOLATED",
+            ErrorCode::SchemaInvariantUnproved => "ORB_S_INVARIANT_UNPROVED",
             ErrorCode::UsesConfigUnknownKey => "ORB_U_CONFIG_UNKNOWN_KEY",
             ErrorCode::SchemaSharedWithoutPersistenceMode => {
                 "ORB_S_SHARED_WITHOUT_PERSISTENCE_MODE"
@@ -2172,6 +2185,7 @@ impl ErrorCode {
             | ErrorCode::OperatorArgTypeMismatch
             | ErrorCode::OperatorArgUndetermined
             | ErrorCode::OrderingOptionalOperand
+            | ErrorCode::OperatorNullOperand
             | ErrorCode::SetRequiredFieldFromOptionalKnob
             | ErrorCode::EmitDeclaredButUnfired
             | ErrorCode::EmitControlUnhandled
@@ -2326,6 +2340,8 @@ impl ErrorCode {
             | ErrorCode::SchemaExpectedFieldNotProvided
             | ErrorCode::SchemaExpectedFieldTypeMismatch
             | ErrorCode::SchemaExpectationFieldUndeclared
+            | ErrorCode::SchemaInvariantViolated
+            | ErrorCode::SchemaInvariantUnproved
             | ErrorCode::UsesConfigUnknownKey
             | ErrorCode::SchemaSharedWithoutPersistenceMode => "schema",
 

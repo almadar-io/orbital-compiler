@@ -3070,6 +3070,7 @@ pub(super) fn merge_expectation(into: &mut Vec<ExpectDeclaration>, incoming: Exp
             update_policy,
             delete_policy,
             access_waivers,
+            invariants,
             strict,
         } => {
             if let Some(ExpectDeclaration::Entity {
@@ -3082,6 +3083,7 @@ pub(super) fn merge_expectation(into: &mut Vec<ExpectDeclaration>, incoming: Exp
                 update_policy: existing_update,
                 delete_policy: existing_delete,
                 access_waivers: existing_waivers,
+                invariants: existing_invariants,
                 strict: existing_strict,
                 ..
             }) = into
@@ -3112,6 +3114,13 @@ pub(super) fn merge_expectation(into: &mut Vec<ExpectDeclaration>, incoming: Exp
                     waivers.update = waivers.update.take().or(incoming.update);
                     waivers.delete = waivers.delete.take().or(incoming.delete);
                 }
+                // Every contributor's invariants are owed.
+                for invariant in invariants.into_iter().flatten() {
+                    let owed = existing_invariants.get_or_insert_with(Vec::new);
+                    if !owed.contains(&invariant) {
+                        owed.push(invariant);
+                    }
+                }
                 *existing_strict |= strict;
             } else {
                 into.push(ExpectDeclaration::Entity {
@@ -3125,6 +3134,7 @@ pub(super) fn merge_expectation(into: &mut Vec<ExpectDeclaration>, incoming: Exp
                     update_policy,
                     delete_policy,
                     access_waivers,
+                    invariants,
                     strict,
                 });
             }
@@ -3180,13 +3190,18 @@ pub(super) fn merge_expectation(into: &mut Vec<ExpectDeclaration>, incoming: Exp
                 into.push(ExpectDeclaration::Page { path, traits, strict });
             }
         }
-        ExpectDeclaration::State { trait_name, state, strict } => {
-            if let Some(ExpectDeclaration::State { strict: existing_strict, .. }) = into.iter_mut().find(|d| {
+        ExpectDeclaration::State { trait_name, state, holds, strict } => {
+            if let Some(ExpectDeclaration::State { holds: existing_holds, strict: existing_strict, .. }) = into.iter_mut().find(|d| {
                 matches!(d, ExpectDeclaration::State { trait_name: t, state: s, .. } if *t == trait_name && *s == state)
             }) {
+                // Both contributors' propositions are owed.
+                *existing_holds = match (existing_holds.take(), holds) {
+                    (Some(a), Some(b)) if a != b => Some(orbital_core_base::schema::SExpression::Array(vec![orbital_core_base::schema::SExpression::String("and".to_string()), a, b])),
+                    (a, b) => a.or(b),
+                };
                 *existing_strict |= strict;
             } else {
-                into.push(ExpectDeclaration::State { trait_name, state, strict });
+                into.push(ExpectDeclaration::State { trait_name, state, holds, strict });
             }
         }
         ExpectDeclaration::Transition {

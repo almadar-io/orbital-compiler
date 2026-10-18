@@ -423,6 +423,23 @@ impl<'c> Inferer<'c> {
             }
         }
         for (index, arg) in args.iter().enumerate() {
+            if !signature.rejects_null(index) {
+                continue;
+            }
+            if let Some(operand) = self.absent_operand(arg) {
+                self.diagnostics.borrow_mut().push(Diagnostic {
+                    function: name.to_string(),
+                    index,
+                    mismatch: Mismatch::NullOperand {
+                        operator: name.to_string(),
+                        operand,
+                    },
+                    expression: printed(name, args),
+                    argument: printed_arg(args.get(index)),
+                });
+            }
+        }
+        for (index, arg) in args.iter().enumerate() {
             let narrowed = self.present.borrow().len();
             self.present.borrow_mut().extend(guards_for(name, args, index));
             let outcome = match arg {

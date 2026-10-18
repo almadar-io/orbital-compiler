@@ -1639,3 +1639,77 @@ fn a_transition_expectation_needs_that_edge_in_the_provider_trait() {
     assert_eq!(expecting(edge("paid", "PAY", "paid"), flow_provider(json!({}), false)), vec![UNSATISFIED.to_string()]);
     assert_eq!(expecting(edge("idle", "NOPE", "paid"), flow_provider(json!({}), false)), vec![UNSATISFIED.to_string()]);
 }
+
+// ---------------------------------------------------------------------------
+// Spec propositions: `@invariant` / `@holds` are proved by `orb validate`
+// ---------------------------------------------------------------------------
+
+fn paying_program(guard: Option<Value>, invariant: Value) -> Value {
+    let mut pay = json!({ "from": "open", "to": "paid", "event": "PAY",
+        "effects": [["persist", "update", "Order", "@entity.id", { "paid": ["+", "@entity.paid", "@payload.amount"] }],
+                    ["set", "@entity.status", "paid"]] });
+    if let Some(g) = guard {
+        pay["guard"] = g;
+    }
+    json!({ "name": "App", "orbitals": [
+        {
+            "name": "ShopSpec", "spec": true, "entity": { "name": "ShopSpec", "fields": [] }, "traits": [],
+            "expects": [
+                { "kind": "entity", "name": "Order", "strict": true, "invariants": [invariant] },
+                { "kind": "state", "traitName": "Checkout", "state": "paid", "strict": true, "holds": ["=", "@entity.status", "paid"] }
+            ]
+        },
+        {
+            "name": "Shop",
+            "expects": [
+                { "kind": "entity", "name": "Order", "strict": true, "invariants": [invariant] },
+                { "kind": "state", "traitName": "Checkout", "state": "paid", "strict": true, "holds": ["=", "@entity.status", "paid"] }
+            ],
+            "entity": { "name": "Order", "persistence": "persistent", "collection": "orders", "fields": [
+                { "name": "id", "type": "string", "required": true },
+                { "name": "total", "type": "number", "required": true },
+                { "name": "paid", "type": "number" },
+                { "name": "status", "type": "enum", "values": ["open", "paid"], "default": "open" }
+            ] },
+            "traits": [{
+                "name": "Checkout", "linkedEntity": "Order",
+                "stateMachine": {
+                    "states": [{ "name": "open", "isInitial": true }, { "name": "paid" }],
+                    "events": [{ "key": "INIT", "name": "Init" },
+                               { "key": "PAY", "name": "Pay", "payloadSchema": [{ "name": "amount", "type": "number", "required": true }] }],
+                    "transitions": [{ "from": "open", "to": "open", "event": "INIT" }, pay]
+                }
+            }],
+            "pages": []
+        }
+    ] })
+}
+
+fn proposition_codes(schema: Value) -> Vec<String> {
+    let mut ctx = ValidationContext::new();
+    expectations::validate_expectations(&parse(schema), &mut ctx);
+    ctx.result.errors.iter().map(|e| e.code.as_str().to_string()).filter(|c| c.starts_with("ORB_S_INVARIANT")).collect()
+}
+
+#[test]
+fn a_program_that_keeps_its_spec_propositions_is_clean() {
+    let guard = json!(["<=", ["+", "@entity.paid", "@payload.amount"], "@entity.total"]);
+    assert_eq!(proposition_codes(paying_program(Some(guard), json!(["<=", "@entity.paid", "@entity.total"]))), Vec::<String>::new());
+}
+
+#[test]
+fn a_write_that_breaks_an_invariant_is_violated_with_a_counterexample() {
+    let schema = parse(paying_program(None, json!(["<=", "@entity.paid", "@entity.total"])));
+    let mut ctx = ValidationContext::new();
+    expectations::validate_expectations(&schema, &mut ctx);
+    let violated: Vec<_> = ctx.result.errors.iter().filter(|e| e.code.as_str() == "ORB_S_INVARIANT_VIOLATED").collect();
+    assert_eq!(violated.len(), 1, "{:#?}", ctx.result.errors);
+    assert!(violated[0].message.contains("counterexample") && violated[0].message.contains("Checkout: open --PAY--> paid"), "{}", violated[0].message);
+}
+
+#[test]
+fn an_invariant_outside_the_fragment_is_unproved_never_passed() {
+    let guard = json!(["<=", ["+", "@entity.paid", "@payload.amount"], "@entity.total"]);
+    let codes = proposition_codes(paying_program(Some(guard), json!([">=", ["math/abs", "@entity.paid"], 0])));
+    assert_eq!(codes, vec!["ORB_S_INVARIANT_UNPROVED".to_string()]);
+}
