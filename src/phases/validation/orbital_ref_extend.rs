@@ -117,6 +117,10 @@ mod tests {
             field_rename_unapplied: Vec::new(),
             event_subs: std::collections::HashMap::new(),
             local_name: "Local".to_string(),
+            entity_renames: std::collections::HashMap::new(),
+            inherited_entity_expects: Vec::new(),
+            expected_entity_map: std::collections::HashMap::new(),
+            expected_entity_ambiguous: Vec::new(),
         }
     }
 

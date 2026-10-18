@@ -192,6 +192,26 @@ pub fn validate_orbital_ref_diagnostics(
             );
         }
 
+        for (expected, providers) in &diag.expected_entity_ambiguous {
+            result.add_error(
+                ValidationError::error(
+                    ErrorCode::OrbitalRefEntityExpectAmbiguous,
+                    format!("{}.entities({})", diag.path, expected),
+                    format!(
+                        "'{}' expects entity '{}' of a sibling, and several sibling imports provide it: {}.",
+                        diag.reference,
+                        expected,
+                        providers.join(", ")
+                    ),
+                )
+                .with_suggestion(format!(
+                    "Bind it with `entities {{ {}: <one of {}> }}`.",
+                    expected,
+                    providers.join(", ")
+                )),
+            );
+        }
+
         for (up_name, target) in &diag.entity_target_unknown {
             result.add_error(
                 ValidationError::error(
@@ -400,6 +420,7 @@ fn is_orbital_ref_root(code: ErrorCode) -> bool {
             | ErrorCode::OrbitalRefRoleTargetNotMember
             | ErrorCode::OrbitalRefEntityUnmapped
             | ErrorCode::OrbitalRefEntityUnknownKey
+            | ErrorCode::OrbitalRefEntityExpectAmbiguous
             | ErrorCode::OrbitalRefEntityTargetUnknown
             | ErrorCode::OrbitalRefPageUnknownPath
             | ErrorCode::OrbitalRefFieldRenameUnapplied

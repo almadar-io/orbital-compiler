@@ -508,3 +508,169 @@ fn an_imported_specs_storage_and_page_facts_are_checked_against_the_importer() {
     let codes = composed_spec_codes("./spec.orb", |d| write_spec(d, "spec.orb", "ShopSpec", None, ok));
     assert!(codes.iter().all(|c| !c.contains("ORB_S_EXPECT")), "{codes:?}");
 }
+
+const NODE_PROVIDER: &str = r#"{
+  "name": "node-provider",
+  "version": "1.0.0",
+  "orbitals": [{
+    "name": "NodeStoreOrbital",
+    "entity": { "name": "Node", "persistence": "persistent", "collection": "nodes",
+      "fields": [ { "name": "id", "type": "string", "required": true } ] },
+    "traits": [],
+    "pages": []
+  }]
+}"#;
+
+const NODE_READER: &str = r#"{
+  "name": "node-reader",
+  "version": "1.0.0",
+  "orbitals": [{
+    "name": "NodeReaderOrbital",
+    "expects": [ { "kind": "entity", "name": "Node" } ],
+    "entity": { "name": "Report", "persistence": "runtime",
+      "fields": [ { "name": "id", "type": "string", "required": true } ] },
+    "traits": [{
+      "name": "NodeReader",
+      "linkedEntity": "Report",
+      "category": "interaction",
+      "stateMachine": {
+        "states": [ { "name": "idle", "isInitial": true } ],
+        "events": [ { "key": "INIT" } ],
+        "transitions": [ { "from": "idle", "to": "idle", "event": "INIT",
+          "effects": [ ["fetch", "Node", {}] ] } ]
+      }
+    }],
+    "pages": [ { "name": "ReaderPage", "path": "/nodes", "traits": [ { "ref": "NodeReader" } ] } ]
+  }]
+}"#;
+
+fn node_program(consumer_orbitals: &str) -> orbital_core_base::schema::OrbitalSchema {
+    node_program_with_diagnostics(consumer_orbitals).0
+}
+
+fn node_program_with_diagnostics(
+    consumer_orbitals: &str,
+) -> (orbital_core_base::schema::OrbitalSchema, Vec<String>) {
+    let dir = tempfile::TempDir::new().expect("temp dir");
+    std::fs::write(dir.path().join("provider.orb"), NODE_PROVIDER).expect("write provider");
+    std::fs::write(dir.path().join("reader.orb"), NODE_READER).expect("write reader");
+    let path = dir.path().join("program.orb");
+    let program = format!(
+        r#"{{
+  "name": "node-program",
+  "version": "1.0.0",
+  "orbitals": [{consumer_orbitals}]
+}}"#
+    );
+    std::fs::write(&path, program).expect("write program");
+    let mut schema = parse_file(&path).expect("program parses");
+    let (mut trait_cfg, mut orbital_ref, mut uses_cfg) = (Vec::new(), Vec::new(), Vec::new());
+    orbital_compiler::phases::inline::inline_schema_with_orbital_diagnostics(
+        &mut schema,
+        &InlineConfig::default(),
+        Some(&path),
+        &mut trait_cfg,
+        &mut orbital_ref,
+        &mut uses_cfg,
+    )
+    .expect("inline succeeds");
+    let codes = orbital_compiler::phases::validation::orbital_ref_config::validate_orbital_ref_diagnostics(
+        &orbital_ref,
+        &schema,
+    )
+    .errors
+    .iter()
+    .map(|e| e.code.as_str().to_string())
+    .collect();
+    (schema, codes)
+}
+
+fn graph_import(name: &str) -> String {
+    format!(
+        r#"{{ "name": "{name}", "uses": [ {{ "from": "./provider.orb", "as": "Store" }} ],
+      "entity": "Store.orbitals.NodeStoreOrbital.entity", "traits": [],
+      "reference": {{ "ref": "Store.orbitals.NodeStoreOrbital" }} }}"#
+    )
+}
+
+const READER_IMPORT: &str = r#"{ "name": "Reader", "uses": [ { "from": "./reader.orb", "as": "Rd" } ],
+      "entity": "Rd.orbitals.NodeReaderOrbital.entity", "traits": [],
+      "reference": { "ref": "Rd.orbitals.NodeReaderOrbital", "pages": { "/nodes": "/reader-nodes" } } }"#;
+
+fn reader_expected_entity(schema: &orbital_core_base::schema::OrbitalSchema) -> String {
+    let reader = schema.orbitals.iter().find(|o| o.name == "Reader").expect("Reader orbital");
+    reader
+        .expects
+        .iter()
+        .flatten()
+        .find_map(|e| match e {
+            orbital_core_base::schema::ExpectDeclaration::Entity { name, .. } => Some(name.clone()),
+            _ => None,
+        })
+        .expect("an entity expectation")
+}
+
+fn reader_fetches(schema: &orbital_core_base::schema::OrbitalSchema) -> Vec<String> {
+    let reader = schema.orbitals.iter().find(|o| o.name == "Reader").expect("Reader orbital");
+    let text = serde_json::to_string(&reader.traits).expect("traits serialize");
+    ["GraphNode", "Graph2Node", "Node"]
+        .iter()
+        .filter(|name| text.contains(&format!(r#"["fetch","{name}""#)))
+        .map(|name| name.to_string())
+        .collect()
+}
+
+#[test]
+fn an_inherited_entity_expectation_follows_the_one_sibling_import_that_provides_it() {
+    let schema = node_program(&format!("{}, {}", graph_import("Graph"), READER_IMPORT));
+    assert_eq!(reader_expected_entity(&schema), "GraphNode");
+    assert_eq!(reader_fetches(&schema), vec!["GraphNode".to_string()]);
+}
+
+#[test]
+fn control_without_a_providing_sibling_the_expectation_keeps_its_name() {
+    let schema = node_program(READER_IMPORT);
+    assert_eq!(reader_expected_entity(&schema), "Node");
+    assert_eq!(reader_fetches(&schema), vec!["Node".to_string()]);
+}
+
+fn reader_import_mapped(target: &str) -> String {
+    READER_IMPORT.replace(
+        r#""reference": { "ref": "Rd.orbitals.NodeReaderOrbital","#,
+        &format!(
+            r#""reference": {{ "ref": "Rd.orbitals.NodeReaderOrbital", "entities": {{ "Node": "{target}" }},"#
+        ),
+    )
+}
+
+fn two_providers(reader: &str) -> String {
+    format!("{}, {}, {}", graph_import("Graph"), graph_import("Graph2"), reader)
+}
+
+#[test]
+fn two_providing_siblings_without_a_mapping_are_refused() {
+    let (schema, codes) = node_program_with_diagnostics(&two_providers(READER_IMPORT));
+    assert_eq!(reader_expected_entity(&schema), "Node");
+    assert_eq!(codes, vec!["ORB_O_ENTITY_EXPECT_AMBIGUOUS".to_string()]);
+}
+
+#[test]
+fn two_providing_siblings_with_a_mapping_bind_to_the_named_one() {
+    let (schema, codes) = node_program_with_diagnostics(&two_providers(&reader_import_mapped("Graph2Node")));
+    assert_eq!(reader_expected_entity(&schema), "Graph2Node");
+    assert_eq!(reader_fetches(&schema), vec!["Graph2Node".to_string()]);
+    assert_eq!(codes, Vec::<String>::new());
+}
+
+#[test]
+fn a_mapping_to_an_entity_no_sibling_declares_is_a_target_error() {
+    let (_, codes) = node_program_with_diagnostics(&two_providers(&reader_import_mapped("Nowhere")));
+    assert_eq!(codes, vec!["ORB_O_ENTITY_TARGET_UNKNOWN".to_string()]);
+}
+
+#[test]
+fn control_one_providing_sibling_binds_without_a_mapping_and_without_an_error() {
+    let (schema, codes) = node_program_with_diagnostics(&format!("{}, {}", graph_import("Graph"), READER_IMPORT));
+    assert_eq!(reader_expected_entity(&schema), "GraphNode");
+    assert_eq!(codes, Vec::<String>::new());
+}

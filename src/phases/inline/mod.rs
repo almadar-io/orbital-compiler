@@ -703,6 +703,8 @@ pub fn inline_schema_with_orbital_diagnostics(
     // An imported auxiliary entity never displaces a consumer's own entity.
     drop_unreferenced_colliding_auxiliaries(schema);
 
+    orbital::bind_inherited_entity_expectations(schema, orbital_ref_diagnostics.as_mut_slice());
+
     // Before sigil types, so `@entity <knob>` sees the binding.
     host_entity::bind_unlinked_traits_to_host_entity(schema);
 
@@ -6258,6 +6260,7 @@ mod tests {
             entity: "ThreadPost".to_string(),
             entity_id: Some("ent_IMPORTED_THREADPOST".to_string()),
             cardinality: Some(Cardinality::Many),
+            on_delete: None,
         });
         let imported = EntityDefinition {
             shared: false,

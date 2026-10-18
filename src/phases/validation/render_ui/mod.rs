@@ -1225,6 +1225,7 @@ mod tests {
                             entity: "Company".to_string(),
                             cardinality: None,
                             entity_id: None,
+                            on_delete: None,
                         }),
                         items: None,
                         values: None,

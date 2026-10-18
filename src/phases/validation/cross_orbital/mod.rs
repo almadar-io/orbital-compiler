@@ -12,6 +12,7 @@ mod event_wiring;
 mod filter_field_written;
 mod listen_redundant;
 mod listen_starvation;
+mod listen_unkeyed;
 mod listen_trigger;
 mod listens;
 mod payload;
@@ -27,6 +28,7 @@ pub(crate) use event_wiring::{
 pub(crate) use filter_field_written::validate_filter_field_never_written;
 pub(crate) use listen_redundant::validate_listen_redundant_embed_route;
 pub(crate) use listen_starvation::validate_listen_route_starves_required_field;
+pub(crate) use listen_unkeyed::validate_wildcard_listen_keyed;
 pub(crate) use listen_trigger::validate_listen_triggers;
 pub(crate) use listens::{validate_listen_source_never_produces, validate_listens_integrity};
 pub(crate) use payload::validate_external_emit_payloads;
@@ -122,6 +124,9 @@ pub fn validate_cross_orbital(schema: &OrbitalSchema, ctx: &mut ValidationContex
     // A same-name route from a trait the host embeds re-delivers an event the host already
     // hears on its own embed-chain scope. Error severity.
     result.merge(validate_listen_redundant_embed_route(schema));
+
+    // A wildcard-source route on a call-keyed event whose guard never reads the key hears every caller.
+    result.merge(validate_wildcard_listen_keyed(schema));
 
     // Ported wiring-lint kind (sub-wave L1): a fetch filtered on a field no
     // persist anywhere ever writes can never match a real row. Error

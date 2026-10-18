@@ -312,6 +312,9 @@ pub enum ErrorCode {
     /// An `obj.entities {}` key names no entity in the upstream closure's
     /// out-of-orbital universe.
     OrbitalRefEntityUnknownKey,
+    /// An entity an imported orbital expects of a sibling is provided by several sibling imports and no
+    /// `entities {}` entry names which one it binds to.
+    OrbitalRefEntityExpectAmbiguous,
     /// An `obj.entities {}` value names no entity the consumer schema
     /// declares.
     OrbitalRefEntityTargetUnknown,
@@ -845,6 +848,8 @@ pub enum ErrorCode {
     /// on the embed chain, so the host already hears it directly; the route is a second delivery
     /// of the same physical event.
     ListenRedundantEmbedRoute,
+    /// A `*.EVENT` route on an event whose payload carries a `CallKey`-typed `key`, with a guard that never reads it.
+    ListenWildcardUnkeyed,
 
     // =========================================================================
     // Binding Errors (ORB_BINDING_*)
@@ -1040,6 +1045,9 @@ pub enum ErrorCode {
     /// `persist delete E <expression>` / `persist update E <expression> data`: the single forms take the row id as a
     /// binding path or a literal, so an expression resolves no row key at run time. Error severity.
     PersistIdNotAPath,
+    /// An effect (`emit`, `persist`, `set`, `notify`, …) inside the `fn` body of a collection operator: a lambda is
+    /// evaluated for its value, an effect there never runs. Error severity.
+    EffectInLambda,
     /// `@trait` binding with no trait name — bare `@trait` is not resolvable.
     BindingTraitMissingName,
     /// `@trait.X` trait name doesn't match the `PascalCase` identifier pattern.
@@ -1563,6 +1571,7 @@ impl ErrorCode {
             ErrorCode::OrbitalRefRoleUnknownUpstream => "ORB_O_ROLE_UNKNOWN_UPSTREAM",
             ErrorCode::OrbitalRefEntityUnmapped => "ORB_O_ENTITY_UNMAPPED",
             ErrorCode::OrbitalRefEntityUnknownKey => "ORB_O_ENTITY_UNKNOWN_KEY",
+            ErrorCode::OrbitalRefEntityExpectAmbiguous => "ORB_O_ENTITY_EXPECT_AMBIGUOUS",
             ErrorCode::OrbitalRefEntityTargetUnknown => "ORB_O_ENTITY_TARGET_UNKNOWN",
             ErrorCode::OrbitalRefPageUnknownPath => "ORB_O_PAGE_UNKNOWN_PATH",
             ErrorCode::OrbitalRefExtendFieldCollision => "ORB_O_EXTEND_FIELD_COLLISION",
@@ -1750,6 +1759,7 @@ impl ErrorCode {
             ErrorCode::UnresolvedPatternFieldRef => "ORB_X_UNRESOLVED_PATTERN_FIELD_REF",
             ErrorCode::ListenRouteStarvesRequiredField => "ORB_LISTEN_ROUTE_STARVES_REQUIRED_FIELD",
             ErrorCode::ListenRedundantEmbedRoute => "ORB_LISTEN_REDUNDANT_EMBED_ROUTE",
+            ErrorCode::ListenWildcardUnkeyed => "ORB_LISTEN_WILDCARD_UNKEYED",
 
             // Binding
             ErrorCode::BindingInvalidFormat => "ORB_BINDING_INVALID_FORMAT",
@@ -1800,6 +1810,7 @@ impl ErrorCode {
             ErrorCode::PersistCreateMissingPolicyField => "ORB_PERSIST_CREATE_MISSING_POLICY_FIELD",
             ErrorCode::PersistCreateLiteralId => "ORB_PERSIST_CREATE_LITERAL_ID",
             ErrorCode::PersistIdNotAPath => "ORB_PERSIST_ID_NOT_A_PATH",
+            ErrorCode::EffectInLambda => "ORB_EFFECT_IN_LAMBDA",
             ErrorCode::BindingTraitMissingName => "ORB_BINDING_TRAIT_MISSING_NAME",
             ErrorCode::BindingTraitInvalidFormat => "ORB_BINDING_TRAIT_INVALID_FORMAT",
             ErrorCode::BindingTraitUnknown => "ORB_BINDING_TRAIT_UNKNOWN",
@@ -2017,6 +2028,7 @@ impl ErrorCode {
             | ErrorCode::OrbitalRefRoleUnknownUpstream
             | ErrorCode::OrbitalRefEntityUnmapped
             | ErrorCode::OrbitalRefEntityUnknownKey
+            | ErrorCode::OrbitalRefEntityExpectAmbiguous
             | ErrorCode::OrbitalRefEntityTargetUnknown
             | ErrorCode::OrbitalRefPageUnknownPath
             | ErrorCode::OrbitalRefExtendFieldCollision
@@ -2202,6 +2214,7 @@ impl ErrorCode {
             | ErrorCode::UnresolvedPatternFieldRef
             | ErrorCode::ListenRouteStarvesRequiredField
             | ErrorCode::ListenRedundantEmbedRoute
+            | ErrorCode::ListenWildcardUnkeyed
             | ErrorCode::CrossEmitterDeclaredPayloadMismatch
             | ErrorCode::CrossDuplicateTraitId
             | ErrorCode::FilterFieldNeverWritten => "cross",
@@ -2242,7 +2255,8 @@ impl ErrorCode {
             | ErrorCode::BindingTraitOutsideRenderUi
             | ErrorCode::PersistCreateMissingPolicyField
             | ErrorCode::PersistCreateLiteralId
-            | ErrorCode::PersistIdNotAPath => "binding",
+            | ErrorCode::PersistIdNotAPath
+            | ErrorCode::EffectInLambda => "binding",
 
             ErrorCode::EntitySplitMutation
             | ErrorCode::SharedEntityFieldConflict

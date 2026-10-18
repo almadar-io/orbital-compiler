@@ -128,3 +128,81 @@ fn several_nested_knobs_are_recorded_in_a_stable_order() {
         assert_eq!(metrics_field(&inlined_with_knobs(metrics)).nested_forwarded_from, expected);
     }
 }
+
+const KNOB_ATOM: &str = r#"{
+  "name": "knob-atom",
+  "version": "1.0.0",
+  "orbitals": [
+    {
+      "name": "BaseOrbital",
+      "config": { "mix": { "type": "number", "default": 3 } },
+      "entity": { "name": "Item", "persistence": "runtime", "fields": [ { "name": "id", "type": "string", "required": true } ] },
+      "traits": [
+        {
+          "name": "Ranker",
+          "category": "interaction",
+          "linkedEntity": "Item",
+          "config": { "rank": { "type": "number", "default": "@config.mix" } },
+          "stateMachine": {
+            "states": [ { "name": "idle", "isInitial": true } ],
+            "events": [ { "key": "LOAD", "name": "Load" } ],
+            "transitions": [ { "from": "idle", "to": "idle", "event": "LOAD", "effects": [] } ]
+          }
+        }
+      ],
+      "pages": []
+    }
+  ]
+}"#;
+
+const KNOB_MID: &str = r#"{
+  "name": "knob-mid",
+  "version": "1.0.0",
+  "orbitals": [
+    {
+      "name": "MidOrbital",
+      "uses": [ { "from": "./atom.orb", "as": "Base" } ],
+      "entity": "Base.orbitals.BaseOrbital.entity",
+      "traits": [],
+      "reference": { "ref": "Base.orbitals.BaseOrbital" }
+    }
+  ]
+}"#;
+
+fn knob_orbital_config(levels: u8) -> Vec<String> {
+    let dir = tempfile::TempDir::new().expect("temp dir");
+    std::fs::write(dir.path().join("atom.orb"), KNOB_ATOM).expect("atom");
+    std::fs::write(dir.path().join("mid.orb"), KNOB_MID).expect("mid");
+    let top = if levels == 2 {
+        r#"{ "name": "knob-top", "version": "1.0.0", "orbitals": [{
+          "name": "TopOrbital", "uses": [ { "from": "./mid.orb", "as": "Mid" } ],
+          "entity": "Mid.orbitals.MidOrbital.entity", "traits": [],
+          "reference": { "ref": "Mid.orbitals.MidOrbital" } }] }"#
+    } else {
+        r#"{ "name": "knob-top", "version": "1.0.0", "orbitals": [{
+          "name": "TopOrbital", "uses": [ { "from": "./atom.orb", "as": "Base" } ],
+          "entity": "Base.orbitals.BaseOrbital.entity", "traits": [],
+          "reference": { "ref": "Base.orbitals.BaseOrbital" } }] }"#
+    };
+    let path = dir.path().join("top.orb");
+    std::fs::write(&path, top).expect("top");
+    let mut schema = parse_file(&path).expect("top parses");
+    inline_schema(&mut schema, &InlineConfig::default(), Some(&path)).expect("inline succeeds");
+    let mut keys: Vec<String> = schema.orbitals[0]
+        .config
+        .iter()
+        .flat_map(|c| c.keys().cloned())
+        .collect();
+    keys.sort();
+    keys
+}
+
+#[test]
+fn control_an_orbital_knob_a_trait_forwards_survives_one_import() {
+    assert_eq!(knob_orbital_config(1), vec!["mix".to_string()]);
+}
+
+#[test]
+fn an_orbital_knob_a_trait_forwarded_survives_a_nested_import() {
+    assert_eq!(knob_orbital_config(2), vec!["mix".to_string()]);
+}

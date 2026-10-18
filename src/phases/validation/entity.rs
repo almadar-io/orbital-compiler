@@ -910,6 +910,7 @@ mod tests {
             entity: "NonExistent".to_string(),
             cardinality: None,
             entity_id: None,
+            on_delete: None,
         });
         entity.fields.push(field);
 
@@ -930,6 +931,7 @@ mod tests {
             entity: "User".to_string(),
             cardinality: None,
             entity_id: None,
+            on_delete: None,
         });
         entity.fields.push(field);
 
@@ -950,6 +952,7 @@ mod tests {
             entity: "Task".to_string(),
             cardinality: None,
             entity_id: None,
+            on_delete: None,
         });
         field.default = Some(SExpression::Object(orbital_core_base::schema::SObject::new()));
         entity.fields.push(field);
@@ -974,6 +977,7 @@ mod tests {
             entity: "Task".to_string(),
             cardinality: None,
             entity_id: None,
+            on_delete: None,
         });
         id_default.default = Some(SExpression::String("task-1".to_string()));
         entity.fields.push(id_default);
@@ -983,6 +987,7 @@ mod tests {
             entity: "Task".to_string(),
             cardinality: None,
             entity_id: None,
+            on_delete: None,
         });
         entity.fields.push(no_default);
 
@@ -1004,6 +1009,7 @@ mod tests {
             entity: "Task".to_string(),
             cardinality: Some(Cardinality::Many),
             entity_id: None,
+            on_delete: None,
         });
         field.default = Some(default);
         field
@@ -1096,6 +1102,7 @@ mod tests {
             entity: "Task".to_string(),
             cardinality: Some(Cardinality::One),
             entity_id: None,
+            on_delete: None,
         });
         field.default = Some(SExpression::Array(vec![]));
         entity.fields.push(field);
@@ -1202,6 +1209,7 @@ mod tests {
             entity: "Task".to_string(),
             cardinality: None,
             entity_id: None,
+            on_delete: None,
         });
         relation_field.default = Some(SExpression::Null);
         entity.fields.push(relation_field);

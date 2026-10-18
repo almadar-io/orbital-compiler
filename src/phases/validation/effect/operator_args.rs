@@ -62,6 +62,20 @@ fn collect(
                     // A lambda's parameter names are syntax; its body is a value.
                     "fn" | "lambda" => {
                         if let Some(body) = items.last().filter(|_| items.len() >= 3) {
+                            if let Some(effect) = effect_in(body) {
+                                result.add_error(
+                                    ValidationError::error(
+                                        ErrorCode::EffectInLambda,
+                                        path,
+                                        format!(
+                                            "`({effect} …)` inside a `fn` body never runs: a lambda is evaluated for its value, and an effect cannot loop over a runtime list"
+                                        ),
+                                    )
+                                    .with_suggestion(
+                                        "Emit one event that carries the whole list and let the listener handle it, re-emit an event with the rest of the list as its payload, or write the rows with `persist batch` built by `array/map`",
+                                    ),
+                                );
+                            }
                             collect(body, path, ctx, result, covered);
                         }
                         return;
@@ -81,6 +95,24 @@ fn collect(
             }
         }
         _ => {}
+    }
+}
+
+/// The first effect in a lambda body, not looking into a nested lambda (it reports its own) or a quoted program.
+fn effect_in(expr: &SExpression) -> Option<String> {
+    match expr {
+        SExpression::Object(fields) => fields.values().find_map(effect_in),
+        SExpression::Array(items) => {
+            if let Some(SExpression::String(head)) = items.first() {
+                match head.as_str() {
+                    "quote" | "quasiquote" | "fn" | "lambda" => return None,
+                    name if is_effect(name) => return Some(name.to_string()),
+                    _ => {}
+                }
+            }
+            items.iter().skip(1).find_map(effect_in)
+        }
+        _ => None,
     }
 }
 
@@ -699,6 +731,28 @@ mod tests {
     fn control_lists_of_unlike_scalars_still_do_not_join() {
         assert_eq!(mismatches(r#"["array/concat", [1], ["a"]]"#, tags()).len(), 1);
         assert_eq!(mismatches(r#"["array/prepend", "@entity.tags", 1]"#, tags()).len(), 1);
+    }
+
+    fn effects_in_lambdas(json: &str) -> usize {
+        validate_operator_arg_types(&parse(json), "p", &HashMap::new(), &HashMap::new(), &no_types(), None)
+            .errors
+            .iter()
+            .filter(|e| e.code == ErrorCode::EffectInLambda)
+            .count()
+    }
+
+    #[test]
+    fn an_effect_inside_a_collection_lambda_is_refused() {
+        assert_eq!(effects_in_lambdas(r#"["array/map", "@payload.items", ["fn", "x", ["emit", "E", { "id": "@x" }]]]"#), 1);
+        assert_eq!(effects_in_lambdas(r#"["array/filter", "@payload.items", ["fn", "x", ["do", ["set", "@entity.n", 1], true]]]"#), 1);
+        assert_eq!(effects_in_lambdas(r#"["array/map", "@payload.items", ["fn", "x", ["if", true, ["persist", "create", "E", {}], null]]]"#), 1);
+    }
+
+    #[test]
+    fn control_a_pure_lambda_and_an_effect_outside_one_are_accepted() {
+        assert_eq!(effects_in_lambdas(r#"["array/map", "@payload.items", ["fn", "x", ["str/upper", "@x"]]]"#), 0);
+        assert_eq!(effects_in_lambdas(r#"["emit", "E", { "ids": ["array/map", "@payload.items", ["fn", "x", ["object/get", "@x", "id"]]] }]"#), 0);
+        assert_eq!(effects_in_lambdas(r#"["array/map", "@payload.items", ["fn", "x", ["quote", ["emit", "E", {}]]]]"#), 0, "a quoted program is data");
     }
 
     #[test]

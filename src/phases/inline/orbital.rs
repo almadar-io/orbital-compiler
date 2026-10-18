@@ -126,6 +126,18 @@ pub struct OrbitalRefDiagnostic {
     /// name (same by-name fallback `local_orbital_index` already uses when
     /// there is no schema index to give).
     pub local_name: String,
+    /// Upstream entity name -> the name it carries in the materialized import (the primary and every
+    /// auxiliary of the closure). The schema-level pass `bind_inherited_entity_expectations` reads it
+    /// to point a sibling's inherited `expects entity` at the provider's renamed entity.
+    pub entity_renames: HashMap<String, String>,
+    /// The entity expectations this import inherited from its upstream orbital and left unmapped.
+    pub inherited_entity_expects: Vec<String>,
+    /// `entities { N: Target }` entries whose key is an entity the upstream orbital EXPECTS of a sibling:
+    /// the explicit binding of that expectation to `Target`, applied by `bind_inherited_entity_expectations`.
+    pub expected_entity_map: HashMap<String, String>,
+    /// (expected entity, providers) — an inherited expectation several sibling imports provide and no
+    /// `entities {}` entry binds. `ORB_O_ENTITY_EXPECT_AMBIGUOUS`.
+    pub expected_entity_ambiguous: Vec<(String, Vec<String>)>,
 }
 
 /// Diagnostic collected while resolving a `uses A from "…" { config { … } }`
@@ -648,8 +660,11 @@ pub(crate) fn resolve_orbital_reference(
         subs.insert(td.name.clone(), format!("{local_name}{}", td.name));
     }
     subs.insert(upstream_entity.name.clone(), primary_final.clone());
+    let mut entity_renames: HashMap<String, String> = HashMap::new();
+    entity_renames.insert(upstream_entity.name.clone(), primary_final.clone());
     for e in &aux_entities {
         subs.insert(e.name.clone(), format!("{local_name}{}", e.name));
+        entity_renames.insert(e.name.clone(), format!("{local_name}{}", e.name));
     }
     let field_subs: HashMap<String, String> = obj.fields.clone().unwrap_or_default();
 
@@ -996,8 +1011,23 @@ pub(crate) fn resolve_orbital_reference(
         })
         .filter(|n| !closure.contains(n) && !upstream_universe.contains(n))
         .collect();
+    let expected_entities: HashSet<String> = upstream
+        .expects
+        .iter()
+        .flatten()
+        .filter_map(|e| match e {
+            orbital_core_base::schema::ExpectDeclaration::Entity { name, .. } => Some(name.clone()),
+            _ => None,
+        })
+        .filter(|n| !closure.contains(n) && !upstream_universe.contains(n.as_str()))
+        .collect();
+    let mut expected_entity_map: HashMap<String, String> = HashMap::new();
     if let Some(entities_map) = obj.entities.as_ref() {
         for (up_name, target) in entities_map {
+            if expected_entities.contains(up_name) {
+                expected_entity_map.insert(up_name.clone(), target.clone());
+                continue;
+            }
             if !upstream_universe.contains(up_name.as_str())
                 && !expected_identities.contains(up_name.as_str())
             {
@@ -1082,6 +1112,7 @@ pub(crate) fn resolve_orbital_reference(
             orbital_core_base::identity::IdKind::Entity,
         );
         subs.insert(name.clone(), final_name.clone());
+        entity_renames.insert(name.clone(), final_name.clone());
         entity_ids.insert(final_name.clone(), final_id.clone());
         let mut ed = def.clone();
         ed.name = final_name;
@@ -1419,10 +1450,15 @@ pub(crate) fn resolve_orbital_reference(
     let folded_config: Option<HashMap<String, ConfigField>> = folded_config.map(|decl| {
         decl.into_iter()
             .filter(|(key, _)| {
-                let forward = SExpression::String(format!("@config.{key}"));
-                parent_configs
-                    .values()
-                    .any(|cfg| cfg.values().any(|f| f.default.as_ref() == Some(&forward)))
+                let token = format!("@config.{key}");
+                let forward = SExpression::String(token.clone());
+                parent_configs.values().any(|cfg| {
+                    cfg.values().any(|f| {
+                        f.default.as_ref() == Some(&forward)
+                            || f.forwarded_from.as_deref() == Some(token.as_str())
+                            || f.nested_forwarded_from.contains(&token)
+                    })
+                })
             })
             .collect()
     });
@@ -1924,11 +1960,18 @@ pub(crate) fn resolve_orbital_reference(
     orbital.exposes = None;
     // The imported traits still read what the upstream declared it reads, so the
     // composing program owes the same — its expectations travel with the import.
+    let mut inherited_entity_expects: Vec<String> = Vec::new();
     if let Some(upstream_expects) = upstream.expects.as_ref() {
         let own = orbital.expects.get_or_insert_with(Vec::new);
         for expect in upstream_expects {
             let mut expect = expect.clone();
+            let bound_by_pass = matches!(
+                &expect,
+                orbital_core_base::schema::ExpectDeclaration::Entity { name, .. }
+                    if expected_entity_map.contains_key(name)
+            );
             match &mut expect {
+                _ if bound_by_pass => {}
                 orbital_core_base::schema::ExpectDeclaration::Entity { name, .. }
                 | orbital_core_base::schema::ExpectDeclaration::Identity {
                     name: Some(name), ..
@@ -1938,6 +1981,11 @@ pub(crate) fn resolve_orbital_reference(
                     }
                 }
                 _ => {}
+            }
+            if let orbital_core_base::schema::ExpectDeclaration::Entity { name, .. } = &expect {
+                if !entity_renames.contains_key(name) && !inherited_entity_expects.contains(name) {
+                    inherited_entity_expects.push(name.clone());
+                }
             }
             // The import's `roles {}` remap carries the upstream role vocabulary into the consumer's.
             if let orbital_core_base::schema::ExpectDeclaration::Identity {
@@ -1996,51 +2044,34 @@ pub(crate) fn resolve_orbital_reference(
             .map(|uid| orbital_core_base::identity::derive_id(uid, &local_name));
     }
 
-    if !unknown_config_keys.is_empty()
-        || !omitted_but_embedded.is_empty()
-        || !entity_unmapped.is_empty()
-        || !entity_unknown_key.is_empty()
-        || !entity_target_unknown.is_empty()
-        || !role_unknown_upstream.is_empty()
-        || !role_targets.is_empty()
-        || !page_unknown_path.is_empty()
-        || !extend_collision.is_empty()
-        || !extend_unread.is_empty()
-        || !mock_unknown_field.is_empty()
-        || !retype_unknown_field.is_empty()
-        || !retype_conflict.is_empty()
-        || entity_persistence_locked.is_some()
-        || !traits_unknown_trait.is_empty()
-        || !traits_omitted_trait.is_empty()
-        || !traits_unknown_config_key.is_empty()
-        || !field_rename_unapplied.is_empty()
-        || obj.events.as_ref().is_some_and(|e| !e.is_empty())
-    {
-        diagnostics.push(OrbitalRefDiagnostic {
-            path: diag_path.clone(),
-            reference: obj.reference.clone(),
-            unknown_config_keys,
-            omitted_but_embedded,
-            entity_unmapped,
-            entity_unknown_key,
-            entity_target_unknown,
-            role_unknown_upstream,
-            role_targets,
-            page_unknown_path,
-            extend_collision,
-            extend_unread,
-            mock_unknown_field,
-            retype_unknown_field,
-            retype_conflict,
-            entity_persistence_locked,
-            traits_unknown_trait,
-            traits_omitted_trait,
-            traits_unknown_config_key,
-            field_rename_unapplied,
-            event_subs: obj.events.clone().unwrap_or_default(),
-            local_name: local_name.clone(),
-        });
-    }
+    diagnostics.push(OrbitalRefDiagnostic {
+        path: diag_path.clone(),
+        reference: obj.reference.clone(),
+        unknown_config_keys,
+        omitted_but_embedded,
+        entity_unmapped,
+        entity_unknown_key,
+        entity_target_unknown,
+        role_unknown_upstream,
+        role_targets,
+        page_unknown_path,
+        extend_collision,
+        extend_unread,
+        mock_unknown_field,
+        retype_unknown_field,
+        retype_conflict,
+        entity_persistence_locked,
+        traits_unknown_trait,
+        traits_omitted_trait,
+        traits_unknown_config_key,
+        field_rename_unapplied,
+        event_subs: obj.events.clone().unwrap_or_default(),
+        local_name: local_name.clone(),
+        entity_renames,
+        inherited_entity_expects,
+        expected_entity_map,
+        expected_entity_ambiguous: Vec::new(),
+    });
 
     Ok(())
 }
@@ -2180,6 +2211,103 @@ fn embedded_trait_refs_of(td: &TraitDefinition) -> HashSet<String> {
 /// superset of the JS twin's effects-only `renameEntityInEffects`, and the
 /// SAME primitive every other entity-rebind call site in this crate already
 /// uses, so this is the general case, not a new special-cased walker).
+/// An orbital import renames every entity of its closure to `<Local><Upstream>`, and the entities its
+/// upstream `expects` of a sibling are named in the upstream's own words. An `entities { N: Target }` entry
+/// binds the expectation `N` to `Target` explicitly. Without one, when no entity of the program carries `N`
+/// and exactly one sibling import provides an entity of that upstream name, the expectation follows that
+/// provider; several providers are `ORB_O_ENTITY_EXPECT_AMBIGUOUS`. The expectation and every reference to
+/// it in the expecting import are rewritten, so a writer and a reader address one collection.
+pub(crate) fn bind_inherited_entity_expectations(
+    schema: &mut orbital_core_base::schema::OrbitalSchema,
+    diagnostics: &mut [OrbitalRefDiagnostic],
+) {
+    let mut entity_ids: HashMap<String, String> = HashMap::new();
+    for orbital in &schema.orbitals {
+        for er in std::iter::once(&orbital.entity).chain(orbital.auxiliary_entities.iter().flatten()) {
+            if let EntityRef::Inline(def) = er {
+                if let Some(id) = def.id.as_ref() {
+                    entity_ids.entry(def.name.clone()).or_insert_with(|| id.clone());
+                }
+            }
+        }
+    }
+    let existing: HashSet<String> = entity_ids.keys().cloned().collect();
+    type Plan = (usize, HashMap<String, String>, Vec<(String, Vec<String>)>, Vec<(String, String)>);
+    let mut plans: Vec<Plan> = Vec::new();
+    let mut seen: HashSet<String> = HashSet::new();
+    for (at, diag) in diagnostics.iter().enumerate() {
+        if diag.inherited_entity_expects.is_empty() || !seen.insert(diag.local_name.clone()) {
+            continue;
+        }
+        let mut subs: HashMap<String, String> = HashMap::new();
+        let mut ambiguous: Vec<(String, Vec<String>)> = Vec::new();
+        let mut unknown_target: Vec<(String, String)> = Vec::new();
+        for expected in &diag.inherited_entity_expects {
+            if let Some(target) = diag.expected_entity_map.get(expected) {
+                if existing.contains(target) {
+                    subs.insert(expected.clone(), target.clone());
+                } else {
+                    unknown_target.push((expected.clone(), target.clone()));
+                }
+                continue;
+            }
+            if existing.contains(expected) {
+                continue;
+            }
+            let mut providers: Vec<String> = diagnostics
+                .iter()
+                .filter(|p| p.local_name != diag.local_name)
+                .filter_map(|p| p.entity_renames.get(expected))
+                .filter(|renamed| existing.contains(*renamed))
+                .cloned()
+                .collect();
+            providers.sort();
+            providers.dedup();
+            match providers.len() {
+                0 => {}
+                1 => {
+                    subs.insert(expected.clone(), providers.remove(0));
+                }
+                _ => ambiguous.push((expected.clone(), providers)),
+            }
+        }
+        plans.push((at, subs, ambiguous, unknown_target));
+    }
+    for (at, subs, ambiguous, unknown_target) in plans {
+        let local_name = diagnostics[at].local_name.clone();
+        diagnostics[at].expected_entity_ambiguous = ambiguous;
+        diagnostics[at].entity_target_unknown.extend(unknown_target);
+        if subs.is_empty() {
+            continue;
+        }
+        let Some(orbital) = schema.orbitals.iter_mut().find(|o| o.name == local_name) else {
+            continue;
+        };
+        for expect in orbital.expects.iter_mut().flatten() {
+            if let orbital_core_base::schema::ExpectDeclaration::Entity { name, .. } = expect {
+                if let Some(to) = subs.get(name.as_str()) {
+                    *name = to.clone();
+                }
+            }
+        }
+        for td in orbital.traits.iter_mut() {
+            if let TraitReference::Inline(td) = td {
+                rename_entities_in_trait(td, &subs, &entity_ids);
+                rename_source_entity_definition(td, &subs, &entity_ids);
+            }
+        }
+        if let EntityRef::Inline(def) = &mut orbital.entity {
+            rename_entity_refs_in_entity(def, &subs, &entity_ids);
+        }
+        for er in orbital.auxiliary_entities.iter_mut().flatten() {
+            if let EntityRef::Inline(def) = er {
+                rename_entity_refs_in_entity(def, &subs, &entity_ids);
+            }
+        }
+        super::effect_row::recompute_effect_rows(orbital);
+    }
+}
+
 fn rename_entities_in_trait(
     td: &mut TraitDefinition,
     entity_subs: &HashMap<String, String>,
