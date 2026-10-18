@@ -1710,6 +1710,6 @@ fn a_write_that_breaks_an_invariant_is_violated_with_a_counterexample() {
 #[test]
 fn an_invariant_outside_the_fragment_is_unproved_never_passed() {
     let guard = json!(["<=", ["+", "@entity.paid", "@payload.amount"], "@entity.total"]);
-    let codes = proposition_codes(paying_program(Some(guard), json!([">=", ["math/abs", "@entity.paid"], 0])));
+    let codes = proposition_codes(paying_program(Some(guard), json!([">=", ["math/sqrt", "@entity.paid"], 0])));
     assert_eq!(codes, vec!["ORB_S_INVARIANT_UNPROVED".to_string()]);
 }

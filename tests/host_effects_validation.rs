@@ -130,7 +130,7 @@ fn a_literal_credential_request_names_only_declared_parameters_and_all_required_
         ["credential-remove", { "service": "a", "envVar": "B" }],
         ["credential-test", { "service": "a" }],
         ["credential-mode", { "mode": "real" }],
-        ["credential-rotate", {}],
+        ["credential-rotate"],
         ["credential-test", "@payload.request"]
     ]));
     assert!(!fires(&ok, ErrorCode::CredentialRequestInvalid), "{:?}", ok.errors);
@@ -140,7 +140,6 @@ fn a_literal_credential_request_names_only_declared_parameters_and_all_required_
         json!(["credential-set", { "service": "a", "envVar": "B", "value": "v", "force": true }]),
         json!(["credential-remove", {}]),
         json!(["credential-list", { "name": "x" }]),
-        json!(["credential-rotate", { "force": true }]),
         json!(["credential-mode", 5]),
         json!(["credential-test", "plain text"]),
     ] {
@@ -150,12 +149,12 @@ fn a_literal_credential_request_names_only_declared_parameters_and_all_required_
 
 #[test]
 fn the_credential_effects_take_one_request_and_optional_routes_and_their_payloads_are_checked() {
-    for effect in [json!(["credential-list"]), json!(["credential-set", {}, {}, {}])] {
+    for effect in [json!(["credential-list"]), json!(["credential-set", {}, {}, {}]), json!(["credential-rotate", {}, {}])] {
         assert!(fires(&check(json!([effect.clone()])), ErrorCode::HostEffectArity), "{effect}");
     }
-    let r = check(json!([["credential-rotate", {}, { "key": "k" }]]));
+    let r = check(json!([["credential-rotate", { "key": "k" }]]));
     assert!(fires(&r, ErrorCode::HostEffectOptionUnknown));
-    let ok = check(json!([["credential-rotate", {}, { "emit": { "success": "DRAWN", "failure": "DRAW_FAILED" } }]]));
+    let ok = check(json!([["credential-rotate", { "emit": { "success": "DRAWN", "failure": "DRAW_FAILED" } }]]));
     assert!(fires(&ok, ErrorCode::EmitPayloadNotProduced), "DRAWN reads `value`, which rotate does not produce");
 }
 

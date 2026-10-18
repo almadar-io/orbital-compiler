@@ -52,24 +52,27 @@ pub(crate) fn validate_host_effects(schema: &OrbitalSchema) -> ValidationResult 
         let declared = collect_declared_emits(trait_def);
         visit_effects(trait_def, &path, &mut |expr, at| {
             each_host_call(expr, &mut |head, arr| {
-                if !(2..=3).contains(&arr.len()) {
+                let op = CredentialAdminOp::from_name(head);
+                let first = if op.is_some_and(|op| !op.takes_request()) { 1 } else { 2 };
+                if !(first..=first + 1).contains(&arr.len()) {
+                    let (takes, write) = if first == 1 {
+                        ("only an optional options object", format!("Write ({head} {{ emit: {{ success: <EVENT> }} }})"))
+                    } else {
+                        ("one argument and an optional options object", format!("Write ({head} <arg> {{ emit: {{ success: <EVENT> }} }})"))
+                    };
                     result.add_error(
-                        ValidationError::error(
-                            ErrorCode::HostEffectArity,
-                            at,
-                            format!("`{head}` takes one argument and an optional options object, got {}", arr.len() - 1),
-                        )
-                        .with_suggestion(format!("Write ({head} <arg> {{ emit: {{ success: <EVENT> }} }})")),
+                        ValidationError::error(ErrorCode::HostEffectArity, at, format!("`{head}` takes {takes}, got {}", arr.len() - 1))
+                            .with_suggestion(write),
                     );
                     return;
                 }
                 if head == "random-bytes" {
                     check_count(&arr[1], at, &mut result);
                 }
-                if let Some(op) = CredentialAdminOp::from_name(head) {
+                if let Some(op) = op.filter(|op| op.takes_request()) {
                     check_request(op, &arr[1], at, &mut result);
                 }
-                match arr.get(2) {
+                match arr.get(first) {
                     None => {}
                     Some(SExpression::Object(options)) => {
                         let keyed = head == "random-bytes";
