@@ -1346,9 +1346,12 @@ fn expr_persists_entity_create_or_update(expr: &SExpression, entity_name: &str) 
             let batch_hit = is_persist
                 && matches!(items.get(1), Some(SExpression::String(a)) if a == "batch")
                 && items.get(2).is_some_and(|ops| {
-                    orbital_core_base::persist_batch::batch_writes(ops)
-                        .iter()
-                        .any(|w| w.entity == entity_name && w.action != "delete")
+                    match orbital_core_base::persist_batch::batch_written_entities(ops) {
+                        Some(written) => written.contains(entity_name),
+                        None => orbital_core_base::persist_batch::batch_writes(ops)
+                            .iter()
+                            .any(|w| w.entity == entity_name && w.action != "delete"),
+                    }
                 });
             let hit = batch_hit
                 || (is_persist
@@ -1829,6 +1832,32 @@ mod tests {
 
     fn s(v: &str) -> SExpression {
         SExpression::String(v.to_string())
+    }
+
+    fn batch(ops: serde_json::Value) -> SExpression {
+        serde_json::from_value(serde_json::json!(["persist", "batch", ops, { "emit": { "success": "DONE", "failure": "FAILED" } }]))
+            .expect("batch")
+    }
+
+    #[test]
+    fn a_batch_built_with_flatten_and_if_branches_writes_every_entity_a_branch_creates_or_updates() {
+        let effect = batch(serde_json::json!(["array/flatten", [
+            [["create", "NameLock", { "id": "@entity.name" }]],
+            ["if", "@entity.held", [["delete", "NameLock", "@entity.held"]], ["array/take", [["delete", "NameLock", ""]], 0.0]],
+            ["if", "@entity.heldRow", [["update", "NameHolder", "@entity.holder", { "name": "@entity.name" }]], [["create", "NameHolder", { "id": "@entity.holder" }]]]
+        ]]));
+        assert!(expr_persists_entity_create_or_update(&effect, "NameLock"));
+        assert!(expr_persists_entity_create_or_update(&effect, "NameHolder"));
+    }
+
+    #[test]
+    fn control_a_built_batch_that_only_deletes_or_takes_nothing_writes_nothing() {
+        let deletes = batch(serde_json::json!(["array/flatten", [
+            [["delete", "NameLock", "@entity.held"]],
+            ["array/take", [["create", "NameLock", { "id": "x" }]], 0.0]
+        ]]));
+        assert!(!expr_persists_entity_create_or_update(&deletes, "NameLock"));
+        assert!(!expr_persists_entity_create_or_update(&deletes, "NameHolder"));
     }
     fn arr(items: Vec<SExpression>) -> SExpression {
         SExpression::Array(items)

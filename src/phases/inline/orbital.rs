@@ -344,6 +344,90 @@ pub(crate) fn effective_page_remap(
 /// step-1/step-4 loops perform for the orbital it is CURRENTLY splicing;
 /// this is the same derivation exposed so the schema-wide precompute pass
 /// can compute it for every OTHER reference-form orbital too (G1, §82).
+/// Rewrite one upstream obligation by an orbital import's renames: its trait to the kept trait's final name, its
+/// events by the import's `events`, its page by `pages`, and the entity fields its propositions and shape read by
+/// `fields`. `false` when the import omits what the obligation is about.
+fn rename_imported_obligation(
+    expect: &mut orbital_core_base::schema::ExpectDeclaration,
+    upstream: &Orbital,
+    obj: &OrbitalRefObject,
+    kept_traits: &HashMap<String, (String, String)>,
+    omitted_pages: &HashSet<&str>,
+) -> bool {
+    use orbital_core_base::schema::ExpectDeclaration as E;
+    let upstream_trait = |t: &str| upstream.traits.iter().any(|tr| tr.trait_name() == Some(t));
+    let event = |e: &mut String| {
+        if let Some(to) = obj.events.as_ref().and_then(|m| m.get(e.as_str())) {
+            *e = to.clone();
+        }
+    };
+    let fields = |e: &mut SExpression| {
+        if let Some(subs) = obj.fields.as_ref() {
+            super::rewrite::rewrite_entity_field_paths(e, subs);
+        }
+    };
+    let retrait = |t: &mut String| -> bool {
+        if !upstream_trait(t) {
+            return true;
+        }
+        match kept_traits.get(t.as_str()) {
+            Some((final_name, _)) => {
+                *t = final_name.clone();
+                true
+            }
+            None => false,
+        }
+    };
+    match expect {
+        E::State { trait_name, holds, .. } => {
+            holds.iter_mut().for_each(fields);
+            retrait(trait_name)
+        }
+        E::Transition { trait_name, event: ev, ensures, .. } => {
+            event(ev);
+            ensures.iter_mut().flatten().for_each(fields);
+            retrait(trait_name)
+        }
+        E::Event { trait_name, event: ev, .. } => {
+            event(ev);
+            retrait(trait_name)
+        }
+        E::Page { path, traits, strict, .. } => {
+            let own_page = upstream.pages.iter().flatten().any(|p| matches!(p, PageRef::Inline(pd) if pd.path == *path));
+            if !*strict || !own_page {
+                return true;
+            }
+            if omitted_pages.contains(path.as_str()) {
+                return false;
+            }
+            if let Some(to) = obj.pages.as_ref().and_then(|m| m.get(path.as_str())) {
+                *path = to.clone();
+            }
+            for t in traits.iter_mut().flatten() {
+                if !retrait(t) {
+                    return false;
+                }
+            }
+            true
+        }
+        E::Entity { shape, invariants, read_policy, create_policy, update_policy, delete_policy, .. } => {
+            if let Some(subs) = obj.fields.as_ref() {
+                for f in shape.iter_mut().flatten() {
+                    if let Some(to) = f.name.as_ref().and_then(|n| subs.get(n)) {
+                        f.name = Some(to.clone());
+                    }
+                }
+            }
+            invariants.iter_mut().flatten().for_each(fields);
+            for policy in [read_policy, create_policy, update_policy, delete_policy] {
+                policy.iter_mut().for_each(fields);
+            }
+            true
+        }
+        _ => true,
+    }
+}
+
 pub(crate) fn materialized_trait_subs(
     upstream: &Orbital,
     obj: &OrbitalRefObject,
@@ -1962,9 +2046,20 @@ pub(crate) fn resolve_orbital_reference(
     // composing program owes the same — its expectations travel with the import.
     let mut inherited_entity_expects: Vec<String> = Vec::new();
     if let Some(upstream_expects) = upstream.expects.as_ref() {
+        let kept_traits = materialized_trait_subs(&upstream, obj, &local_name);
         let own = orbital.expects.get_or_insert_with(Vec::new);
         for expect in upstream_expects {
             let mut expect = expect.clone();
+            // The obligations about the upstream's own traits and pages are owed under the import's renames, and
+            // not at all for what the import omits (G-ORB-378).
+            if !rename_imported_obligation(&mut expect, &upstream, obj, &kept_traits, &omitted_pages) {
+                continue;
+            }
+            if let orbital_core_base::schema::ExpectDeclaration::Entity { name, strict: true, .. } = &mut expect {
+                if let Some(local) = entity_renames.get(name.as_str()) {
+                    *name = local.clone();
+                }
+            }
             let bound_by_pass = matches!(
                 &expect,
                 orbital_core_base::schema::ExpectDeclaration::Entity { name, .. }

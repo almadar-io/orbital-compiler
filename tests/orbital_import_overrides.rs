@@ -492,3 +492,102 @@ fn per_trait_overrides_compose_with_orbital_level_events() {
     assert_eq!(first_event(list), "VIEW");
     assert_eq!(list.emits.as_ref().expect("emits")[0].event, "WAS_OPENED");
 }
+
+// ---------------------------------------------------------------------------------------------
+// An imported orbital's obligations follow the import's renames (G-ORB-378): the trait prefix, the
+// event renames, the page remap and the omitted traits.
+// ---------------------------------------------------------------------------------------------
+
+const OBLIGATED_UPSTREAM: &str = r#"{
+  "name": "test-obligated-upstream", "version": "1.0.0",
+  "orbitals": [{
+    "name": "CounterOrbital",
+    "entity": { "name": "Counter", "persistence": "runtime", "fields": [
+      { "name": "id", "type": "string", "required": true },
+      { "name": "count", "type": "number", "default": 0 }
+    ] },
+    "expects": [
+      { "kind": "entity", "name": "Counter", "invariants": [[">=", "@entity.count", 0]], "strict": true },
+      { "kind": "state", "traitName": "Count", "state": "idle", "holds": [">=", "@entity.count", 0], "strict": true },
+      { "kind": "transition", "traitName": "Count", "from": "idle", "event": "BUMP", "to": "idle", "strict": true },
+      { "kind": "event", "traitName": "Count", "event": "BUMPED", "strict": true },
+      { "kind": "state", "traitName": "Sibling", "state": "idle", "strict": true },
+      { "kind": "page", "path": "/counter", "traits": ["Count"], "strict": true }
+    ],
+    "traits": [
+      { "name": "Count", "linkedEntity": "Counter", "category": "interaction",
+        "stateMachine": {
+          "states": [{ "name": "idle", "isInitial": true }],
+          "events": [{ "key": "BUMP" }],
+          "transitions": [{ "from": "idle", "to": "idle", "event": "BUMP",
+            "effects": [["set", "@entity.count", ["+", "@entity.count", 1]], ["emit", "BUMPED", {}]] }]
+        },
+        "emits": [{ "event": "BUMPED", "scope": "external" }] },
+      { "name": "Sibling", "linkedEntity": "Counter", "category": "interaction",
+        "stateMachine": { "states": [{ "name": "idle", "isInitial": true }], "events": [], "transitions": [] } }
+    ],
+    "pages": [{ "name": "CounterPage", "path": "/counter", "traits": [{ "ref": "Count" }] }]
+  }]
+}"#;
+
+fn imported_obligations(reference_extra: &str) -> (OrbitalSchema, Vec<serde_json::Value>) {
+    let dir = tempfile::TempDir::new().expect("temp dir");
+    std::fs::write(dir.path().join("upstream.orb"), OBLIGATED_UPSTREAM).expect("write upstream");
+    let consumer = format!(
+        r#"{{
+  "name": "test-obligated-consumer", "version": "1.0.0",
+  "orbitals": [{{
+    "name": "Local",
+    "uses": [{{ "from": "./upstream.orb", "as": "Up" }}],
+    "entity": "Up.orbitals.CounterOrbital.entity",
+    "traits": [],
+    "reference": {{ "ref": "Up.orbitals.CounterOrbital"{reference_extra} }}
+  }}]
+}}"#
+    );
+    let path = dir.path().join("consumer.orb");
+    std::fs::write(&path, consumer).expect("write consumer");
+    let mut schema = parse_file(&path).expect("consumer parses");
+    let (mut a, mut b, mut c) = (Vec::new(), Vec::new(), Vec::new());
+    inline_schema_with_orbital_diagnostics(&mut schema, &InlineConfig::default(), Some(&path), &mut a, &mut b, &mut c)
+        .expect("inline succeeds");
+    let expects = schema.orbitals[0].expects.iter().flatten().map(|e| serde_json::to_value(e).unwrap()).collect();
+    (schema, expects)
+}
+
+fn trait_ending(schema: &OrbitalSchema, suffix: &str) -> Option<String> {
+    schema.orbitals[0].traits.iter().find_map(|t| match t {
+        TraitReference::Inline(td) if td.name.ends_with(suffix) => Some(td.name.clone()),
+        _ => None,
+    })
+}
+
+#[test]
+fn an_imported_orbitals_obligations_follow_the_import() {
+    let (schema, all) = imported_obligations(r#", "events": { "BUMP": "ADD", "BUMPED": "ADDED" }, "pages": { "/counter": "/tally" }, "omit": ["Sibling"]"#);
+    let count = trait_ending(&schema, "Count").expect("the imported Count trait");
+    assert!(trait_ending(&schema, "Sibling").is_none(), "omitted");
+    let by_kind = |k: &str| all.iter().filter(|e| e["kind"] == k).collect::<Vec<_>>();
+    let states = by_kind("state");
+    assert_eq!(states.len(), 1, "the omitted sibling's obligation does not travel: {all:#?}");
+    assert_eq!(states[0]["traitName"], count.as_str());
+    let transition = by_kind("transition");
+    assert_eq!((transition[0]["traitName"].as_str(), transition[0]["event"].as_str()), (Some(count.as_str()), Some("ADD")));
+    let event = by_kind("event");
+    assert_eq!((event[0]["traitName"].as_str(), event[0]["event"].as_str()), (Some(count.as_str()), Some("ADDED")));
+    let page = by_kind("page");
+    assert_eq!(page[0]["path"], "/tally");
+    assert_eq!(page[0]["traits"], serde_json::json!([count]));
+    let EntityRef::Inline(local) = &schema.orbitals[0].entity else { panic!("materialized entity") };
+    assert_eq!(by_kind("entity")[0]["name"], local.name.as_str());
+}
+
+#[test]
+fn control_an_import_without_renames_owes_its_obligations_under_the_imported_names() {
+    let (schema, all) = imported_obligations("");
+    let count = trait_ending(&schema, "Count").unwrap();
+    let sibling = trait_ending(&schema, "Sibling").unwrap();
+    let names: Vec<&str> = all.iter().filter(|e| e["kind"] == "state").filter_map(|e| e["traitName"].as_str()).collect();
+    assert_eq!(names, vec![count.as_str(), sibling.as_str()]);
+    assert_eq!(all.iter().find(|e| e["kind"] == "page").unwrap()["path"], "/counter");
+}

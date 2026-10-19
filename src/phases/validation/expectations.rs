@@ -325,7 +325,13 @@ fn check_persist_payload_keys(
     orbital: &Orbital,
     result: &mut ValidationResult,
 ) {
-    let Some(Some(shape)) = entity_expectation(orbital, entity_name) else {
+    // The orbital's own declaration is its view of the entity; a spec obligation's shape (strict) is only a minimum
+    // the provider must meet, so it never limits what the orbital may write.
+    let own = orbital.expects.iter().flatten().find_map(|e| match e {
+        ExpectDeclaration::Entity { name, shape, strict: false, .. } if name == entity_name => Some(shape.as_deref()),
+        _ => None,
+    });
+    let Some(Some(shape)) = own else {
         return; // no expectation, or existence-only: as unchecked as today
     };
     for key in payload.keys() {
@@ -1028,6 +1034,37 @@ fn types_compatible(expected: &FieldDefinition, actual: &FieldDefinition) -> boo
 #[cfg(test)]
 mod final_expectation_tests {
     use super::*;
+
+    fn persisting(strict: bool) -> OrbitalSchema {
+        serde_json::from_value(serde_json::json!({
+            "name": "App",
+            "orbitals": [{
+                "name": "Requests", "entity": { "name": "Request", "persistence": "runtime", "fields": [{ "name": "id", "type": "string" }] },
+                "expects": [{ "kind": "entity", "name": "ApprovalRequest", "shape": [{ "name": "status", "type": "string" }], "strict": strict }],
+                "traits": [{ "name": "Ask", "stateMachine": { "states": [{ "name": "idle", "isInitial": true }],
+                    "transitions": [{ "from": "idle", "to": "idle", "event": "ASK",
+                        "effects": [["persist", "create", "ApprovalRequest", { "status": "open", "payload": "x" }]] }] } }],
+                "pages": []
+            }]
+        }))
+        .expect("program json")
+    }
+
+    fn undeclared(schema: &OrbitalSchema) -> usize {
+        let mut r = ValidationResult::new();
+        validate_persist_payload_self_consistency(schema, &mut r);
+        r.errors.iter().filter(|e| e.code == ErrorCode::SchemaExpectationFieldUndeclared).count()
+    }
+
+    #[test]
+    fn a_spec_obligations_shape_is_a_minimum_not_the_orbitals_view() {
+        assert_eq!(undeclared(&persisting(true)), 0, "a strict spec shape names what the provider must have at least");
+    }
+
+    #[test]
+    fn control_the_orbitals_own_expectation_is_its_source_of_truth() {
+        assert_eq!(undeclared(&persisting(false)), 1, "`payload` is outside the orbital's own declared view");
+    }
 
     fn program(provider_entity: &str, identity: bool) -> OrbitalSchema {
         serde_json::from_value(serde_json::json!({

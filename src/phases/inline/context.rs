@@ -318,6 +318,12 @@ impl InlineContext {
         orbital.expects.clone().unwrap_or_default()
     }
 
+    /// The orbital that owns an imported trait (same matching as [`Self::get_expects_for_trait_orbital`]).
+    pub(crate) fn get_trait_orbital(&self, alias: &str, trait_name: &str, trait_ref_id: Option<&str>) -> Option<&Orbital> {
+        let entry = self.aliases.get(alias)?;
+        Self::find_orbital_for_trait(entry, trait_name, trait_ref_id).map(|(orbital, _)| orbital)
+    }
+
     /// The `types` map (Gap A struct aliases, `docs/Almadar_LOLO.md`) of the
     /// orbital that owns an imported trait — the LEXICAL scope a `::`
     /// struct-alias arg or a declared param default resolves against for a

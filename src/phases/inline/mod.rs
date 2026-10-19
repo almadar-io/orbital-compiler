@@ -2185,19 +2185,41 @@ fn inline_orbital(
     // strictest wins, since every contributor's need must be met.
     {
         let mut imported: Vec<ExpectDeclaration> = Vec::new();
+        // The entities this orbital holds once the auxiliary ones travelled with their traits (above).
+        let held: HashSet<String> = std::iter::once(&orbital.entity)
+            .chain(orbital.auxiliary_entities.iter().flatten())
+            .filter_map(|e| match e {
+                EntityRef::Inline(def) => Some(def.name.clone()),
+                _ => None,
+            })
+            .collect();
         for trait_ref in &orbital.traits {
             if let TraitReference::Reference {
                 reference: Some(ref ref_str),
                 ref_id,
+                name: local_name,
+                linked_entity,
+                events,
+                fields,
                 ..
             } = trait_ref
             {
                 if let Ok(ParsedReference::Trait { alias, name }) = parse_reference(ref_str) {
-                    imported.extend(ctx.get_expects_for_trait_orbital(
-                        &alias,
-                        &name,
-                        ref_id.as_deref(),
-                    ));
+                    let Some(source) = ctx.get_trait_orbital(&alias, &name, ref_id.as_deref()) else { continue };
+                    let renames = ObligationRenames {
+                        source,
+                        trait_name: &name,
+                        local_name: local_name.as_deref().unwrap_or(&name),
+                        entity_to: linked_entity.as_deref(),
+                        events: events.as_ref(),
+                        fields: fields.as_ref(),
+                        held: &held,
+                    };
+                    imported.extend(
+                        ctx.get_expects_for_trait_orbital(&alias, &name, ref_id.as_deref())
+                            .into_iter()
+                            .filter_map(|decl| carry_obligation(decl, &renames)),
+                    );
                 }
             }
         }
@@ -3009,6 +3031,114 @@ fn collect_referenced_ids(schema: &OrbitalSchema) -> HashSet<String> {
 /// contributor marks it required (the strictest need must be satisfiable), and
 /// an existing field's declaration wins on type so a consumer's own hand-written
 /// expectation is never silently retyped by an import.
+/// How one trait reference renames what it imports: the trait, its events, its linked entity and that entity's fields.
+struct ObligationRenames<'a> {
+    source: &'a Orbital,
+    trait_name: &'a str,
+    local_name: &'a str,
+    entity_to: Option<&'a str>,
+    events: Option<&'a HashMap<String, String>>,
+    fields: Option<&'a HashMap<String, String>>,
+    /// The entities the importing orbital holds after its imports' auxiliary entities travelled.
+    held: &'a HashSet<String>,
+}
+
+/// An imported trait's obligations travel with it, under the reference's renames (G-ORB-378). An obligation about
+/// another trait of the same orbital travels only with a reference to that trait; one about an entity that orbital
+/// owns travels with the entity (when the import brought it along); a strict page obligation stays with the orbital
+/// that declares the page: a trait reference imports none of these.
+fn carry_obligation(decl: ExpectDeclaration, r: &ObligationRenames<'_>) -> Option<ExpectDeclaration> {
+    let own_trait = |t: &str| r.source.traits.iter().any(|tr| tr.trait_name() == Some(t));
+    let linked = r.source.traits.iter().find_map(|tr| match tr {
+        TraitReference::Inline(td) if td.name == r.trait_name => td.linked_entity.clone(),
+        _ => None,
+    });
+    let event = |e: String| r.events.and_then(|m| m.get(&e).cloned()).unwrap_or(e);
+    let fields = |e: &mut orbital_core_base::schema::SExpression| {
+        if let Some(subs) = r.fields {
+            rewrite::rewrite_entity_field_paths(e, subs);
+        }
+    };
+    let rename_trait = |t: String| -> Option<String> {
+        if t == r.trait_name {
+            Some(r.local_name.to_string())
+        } else if own_trait(&t) {
+            None
+        } else {
+            Some(t)
+        }
+    };
+    Some(match decl {
+        ExpectDeclaration::State { trait_name, state, mut holds, strict } => {
+            let trait_name = rename_trait(trait_name)?;
+            holds.iter_mut().for_each(fields);
+            ExpectDeclaration::State { trait_name, state, holds, strict }
+        }
+        ExpectDeclaration::Transition { trait_name, from, event: ev, to, mut ensures, strict } => {
+            let trait_name = rename_trait(trait_name)?;
+            ensures.iter_mut().flatten().for_each(fields);
+            ExpectDeclaration::Transition { trait_name, from, event: event(ev), to, ensures, strict }
+        }
+        ExpectDeclaration::Event { trait_name, event: ev, payload, strict } => {
+            let trait_name = rename_trait(trait_name)?;
+            ExpectDeclaration::Event { trait_name, event: event(ev), payload, strict }
+        }
+        ExpectDeclaration::Page { strict: true, .. } => return None,
+        ExpectDeclaration::Entity {
+            name,
+            mut shape,
+            persistence,
+            shared,
+            local,
+            mut read_policy,
+            mut create_policy,
+            mut update_policy,
+            mut delete_policy,
+            access_waivers,
+            mut invariants,
+            strict,
+        } if linked.as_deref() == Some(name.as_str()) => {
+            for policy in [&mut read_policy, &mut create_policy, &mut update_policy, &mut delete_policy] {
+                policy.iter_mut().for_each(fields);
+            }
+            if let Some(subs) = r.fields {
+                for f in shape.iter_mut().flatten() {
+                    if let Some(to) = f.name.as_ref().and_then(|n| subs.get(n)) {
+                        f.name = Some(to.clone());
+                    }
+                }
+            }
+            invariants.iter_mut().flatten().for_each(fields);
+            ExpectDeclaration::Entity {
+                name: r.entity_to.map(str::to_string).unwrap_or(name),
+                shape,
+                persistence,
+                shared,
+                local,
+                read_policy,
+                create_policy,
+                update_policy,
+                delete_policy,
+                access_waivers,
+                invariants,
+                strict,
+            }
+        }
+        ExpectDeclaration::Entity { ref name, strict: true, .. }
+            if owned_entity(r.source, name) && !r.held.contains(name) =>
+        {
+            return None
+        }
+        other => other,
+    })
+}
+
+fn owned_entity(orbital: &Orbital, name: &str) -> bool {
+    std::iter::once(&orbital.entity)
+        .chain(orbital.auxiliary_entities.iter().flatten())
+        .any(|e| matches!(e, EntityRef::Inline(def) if def.name == name))
+}
+
 pub(super) fn merge_expectation(into: &mut Vec<ExpectDeclaration>, incoming: ExpectDeclaration) {
     fn union_shape(
         existing: &mut Option<Vec<orbital_core_base::schema::FieldDefinition>>,

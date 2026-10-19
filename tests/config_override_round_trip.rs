@@ -1074,3 +1074,109 @@ fn control_an_atom_composed_without_overrides_keeps_its_propositions() {
     let ensures = serde_json::to_value(&bump.ensures.as_ref().unwrap()[0]).unwrap();
     assert_eq!(ensures, serde_json::json!(["=", "@entity.count", ["+", "@fromEntity.count", 1.0]]), "the declared default is folded");
 }
+
+// ---------------------------------------------------------------------------
+// An atom's obligations travel with its trait: a composer that renames the trait (and its events, entity and
+// fields) owes them under the new names (G-ORB-378).
+// ---------------------------------------------------------------------------
+
+const OBLIGATED_ATOM: &str = r#"{
+  "name": "test-obligated-atom",
+  "version": "1.0.0",
+  "orbitals": [{
+    "name": "CounterOrbital",
+    "entity": { "name": "Counter", "persistence": "runtime", "fields": [
+      { "name": "id", "type": "string", "required": true },
+      { "name": "count", "type": "number", "default": 0 }
+    ] },
+    "expects": [
+      { "kind": "entity", "name": "Counter", "shape": [{ "name": "count", "type": "number" }], "invariants": [[">=", "@entity.count", 0]], "strict": true },
+      { "kind": "state", "traitName": "Count", "state": "idle", "holds": [">=", "@entity.count", 0], "strict": true },
+      { "kind": "transition", "traitName": "Count", "from": "idle", "event": "BUMP", "to": "idle", "ensures": [["=", "@entity.count", ["+", "@fromEntity.count", 1]]], "strict": true },
+      { "kind": "event", "traitName": "Count", "event": "BUMPED", "strict": true },
+      { "kind": "state", "traitName": "Sibling", "state": "idle", "strict": true },
+      { "kind": "page", "path": "/counter", "traits": ["Count"], "strict": true },
+      { "kind": "identity", "name": "Viewer", "shape": [{ "name": "role", "type": "string" }] }
+    ],
+    "traits": [
+      { "name": "Count", "linkedEntity": "Counter", "category": "interaction",
+        "stateMachine": {
+          "states": [{ "name": "idle", "isInitial": true }],
+          "events": [{ "key": "BUMP", "name": "Bump" }],
+          "transitions": [{ "from": "idle", "to": "idle", "event": "BUMP",
+            "effects": [["set", "@entity.count", ["+", "@entity.count", 1]], ["emit", "BUMPED", {}]] }]
+        },
+        "emits": [{ "event": "BUMPED", "scope": "external" }] },
+      { "name": "Sibling", "linkedEntity": "Counter", "category": "interaction",
+        "stateMachine": { "states": [{ "name": "idle", "isInitial": true }], "events": [], "transitions": [] } }
+    ],
+    "pages": [{ "name": "CounterPage", "path": "/counter", "traits": [{ "ref": "Count" }] }]
+  }]
+}"#;
+
+fn composed_obligations(reference_extra: &str) -> Vec<serde_json::Value> {
+    let dir = tempfile::TempDir::new().expect("temp dir");
+    std::fs::write(dir.path().join("atom.orb"), OBLIGATED_ATOM).expect("write atom");
+    let composer = format!(
+        r#"{{
+  "name": "test-obligated-composer", "version": "1.0.0",
+  "orbitals": [{{
+    "name": "TallyOrbital",
+    "uses": [{{ "from": "./atom.orb", "as": "Atom" }}],
+    "entity": {{ "name": "Tally", "persistence": "runtime", "fields": [
+      {{ "name": "id", "type": "string", "required": true }},
+      {{ "name": "total", "type": "number", "default": 0 }}
+    ] }},
+    "traits": [{{ "ref": "Atom.traits.Count"{reference_extra} }}]
+  }}]
+}}"#
+    );
+    let path = dir.path().join("composer.orb");
+    std::fs::write(&path, composer).expect("write composer");
+    let mut schema = parse_file(&path).expect("composer parses");
+    inline_schema(&mut schema, &InlineConfig::default(), Some(&path)).expect("inline");
+    schema.orbitals[0]
+        .expects
+        .iter()
+        .flatten()
+        .map(|e| serde_json::to_value(e).unwrap())
+        .collect()
+}
+
+fn of_kind<'a>(all: &'a [serde_json::Value], kind: &str) -> Vec<&'a serde_json::Value> {
+    all.iter().filter(|e| e["kind"] == kind).collect()
+}
+
+#[test]
+fn an_atoms_obligations_follow_the_composers_renames() {
+    let all = composed_obligations(
+        r#", "name": "Tally", "linkedEntity": "Tally", "events": { "BUMP": "ADD", "BUMPED": "ADDED" }, "fields": { "count": "total" }"#,
+    );
+    let state = of_kind(&all, "state");
+    assert_eq!(state.len(), 1, "only the imported trait's states: {all:#?}");
+    assert_eq!(state[0]["traitName"], "Tally");
+    assert_eq!(state[0]["holds"], serde_json::json!([">=", "@entity.total", 0.0]));
+    let transition = of_kind(&all, "transition");
+    assert_eq!(transition.len(), 1, "{all:#?}");
+    assert_eq!(transition[0]["traitName"], "Tally");
+    assert_eq!(transition[0]["event"], "ADD");
+    assert_eq!(transition[0]["ensures"], serde_json::json!([["=", "@entity.total", ["+", "@fromEntity.total", 1.0]]]));
+    let event = of_kind(&all, "event");
+    assert_eq!((event[0]["traitName"].as_str(), event[0]["event"].as_str()), (Some("Tally"), Some("ADDED")));
+    let entity = of_kind(&all, "entity");
+    assert_eq!(entity.len(), 1, "{all:#?}");
+    assert_eq!(entity[0]["name"], "Tally");
+    assert_eq!(entity[0]["shape"][0]["name"], "total");
+    assert_eq!(entity[0]["invariants"], serde_json::json!([[">=", "@entity.total", 0.0]]));
+    assert!(of_kind(&all, "page").is_empty(), "a trait reference imports no page, so the atom's page obligation stays with the atom");
+    assert_eq!(of_kind(&all, "identity").len(), 1, "control: the identity expectation travels as before");
+}
+
+#[test]
+fn control_an_unrenamed_composition_keeps_the_obligations_as_written() {
+    let all = composed_obligations("");
+    let transition = of_kind(&all, "transition");
+    assert_eq!((transition[0]["traitName"].as_str(), transition[0]["event"].as_str()), (Some("Count"), Some("BUMP")));
+    assert_eq!(of_kind(&all, "entity")[0]["name"], "Counter");
+    assert!(of_kind(&all, "state").iter().all(|s| s["traitName"] == "Count"), "the sibling's state stays with a reference to the sibling");
+}
