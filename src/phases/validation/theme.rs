@@ -7,7 +7,7 @@ use super::error::{ErrorCode, ValidationError, ValidationResult};
 use super::ValidationContext;
 use crate::embedded::builtin_theme_names;
 use orbital_core_base::schema::{
-    OrbitalSchema, SExpression, ThemeDefinition, ThemeRef, TraitReference, TypeScaleTokens,
+    OrbitalSchema, SExpression, ThemeDefinition, ThemeRef, TraitDefinition, TraitReference, TypeScaleTokens,
 };
 use regex::Regex;
 use std::collections::HashSet;
@@ -38,7 +38,106 @@ pub fn validate_all_themes(schema: &OrbitalSchema, ctx: &mut ValidationContext) 
             ctx.merge(result);
         }
     }
+    for (i, key) in schema.themes.iter().flatten().enumerate() {
+        let path = format!("themes[{}]", i);
+        ctx.merge(validate_theme_ref(&ThemeRef::Reference(key.clone()), &path, &inline_names));
+    }
     ctx.merge(validate_theme_pin_matches_app(schema));
+}
+
+/// A theme key's base: `"clay-dark"` and `"clay-light"` are both `"clay"`, whose stylesheet carries both modes.
+fn theme_base(key: &str) -> &str {
+    key.strip_suffix("-dark")
+        .or_else(|| key.strip_suffix("-light"))
+        .unwrap_or(key)
+}
+
+/// Every theme base the program declares: its app and orbital `theme` (a key, or an inline theme's name) and its
+/// `themes` list.
+fn declared_theme_bases(schema: &OrbitalSchema) -> HashSet<String> {
+    let refs = schema
+        .theme
+        .iter()
+        .chain(schema.orbitals.iter().filter_map(|o| o.theme.as_ref()));
+    refs.filter_map(|t| match t {
+        ThemeRef::Reference(key) if !key.is_empty() => Some(theme_base(key).to_string()),
+        ThemeRef::Inline(def) if !def.name.is_empty() => Some(def.name.clone()),
+        _ => None,
+    })
+    .chain(schema.themes.iter().flatten().map(|k| theme_base(k).to_string()))
+    .collect()
+}
+
+/// The literal theme a `data-theme` value names: the string itself, or the literal default of the `@config` knob it
+/// reads. `None` for an unset knob, any other binding, or an expression.
+fn literal_data_theme<'a>(value: &'a SExpression, trait_def: &'a TraitDefinition) -> Option<&'a str> {
+    let SExpression::String(s) = value else { return None };
+    let literal = match s.strip_prefix("@config.") {
+        Some(knob) => match trait_def.config.as_ref()?.get(knob)?.default.as_ref()? {
+            SExpression::String(v) => v.as_str(),
+            _ => return None,
+        },
+        None => s.as_str(),
+    };
+    (!literal.is_empty() && !literal.starts_with('@')).then_some(literal)
+}
+
+fn collect_data_themes<'a>(expr: &'a SExpression, trait_def: &'a TraitDefinition, found: &mut Vec<&'a str>) {
+    match expr {
+        SExpression::Object(map) => {
+            for (key, value) in map.iter() {
+                if key == "data-theme" {
+                    if let Some(theme) = literal_data_theme(value, trait_def) {
+                        found.push(theme);
+                    }
+                }
+                collect_data_themes(value, trait_def, found);
+            }
+        }
+        SExpression::Array(items) => items.iter().for_each(|item| collect_data_themes(item, trait_def, found)),
+        _ => {}
+    }
+}
+
+/// `ORB_THEME_UNDECLARED` (`orb validate --final`, G-UI-106): a `data-theme` resolving to a literal theme the
+/// program does not declare. A compiled client ships only the declared themes, so that frame would be unstyled.
+pub fn validate_final_data_themes(schema: &OrbitalSchema) -> ValidationResult {
+    let mut result = ValidationResult::new();
+    let declared = declared_theme_bases(schema);
+    for (trait_def, path) in super::inline_traits(schema) {
+        let mut found = Vec::new();
+        for transition in &trait_def.state_machine.transitions {
+            for effect in transition.effects.iter().flatten() {
+                collect_data_themes(effect, trait_def, &mut found);
+            }
+        }
+        for tick in trait_def.ticks.iter().flatten() {
+            for effect in &tick.effects {
+                collect_data_themes(effect, trait_def, &mut found);
+            }
+        }
+        for field in trait_def.config.iter().flat_map(|c| c.values()) {
+            if let Some(default) = &field.default {
+                collect_data_themes(default, trait_def, &mut found);
+            }
+        }
+        found.sort_unstable();
+        found.dedup();
+        for theme in found.into_iter().filter(|t| !declared.contains(theme_base(t))) {
+            result.add_error(
+                ValidationError::error(
+                    ErrorCode::ThemeUndeclared,
+                    path.clone(),
+                    format!("'{}' shows a frame in theme \"{}\", which the program does not declare", trait_def.name, theme),
+                )
+                .with_suggestion(format!(
+                    "add \"{}\" to the app's `themes: [...]` (the themes a program switches to inside a page)",
+                    theme
+                )),
+            );
+        }
+    }
+    result
 }
 
 /// The schema's app-level `theme "<key>"` declaration, if any — a bare
@@ -686,5 +785,76 @@ mod theme_pin_contradicts_app_tests {
         }"#,
         );
         assert!(validate_theme_pin_matches_app(&schema).errors.is_empty());
+    }
+}
+
+/// `orb validate --final`: a `data-theme` that resolves to a literal theme must name one the program declares
+/// (its app or orbital `theme`, or its `themes` list), since a compiled client ships only those (G-UI-106).
+#[cfg(test)]
+mod data_theme_declared_tests {
+    use super::*;
+
+    fn site(app_extra: &str, data_theme: &str, demo_default: &str) -> OrbitalSchema {
+        serde_json::from_str(&format!(
+            r#"{{
+          "name": "site", "version": "1.0.0", "theme": "almadar-light"{app_extra},
+          "orbitals": [{{
+            "name": "Home",
+            "entity": {{ "name": "V", "persistence": "runtime", "fields": [{{ "name": "id", "type": "string" }}] }},
+            "traits": [{{
+              "name": "Tour", "linkedEntity": "V",
+              "config": {{ "demoTheme": {{ "type": "string", "default": "{demo_default}" }} }},
+              "stateMachine": {{
+                "states": [{{ "name": "idle", "isInitial": true }}],
+                "events": [{{ "key": "INIT", "name": "INIT" }}],
+                "transitions": [{{ "from": "idle", "to": "idle", "event": "INIT",
+                  "effects": [["render-ui", "main", {{ "type": "box", "children": [{{ "type": "box", "data-theme": "{data_theme}", "children": [] }}] }}]] }}]
+              }}
+            }}]
+          }}]
+        }}"#
+        ))
+        .expect("fixture")
+    }
+
+    fn codes(schema: &OrbitalSchema) -> Vec<ErrorCode> {
+        validate_final_data_themes(schema).errors.into_iter().map(|e| e.code).collect()
+    }
+
+    #[test]
+    fn a_config_bound_theme_the_program_never_declares_is_an_error() {
+        let errors = validate_final_data_themes(&site("", "@config.demoTheme", "clay-dark")).errors;
+        assert_eq!(errors.len(), 1);
+        assert_eq!(errors[0].code, ErrorCode::ThemeUndeclared);
+        assert!(errors[0].message.contains("clay-dark"), "{}", errors[0].message);
+    }
+
+    #[test]
+    fn control_the_same_theme_declared_in_themes_is_clean() {
+        assert!(codes(&site(r#", "themes": ["clay-dark"]"#, "@config.demoTheme", "clay-dark")).is_empty());
+    }
+
+    #[test]
+    fn control_the_app_theme_s_other_mode_is_declared_with_it() {
+        assert!(codes(&site("", "@config.demoTheme", "almadar-dark")).is_empty());
+    }
+
+    #[test]
+    fn edge_a_literal_data_theme_is_checked_too() {
+        assert_eq!(codes(&site("", "terminal-dark", "")), vec![ErrorCode::ThemeUndeclared]);
+    }
+
+    #[test]
+    fn edge_an_unset_knob_and_a_binding_are_not_theme_names() {
+        assert!(codes(&site("", "@config.demoTheme", "")).is_empty());
+        assert!(codes(&site("", "@currentTheme", "")).is_empty());
+    }
+
+    #[test]
+    fn edge_a_themes_entry_must_name_a_real_theme() {
+        let mut ctx = ValidationContext::default();
+        validate_all_themes(&site(r#", "themes": ["zz-unknown-dark"]"#, "", ""), &mut ctx);
+        let errors = ctx.into_result().errors;
+        assert!(errors.iter().any(|e| e.code == ErrorCode::UnknownTheme), "{errors:?}");
     }
 }

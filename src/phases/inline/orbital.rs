@@ -2323,6 +2323,9 @@ fn rename_entities_in_trait(
         }
     }
     let no_events: HashMap<String, String> = HashMap::new();
+    for p in td.propositions_mut() {
+        rewrite_identifiers(p, entity_subs, &no_events);
+    }
     for t in td.state_machine.transitions.iter_mut() {
         if let Some(guard) = t.guard.as_mut() {
             rewrite_identifiers(guard, entity_subs, &no_events);
@@ -2400,6 +2403,9 @@ fn rewrite_entity_fields_in_config(
 fn rewrite_entity_fields_in_trait(td: &mut TraitDefinition, field_subs: &HashMap<String, String>) {
     if field_subs.is_empty() {
         return;
+    }
+    for p in td.propositions_mut() {
+        rewrite_entity_field_paths(p, field_subs);
     }
     for t in td.state_machine.transitions.iter_mut() {
         if let Some(guard) = t.guard.as_mut() {
@@ -2521,6 +2527,9 @@ fn rewrite_role_literals_in_trait(
 ) {
     if roles.is_empty() {
         return;
+    }
+    for p in td.propositions_mut() {
+        rewrite_role_literals(p, role_fields, roles);
     }
     for t in td.state_machine.transitions.iter_mut() {
         if let Some(guard) = t.guard.as_mut() {
@@ -2965,6 +2974,9 @@ fn rename_events_in_trait(
         });
     }
     let no_entities: HashMap<String, String> = HashMap::new();
+    for p in td.propositions_mut() {
+        rewrite_identifiers(p, &no_entities, event_subs);
+    }
     for t in td.state_machine.transitions.iter_mut() {
         if let Some(guard) = t.guard.as_mut() {
             rewrite_identifiers(guard, &no_entities, event_subs);

@@ -43,6 +43,7 @@ fn make_trait_with_transition(
                 is_terminal: None,
                 description: None,
                 time_bound_ms: None,
+                holds: None,
             }],
             events: Some(vec![]),
             transitions: vec![TransitionDefinition {
@@ -52,6 +53,7 @@ fn make_trait_with_transition(
                 event: "INIT".to_string(),
                 guard,
                 effects: Some(effects),
+                ensures: None,
             }],
         },
         emits: None,

@@ -91,6 +91,7 @@ fn task_entity() -> EntityDefinition {
         }],
         instances: None,
         id: None,
+        invariants: None,
     }
 }
 
@@ -138,6 +139,7 @@ fn schema_for_f1(strict_target_event: &str) -> OrbitalSchema {
                 is_terminal: None,
                 description: None,
                 time_bound_ms: None,
+                holds: None,
             }],
             events: Some(vec![]),
             transitions: vec![TransitionDefinition {
@@ -147,6 +149,7 @@ fn schema_for_f1(strict_target_event: &str) -> OrbitalSchema {
                 event: "INIT".to_string(),
                 guard: None,
                 effects: Some(vec![emit]),
+                ensures: None,
             }],
         },
         emits: Some(vec![emit_def(
@@ -287,6 +290,7 @@ fn schema_with_two_emitters_and_listener_source(
                     is_terminal: None,
                     description: None,
                     time_bound_ms: None,
+                    holds: None,
                 }],
                 events: Some(vec![]),
                 transitions: vec![TransitionDefinition {
@@ -296,6 +300,7 @@ fn schema_with_two_emitters_and_listener_source(
                     event: "INIT".to_string(),
                     guard: None,
                     effects: None,
+                    ensures: None,
                 }],
             },
             emits,
@@ -576,6 +581,7 @@ fn render_button_trait(
                 is_terminal: None,
                 description: None,
                 time_bound_ms: None,
+                holds: None,
             }],
             events: Some(vec![]),
             transitions: vec![TransitionDefinition {
@@ -589,6 +595,7 @@ fn render_button_trait(
                     payload_key,
                     entity_field,
                 )]),
+                ensures: None,
             }],
         },
         emits: Some(vec![emit_def(event, vec![])]),
@@ -634,6 +641,7 @@ fn schema_with_render_action_payload(
                     is_terminal: None,
                     description: None,
                     time_bound_ms: None,
+                    holds: None,
                 }],
                 events: Some(vec![]),
                 transitions: vec![TransitionDefinition {
@@ -643,6 +651,7 @@ fn schema_with_render_action_payload(
                     event: "INIT".to_string(),
                     guard: None,
                     effects: None,
+                    ensures: None,
                 }],
             },
             emits: Some(vec![emit_def(event, fields)]),
@@ -679,6 +688,7 @@ fn schema_with_render_action_payload(
                     is_terminal: None,
                     description: None,
                     time_bound_ms: None,
+                    holds: None,
                 }],
                 events: Some(vec![]),
                 transitions: vec![TransitionDefinition {
@@ -688,6 +698,7 @@ fn schema_with_render_action_payload(
                     event: "INIT".to_string(),
                     guard: None,
                     effects: None,
+                    ensures: None,
                 }],
             },
             emits: None,
@@ -882,6 +893,7 @@ fn schema_with_default(field: FieldDefinition) -> OrbitalSchema {
         ],
         instances: None,
         id: None,
+        invariants: None,
     };
     OrbitalSchema {
         theme_definitions: None,

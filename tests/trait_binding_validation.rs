@@ -71,6 +71,7 @@ fn trait_with_trait_binding_in_children(trait_name: &str, binding: &str) -> Trai
                 is_terminal: None,
                 description: None,
                 time_bound_ms: None,
+                holds: None,
             }],
             events: Some(vec![]),
             transitions: vec![TransitionDefinition {
@@ -80,6 +81,7 @@ fn trait_with_trait_binding_in_children(trait_name: &str, binding: &str) -> Trai
                 event: "INIT".to_string(),
                 guard: None,
                 effects: Some(vec![render_ui]),
+                ensures: None,
             }],
         },
         emits: None,
@@ -336,6 +338,7 @@ fn trait_with_binding_outside_render(effect_kind: &str, binding: &str) -> TraitD
                 is_terminal: None,
                 description: None,
                 time_bound_ms: None,
+                holds: None,
             }],
             events: Some(vec![]),
             transitions: vec![TransitionDefinition {
@@ -345,6 +348,7 @@ fn trait_with_binding_outside_render(effect_kind: &str, binding: &str) -> TraitD
                 event: "INIT".to_string(),
                 guard,
                 effects,
+                ensures: None,
             }],
         },
         emits: None,

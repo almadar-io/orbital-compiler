@@ -60,6 +60,25 @@ fn an_inline_theme_defaults_to_its_light_key() {
 }
 
 #[test]
+fn the_themes_a_program_switches_to_are_collected_after_its_own() {
+    let mut s = fixture();
+    s["theme"] = json!("terminal-light");
+    s["themes"] = json!(["clay-dark", "terminal-dark"]);
+    let m = compile(s);
+    assert_eq!(names(&m), vec!["terminal", "clay"]);
+    assert_eq!(m.default_theme.as_deref(), Some("terminal-light"));
+}
+
+#[test]
+fn control_a_switched_to_theme_alone_is_collected_but_never_the_default() {
+    let mut s = fixture();
+    s["themes"] = json!(["clay-dark"]);
+    let m = compile(s);
+    assert_eq!(names(&m), vec!["clay"]);
+    assert_eq!(m.default_theme, None);
+}
+
+#[test]
 fn control_no_theme_declared_collects_nothing() {
     let m = compile(fixture());
     assert!(m.themes.is_empty());

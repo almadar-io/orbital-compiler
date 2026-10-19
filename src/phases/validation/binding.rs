@@ -34,6 +34,7 @@ pub const CORE_BINDING_ROOTS: &[&str] = &[
     "prevStates",      // States this trait left this dispatch
     "fromState",       // The transition's source state
     "toState",         // The transition's target state
+    "fromEntity",      // The entity before the transition, inside an `@ensures` only
 ];
 
 /// Roots that only exist while a delivery is being processed (Runtime Spec Clause 5.5).
@@ -61,6 +62,8 @@ pub enum BindingContext {
     Tick,
     /// In a render_ui pattern prop
     RenderUI,
+    /// In a transition's `@ensures`: `@entity` is the row after the effects, `@fromEntity` the row before them
+    Ensures,
 }
 
 fn validate_dispatch_root(
@@ -209,6 +212,16 @@ pub fn validate_all_bindings(schema: &OrbitalSchema, ctx: &mut ValidationContext
                     ctx.merge(embeds);
                     ctx.merge(orbital_embeds);
                 }
+            }
+        }
+
+        for (k, e) in std::iter::once(&orbital.entity).chain(orbital.auxiliary_entities.iter().flatten()).enumerate() {
+            let orbital_core_base::schema::EntityRef::Inline(def) = e else { continue };
+            let at = if k == 0 { "entity".to_string() } else { format!("auxiliaryEntities[{}]", k - 1) };
+            for (n, inv) in def.invariants.iter().flatten().enumerate() {
+                let p = format!("orbitals[{i}].{at}.invariants[{n}]");
+                ctx.merge(validate_expr_bindings(inv, &p, BindingContext::Guard, &ctx.entity_names.clone()));
+                ctx.merge(validate_entity_field_references(inv, &p, Some(def), &ctx.entity_definitions.clone()));
             }
         }
 
@@ -922,6 +935,27 @@ pub fn validate_trait_bindings(
         }
     }
 
+    // Propositions read the same roots as a guard; an `@ensures` also reads `@fromEntity`, the same entity before.
+    for (i, transition) in trait_def.state_machine.transitions.iter().enumerate() {
+        let payload_fields = event_payloads.get(transition.event.as_str()).copied();
+        for (k, ensures) in transition.ensures.iter().flatten().enumerate() {
+            let p = format!("{}.stateMachine.transitions[{}].ensures[{}]", path, i, k);
+            result.merge(validate_expr_bindings(ensures, &p, BindingContext::Ensures, known_entities));
+            result.merge(validate_payload_field_references(ensures, &p, payload_fields, &transition.event));
+            let as_entity = orbital_core_eval::proof::obligations::subst_fields(ensures, "@fromEntity", &|f| {
+                Some(SExpression::String(format!("@entity.{f}")))
+            });
+            result.merge(validate_entity_field_references(&as_entity, &p, linked_entity_def, entity_definitions));
+        }
+    }
+    for (k, state) in trait_def.state_machine.states.iter().enumerate() {
+        if let Some(holds) = &state.holds {
+            let p = format!("{}.stateMachine.states[{}].holds", path, k);
+            result.merge(validate_expr_bindings(holds, &p, BindingContext::Guard, known_entities));
+            result.merge(validate_entity_field_references(holds, &p, linked_entity_def, entity_definitions));
+        }
+    }
+
     // Validate bindings in ticks
     if let Some(ticks) = &trait_def.ticks {
         for (i, tick) in ticks.iter().enumerate() {
@@ -1234,6 +1268,20 @@ pub fn validate_binding(
     let root = parts[0];
     // Handle array index in first part (e.g., @items[0])
     let root = root.split('[').next().unwrap_or(root);
+
+    if root == "fromEntity" {
+        if context != BindingContext::Ensures {
+            result.add_error(
+                ValidationError::error(
+                    ErrorCode::BindingFromEntityOutsideEnsures,
+                    path,
+                    "@fromEntity is the row before a transition and exists only inside its `@ensures`",
+                )
+                .with_suggestion("Read the current row with @entity; state a before/after relation in an `@ensures` under the transition"),
+            );
+        }
+        return result;
+    }
 
     // Validate binding root
     if CORE_BINDING_ROOTS.contains(&root) {
@@ -2426,6 +2474,7 @@ mod tests {
                 "currentTheme",
                 "entity",
                 "event",
+                "fromEntity",
                 "fromState",
                 "locale",
                 "now",
@@ -2503,6 +2552,59 @@ mod tests {
                 );
             }
         }
+    }
+
+    #[test]
+    fn from_entity_is_read_only_inside_an_ensures() {
+        for context in [BindingContext::Guard, BindingContext::Effect, BindingContext::Tick, BindingContext::RenderUI] {
+            assert_eq!(
+                codes("@fromEntity.balance", context),
+                vec![ErrorCode::BindingFromEntityOutsideEnsures],
+                "{context:?}"
+            );
+        }
+        assert!(codes("@fromEntity.balance", BindingContext::Ensures).is_empty());
+        assert!(codes("@entity.balance", BindingContext::Ensures).is_empty(), "control: @entity is the post-state there");
+    }
+
+    #[test]
+    fn a_proposition_over_a_field_the_entity_lacks_is_refused() {
+        let entity: EntityDefinition = serde_json::from_value(serde_json::json!({
+            "name": "Account", "fields": [{ "name": "id", "type": "string" }, { "name": "balance", "type": "number" }]
+        }))
+        .unwrap();
+        let program = |ensures: serde_json::Value, holds: serde_json::Value| -> TraitDefinition {
+            serde_json::from_value(serde_json::json!({
+                "name": "Wallet", "linkedEntity": "Account",
+                "stateMachine": {
+                    "states": [{ "name": "active", "isInitial": true, "holds": holds }],
+                    "events": [{ "key": "SPEND", "name": "Spend", "payloadSchema": [{ "name": "amount", "type": "number", "required": true }] }],
+                    "transitions": [{ "from": "active", "to": "active", "event": "SPEND",
+                        "effects": [["set", "@entity.balance", ["-", "@entity.balance", "@payload.amount"]]], "ensures": [ensures] }]
+                }
+            }))
+            .unwrap()
+        };
+        let defs: HashMap<String, EntityDefinition> = HashMap::from([("Account".to_string(), entity)]);
+        let run = |t: &TraitDefinition| -> Vec<ErrorCode> {
+            validate_trait_bindings(t, "t", &HashSet::from(["Account".to_string()]), &defs, &HashMap::new(), None)
+                .errors
+                .into_iter()
+                .map(|e| e.code)
+                .filter(|c| *c != ErrorCode::BindingEntityFieldNeverSet)
+                .collect()
+        };
+        let ok = serde_json::json!(["=", "@entity.balance", ["-", "@fromEntity.balance", "@payload.amount"]]);
+        let holds = serde_json::json!([">=", "@entity.balance", 0]);
+        assert!(run(&program(ok.clone(), holds.clone())).is_empty(), "control: known fields");
+        let bad_post = serde_json::json!(["=", "@entity.balanse", 0]);
+        assert_eq!(run(&program(bad_post, holds.clone())), vec![ErrorCode::BindingEntityFieldNotFound]);
+        let bad_pre = serde_json::json!(["=", "@entity.balance", "@fromEntity.balanse"]);
+        assert_eq!(run(&program(bad_pre, holds.clone())), vec![ErrorCode::BindingEntityFieldNotFound]);
+        let bad_payload = serde_json::json!(["=", "@entity.balance", "@payload.amont"]);
+        assert_eq!(run(&program(bad_payload, holds)), vec![ErrorCode::BindingPayloadFieldUndeclared]);
+        let bad_holds = serde_json::json!([">=", "@entity.balanse", 0]);
+        assert_eq!(run(&program(ok, bad_holds)), vec![ErrorCode::BindingEntityFieldNotFound]);
     }
 
     #[test]
@@ -2913,6 +3015,7 @@ mod tests {
             persistence: None,
             instances: None,
             id: None,
+            invariants: None,
         };
 
         let entity_defs = HashMap::new();
@@ -2978,6 +3081,7 @@ mod tests {
             persistence: None,
             instances: None,
             id: None,
+            invariants: None,
         };
 
         let entity_defs = HashMap::new();
@@ -3027,6 +3131,7 @@ mod tests {
             persistence: None,
             instances: None,
             id: None,
+            invariants: None,
         };
 
         let mut entity_defs = HashMap::new();
@@ -3134,6 +3239,7 @@ mod tests {
                 } else {
                     Some(effects)
                 },
+                ensures: None,
             })
             .collect();
         orbital_core_base::schema::TraitDefinition {
@@ -3157,6 +3263,7 @@ mod tests {
                     is_terminal: None,
                     description: None,
                     time_bound_ms: None,
+                    holds: None,
                 }],
                 events: None,
                 transitions: trans,
@@ -3519,6 +3626,7 @@ mod tests {
                         is_terminal: None,
                         description: None,
                         time_bound_ms: None,
+                        holds: None,
                     }],
                     events: None,
                     transitions: vec![TransitionDefinition {
@@ -3528,6 +3636,7 @@ mod tests {
                         event: "TRY".to_string(),
                         guard: Some(s("@entity.locked")),
                         effects: None,
+                        ensures: None,
                     }],
                 },
                 ticks: None,
@@ -3582,6 +3691,7 @@ mod tests {
             instances: None,
             fields: vec![],
             id: None,
+            invariants: None,
         }
     }
 
@@ -4081,6 +4191,7 @@ mod tests {
                 instances: None,
                 fields: vec![],
                 id: None,
+                invariants: None,
             },
         );
 

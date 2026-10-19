@@ -314,10 +314,14 @@ pub(crate) fn resolve_sigil_types(schema: &mut OrbitalSchema) {
 /// while the entity it snapshots was fully typed. The whole `row-snapshot`
 /// class of that warning was this function.
 pub(crate) fn payload_field_of(f: &FieldDefinition) -> PayloadField {
-    let union_items = f.field_type == FieldType::Array && f.items.as_deref().is_some_and(|item| item.field_type == FieldType::Union);
+    let union_items = matches!(f.field_type, FieldType::Array | FieldType::Object)
+        && f.properties.is_none()
+        && f.items.as_deref().is_some_and(|item| item.field_type == FieldType::Union);
     // `Object` + `items` is a MAP (dynamic keys, uniform value): it has no
     // properties by construction and carries its value shape in the tag.
-    let tag = if f.field_type == FieldType::Object && f.items.is_some() {
+    let tag = if union_items && f.field_type == FieldType::Object {
+        "object".to_string()
+    } else if f.field_type == FieldType::Object && f.items.is_some() {
         let v = f
             .items
             .as_deref()
@@ -393,7 +397,11 @@ pub(crate) fn payload_field_of(f: &FieldDefinition) -> PayloadField {
         type_when: None,
         entity: None,
         projected_from: None,
-        items: if union_items { f.items.as_deref().map(|item| Box::new(payload_field_of(item))) } else { None },
+        items: if union_items {
+            f.items.as_deref().map(|item| Box::new(PayloadField { name: "item".to_string(), ..payload_field_of(item) }))
+        } else {
+            None
+        },
     }
 }
 

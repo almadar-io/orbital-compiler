@@ -764,6 +764,7 @@ mod tests {
                     projected_from: None,
                 }],
                 id: None,
+                invariants: None,
             },
         );
         let ctx = BindingContext {
@@ -844,6 +845,7 @@ mod tests {
                     projected_from: None,
                 }],
                 id: None,
+                invariants: None,
             },
         );
         let ctx = BindingContext {

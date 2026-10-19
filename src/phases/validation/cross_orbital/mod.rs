@@ -209,6 +209,7 @@ mod tests {
                     fields: vec![],
                     instances: None,
                     id: None,
+                    invariants: None,
                 }),
                 auxiliary_entities: None,
                 traits: vec![],

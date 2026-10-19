@@ -310,6 +310,18 @@ impl<'a> Resolver<'a> {
                 }
             }
         }
+        // The themes it switches to inside a page: their CSS ships too, but none is the default.
+        for key in self.schema.themes.iter().flatten() {
+            let base = key
+                .strip_suffix("-dark")
+                .or_else(|| key.strip_suffix("-light"))
+                .unwrap_or(key);
+            if let Some(theme) = presets.get(base) {
+                if seen_themes.insert(theme.name.clone()) {
+                    module.themes.push(theme.clone());
+                }
+            }
+        }
 
         // Collect services from orbitals (only inline services, skip duplicates)
         let mut seen_services = std::collections::HashSet::new();
@@ -1565,6 +1577,9 @@ fn payload_field_to_oir_type(
 ) -> OirType {
     if let (true, Some(item)) = (field.field_type == "array", field.items.as_deref()) {
         return OirType::array(payload_field_to_oir_type(item, ctx));
+    }
+    if let (true, None, Some(item)) = (field.field_type == "object", &field.properties, field.items.as_deref()) {
+        return OirType::map(OirType::String, payload_field_to_oir_type(item, ctx));
     }
     // Recursive back-reference marker: `properties: Some([])` — present but
     // EMPTY, distinct from the absent (`None`) case `parse_payload_field_type`

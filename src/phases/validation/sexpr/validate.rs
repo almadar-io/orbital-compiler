@@ -138,6 +138,20 @@ pub fn validate_trait_sexprs(
         }
     }
 
+    // Propositions are guard expressions: `@holds` of a state, `@ensures` of a transition.
+    for (k, state) in trait_def.state_machine.states.iter().enumerate() {
+        if let Some(holds) = &state.holds {
+            let p = format!("{}.stateMachine.states[{}].holds", path, k);
+            result.merge(validate_sexpr(holds, &p, SExprContext::Guard, known_entities));
+        }
+    }
+    for (i, transition) in trait_def.state_machine.transitions.iter().enumerate() {
+        for (k, ensures) in transition.ensures.iter().flatten().enumerate() {
+            let p = format!("{}.stateMachine.transitions[{}].ensures[{}]", path, i, k);
+            result.merge(validate_sexpr(ensures, &p, SExprContext::Guard, known_entities));
+        }
+    }
+
     result
 }
 
@@ -560,6 +574,28 @@ fn infix_in_args_suggestion(operator: &str, args: &[SExpression], _max: usize) -
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_proposition_is_checked_like_a_guard() {
+        let program = |ensures: serde_json::Value, holds: serde_json::Value| -> TraitDefinition {
+            serde_json::from_value(serde_json::json!({
+                "name": "T",
+                "stateMachine": {
+                    "states": [{ "name": "s", "isInitial": true, "holds": holds }],
+                    "transitions": [{ "from": "s", "to": "s", "event": "E", "ensures": [ensures] }]
+                }
+            }))
+            .unwrap()
+        };
+        let codes = |t: &TraitDefinition| -> Vec<ErrorCode> {
+            validate_trait_sexprs(t, "t", &HashSet::new()).errors.into_iter().map(|e| e.code).collect()
+        };
+        let ok = serde_json::json!([">=", "@entity.n", 0]);
+        assert!(codes(&program(ok.clone(), ok.clone())).is_empty(), "control: known operators");
+        let unknown = serde_json::json!(["no/such-op", "@entity.n"]);
+        assert!(codes(&program(unknown.clone(), ok.clone())).contains(&ErrorCode::SExprInvalidOperator), "@ensures");
+        assert!(codes(&program(ok, unknown)).contains(&ErrorCode::SExprInvalidOperator), "@holds");
+    }
 
     #[test]
     fn test_valid_guard() {

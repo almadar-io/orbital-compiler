@@ -1334,6 +1334,7 @@ mod entity_prop_contract_tests {
             persistence: None,
             instances: None,
             id: None,
+            invariants: None,
         }
     }
 

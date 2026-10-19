@@ -870,6 +870,8 @@ pub enum ErrorCode {
     BindingPayloadInTick,
     /// `@event`/`@prevEvents`/`@prevStates`/`@fromState`/`@toState` in a tick, which has no delivery
     BindingDispatchRootInTick,
+    /// `@fromEntity` (the row before a transition) outside an `@ensures`
+    BindingFromEntityOutsideEnsures,
     /// `@fromState`/`@toState`/`@prevStates`/`@prevEvents` written with a path
     BindingRootNoPath,
     /// `@event.<path>` that does not follow the `{ event, payload, source }` record
@@ -1371,6 +1373,9 @@ pub enum ErrorCode {
     /// `app-theme-divergent`; the dominant-vote branch is a name/plurality
     /// heuristic and is retired, not ported.
     ThemePinContradictsApp,
+    /// `orb validate --final`: a `data-theme` resolves to a literal theme the program does not declare (app or
+    /// orbital `theme`, or the app's `themes`), so the compiled client ships no stylesheet for it (G-UI-106).
+    ThemeUndeclared,
     /// An access directive reads a binding root other than `@entity`/`@user` —
     /// the directive has no call site, so `@payload`/`@config`/`@state` are
     /// not meaningful there.
@@ -1780,6 +1785,7 @@ impl ErrorCode {
             ErrorCode::BindingNowNoPath => "ORB_BINDING_NOW_NO_PATH",
             ErrorCode::BindingPayloadInTick => "ORB_BINDING_PAYLOAD_IN_TICK",
             ErrorCode::BindingDispatchRootInTick => "ORB_BINDING_DISPATCH_ROOT_IN_TICK",
+            ErrorCode::BindingFromEntityOutsideEnsures => "ORB_BINDING_FROM_ENTITY_OUTSIDE_ENSURES",
             ErrorCode::BindingRootNoPath => "ORB_BINDING_ROOT_NO_PATH",
             ErrorCode::BindingEventInvalidPath => "ORB_BINDING_EVENT_INVALID_PATH",
             ErrorCode::BindingUnknownEntity => "ORB_BINDING_UNKNOWN_ENTITY",
@@ -1906,6 +1912,7 @@ impl ErrorCode {
             ErrorCode::RenderGroupbyEnumColumnGap => "ORB_RENDER_GROUPBY_ENUM_COLUMN_GAP",
             ErrorCode::EmbedConfigForwardMultiReferrer => "ORB_EMBED_CONFIG_FORWARD_MULTI_REFERRER",
             ErrorCode::ThemePinContradictsApp => "ORB_THEME_PIN_CONTRADICTS_APP",
+            ErrorCode::ThemeUndeclared => "ORB_THEME_UNDECLARED",
             ErrorCode::SchemaAccessPolicyInvalidBinding => "ORB_S_ACCESS_POLICY_INVALID_BINDING",
             ErrorCode::SchemaAccessPolicyRequiresIdentity => {
                 "ORB_S_ACCESS_POLICY_REQUIRES_IDENTITY"
@@ -2241,6 +2248,7 @@ impl ErrorCode {
             | ErrorCode::BindingNowNoPath
             | ErrorCode::BindingPayloadInTick
             | ErrorCode::BindingDispatchRootInTick
+            | ErrorCode::BindingFromEntityOutsideEnsures
             | ErrorCode::BindingRootNoPath
             | ErrorCode::BindingEventInvalidPath
             | ErrorCode::BindingUnknownEntity
@@ -2368,6 +2376,7 @@ impl ErrorCode {
             ErrorCode::RenderGroupbyEnumColumnGap => "render_ui",
             ErrorCode::EmbedConfigForwardMultiReferrer => "cross",
             ErrorCode::ThemePinContradictsApp => "schema",
+            ErrorCode::ThemeUndeclared => "schema",
         }
     }
 }

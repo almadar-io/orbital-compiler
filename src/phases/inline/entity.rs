@@ -694,6 +694,7 @@ mod render_ui_pattern_contract_reference_tests {
                 projected_from: None,
             }],
             id: None,
+            invariants: None,
         }
     }
 
@@ -724,6 +725,7 @@ mod render_ui_pattern_contract_reference_tests {
                     is_terminal: None,
                     description: None,
                     time_bound_ms: None,
+                    holds: None,
                 }],
                 events: None,
                 transitions: vec![TransitionDefinition {
@@ -733,6 +735,7 @@ mod render_ui_pattern_contract_reference_tests {
                     event: "INIT".to_string(),
                     guard: None,
                     effects: Some(vec![render_effect]),
+                    ensures: None,
                 }],
             },
             ticks: None,

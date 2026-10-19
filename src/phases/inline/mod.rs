@@ -3209,17 +3209,27 @@ pub(super) fn merge_expectation(into: &mut Vec<ExpectDeclaration>, incoming: Exp
             from,
             event,
             to,
+            ensures,
             strict,
         } => {
-            if let Some(ExpectDeclaration::Transition { strict: existing_strict, .. }) =
+            if let Some(ExpectDeclaration::Transition { ensures: existing_ensures, strict: existing_strict, .. }) =
                 into.iter_mut().find(|d| {
                     matches!(d, ExpectDeclaration::Transition { trait_name: t, from: f, event: e, to: o, .. }
                         if *t == trait_name && *f == from && *e == event && *o == to)
                 })
             {
+                // Both contributors' propositions are owed; a structurally equal one is stored once.
+                if let Some(incoming) = ensures {
+                    let owed = existing_ensures.get_or_insert_with(Vec::new);
+                    for p in incoming {
+                        if !owed.contains(&p) {
+                            owed.push(p);
+                        }
+                    }
+                }
                 *existing_strict |= strict;
             } else {
-                into.push(ExpectDeclaration::Transition { trait_name, from, event, to, strict });
+                into.push(ExpectDeclaration::Transition { trait_name, from, event, to, ensures, strict });
             }
         }
     }
@@ -3228,6 +3238,32 @@ pub(super) fn merge_expectation(into: &mut Vec<ExpectDeclaration>, incoming: Exp
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn merged_transition_expectations_conjoin_their_ensures_and_store_an_equal_one_once() {
+        let edge = |ensures: serde_json::Value, strict: bool| -> ExpectDeclaration {
+            serde_json::from_value(serde_json::json!({
+                "kind": "transition", "traitName": "Wallet", "from": "active", "event": "SPEND", "to": "active",
+                "ensures": ensures, "strict": strict
+            }))
+            .unwrap()
+        };
+        let a = serde_json::json!(["=", "@entity.balance", ["-", "@fromEntity.balance", "@payload.amount"]]);
+        let b = serde_json::json!([">=", "@entity.balance", 0.0]);
+        let mut into = Vec::new();
+        merge_expectation(&mut into, edge(serde_json::json!([a.clone()]), false));
+        merge_expectation(&mut into, edge(serde_json::json!([a.clone(), b.clone()]), true));
+        assert_eq!(into.len(), 1);
+        let merged = serde_json::to_value(&into[0]).unwrap();
+        assert_eq!(merged["ensures"], serde_json::json!([a, b]), "conjunction, the equal one stored once");
+        assert_eq!(merged["strict"], serde_json::json!(true), "a strict contributor keeps it strict");
+        let mut other = Vec::new();
+        merge_expectation(&mut other, edge(serde_json::json!([b]), false));
+        let control: ExpectDeclaration = serde_json::from_value(serde_json::json!({
+            "kind": "transition", "traitName": "Wallet", "from": "idle", "event": "SPEND", "to": "active" })).unwrap();
+        merge_expectation(&mut other, control);
+        assert_eq!(other.len(), 2, "control: a different edge is its own expectation");
+    }
     use std::path::PathBuf;
 
     fn fixtures_dir() -> PathBuf {
@@ -3668,6 +3704,7 @@ mod tests {
                     SExpression::String("ref".to_string()),
                     SExpression::String("ModalRecord".to_string()),
                 ])]),
+                ensures: None,
             });
 
         let linked = "CartItem".to_string();
@@ -3899,6 +3936,7 @@ mod tests {
                 fields: vec![],
                 instances: None,
                 id: None,
+                invariants: None,
             }),
             auxiliary_entities: None,
             traits: vec![TraitReference::Inline(trait_def)],
@@ -4183,6 +4221,7 @@ mod tests {
                 fields: vec![],
                 instances: None,
                 id: None,
+                invariants: None,
             }),
             auxiliary_entities: None,
             traits: vec![],
@@ -4401,6 +4440,7 @@ mod tests {
             ],
             instances: None,
             id: None,
+            invariants: None,
         }
     }
 
@@ -5055,6 +5095,7 @@ mod tests {
                     is_terminal: None,
                     description: None,
                     time_bound_ms: None,
+                    holds: None,
                 }],
                 events: Some(vec![
                     EventDefinition {
@@ -5092,6 +5133,7 @@ mod tests {
                         event: "OPEN".to_string(),
                         guard: None,
                         effects: None,
+                        ensures: None,
                     },
                     TransitionDefinition {
                         event_id: None,
@@ -5100,6 +5142,7 @@ mod tests {
                         event: "CLOSE".to_string(),
                         guard: None,
                         effects: None,
+                        ensures: None,
                     },
                 ],
             },
@@ -5170,6 +5213,7 @@ mod tests {
                     is_terminal: None,
                     description: None,
                     time_bound_ms: None,
+                    holds: None,
                 }],
                 events: Some(vec![EventDefinition {
                     id: None,
@@ -5194,6 +5238,7 @@ mod tests {
                         SExpression::String("emit".to_string()),
                         SExpression::String("OPEN".to_string()),
                     ])]),
+                    ensures: None,
                 }],
             },
             ticks: None,
@@ -5443,6 +5488,7 @@ mod tests {
                         event: "LOAD".to_string(),
                         guard: None,
                         effects: Some(vec![SExpression::Array(vec![s("fetch"), s("Source")])]),
+                        ensures: None,
                     },
                     TransitionDefinition {
                         event_id: None,
@@ -5456,6 +5502,7 @@ mod tests {
                             s("Source"),
                             s("@payload.data"),
                         ])]),
+                        ensures: None,
                     },
                 ],
             },
@@ -5768,6 +5815,7 @@ mod tests {
                 fields: vec![],
                 instances: None,
                 id: None,
+                invariants: None,
             }),
             auxiliary_entities: None,
             traits: vec![],
@@ -5828,6 +5876,7 @@ mod tests {
                 fields: vec![],
                 instances: None,
                 id: None,
+                invariants: None,
             }),
             auxiliary_entities: None,
             traits: vec![],
@@ -5924,6 +5973,7 @@ mod tests {
             ],
             instances: None,
             id: None,
+            invariants: None,
         };
         let imported = EntityDefinition {
             shared: false,
@@ -5946,6 +5996,7 @@ mod tests {
             ],
             instances: None,
             id: None,
+            invariants: None,
         };
 
         // Not testing the field-usage narrowing here — assert this test's
@@ -5989,6 +6040,7 @@ mod tests {
             ],
             instances: None,
             id: None,
+            invariants: None,
         };
         let imported = EntityDefinition {
             shared: false,
@@ -6010,6 +6062,7 @@ mod tests {
             ],
             instances: None,
             id: None,
+            invariants: None,
         };
 
         let referenced: HashSet<String> = ["description", "status"]
@@ -6052,6 +6105,7 @@ mod tests {
             ],
             instances: None,
             id: None,
+            invariants: None,
         };
         let imported = EntityDefinition {
             shared: false,
@@ -6077,6 +6131,7 @@ mod tests {
             ],
             instances: None,
             id: None,
+            invariants: None,
         };
 
         // Every imported field is treated as referenced — this test is about
@@ -6131,6 +6186,7 @@ mod tests {
             fields: vec![make_field("id", FieldType::String)],
             instances: None,
             id: None,
+            invariants: None,
         };
         let import_browse = EntityDefinition {
             shared: false,
@@ -6153,6 +6209,7 @@ mod tests {
             ],
             instances: None,
             id: None,
+            invariants: None,
         };
         let import_modal = EntityDefinition {
             shared: false,
@@ -6175,6 +6232,7 @@ mod tests {
             ],
             instances: None,
             id: None,
+            invariants: None,
         };
 
         // First import adds name, status.
@@ -6232,6 +6290,7 @@ mod tests {
             ],
             instances: None,
             id: None,
+            invariants: None,
         };
         let original_len = caller.fields.len();
 
@@ -6268,6 +6327,7 @@ mod tests {
             fields: vec![make_field("id", FieldType::String)],
             instances: None,
             id: Some("ent_CALLER_TICKET".to_string()),
+            invariants: None,
         };
 
         let mut replies_field = make_field("replies", FieldType::Relation);
@@ -6294,6 +6354,7 @@ mod tests {
             fields: vec![make_field("id", FieldType::String), replies_field],
             instances: None,
             id: Some("ent_IMPORTED_THREADPOST".to_string()),
+            invariants: None,
         };
 
         let referenced: HashSet<String> = ["replies"].into_iter().map(String::from).collect();
@@ -6355,6 +6416,7 @@ mod tests {
             fields: vec![content_field],
             instances: None,
             id: None,
+            invariants: None,
         };
 
         let mut name_field = make_field("name", FieldType::String);
@@ -6376,6 +6438,7 @@ mod tests {
             fields: vec![name_field],
             instances: None,
             id: None,
+            invariants: None,
         };
 
         let referenced: HashSet<String> = ["name"].into_iter().map(String::from).collect();
@@ -6434,6 +6497,7 @@ mod tests {
                 fields: vec![make_field("stateField", FieldType::String)],
                 instances: None,
                 id: None,
+                invariants: None,
             }),
             auxiliary_entities: None,
             traits: vec![TraitReference::Inline(make_trait("StateTrait"))],
@@ -6477,6 +6541,7 @@ mod tests {
                 ],
                 instances: None,
                 id: None,
+                invariants: None,
             }),
             auxiliary_entities: None,
             traits: vec![TraitReference::Inline(make_trait("ActionTrait"))],
@@ -6596,6 +6661,7 @@ mod tests {
             ],
             instances: None,
             id: None,
+            invariants: None,
         };
         let trait_ref = TraitReference::Reference {
             local: false,
@@ -7349,6 +7415,7 @@ mod tests {
                 .collect(),
             instances: None,
             id: None,
+            invariants: None,
         }
     }
 
@@ -8229,6 +8296,7 @@ mod tests {
                         ),
                     ]),
                 ]),
+                ensures: None,
             });
 
         let own = trait_referenced_fields_of_entity(&trait_def, &bound, true);

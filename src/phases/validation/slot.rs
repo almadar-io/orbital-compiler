@@ -575,6 +575,7 @@ mod tests {
                     is_terminal: None,
                     description: None,
                     time_bound_ms: None,
+                    holds: None,
                 }],
                 events: None,
                 transitions: vec![TransitionDefinition {
@@ -592,6 +593,7 @@ mod tests {
                                 .collect(),
                         ),
                     ])]),
+                    ensures: None,
                 }],
             },
             ticks: None,
@@ -698,6 +700,7 @@ mod tests {
                             .collect(),
                     ),
                 ])]),
+                ensures: None,
             });
         }
         transitions.push(TransitionDefinition {
@@ -715,6 +718,7 @@ mod tests {
                         .collect(),
                 ),
             ])]),
+            ensures: None,
         });
         // Loop transition from `second` so it stays reachable and also renders.
         transitions.push(TransitionDefinition {
@@ -732,6 +736,7 @@ mod tests {
                         .collect(),
                 ),
             ])]),
+            ensures: None,
         });
 
         TraitDefinition {
@@ -756,6 +761,7 @@ mod tests {
                         is_terminal: None,
                         description: None,
                         time_bound_ms: None,
+                        holds: None,
                     },
                     StateDefinition {
                         name: "second".to_string(),
@@ -763,6 +769,7 @@ mod tests {
                         is_terminal: None,
                         description: None,
                         time_bound_ms: None,
+                        holds: None,
                     },
                 ],
                 events: None,
@@ -926,6 +933,7 @@ mod tests {
                     is_terminal: None,
                     description: None,
                     time_bound_ms: None,
+                    holds: None,
                 },
                 StateDefinition {
                     name: "orphan".to_string(),
@@ -933,6 +941,7 @@ mod tests {
                     is_terminal: None,
                     description: None,
                     time_bound_ms: None,
+                    holds: None,
                 },
             ],
             events: None,
@@ -952,6 +961,7 @@ mod tests {
                                 .collect(),
                         ),
                     ])]),
+                    ensures: None,
                 },
                 // No transition leads to `orphan`, so this render must be ignored.
                 TransitionDefinition {
@@ -969,6 +979,7 @@ mod tests {
                                 .collect(),
                         ),
                     ])]),
+                    ensures: None,
                 },
             ],
         };

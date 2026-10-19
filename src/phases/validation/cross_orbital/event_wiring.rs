@@ -968,6 +968,7 @@ mod tests {
                     fields: vec![],
                     instances: None,
                     id: None,
+                    invariants: None,
                 }),
                 auxiliary_entities: None,
                 traits: vec![],
@@ -1207,6 +1208,7 @@ mod tests {
                 is_terminal: None,
                 description: None,
                 time_bound_ms: None,
+                holds: None,
             }],
             events: None,
             transitions: vec![TransitionDefinition {
@@ -1216,6 +1218,7 @@ mod tests {
                 event_id: None,
                 guard: None,
                 effects: Some(vec![effect]),
+                ensures: None,
             }],
         };
         td
@@ -1694,6 +1697,7 @@ mod tests {
                     orbital_core_base::schema::SExpression::String("emit".to_string()),
                     orbital_core_base::schema::SExpression::String(event.to_string()),
                 ])]),
+                ensures: None,
             }];
         }
         td
@@ -1795,6 +1799,7 @@ mod tests {
             is_terminal: None,
             description: None,
             time_bound_ms: None,
+            holds: None,
         }];
         def.state_machine.transitions = vec![orbital_core_base::schema::TransitionDefinition {
             event_id: None,
@@ -1820,6 +1825,7 @@ mod tests {
                     .collect(),
                 ),
             ])]),
+            ensures: None,
         }];
     }
 
@@ -1927,6 +1933,7 @@ mod tests {
                 is_terminal: None,
                 description: None,
                 time_bound_ms: None,
+                holds: None,
             }];
             def.state_machine.transitions = vec![orbital_core_base::schema::TransitionDefinition {
                 event_id: None,
@@ -1952,6 +1959,7 @@ mod tests {
                         .collect(),
                     ),
                 ])]),
+                ensures: None,
             }];
         }
         td
@@ -2017,6 +2025,7 @@ mod tests {
                         .collect(),
                     ),
                 ])]),
+                ensures: None,
             }];
         }
         schema.orbitals[0].traits = vec![td];

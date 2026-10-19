@@ -620,6 +620,7 @@ mod tests {
                 fields: vec![],
                 instances: None,
                 id: None,
+                invariants: None,
             })
         };
         let orbital =
@@ -813,6 +814,7 @@ mod tests {
             is_terminal: None,
             description: None,
             time_bound_ms: None,
+            holds: None,
         }
     }
 
@@ -829,6 +831,7 @@ mod tests {
             event: event.to_string(),
             guard: None,
             effects: effects_json.map(|json| vec![serde_json::from_str(json).unwrap()]),
+            ensures: None,
         }
     }
 

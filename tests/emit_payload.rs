@@ -100,6 +100,7 @@ fn schema_with_emit(emit: SExpression, declared: EmitDefinition) -> OrbitalSchem
         }],
         instances: None,
         id: None,
+        invariants: None,
     };
     let trait_def = TraitDefinition {
         effect_row: None,
@@ -120,6 +121,7 @@ fn schema_with_emit(emit: SExpression, declared: EmitDefinition) -> OrbitalSchem
                 is_terminal: None,
                 description: None,
                 time_bound_ms: None,
+                holds: None,
             }],
             events: Some(vec![]),
             transitions: vec![TransitionDefinition {
@@ -129,6 +131,7 @@ fn schema_with_emit(emit: SExpression, declared: EmitDefinition) -> OrbitalSchem
                 event: "INIT".to_string(),
                 guard: None,
                 effects: Some(vec![emit]),
+                ensures: None,
             }],
         },
         emits: Some(vec![declared]),

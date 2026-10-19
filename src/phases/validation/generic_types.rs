@@ -45,6 +45,11 @@ fn warn(path: &str, position: &str, declared: &str) -> ValidationError {
 
 fn check_payload_field(field: &PayloadField, path: &str, result: &mut ValidationResult) {
     let field_path = format!("{}.{}", path, field.name);
+    // A list or map whose element is itself a typed field (`[(A | B)]`, `Map string (A | B)`) is typed by that element.
+    if let Some(item) = &field.items {
+        check_payload_field(item, &format!("{field_path}[]"), result);
+        return;
+    }
     let base = base_type(&field.field_type);
     match base {
         "json" | "any" | "scalar" => {
@@ -273,6 +278,27 @@ mod tests {
         let typed = payload("object", Some(vec![payload("string", None)]));
         check_payload_field(&typed, "t.emits.E", &mut result);
         assert!(result.errors.is_empty());
+    }
+
+    #[test]
+    fn a_payload_map_or_list_of_a_union_is_typed_by_its_items() {
+        let union = payload("union", Some(vec![payload("string", None), payload("number", None)]));
+        for container in ["object", "array"] {
+            let mut field = payload(container, None);
+            field.items = Some(Box::new(union.clone()));
+            let mut result = ValidationResult::new();
+            check_payload_field(&field, "t.emits.E", &mut result);
+            assert!(result.errors.is_empty(), "{container} + items: {:?}", result.errors);
+        }
+    }
+
+    #[test]
+    fn control_a_generic_inside_payload_items_is_still_found() {
+        let mut field = payload("object", None);
+        field.items = Some(Box::new(payload("json", None)));
+        let mut result = ValidationResult::new();
+        check_payload_field(&field, "t.emits.E", &mut result);
+        assert_eq!(result.errors.len(), 1);
     }
 
     #[test]

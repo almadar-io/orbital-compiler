@@ -1119,7 +1119,7 @@ fn rewrite_identifiers_inner(
 /// … — `fn`/`lambda` parameter names are open-ended, not a fixed sigil
 /// vocabulary) is out of scope: there is no enumerable "every row alias"
 /// set to dispatch on, only the two orbital-core documents by name.
-const ROW_ALIAS_SIGILS: &[&str] = &["@entity.", "@item.", "@row."];
+const ROW_ALIAS_SIGILS: &[&str] = &["@entity.", "@item.", "@row.", "@fromEntity."];
 
 /// Rewrite `@entity.<old>` / `@item.<old>` / `@row.<old>` reads to their
 /// `<new>` counterpart per the call-site `fields` remap map (G3, `docs/
@@ -1574,6 +1574,9 @@ pub(crate) fn apply_inline_config_defaults(
     coerce_trait_knob_conditions(trait_def, &trait_knobs, &effective_config);
     let cfg = &effective_config;
     record_config_provenance(trait_def, cfg, recorder);
+    for p in trait_def.propositions_mut() {
+        rewrite_config_bindings(p, cfg);
+    }
     for transition in trait_def.state_machine.transitions.iter_mut() {
         if let Some(guard) = transition.guard.as_mut() {
             rewrite_config_bindings(guard, cfg);
@@ -1657,6 +1660,9 @@ pub(crate) fn coerce_trait_knob_conditions(
         for item in arr.iter_mut() {
             walk(item, trait_knobs, effective_config);
         }
+    }
+    for p in trait_def.propositions_mut() {
+        walk(p, trait_knobs, effective_config);
     }
     for transition in trait_def.state_machine.transitions.iter_mut() {
         if let Some(guard) = transition.guard.as_mut() {

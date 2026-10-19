@@ -111,6 +111,7 @@ pub(super) fn shape_as_identity_entity(name: &str, shape: &[FieldDefinition]) ->
         fields: shape.to_vec(),
         instances: None,
         id: None,
+        invariants: None,
     }
 }
 
@@ -153,11 +154,51 @@ fn validate_propositions(schema: &OrbitalSchema, result: &mut ValidationResult) 
         let (what, path) = match &finding.proposition {
             Proposition::Row { entity, expr } => (
                 format!("`@invariant {}` of entity `{entity}`", format_sexpr(expr)),
-                proposition_path(schema, |e| matches!(e, ExpectDeclaration::Entity { name, invariants: Some(list), .. } if name == entity && list.contains(expr))),
+                proposition_path(
+                    schema,
+                    |e| matches!(e, ExpectDeclaration::Entity { name, invariants: Some(list), .. } if name == entity && list.contains(expr)),
+                    |o| {
+                        std::iter::once(&o.entity).chain(o.auxiliary_entities.iter().flatten()).enumerate().find_map(|(k, e)| match e {
+                            orbital_core_base::schema::EntityRef::Inline(def) if def.name == *entity && def.invariants.iter().flatten().any(|i| i == expr) => {
+                                Some(if k == 0 { "entity".to_string() } else { format!("auxiliaryEntities[{}]", k - 1) })
+                            }
+                            _ => None,
+                        })
+                    },
+                ),
             ),
             Proposition::State { trait_name, state, expr } => (
                 format!("`state {state} @holds {}` of trait `{trait_name}`", format_sexpr(expr)),
-                proposition_path(schema, |e| matches!(e, ExpectDeclaration::State { trait_name: t, state: s, holds: Some(_), .. } if t == trait_name && s == state)),
+                proposition_path(
+                    schema,
+                    |e| matches!(e, ExpectDeclaration::State { trait_name: t, state: s, holds: Some(_), .. } if t == trait_name && s == state),
+                    |o| {
+                        body_trait(o, trait_name).and_then(|(j, td)| {
+                            td.state_machine
+                                .states
+                                .iter()
+                                .position(|s| s.name == *state && s.holds.as_ref() == Some(expr))
+                                .map(|k| format!("traits[{j}].stateMachine.states[{k}]"))
+                        })
+                    },
+                ),
+            ),
+            Proposition::Transition { trait_name, from, event, to, expr } => (
+                format!("`{from} --{event}--> {to} @ensures {}` of trait `{trait_name}`", format_sexpr(expr)),
+                proposition_path(
+                    schema,
+                    |e| matches!(e, ExpectDeclaration::Transition { trait_name: t, from: f, event: v, to: o, ensures: Some(list), .. }
+                        if t == trait_name && f == from && v == event && o == to && list.contains(expr)),
+                    |o| {
+                        body_trait(o, trait_name).and_then(|(j, td)| {
+                            td.state_machine
+                                .transitions
+                                .iter()
+                                .position(|t| t.event == *event && t.to == *to && t.from.states().contains(&from.as_str()) && t.ensures.iter().flatten().any(|e| e == expr))
+                                .map(|k| format!("traits[{j}].stateMachine.transitions[{k}]"))
+                        })
+                    },
+                ),
             ),
         };
         let suggestion = match code {
@@ -168,14 +209,24 @@ fn validate_propositions(schema: &OrbitalSchema, result: &mut ValidationResult) 
     }
 }
 
-/// The path of the first `expects` entry that carries the proposition.
-fn proposition_path(schema: &OrbitalSchema, matches: impl Fn(&ExpectDeclaration) -> bool) -> String {
-    schema
-        .orbitals
-        .iter()
-        .enumerate()
+/// The path of the first `expects` entry that carries the proposition, else of the real declaration that states it.
+fn proposition_path(
+    schema: &OrbitalSchema,
+    matches: impl Fn(&ExpectDeclaration) -> bool,
+    in_body: impl Fn(&orbital_core_base::schema::Orbital) -> Option<String>,
+) -> String {
+    let orbitals = || schema.orbitals.iter().enumerate();
+    orbitals()
         .find_map(|(i, o)| o.expects.iter().flatten().position(&matches).map(|j| format!("orbitals[{i}].expects[{j}]")))
+        .or_else(|| orbitals().find_map(|(i, o)| in_body(o).map(|p| format!("orbitals[{i}].{p}"))))
         .unwrap_or_else(|| "orbitals".to_string())
+}
+
+fn body_trait<'a>(o: &'a orbital_core_base::schema::Orbital, name: &str) -> Option<(usize, &'a orbital_core_base::schema::TraitDefinition)> {
+    o.traits.iter().enumerate().find_map(|(j, t)| match t {
+        orbital_core_base::schema::TraitReference::Inline(td) if td.name == name => Some((j, td)),
+        _ => None,
+    })
 }
 
 // =============================================================================

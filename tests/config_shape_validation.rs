@@ -143,6 +143,7 @@ fn schema_with_config(config: HashMap<String, ConfigField>) -> OrbitalSchema {
         }],
         instances: None,
         id: None,
+        invariants: None,
     };
     let trait_def = TraitDefinition {
         effect_row: None,
@@ -163,6 +164,7 @@ fn schema_with_config(config: HashMap<String, ConfigField>) -> OrbitalSchema {
                 is_terminal: None,
                 description: None,
                 time_bound_ms: None,
+                holds: None,
             }],
             events: Some(vec![]),
             transitions: vec![TransitionDefinition {
@@ -172,6 +174,7 @@ fn schema_with_config(config: HashMap<String, ConfigField>) -> OrbitalSchema {
                 event: "INIT".to_string(),
                 guard: None,
                 effects: Some(vec![]),
+                ensures: None,
             }],
         },
         emits: None,

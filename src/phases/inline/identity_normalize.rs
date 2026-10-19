@@ -278,6 +278,9 @@ fn normalize_trait_entity_tokens(
     }
 
     let no_events: HashMap<String, String> = HashMap::new();
+    for p in td.propositions_mut() {
+        rewrite_identifiers(p, &entity_subs, &no_events);
+    }
     for transition in td.state_machine.transitions.iter_mut() {
         if let Some(guard) = transition.guard.as_mut() {
             rewrite_identifiers(guard, &entity_subs, &no_events);

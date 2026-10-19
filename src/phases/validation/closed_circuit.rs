@@ -3002,6 +3002,7 @@ mod tests {
                     is_terminal: None,
                     description: None,
                     time_bound_ms: None,
+                    holds: None,
                 },
                 StateDefinition {
                     name: "viewing".to_string(),
@@ -3009,6 +3010,7 @@ mod tests {
                     is_terminal: None,
                     description: None,
                     time_bound_ms: None,
+                    holds: None,
                 },
             ],
             events: None,
@@ -3019,6 +3021,7 @@ mod tests {
                 event: "VIEW".to_string(),
                 guard: None,
                 effects: None,
+                ensures: None,
             }],
         }
     }
@@ -3219,6 +3222,7 @@ mod tests {
                     is_terminal: None,
                     description: None,
                     time_bound_ms: None,
+                    holds: None,
                 },
                 StateDefinition {
                     name: "orphan".to_string(), // No incoming transitions
@@ -3226,6 +3230,7 @@ mod tests {
                     is_terminal: None,
                     description: None,
                     time_bound_ms: None,
+                    holds: None,
                 },
             ],
             events: None,
@@ -3429,6 +3434,7 @@ mod tests {
                     is_terminal: None,
                     description: None,
                     time_bound_ms: None,
+                    holds: None,
                 }],
                 events: None,
                 transitions: vec![TransitionDefinition {
@@ -3438,6 +3444,7 @@ mod tests {
                     event_id: None,
                     guard: None,
                     effects: None,
+                    ensures: None,
                 }],
             },
             ticks: None,
@@ -3479,6 +3486,7 @@ mod tests {
             } else {
                 Some(effects)
             },
+            ensures: None,
         }
     }
 
@@ -3489,6 +3497,7 @@ mod tests {
             is_terminal: None,
             description: None,
             time_bound_ms: None,
+            holds: None,
         }
     }
 

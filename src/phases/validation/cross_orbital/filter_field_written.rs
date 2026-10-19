@@ -515,6 +515,7 @@ mod tests {
             event: event.to_string(),
             guard: None,
             effects: Some(effects),
+            ensures: None,
         }
     }
 
@@ -598,6 +599,7 @@ mod tests {
             update_policy: None,
             delete_policy: None,
             access_waivers: None,
+            invariants: None,
         }
     }
 

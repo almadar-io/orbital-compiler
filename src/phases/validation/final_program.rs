@@ -22,6 +22,7 @@ pub fn validate_final_program(schema: &OrbitalSchema) -> ValidationResult {
     result.merge(validate_controls_handled(schema));
     result.merge(super::effect::validate_final_os_targets(schema));
     result.merge(super::effect::validate_final_cancel_keys(schema));
+    result.merge(super::theme::validate_final_data_themes(schema));
     for error in super::composed_wiring::discarded_offered_values(schema) {
         result.add_error(error);
     }

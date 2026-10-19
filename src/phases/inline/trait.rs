@@ -314,6 +314,10 @@ pub(crate) fn apply_overrides_to_trait(
 
     // 4. Walk SExpressions in transitions and ticks ONCE with both maps.
     if !entity_subs.is_empty() || !event_subs.is_empty() || !field_subs.is_empty() {
+        for p in trait_def.propositions_mut() {
+            rewrite_identifiers(p, &entity_subs, &event_subs);
+            rewrite_entity_field_paths(p, &field_subs);
+        }
         for transition in trait_def.state_machine.transitions.iter_mut() {
             if let Some(guard) = transition.guard.as_mut() {
                 rewrite_identifiers(guard, &entity_subs, &event_subs);
@@ -603,6 +607,9 @@ pub(crate) fn apply_overrides_to_trait(
             .collect();
         let cfg = &subst_config;
         {
+            for p in trait_def.propositions_mut() {
+                rewrite_config_bindings(p, cfg);
+            }
             for transition in trait_def.state_machine.transitions.iter_mut() {
                 if let Some(guard) = transition.guard.as_mut() {
                     rewrite_config_bindings(guard, cfg);
@@ -3022,6 +3029,7 @@ mod entity_id_reader_tests {
                     is_terminal: None,
                     description: None,
                     time_bound_ms: None,
+                    holds: None,
                 }],
                 events,
                 transitions: vec![TransitionDefinition {
@@ -3035,6 +3043,7 @@ mod entity_id_reader_tests {
                         s("main"),
                         s(&format!("@config.{knob}")),
                     ])]),
+                    ensures: None,
                 }],
             },
             ticks: None,
@@ -3192,6 +3201,7 @@ mod entity_id_reader_tests {
                     is_terminal: None,
                     description: None,
                     time_bound_ms: None,
+                    holds: None,
                 }],
                 events: None,
                 transitions: vec![TransitionDefinition {
@@ -3219,6 +3229,7 @@ mod entity_id_reader_tests {
                             .collect(),
                         ),
                     ])]),
+                    ensures: None,
                 }],
             },
             ticks: None,

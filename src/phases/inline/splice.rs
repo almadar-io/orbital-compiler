@@ -461,6 +461,7 @@ mod tests {
                     is_terminal: None,
                     description: None,
                     time_bound_ms: None,
+                    holds: None,
                 }],
                 events: None,
                 transitions: vec![TransitionDefinition {
@@ -470,6 +471,7 @@ mod tests {
                     event: "INIT".to_string(),
                     guard: None,
                     effects: Some(vec![arr(vec![s("render-ui"), s("main"), pattern])]),
+                    ensures: None,
                 }],
             },
             ticks: None,
@@ -541,6 +543,7 @@ mod tests {
                 fields: vec![],
                 instances: None,
                 id: None,
+                invariants: None,
             }),
             auxiliary_entities: None,
             traits: traits.into_iter().map(TraitReference::Inline).collect(),
@@ -611,6 +614,7 @@ mod tests {
             is_terminal: None,
             description: None,
             time_bound_ms: None,
+            holds: None,
         });
         assert!(
             render_only_template(&multi).is_none(),
@@ -727,6 +731,7 @@ mod tests {
             is_terminal: None,
             description: None,
             time_bound_ms: None,
+            holds: None,
         });
         let host = host_with_render("Host", lambda_render_pattern(vec![s("@trait.Modal")]));
         let mut orbital = make_orbital(vec![host, stateful]);

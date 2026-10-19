@@ -318,6 +318,7 @@ mod tests {
                     fields: vec![],
                     instances: None,
                     id: None,
+                    invariants: None,
                 }),
                 auxiliary_entities: None,
                 traits,
@@ -412,6 +413,7 @@ mod tests {
                 is_terminal: None,
                 description: None,
                 time_bound_ms: None,
+                holds: None,
             }],
             events: None,
             transitions: vec![TransitionDefinition {
@@ -421,6 +423,7 @@ mod tests {
                 event_id: None,
                 guard: None,
                 effects: Some(vec![render_effect]),
+                ensures: None,
             }],
         };
         td

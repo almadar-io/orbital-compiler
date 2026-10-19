@@ -9,7 +9,7 @@
 //!     once the upstream std `return_semantics` tagging lands, the codegen
 //!     element-type path both consume it — never a second tree-walker).
 //!
-//! Walks the sibling crates' `src/` from this crate's manifest dir.
+//! Walks the sibling crates' `src/` (and a split crate's `crates/*/src/`) from this crate's manifest dir.
 
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -37,8 +37,15 @@ fn crate_src(crate_name: &str) -> String {
             }
         }
     }
+    let root = crates_root().join(crate_name);
     let mut out = String::new();
-    walk(&crates_root().join(crate_name).join("src"), &mut out);
+    walk(&root.join("src"), &mut out);
+    // A crate split into a workspace of its own (orbital-core: base, eval, runtime) counts every member's `src/`.
+    if let Ok(members) = fs::read_dir(root.join("crates")) {
+        for member in members.flatten() {
+            walk(&member.path().join("src"), &mut out);
+        }
+    }
     out
 }
 

@@ -1506,6 +1506,7 @@ mod tests {
                     is_terminal: None,
                     description: None,
                     time_bound_ms: None,
+                    holds: None,
                 },
                 StateDefinition {
                     name: "active".to_string(),
@@ -1513,6 +1514,7 @@ mod tests {
                     is_terminal: None,
                     description: None,
                     time_bound_ms: None,
+                    holds: None,
                 },
             ],
             events: Some(vec![
@@ -1565,6 +1567,7 @@ mod tests {
                             m
                         }),
                     ])]),
+                    ensures: None,
                 },
                 TransitionDefinition {
                     event_id: None,
@@ -1573,6 +1576,7 @@ mod tests {
                     event: "START".to_string(),
                     guard: None,
                     effects: None,
+                    ensures: None,
                 },
             ],
         }
@@ -1866,6 +1870,7 @@ mod tests {
             is_terminal: None,
             description: None,
             time_bound_ms: None,
+            holds: None,
         });
 
         let result = validate_trait_definition(&trait_def, "test", &HashSet::new());
@@ -1935,6 +1940,7 @@ mod tests {
                 .collect(),
             instances: None,
             id: None,
+            invariants: None,
         }
     }
 
@@ -2059,6 +2065,7 @@ mod tests {
             is_terminal: None,
             description: None,
             time_bound_ms: None,
+            holds: None,
         });
 
         let result = validate_trait_definition(&trait_def, "test", &HashSet::new());

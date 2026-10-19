@@ -983,3 +983,94 @@ fn ref_entry_call_site_config_forward_dangling_key_stays_unresolved_and_is_flagg
             .collect::<Vec<_>>()
     );
 }
+
+// ---------------------------------------------------------------------------
+// Propositions travel with the atom: `@holds` and `@ensures` get the same config
+// fold and field renames as the guards and effects beside them.
+// ---------------------------------------------------------------------------
+
+const PROPOSITION_ATOM: &str = r#"{
+  "name": "test-proposition-atom",
+  "version": "1.0.0",
+  "orbitals": [{
+    "name": "CounterOrbital",
+    "entity": { "name": "Counter", "persistence": "runtime", "fields": [
+      { "name": "id", "type": "string", "required": true },
+      { "name": "count", "type": "number", "default": 0 }
+    ] },
+    "traits": [{
+      "name": "Count",
+      "linkedEntity": "Counter",
+      "category": "interaction",
+      "config": { "step": { "type": "number", "default": 1 } },
+      "stateMachine": {
+        "states": [{ "name": "idle", "isInitial": true, "holds": [">=", "@entity.count", 0] }],
+        "events": [{ "key": "BUMP", "name": "Bump" }],
+        "transitions": [{ "from": "idle", "to": "idle", "event": "BUMP",
+          "effects": [["set", "@entity.count", ["+", "@entity.count", "@config.step"]]],
+          "ensures": [["=", "@entity.count", ["+", "@fromEntity.count", "@config.step"]]] }]
+      }
+    }]
+  }]
+}"#;
+
+fn composed_count(reference_extra: &str) -> orbital_core_base::schema::TraitDefinition {
+    let dir = tempfile::TempDir::new().expect("temp dir");
+    std::fs::write(dir.path().join("atom.orb"), PROPOSITION_ATOM).expect("write atom");
+    let composer = format!(
+        r#"{{
+  "name": "test-proposition-composer", "version": "1.0.0",
+  "orbitals": [{{
+    "name": "TallyOrbital",
+    "uses": [{{ "from": "./atom.orb", "as": "Atom" }}],
+    "entity": {{ "name": "Tally", "persistence": "runtime", "fields": [
+      {{ "name": "id", "type": "string", "required": true }},
+      {{ "name": "total", "type": "number", "default": 0 }}
+    ] }},
+    "traits": [{{ "ref": "Atom.traits.Count", "linkedEntity": "Tally"{reference_extra} }}]
+  }}]
+}}"#
+    );
+    let path = dir.path().join("composer.orb");
+    std::fs::write(&path, composer).expect("write composer");
+    let mut schema = parse_file(&path).expect("composer parses");
+    inline_schema(&mut schema, &InlineConfig::default(), Some(&path)).expect("inline");
+    schema.orbitals[0]
+        .traits
+        .iter()
+        .find_map(|t| match t {
+            TraitReference::Inline(def) if def.name == "Count" => Some(def.clone()),
+            _ => None,
+        })
+        .expect("inlined Count")
+}
+
+#[test]
+fn a_composed_atoms_propositions_get_its_config_fold_and_field_renames() {
+    let t = composed_count(r#", "config": { "step": { "type": "number", "default": 5 } }, "fields": { "count": "total" }"#);
+    let json = |e: &SExpression| serde_json::to_value(e).unwrap();
+    let bump = t.state_machine.transitions.iter().find(|tr| tr.event == "BUMP").unwrap();
+    assert_eq!(
+        json(&bump.effects.as_ref().unwrap()[0]),
+        serde_json::json!(["set", "@entity.total", ["+", "@entity.total", 5.0]]),
+        "the effect beside it is folded and renamed"
+    );
+    assert_eq!(
+        json(&bump.ensures.as_ref().unwrap()[0]),
+        serde_json::json!(["=", "@entity.total", ["+", "@fromEntity.total", 5.0]]),
+        "the @ensures is folded and renamed the same way, @fromEntity included"
+    );
+    assert_eq!(
+        json(t.state_machine.states[0].holds.as_ref().unwrap()),
+        serde_json::json!([">=", "@entity.total", 0.0]),
+        "the @holds follows the field rename"
+    );
+}
+
+#[test]
+fn control_an_atom_composed_without_overrides_keeps_its_propositions() {
+    let t = composed_count("");
+    let bump = t.state_machine.transitions.iter().find(|tr| tr.event == "BUMP").unwrap();
+    let ensures = serde_json::to_value(&bump.ensures.as_ref().unwrap()[0]).unwrap();
+    assert_eq!(ensures, serde_json::json!(["=", "@entity.count", ["+", "@fromEntity.count", 1.0]]), "the declared default is folded");
+}

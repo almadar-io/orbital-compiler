@@ -106,6 +106,7 @@ mod tests {
             } else {
                 Some(effects)
             },
+            ensures: None,
         }
     }
 
@@ -116,6 +117,7 @@ mod tests {
             is_terminal: None,
             description: None,
             time_bound_ms: None,
+            holds: None,
         }
     }
 

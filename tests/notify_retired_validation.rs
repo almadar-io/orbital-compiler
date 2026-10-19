@@ -46,6 +46,7 @@ fn schema_with_effects(effects: Vec<SExpression>) -> OrbitalSchema {
         }],
         instances: None,
         id: None,
+        invariants: None,
     };
 
     let trait_def = TraitDefinition {
@@ -67,6 +68,7 @@ fn schema_with_effects(effects: Vec<SExpression>) -> OrbitalSchema {
                 is_terminal: None,
                 description: None,
                 time_bound_ms: None,
+                holds: None,
             }],
             events: Some(vec![]),
             transitions: vec![TransitionDefinition {
@@ -76,6 +78,7 @@ fn schema_with_effects(effects: Vec<SExpression>) -> OrbitalSchema {
                 event: "INIT".to_string(),
                 guard: None,
                 effects: Some(effects),
+                ensures: None,
             }],
         },
         emits: None,

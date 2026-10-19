@@ -125,6 +125,9 @@ fn apply_overrides_to_page(
                                     *le = to.clone();
                                 }
                             }
+                            for p in inline_trait.propositions_mut() {
+                                rewrite_identifiers(p, &trait_subs, &event_subs);
+                            }
                             for transition in inline_trait.state_machine.transitions.iter_mut() {
                                 if let Some(guard) = transition.guard.as_mut() {
                                     rewrite_identifiers(guard, &trait_subs, &event_subs);

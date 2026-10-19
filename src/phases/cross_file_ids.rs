@@ -518,6 +518,7 @@ mod tests {
             update_policy: None,
             delete_policy: None,
             access_waivers: None,
+            invariants: None,
         }
     }
 
