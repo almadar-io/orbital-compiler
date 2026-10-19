@@ -43,6 +43,7 @@ pub fn validate_all_themes(schema: &OrbitalSchema, ctx: &mut ValidationContext) 
         ctx.merge(validate_theme_ref(&ThemeRef::Reference(key.clone()), &path, &inline_names));
     }
     ctx.merge(validate_theme_pin_matches_app(schema));
+    ctx.merge(validate_data_themes(schema));
 }
 
 /// A theme key's base: `"clay-dark"` and `"clay-light"` are both `"clay"`, whose stylesheet carries both modes.
@@ -99,9 +100,9 @@ fn collect_data_themes<'a>(expr: &'a SExpression, trait_def: &'a TraitDefinition
     }
 }
 
-/// `ORB_THEME_UNDECLARED` (`orb validate --final`, G-UI-106): a `data-theme` resolving to a literal theme the
-/// program does not declare. A compiled client ships only the declared themes, so that frame would be unstyled.
-pub fn validate_final_data_themes(schema: &OrbitalSchema) -> ValidationResult {
+/// `ORB_THEME_UNDECLARED` (G-UI-106): a `data-theme` resolving to a literal theme the program does not declare. A
+/// compiled client ships only the declared themes, so that frame would be unstyled.
+pub fn validate_data_themes(schema: &OrbitalSchema) -> ValidationResult {
     let mut result = ValidationResult::new();
     let declared = declared_theme_bases(schema);
     for (trait_def, path) in super::inline_traits(schema) {
@@ -788,7 +789,7 @@ mod theme_pin_contradicts_app_tests {
     }
 }
 
-/// `orb validate --final`: a `data-theme` that resolves to a literal theme must name one the program declares
+/// A `data-theme` that resolves to a literal theme must name one the program declares
 /// (its app or orbital `theme`, or its `themes` list), since a compiled client ships only those (G-UI-106).
 #[cfg(test)]
 mod data_theme_declared_tests {
@@ -818,12 +819,12 @@ mod data_theme_declared_tests {
     }
 
     fn codes(schema: &OrbitalSchema) -> Vec<ErrorCode> {
-        validate_final_data_themes(schema).errors.into_iter().map(|e| e.code).collect()
+        validate_data_themes(schema).errors.into_iter().map(|e| e.code).collect()
     }
 
     #[test]
     fn a_config_bound_theme_the_program_never_declares_is_an_error() {
-        let errors = validate_final_data_themes(&site("", "@config.demoTheme", "clay-dark")).errors;
+        let errors = validate_data_themes(&site("", "@config.demoTheme", "clay-dark")).errors;
         assert_eq!(errors.len(), 1);
         assert_eq!(errors[0].code, ErrorCode::ThemeUndeclared);
         assert!(errors[0].message.contains("clay-dark"), "{}", errors[0].message);
@@ -848,6 +849,16 @@ mod data_theme_declared_tests {
     fn edge_an_unset_knob_and_a_binding_are_not_theme_names() {
         assert!(codes(&site("", "@config.demoTheme", "")).is_empty());
         assert!(codes(&site("", "@currentTheme", "")).is_empty());
+    }
+
+    #[test]
+    fn plain_validation_reports_an_undeclared_theme_once() {
+        let mut ctx = ValidationContext::default();
+        validate_all_themes(&site("", "@config.demoTheme", "clay-dark"), &mut ctx);
+        let errors = ctx.into_result().errors;
+        assert_eq!(errors.iter().filter(|e| e.code == ErrorCode::ThemeUndeclared).count(), 1, "{errors:?}");
+        let finals = super::super::final_program::validate_final_program(&site("", "@config.demoTheme", "clay-dark")).errors;
+        assert!(finals.iter().all(|e| e.code != ErrorCode::ThemeUndeclared), "the final pass must not report it again");
     }
 
     #[test]

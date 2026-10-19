@@ -1373,7 +1373,7 @@ pub enum ErrorCode {
     /// `app-theme-divergent`; the dominant-vote branch is a name/plurality
     /// heuristic and is retired, not ported.
     ThemePinContradictsApp,
-    /// `orb validate --final`: a `data-theme` resolves to a literal theme the program does not declare (app or
+    /// A `data-theme` resolves to a literal theme the program does not declare (app or
     /// orbital `theme`, or the app's `themes`), so the compiled client ships no stylesheet for it (G-UI-106).
     ThemeUndeclared,
     /// An access directive reads a binding root other than `@entity`/`@user` —
