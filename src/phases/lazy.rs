@@ -79,6 +79,7 @@ pub fn split_lazy(schema: &mut OrbitalSchema) -> Vec<LazyArtifact> {
                 orb_ref: lazy_orb_ref(&name),
                 schema: OrbitalSchema {
                     theme_definitions: None,
+                    themes: None,
                     site: schema.site.clone(),
                     public_dir: None,
                     name: name.clone(),

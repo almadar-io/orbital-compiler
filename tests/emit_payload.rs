@@ -46,6 +46,7 @@ fn payload_field(name: &str, ty: &str, required: bool) -> PayloadField {
         type_when: None,
         entity: None,
         projected_from: None,
+        items: None,
     }
 }
 
@@ -145,6 +146,7 @@ fn schema_with_emit(emit: SExpression, declared: EmitDefinition) -> OrbitalSchem
     };
     OrbitalSchema {
         theme_definitions: None,
+        themes: None,
         site: None,
         public_dir: None,
         locales: None,

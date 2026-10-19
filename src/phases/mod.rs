@@ -274,6 +274,9 @@ pub(crate) fn resolve_schema_with_inline(
         orbital_core_base::theme::ThemePresets::installed(),
     );
 
+    // The declared type of every list argument whose items may differ in kind, for the kernel's argument check.
+    validation::effect::record_declared_list_types(&mut schema);
+
     Ok(schema)
 }
 

@@ -113,6 +113,8 @@ struct Inferer<'c> {
     present: RefCell<Vec<String>>,
     /// The `let` locals bound to an operand that can be missing.
     absent_locals: RefCell<Vec<String>>,
+    /// The type inferred for each `["typed", value, "#slot:<n>"]` the typed-arguments pass tagged.
+    slots: RefCell<Vec<(String, Option<OirType>)>>,
 }
 
 impl<'c> Inferer<'c> {
@@ -124,6 +126,7 @@ impl<'c> Inferer<'c> {
             void: std::cell::Cell::new(false),
             present: RefCell::new(Vec::new()),
             absent_locals: RefCell::new(Vec::new()),
+            slots: RefCell::new(Vec::new()),
         }
     }
 
@@ -300,6 +303,13 @@ impl<'c> Inferer<'c> {
                 }
                 None => self.call("if", &[condition, then_branch, else_branch]),
             },
+            OirExpr::Call { function, args } if function == "typed" && args.len() == 2 => {
+                let ty = self.infer(&args[0]);
+                if let OirExpr::String { value } = &args[1] {
+                    self.slots.borrow_mut().push((value.clone(), ty.clone()));
+                }
+                ty
+            }
             OirExpr::Call { function, args } if function == "let" => self.infer_let(args),
             OirExpr::Call { function, args } if quoted_scalar(function, args).is_some() => quoted_scalar(function, args),
             OirExpr::Call { function, args } => self.call(function, &args.iter().collect::<Vec<_>>()),
@@ -808,6 +818,18 @@ pub fn infer_oir_expr_type<C: TypeCtx>(expr: &OirExpr, ctx: &C) -> Option<OirTyp
 
 /// Every call in `expr` (lambda bodies included, with their parameters typed) whose argument contradicts the
 /// operator's signature.
+/// The type inferred for each slot tag (`["typed", value, "<tag>"]`) in `expr`, by tag; an undetermined slot is absent.
+pub fn typed_slot_types<C: TypeCtx>(expr: &OirExpr, ctx: &C) -> std::collections::HashMap<String, OirType> {
+    let inferer = Inferer::new(ctx);
+    inferer.known(expr);
+    inferer
+        .slots
+        .into_inner()
+        .into_iter()
+        .filter_map(|(tag, ty)| ty.map(|ty| (tag, ty)))
+        .collect()
+}
+
 pub fn check_oir_expr<C: TypeCtx>(expr: &OirExpr, ctx: &C) -> Vec<Diagnostic> {
     let inferer = Inferer::new(ctx);
     inferer.infer(expr);

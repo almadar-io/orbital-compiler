@@ -314,6 +314,7 @@ pub(crate) fn resolve_sigil_types(schema: &mut OrbitalSchema) {
 /// while the entity it snapshots was fully typed. The whole `row-snapshot`
 /// class of that warning was this function.
 pub(crate) fn payload_field_of(f: &FieldDefinition) -> PayloadField {
+    let union_items = f.field_type == FieldType::Array && f.items.as_deref().is_some_and(|item| item.field_type == FieldType::Union);
     // `Object` + `items` is a MAP (dynamic keys, uniform value): it has no
     // properties by construction and carries its value shape in the tag.
     let tag = if f.field_type == FieldType::Object && f.items.is_some() {
@@ -362,8 +363,8 @@ pub(crate) fn payload_field_of(f: &FieldDefinition) -> PayloadField {
             (!v.is_empty()).then_some(v)
         }),
         // An array of structs: the payload convention is the `[object]` tag with
-        // the ELEMENT's fields in `properties`.
-        FieldType::Array => f
+        // the ELEMENT's fields in `properties`. An array of a union keeps its element in `items` instead.
+        FieldType::Array if !union_items => f
             .items
             .as_deref()
             .and_then(|it| payload_field_of(it).properties),
@@ -371,6 +372,7 @@ pub(crate) fn payload_field_of(f: &FieldDefinition) -> PayloadField {
     };
 
     let tag = match (&f.field_type, &props) {
+        (FieldType::Array, _) if union_items => "array".to_string(),
         (FieldType::Array, Some(_)) => "[object]".to_string(),
         // A primitive-element array: carry the item's own tag instead of
         // falling back to the bare, untyped `array` string.
@@ -391,6 +393,7 @@ pub(crate) fn payload_field_of(f: &FieldDefinition) -> PayloadField {
         type_when: None,
         entity: None,
         projected_from: None,
+        items: if union_items { f.items.as_deref().map(|item| Box::new(payload_field_of(item))) } else { None },
     }
 }
 

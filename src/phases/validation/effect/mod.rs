@@ -29,6 +29,7 @@ mod program_eval;
 mod redis;
 mod r#ref;
 mod set;
+mod typed_args;
 mod utils;
 
 pub(crate) use call_service::{validate_call_service, validate_call_service_object};
@@ -63,6 +64,7 @@ pub(crate) use set::{
     validate_set_object, validate_set_required_field_from_optional_knob, validate_set_return_type,
     validate_set_value_type, EntityFieldMeta,
 };
+pub use typed_args::record_declared_list_types;
 pub use utils::effect_operators;
 pub(crate) use utils::{extract_payload_fields, is_valid_event_identifier};
 

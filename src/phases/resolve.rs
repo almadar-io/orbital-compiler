@@ -1563,6 +1563,9 @@ fn payload_field_to_oir_type(
     field: &orbital_core_base::schema::PayloadField,
     ctx: &NamedTypeCtx,
 ) -> OirType {
+    if let (true, Some(item)) = (field.field_type == "array", field.items.as_deref()) {
+        return OirType::array(payload_field_to_oir_type(item, ctx));
+    }
     // Recursive back-reference marker: `properties: Some([])` — present but
     // EMPTY, distinct from the absent (`None`) case `parse_payload_field_type`
     // handles below. `orbital-lolo`'s cycle guard (`lower/emit_listen.rs`'s
@@ -1966,6 +1969,7 @@ mod tests {
     fn empty_schema() -> OrbitalSchema {
         OrbitalSchema {
             theme_definitions: None,
+            themes: None,
             site: None,
             public_dir: None,
             locales: None,
@@ -2002,6 +2006,7 @@ mod tests {
             type_when: None,
             entity: None,
             projected_from: None,
+            items: None,
         };
         let field = orbital_core_base::schema::PayloadField {
             values: None,
@@ -2017,6 +2022,7 @@ mod tests {
             type_when: None,
             entity: None,
             projected_from: None,
+            items: None,
         };
         let schema = empty_schema();
         let named_types = RefCell::new(BTreeMap::new());
@@ -2094,10 +2100,12 @@ mod tests {
                 type_when: None,
                 entity: None,
                 projected_from: None,
+                items: None,
             }]),
             type_when: None,
             entity: None,
             projected_from: None,
+            items: None,
         };
         let schema = empty_schema();
         let named_types = RefCell::new(BTreeMap::new());
@@ -2143,10 +2151,12 @@ mod tests {
                 type_when: None,
                 entity: None,
                 projected_from: None,
+                items: None,
             }]),
             type_when: None,
             entity: Some("Note".to_string()),
             projected_from: None,
+            items: None,
         };
         let schema = empty_schema();
         let named_types = RefCell::new(BTreeMap::new());
@@ -2193,10 +2203,12 @@ mod tests {
                 type_when: None,
                 entity: None,
                 projected_from: None,
+                items: None,
             }]),
             type_when: None,
             entity: Some("Ghost".to_string()),
             projected_from: None,
+            items: None,
         };
         let schema = empty_schema();
         let named_types = RefCell::new(BTreeMap::new());
@@ -2239,6 +2251,7 @@ mod tests {
             type_when: None,
             entity: None,
             projected_from: None,
+            items: None,
         };
         let row = orbital_core_base::schema::PayloadField {
             values: None,
@@ -2257,12 +2270,14 @@ mod tests {
                     type_when: None,
                     entity: None,
                     projected_from: None,
+                    items: None,
                 },
                 sub_menu_backref,
             ]),
             type_when: None,
             entity: None,
             projected_from: None,
+            items: None,
         };
         let schema = empty_schema();
         let named_types = RefCell::new(BTreeMap::new());
@@ -2325,6 +2340,7 @@ mod tests {
         .expect("field fixture must deserialize");
         let schema = OrbitalSchema {
             theme_definitions: None,
+            themes: None,
             site: None,
             public_dir: None,
             locales: None,
@@ -2481,6 +2497,7 @@ mod tests {
         .expect("field fixture must deserialize");
         let schema = OrbitalSchema {
             theme_definitions: None,
+            themes: None,
             site: None,
             public_dir: None,
             locales: None,
@@ -2517,6 +2534,7 @@ mod tests {
     fn a_union_without_variant_shapes_is_refused_not_degraded() {
         let schema = OrbitalSchema {
             theme_definitions: None,
+            themes: None,
             site: None,
             public_dir: None,
             locales: None,
@@ -2917,6 +2935,7 @@ mod tests {
     fn test_resolve_minimal_schema() {
         let schema = OrbitalSchema {
             theme_definitions: None,
+            themes: None,
             site: None,
             public_dir: None,
             locales: None,
@@ -2963,6 +2982,7 @@ mod tests {
         static SCHEMA: std::sync::OnceLock<OrbitalSchema> = std::sync::OnceLock::new();
         let schema = SCHEMA.get_or_init(|| OrbitalSchema {
             theme_definitions: None,
+            themes: None,
             site: None,
             public_dir: None,
             locales: None,

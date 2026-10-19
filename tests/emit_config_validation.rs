@@ -129,6 +129,7 @@ fn schema_with_effects(
 
     OrbitalSchema {
         theme_definitions: None,
+        themes: None,
         site: None,
         public_dir: None,
         locales: None,

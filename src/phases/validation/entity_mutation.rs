@@ -3012,6 +3012,7 @@ mod tests {
                 type_when: None,
                 entity: None,
                 projected_from: None,
+                items: None,
             }]),
             definer_knob: None,
             scope_overridden: None,
@@ -3071,10 +3072,12 @@ mod tests {
                     type_when: None,
                     entity: None,
                     projected_from: None,
+                    items: None,
                 }]),
                 type_when: None,
                 entity: Some("Note".to_string()),
                 projected_from: None,
+                items: None,
             }]),
             definer_knob: None,
             scope_overridden: None,
@@ -3815,6 +3818,7 @@ mod tests {
     fn schema_of(orbitals: Vec<Orbital>) -> OrbitalSchema {
         OrbitalSchema {
             theme_definitions: None,
+            themes: None,
             site: None,
             public_dir: None,
             locales: None,

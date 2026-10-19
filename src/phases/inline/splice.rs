@@ -504,6 +504,7 @@ mod tests {
                 type_when: None,
                 entity: None,
                 projected_from: None,
+                items: None,
             }]),
             event_id: None,
             payload_entity: None,

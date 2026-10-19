@@ -107,6 +107,7 @@ mod tests {
             type_when: None,
             entity: None,
             projected_from: None,
+            items: None,
         }
     }
 

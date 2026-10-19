@@ -275,6 +275,7 @@ mod tests {
                     type_when: None,
                     entity: None,
                     projected_from: None,
+                    items: None,
                 }]),
                 payload_entity: None,
                 external: None,
@@ -346,6 +347,7 @@ mod tests {
     fn schema_with(orbitals: Vec<Orbital>) -> OrbitalSchema {
         OrbitalSchema {
             theme_definitions: None,
+            themes: None,
             site: None,
             public_dir: None,
             locales: None,
@@ -507,6 +509,7 @@ mod tests {
                         type_when: None,
                         entity: None,
                         projected_from: None,
+                        items: None,
                     }]),
                 )]),
                 None,

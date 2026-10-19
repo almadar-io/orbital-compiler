@@ -577,6 +577,7 @@ mod tests {
         }
         OrbitalSchema {
             theme_definitions: None,
+            themes: None,
             site: None,
             public_dir: None,
             locales: None,
@@ -656,6 +657,7 @@ mod tests {
     fn resolves_dotted_trait_ref_from_imported_ledger() {
         let mut schema = OrbitalSchema {
             theme_definitions: None,
+            themes: None,
             site: None,
             public_dir: None,
             locales: None,
@@ -705,6 +707,7 @@ mod tests {
     fn leaves_unresolvable_dotted_ref_none_without_panic() {
         let mut schema = OrbitalSchema {
             theme_definitions: None,
+            themes: None,
             site: None,
             public_dir: None,
             locales: None,
@@ -754,6 +757,7 @@ mod tests {
     fn leaves_unknown_alias_ref_none() {
         let mut schema = OrbitalSchema {
             theme_definitions: None,
+            themes: None,
             site: None,
             public_dir: None,
             locales: None,
@@ -872,6 +876,7 @@ mod tests {
 
         let mut schema = OrbitalSchema {
             theme_definitions: None,
+            themes: None,
             site: None,
             public_dir: None,
             locales: None,
@@ -946,6 +951,7 @@ mod tests {
 
         let mut schema = OrbitalSchema {
             theme_definitions: None,
+            themes: None,
             site: None,
             public_dir: None,
             locales: None,

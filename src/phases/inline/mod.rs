@@ -6642,6 +6642,7 @@ mod tests {
         };
         OrbitalSchema {
             theme_definitions: None,
+            themes: None,
             site: None,
             public_dir: None,
             locales: None,
@@ -7388,6 +7389,7 @@ mod tests {
         };
         let mut schema = OrbitalSchema {
             theme_definitions: None,
+            themes: None,
             site: None,
             public_dir: None,
             locales: None,
@@ -7499,6 +7501,7 @@ mod tests {
         };
         let mut schema = OrbitalSchema {
             theme_definitions: None,
+            themes: None,
             site: None,
             public_dir: None,
             locales: None,
@@ -7585,6 +7588,7 @@ mod tests {
         };
         let mut schema = OrbitalSchema {
             theme_definitions: None,
+            themes: None,
             site: None,
             public_dir: None,
             locales: None,
@@ -7916,6 +7920,7 @@ mod tests {
         };
         let mut schema = OrbitalSchema {
             theme_definitions: None,
+            themes: None,
             site: None,
             public_dir: None,
             locales: None,
@@ -7996,6 +8001,7 @@ mod tests {
         };
         let mut schema = OrbitalSchema {
             theme_definitions: None,
+            themes: None,
             site: None,
             public_dir: None,
             locales: None,
@@ -8078,6 +8084,7 @@ mod tests {
         };
         OrbitalSchema {
             theme_definitions: None,
+            themes: None,
             site: None,
             public_dir: None,
             locales: None,

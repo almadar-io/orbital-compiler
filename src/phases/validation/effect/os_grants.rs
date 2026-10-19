@@ -49,6 +49,13 @@ fn config_rooted(expr: &SExpression) -> bool {
 fn effect_sites<'a>(trait_def: &'a TraitDefinition, path: &str) -> Vec<(&'a SExpression, String)> {
     let mut sites = Vec::new();
     for (i, transition) in trait_def.state_machine.transitions.iter().enumerate() {
+        if transition
+            .guard
+            .as_ref()
+            .is_some_and(SExpression::is_statically_false)
+        {
+            continue;
+        }
         for (j, effect) in transition.effects.iter().flatten().enumerate() {
             sites.push((
                 effect,

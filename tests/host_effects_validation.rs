@@ -394,6 +394,25 @@ mod os_grants {
         assert!(!fires(&inside, ErrorCode::OsGrantMissing), "{:?}", inside.errors);
     }
 
+    fn guarded(grants: Value, guard: Value, effects: Value) -> ValidationResult {
+        let mut o = orbital("Orders", grants, false, effects);
+        o["traits"][0]["stateMachine"]["transitions"][0]["guard"] = guard;
+        run(Value::Null, Value::Null, vec![o])
+    }
+
+    #[test]
+    fn an_arm_whose_guard_is_statically_false_needs_no_grant() {
+        let passwd = json!([["os/read-file", "/etc/passwd"]]);
+        let dead = guarded(read_data(), json!(["!=", "", ""]), passwd.clone());
+        assert!(!fires(&dead, ErrorCode::OsGrantMissing), "a dead arm never runs: {:?}", dead.errors);
+        let live = guarded(read_data(), json!(["=", "", ""]), passwd.clone());
+        assert!(fires(&live, ErrorCode::OsGrantMissing), "control: a statically true guard still runs: {:?}", live.errors);
+        let open = guarded(read_data(), json!(["=", "@entity.id", ""]), passwd);
+        assert!(fires(&open, ErrorCode::OsGrantMissing), "control: an undecided guard may run: {:?}", open.errors);
+        let only_dead = guarded(read_data(), json!(["!=", "", ""]), json!([["os/read-file", "/data/a"]]));
+        assert!(warned(&only_dead, ErrorCode::OsGrantUnused), "a grant only a dead arm uses is unused: {:?}", only_dead.warnings);
+    }
+
     #[test]
     fn nested_calls_and_the_call_envelope_are_read_too() {
         let nested = one(read_data(), json!([["if", true, ["os/read-file", "/etc/passwd", { "emit": { "success": "OK" } }]]]));

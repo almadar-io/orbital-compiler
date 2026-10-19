@@ -329,6 +329,7 @@ mod tests {
     fn skip_compose_is_no_op() {
         let mut schema = OrbitalSchema {
             theme_definitions: None,
+            themes: None,
             site: None,
             public_dir: None,
             locales: None,
@@ -356,6 +357,7 @@ mod tests {
     fn empty_schema_is_a_no_op() {
         let mut schema = OrbitalSchema {
             theme_definitions: None,
+            themes: None,
             site: None,
             public_dir: None,
             locales: None,
