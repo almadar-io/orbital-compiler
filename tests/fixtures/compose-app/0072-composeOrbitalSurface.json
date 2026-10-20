@@ -1,0 +1,192 @@
+{
+  "fn": "composeOrbitalSurface",
+  "test": "__tests__/compose-app.test.ts > composeOrbitalSurface — every organism's landing page stays reachable > control: without organism identity no landing page is inferred",
+  "args": [
+    [
+      {
+        "name": "BillingOrbital",
+        "version": "1.0.0",
+        "config": {
+          "navItems": {
+            "type": "[NavItem]",
+            "default": [
+              {
+                "href": "/billing",
+                "label": "/billing"
+              }
+            ]
+          }
+        },
+        "orbitals": [
+          {
+            "name": "BillingOrbital",
+            "entity": "BillingOrbital.entity",
+            "traits": [],
+            "pages": [
+              {
+                "name": "Billing",
+                "path": "/billing",
+                "traits": []
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "name": "PlannerPersonOrbital",
+        "version": "1.0.0",
+        "config": {
+          "navItems": {
+            "type": "[NavItem]",
+            "default": [
+              {
+                "href": "/workload",
+                "label": "/workload"
+              }
+            ]
+          }
+        },
+        "orbitals": [
+          {
+            "name": "PlannerPersonOrbital",
+            "entity": "PlannerPersonOrbital.entity",
+            "traits": [],
+            "pages": [
+              {
+                "name": "TeamMembers",
+                "path": "/team-members",
+                "traits": []
+              }
+            ]
+          }
+        ]
+      }
+    ]
+  ],
+  "argsAfter": [
+    [
+      {
+        "name": "BillingOrbital",
+        "version": "1.0.0",
+        "config": {
+          "navItems": {
+            "type": "[NavItem]",
+            "default": [
+              {
+                "href": "/billing",
+                "label": "/billing"
+              }
+            ]
+          }
+        },
+        "orbitals": [
+          {
+            "name": "BillingOrbital",
+            "entity": "BillingOrbital.entity",
+            "traits": [],
+            "pages": [
+              {
+                "name": "Billing",
+                "path": "/billing",
+                "traits": []
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "name": "PlannerPersonOrbital",
+        "version": "1.0.0",
+        "config": {
+          "navItems": {
+            "type": "[NavItem]",
+            "default": [
+              {
+                "href": "/workload",
+                "label": "/workload"
+              }
+            ]
+          }
+        },
+        "orbitals": [
+          {
+            "name": "PlannerPersonOrbital",
+            "entity": "PlannerPersonOrbital.entity",
+            "traits": [],
+            "pages": [
+              {
+                "name": "TeamMembers",
+                "path": "/team-members",
+                "traits": []
+              }
+            ]
+          }
+        ]
+      }
+    ]
+  ],
+  "lookups": [],
+  "result": {
+    "orbitals": [
+      {
+        "name": "BillingOrbital",
+        "entity": "BillingOrbital.entity",
+        "traits": [],
+        "pages": [
+          {
+            "name": "Billing",
+            "path": "/billing",
+            "traits": []
+          }
+        ]
+      },
+      {
+        "name": "PlannerPersonOrbital",
+        "entity": "PlannerPersonOrbital.entity",
+        "traits": [],
+        "pages": [
+          {
+            "name": "TeamMembers",
+            "path": "/team-members",
+            "traits": []
+          }
+        ]
+      }
+    ],
+    "config": {
+      "navItems": {
+        "type": "[NavItem]",
+        "default": [
+          {
+            "href": "/billing",
+            "label": "/billing"
+          }
+        ]
+      }
+    },
+    "surfaceRenames": {
+      "routes": [],
+      "traits": [],
+      "pageNames": []
+    },
+    "identity": {
+      "demotions": [],
+      "roleUnions": [],
+      "expectsRewrites": [],
+      "relationsRetargeted": []
+    },
+    "navItemsNarrowed": [],
+    "configNavItemsNarrowed": [
+      {
+        "knob": "navItems",
+        "droppedHrefs": [
+          "/workload"
+        ]
+      }
+    ],
+    "landingNavAdded": [],
+    "organismRenames": [],
+    "unrenamableCollisions": []
+  },
+  "error": null
+}

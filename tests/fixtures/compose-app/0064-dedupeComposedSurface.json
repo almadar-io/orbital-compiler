@@ -1,0 +1,67 @@
+{
+  "fn": "dedupeComposedSurface",
+  "test": "__tests__/compose-app.test.ts > dedupeComposedSurface — page names stay unique across orbitals > control: distinct page names → nothing renamed",
+  "args": [
+    [
+      {
+        "name": "A",
+        "entity": "A.entity",
+        "traits": [],
+        "pages": [
+          {
+            "name": "APage",
+            "path": "/a",
+            "traits": []
+          }
+        ]
+      },
+      {
+        "name": "B",
+        "entity": "B.entity",
+        "traits": [],
+        "pages": [
+          {
+            "name": "BPage",
+            "path": "/b",
+            "traits": []
+          }
+        ]
+      }
+    ]
+  ],
+  "argsAfter": [
+    [
+      {
+        "name": "A",
+        "entity": "A.entity",
+        "traits": [],
+        "pages": [
+          {
+            "name": "APage",
+            "path": "/a",
+            "traits": []
+          }
+        ]
+      },
+      {
+        "name": "B",
+        "entity": "B.entity",
+        "traits": [],
+        "pages": [
+          {
+            "name": "BPage",
+            "path": "/b",
+            "traits": []
+          }
+        ]
+      }
+    ]
+  ],
+  "lookups": [],
+  "result": {
+    "routes": [],
+    "traits": [],
+    "pageNames": []
+  },
+  "error": null
+}

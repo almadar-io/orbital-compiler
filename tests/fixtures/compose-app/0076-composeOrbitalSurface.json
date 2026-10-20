@@ -1,0 +1,187 @@
+{
+  "fn": "composeOrbitalSurface",
+  "test": "__tests__/compose-app.test.ts > composeOrbitalSurface — organisms are namespaces > control: no collision → the surface is the same as without namespacing",
+  "args": [
+    [
+      {
+        "name": "StaffOrbital",
+        "version": "1.0.0",
+        "orbitals": [
+          {
+            "name": "StaffOrbital",
+            "entity": {
+              "name": "Staff",
+              "persistence": "persistent",
+              "collection": "staff",
+              "fields": [
+                {
+                  "name": "id",
+                  "type": "string"
+                }
+              ]
+            },
+            "traits": [],
+            "pages": [
+              {
+                "name": "StaffOrbitalPage",
+                "path": "/stafforbital",
+                "traits": []
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "name": "LeaveOrbital",
+        "version": "1.0.0",
+        "orbitals": [
+          {
+            "name": "LeaveOrbital",
+            "entity": {
+              "name": "Leave",
+              "persistence": "persistent",
+              "fields": [
+                {
+                  "name": "id",
+                  "type": "string"
+                }
+              ]
+            },
+            "traits": [],
+            "pages": [
+              {
+                "name": "LeaveOrbitalPage",
+                "path": "/leaveorbital",
+                "traits": []
+              }
+            ]
+          }
+        ]
+      }
+    ]
+  ],
+  "argsAfter": [
+    [
+      {
+        "name": "StaffOrbital",
+        "version": "1.0.0",
+        "orbitals": [
+          {
+            "name": "StaffOrbital",
+            "entity": {
+              "name": "Staff",
+              "persistence": "persistent",
+              "collection": "staff",
+              "fields": [
+                {
+                  "name": "id",
+                  "type": "string"
+                }
+              ]
+            },
+            "traits": [],
+            "pages": [
+              {
+                "name": "StaffOrbitalPage",
+                "path": "/stafforbital",
+                "traits": []
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "name": "LeaveOrbital",
+        "version": "1.0.0",
+        "orbitals": [
+          {
+            "name": "LeaveOrbital",
+            "entity": {
+              "name": "Leave",
+              "persistence": "persistent",
+              "fields": [
+                {
+                  "name": "id",
+                  "type": "string"
+                }
+              ]
+            },
+            "traits": [],
+            "pages": [
+              {
+                "name": "LeaveOrbitalPage",
+                "path": "/leaveorbital",
+                "traits": []
+              }
+            ]
+          }
+        ]
+      }
+    ]
+  ],
+  "lookups": [],
+  "result": {
+    "orbitals": [
+      {
+        "name": "StaffOrbital",
+        "entity": {
+          "name": "Staff",
+          "persistence": "persistent",
+          "collection": "staff",
+          "fields": [
+            {
+              "name": "id",
+              "type": "string"
+            }
+          ]
+        },
+        "traits": [],
+        "pages": [
+          {
+            "name": "StaffOrbitalPage",
+            "path": "/stafforbital",
+            "traits": []
+          }
+        ]
+      },
+      {
+        "name": "LeaveOrbital",
+        "entity": {
+          "name": "Leave",
+          "persistence": "persistent",
+          "fields": [
+            {
+              "name": "id",
+              "type": "string"
+            }
+          ]
+        },
+        "traits": [],
+        "pages": [
+          {
+            "name": "LeaveOrbitalPage",
+            "path": "/leaveorbital",
+            "traits": []
+          }
+        ]
+      }
+    ],
+    "surfaceRenames": {
+      "routes": [],
+      "traits": [],
+      "pageNames": []
+    },
+    "identity": {
+      "demotions": [],
+      "roleUnions": [],
+      "expectsRewrites": [],
+      "relationsRetargeted": []
+    },
+    "navItemsNarrowed": [],
+    "configNavItemsNarrowed": [],
+    "landingNavAdded": [],
+    "organismRenames": [],
+    "unrenamableCollisions": []
+  },
+  "error": null
+}

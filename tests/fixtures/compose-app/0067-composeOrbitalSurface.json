@@ -1,0 +1,544 @@
+{
+  "fn": "composeOrbitalSurface",
+  "test": "__tests__/compose-app.test.ts > composeOrbitalSurface — every organism's landing page stays reachable > links every orbital of an organism that declares no nav of its own (free-composed lines, a reused atom)",
+  "args": [
+    [
+      {
+        "name": "ListingOrbital",
+        "version": "1.0.0",
+        "config": {
+          "navItems": {
+            "type": "[NavItem]",
+            "default": [
+              {
+                "href": "/listings",
+                "label": "/listings"
+              }
+            ]
+          }
+        },
+        "orbitals": [
+          {
+            "name": "ListingOrbital",
+            "entity": "ListingOrbital.entity",
+            "traits": [],
+            "pages": [
+              {
+                "name": "Listings",
+                "path": "/listings",
+                "traits": []
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "name": "OfferOrbital",
+        "version": "1.0.0",
+        "orbitals": [
+          {
+            "name": "OfferOrbital",
+            "entity": "OfferOrbital.entity",
+            "traits": [],
+            "pages": [
+              {
+                "name": "Offers",
+                "path": "/offers",
+                "traits": []
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "name": "ReviewOrbital",
+        "version": "1.0.0",
+        "orbitals": [
+          {
+            "name": "ReviewOrbital",
+            "entity": "ReviewOrbital.entity",
+            "traits": [],
+            "pages": [
+              {
+                "name": "Reviews",
+                "path": "/reviews",
+                "traits": []
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "name": "WorkoutLogOrbital",
+        "version": "1.0.0",
+        "orbitals": [
+          {
+            "name": "WorkoutLogOrbital",
+            "entity": "WorkoutLogOrbital.entity",
+            "traits": [],
+            "pages": [
+              {
+                "name": "Workouts",
+                "path": "/workouts",
+                "traits": []
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "name": "FitnessGoalOrbital",
+        "version": "1.0.0",
+        "orbitals": [
+          {
+            "name": "FitnessGoalOrbital",
+            "entity": "FitnessGoalOrbital.entity",
+            "traits": [],
+            "pages": [
+              {
+                "name": "Goals",
+                "path": "/goals",
+                "traits": []
+              }
+            ]
+          }
+        ]
+      }
+    ],
+    {
+      "organismOf": {
+        "$function": "organismOf"
+      }
+    }
+  ],
+  "argsAfter": [
+    [
+      {
+        "name": "ListingOrbital",
+        "version": "1.0.0",
+        "config": {
+          "navItems": {
+            "type": "[NavItem]",
+            "default": [
+              {
+                "href": "/listings",
+                "label": "/listings"
+              }
+            ]
+          }
+        },
+        "orbitals": [
+          {
+            "name": "ListingOrbital",
+            "entity": "ListingOrbital.entity",
+            "traits": [],
+            "pages": [
+              {
+                "name": "Listings",
+                "path": "/listings",
+                "traits": []
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "name": "OfferOrbital",
+        "version": "1.0.0",
+        "orbitals": [
+          {
+            "name": "OfferOrbital",
+            "entity": "OfferOrbital.entity",
+            "traits": [],
+            "pages": [
+              {
+                "name": "Offers",
+                "path": "/offers",
+                "traits": []
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "name": "ReviewOrbital",
+        "version": "1.0.0",
+        "orbitals": [
+          {
+            "name": "ReviewOrbital",
+            "entity": "ReviewOrbital.entity",
+            "traits": [],
+            "pages": [
+              {
+                "name": "Reviews",
+                "path": "/reviews",
+                "traits": []
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "name": "WorkoutLogOrbital",
+        "version": "1.0.0",
+        "orbitals": [
+          {
+            "name": "WorkoutLogOrbital",
+            "entity": "WorkoutLogOrbital.entity",
+            "traits": [],
+            "pages": [
+              {
+                "name": "Workouts",
+                "path": "/workouts",
+                "traits": []
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "name": "FitnessGoalOrbital",
+        "version": "1.0.0",
+        "orbitals": [
+          {
+            "name": "FitnessGoalOrbital",
+            "entity": "FitnessGoalOrbital.entity",
+            "traits": [],
+            "pages": [
+              {
+                "name": "Goals",
+                "path": "/goals",
+                "traits": []
+              }
+            ]
+          }
+        ]
+      }
+    ],
+    {
+      "organismOf": {
+        "$function": "organismOf"
+      }
+    }
+  ],
+  "lookups": [
+    {
+      "$lookup": "arg1.organismOf",
+      "calls": [
+        {
+          "arg": "ListingOrbital",
+          "result": "market"
+        },
+        {
+          "arg": "OfferOrbital",
+          "result": "free-lolo"
+        },
+        {
+          "arg": "ReviewOrbital",
+          "result": "free-lolo"
+        },
+        {
+          "arg": "WorkoutLogOrbital",
+          "result": "std-browse"
+        },
+        {
+          "arg": "FitnessGoalOrbital",
+          "result": "std-browse"
+        },
+        {
+          "arg": "ListingOrbital",
+          "result": "market"
+        },
+        {
+          "arg": "OfferOrbital",
+          "result": "free-lolo"
+        },
+        {
+          "arg": "ReviewOrbital",
+          "result": "free-lolo"
+        },
+        {
+          "arg": "WorkoutLogOrbital",
+          "result": "std-browse"
+        },
+        {
+          "arg": "FitnessGoalOrbital",
+          "result": "std-browse"
+        },
+        {
+          "arg": "ListingOrbital",
+          "result": "market"
+        },
+        {
+          "arg": "OfferOrbital",
+          "result": "free-lolo"
+        },
+        {
+          "arg": "ReviewOrbital",
+          "result": "free-lolo"
+        },
+        {
+          "arg": "WorkoutLogOrbital",
+          "result": "std-browse"
+        },
+        {
+          "arg": "FitnessGoalOrbital",
+          "result": "std-browse"
+        },
+        {
+          "arg": "ListingOrbital",
+          "result": "market"
+        },
+        {
+          "arg": "OfferOrbital",
+          "result": "free-lolo"
+        },
+        {
+          "arg": "ReviewOrbital",
+          "result": "free-lolo"
+        },
+        {
+          "arg": "WorkoutLogOrbital",
+          "result": "std-browse"
+        },
+        {
+          "arg": "FitnessGoalOrbital",
+          "result": "std-browse"
+        },
+        {
+          "arg": "ListingOrbital",
+          "result": "market"
+        },
+        {
+          "arg": "OfferOrbital",
+          "result": "free-lolo"
+        },
+        {
+          "arg": "ReviewOrbital",
+          "result": "free-lolo"
+        },
+        {
+          "arg": "WorkoutLogOrbital",
+          "result": "std-browse"
+        },
+        {
+          "arg": "FitnessGoalOrbital",
+          "result": "std-browse"
+        },
+        {
+          "arg": "ListingOrbital",
+          "result": "market"
+        },
+        {
+          "arg": "OfferOrbital",
+          "result": "free-lolo"
+        },
+        {
+          "arg": "ReviewOrbital",
+          "result": "free-lolo"
+        },
+        {
+          "arg": "WorkoutLogOrbital",
+          "result": "std-browse"
+        },
+        {
+          "arg": "FitnessGoalOrbital",
+          "result": "std-browse"
+        },
+        {
+          "arg": "ListingOrbital",
+          "result": "market"
+        },
+        {
+          "arg": "OfferOrbital",
+          "result": "free-lolo"
+        },
+        {
+          "arg": "ReviewOrbital",
+          "result": "free-lolo"
+        },
+        {
+          "arg": "WorkoutLogOrbital",
+          "result": "std-browse"
+        },
+        {
+          "arg": "FitnessGoalOrbital",
+          "result": "std-browse"
+        },
+        {
+          "arg": "ListingOrbital",
+          "result": "market"
+        },
+        {
+          "arg": "ListingOrbital",
+          "result": "market"
+        },
+        {
+          "arg": "ListingOrbital",
+          "result": "market"
+        },
+        {
+          "arg": "OfferOrbital",
+          "result": "free-lolo"
+        },
+        {
+          "arg": "ReviewOrbital",
+          "result": "free-lolo"
+        },
+        {
+          "arg": "WorkoutLogOrbital",
+          "result": "std-browse"
+        },
+        {
+          "arg": "FitnessGoalOrbital",
+          "result": "std-browse"
+        },
+        {
+          "arg": "ListingOrbital",
+          "result": "market"
+        },
+        {
+          "arg": "OfferOrbital",
+          "result": "free-lolo"
+        },
+        {
+          "arg": "ReviewOrbital",
+          "result": "free-lolo"
+        },
+        {
+          "arg": "WorkoutLogOrbital",
+          "result": "std-browse"
+        },
+        {
+          "arg": "FitnessGoalOrbital",
+          "result": "std-browse"
+        }
+      ]
+    }
+  ],
+  "result": {
+    "orbitals": [
+      {
+        "name": "ListingOrbital",
+        "entity": "ListingOrbital.entity",
+        "traits": [],
+        "pages": [
+          {
+            "name": "Listings",
+            "path": "/listings",
+            "traits": []
+          }
+        ]
+      },
+      {
+        "name": "OfferOrbital",
+        "entity": "OfferOrbital.entity",
+        "traits": [],
+        "pages": [
+          {
+            "name": "Offers",
+            "path": "/offers",
+            "traits": []
+          }
+        ]
+      },
+      {
+        "name": "ReviewOrbital",
+        "entity": "ReviewOrbital.entity",
+        "traits": [],
+        "pages": [
+          {
+            "name": "Reviews",
+            "path": "/reviews",
+            "traits": []
+          }
+        ]
+      },
+      {
+        "name": "WorkoutLogOrbital",
+        "entity": "WorkoutLogOrbital.entity",
+        "traits": [],
+        "pages": [
+          {
+            "name": "Workouts",
+            "path": "/workouts",
+            "traits": []
+          }
+        ]
+      },
+      {
+        "name": "FitnessGoalOrbital",
+        "entity": "FitnessGoalOrbital.entity",
+        "traits": [],
+        "pages": [
+          {
+            "name": "Goals",
+            "path": "/goals",
+            "traits": []
+          }
+        ]
+      }
+    ],
+    "config": {
+      "navItems": {
+        "type": "[NavItem]",
+        "default": [
+          {
+            "href": "/listings",
+            "label": "/listings"
+          },
+          {
+            "href": "/offers",
+            "label": "Offers"
+          },
+          {
+            "href": "/reviews",
+            "label": "Reviews"
+          },
+          {
+            "href": "/workouts",
+            "label": "Workouts"
+          },
+          {
+            "href": "/goals",
+            "label": "Goals"
+          }
+        ]
+      }
+    },
+    "surfaceRenames": {
+      "routes": [],
+      "traits": [],
+      "pageNames": []
+    },
+    "identity": {
+      "demotions": [],
+      "roleUnions": [],
+      "expectsRewrites": [],
+      "relationsRetargeted": []
+    },
+    "navItemsNarrowed": [],
+    "configNavItemsNarrowed": [],
+    "landingNavAdded": [
+      {
+        "organism": "free-lolo",
+        "href": "/offers"
+      },
+      {
+        "organism": "free-lolo",
+        "href": "/reviews"
+      },
+      {
+        "organism": "std-browse",
+        "href": "/workouts"
+      },
+      {
+        "organism": "std-browse",
+        "href": "/goals"
+      }
+    ],
+    "organismRenames": [],
+    "unrenamableCollisions": []
+  },
+  "error": null
+}

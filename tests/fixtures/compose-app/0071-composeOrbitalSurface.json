@@ -1,0 +1,395 @@
+{
+  "fn": "composeOrbitalSurface",
+  "test": "__tests__/compose-app.test.ts > composeOrbitalSurface — every organism's landing page stays reachable > control: a landing page its organism already links is left alone",
+  "args": [
+    [
+      {
+        "name": "BillingOrbital",
+        "version": "1.0.0",
+        "config": {
+          "navItems": {
+            "type": "[NavItem]",
+            "default": [
+              {
+                "href": "/billing",
+                "label": "/billing"
+              }
+            ]
+          }
+        },
+        "orbitals": [
+          {
+            "name": "BillingOrbital",
+            "entity": "BillingOrbital.entity",
+            "traits": [],
+            "pages": [
+              {
+                "name": "Billing",
+                "path": "/billing",
+                "traits": []
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "name": "PlannerPersonOrbital",
+        "version": "1.0.0",
+        "config": {
+          "navItems": {
+            "type": "[NavItem]",
+            "default": [
+              {
+                "href": "/team-members",
+                "label": "/team-members"
+              },
+              {
+                "href": "/workload",
+                "label": "/workload"
+              }
+            ]
+          }
+        },
+        "orbitals": [
+          {
+            "name": "PlannerPersonOrbital",
+            "entity": "PlannerPersonOrbital.entity",
+            "traits": [],
+            "pages": [
+              {
+                "name": "TeamMembers",
+                "path": "/team-members",
+                "traits": []
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "name": "WorkloadOrbital",
+        "version": "1.0.0",
+        "config": {
+          "navItems": {
+            "type": "[NavItem]",
+            "default": [
+              {
+                "href": "/workload",
+                "label": "/workload"
+              }
+            ]
+          }
+        },
+        "orbitals": [
+          {
+            "name": "WorkloadOrbital",
+            "entity": "WorkloadOrbital.entity",
+            "traits": [],
+            "pages": [
+              {
+                "name": "Workload",
+                "path": "/workload",
+                "traits": []
+              }
+            ]
+          }
+        ]
+      }
+    ],
+    {
+      "organismOf": {
+        "$function": "organismOf"
+      }
+    }
+  ],
+  "argsAfter": [
+    [
+      {
+        "name": "BillingOrbital",
+        "version": "1.0.0",
+        "config": {
+          "navItems": {
+            "type": "[NavItem]",
+            "default": [
+              {
+                "href": "/billing",
+                "label": "/billing"
+              }
+            ]
+          }
+        },
+        "orbitals": [
+          {
+            "name": "BillingOrbital",
+            "entity": "BillingOrbital.entity",
+            "traits": [],
+            "pages": [
+              {
+                "name": "Billing",
+                "path": "/billing",
+                "traits": []
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "name": "PlannerPersonOrbital",
+        "version": "1.0.0",
+        "config": {
+          "navItems": {
+            "type": "[NavItem]",
+            "default": [
+              {
+                "href": "/team-members",
+                "label": "/team-members"
+              },
+              {
+                "href": "/workload",
+                "label": "/workload"
+              }
+            ]
+          }
+        },
+        "orbitals": [
+          {
+            "name": "PlannerPersonOrbital",
+            "entity": "PlannerPersonOrbital.entity",
+            "traits": [],
+            "pages": [
+              {
+                "name": "TeamMembers",
+                "path": "/team-members",
+                "traits": []
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "name": "WorkloadOrbital",
+        "version": "1.0.0",
+        "config": {
+          "navItems": {
+            "type": "[NavItem]",
+            "default": [
+              {
+                "href": "/workload",
+                "label": "/workload"
+              }
+            ]
+          }
+        },
+        "orbitals": [
+          {
+            "name": "WorkloadOrbital",
+            "entity": "WorkloadOrbital.entity",
+            "traits": [],
+            "pages": [
+              {
+                "name": "Workload",
+                "path": "/workload",
+                "traits": []
+              }
+            ]
+          }
+        ]
+      }
+    ],
+    {
+      "organismOf": {
+        "$function": "organismOf"
+      }
+    }
+  ],
+  "lookups": [
+    {
+      "$lookup": "arg1.organismOf",
+      "calls": [
+        {
+          "arg": "BillingOrbital",
+          "result": "billing"
+        },
+        {
+          "arg": "PlannerPersonOrbital",
+          "result": "planner"
+        },
+        {
+          "arg": "WorkloadOrbital",
+          "result": "planner"
+        },
+        {
+          "arg": "BillingOrbital",
+          "result": "billing"
+        },
+        {
+          "arg": "PlannerPersonOrbital",
+          "result": "planner"
+        },
+        {
+          "arg": "WorkloadOrbital",
+          "result": "planner"
+        },
+        {
+          "arg": "BillingOrbital",
+          "result": "billing"
+        },
+        {
+          "arg": "PlannerPersonOrbital",
+          "result": "planner"
+        },
+        {
+          "arg": "WorkloadOrbital",
+          "result": "planner"
+        },
+        {
+          "arg": "BillingOrbital",
+          "result": "billing"
+        },
+        {
+          "arg": "PlannerPersonOrbital",
+          "result": "planner"
+        },
+        {
+          "arg": "WorkloadOrbital",
+          "result": "planner"
+        },
+        {
+          "arg": "BillingOrbital",
+          "result": "billing"
+        },
+        {
+          "arg": "PlannerPersonOrbital",
+          "result": "planner"
+        },
+        {
+          "arg": "WorkloadOrbital",
+          "result": "planner"
+        },
+        {
+          "arg": "BillingOrbital",
+          "result": "billing"
+        },
+        {
+          "arg": "PlannerPersonOrbital",
+          "result": "planner"
+        },
+        {
+          "arg": "WorkloadOrbital",
+          "result": "planner"
+        },
+        {
+          "arg": "BillingOrbital",
+          "result": "billing"
+        },
+        {
+          "arg": "PlannerPersonOrbital",
+          "result": "planner"
+        },
+        {
+          "arg": "WorkloadOrbital",
+          "result": "planner"
+        },
+        {
+          "arg": "BillingOrbital",
+          "result": "billing"
+        },
+        {
+          "arg": "PlannerPersonOrbital",
+          "result": "planner"
+        },
+        {
+          "arg": "WorkloadOrbital",
+          "result": "planner"
+        },
+        {
+          "arg": "BillingOrbital",
+          "result": "billing"
+        },
+        {
+          "arg": "PlannerPersonOrbital",
+          "result": "planner"
+        },
+        {
+          "arg": "WorkloadOrbital",
+          "result": "planner"
+        }
+      ]
+    }
+  ],
+  "result": {
+    "orbitals": [
+      {
+        "name": "BillingOrbital",
+        "entity": "BillingOrbital.entity",
+        "traits": [],
+        "pages": [
+          {
+            "name": "Billing",
+            "path": "/billing",
+            "traits": []
+          }
+        ]
+      },
+      {
+        "name": "PlannerPersonOrbital",
+        "entity": "PlannerPersonOrbital.entity",
+        "traits": [],
+        "pages": [
+          {
+            "name": "TeamMembers",
+            "path": "/team-members",
+            "traits": []
+          }
+        ]
+      },
+      {
+        "name": "WorkloadOrbital",
+        "entity": "WorkloadOrbital.entity",
+        "traits": [],
+        "pages": [
+          {
+            "name": "Workload",
+            "path": "/workload",
+            "traits": []
+          }
+        ]
+      }
+    ],
+    "config": {
+      "navItems": {
+        "type": "[NavItem]",
+        "default": [
+          {
+            "href": "/billing",
+            "label": "/billing"
+          },
+          {
+            "href": "/team-members",
+            "label": "/team-members"
+          },
+          {
+            "href": "/workload",
+            "label": "/workload"
+          }
+        ]
+      }
+    },
+    "surfaceRenames": {
+      "routes": [],
+      "traits": [],
+      "pageNames": []
+    },
+    "identity": {
+      "demotions": [],
+      "roleUnions": [],
+      "expectsRewrites": [],
+      "relationsRetargeted": []
+    },
+    "navItemsNarrowed": [],
+    "configNavItemsNarrowed": [],
+    "landingNavAdded": [],
+    "organismRenames": [],
+    "unrenamableCollisions": []
+  },
+  "error": null
+}

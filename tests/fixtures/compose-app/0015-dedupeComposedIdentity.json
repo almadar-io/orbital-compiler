@@ -1,0 +1,174 @@
+{
+  "fn": "dedupeComposedIdentity",
+  "test": "__tests__/compose-app.test.ts > dedupeComposedIdentity — FIX-K (role-vocabulary union on identity demotion) > shape mismatch — referenced literal names a field the winner does not declare → deterministic error, never silent",
+  "args": [
+    [
+      {
+        "name": "OnlineUserOrbital",
+        "entity": {
+          "name": "OnlineUser",
+          "persistence": "persistent",
+          "identity": true,
+          "fields": [
+            {
+              "name": "id",
+              "type": "string",
+              "required": true
+            },
+            {
+              "name": "role",
+              "type": "enum",
+              "values": [
+                "member",
+                "moderator",
+                "admin"
+              ]
+            }
+          ]
+        },
+        "traits": [],
+        "pages": []
+      },
+      {
+        "name": "TeamMemberOrbital",
+        "entity": {
+          "name": "TeamMember",
+          "persistence": "persistent",
+          "identity": true,
+          "fields": [
+            {
+              "name": "id",
+              "type": "string",
+              "required": true
+            },
+            {
+              "name": "role",
+              "type": "enum",
+              "values": [
+                "manager",
+                "product-owner",
+                "engineering-manager"
+              ]
+            },
+            {
+              "name": "clearance",
+              "type": "enum",
+              "values": [
+                "top-secret"
+              ]
+            }
+          ]
+        },
+        "traits": [],
+        "pages": []
+      },
+      {
+        "name": "ProjectOrbital",
+        "entity": {
+          "name": "Project",
+          "persistence": "persistent",
+          "update_policy": [
+            "==",
+            "@user.clearance",
+            "top-secret"
+          ],
+          "fields": [
+            {
+              "name": "id",
+              "type": "string",
+              "required": true
+            }
+          ]
+        },
+        "traits": [],
+        "pages": []
+      }
+    ]
+  ],
+  "argsAfter": [
+    [
+      {
+        "name": "OnlineUserOrbital",
+        "entity": {
+          "name": "OnlineUser",
+          "persistence": "persistent",
+          "identity": true,
+          "fields": [
+            {
+              "name": "id",
+              "type": "string",
+              "required": true
+            },
+            {
+              "name": "role",
+              "type": "enum",
+              "values": [
+                "member",
+                "moderator",
+                "admin"
+              ]
+            }
+          ]
+        },
+        "traits": [],
+        "pages": []
+      },
+      {
+        "name": "TeamMemberOrbital",
+        "entity": {
+          "name": "TeamMember",
+          "persistence": "persistent",
+          "fields": [
+            {
+              "name": "id",
+              "type": "string",
+              "required": true
+            },
+            {
+              "name": "role",
+              "type": "enum",
+              "values": [
+                "manager",
+                "product-owner",
+                "engineering-manager"
+              ]
+            },
+            {
+              "name": "clearance",
+              "type": "enum",
+              "values": [
+                "top-secret"
+              ]
+            }
+          ]
+        },
+        "traits": [],
+        "pages": []
+      },
+      {
+        "name": "ProjectOrbital",
+        "entity": {
+          "name": "Project",
+          "persistence": "persistent",
+          "update_policy": [
+            "==",
+            "@user.clearance",
+            "top-secret"
+          ],
+          "fields": [
+            {
+              "name": "id",
+              "type": "string",
+              "required": true
+            }
+          ]
+        },
+        "traits": [],
+        "pages": []
+      }
+    ]
+  ],
+  "lookups": [],
+  "result": null,
+  "error": "identity dedupe shape mismatch — @user.clearance is compared against \"top-secret\" (field declared by demoted TeamMember), but the surviving [identity] entity OnlineUser declares no field \"clearance\". The identity shapes cannot be reconciled deterministically and silently dropping the literals ships dead policy branches (ORB_S_ROLE_LITERAL_NOT_MEMBER); compose cannot proceed."
+}

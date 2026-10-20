@@ -1,0 +1,180 @@
+{
+  "fn": "dedupeComposedIdentity",
+  "test": "__tests__/compose-app.test.ts > dedupeComposedIdentity — an expected identity no orbital provides as identity > edge: without any identity in the app nothing is rewritten",
+  "args": [
+    [
+      {
+        "name": "EmployeeOrbital",
+        "entity": {
+          "name": "Employee",
+          "persistence": "persistent",
+          "fields": [
+            {
+              "name": "id",
+              "type": "string",
+              "required": true
+            }
+          ]
+        },
+        "traits": [],
+        "pages": []
+      },
+      {
+        "name": "TimesheetOrbital",
+        "entity": {
+          "name": "Timesheet",
+          "persistence": "persistent",
+          "fields": [
+            {
+              "name": "id",
+              "type": "string",
+              "required": true
+            }
+          ]
+        },
+        "expects": [
+          {
+            "kind": "identity",
+            "name": "Employee",
+            "shape": [
+              {
+                "name": "role",
+                "type": "enum",
+                "values": [
+                  "employee",
+                  "approver"
+                ]
+              }
+            ]
+          }
+        ],
+        "traits": [],
+        "pages": []
+      },
+      {
+        "name": "ExecutiveOverviewOrbital",
+        "entity": {
+          "name": "ExecInvoice",
+          "persistence": "persistent",
+          "fields": [
+            {
+              "name": "id",
+              "type": "string",
+              "required": true
+            }
+          ]
+        },
+        "expects": [
+          {
+            "kind": "identity",
+            "name": "ExecutivePerson",
+            "shape": [
+              {
+                "name": "role",
+                "type": "enum",
+                "values": [
+                  "executive",
+                  "department-head"
+                ]
+              }
+            ]
+          }
+        ],
+        "traits": [],
+        "pages": []
+      }
+    ]
+  ],
+  "argsAfter": [
+    [
+      {
+        "name": "EmployeeOrbital",
+        "entity": {
+          "name": "Employee",
+          "persistence": "persistent",
+          "fields": [
+            {
+              "name": "id",
+              "type": "string",
+              "required": true
+            }
+          ]
+        },
+        "traits": [],
+        "pages": []
+      },
+      {
+        "name": "TimesheetOrbital",
+        "entity": {
+          "name": "Timesheet",
+          "persistence": "persistent",
+          "fields": [
+            {
+              "name": "id",
+              "type": "string",
+              "required": true
+            }
+          ]
+        },
+        "expects": [
+          {
+            "kind": "identity",
+            "name": "Employee",
+            "shape": [
+              {
+                "name": "role",
+                "type": "enum",
+                "values": [
+                  "employee",
+                  "approver"
+                ]
+              }
+            ]
+          }
+        ],
+        "traits": [],
+        "pages": []
+      },
+      {
+        "name": "ExecutiveOverviewOrbital",
+        "entity": {
+          "name": "ExecInvoice",
+          "persistence": "persistent",
+          "fields": [
+            {
+              "name": "id",
+              "type": "string",
+              "required": true
+            }
+          ]
+        },
+        "expects": [
+          {
+            "kind": "identity",
+            "name": "ExecutivePerson",
+            "shape": [
+              {
+                "name": "role",
+                "type": "enum",
+                "values": [
+                  "executive",
+                  "department-head"
+                ]
+              }
+            ]
+          }
+        ],
+        "traits": [],
+        "pages": []
+      }
+    ]
+  ],
+  "lookups": [],
+  "result": {
+    "demotions": [],
+    "roleUnions": [],
+    "expectsRewrites": [],
+    "relationsRetargeted": []
+  },
+  "error": null
+}

@@ -1,0 +1,375 @@
+{
+  "fn": "composeOrbitalSurface",
+  "test": "__tests__/compose-app.test.ts > composeOrbitalSurface — a renamed route stays reachable through its own organism's nav > without organism identity a file's nav follows only its own orbital's rename",
+  "args": [
+    [
+      {
+        "name": "ContributorOrbital",
+        "version": "1.0.0",
+        "config": {
+          "navItems": {
+            "type": "[NavItem]",
+            "default": [
+              {
+                "href": "/wiki",
+                "label": "/wiki"
+              },
+              {
+                "href": "/people",
+                "label": "/people"
+              }
+            ]
+          }
+        },
+        "orbitals": [
+          {
+            "name": "ContributorOrbital",
+            "entity": "ContributorOrbital.entity",
+            "traits": [],
+            "pages": [
+              {
+                "name": "ContributorOrbitalPage",
+                "path": "/people",
+                "traits": []
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "name": "WikiOrbital",
+        "version": "1.0.0",
+        "config": {
+          "navItems": {
+            "type": "[NavItem]",
+            "default": [
+              {
+                "href": "/wiki",
+                "label": "/wiki"
+              },
+              {
+                "href": "/people",
+                "label": "/people"
+              }
+            ]
+          }
+        },
+        "orbitals": [
+          {
+            "name": "WikiOrbital",
+            "entity": "WikiOrbital.entity",
+            "traits": [],
+            "pages": [
+              {
+                "name": "WikiOrbitalPage",
+                "path": "/wiki",
+                "traits": []
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "name": "EventOrbital",
+        "version": "1.0.0",
+        "config": {
+          "navItems": {
+            "type": "[NavItem]",
+            "default": [
+              {
+                "href": "/events",
+                "label": "/events"
+              },
+              {
+                "href": "/people",
+                "label": "/people"
+              }
+            ]
+          }
+        },
+        "orbitals": [
+          {
+            "name": "EventOrbital",
+            "entity": "EventOrbital.entity",
+            "traits": [],
+            "pages": [
+              {
+                "name": "EventOrbitalPage",
+                "path": "/events",
+                "traits": []
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "name": "PersonOrbital",
+        "version": "1.0.0",
+        "config": {
+          "navItems": {
+            "type": "[NavItem]",
+            "default": [
+              {
+                "href": "/events",
+                "label": "/events"
+              },
+              {
+                "href": "/people",
+                "label": "/people"
+              }
+            ]
+          }
+        },
+        "orbitals": [
+          {
+            "name": "PersonOrbital",
+            "entity": "PersonOrbital.entity",
+            "traits": [],
+            "pages": [
+              {
+                "name": "PersonOrbitalPage",
+                "path": "/people",
+                "traits": []
+              }
+            ]
+          }
+        ]
+      }
+    ]
+  ],
+  "argsAfter": [
+    [
+      {
+        "name": "ContributorOrbital",
+        "version": "1.0.0",
+        "config": {
+          "navItems": {
+            "type": "[NavItem]",
+            "default": [
+              {
+                "href": "/wiki",
+                "label": "/wiki"
+              },
+              {
+                "href": "/people",
+                "label": "/people"
+              }
+            ]
+          }
+        },
+        "orbitals": [
+          {
+            "name": "ContributorOrbital",
+            "entity": "ContributorOrbital.entity",
+            "traits": [],
+            "pages": [
+              {
+                "name": "ContributorOrbitalPage",
+                "path": "/people",
+                "traits": []
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "name": "WikiOrbital",
+        "version": "1.0.0",
+        "config": {
+          "navItems": {
+            "type": "[NavItem]",
+            "default": [
+              {
+                "href": "/wiki",
+                "label": "/wiki"
+              },
+              {
+                "href": "/people",
+                "label": "/people"
+              }
+            ]
+          }
+        },
+        "orbitals": [
+          {
+            "name": "WikiOrbital",
+            "entity": "WikiOrbital.entity",
+            "traits": [],
+            "pages": [
+              {
+                "name": "WikiOrbitalPage",
+                "path": "/wiki",
+                "traits": []
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "name": "EventOrbital",
+        "version": "1.0.0",
+        "config": {
+          "navItems": {
+            "type": "[NavItem]",
+            "default": [
+              {
+                "href": "/events",
+                "label": "/events"
+              },
+              {
+                "href": "/people",
+                "label": "/people"
+              }
+            ]
+          }
+        },
+        "orbitals": [
+          {
+            "name": "EventOrbital",
+            "entity": "EventOrbital.entity",
+            "traits": [],
+            "pages": [
+              {
+                "name": "EventOrbitalPage",
+                "path": "/events",
+                "traits": []
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "name": "PersonOrbital",
+        "version": "1.0.0",
+        "config": {
+          "navItems": {
+            "type": "[NavItem]",
+            "default": [
+              {
+                "href": "/events",
+                "label": "/events"
+              },
+              {
+                "href": "/people",
+                "label": "/people"
+              }
+            ]
+          }
+        },
+        "orbitals": [
+          {
+            "name": "PersonOrbital",
+            "entity": "PersonOrbital.entity",
+            "traits": [],
+            "pages": [
+              {
+                "name": "PersonOrbitalPage",
+                "path": "/people",
+                "traits": []
+              }
+            ]
+          }
+        ]
+      }
+    ]
+  ],
+  "lookups": [],
+  "result": {
+    "orbitals": [
+      {
+        "name": "ContributorOrbital",
+        "entity": "ContributorOrbital.entity",
+        "traits": [],
+        "pages": [
+          {
+            "name": "ContributorOrbitalPage",
+            "path": "/people",
+            "traits": []
+          }
+        ]
+      },
+      {
+        "name": "WikiOrbital",
+        "entity": "WikiOrbital.entity",
+        "traits": [],
+        "pages": [
+          {
+            "name": "WikiOrbitalPage",
+            "path": "/wiki",
+            "traits": []
+          }
+        ]
+      },
+      {
+        "name": "EventOrbital",
+        "entity": "EventOrbital.entity",
+        "traits": [],
+        "pages": [
+          {
+            "name": "EventOrbitalPage",
+            "path": "/events",
+            "traits": []
+          }
+        ]
+      },
+      {
+        "name": "PersonOrbital",
+        "entity": "PersonOrbital.entity",
+        "traits": [],
+        "pages": [
+          {
+            "name": "PersonOrbitalPage",
+            "path": "/person",
+            "traits": []
+          }
+        ]
+      }
+    ],
+    "config": {
+      "navItems": {
+        "type": "[NavItem]",
+        "default": [
+          {
+            "href": "/wiki",
+            "label": "/wiki"
+          },
+          {
+            "href": "/people",
+            "label": "/people"
+          },
+          {
+            "href": "/events",
+            "label": "/events"
+          },
+          {
+            "href": "/person",
+            "label": "/people"
+          }
+        ]
+      }
+    },
+    "surfaceRenames": {
+      "routes": [
+        {
+          "orbitalName": "PersonOrbital",
+          "from": "/people",
+          "to": "/person"
+        }
+      ],
+      "traits": [],
+      "pageNames": []
+    },
+    "identity": {
+      "demotions": [],
+      "roleUnions": [],
+      "expectsRewrites": [],
+      "relationsRetargeted": []
+    },
+    "navItemsNarrowed": [],
+    "configNavItemsNarrowed": [],
+    "landingNavAdded": [],
+    "organismRenames": [],
+    "unrenamableCollisions": []
+  },
+  "error": null
+}

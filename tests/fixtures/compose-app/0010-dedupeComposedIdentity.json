@@ -1,0 +1,62 @@
+{
+  "fn": "dedupeComposedIdentity",
+  "test": "__tests__/compose-app.test.ts > dedupeComposedIdentity — composer backstop (global [identity] collisions) > single identity → no demotions, byte-stable",
+  "args": [
+    [
+      {
+        "name": "OnlineUserOrbital",
+        "entity": {
+          "name": "OnlineUser",
+          "persistence": "persistent",
+          "identity": true,
+          "fields": []
+        },
+        "traits": [],
+        "pages": []
+      },
+      {
+        "name": "TaskOrbital",
+        "entity": {
+          "name": "Task",
+          "persistence": "persistent",
+          "fields": []
+        },
+        "traits": [],
+        "pages": []
+      }
+    ]
+  ],
+  "argsAfter": [
+    [
+      {
+        "name": "OnlineUserOrbital",
+        "entity": {
+          "name": "OnlineUser",
+          "persistence": "persistent",
+          "identity": true,
+          "fields": []
+        },
+        "traits": [],
+        "pages": []
+      },
+      {
+        "name": "TaskOrbital",
+        "entity": {
+          "name": "Task",
+          "persistence": "persistent",
+          "fields": []
+        },
+        "traits": [],
+        "pages": []
+      }
+    ]
+  ],
+  "lookups": [],
+  "result": {
+    "demotions": [],
+    "roleUnions": [],
+    "expectsRewrites": [],
+    "relationsRetargeted": []
+  },
+  "error": null
+}

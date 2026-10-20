@@ -1,0 +1,484 @@
+{
+  "fn": "composeOrbitalSurface",
+  "test": "__tests__/compose-app.test.ts > composeOrbitalSurface — renames reach references in sibling orbitals > a renamed route is followed by its organism's sibling navigate targets; another organism's are not",
+  "args": [
+    [
+      {
+        "name": "CrmProjectOrbital",
+        "entity": "CrmProject.entity",
+        "traits": [],
+        "pages": [
+          {
+            "name": "CrmProjects",
+            "path": "/projects",
+            "traits": []
+          }
+        ]
+      },
+      {
+        "name": "CrmHomeOrbital",
+        "entity": "CrmHome.entity",
+        "traits": [
+          {
+            "name": "Nav",
+            "scope": "instance",
+            "stateMachine": {
+              "states": [
+                {
+                  "name": "idle",
+                  "isInitial": true
+                }
+              ],
+              "events": [
+                {
+                  "key": "GO",
+                  "name": "Go"
+                }
+              ],
+              "transitions": [
+                {
+                  "from": "idle",
+                  "to": "idle",
+                  "event": "GO",
+                  "effects": [
+                    [
+                      "navigate",
+                      "/projects"
+                    ]
+                  ]
+                }
+              ]
+            }
+          }
+        ],
+        "pages": [
+          {
+            "name": "CrmHome",
+            "path": "/crm",
+            "traits": []
+          }
+        ]
+      },
+      {
+        "name": "ProjectOrbital",
+        "entity": "Project.entity",
+        "traits": [],
+        "pages": [
+          {
+            "name": "Projects",
+            "path": "/projects",
+            "traits": []
+          }
+        ]
+      },
+      {
+        "name": "BoardOrbital",
+        "entity": "Board.entity",
+        "traits": [
+          {
+            "name": "Nav",
+            "scope": "instance",
+            "stateMachine": {
+              "states": [
+                {
+                  "name": "idle",
+                  "isInitial": true
+                }
+              ],
+              "events": [
+                {
+                  "key": "GO",
+                  "name": "Go"
+                }
+              ],
+              "transitions": [
+                {
+                  "from": "idle",
+                  "to": "idle",
+                  "event": "GO",
+                  "effects": [
+                    [
+                      "navigate",
+                      "/projects"
+                    ]
+                  ]
+                }
+              ]
+            }
+          }
+        ],
+        "pages": [
+          {
+            "name": "Board",
+            "path": "/board",
+            "traits": []
+          }
+        ]
+      }
+    ],
+    {
+      "organismOf": {
+        "$function": "organismOf"
+      }
+    }
+  ],
+  "argsAfter": [
+    [
+      {
+        "name": "CrmProjectOrbital",
+        "entity": "CrmProject.entity",
+        "traits": [],
+        "pages": [
+          {
+            "name": "CrmProjects",
+            "path": "/projects",
+            "traits": []
+          }
+        ]
+      },
+      {
+        "name": "CrmHomeOrbital",
+        "entity": "CrmHome.entity",
+        "traits": [
+          {
+            "name": "Nav",
+            "scope": "instance",
+            "stateMachine": {
+              "states": [
+                {
+                  "name": "idle",
+                  "isInitial": true
+                }
+              ],
+              "events": [
+                {
+                  "key": "GO",
+                  "name": "Go"
+                }
+              ],
+              "transitions": [
+                {
+                  "from": "idle",
+                  "to": "idle",
+                  "event": "GO",
+                  "effects": [
+                    [
+                      "navigate",
+                      "/projects"
+                    ]
+                  ]
+                }
+              ]
+            }
+          }
+        ],
+        "pages": [
+          {
+            "name": "CrmHome",
+            "path": "/crm",
+            "traits": []
+          }
+        ]
+      },
+      {
+        "name": "ProjectOrbital",
+        "entity": "Project.entity",
+        "traits": [],
+        "pages": [
+          {
+            "name": "Projects",
+            "path": "/projects",
+            "traits": []
+          }
+        ]
+      },
+      {
+        "name": "BoardOrbital",
+        "entity": "Board.entity",
+        "traits": [
+          {
+            "name": "Nav",
+            "scope": "instance",
+            "stateMachine": {
+              "states": [
+                {
+                  "name": "idle",
+                  "isInitial": true
+                }
+              ],
+              "events": [
+                {
+                  "key": "GO",
+                  "name": "Go"
+                }
+              ],
+              "transitions": [
+                {
+                  "from": "idle",
+                  "to": "idle",
+                  "event": "GO",
+                  "effects": [
+                    [
+                      "navigate",
+                      "/projects"
+                    ]
+                  ]
+                }
+              ]
+            }
+          }
+        ],
+        "pages": [
+          {
+            "name": "Board",
+            "path": "/board",
+            "traits": []
+          }
+        ]
+      }
+    ],
+    {
+      "organismOf": {
+        "$function": "organismOf"
+      }
+    }
+  ],
+  "lookups": [
+    {
+      "$lookup": "arg1.organismOf",
+      "calls": [
+        {
+          "arg": "CrmProjectOrbital",
+          "result": "crm"
+        },
+        {
+          "arg": "CrmHomeOrbital",
+          "result": "crm"
+        },
+        {
+          "arg": "ProjectOrbital",
+          "result": "pm"
+        },
+        {
+          "arg": "BoardOrbital",
+          "result": "pm"
+        },
+        {
+          "arg": "CrmProjectOrbital",
+          "result": "crm"
+        },
+        {
+          "arg": "CrmHomeOrbital",
+          "result": "crm"
+        },
+        {
+          "arg": "ProjectOrbital",
+          "result": "pm"
+        },
+        {
+          "arg": "BoardOrbital",
+          "result": "pm"
+        },
+        {
+          "arg": "CrmProjectOrbital",
+          "result": "crm"
+        },
+        {
+          "arg": "CrmHomeOrbital",
+          "result": "crm"
+        },
+        {
+          "arg": "ProjectOrbital",
+          "result": "pm"
+        },
+        {
+          "arg": "BoardOrbital",
+          "result": "pm"
+        },
+        {
+          "arg": "CrmProjectOrbital",
+          "result": "crm"
+        },
+        {
+          "arg": "CrmHomeOrbital",
+          "result": "crm"
+        },
+        {
+          "arg": "ProjectOrbital",
+          "result": "pm"
+        },
+        {
+          "arg": "BoardOrbital",
+          "result": "pm"
+        },
+        {
+          "arg": "CrmProjectOrbital",
+          "result": "crm"
+        },
+        {
+          "arg": "CrmHomeOrbital",
+          "result": "crm"
+        },
+        {
+          "arg": "ProjectOrbital",
+          "result": "pm"
+        },
+        {
+          "arg": "BoardOrbital",
+          "result": "pm"
+        }
+      ]
+    }
+  ],
+  "result": {
+    "orbitals": [
+      {
+        "name": "CrmProjectOrbital",
+        "entity": "CrmProject.entity",
+        "traits": [],
+        "pages": [
+          {
+            "name": "CrmProjects",
+            "path": "/projects",
+            "traits": []
+          }
+        ]
+      },
+      {
+        "name": "CrmHomeOrbital",
+        "entity": "CrmHome.entity",
+        "traits": [
+          {
+            "name": "Nav",
+            "scope": "instance",
+            "stateMachine": {
+              "states": [
+                {
+                  "name": "idle",
+                  "isInitial": true
+                }
+              ],
+              "events": [
+                {
+                  "key": "GO",
+                  "name": "Go"
+                }
+              ],
+              "transitions": [
+                {
+                  "from": "idle",
+                  "to": "idle",
+                  "event": "GO",
+                  "effects": [
+                    [
+                      "navigate",
+                      "/projects"
+                    ]
+                  ]
+                }
+              ]
+            }
+          }
+        ],
+        "pages": [
+          {
+            "name": "CrmHome",
+            "path": "/crm",
+            "traits": []
+          }
+        ]
+      },
+      {
+        "name": "ProjectOrbital",
+        "entity": "Project.entity",
+        "traits": [],
+        "pages": [
+          {
+            "name": "Projects",
+            "path": "/pm/projects",
+            "traits": []
+          }
+        ]
+      },
+      {
+        "name": "BoardOrbital",
+        "entity": "Board.entity",
+        "traits": [
+          {
+            "name": "BoardNav",
+            "scope": "instance",
+            "stateMachine": {
+              "states": [
+                {
+                  "name": "idle",
+                  "isInitial": true
+                }
+              ],
+              "events": [
+                {
+                  "key": "GO",
+                  "name": "Go"
+                }
+              ],
+              "transitions": [
+                {
+                  "from": "idle",
+                  "to": "idle",
+                  "event": "GO",
+                  "effects": [
+                    [
+                      "navigate",
+                      "/pm/projects"
+                    ]
+                  ]
+                }
+              ]
+            }
+          }
+        ],
+        "pages": [
+          {
+            "name": "Board",
+            "path": "/board",
+            "traits": []
+          }
+        ]
+      }
+    ],
+    "surfaceRenames": {
+      "routes": [],
+      "traits": [
+        {
+          "orbitalName": "BoardOrbital",
+          "from": "Nav",
+          "to": "BoardNav"
+        }
+      ],
+      "pageNames": []
+    },
+    "identity": {
+      "demotions": [],
+      "roleUnions": [],
+      "expectsRewrites": [],
+      "relationsRetargeted": []
+    },
+    "navItemsNarrowed": [],
+    "configNavItemsNarrowed": [],
+    "landingNavAdded": [],
+    "organismRenames": [
+      {
+        "organism": "pm",
+        "entities": [],
+        "collections": [],
+        "routes": [
+          {
+            "from": "/projects",
+            "to": "/pm/projects"
+          }
+        ]
+      }
+    ],
+    "unrenamableCollisions": []
+  },
+  "error": null
+}

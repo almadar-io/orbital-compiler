@@ -1,0 +1,88 @@
+{
+  "fn": "composeOrbitalSurface",
+  "test": "__tests__/compose-app.test.ts > composeOrbitalSurface — the app surface without generated pages or layout > keeps the files' order and generates no page for an orbital without one",
+  "args": [
+    [
+      {
+        "name": "First",
+        "entity": "First.entity",
+        "traits": [],
+        "pages": [
+          {
+            "name": "FirstPage",
+            "path": "/",
+            "traits": []
+          }
+        ]
+      },
+      {
+        "name": "Headless",
+        "entity": "Headless.entity",
+        "traits": [],
+        "pages": []
+      }
+    ]
+  ],
+  "argsAfter": [
+    [
+      {
+        "name": "First",
+        "entity": "First.entity",
+        "traits": [],
+        "pages": [
+          {
+            "name": "FirstPage",
+            "path": "/",
+            "traits": []
+          }
+        ]
+      },
+      {
+        "name": "Headless",
+        "entity": "Headless.entity",
+        "traits": [],
+        "pages": []
+      }
+    ]
+  ],
+  "lookups": [],
+  "result": {
+    "orbitals": [
+      {
+        "name": "First",
+        "entity": "First.entity",
+        "traits": [],
+        "pages": [
+          {
+            "name": "FirstPage",
+            "path": "/",
+            "traits": []
+          }
+        ]
+      },
+      {
+        "name": "Headless",
+        "entity": "Headless.entity",
+        "traits": [],
+        "pages": []
+      }
+    ],
+    "surfaceRenames": {
+      "routes": [],
+      "traits": [],
+      "pageNames": []
+    },
+    "identity": {
+      "demotions": [],
+      "roleUnions": [],
+      "expectsRewrites": [],
+      "relationsRetargeted": []
+    },
+    "navItemsNarrowed": [],
+    "configNavItemsNarrowed": [],
+    "landingNavAdded": [],
+    "organismRenames": [],
+    "unrenamableCollisions": []
+  },
+  "error": null
+}

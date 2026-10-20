@@ -1,0 +1,205 @@
+{
+  "fn": "dedupeComposedSurface",
+  "test": "__tests__/compose-app.test.ts > dedupeComposedSurface — FIX-M (@trait.<old> tokens rewritten on inline-trait rename) > rewrites `@trait.<old>` tokens inside state-machine effect trees too",
+  "args": [
+    [
+      {
+        "name": "BacklogOrbital",
+        "entity": "App.entity",
+        "traits": [
+          {
+            "ref": "UiIcon.traits.IconRender",
+            "name": "InlineIconRender6",
+            "linkedEntity": "App"
+          }
+        ],
+        "pages": [
+          {
+            "name": "BacklogPage",
+            "path": "/backlog",
+            "traits": [
+              {
+                "ref": "InlineIconRender6"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "name": "SprintOrbital",
+        "entity": "App.entity",
+        "traits": [
+          {
+            "ref": "UiIcon.traits.IconRender",
+            "name": "InlineIconRender6",
+            "linkedEntity": "App"
+          },
+          {
+            "ref": "UiHstack.traits.HstackRender",
+            "name": "InlineHstackRender8",
+            "linkedEntity": "App",
+            "config": {
+              "children": {
+                "type": "array",
+                "default": [
+                  "@trait.InlineIconRender6",
+                  "@trait.InlineIconRender60",
+                  "@trait.InlineTypographyRender2"
+                ]
+              }
+            }
+          },
+          {
+            "name": "InlineButtonRender9",
+            "scope": "instance",
+            "stateMachine": {
+              "states": [
+                {
+                  "name": "idle",
+                  "isInitial": true
+                }
+              ],
+              "events": [
+                {
+                  "key": "SELECT",
+                  "name": "Select"
+                }
+              ],
+              "transitions": [
+                {
+                  "from": "idle",
+                  "to": "idle",
+                  "event": "SELECT",
+                  "effects": [
+                    [
+                      "emit",
+                      "@trait.InlineIconRender6"
+                    ]
+                  ]
+                }
+              ]
+            }
+          }
+        ],
+        "pages": [
+          {
+            "name": "SprintPage",
+            "path": "/sprint",
+            "traits": [
+              {
+                "ref": "InlineHstackRender8"
+              }
+            ]
+          }
+        ]
+      }
+    ]
+  ],
+  "argsAfter": [
+    [
+      {
+        "name": "BacklogOrbital",
+        "entity": "App.entity",
+        "traits": [
+          {
+            "ref": "UiIcon.traits.IconRender",
+            "name": "InlineIconRender6",
+            "linkedEntity": "App"
+          }
+        ],
+        "pages": [
+          {
+            "name": "BacklogPage",
+            "path": "/backlog",
+            "traits": [
+              {
+                "ref": "InlineIconRender6"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "name": "SprintOrbital",
+        "entity": "App.entity",
+        "traits": [
+          {
+            "ref": "UiIcon.traits.IconRender",
+            "name": "SprintInlineIconRender6",
+            "linkedEntity": "App"
+          },
+          {
+            "ref": "UiHstack.traits.HstackRender",
+            "name": "InlineHstackRender8",
+            "linkedEntity": "App",
+            "config": {
+              "children": {
+                "type": "array",
+                "default": [
+                  "@trait.SprintInlineIconRender6",
+                  "@trait.InlineIconRender60",
+                  "@trait.InlineTypographyRender2"
+                ]
+              }
+            }
+          },
+          {
+            "name": "InlineButtonRender9",
+            "scope": "instance",
+            "stateMachine": {
+              "states": [
+                {
+                  "name": "idle",
+                  "isInitial": true
+                }
+              ],
+              "events": [
+                {
+                  "key": "SELECT",
+                  "name": "Select"
+                }
+              ],
+              "transitions": [
+                {
+                  "from": "idle",
+                  "to": "idle",
+                  "event": "SELECT",
+                  "effects": [
+                    [
+                      "emit",
+                      "@trait.SprintInlineIconRender6"
+                    ]
+                  ]
+                }
+              ]
+            }
+          }
+        ],
+        "pages": [
+          {
+            "name": "SprintPage",
+            "path": "/sprint",
+            "traits": [
+              {
+                "ref": "InlineHstackRender8"
+              }
+            ]
+          }
+        ]
+      }
+    ]
+  ],
+  "lookups": [],
+  "result": {
+    "routes": [],
+    "traits": [
+      {
+        "orbitalName": "SprintOrbital",
+        "from": "InlineIconRender6",
+        "to": "SprintInlineIconRender6"
+      }
+    ],
+    "pageNames": []
+  },
+  "error": null
+}

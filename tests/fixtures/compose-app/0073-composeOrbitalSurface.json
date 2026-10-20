@@ -1,0 +1,547 @@
+{
+  "fn": "composeOrbitalSurface",
+  "test": "__tests__/compose-app.test.ts > composeOrbitalSurface — organisms are namespaces > the later organism's colliding entity is prefixed, with every reference in its own files",
+  "args": [
+    [
+      {
+        "name": "StaffOrbital",
+        "version": "1.0.0",
+        "orbitals": [
+          {
+            "name": "StaffOrbital",
+            "entity": {
+              "name": "Staff",
+              "persistence": "persistent",
+              "collection": "staff",
+              "fields": [
+                {
+                  "name": "id",
+                  "type": "string"
+                }
+              ]
+            },
+            "traits": [],
+            "pages": [
+              {
+                "name": "StaffOrbitalPage",
+                "path": "/stafforbital",
+                "traits": []
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "name": "InterviewOrbital",
+        "version": "1.0.0",
+        "orbitals": [
+          {
+            "name": "InterviewOrbital",
+            "entity": {
+              "name": "Interview",
+              "persistence": "persistent",
+              "fields": [
+                {
+                  "name": "id",
+                  "type": "string"
+                }
+              ]
+            },
+            "traits": [],
+            "pages": [
+              {
+                "name": "InterviewOrbitalPage",
+                "path": "/intervieworbital",
+                "traits": []
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "name": "HrPortalStaffOrbital",
+        "version": "1.0.0",
+        "orbitals": [
+          {
+            "name": "HrPortalStaffOrbital",
+            "entity": {
+              "name": "Staff",
+              "persistence": "persistent",
+              "collection": "staff",
+              "fields": [
+                {
+                  "name": "id",
+                  "type": "string"
+                }
+              ]
+            },
+            "traits": [],
+            "pages": [
+              {
+                "name": "HrPortalStaffOrbitalPage",
+                "path": "/hrportalstafforbital",
+                "traits": []
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "name": "LeaveOrbital",
+        "version": "1.0.0",
+        "orbitals": [
+          {
+            "name": "LeaveOrbital",
+            "entity": {
+              "name": "Leave",
+              "persistence": "persistent",
+              "fields": [
+                {
+                  "name": "id",
+                  "type": "string"
+                },
+                {
+                  "name": "employee",
+                  "type": "relation",
+                  "relation": {
+                    "entity": "Staff"
+                  }
+                }
+              ]
+            },
+            "traits": [
+              {
+                "ref": "Browse.traits.List",
+                "name": "LeaveList",
+                "linkedEntity": "Leave"
+              }
+            ],
+            "pages": [
+              {
+                "name": "LeaveOrbitalPage",
+                "path": "/leaveorbital",
+                "traits": []
+              }
+            ]
+          }
+        ]
+      }
+    ],
+    {
+      "organismOf": {
+        "$function": "organismOf"
+      },
+      "atomTraitOf": {
+        "$function": "atomTraitOf"
+      }
+    }
+  ],
+  "argsAfter": [
+    [
+      {
+        "name": "StaffOrbital",
+        "version": "1.0.0",
+        "orbitals": [
+          {
+            "name": "StaffOrbital",
+            "entity": {
+              "name": "Staff",
+              "persistence": "persistent",
+              "collection": "staff",
+              "fields": [
+                {
+                  "name": "id",
+                  "type": "string"
+                }
+              ]
+            },
+            "traits": [],
+            "pages": [
+              {
+                "name": "StaffOrbitalPage",
+                "path": "/stafforbital",
+                "traits": []
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "name": "InterviewOrbital",
+        "version": "1.0.0",
+        "orbitals": [
+          {
+            "name": "InterviewOrbital",
+            "entity": {
+              "name": "Interview",
+              "persistence": "persistent",
+              "fields": [
+                {
+                  "name": "id",
+                  "type": "string"
+                }
+              ]
+            },
+            "traits": [],
+            "pages": [
+              {
+                "name": "InterviewOrbitalPage",
+                "path": "/intervieworbital",
+                "traits": []
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "name": "HrPortalStaffOrbital",
+        "version": "1.0.0",
+        "orbitals": [
+          {
+            "name": "HrPortalStaffOrbital",
+            "entity": {
+              "name": "Staff",
+              "persistence": "persistent",
+              "collection": "staff",
+              "fields": [
+                {
+                  "name": "id",
+                  "type": "string"
+                }
+              ]
+            },
+            "traits": [],
+            "pages": [
+              {
+                "name": "HrPortalStaffOrbitalPage",
+                "path": "/hrportalstafforbital",
+                "traits": []
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "name": "LeaveOrbital",
+        "version": "1.0.0",
+        "orbitals": [
+          {
+            "name": "LeaveOrbital",
+            "entity": {
+              "name": "Leave",
+              "persistence": "persistent",
+              "fields": [
+                {
+                  "name": "id",
+                  "type": "string"
+                },
+                {
+                  "name": "employee",
+                  "type": "relation",
+                  "relation": {
+                    "entity": "Staff"
+                  }
+                }
+              ]
+            },
+            "traits": [
+              {
+                "ref": "Browse.traits.List",
+                "name": "LeaveList",
+                "linkedEntity": "Leave"
+              }
+            ],
+            "pages": [
+              {
+                "name": "LeaveOrbitalPage",
+                "path": "/leaveorbital",
+                "traits": []
+              }
+            ]
+          }
+        ]
+      }
+    ],
+    {
+      "organismOf": {
+        "$function": "organismOf"
+      },
+      "atomTraitOf": {
+        "$function": "atomTraitOf"
+      }
+    }
+  ],
+  "lookups": [
+    {
+      "$lookup": "arg1.organismOf",
+      "calls": [
+        {
+          "arg": "StaffOrbital",
+          "result": "std-ats-recruiting"
+        },
+        {
+          "arg": "InterviewOrbital",
+          "result": "std-ats-recruiting"
+        },
+        {
+          "arg": "HrPortalStaffOrbital",
+          "result": "std-hr-portal"
+        },
+        {
+          "arg": "LeaveOrbital",
+          "result": "std-hr-portal"
+        },
+        {
+          "arg": "StaffOrbital",
+          "result": "std-ats-recruiting"
+        },
+        {
+          "arg": "InterviewOrbital",
+          "result": "std-ats-recruiting"
+        },
+        {
+          "arg": "HrPortalStaffOrbital",
+          "result": "std-hr-portal"
+        },
+        {
+          "arg": "LeaveOrbital",
+          "result": "std-hr-portal"
+        },
+        {
+          "arg": "StaffOrbital",
+          "result": "std-ats-recruiting"
+        },
+        {
+          "arg": "InterviewOrbital",
+          "result": "std-ats-recruiting"
+        },
+        {
+          "arg": "HrPortalStaffOrbital",
+          "result": "std-hr-portal"
+        },
+        {
+          "arg": "LeaveOrbital",
+          "result": "std-hr-portal"
+        },
+        {
+          "arg": "StaffOrbital",
+          "result": "std-ats-recruiting"
+        },
+        {
+          "arg": "InterviewOrbital",
+          "result": "std-ats-recruiting"
+        },
+        {
+          "arg": "HrPortalStaffOrbital",
+          "result": "std-hr-portal"
+        },
+        {
+          "arg": "LeaveOrbital",
+          "result": "std-hr-portal"
+        },
+        {
+          "arg": "StaffOrbital",
+          "result": "std-ats-recruiting"
+        },
+        {
+          "arg": "InterviewOrbital",
+          "result": "std-ats-recruiting"
+        },
+        {
+          "arg": "HrPortalStaffOrbital",
+          "result": "std-hr-portal"
+        },
+        {
+          "arg": "LeaveOrbital",
+          "result": "std-hr-portal"
+        }
+      ]
+    },
+    {
+      "$lookup": "arg1.atomTraitOf",
+      "calls": [
+        {
+          "arg": [
+            {
+              "name": "LeaveOrbital",
+              "entity": {
+                "name": "Leave",
+                "persistence": "persistent",
+                "fields": [
+                  {
+                    "name": "id",
+                    "type": "string"
+                  },
+                  {
+                    "name": "employee",
+                    "type": "relation",
+                    "relation": {
+                      "entity": "Staff"
+                    }
+                  }
+                ]
+              },
+              "traits": [
+                {
+                  "ref": "Browse.traits.List",
+                  "name": "LeaveList",
+                  "linkedEntity": "Leave"
+                }
+              ],
+              "pages": [
+                {
+                  "name": "LeaveOrbitalPage",
+                  "path": "/leaveorbital",
+                  "traits": []
+                }
+              ]
+            },
+            "Browse.traits.List"
+          ],
+          "result": {
+            "name": "Browse.traits.List",
+            "scope": "instance",
+            "entityRebindable": true
+          }
+        }
+      ]
+    }
+  ],
+  "result": {
+    "orbitals": [
+      {
+        "name": "StaffOrbital",
+        "entity": {
+          "name": "Staff",
+          "persistence": "persistent",
+          "collection": "staff",
+          "fields": [
+            {
+              "name": "id",
+              "type": "string"
+            }
+          ]
+        },
+        "traits": [],
+        "pages": [
+          {
+            "name": "StaffOrbitalPage",
+            "path": "/stafforbital",
+            "traits": []
+          }
+        ]
+      },
+      {
+        "name": "InterviewOrbital",
+        "entity": {
+          "name": "Interview",
+          "persistence": "persistent",
+          "fields": [
+            {
+              "name": "id",
+              "type": "string"
+            }
+          ]
+        },
+        "traits": [],
+        "pages": [
+          {
+            "name": "InterviewOrbitalPage",
+            "path": "/intervieworbital",
+            "traits": []
+          }
+        ]
+      },
+      {
+        "name": "HrPortalStaffOrbital",
+        "entity": {
+          "name": "HrPortalStaff",
+          "persistence": "persistent",
+          "collection": "hr_portal_staff",
+          "fields": [
+            {
+              "name": "id",
+              "type": "string"
+            }
+          ]
+        },
+        "traits": [],
+        "pages": [
+          {
+            "name": "HrPortalStaffOrbitalPage",
+            "path": "/hrportalstafforbital",
+            "traits": []
+          }
+        ]
+      },
+      {
+        "name": "LeaveOrbital",
+        "entity": {
+          "name": "Leave",
+          "persistence": "persistent",
+          "fields": [
+            {
+              "name": "id",
+              "type": "string"
+            },
+            {
+              "name": "employee",
+              "type": "relation",
+              "relation": {
+                "entity": "HrPortalStaff"
+              }
+            }
+          ]
+        },
+        "traits": [
+          {
+            "ref": "Browse.traits.List",
+            "name": "LeaveList",
+            "linkedEntity": "Leave"
+          }
+        ],
+        "pages": [
+          {
+            "name": "LeaveOrbitalPage",
+            "path": "/leaveorbital",
+            "traits": []
+          }
+        ]
+      }
+    ],
+    "surfaceRenames": {
+      "routes": [],
+      "traits": [],
+      "pageNames": []
+    },
+    "identity": {
+      "demotions": [],
+      "roleUnions": [],
+      "expectsRewrites": [],
+      "relationsRetargeted": []
+    },
+    "navItemsNarrowed": [],
+    "configNavItemsNarrowed": [],
+    "landingNavAdded": [],
+    "organismRenames": [
+      {
+        "organism": "std-hr-portal",
+        "entities": [
+          {
+            "from": "Staff",
+            "to": "HrPortalStaff"
+          }
+        ],
+        "collections": [
+          {
+            "from": "staff",
+            "to": "hr_portal_staff"
+          }
+        ],
+        "routes": []
+      }
+    ],
+    "unrenamableCollisions": []
+  },
+  "error": null
+}

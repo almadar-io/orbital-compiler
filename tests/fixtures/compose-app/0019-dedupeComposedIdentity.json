@@ -1,0 +1,236 @@
+{
+  "fn": "dedupeComposedIdentity",
+  "test": "__tests__/compose-app.test.ts > dedupeComposedIdentity — FIX-L (expects rewrite on identity demotion) > combines multiple demoted viewer contracts once while retaining each record requirement",
+  "args": [
+    [
+      {
+        "name": "AuthorOrbital",
+        "entity": {
+          "name": "Author",
+          "persistence": "persistent",
+          "identity": true,
+          "fields": [
+            {
+              "name": "id",
+              "type": "string",
+              "required": true
+            }
+          ]
+        },
+        "traits": [],
+        "pages": []
+      },
+      {
+        "name": "TeamMemberOrbital",
+        "entity": {
+          "name": "TeamMember",
+          "persistence": "persistent",
+          "identity": true,
+          "fields": [
+            {
+              "name": "id",
+              "type": "string",
+              "required": true
+            }
+          ]
+        },
+        "traits": [],
+        "pages": []
+      },
+      {
+        "name": "ContactOrbital",
+        "entity": {
+          "name": "Contact",
+          "persistence": "persistent",
+          "fields": [
+            {
+              "name": "id",
+              "type": "string",
+              "required": true
+            }
+          ]
+        },
+        "expects": [
+          {
+            "kind": "identity",
+            "name": "TeamMember",
+            "shape": [
+              {
+                "name": "role",
+                "type": "enum",
+                "values": [
+                  "manager"
+                ]
+              }
+            ]
+          },
+          {
+            "kind": "identity",
+            "name": "Guest",
+            "shape": [
+              {
+                "name": "email",
+                "type": "email",
+                "required": true
+              }
+            ]
+          }
+        ],
+        "traits": [],
+        "pages": []
+      },
+      {
+        "name": "GuestOrbital",
+        "entity": {
+          "name": "Guest",
+          "identity": true,
+          "fields": [
+            {
+              "name": "id",
+              "type": "string"
+            }
+          ]
+        },
+        "traits": [],
+        "pages": []
+      }
+    ]
+  ],
+  "argsAfter": [
+    [
+      {
+        "name": "AuthorOrbital",
+        "entity": {
+          "name": "Author",
+          "persistence": "persistent",
+          "identity": true,
+          "fields": [
+            {
+              "name": "id",
+              "type": "string",
+              "required": true
+            }
+          ]
+        },
+        "traits": [],
+        "pages": []
+      },
+      {
+        "name": "TeamMemberOrbital",
+        "entity": {
+          "name": "TeamMember",
+          "persistence": "persistent",
+          "fields": [
+            {
+              "name": "id",
+              "type": "string",
+              "required": true
+            }
+          ]
+        },
+        "traits": [],
+        "pages": []
+      },
+      {
+        "name": "ContactOrbital",
+        "entity": {
+          "name": "Contact",
+          "persistence": "persistent",
+          "fields": [
+            {
+              "name": "id",
+              "type": "string",
+              "required": true
+            }
+          ]
+        },
+        "expects": [
+          {
+            "kind": "entity",
+            "name": "TeamMember",
+            "shape": [
+              {
+                "name": "role",
+                "type": "enum",
+                "values": [
+                  "manager"
+                ]
+              }
+            ]
+          },
+          {
+            "kind": "entity",
+            "name": "Guest",
+            "shape": [
+              {
+                "name": "email",
+                "type": "email",
+                "required": true
+              }
+            ]
+          },
+          {
+            "kind": "identity",
+            "name": "Author",
+            "shape": [
+              {
+                "name": "role",
+                "type": "enum",
+                "values": [
+                  "manager"
+                ]
+              },
+              {
+                "name": "email",
+                "type": "email",
+                "required": true
+              }
+            ]
+          }
+        ],
+        "traits": [],
+        "pages": []
+      },
+      {
+        "name": "GuestOrbital",
+        "entity": {
+          "name": "Guest",
+          "fields": [
+            {
+              "name": "id",
+              "type": "string"
+            }
+          ]
+        },
+        "traits": [],
+        "pages": []
+      }
+    ]
+  ],
+  "lookups": [],
+  "result": {
+    "demotions": [
+      {
+        "orbitalName": "TeamMemberOrbital",
+        "entityName": "TeamMember"
+      },
+      {
+        "orbitalName": "GuestOrbital",
+        "entityName": "Guest"
+      }
+    ],
+    "roleUnions": [],
+    "expectsRewrites": [
+      {
+        "orbitalName": "ContactOrbital",
+        "entityName": "TeamMember"
+      },
+      {
+        "orbitalName": "ContactOrbital",
+        "entityName": "Guest"
+      }
+    ],
+    "relationsRetargeted": []
+  },
+  "error": null
+}

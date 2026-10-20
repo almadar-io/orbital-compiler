@@ -1,0 +1,221 @@
+{
+  "fn": "dedupeComposedIdentity",
+  "test": "__tests__/compose-app.test.ts > dedupeComposedIdentity — FIX-L keeps a rewritten expectation true to what the orbital writes > a field the orbital persists to the demoted entity joins the shape, typed from that entity",
+  "args": [
+    [
+      {
+        "name": "StaffOrbital",
+        "entity": {
+          "name": "Staff",
+          "persistence": "persistent",
+          "identity": true,
+          "fields": [
+            {
+              "name": "id",
+              "type": "string"
+            }
+          ]
+        },
+        "traits": [],
+        "pages": []
+      },
+      {
+        "name": "OnlineUserOrbital",
+        "entity": {
+          "name": "OnlineUser",
+          "persistence": "persistent",
+          "identity": true,
+          "fields": [
+            {
+              "name": "id",
+              "type": "string"
+            },
+            {
+              "name": "email",
+              "type": "string"
+            },
+            {
+              "name": "lastActive",
+              "type": "timestamp"
+            }
+          ]
+        },
+        "expects": [
+          {
+            "kind": "identity",
+            "name": "OnlineUser",
+            "shape": [
+              {
+                "name": "email",
+                "type": "string"
+              }
+            ]
+          }
+        ],
+        "traits": [
+          {
+            "name": "OnlinePresence",
+            "scope": "instance",
+            "linkedEntity": "OnlineUser",
+            "stateMachine": {
+              "states": [
+                {
+                  "name": "idle",
+                  "isInitial": true
+                }
+              ],
+              "events": [
+                {
+                  "key": "PING",
+                  "name": "Ping"
+                }
+              ],
+              "transitions": [
+                {
+                  "from": "idle",
+                  "to": "idle",
+                  "event": "PING",
+                  "effects": [
+                    [
+                      "persist",
+                      "update",
+                      "OnlineUser",
+                      {
+                        "lastActive": "@now"
+                      }
+                    ]
+                  ]
+                }
+              ]
+            }
+          }
+        ],
+        "pages": []
+      }
+    ]
+  ],
+  "argsAfter": [
+    [
+      {
+        "name": "StaffOrbital",
+        "entity": {
+          "name": "Staff",
+          "persistence": "persistent",
+          "identity": true,
+          "fields": [
+            {
+              "name": "id",
+              "type": "string"
+            }
+          ]
+        },
+        "traits": [],
+        "pages": []
+      },
+      {
+        "name": "OnlineUserOrbital",
+        "entity": {
+          "name": "OnlineUser",
+          "persistence": "persistent",
+          "fields": [
+            {
+              "name": "id",
+              "type": "string"
+            },
+            {
+              "name": "email",
+              "type": "string"
+            },
+            {
+              "name": "lastActive",
+              "type": "timestamp"
+            }
+          ]
+        },
+        "expects": [
+          {
+            "kind": "entity",
+            "name": "OnlineUser",
+            "shape": [
+              {
+                "name": "email",
+                "type": "string"
+              },
+              {
+                "name": "lastActive",
+                "type": "timestamp"
+              }
+            ]
+          },
+          {
+            "kind": "identity",
+            "name": "Staff",
+            "shape": [
+              {
+                "name": "email",
+                "type": "string"
+              }
+            ]
+          }
+        ],
+        "traits": [
+          {
+            "name": "OnlinePresence",
+            "scope": "instance",
+            "linkedEntity": "OnlineUser",
+            "stateMachine": {
+              "states": [
+                {
+                  "name": "idle",
+                  "isInitial": true
+                }
+              ],
+              "events": [
+                {
+                  "key": "PING",
+                  "name": "Ping"
+                }
+              ],
+              "transitions": [
+                {
+                  "from": "idle",
+                  "to": "idle",
+                  "event": "PING",
+                  "effects": [
+                    [
+                      "persist",
+                      "update",
+                      "OnlineUser",
+                      {
+                        "lastActive": "@now"
+                      }
+                    ]
+                  ]
+                }
+              ]
+            }
+          }
+        ],
+        "pages": []
+      }
+    ]
+  ],
+  "lookups": [],
+  "result": {
+    "demotions": [
+      {
+        "orbitalName": "OnlineUserOrbital",
+        "entityName": "OnlineUser"
+      }
+    ],
+    "roleUnions": [],
+    "expectsRewrites": [
+      {
+        "orbitalName": "OnlineUserOrbital",
+        "entityName": "OnlineUser"
+      }
+    ],
+    "relationsRetargeted": []
+  },
+  "error": null
+}

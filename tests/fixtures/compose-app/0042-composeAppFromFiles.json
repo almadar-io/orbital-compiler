@@ -1,0 +1,299 @@
+{
+  "fn": "composeAppFromFiles",
+  "test": "__tests__/compose-app.test.ts > composeAppFromFiles — per-orbital files composed into one app > renamed trait rows get curName=<renamed> (+renames entry); untouched rows keep curName",
+  "args": [
+    [
+      {
+        "name": "NotesOrbital",
+        "version": "1.0.0",
+        "orbitals": [
+          {
+            "name": "NotesOrbital",
+            "entity": "App.entity",
+            "traits": [
+              {
+                "ref": "UiTypography.traits.TypographyRender",
+                "name": "InlineTypographyRender2",
+                "linkedEntity": "App",
+                "id": "trt_FIRST"
+              }
+            ],
+            "pages": [
+              {
+                "name": "NotesOrbitalPage",
+                "path": "/",
+                "traits": [
+                  {
+                    "ref": "InlineTypographyRender2"
+                  }
+                ]
+              }
+            ]
+          }
+        ],
+        "ledger": {
+          "schemaVersion": 1,
+          "entries": {
+            "trt_FIRST": {
+              "id": "trt_FIRST",
+              "kind": "trait",
+              "bakedName": "InlineTypographyRender2",
+              "curName": "InlineTypographyRender2",
+              "renames": [],
+              "owner": "workspace"
+            }
+          }
+        }
+      },
+      {
+        "name": "VendorDirectoryOrbital",
+        "version": "1.0.0",
+        "orbitals": [
+          {
+            "name": "VendorDirectoryOrbital",
+            "entity": "App.entity",
+            "traits": [
+              {
+                "ref": "UiTypography.traits.TypographyRender",
+                "name": "InlineTypographyRender2",
+                "linkedEntity": "App",
+                "id": "trt_SECOND"
+              }
+            ],
+            "pages": [
+              {
+                "name": "VendorDirectoryOrbitalPage",
+                "path": "/vendors",
+                "traits": [
+                  {
+                    "ref": "InlineTypographyRender2"
+                  }
+                ]
+              }
+            ]
+          }
+        ],
+        "ledger": {
+          "schemaVersion": 1,
+          "entries": {
+            "trt_SECOND": {
+              "id": "trt_SECOND",
+              "kind": "trait",
+              "bakedName": "InlineTypographyRender2",
+              "curName": "InlineTypographyRender2",
+              "renames": [],
+              "owner": "workspace"
+            }
+          }
+        }
+      }
+    ],
+    {
+      "appName": "LedgerSyncApp"
+    }
+  ],
+  "argsAfter": [
+    [
+      {
+        "name": "NotesOrbital",
+        "version": "1.0.0",
+        "orbitals": [
+          {
+            "name": "NotesOrbital",
+            "entity": "App.entity",
+            "traits": [
+              {
+                "ref": "UiTypography.traits.TypographyRender",
+                "name": "InlineTypographyRender2",
+                "linkedEntity": "App",
+                "id": "trt_FIRST"
+              }
+            ],
+            "pages": [
+              {
+                "name": "NotesOrbitalPage",
+                "path": "/",
+                "traits": [
+                  {
+                    "ref": "InlineTypographyRender2"
+                  }
+                ]
+              }
+            ]
+          }
+        ],
+        "ledger": {
+          "schemaVersion": 1,
+          "entries": {
+            "trt_FIRST": {
+              "id": "trt_FIRST",
+              "kind": "trait",
+              "bakedName": "InlineTypographyRender2",
+              "curName": "InlineTypographyRender2",
+              "renames": [],
+              "owner": "workspace"
+            }
+          }
+        }
+      },
+      {
+        "name": "VendorDirectoryOrbital",
+        "version": "1.0.0",
+        "orbitals": [
+          {
+            "name": "VendorDirectoryOrbital",
+            "entity": "App.entity",
+            "traits": [
+              {
+                "ref": "UiTypography.traits.TypographyRender",
+                "name": "InlineTypographyRender2",
+                "linkedEntity": "App",
+                "id": "trt_SECOND"
+              }
+            ],
+            "pages": [
+              {
+                "name": "VendorDirectoryOrbitalPage",
+                "path": "/vendors",
+                "traits": [
+                  {
+                    "ref": "InlineTypographyRender2"
+                  }
+                ]
+              }
+            ]
+          }
+        ],
+        "ledger": {
+          "schemaVersion": 1,
+          "entries": {
+            "trt_SECOND": {
+              "id": "trt_SECOND",
+              "kind": "trait",
+              "bakedName": "InlineTypographyRender2",
+              "curName": "InlineTypographyRender2",
+              "renames": [],
+              "owner": "workspace"
+            }
+          }
+        }
+      }
+    ],
+    {
+      "appName": "LedgerSyncApp"
+    }
+  ],
+  "lookups": [],
+  "result": {
+    "schema": {
+      "name": "LedgerSyncApp",
+      "version": "1.0.0",
+      "orbitals": [
+        {
+          "name": "NotesOrbital",
+          "entity": "App.entity",
+          "traits": [
+            {
+              "ref": "UiTypography.traits.TypographyRender",
+              "name": "InlineTypographyRender2",
+              "linkedEntity": "App",
+              "id": "trt_FIRST"
+            }
+          ],
+          "pages": [
+            {
+              "name": "NotesOrbitalPage",
+              "path": "/",
+              "traits": [
+                {
+                  "ref": "InlineTypographyRender2"
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "name": "VendorDirectoryOrbital",
+          "entity": "App.entity",
+          "traits": [
+            {
+              "ref": "UiTypography.traits.TypographyRender",
+              "name": "VendorDirectoryInlineTypographyRender2",
+              "linkedEntity": "App",
+              "id": "trt_SECOND"
+            }
+          ],
+          "pages": [
+            {
+              "name": "VendorDirectoryOrbitalPage",
+              "path": "/vendors",
+              "traits": [
+                {
+                  "ref": "VendorDirectoryInlineTypographyRender2"
+                }
+              ]
+            }
+          ]
+        }
+      ],
+      "ledger": {
+        "schemaVersion": 1,
+        "entries": {
+          "trt_FIRST": {
+            "id": "trt_FIRST",
+            "kind": "trait",
+            "bakedName": "InlineTypographyRender2",
+            "curName": "InlineTypographyRender2",
+            "renames": [],
+            "owner": "workspace"
+          },
+          "trt_SECOND": {
+            "id": "trt_SECOND",
+            "kind": "trait",
+            "bakedName": "InlineTypographyRender2",
+            "curName": "VendorDirectoryInlineTypographyRender2",
+            "renames": [
+              {
+                "from": "InlineTypographyRender2",
+                "to": "VendorDirectoryInlineTypographyRender2",
+                "at": "2026-01-01T00:00:00.000Z"
+              }
+            ],
+            "owner": "workspace"
+          }
+        }
+      }
+    },
+    "layout": {
+      "strategy": "tabs",
+      "pageCount": 2
+    },
+    "wiring": {
+      "connections": 0
+    },
+    "surfaceRenames": {
+      "routes": [],
+      "traits": [
+        {
+          "orbitalName": "VendorDirectoryOrbital",
+          "from": "InlineTypographyRender2",
+          "to": "VendorDirectoryInlineTypographyRender2",
+          "id": "trt_SECOND"
+        }
+      ],
+      "pageNames": []
+    },
+    "identity": {
+      "demotions": [],
+      "roleUnions": [],
+      "expectsRewrites": [],
+      "relationsRetargeted": []
+    },
+    "navItemsNarrowed": [],
+    "configNavItemsNarrowed": [],
+    "landingNavAdded": [],
+    "organismRenames": [],
+    "unrenamableCollisions": []
+  },
+  "error": null
+}

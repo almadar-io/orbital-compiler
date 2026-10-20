@@ -1,0 +1,66 @@
+{
+  "fn": "dedupeComposedIdentity",
+  "test": "__tests__/compose-app.test.ts > dedupeComposedIdentity — a demoted identity's declared vocabulary joins the winner's > control: a single identity unions nothing",
+  "args": [
+    [
+      {
+        "name": "BillingStaffOrbital",
+        "entity": {
+          "name": "BillingStaff",
+          "persistence": "persistent",
+          "identity": true,
+          "fields": [
+            {
+              "name": "id",
+              "type": "string"
+            },
+            {
+              "name": "role",
+              "type": "string",
+              "values": [
+                "billing-admin"
+              ]
+            }
+          ]
+        },
+        "traits": [],
+        "pages": []
+      }
+    ]
+  ],
+  "argsAfter": [
+    [
+      {
+        "name": "BillingStaffOrbital",
+        "entity": {
+          "name": "BillingStaff",
+          "persistence": "persistent",
+          "identity": true,
+          "fields": [
+            {
+              "name": "id",
+              "type": "string"
+            },
+            {
+              "name": "role",
+              "type": "string",
+              "values": [
+                "billing-admin"
+              ]
+            }
+          ]
+        },
+        "traits": [],
+        "pages": []
+      }
+    ]
+  ],
+  "lookups": [],
+  "result": {
+    "demotions": [],
+    "roleUnions": [],
+    "expectsRewrites": [],
+    "relationsRetargeted": []
+  },
+  "error": null
+}

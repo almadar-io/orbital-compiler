@@ -1,0 +1,296 @@
+{
+  "fn": "composeAppFromFiles",
+  "test": "__tests__/compose-app.test.ts > composeAppFromFiles — per-orbital files composed into one app > D32: an orbital declaring the app nav it forwards at orbital level joins the app's one list (and stops shadowing it)",
+  "args": [
+    [
+      {
+        "name": "ContactOrbital",
+        "version": "1.0.0",
+        "config": {
+          "navItems": {
+            "type": "[NavItem]",
+            "default": [
+              {
+                "href": "/contacts",
+                "label": "/contacts"
+              }
+            ]
+          }
+        },
+        "orbitals": [
+          {
+            "name": "ContactOrbital",
+            "entity": "ContactOrbital.entity",
+            "traits": [
+              {
+                "ref": "AppShell.traits.AppLayout",
+                "name": "ContactOrbitalLayout",
+                "config": {
+                  "navItems": {
+                    "type": "unknown",
+                    "default": "@config.navItems"
+                  }
+                }
+              }
+            ],
+            "pages": [
+              {
+                "name": "ContactOrbitalPage",
+                "path": "/contacts",
+                "traits": [
+                  {
+                    "ref": "ContactOrbitalLayout"
+                  }
+                ]
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "name": "EmployeeOrbital",
+        "version": "1.0.0",
+        "orbitals": [
+          {
+            "name": "EmployeeOrbital",
+            "entity": "EmployeeOrbital.entity",
+            "config": {
+              "navItems": {
+                "type": "[NavItem]",
+                "default": [
+                  {
+                    "href": "/employees",
+                    "label": "/employees"
+                  }
+                ]
+              }
+            },
+            "traits": [
+              {
+                "ref": "AppShell.traits.AppLayout",
+                "name": "EmployeeOrbitalLayout",
+                "config": {
+                  "navItems": {
+                    "type": "unknown",
+                    "default": "@config.navItems"
+                  }
+                }
+              }
+            ],
+            "pages": [
+              {
+                "name": "EmployeeOrbitalPage",
+                "path": "/employees",
+                "traits": [
+                  {
+                    "ref": "EmployeeOrbitalLayout"
+                  }
+                ]
+              }
+            ]
+          }
+        ]
+      }
+    ],
+    {
+      "appName": "Mixed"
+    }
+  ],
+  "argsAfter": [
+    [
+      {
+        "name": "ContactOrbital",
+        "version": "1.0.0",
+        "config": {
+          "navItems": {
+            "type": "[NavItem]",
+            "default": [
+              {
+                "href": "/contacts",
+                "label": "/contacts"
+              }
+            ]
+          }
+        },
+        "orbitals": [
+          {
+            "name": "ContactOrbital",
+            "entity": "ContactOrbital.entity",
+            "traits": [
+              {
+                "ref": "AppShell.traits.AppLayout",
+                "name": "ContactOrbitalLayout",
+                "config": {
+                  "navItems": {
+                    "type": "unknown",
+                    "default": "@config.navItems"
+                  }
+                }
+              }
+            ],
+            "pages": [
+              {
+                "name": "ContactOrbitalPage",
+                "path": "/contacts",
+                "traits": [
+                  {
+                    "ref": "ContactOrbitalLayout"
+                  }
+                ]
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "name": "EmployeeOrbital",
+        "version": "1.0.0",
+        "orbitals": [
+          {
+            "name": "EmployeeOrbital",
+            "entity": "EmployeeOrbital.entity",
+            "config": {
+              "navItems": {
+                "type": "[NavItem]",
+                "default": [
+                  {
+                    "href": "/employees",
+                    "label": "/employees"
+                  }
+                ]
+              }
+            },
+            "traits": [
+              {
+                "ref": "AppShell.traits.AppLayout",
+                "name": "EmployeeOrbitalLayout",
+                "config": {
+                  "navItems": {
+                    "type": "unknown",
+                    "default": "@config.navItems"
+                  }
+                }
+              }
+            ],
+            "pages": [
+              {
+                "name": "EmployeeOrbitalPage",
+                "path": "/employees",
+                "traits": [
+                  {
+                    "ref": "EmployeeOrbitalLayout"
+                  }
+                ]
+              }
+            ]
+          }
+        ]
+      }
+    ],
+    {
+      "appName": "Mixed"
+    }
+  ],
+  "lookups": [],
+  "result": {
+    "schema": {
+      "name": "Mixed",
+      "version": "1.0.0",
+      "orbitals": [
+        {
+          "name": "ContactOrbital",
+          "entity": "ContactOrbital.entity",
+          "traits": [
+            {
+              "ref": "AppShell.traits.AppLayout",
+              "name": "ContactOrbitalLayout",
+              "config": {
+                "navItems": {
+                  "type": "unknown",
+                  "default": "@config.navItems"
+                }
+              }
+            }
+          ],
+          "pages": [
+            {
+              "name": "ContactOrbitalPage",
+              "path": "/contacts",
+              "traits": [
+                {
+                  "ref": "ContactOrbitalLayout"
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "name": "EmployeeOrbital",
+          "entity": "EmployeeOrbital.entity",
+          "traits": [
+            {
+              "ref": "AppShell.traits.AppLayout",
+              "name": "EmployeeOrbitalLayout",
+              "config": {
+                "navItems": {
+                  "type": "unknown",
+                  "default": "@config.navItems"
+                }
+              }
+            }
+          ],
+          "pages": [
+            {
+              "name": "EmployeeOrbitalPage",
+              "path": "/employees",
+              "traits": [
+                {
+                  "ref": "EmployeeOrbitalLayout"
+                }
+              ]
+            }
+          ]
+        }
+      ],
+      "config": {
+        "navItems": {
+          "type": "[NavItem]",
+          "default": [
+            {
+              "href": "/contacts",
+              "label": "/contacts"
+            },
+            {
+              "href": "/employees",
+              "label": "/employees"
+            }
+          ]
+        }
+      }
+    },
+    "layout": {
+      "strategy": "tabs",
+      "pageCount": 2
+    },
+    "wiring": {
+      "connections": 0
+    },
+    "surfaceRenames": {
+      "routes": [],
+      "traits": [],
+      "pageNames": []
+    },
+    "identity": {
+      "demotions": [],
+      "roleUnions": [],
+      "expectsRewrites": [],
+      "relationsRetargeted": []
+    },
+    "navItemsNarrowed": [],
+    "configNavItemsNarrowed": [],
+    "landingNavAdded": [],
+    "organismRenames": [],
+    "unrenamableCollisions": []
+  },
+  "error": null
+}

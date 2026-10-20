@@ -1,0 +1,283 @@
+{
+  "fn": "composeOrbitalSurface",
+  "test": "__tests__/compose-app.test.ts > composeOrbitalSurface — every organism's landing page stays reachable > a route rename never rewrites another file's nav entry for its OWN page (one atom backing two lines)",
+  "args": [
+    [
+      {
+        "name": "WorkoutLogOrbital",
+        "version": "1.0.0",
+        "config": {
+          "navItems": {
+            "type": "[NavItem]",
+            "default": [
+              {
+                "href": "/browseitems",
+                "label": "/browseitems"
+              }
+            ]
+          }
+        },
+        "orbitals": [
+          {
+            "name": "WorkoutLogOrbital",
+            "entity": "WorkoutLogOrbital.entity",
+            "traits": [],
+            "pages": [
+              {
+                "name": "Workouts",
+                "path": "/browseitems",
+                "traits": []
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "name": "FitnessGoalOrbital",
+        "version": "1.0.0",
+        "config": {
+          "navItems": {
+            "type": "[NavItem]",
+            "default": [
+              {
+                "href": "/browseitems",
+                "label": "/browseitems"
+              }
+            ]
+          }
+        },
+        "orbitals": [
+          {
+            "name": "FitnessGoalOrbital",
+            "entity": "FitnessGoalOrbital.entity",
+            "traits": [],
+            "pages": [
+              {
+                "name": "Goals",
+                "path": "/browseitems",
+                "traits": []
+              }
+            ]
+          }
+        ]
+      }
+    ],
+    {
+      "organismOf": {
+        "$function": "organismOf"
+      }
+    }
+  ],
+  "argsAfter": [
+    [
+      {
+        "name": "WorkoutLogOrbital",
+        "version": "1.0.0",
+        "config": {
+          "navItems": {
+            "type": "[NavItem]",
+            "default": [
+              {
+                "href": "/browseitems",
+                "label": "/browseitems"
+              }
+            ]
+          }
+        },
+        "orbitals": [
+          {
+            "name": "WorkoutLogOrbital",
+            "entity": "WorkoutLogOrbital.entity",
+            "traits": [],
+            "pages": [
+              {
+                "name": "Workouts",
+                "path": "/browseitems",
+                "traits": []
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "name": "FitnessGoalOrbital",
+        "version": "1.0.0",
+        "config": {
+          "navItems": {
+            "type": "[NavItem]",
+            "default": [
+              {
+                "href": "/browseitems",
+                "label": "/browseitems"
+              }
+            ]
+          }
+        },
+        "orbitals": [
+          {
+            "name": "FitnessGoalOrbital",
+            "entity": "FitnessGoalOrbital.entity",
+            "traits": [],
+            "pages": [
+              {
+                "name": "Goals",
+                "path": "/browseitems",
+                "traits": []
+              }
+            ]
+          }
+        ]
+      }
+    ],
+    {
+      "organismOf": {
+        "$function": "organismOf"
+      }
+    }
+  ],
+  "lookups": [
+    {
+      "$lookup": "arg1.organismOf",
+      "calls": [
+        {
+          "arg": "WorkoutLogOrbital",
+          "result": "std-browse"
+        },
+        {
+          "arg": "FitnessGoalOrbital",
+          "result": "std-browse"
+        },
+        {
+          "arg": "WorkoutLogOrbital",
+          "result": "std-browse"
+        },
+        {
+          "arg": "FitnessGoalOrbital",
+          "result": "std-browse"
+        },
+        {
+          "arg": "WorkoutLogOrbital",
+          "result": "std-browse"
+        },
+        {
+          "arg": "FitnessGoalOrbital",
+          "result": "std-browse"
+        },
+        {
+          "arg": "FitnessGoalOrbital",
+          "result": "std-browse"
+        },
+        {
+          "arg": "WorkoutLogOrbital",
+          "result": "std-browse"
+        },
+        {
+          "arg": "WorkoutLogOrbital",
+          "result": "std-browse"
+        },
+        {
+          "arg": "FitnessGoalOrbital",
+          "result": "std-browse"
+        },
+        {
+          "arg": "FitnessGoalOrbital",
+          "result": "std-browse"
+        },
+        {
+          "arg": "FitnessGoalOrbital",
+          "result": "std-browse"
+        },
+        {
+          "arg": "WorkoutLogOrbital",
+          "result": "std-browse"
+        },
+        {
+          "arg": "FitnessGoalOrbital",
+          "result": "std-browse"
+        },
+        {
+          "arg": "WorkoutLogOrbital",
+          "result": "std-browse"
+        },
+        {
+          "arg": "FitnessGoalOrbital",
+          "result": "std-browse"
+        },
+        {
+          "arg": "WorkoutLogOrbital",
+          "result": "std-browse"
+        },
+        {
+          "arg": "FitnessGoalOrbital",
+          "result": "std-browse"
+        }
+      ]
+    }
+  ],
+  "result": {
+    "orbitals": [
+      {
+        "name": "WorkoutLogOrbital",
+        "entity": "WorkoutLogOrbital.entity",
+        "traits": [],
+        "pages": [
+          {
+            "name": "Workouts",
+            "path": "/browseitems",
+            "traits": []
+          }
+        ]
+      },
+      {
+        "name": "FitnessGoalOrbital",
+        "entity": "FitnessGoalOrbital.entity",
+        "traits": [],
+        "pages": [
+          {
+            "name": "Goals",
+            "path": "/fitness-goal",
+            "traits": []
+          }
+        ]
+      }
+    ],
+    "config": {
+      "navItems": {
+        "type": "[NavItem]",
+        "default": [
+          {
+            "href": "/browseitems",
+            "label": "/browseitems"
+          },
+          {
+            "href": "/fitness-goal",
+            "label": "/browseitems"
+          }
+        ]
+      }
+    },
+    "surfaceRenames": {
+      "routes": [
+        {
+          "orbitalName": "FitnessGoalOrbital",
+          "from": "/browseitems",
+          "to": "/fitness-goal"
+        }
+      ],
+      "traits": [],
+      "pageNames": []
+    },
+    "identity": {
+      "demotions": [],
+      "roleUnions": [],
+      "expectsRewrites": [],
+      "relationsRetargeted": []
+    },
+    "navItemsNarrowed": [],
+    "configNavItemsNarrowed": [],
+    "landingNavAdded": [],
+    "organismRenames": [],
+    "unrenamableCollisions": []
+  },
+  "error": null
+}

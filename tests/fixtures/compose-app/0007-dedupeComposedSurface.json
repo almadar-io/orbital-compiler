@@ -1,0 +1,107 @@
+{
+  "fn": "dedupeComposedSurface",
+  "test": "__tests__/compose-app.test.ts > dedupeComposedSurface — single-orbital / clean plans are byte-stable no-ops > two orbitals with already-distinct routes and trait names → no renames, byte-stable",
+  "args": [
+    [
+      {
+        "name": "TicketSubmissionForm",
+        "entity": "App.entity",
+        "traits": [
+          {
+            "ref": "UiForm.traits.FormRender",
+            "name": "InlineFormRender1",
+            "linkedEntity": "App"
+          }
+        ],
+        "pages": [
+          {
+            "name": "FormPage",
+            "path": "/",
+            "traits": [
+              {
+                "ref": "InlineFormRender1"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "name": "TriageQueue",
+        "entity": "App.entity",
+        "traits": [
+          {
+            "ref": "UiDataGrid.traits.DataGridRender",
+            "name": "InlineDataGridRender1",
+            "linkedEntity": "App"
+          }
+        ],
+        "pages": [
+          {
+            "name": "QueuePage",
+            "path": "/triage",
+            "traits": [
+              {
+                "ref": "InlineDataGridRender1"
+              }
+            ]
+          }
+        ]
+      }
+    ]
+  ],
+  "argsAfter": [
+    [
+      {
+        "name": "TicketSubmissionForm",
+        "entity": "App.entity",
+        "traits": [
+          {
+            "ref": "UiForm.traits.FormRender",
+            "name": "InlineFormRender1",
+            "linkedEntity": "App"
+          }
+        ],
+        "pages": [
+          {
+            "name": "FormPage",
+            "path": "/",
+            "traits": [
+              {
+                "ref": "InlineFormRender1"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "name": "TriageQueue",
+        "entity": "App.entity",
+        "traits": [
+          {
+            "ref": "UiDataGrid.traits.DataGridRender",
+            "name": "InlineDataGridRender1",
+            "linkedEntity": "App"
+          }
+        ],
+        "pages": [
+          {
+            "name": "QueuePage",
+            "path": "/triage",
+            "traits": [
+              {
+                "ref": "InlineDataGridRender1"
+              }
+            ]
+          }
+        ]
+      }
+    ]
+  ],
+  "lookups": [],
+  "result": {
+    "routes": [],
+    "traits": [],
+    "pageNames": []
+  },
+  "error": null
+}

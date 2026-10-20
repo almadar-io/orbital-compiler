@@ -1,0 +1,54 @@
+{
+  "fn": "dedupeComposedIdentity",
+  "test": "__tests__/compose-app.test.ts > dedupeComposedIdentity — composer backstop (global [identity] collisions) > string-ref entities are skipped (no inline identity to demote)",
+  "args": [
+    [
+      {
+        "name": "OnlineUserOrbital",
+        "entity": {
+          "name": "OnlineUser",
+          "persistence": "persistent",
+          "identity": true,
+          "fields": []
+        },
+        "traits": [],
+        "pages": []
+      },
+      {
+        "name": "RefOrbital",
+        "entity": "App.entity",
+        "traits": [],
+        "pages": []
+      }
+    ]
+  ],
+  "argsAfter": [
+    [
+      {
+        "name": "OnlineUserOrbital",
+        "entity": {
+          "name": "OnlineUser",
+          "persistence": "persistent",
+          "identity": true,
+          "fields": []
+        },
+        "traits": [],
+        "pages": []
+      },
+      {
+        "name": "RefOrbital",
+        "entity": "App.entity",
+        "traits": [],
+        "pages": []
+      }
+    ]
+  ],
+  "lookups": [],
+  "result": {
+    "demotions": [],
+    "roleUnions": [],
+    "expectsRewrites": [],
+    "relationsRetargeted": []
+  },
+  "error": null
+}

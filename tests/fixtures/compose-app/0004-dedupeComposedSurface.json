@@ -1,0 +1,147 @@
+{
+  "fn": "dedupeComposedSurface",
+  "test": "__tests__/compose-app.test.ts > dedupeComposedSurface — composer bug 2 (global inline-trait-name collisions) > leaves the inline trait's pattern ref (Alias.traits.X) untouched",
+  "args": [
+    [
+      {
+        "name": "ApprovalQueue",
+        "entity": "App.entity",
+        "traits": [
+          {
+            "ref": "UiSpinner.traits.SpinnerRender",
+            "name": "InlineSpinnerRender1",
+            "linkedEntity": "App"
+          },
+          {
+            "ref": "UiTypography.traits.TypographyRender",
+            "name": "InlineTypographyRender2",
+            "linkedEntity": "App"
+          }
+        ],
+        "pages": [
+          {
+            "name": "ApprovalQueuePage",
+            "path": "/",
+            "traits": [
+              {
+                "ref": "InlineSpinnerRender1"
+              },
+              {
+                "ref": "InlineTypographyRender2"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "name": "ExpenseDashboard",
+        "entity": "App.entity",
+        "traits": [
+          {
+            "ref": "UiTypography.traits.TypographyRender",
+            "name": "InlineTypographyRender2",
+            "linkedEntity": "App",
+            "config": {
+              "onSelect": [
+                "navigate",
+                "/"
+              ]
+            }
+          }
+        ],
+        "pages": [
+          {
+            "name": "ExpenseDashboardPage",
+            "path": "/",
+            "traits": [
+              {
+                "ref": "InlineTypographyRender2"
+              }
+            ]
+          }
+        ]
+      }
+    ]
+  ],
+  "argsAfter": [
+    [
+      {
+        "name": "ApprovalQueue",
+        "entity": "App.entity",
+        "traits": [
+          {
+            "ref": "UiSpinner.traits.SpinnerRender",
+            "name": "InlineSpinnerRender1",
+            "linkedEntity": "App"
+          },
+          {
+            "ref": "UiTypography.traits.TypographyRender",
+            "name": "InlineTypographyRender2",
+            "linkedEntity": "App"
+          }
+        ],
+        "pages": [
+          {
+            "name": "ApprovalQueuePage",
+            "path": "/",
+            "traits": [
+              {
+                "ref": "InlineSpinnerRender1"
+              },
+              {
+                "ref": "InlineTypographyRender2"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "name": "ExpenseDashboard",
+        "entity": "App.entity",
+        "traits": [
+          {
+            "ref": "UiTypography.traits.TypographyRender",
+            "name": "ExpenseDashboardInlineTypographyRender2",
+            "linkedEntity": "App",
+            "config": {
+              "onSelect": [
+                "navigate",
+                "/expense-dashboard"
+              ]
+            }
+          }
+        ],
+        "pages": [
+          {
+            "name": "ExpenseDashboardPage",
+            "path": "/expense-dashboard",
+            "traits": [
+              {
+                "ref": "ExpenseDashboardInlineTypographyRender2"
+              }
+            ]
+          }
+        ]
+      }
+    ]
+  ],
+  "lookups": [],
+  "result": {
+    "routes": [
+      {
+        "orbitalName": "ExpenseDashboard",
+        "from": "/",
+        "to": "/expense-dashboard"
+      }
+    ],
+    "traits": [
+      {
+        "orbitalName": "ExpenseDashboard",
+        "from": "InlineTypographyRender2",
+        "to": "ExpenseDashboardInlineTypographyRender2"
+      }
+    ],
+    "pageNames": []
+  },
+  "error": null
+}

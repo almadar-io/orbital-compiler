@@ -1,0 +1,253 @@
+{
+  "fn": "composeOrbitalSurface",
+  "test": "__tests__/compose-app.test.ts > composeOrbitalSurface — renames reach references in sibling orbitals > a renamed trait is renamed in every listen sourced from it, in any orbital",
+  "args": [
+    [
+      {
+        "name": "AlarmOrbital",
+        "entity": "Alarm.entity",
+        "traits": [
+          {
+            "name": "AlertPersistor",
+            "scope": "instance"
+          }
+        ],
+        "pages": [
+          {
+            "name": "A",
+            "path": "/a",
+            "traits": []
+          }
+        ]
+      },
+      {
+        "name": "DeviceAlertOrbital",
+        "entity": "DeviceAlert.entity",
+        "traits": [
+          {
+            "name": "AlertPersistor",
+            "scope": "instance"
+          }
+        ],
+        "pages": [
+          {
+            "name": "B",
+            "path": "/b",
+            "traits": []
+          }
+        ]
+      },
+      {
+        "name": "IncidentOrbital",
+        "entity": "Incident.entity",
+        "traits": [
+          {
+            "name": "IncidentPersistor",
+            "scope": "instance",
+            "listens": [
+              {
+                "event": "ALERT_CREATED",
+                "triggers": "ALERT_CREATED",
+                "source": {
+                  "kind": "orbital",
+                  "orbital": "DeviceAlertOrbital",
+                  "trait": "AlertPersistor"
+                }
+              },
+              {
+                "event": "X",
+                "triggers": "X",
+                "source": {
+                  "kind": "orbital",
+                  "orbital": "AlarmOrbital",
+                  "trait": "AlertPersistor"
+                }
+              }
+            ]
+          }
+        ],
+        "pages": [
+          {
+            "name": "C",
+            "path": "/c",
+            "traits": []
+          }
+        ]
+      }
+    ]
+  ],
+  "argsAfter": [
+    [
+      {
+        "name": "AlarmOrbital",
+        "entity": "Alarm.entity",
+        "traits": [
+          {
+            "name": "AlertPersistor",
+            "scope": "instance"
+          }
+        ],
+        "pages": [
+          {
+            "name": "A",
+            "path": "/a",
+            "traits": []
+          }
+        ]
+      },
+      {
+        "name": "DeviceAlertOrbital",
+        "entity": "DeviceAlert.entity",
+        "traits": [
+          {
+            "name": "AlertPersistor",
+            "scope": "instance"
+          }
+        ],
+        "pages": [
+          {
+            "name": "B",
+            "path": "/b",
+            "traits": []
+          }
+        ]
+      },
+      {
+        "name": "IncidentOrbital",
+        "entity": "Incident.entity",
+        "traits": [
+          {
+            "name": "IncidentPersistor",
+            "scope": "instance",
+            "listens": [
+              {
+                "event": "ALERT_CREATED",
+                "triggers": "ALERT_CREATED",
+                "source": {
+                  "kind": "orbital",
+                  "orbital": "DeviceAlertOrbital",
+                  "trait": "AlertPersistor"
+                }
+              },
+              {
+                "event": "X",
+                "triggers": "X",
+                "source": {
+                  "kind": "orbital",
+                  "orbital": "AlarmOrbital",
+                  "trait": "AlertPersistor"
+                }
+              }
+            ]
+          }
+        ],
+        "pages": [
+          {
+            "name": "C",
+            "path": "/c",
+            "traits": []
+          }
+        ]
+      }
+    ]
+  ],
+  "lookups": [],
+  "result": {
+    "orbitals": [
+      {
+        "name": "AlarmOrbital",
+        "entity": "Alarm.entity",
+        "traits": [
+          {
+            "name": "AlertPersistor",
+            "scope": "instance"
+          }
+        ],
+        "pages": [
+          {
+            "name": "A",
+            "path": "/a",
+            "traits": []
+          }
+        ]
+      },
+      {
+        "name": "DeviceAlertOrbital",
+        "entity": "DeviceAlert.entity",
+        "traits": [
+          {
+            "name": "DeviceAlertAlertPersistor",
+            "scope": "instance"
+          }
+        ],
+        "pages": [
+          {
+            "name": "B",
+            "path": "/b",
+            "traits": []
+          }
+        ]
+      },
+      {
+        "name": "IncidentOrbital",
+        "entity": "Incident.entity",
+        "traits": [
+          {
+            "name": "IncidentPersistor",
+            "scope": "instance",
+            "listens": [
+              {
+                "event": "ALERT_CREATED",
+                "triggers": "ALERT_CREATED",
+                "source": {
+                  "kind": "orbital",
+                  "orbital": "DeviceAlertOrbital",
+                  "trait": "DeviceAlertAlertPersistor"
+                }
+              },
+              {
+                "event": "X",
+                "triggers": "X",
+                "source": {
+                  "kind": "orbital",
+                  "orbital": "AlarmOrbital",
+                  "trait": "AlertPersistor"
+                }
+              }
+            ]
+          }
+        ],
+        "pages": [
+          {
+            "name": "C",
+            "path": "/c",
+            "traits": []
+          }
+        ]
+      }
+    ],
+    "surfaceRenames": {
+      "routes": [],
+      "traits": [
+        {
+          "orbitalName": "DeviceAlertOrbital",
+          "from": "AlertPersistor",
+          "to": "DeviceAlertAlertPersistor"
+        }
+      ],
+      "pageNames": []
+    },
+    "identity": {
+      "demotions": [],
+      "roleUnions": [],
+      "expectsRewrites": [],
+      "relationsRetargeted": []
+    },
+    "navItemsNarrowed": [],
+    "configNavItemsNarrowed": [],
+    "landingNavAdded": [],
+    "organismRenames": [],
+    "unrenamableCollisions": []
+  },
+  "error": null
+}

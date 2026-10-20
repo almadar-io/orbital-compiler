@@ -1,0 +1,112 @@
+{
+  "fn": "composeAppFromFiles",
+  "test": "__tests__/compose-app.test.ts > composeOrbitalSurface — the app surface without generated pages or layout > keeps the files' order and generates no page for an orbital without one",
+  "args": [
+    [
+      {
+        "name": "First",
+        "entity": "First.entity",
+        "traits": [],
+        "pages": [
+          {
+            "name": "FirstPage",
+            "path": "/",
+            "traits": []
+          }
+        ]
+      },
+      {
+        "name": "Headless",
+        "entity": "Headless.entity",
+        "traits": [],
+        "pages": []
+      }
+    ],
+    {
+      "appName": "Gen"
+    }
+  ],
+  "argsAfter": [
+    [
+      {
+        "name": "First",
+        "entity": "First.entity",
+        "traits": [],
+        "pages": [
+          {
+            "name": "FirstPage",
+            "path": "/",
+            "traits": []
+          }
+        ]
+      },
+      {
+        "name": "Headless",
+        "entity": "Headless.entity",
+        "traits": [],
+        "pages": []
+      }
+    ],
+    {
+      "appName": "Gen"
+    }
+  ],
+  "lookups": [],
+  "result": {
+    "schema": {
+      "name": "Gen",
+      "version": "1.0.0",
+      "orbitals": [
+        {
+          "name": "First",
+          "entity": "First.entity",
+          "traits": [],
+          "pages": [
+            {
+              "name": "FirstPage",
+              "path": "/",
+              "traits": []
+            }
+          ]
+        },
+        {
+          "name": "Headless",
+          "entity": "Headless.entity",
+          "traits": [],
+          "pages": [
+            {
+              "name": "HeadlessPage",
+              "path": "/headless",
+              "isInitial": false,
+              "primaryEntity": "Headless"
+            }
+          ]
+        }
+      ]
+    },
+    "layout": {
+      "strategy": "tabs",
+      "pageCount": 2
+    },
+    "wiring": {
+      "connections": 0
+    },
+    "surfaceRenames": {
+      "routes": [],
+      "traits": [],
+      "pageNames": []
+    },
+    "identity": {
+      "demotions": [],
+      "roleUnions": [],
+      "expectsRewrites": [],
+      "relationsRetargeted": []
+    },
+    "navItemsNarrowed": [],
+    "configNavItemsNarrowed": [],
+    "landingNavAdded": [],
+    "organismRenames": [],
+    "unrenamableCollisions": []
+  },
+  "error": null
+}

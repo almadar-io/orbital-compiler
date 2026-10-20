@@ -1,0 +1,360 @@
+{
+  "fn": "composeAppFromFiles",
+  "test": "__tests__/compose-app.test.ts > composeAppFromFiles — per-orbital files composed into one app > a nested import without its own remap owns the upstream import's local path",
+  "args": [
+    [
+      {
+        "name": "NoteOrbital",
+        "version": "1.0.0",
+        "config": {
+          "navItems": {
+            "type": "[NavItem]",
+            "default": [
+              {
+                "href": "/notes",
+                "label": "/notes"
+              },
+              {
+                "href": "/ask",
+                "label": "/ask"
+              }
+            ]
+          }
+        },
+        "orbitals": [
+          {
+            "name": "NoteOrbital",
+            "entity": "NoteOrbital.entity",
+            "traits": [
+              {
+                "ref": "AppShell.traits.AppLayout",
+                "name": "NoteOrbitalLayout",
+                "config": {
+                  "navItems": {
+                    "type": "unknown",
+                    "default": "@config.navItems"
+                  }
+                }
+              }
+            ],
+            "pages": [
+              {
+                "name": "NoteOrbitalPage",
+                "path": "/notes",
+                "traits": [
+                  {
+                    "ref": "NoteOrbitalLayout"
+                  }
+                ]
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "name": "HelpOrbital",
+        "version": "1.0.0",
+        "orbitals": [
+          {
+            "name": "HelpOrbital",
+            "entity": "Page.orbitals.AssistantPageOrbital.entity",
+            "reference": {
+              "ref": "Page.orbitals.AssistantPageOrbital"
+            },
+            "uses": [
+              {
+                "from": "almadar-behaviors/std-assistant-page",
+                "as": "Page"
+              }
+            ],
+            "traits": [],
+            "pages": []
+          }
+        ]
+      }
+    ],
+    {
+      "appName": "Notes",
+      "importedOrbitalOf": {
+        "$function": "importedOrbitalOf"
+      }
+    }
+  ],
+  "argsAfter": [
+    [
+      {
+        "name": "NoteOrbital",
+        "version": "1.0.0",
+        "config": {
+          "navItems": {
+            "type": "[NavItem]",
+            "default": [
+              {
+                "href": "/notes",
+                "label": "/notes"
+              },
+              {
+                "href": "/ask",
+                "label": "/ask"
+              }
+            ]
+          }
+        },
+        "orbitals": [
+          {
+            "name": "NoteOrbital",
+            "entity": "NoteOrbital.entity",
+            "traits": [
+              {
+                "ref": "AppShell.traits.AppLayout",
+                "name": "NoteOrbitalLayout",
+                "config": {
+                  "navItems": {
+                    "type": "unknown",
+                    "default": "@config.navItems"
+                  }
+                }
+              }
+            ],
+            "pages": [
+              {
+                "name": "NoteOrbitalPage",
+                "path": "/notes",
+                "traits": [
+                  {
+                    "ref": "NoteOrbitalLayout"
+                  }
+                ]
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "name": "HelpOrbital",
+        "version": "1.0.0",
+        "orbitals": [
+          {
+            "name": "HelpOrbital",
+            "entity": "Page.orbitals.AssistantPageOrbital.entity",
+            "reference": {
+              "ref": "Page.orbitals.AssistantPageOrbital"
+            },
+            "uses": [
+              {
+                "from": "almadar-behaviors/std-assistant-page",
+                "as": "Page"
+              }
+            ],
+            "traits": [],
+            "pages": []
+          }
+        ]
+      }
+    ],
+    {
+      "appName": "Notes",
+      "importedOrbitalOf": {
+        "$function": "importedOrbitalOf"
+      }
+    }
+  ],
+  "lookups": [
+    {
+      "$lookup": "arg1.importedOrbitalOf",
+      "calls": [
+        {
+          "arg": {
+            "name": "HelpOrbital",
+            "entity": "Page.orbitals.AssistantPageOrbital.entity",
+            "reference": {
+              "ref": "Page.orbitals.AssistantPageOrbital"
+            },
+            "uses": [
+              {
+                "from": "almadar-behaviors/std-assistant-page",
+                "as": "Page"
+              }
+            ],
+            "traits": [],
+            "pages": []
+          },
+          "result": {
+            "name": "AssistantPageOrbital",
+            "entity": "Agent.orbitals.AgentAssistantOrbital.entity",
+            "reference": {
+              "ref": "Agent.orbitals.AgentAssistantOrbital",
+              "pages": {
+                "/assistant": "/ask"
+              }
+            },
+            "uses": [
+              {
+                "from": "std/behaviors/std-agent-assistant",
+                "as": "Agent"
+              }
+            ],
+            "traits": [],
+            "pages": []
+          }
+        },
+        {
+          "arg": {
+            "name": "HelpOrbital",
+            "entity": "Page.orbitals.AssistantPageOrbital.entity",
+            "reference": {
+              "ref": "Page.orbitals.AssistantPageOrbital"
+            },
+            "uses": [
+              {
+                "from": "almadar-behaviors/std-assistant-page",
+                "as": "Page"
+              }
+            ],
+            "traits": [],
+            "pages": []
+          },
+          "result": {
+            "name": "AssistantPageOrbital",
+            "entity": "Agent.orbitals.AgentAssistantOrbital.entity",
+            "reference": {
+              "ref": "Agent.orbitals.AgentAssistantOrbital",
+              "pages": {
+                "/assistant": "/ask"
+              }
+            },
+            "uses": [
+              {
+                "from": "std/behaviors/std-agent-assistant",
+                "as": "Agent"
+              }
+            ],
+            "traits": [],
+            "pages": []
+          }
+        },
+        {
+          "arg": {
+            "name": "AssistantPageOrbital",
+            "entity": "Agent.orbitals.AgentAssistantOrbital.entity",
+            "reference": {
+              "ref": "Agent.orbitals.AgentAssistantOrbital",
+              "pages": {
+                "/assistant": "/ask"
+              }
+            },
+            "uses": [
+              {
+                "from": "std/behaviors/std-agent-assistant",
+                "as": "Agent"
+              }
+            ],
+            "traits": [],
+            "pages": []
+          },
+          "result": {
+            "name": "AgentAssistantOrbital",
+            "entity": "AgentChat",
+            "traits": [],
+            "pages": [
+              {
+                "name": "AssistantPage",
+                "path": "/assistant",
+                "traits": []
+              }
+            ]
+          }
+        }
+      ]
+    }
+  ],
+  "result": {
+    "schema": {
+      "name": "Notes",
+      "version": "1.0.0",
+      "orbitals": [
+        {
+          "name": "NoteOrbital",
+          "entity": "NoteOrbital.entity",
+          "traits": [
+            {
+              "ref": "AppShell.traits.AppLayout",
+              "name": "NoteOrbitalLayout",
+              "config": {
+                "navItems": {
+                  "type": "unknown",
+                  "default": "@config.navItems"
+                }
+              }
+            }
+          ],
+          "pages": [
+            {
+              "name": "NoteOrbitalPage",
+              "path": "/notes",
+              "traits": [
+                {
+                  "ref": "NoteOrbitalLayout"
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "name": "HelpOrbital",
+          "entity": "Page.orbitals.AssistantPageOrbital.entity",
+          "reference": {
+            "ref": "Page.orbitals.AssistantPageOrbital"
+          },
+          "uses": [
+            {
+              "from": "almadar-behaviors/std-assistant-page",
+              "as": "Page"
+            }
+          ],
+          "traits": [],
+          "pages": []
+        }
+      ],
+      "config": {
+        "navItems": {
+          "type": "[NavItem]",
+          "default": [
+            {
+              "href": "/notes",
+              "label": "/notes"
+            },
+            {
+              "href": "/ask",
+              "label": "/ask"
+            }
+          ]
+        }
+      }
+    },
+    "layout": {
+      "strategy": "tabs",
+      "pageCount": 2
+    },
+    "wiring": {
+      "connections": 0
+    },
+    "surfaceRenames": {
+      "routes": [],
+      "traits": [],
+      "pageNames": []
+    },
+    "identity": {
+      "demotions": [],
+      "roleUnions": [],
+      "expectsRewrites": [],
+      "relationsRetargeted": []
+    },
+    "navItemsNarrowed": [],
+    "configNavItemsNarrowed": [],
+    "landingNavAdded": [],
+    "organismRenames": [],
+    "unrenamableCollisions": []
+  },
+  "error": null
+}

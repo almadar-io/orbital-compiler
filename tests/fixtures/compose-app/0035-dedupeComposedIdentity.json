@@ -1,0 +1,327 @@
+{
+  "fn": "dedupeComposedIdentity",
+  "test": "__tests__/compose-app.test.ts > dedupeComposedIdentity — FIX-N (owner-relation retarget on identity demotion) > leaves non-owner-compared relations to the demoted entity untouched (Sprint.members)",
+  "args": [
+    [
+      {
+        "name": "OnlineUserOrbital",
+        "entity": {
+          "name": "OnlineUser",
+          "persistence": "persistent",
+          "identity": true,
+          "fields": [
+            {
+              "name": "id",
+              "type": "string",
+              "required": true
+            }
+          ]
+        },
+        "traits": [],
+        "pages": []
+      },
+      {
+        "name": "TeamMemberOrbital",
+        "entity": {
+          "name": "TeamMember",
+          "persistence": "persistent",
+          "identity": true,
+          "fields": [
+            {
+              "name": "id",
+              "type": "string",
+              "required": true
+            }
+          ]
+        },
+        "traits": [],
+        "pages": []
+      },
+      {
+        "name": "TaskOrbital",
+        "entity": {
+          "name": "Task",
+          "persistence": "persistent",
+          "read_policy": [
+            "or",
+            [
+              "=",
+              [
+                "object/get",
+                "@entity",
+                "assignee"
+              ],
+              "@user.id"
+            ],
+            [
+              "==",
+              "@entity.assignee",
+              "@user.id"
+            ]
+          ],
+          "fields": [
+            {
+              "name": "id",
+              "type": "string",
+              "required": true
+            },
+            {
+              "name": "assignee",
+              "type": "relation",
+              "relation": {
+                "entity": "TeamMember",
+                "cardinality": "one"
+              }
+            },
+            {
+              "name": "reporter",
+              "type": "relation",
+              "relation": {
+                "entity": "TeamMember",
+                "cardinality": "one"
+              }
+            }
+          ]
+        },
+        "traits": [
+          {
+            "name": "TaskEditor",
+            "scope": "instance",
+            "stateMachine": {
+              "states": [
+                {
+                  "name": "editing",
+                  "isInitial": true
+                }
+              ],
+              "events": [
+                {
+                  "key": "SAVE",
+                  "name": "Save"
+                }
+              ],
+              "transitions": [
+                {
+                  "from": "editing",
+                  "to": "editing",
+                  "event": "SAVE",
+                  "effects": [
+                    [
+                      "persist",
+                      "create",
+                      "Task",
+                      {
+                        "title": "x",
+                        "reporter": "@user.id"
+                      }
+                    ]
+                  ]
+                }
+              ]
+            }
+          }
+        ],
+        "pages": []
+      },
+      {
+        "name": "SprintOrbital",
+        "entity": {
+          "name": "Sprint",
+          "persistence": "persistent",
+          "fields": [
+            {
+              "name": "id",
+              "type": "string",
+              "required": true
+            },
+            {
+              "name": "members",
+              "type": "relation",
+              "relation": {
+                "entity": "TeamMember",
+                "cardinality": "many"
+              }
+            }
+          ]
+        },
+        "traits": [],
+        "pages": []
+      }
+    ]
+  ],
+  "argsAfter": [
+    [
+      {
+        "name": "OnlineUserOrbital",
+        "entity": {
+          "name": "OnlineUser",
+          "persistence": "persistent",
+          "identity": true,
+          "fields": [
+            {
+              "name": "id",
+              "type": "string",
+              "required": true
+            }
+          ]
+        },
+        "traits": [],
+        "pages": []
+      },
+      {
+        "name": "TeamMemberOrbital",
+        "entity": {
+          "name": "TeamMember",
+          "persistence": "persistent",
+          "fields": [
+            {
+              "name": "id",
+              "type": "string",
+              "required": true
+            }
+          ]
+        },
+        "traits": [],
+        "pages": []
+      },
+      {
+        "name": "TaskOrbital",
+        "entity": {
+          "name": "Task",
+          "persistence": "persistent",
+          "read_policy": [
+            "or",
+            [
+              "=",
+              [
+                "object/get",
+                "@entity",
+                "assignee"
+              ],
+              "@user.id"
+            ],
+            [
+              "==",
+              "@entity.assignee",
+              "@user.id"
+            ]
+          ],
+          "fields": [
+            {
+              "name": "id",
+              "type": "string",
+              "required": true
+            },
+            {
+              "name": "assignee",
+              "type": "relation",
+              "relation": {
+                "entity": "OnlineUser",
+                "cardinality": "one"
+              }
+            },
+            {
+              "name": "reporter",
+              "type": "relation",
+              "relation": {
+                "entity": "OnlineUser",
+                "cardinality": "one"
+              }
+            }
+          ]
+        },
+        "traits": [
+          {
+            "name": "TaskEditor",
+            "scope": "instance",
+            "stateMachine": {
+              "states": [
+                {
+                  "name": "editing",
+                  "isInitial": true
+                }
+              ],
+              "events": [
+                {
+                  "key": "SAVE",
+                  "name": "Save"
+                }
+              ],
+              "transitions": [
+                {
+                  "from": "editing",
+                  "to": "editing",
+                  "event": "SAVE",
+                  "effects": [
+                    [
+                      "persist",
+                      "create",
+                      "Task",
+                      {
+                        "title": "x",
+                        "reporter": "@user.id"
+                      }
+                    ]
+                  ]
+                }
+              ]
+            }
+          }
+        ],
+        "pages": []
+      },
+      {
+        "name": "SprintOrbital",
+        "entity": {
+          "name": "Sprint",
+          "persistence": "persistent",
+          "fields": [
+            {
+              "name": "id",
+              "type": "string",
+              "required": true
+            },
+            {
+              "name": "members",
+              "type": "relation",
+              "relation": {
+                "entity": "TeamMember",
+                "cardinality": "many"
+              }
+            }
+          ]
+        },
+        "traits": [],
+        "pages": []
+      }
+    ]
+  ],
+  "lookups": [],
+  "result": {
+    "demotions": [
+      {
+        "orbitalName": "TeamMemberOrbital",
+        "entityName": "TeamMember"
+      }
+    ],
+    "roleUnions": [],
+    "expectsRewrites": [],
+    "relationsRetargeted": [
+      {
+        "orbitalName": "TaskOrbital",
+        "entityName": "Task",
+        "field": "assignee",
+        "fromEntity": "TeamMember",
+        "toEntity": "OnlineUser"
+      },
+      {
+        "orbitalName": "TaskOrbital",
+        "entityName": "Task",
+        "field": "reporter",
+        "fromEntity": "TeamMember",
+        "toEntity": "OnlineUser"
+      }
+    ]
+  },
+  "error": null
+}

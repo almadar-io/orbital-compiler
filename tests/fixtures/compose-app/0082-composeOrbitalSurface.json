@@ -1,0 +1,566 @@
+{
+  "fn": "composeOrbitalSurface",
+  "test": "__tests__/compose-app.test.ts > composeOrbitalSurface — a later organism's colliding routes move under its own path > every route under the colliding root keeps its segments and parameters, prefixed by the organism",
+  "args": [
+    [
+      {
+        "name": "CrmProjectOrbital",
+        "entity": "CrmProject.entity",
+        "traits": [],
+        "pages": [
+          {
+            "name": "CrmProjects",
+            "path": "/projects",
+            "traits": []
+          },
+          {
+            "name": "CrmProject",
+            "path": "/projects/:id",
+            "traits": []
+          }
+        ]
+      },
+      {
+        "name": "ProjectOrbital",
+        "entity": "Project.entity",
+        "traits": [
+          {
+            "name": "Nav",
+            "scope": "instance",
+            "stateMachine": {
+              "states": [
+                {
+                  "name": "idle",
+                  "isInitial": true
+                }
+              ],
+              "events": [
+                {
+                  "key": "GO",
+                  "name": "Go"
+                }
+              ],
+              "transitions": [
+                {
+                  "from": "idle",
+                  "to": "idle",
+                  "event": "GO",
+                  "guard": [
+                    "=",
+                    0,
+                    0
+                  ],
+                  "effects": [
+                    [
+                      "navigate",
+                      "/projects/@payload.id"
+                    ]
+                  ]
+                }
+              ]
+            }
+          }
+        ],
+        "pages": [
+          {
+            "name": "Projects",
+            "path": "/projects",
+            "traits": []
+          },
+          {
+            "name": "Project",
+            "path": "/projects/:id",
+            "traits": []
+          },
+          {
+            "name": "Team",
+            "path": "/projects/:id/team",
+            "traits": []
+          },
+          {
+            "name": "Templates",
+            "path": "/project-templates",
+            "traits": []
+          }
+        ]
+      },
+      {
+        "name": "BoardOrbital",
+        "entity": "Board.entity",
+        "traits": [
+          {
+            "name": "Nav",
+            "scope": "instance",
+            "stateMachine": {
+              "states": [
+                {
+                  "name": "idle",
+                  "isInitial": true
+                }
+              ],
+              "events": [
+                {
+                  "key": "GO",
+                  "name": "Go"
+                }
+              ],
+              "transitions": [
+                {
+                  "from": "idle",
+                  "to": "idle",
+                  "event": "GO",
+                  "guard": [
+                    "=",
+                    0,
+                    0
+                  ],
+                  "effects": [
+                    [
+                      "navigate",
+                      "/projects"
+                    ]
+                  ]
+                },
+                {
+                  "from": "idle",
+                  "to": "idle",
+                  "event": "GO",
+                  "guard": [
+                    "=",
+                    1,
+                    1
+                  ],
+                  "effects": [
+                    [
+                      "navigate",
+                      "/projectsx"
+                    ]
+                  ]
+                }
+              ]
+            }
+          }
+        ],
+        "pages": [
+          {
+            "name": "Board",
+            "path": "/board",
+            "traits": []
+          }
+        ]
+      }
+    ],
+    {
+      "organismOf": {
+        "$function": "organismOf"
+      }
+    }
+  ],
+  "argsAfter": [
+    [
+      {
+        "name": "CrmProjectOrbital",
+        "entity": "CrmProject.entity",
+        "traits": [],
+        "pages": [
+          {
+            "name": "CrmProjects",
+            "path": "/projects",
+            "traits": []
+          },
+          {
+            "name": "CrmProject",
+            "path": "/projects/:id",
+            "traits": []
+          }
+        ]
+      },
+      {
+        "name": "ProjectOrbital",
+        "entity": "Project.entity",
+        "traits": [
+          {
+            "name": "Nav",
+            "scope": "instance",
+            "stateMachine": {
+              "states": [
+                {
+                  "name": "idle",
+                  "isInitial": true
+                }
+              ],
+              "events": [
+                {
+                  "key": "GO",
+                  "name": "Go"
+                }
+              ],
+              "transitions": [
+                {
+                  "from": "idle",
+                  "to": "idle",
+                  "event": "GO",
+                  "guard": [
+                    "=",
+                    0,
+                    0
+                  ],
+                  "effects": [
+                    [
+                      "navigate",
+                      "/projects/@payload.id"
+                    ]
+                  ]
+                }
+              ]
+            }
+          }
+        ],
+        "pages": [
+          {
+            "name": "Projects",
+            "path": "/projects",
+            "traits": []
+          },
+          {
+            "name": "Project",
+            "path": "/projects/:id",
+            "traits": []
+          },
+          {
+            "name": "Team",
+            "path": "/projects/:id/team",
+            "traits": []
+          },
+          {
+            "name": "Templates",
+            "path": "/project-templates",
+            "traits": []
+          }
+        ]
+      },
+      {
+        "name": "BoardOrbital",
+        "entity": "Board.entity",
+        "traits": [
+          {
+            "name": "Nav",
+            "scope": "instance",
+            "stateMachine": {
+              "states": [
+                {
+                  "name": "idle",
+                  "isInitial": true
+                }
+              ],
+              "events": [
+                {
+                  "key": "GO",
+                  "name": "Go"
+                }
+              ],
+              "transitions": [
+                {
+                  "from": "idle",
+                  "to": "idle",
+                  "event": "GO",
+                  "guard": [
+                    "=",
+                    0,
+                    0
+                  ],
+                  "effects": [
+                    [
+                      "navigate",
+                      "/projects"
+                    ]
+                  ]
+                },
+                {
+                  "from": "idle",
+                  "to": "idle",
+                  "event": "GO",
+                  "guard": [
+                    "=",
+                    1,
+                    1
+                  ],
+                  "effects": [
+                    [
+                      "navigate",
+                      "/projectsx"
+                    ]
+                  ]
+                }
+              ]
+            }
+          }
+        ],
+        "pages": [
+          {
+            "name": "Board",
+            "path": "/board",
+            "traits": []
+          }
+        ]
+      }
+    ],
+    {
+      "organismOf": {
+        "$function": "organismOf"
+      }
+    }
+  ],
+  "lookups": [
+    {
+      "$lookup": "arg1.organismOf",
+      "calls": [
+        {
+          "arg": "CrmProjectOrbital",
+          "result": "std-crm"
+        },
+        {
+          "arg": "ProjectOrbital",
+          "result": "std-project-manager"
+        },
+        {
+          "arg": "BoardOrbital",
+          "result": "std-project-manager"
+        },
+        {
+          "arg": "CrmProjectOrbital",
+          "result": "std-crm"
+        },
+        {
+          "arg": "ProjectOrbital",
+          "result": "std-project-manager"
+        },
+        {
+          "arg": "BoardOrbital",
+          "result": "std-project-manager"
+        },
+        {
+          "arg": "CrmProjectOrbital",
+          "result": "std-crm"
+        },
+        {
+          "arg": "ProjectOrbital",
+          "result": "std-project-manager"
+        },
+        {
+          "arg": "BoardOrbital",
+          "result": "std-project-manager"
+        },
+        {
+          "arg": "CrmProjectOrbital",
+          "result": "std-crm"
+        },
+        {
+          "arg": "ProjectOrbital",
+          "result": "std-project-manager"
+        },
+        {
+          "arg": "BoardOrbital",
+          "result": "std-project-manager"
+        },
+        {
+          "arg": "CrmProjectOrbital",
+          "result": "std-crm"
+        },
+        {
+          "arg": "ProjectOrbital",
+          "result": "std-project-manager"
+        },
+        {
+          "arg": "BoardOrbital",
+          "result": "std-project-manager"
+        }
+      ]
+    }
+  ],
+  "result": {
+    "orbitals": [
+      {
+        "name": "CrmProjectOrbital",
+        "entity": "CrmProject.entity",
+        "traits": [],
+        "pages": [
+          {
+            "name": "CrmProjects",
+            "path": "/projects",
+            "traits": []
+          },
+          {
+            "name": "CrmProject",
+            "path": "/projects/:id",
+            "traits": []
+          }
+        ]
+      },
+      {
+        "name": "ProjectOrbital",
+        "entity": "Project.entity",
+        "traits": [
+          {
+            "name": "Nav",
+            "scope": "instance",
+            "stateMachine": {
+              "states": [
+                {
+                  "name": "idle",
+                  "isInitial": true
+                }
+              ],
+              "events": [
+                {
+                  "key": "GO",
+                  "name": "Go"
+                }
+              ],
+              "transitions": [
+                {
+                  "from": "idle",
+                  "to": "idle",
+                  "event": "GO",
+                  "guard": [
+                    "=",
+                    0,
+                    0
+                  ],
+                  "effects": [
+                    [
+                      "navigate",
+                      "/project-manager/projects/@payload.id"
+                    ]
+                  ]
+                }
+              ]
+            }
+          }
+        ],
+        "pages": [
+          {
+            "name": "Projects",
+            "path": "/project-manager/projects",
+            "traits": []
+          },
+          {
+            "name": "Project",
+            "path": "/project-manager/projects/:id",
+            "traits": []
+          },
+          {
+            "name": "Team",
+            "path": "/project-manager/projects/:id/team",
+            "traits": []
+          },
+          {
+            "name": "Templates",
+            "path": "/project-templates",
+            "traits": []
+          }
+        ]
+      },
+      {
+        "name": "BoardOrbital",
+        "entity": "Board.entity",
+        "traits": [
+          {
+            "name": "BoardNav",
+            "scope": "instance",
+            "stateMachine": {
+              "states": [
+                {
+                  "name": "idle",
+                  "isInitial": true
+                }
+              ],
+              "events": [
+                {
+                  "key": "GO",
+                  "name": "Go"
+                }
+              ],
+              "transitions": [
+                {
+                  "from": "idle",
+                  "to": "idle",
+                  "event": "GO",
+                  "guard": [
+                    "=",
+                    0,
+                    0
+                  ],
+                  "effects": [
+                    [
+                      "navigate",
+                      "/project-manager/projects"
+                    ]
+                  ]
+                },
+                {
+                  "from": "idle",
+                  "to": "idle",
+                  "event": "GO",
+                  "guard": [
+                    "=",
+                    1,
+                    1
+                  ],
+                  "effects": [
+                    [
+                      "navigate",
+                      "/projectsx"
+                    ]
+                  ]
+                }
+              ]
+            }
+          }
+        ],
+        "pages": [
+          {
+            "name": "Board",
+            "path": "/board",
+            "traits": []
+          }
+        ]
+      }
+    ],
+    "surfaceRenames": {
+      "routes": [],
+      "traits": [
+        {
+          "orbitalName": "BoardOrbital",
+          "from": "Nav",
+          "to": "BoardNav"
+        }
+      ],
+      "pageNames": []
+    },
+    "identity": {
+      "demotions": [],
+      "roleUnions": [],
+      "expectsRewrites": [],
+      "relationsRetargeted": []
+    },
+    "navItemsNarrowed": [],
+    "configNavItemsNarrowed": [],
+    "landingNavAdded": [],
+    "organismRenames": [
+      {
+        "organism": "std-project-manager",
+        "entities": [],
+        "collections": [],
+        "routes": [
+          {
+            "from": "/projects",
+            "to": "/project-manager/projects"
+          }
+        ]
+      }
+    ],
+    "unrenamableCollisions": []
+  },
+  "error": null
+}

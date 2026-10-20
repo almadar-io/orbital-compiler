@@ -1,0 +1,123 @@
+{
+  "fn": "composeAppFromFiles",
+  "test": "__tests__/compose-app.test.ts > composeAppFromFiles — per-orbital files composed into one app > control: bare definitions compose exactly as composeBehaviors does (no config, no ledger)",
+  "args": [
+    [
+      {
+        "name": "A",
+        "entity": "A.entity",
+        "traits": [],
+        "pages": [
+          {
+            "name": "APage",
+            "path": "/",
+            "traits": []
+          }
+        ]
+      },
+      {
+        "name": "B",
+        "entity": "B.entity",
+        "traits": [],
+        "pages": [
+          {
+            "name": "BPage",
+            "path": "/b",
+            "traits": []
+          }
+        ]
+      }
+    ],
+    {
+      "appName": "Plain"
+    }
+  ],
+  "argsAfter": [
+    [
+      {
+        "name": "A",
+        "entity": "A.entity",
+        "traits": [],
+        "pages": [
+          {
+            "name": "APage",
+            "path": "/",
+            "traits": []
+          }
+        ]
+      },
+      {
+        "name": "B",
+        "entity": "B.entity",
+        "traits": [],
+        "pages": [
+          {
+            "name": "BPage",
+            "path": "/b",
+            "traits": []
+          }
+        ]
+      }
+    ],
+    {
+      "appName": "Plain"
+    }
+  ],
+  "lookups": [],
+  "result": {
+    "schema": {
+      "name": "Plain",
+      "version": "1.0.0",
+      "orbitals": [
+        {
+          "name": "A",
+          "entity": "A.entity",
+          "traits": [],
+          "pages": [
+            {
+              "name": "APage",
+              "path": "/",
+              "traits": []
+            }
+          ]
+        },
+        {
+          "name": "B",
+          "entity": "B.entity",
+          "traits": [],
+          "pages": [
+            {
+              "name": "BPage",
+              "path": "/b",
+              "traits": []
+            }
+          ]
+        }
+      ]
+    },
+    "layout": {
+      "strategy": "tabs",
+      "pageCount": 2
+    },
+    "wiring": {
+      "connections": 0
+    },
+    "surfaceRenames": {
+      "routes": [],
+      "traits": [],
+      "pageNames": []
+    },
+    "identity": {
+      "demotions": [],
+      "roleUnions": [],
+      "expectsRewrites": [],
+      "relationsRetargeted": []
+    },
+    "navItemsNarrowed": [],
+    "configNavItemsNarrowed": [],
+    "landingNavAdded": [],
+    "organismRenames": [],
+    "unrenamableCollisions": []
+  },
+  "error": null
+}

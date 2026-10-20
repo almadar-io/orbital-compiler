@@ -1,0 +1,73 @@
+{
+  "fn": "dedupeComposedSurface",
+  "test": "__tests__/compose-app.test.ts > dedupeComposedSurface — page names stay unique across orbitals > keeps the first claimant's page name and prefixes the second with its orbital",
+  "args": [
+    [
+      {
+        "name": "ContributorOrbital",
+        "entity": "ContributorOrbital.entity",
+        "traits": [],
+        "pages": [
+          {
+            "name": "People",
+            "path": "/people",
+            "traits": []
+          }
+        ]
+      },
+      {
+        "name": "PersonOrbital",
+        "entity": "PersonOrbital.entity",
+        "traits": [],
+        "pages": [
+          {
+            "name": "People",
+            "path": "/person",
+            "traits": []
+          }
+        ]
+      }
+    ]
+  ],
+  "argsAfter": [
+    [
+      {
+        "name": "ContributorOrbital",
+        "entity": "ContributorOrbital.entity",
+        "traits": [],
+        "pages": [
+          {
+            "name": "People",
+            "path": "/people",
+            "traits": []
+          }
+        ]
+      },
+      {
+        "name": "PersonOrbital",
+        "entity": "PersonOrbital.entity",
+        "traits": [],
+        "pages": [
+          {
+            "name": "PersonPeople",
+            "path": "/person",
+            "traits": []
+          }
+        ]
+      }
+    ]
+  ],
+  "lookups": [],
+  "result": {
+    "routes": [],
+    "traits": [],
+    "pageNames": [
+      {
+        "orbitalName": "PersonOrbital",
+        "from": "People",
+        "to": "PersonPeople"
+      }
+    ]
+  },
+  "error": null
+}

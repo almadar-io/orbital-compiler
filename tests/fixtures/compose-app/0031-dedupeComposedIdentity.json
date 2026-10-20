@@ -1,0 +1,162 @@
+{
+  "fn": "dedupeComposedIdentity",
+  "test": "__tests__/compose-app.test.ts > dedupeComposedIdentity — an expected identity no orbital provides as identity > control: expectations naming the winner change nothing",
+  "args": [
+    [
+      {
+        "name": "TeamMemberOrbital",
+        "entity": {
+          "name": "TeamMember",
+          "persistence": "persistent",
+          "identity": true,
+          "fields": [
+            {
+              "name": "id",
+              "type": "string",
+              "required": true
+            },
+            {
+              "name": "role",
+              "type": "enum",
+              "values": [
+                "manager"
+              ]
+            }
+          ]
+        },
+        "traits": [],
+        "pages": []
+      },
+      {
+        "name": "EmployeeOrbital",
+        "entity": {
+          "name": "Employee",
+          "persistence": "persistent",
+          "fields": [
+            {
+              "name": "id",
+              "type": "string",
+              "required": true
+            }
+          ]
+        },
+        "traits": [],
+        "pages": []
+      },
+      {
+        "name": "TimesheetOrbital",
+        "entity": {
+          "name": "Timesheet",
+          "persistence": "persistent",
+          "fields": [
+            {
+              "name": "id",
+              "type": "string",
+              "required": true
+            }
+          ]
+        },
+        "expects": [
+          {
+            "kind": "identity",
+            "name": "TeamMember",
+            "shape": [
+              {
+                "name": "role",
+                "type": "enum",
+                "values": [
+                  "manager"
+                ]
+              }
+            ]
+          }
+        ],
+        "traits": [],
+        "pages": []
+      }
+    ]
+  ],
+  "argsAfter": [
+    [
+      {
+        "name": "TeamMemberOrbital",
+        "entity": {
+          "name": "TeamMember",
+          "persistence": "persistent",
+          "identity": true,
+          "fields": [
+            {
+              "name": "id",
+              "type": "string",
+              "required": true
+            },
+            {
+              "name": "role",
+              "type": "enum",
+              "values": [
+                "manager"
+              ]
+            }
+          ]
+        },
+        "traits": [],
+        "pages": []
+      },
+      {
+        "name": "EmployeeOrbital",
+        "entity": {
+          "name": "Employee",
+          "persistence": "persistent",
+          "fields": [
+            {
+              "name": "id",
+              "type": "string",
+              "required": true
+            }
+          ]
+        },
+        "traits": [],
+        "pages": []
+      },
+      {
+        "name": "TimesheetOrbital",
+        "entity": {
+          "name": "Timesheet",
+          "persistence": "persistent",
+          "fields": [
+            {
+              "name": "id",
+              "type": "string",
+              "required": true
+            }
+          ]
+        },
+        "expects": [
+          {
+            "kind": "identity",
+            "name": "TeamMember",
+            "shape": [
+              {
+                "name": "role",
+                "type": "enum",
+                "values": [
+                  "manager"
+                ]
+              }
+            ]
+          }
+        ],
+        "traits": [],
+        "pages": []
+      }
+    ]
+  ],
+  "lookups": [],
+  "result": {
+    "demotions": [],
+    "roleUnions": [],
+    "expectsRewrites": [],
+    "relationsRetargeted": []
+  },
+  "error": null
+}

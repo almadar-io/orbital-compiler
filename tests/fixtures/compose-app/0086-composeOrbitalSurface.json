@@ -1,0 +1,331 @@
+{
+  "fn": "composeOrbitalSurface",
+  "test": "__tests__/compose-app.test.ts > composeOrbitalSurface — two organisms bringing one atom's entity implicitly > control: the same atom with the same arguments is one entity, shared without a report",
+  "args": [
+    [
+      {
+        "name": "DeploymentOrbital",
+        "entity": "Deployment.entity",
+        "uses": [
+          {
+            "from": "std/behaviors/std-approval-gate",
+            "as": "Approval"
+          }
+        ],
+        "traits": [
+          {
+            "ref": "Approval.traits.ApprovalGateReview",
+            "name": "DeploymentApproval",
+            "typeArgs": {
+              "p": "Deployment"
+            }
+          }
+        ],
+        "pages": [
+          {
+            "name": "D",
+            "path": "/d",
+            "traits": []
+          }
+        ]
+      },
+      {
+        "name": "ExpenseOrbital",
+        "entity": "Expense.entity",
+        "uses": [
+          {
+            "from": "std/behaviors/std-approval-gate",
+            "as": "Approval"
+          }
+        ],
+        "traits": [
+          {
+            "ref": "Approval.traits.ApprovalGateReview",
+            "name": "ExpenseApproval",
+            "typeArgs": {
+              "p": "Deployment"
+            }
+          }
+        ],
+        "pages": [
+          {
+            "name": "E",
+            "path": "/e",
+            "traits": []
+          }
+        ]
+      }
+    ],
+    {
+      "organismOf": {
+        "$function": "organismOf"
+      },
+      "atomTraitOf": {
+        "$function": "atomTraitOf"
+      }
+    }
+  ],
+  "argsAfter": [
+    [
+      {
+        "name": "DeploymentOrbital",
+        "entity": "Deployment.entity",
+        "uses": [
+          {
+            "from": "std/behaviors/std-approval-gate",
+            "as": "Approval"
+          }
+        ],
+        "traits": [
+          {
+            "ref": "Approval.traits.ApprovalGateReview",
+            "name": "DeploymentApproval",
+            "typeArgs": {
+              "p": "Deployment"
+            }
+          }
+        ],
+        "pages": [
+          {
+            "name": "D",
+            "path": "/d",
+            "traits": []
+          }
+        ]
+      },
+      {
+        "name": "ExpenseOrbital",
+        "entity": "Expense.entity",
+        "uses": [
+          {
+            "from": "std/behaviors/std-approval-gate",
+            "as": "Approval"
+          }
+        ],
+        "traits": [
+          {
+            "ref": "Approval.traits.ApprovalGateReview",
+            "name": "ExpenseApproval",
+            "typeArgs": {
+              "p": "Deployment"
+            }
+          }
+        ],
+        "pages": [
+          {
+            "name": "E",
+            "path": "/e",
+            "traits": []
+          }
+        ]
+      }
+    ],
+    {
+      "organismOf": {
+        "$function": "organismOf"
+      },
+      "atomTraitOf": {
+        "$function": "atomTraitOf"
+      }
+    }
+  ],
+  "lookups": [
+    {
+      "$lookup": "arg1.organismOf",
+      "calls": [
+        {
+          "arg": "DeploymentOrbital",
+          "result": "std-cicd"
+        },
+        {
+          "arg": "ExpenseOrbital",
+          "result": "std-accounting"
+        },
+        {
+          "arg": "DeploymentOrbital",
+          "result": "std-cicd"
+        },
+        {
+          "arg": "ExpenseOrbital",
+          "result": "std-accounting"
+        },
+        {
+          "arg": "DeploymentOrbital",
+          "result": "std-cicd"
+        },
+        {
+          "arg": "ExpenseOrbital",
+          "result": "std-accounting"
+        },
+        {
+          "arg": "DeploymentOrbital",
+          "result": "std-cicd"
+        },
+        {
+          "arg": "ExpenseOrbital",
+          "result": "std-accounting"
+        },
+        {
+          "arg": "DeploymentOrbital",
+          "result": "std-cicd"
+        },
+        {
+          "arg": "ExpenseOrbital",
+          "result": "std-accounting"
+        }
+      ]
+    },
+    {
+      "$lookup": "arg1.atomTraitOf",
+      "calls": [
+        {
+          "arg": [
+            {
+              "name": "DeploymentOrbital",
+              "entity": "Deployment.entity",
+              "uses": [
+                {
+                  "from": "std/behaviors/std-approval-gate",
+                  "as": "Approval"
+                }
+              ],
+              "traits": [
+                {
+                  "ref": "Approval.traits.ApprovalGateReview",
+                  "name": "DeploymentApproval",
+                  "typeArgs": {
+                    "p": "Deployment"
+                  }
+                }
+              ],
+              "pages": [
+                {
+                  "name": "D",
+                  "path": "/d",
+                  "traits": []
+                }
+              ]
+            },
+            "Approval.traits.ApprovalGateReview"
+          ],
+          "result": {
+            "name": "ApprovalGateReview",
+            "scope": "instance",
+            "linkedEntity": "ApprovalRequest",
+            "entityRebindable": true
+          }
+        },
+        {
+          "arg": [
+            {
+              "name": "ExpenseOrbital",
+              "entity": "Expense.entity",
+              "uses": [
+                {
+                  "from": "std/behaviors/std-approval-gate",
+                  "as": "Approval"
+                }
+              ],
+              "traits": [
+                {
+                  "ref": "Approval.traits.ApprovalGateReview",
+                  "name": "ExpenseApproval",
+                  "typeArgs": {
+                    "p": "Deployment"
+                  }
+                }
+              ],
+              "pages": [
+                {
+                  "name": "E",
+                  "path": "/e",
+                  "traits": []
+                }
+              ]
+            },
+            "Approval.traits.ApprovalGateReview"
+          ],
+          "result": {
+            "name": "ApprovalGateReview",
+            "scope": "instance",
+            "linkedEntity": "ApprovalRequest",
+            "entityRebindable": true
+          }
+        }
+      ]
+    }
+  ],
+  "result": {
+    "orbitals": [
+      {
+        "name": "DeploymentOrbital",
+        "entity": "Deployment.entity",
+        "uses": [
+          {
+            "from": "std/behaviors/std-approval-gate",
+            "as": "Approval"
+          }
+        ],
+        "traits": [
+          {
+            "ref": "Approval.traits.ApprovalGateReview",
+            "name": "DeploymentApproval",
+            "typeArgs": {
+              "p": "Deployment"
+            }
+          }
+        ],
+        "pages": [
+          {
+            "name": "D",
+            "path": "/d",
+            "traits": []
+          }
+        ]
+      },
+      {
+        "name": "ExpenseOrbital",
+        "entity": "Expense.entity",
+        "uses": [
+          {
+            "from": "std/behaviors/std-approval-gate",
+            "as": "Approval"
+          }
+        ],
+        "traits": [
+          {
+            "ref": "Approval.traits.ApprovalGateReview",
+            "name": "ExpenseApproval",
+            "typeArgs": {
+              "p": "Deployment"
+            }
+          }
+        ],
+        "pages": [
+          {
+            "name": "E",
+            "path": "/e",
+            "traits": []
+          }
+        ]
+      }
+    ],
+    "surfaceRenames": {
+      "routes": [],
+      "traits": [],
+      "pageNames": []
+    },
+    "identity": {
+      "demotions": [],
+      "roleUnions": [],
+      "expectsRewrites": [],
+      "relationsRetargeted": []
+    },
+    "navItemsNarrowed": [],
+    "configNavItemsNarrowed": [],
+    "landingNavAdded": [],
+    "organismRenames": [],
+    "unrenamableCollisions": []
+  },
+  "error": null
+}

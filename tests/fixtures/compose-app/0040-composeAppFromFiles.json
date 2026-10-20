@@ -1,0 +1,289 @@
+{
+  "fn": "composeAppFromFiles",
+  "test": "__tests__/compose-app.test.ts > composeAppFromFiles — per-orbital files composed into one app > an import orbital takes the os grants its upstream orbital declares, and only those",
+  "args": [
+    [
+      {
+        "name": "AccountPage",
+        "version": "1.0.0",
+        "orbitals": [
+          {
+            "name": "AccountPage",
+            "entity": "App.entity",
+            "reference": {
+              "ref": "Up.orbitals.Granted"
+            },
+            "uses": [
+              {
+                "from": "almadar-behaviors/std-up",
+                "as": "Up"
+              }
+            ],
+            "traits": [],
+            "pages": []
+          }
+        ]
+      },
+      {
+        "name": "OtherPage",
+        "version": "1.0.0",
+        "orbitals": [
+          {
+            "name": "OtherPage",
+            "entity": "App.entity",
+            "reference": {
+              "ref": "Up.orbitals.Plain"
+            },
+            "uses": [
+              {
+                "from": "almadar-behaviors/std-up",
+                "as": "Up"
+              }
+            ],
+            "traits": [],
+            "pages": []
+          }
+        ]
+      }
+    ],
+    {
+      "appName": "Granted",
+      "importedOrbitalOf": {
+        "$function": "importedOrbitalOf"
+      }
+    }
+  ],
+  "argsAfter": [
+    [
+      {
+        "name": "AccountPage",
+        "version": "1.0.0",
+        "orbitals": [
+          {
+            "name": "AccountPage",
+            "entity": "App.entity",
+            "reference": {
+              "ref": "Up.orbitals.Granted"
+            },
+            "uses": [
+              {
+                "from": "almadar-behaviors/std-up",
+                "as": "Up"
+              }
+            ],
+            "traits": [],
+            "pages": []
+          }
+        ]
+      },
+      {
+        "name": "OtherPage",
+        "version": "1.0.0",
+        "orbitals": [
+          {
+            "name": "OtherPage",
+            "entity": "App.entity",
+            "reference": {
+              "ref": "Up.orbitals.Plain"
+            },
+            "uses": [
+              {
+                "from": "almadar-behaviors/std-up",
+                "as": "Up"
+              }
+            ],
+            "traits": [],
+            "pages": []
+          }
+        ]
+      }
+    ],
+    {
+      "appName": "Granted",
+      "importedOrbitalOf": {
+        "$function": "importedOrbitalOf"
+      }
+    }
+  ],
+  "lookups": [
+    {
+      "$lookup": "arg1.importedOrbitalOf",
+      "calls": [
+        {
+          "arg": {
+            "name": "AccountPage",
+            "entity": "App.entity",
+            "reference": {
+              "ref": "Up.orbitals.Granted"
+            },
+            "uses": [
+              {
+                "from": "almadar-behaviors/std-up",
+                "as": "Up"
+              }
+            ],
+            "traits": [],
+            "pages": []
+          },
+          "result": {
+            "name": "Granted",
+            "entity": "App.entity",
+            "osGrants": {
+              "env": [
+                "FIREBASE_AUTH_EMULATOR_HOST"
+              ]
+            },
+            "traits": [],
+            "pages": []
+          }
+        },
+        {
+          "arg": {
+            "name": "OtherPage",
+            "entity": "App.entity",
+            "reference": {
+              "ref": "Up.orbitals.Plain"
+            },
+            "uses": [
+              {
+                "from": "almadar-behaviors/std-up",
+                "as": "Up"
+              }
+            ],
+            "traits": [],
+            "pages": []
+          },
+          "result": {
+            "name": "Plain",
+            "entity": "App.entity",
+            "traits": [],
+            "pages": []
+          }
+        },
+        {
+          "arg": {
+            "name": "AccountPage",
+            "entity": "App.entity",
+            "reference": {
+              "ref": "Up.orbitals.Granted"
+            },
+            "uses": [
+              {
+                "from": "almadar-behaviors/std-up",
+                "as": "Up"
+              }
+            ],
+            "traits": [],
+            "pages": [],
+            "osGrants": {
+              "env": [
+                "FIREBASE_AUTH_EMULATOR_HOST"
+              ]
+            }
+          },
+          "result": {
+            "name": "Granted",
+            "entity": "App.entity",
+            "osGrants": {
+              "env": [
+                "FIREBASE_AUTH_EMULATOR_HOST"
+              ]
+            },
+            "traits": [],
+            "pages": []
+          }
+        },
+        {
+          "arg": {
+            "name": "OtherPage",
+            "entity": "App.entity",
+            "reference": {
+              "ref": "Up.orbitals.Plain"
+            },
+            "uses": [
+              {
+                "from": "almadar-behaviors/std-up",
+                "as": "Up"
+              }
+            ],
+            "traits": [],
+            "pages": []
+          },
+          "result": {
+            "name": "Plain",
+            "entity": "App.entity",
+            "traits": [],
+            "pages": []
+          }
+        }
+      ]
+    }
+  ],
+  "result": {
+    "schema": {
+      "name": "Granted",
+      "version": "1.0.0",
+      "orbitals": [
+        {
+          "name": "AccountPage",
+          "entity": "App.entity",
+          "reference": {
+            "ref": "Up.orbitals.Granted"
+          },
+          "uses": [
+            {
+              "from": "almadar-behaviors/std-up",
+              "as": "Up"
+            }
+          ],
+          "traits": [],
+          "pages": [],
+          "osGrants": {
+            "env": [
+              "FIREBASE_AUTH_EMULATOR_HOST"
+            ]
+          }
+        },
+        {
+          "name": "OtherPage",
+          "entity": "App.entity",
+          "reference": {
+            "ref": "Up.orbitals.Plain"
+          },
+          "uses": [
+            {
+              "from": "almadar-behaviors/std-up",
+              "as": "Up"
+            }
+          ],
+          "traits": [],
+          "pages": []
+        }
+      ]
+    },
+    "layout": {
+      "strategy": "tabs",
+      "pageCount": 2
+    },
+    "wiring": {
+      "connections": 0
+    },
+    "surfaceRenames": {
+      "routes": [],
+      "traits": [],
+      "pageNames": []
+    },
+    "identity": {
+      "demotions": [],
+      "roleUnions": [],
+      "expectsRewrites": [],
+      "relationsRetargeted": []
+    },
+    "navItemsNarrowed": [],
+    "configNavItemsNarrowed": [],
+    "landingNavAdded": [],
+    "organismRenames": [],
+    "unrenamableCollisions": []
+  },
+  "error": null
+}

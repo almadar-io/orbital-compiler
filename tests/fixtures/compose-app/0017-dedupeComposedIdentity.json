@@ -1,0 +1,190 @@
+{
+  "fn": "dedupeComposedIdentity",
+  "test": "__tests__/compose-app.test.ts > dedupeComposedIdentity — FIX-L (expects rewrite on identity demotion) > preserves full viewer requirements on the surviving identity alongside the demoted record",
+  "args": [
+    [
+      {
+        "name": "AuthorOrbital",
+        "entity": {
+          "name": "Author",
+          "persistence": "persistent",
+          "identity": true,
+          "fields": [
+            {
+              "name": "id",
+              "type": "string",
+              "required": true
+            }
+          ]
+        },
+        "traits": [],
+        "pages": []
+      },
+      {
+        "name": "TeamMemberOrbital",
+        "entity": {
+          "name": "TeamMember",
+          "persistence": "persistent",
+          "identity": true,
+          "fields": [
+            {
+              "name": "id",
+              "type": "string",
+              "required": true
+            }
+          ]
+        },
+        "traits": [],
+        "pages": []
+      },
+      {
+        "name": "ContactOrbital",
+        "entity": {
+          "name": "Contact",
+          "persistence": "persistent",
+          "fields": [
+            {
+              "name": "id",
+              "type": "string",
+              "required": true
+            }
+          ]
+        },
+        "expects": [
+          {
+            "kind": "identity",
+            "name": "TeamMember",
+            "shape": [
+              {
+                "name": "role",
+                "type": "enum",
+                "values": [
+                  "manager"
+                ],
+                "required": true
+              },
+              {
+                "name": "email",
+                "type": "email",
+                "required": true
+              }
+            ]
+          }
+        ],
+        "traits": [],
+        "pages": []
+      }
+    ]
+  ],
+  "argsAfter": [
+    [
+      {
+        "name": "AuthorOrbital",
+        "entity": {
+          "name": "Author",
+          "persistence": "persistent",
+          "identity": true,
+          "fields": [
+            {
+              "name": "id",
+              "type": "string",
+              "required": true
+            }
+          ]
+        },
+        "traits": [],
+        "pages": []
+      },
+      {
+        "name": "TeamMemberOrbital",
+        "entity": {
+          "name": "TeamMember",
+          "persistence": "persistent",
+          "fields": [
+            {
+              "name": "id",
+              "type": "string",
+              "required": true
+            }
+          ]
+        },
+        "traits": [],
+        "pages": []
+      },
+      {
+        "name": "ContactOrbital",
+        "entity": {
+          "name": "Contact",
+          "persistence": "persistent",
+          "fields": [
+            {
+              "name": "id",
+              "type": "string",
+              "required": true
+            }
+          ]
+        },
+        "expects": [
+          {
+            "kind": "entity",
+            "name": "TeamMember",
+            "shape": [
+              {
+                "name": "role",
+                "type": "enum",
+                "values": [
+                  "manager"
+                ],
+                "required": true
+              },
+              {
+                "name": "email",
+                "type": "email",
+                "required": true
+              }
+            ]
+          },
+          {
+            "kind": "identity",
+            "name": "Author",
+            "shape": [
+              {
+                "name": "role",
+                "type": "enum",
+                "values": [
+                  "manager"
+                ],
+                "required": true
+              },
+              {
+                "name": "email",
+                "type": "email",
+                "required": true
+              }
+            ]
+          }
+        ],
+        "traits": [],
+        "pages": []
+      }
+    ]
+  ],
+  "lookups": [],
+  "result": {
+    "demotions": [
+      {
+        "orbitalName": "TeamMemberOrbital",
+        "entityName": "TeamMember"
+      }
+    ],
+    "roleUnions": [],
+    "expectsRewrites": [
+      {
+        "orbitalName": "ContactOrbital",
+        "entityName": "TeamMember"
+      }
+    ],
+    "relationsRetargeted": []
+  },
+  "error": null
+}

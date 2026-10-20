@@ -1,0 +1,386 @@
+{
+  "fn": "composeOrbitalSurface",
+  "test": "__tests__/compose-app.test.ts > composeOrbitalSurface — every organism's landing page stays reachable > an earlier orbital's landing entry stays ahead of a later organism's nav (marketplace + added chat)",
+  "args": [
+    [
+      {
+        "name": "ListingOrbital",
+        "version": "1.0.0",
+        "config": {
+          "navItems": {
+            "type": "[NavItem]",
+            "default": [
+              {
+                "href": "/listings",
+                "label": "/listings"
+              }
+            ]
+          }
+        },
+        "orbitals": [
+          {
+            "name": "ListingOrbital",
+            "entity": "ListingOrbital.entity",
+            "traits": [],
+            "pages": [
+              {
+                "name": "Listings",
+                "path": "/listings",
+                "traits": []
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "name": "OfferOrbital",
+        "version": "1.0.0",
+        "orbitals": [
+          {
+            "name": "OfferOrbital",
+            "entity": "OfferOrbital.entity",
+            "traits": [],
+            "pages": [
+              {
+                "name": "Offers",
+                "path": "/offer",
+                "traits": []
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "name": "ChatOrbital",
+        "version": "1.0.0",
+        "config": {
+          "navItems": {
+            "type": "[NavItem]",
+            "default": [
+              {
+                "href": "/chat",
+                "label": "/chat"
+              }
+            ]
+          }
+        },
+        "orbitals": [
+          {
+            "name": "ChatOrbital",
+            "entity": "ChatOrbital.entity",
+            "traits": [],
+            "pages": [
+              {
+                "name": "Chat",
+                "path": "/chat",
+                "traits": []
+              }
+            ]
+          }
+        ]
+      }
+    ],
+    {
+      "organismOf": {
+        "$function": "organismOf"
+      }
+    }
+  ],
+  "argsAfter": [
+    [
+      {
+        "name": "ListingOrbital",
+        "version": "1.0.0",
+        "config": {
+          "navItems": {
+            "type": "[NavItem]",
+            "default": [
+              {
+                "href": "/listings",
+                "label": "/listings"
+              }
+            ]
+          }
+        },
+        "orbitals": [
+          {
+            "name": "ListingOrbital",
+            "entity": "ListingOrbital.entity",
+            "traits": [],
+            "pages": [
+              {
+                "name": "Listings",
+                "path": "/listings",
+                "traits": []
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "name": "OfferOrbital",
+        "version": "1.0.0",
+        "orbitals": [
+          {
+            "name": "OfferOrbital",
+            "entity": "OfferOrbital.entity",
+            "traits": [],
+            "pages": [
+              {
+                "name": "Offers",
+                "path": "/offer",
+                "traits": []
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "name": "ChatOrbital",
+        "version": "1.0.0",
+        "config": {
+          "navItems": {
+            "type": "[NavItem]",
+            "default": [
+              {
+                "href": "/chat",
+                "label": "/chat"
+              }
+            ]
+          }
+        },
+        "orbitals": [
+          {
+            "name": "ChatOrbital",
+            "entity": "ChatOrbital.entity",
+            "traits": [],
+            "pages": [
+              {
+                "name": "Chat",
+                "path": "/chat",
+                "traits": []
+              }
+            ]
+          }
+        ]
+      }
+    ],
+    {
+      "organismOf": {
+        "$function": "organismOf"
+      }
+    }
+  ],
+  "lookups": [
+    {
+      "$lookup": "arg1.organismOf",
+      "calls": [
+        {
+          "arg": "ListingOrbital",
+          "result": "market"
+        },
+        {
+          "arg": "OfferOrbital",
+          "result": "OfferOrbital"
+        },
+        {
+          "arg": "ChatOrbital",
+          "result": "chat"
+        },
+        {
+          "arg": "ListingOrbital",
+          "result": "market"
+        },
+        {
+          "arg": "OfferOrbital",
+          "result": "OfferOrbital"
+        },
+        {
+          "arg": "ChatOrbital",
+          "result": "chat"
+        },
+        {
+          "arg": "ListingOrbital",
+          "result": "market"
+        },
+        {
+          "arg": "OfferOrbital",
+          "result": "OfferOrbital"
+        },
+        {
+          "arg": "ChatOrbital",
+          "result": "chat"
+        },
+        {
+          "arg": "ListingOrbital",
+          "result": "market"
+        },
+        {
+          "arg": "OfferOrbital",
+          "result": "OfferOrbital"
+        },
+        {
+          "arg": "ChatOrbital",
+          "result": "chat"
+        },
+        {
+          "arg": "ListingOrbital",
+          "result": "market"
+        },
+        {
+          "arg": "OfferOrbital",
+          "result": "OfferOrbital"
+        },
+        {
+          "arg": "ChatOrbital",
+          "result": "chat"
+        },
+        {
+          "arg": "ListingOrbital",
+          "result": "market"
+        },
+        {
+          "arg": "OfferOrbital",
+          "result": "OfferOrbital"
+        },
+        {
+          "arg": "ChatOrbital",
+          "result": "chat"
+        },
+        {
+          "arg": "ListingOrbital",
+          "result": "market"
+        },
+        {
+          "arg": "OfferOrbital",
+          "result": "OfferOrbital"
+        },
+        {
+          "arg": "ChatOrbital",
+          "result": "chat"
+        },
+        {
+          "arg": "ListingOrbital",
+          "result": "market"
+        },
+        {
+          "arg": "ChatOrbital",
+          "result": "chat"
+        },
+        {
+          "arg": "ListingOrbital",
+          "result": "market"
+        },
+        {
+          "arg": "ChatOrbital",
+          "result": "chat"
+        },
+        {
+          "arg": "ListingOrbital",
+          "result": "market"
+        },
+        {
+          "arg": "OfferOrbital",
+          "result": "OfferOrbital"
+        },
+        {
+          "arg": "ChatOrbital",
+          "result": "chat"
+        },
+        {
+          "arg": "ListingOrbital",
+          "result": "market"
+        },
+        {
+          "arg": "OfferOrbital",
+          "result": "OfferOrbital"
+        },
+        {
+          "arg": "ChatOrbital",
+          "result": "chat"
+        }
+      ]
+    }
+  ],
+  "result": {
+    "orbitals": [
+      {
+        "name": "ListingOrbital",
+        "entity": "ListingOrbital.entity",
+        "traits": [],
+        "pages": [
+          {
+            "name": "Listings",
+            "path": "/listings",
+            "traits": []
+          }
+        ]
+      },
+      {
+        "name": "OfferOrbital",
+        "entity": "OfferOrbital.entity",
+        "traits": [],
+        "pages": [
+          {
+            "name": "Offers",
+            "path": "/offer",
+            "traits": []
+          }
+        ]
+      },
+      {
+        "name": "ChatOrbital",
+        "entity": "ChatOrbital.entity",
+        "traits": [],
+        "pages": [
+          {
+            "name": "Chat",
+            "path": "/chat",
+            "traits": []
+          }
+        ]
+      }
+    ],
+    "config": {
+      "navItems": {
+        "type": "[NavItem]",
+        "default": [
+          {
+            "href": "/listings",
+            "label": "/listings"
+          },
+          {
+            "href": "/offer",
+            "label": "Offers"
+          },
+          {
+            "href": "/chat",
+            "label": "/chat"
+          }
+        ]
+      }
+    },
+    "surfaceRenames": {
+      "routes": [],
+      "traits": [],
+      "pageNames": []
+    },
+    "identity": {
+      "demotions": [],
+      "roleUnions": [],
+      "expectsRewrites": [],
+      "relationsRetargeted": []
+    },
+    "navItemsNarrowed": [],
+    "configNavItemsNarrowed": [],
+    "landingNavAdded": [
+      {
+        "organism": "OfferOrbital",
+        "href": "/offer"
+      }
+    ],
+    "organismRenames": [],
+    "unrenamableCollisions": []
+  },
+  "error": null
+}

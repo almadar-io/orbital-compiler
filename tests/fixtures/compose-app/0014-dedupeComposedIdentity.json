@@ -1,0 +1,194 @@
+{
+  "fn": "dedupeComposedIdentity",
+  "test": "__tests__/compose-app.test.ts > dedupeComposedIdentity — FIX-K (role-vocabulary union on identity demotion) > open-vocabulary winner field (no declared values) → nothing to union, no error",
+  "args": [
+    [
+      {
+        "name": "OnlineUserOrbital",
+        "entity": {
+          "name": "OnlineUser",
+          "persistence": "persistent",
+          "identity": true,
+          "fields": [
+            {
+              "name": "id",
+              "type": "string",
+              "required": true
+            },
+            {
+              "name": "role",
+              "type": "string"
+            }
+          ]
+        },
+        "traits": [],
+        "pages": []
+      },
+      {
+        "name": "TeamMemberOrbital",
+        "entity": {
+          "name": "TeamMember",
+          "persistence": "persistent",
+          "identity": true,
+          "fields": [
+            {
+              "name": "id",
+              "type": "string",
+              "required": true
+            },
+            {
+              "name": "role",
+              "type": "enum",
+              "values": [
+                "manager",
+                "product-owner",
+                "engineering-manager"
+              ]
+            }
+          ]
+        },
+        "traits": [],
+        "pages": []
+      },
+      {
+        "name": "ProjectOrbital",
+        "entity": {
+          "name": "Project",
+          "persistence": "persistent",
+          "update_policy": [
+            "or",
+            [
+              "==",
+              "@user.role",
+              "manager"
+            ],
+            [
+              "eq",
+              "@user.role",
+              "product-owner"
+            ],
+            [
+              "array/includes",
+              [
+                "object/get",
+                "@user",
+                "role"
+              ],
+              "engineering-manager"
+            ]
+          ],
+          "fields": [
+            {
+              "name": "id",
+              "type": "string",
+              "required": true
+            }
+          ]
+        },
+        "traits": [],
+        "pages": []
+      }
+    ]
+  ],
+  "argsAfter": [
+    [
+      {
+        "name": "OnlineUserOrbital",
+        "entity": {
+          "name": "OnlineUser",
+          "persistence": "persistent",
+          "identity": true,
+          "fields": [
+            {
+              "name": "id",
+              "type": "string",
+              "required": true
+            },
+            {
+              "name": "role",
+              "type": "string"
+            }
+          ]
+        },
+        "traits": [],
+        "pages": []
+      },
+      {
+        "name": "TeamMemberOrbital",
+        "entity": {
+          "name": "TeamMember",
+          "persistence": "persistent",
+          "fields": [
+            {
+              "name": "id",
+              "type": "string",
+              "required": true
+            },
+            {
+              "name": "role",
+              "type": "enum",
+              "values": [
+                "manager",
+                "product-owner",
+                "engineering-manager"
+              ]
+            }
+          ]
+        },
+        "traits": [],
+        "pages": []
+      },
+      {
+        "name": "ProjectOrbital",
+        "entity": {
+          "name": "Project",
+          "persistence": "persistent",
+          "update_policy": [
+            "or",
+            [
+              "==",
+              "@user.role",
+              "manager"
+            ],
+            [
+              "eq",
+              "@user.role",
+              "product-owner"
+            ],
+            [
+              "array/includes",
+              [
+                "object/get",
+                "@user",
+                "role"
+              ],
+              "engineering-manager"
+            ]
+          ],
+          "fields": [
+            {
+              "name": "id",
+              "type": "string",
+              "required": true
+            }
+          ]
+        },
+        "traits": [],
+        "pages": []
+      }
+    ]
+  ],
+  "lookups": [],
+  "result": {
+    "demotions": [
+      {
+        "orbitalName": "TeamMemberOrbital",
+        "entityName": "TeamMember"
+      }
+    ],
+    "roleUnions": [],
+    "expectsRewrites": [],
+    "relationsRetargeted": []
+  },
+  "error": null
+}

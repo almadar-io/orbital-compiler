@@ -200,7 +200,10 @@ fn generate_pages(orbitals: &[Value], strategy: LayoutStrategy) -> Vec<Value> {
                     if index == 0 {
                         "/".to_string()
                     } else {
-                        format!("/{}", orbital_core_base::str_utils::to_kebab_case(&orbital_name))
+                        format!(
+                            "/{}",
+                            orbital_core_base::str_utils::to_kebab_case(&orbital_name)
+                        )
                     },
                     index == 0,
                     primary_entity,
@@ -245,11 +248,24 @@ pub fn compose_behaviors(
 ) -> Result<ComposeBehaviorsResult, ComposeError> {
     let ComposeBehaviorsInput {
         app_name,
-        orbitals: raw_orbitals,
+        orbitals: raw_inputs,
         layout_strategy: strategy_input,
         event_wiring,
         entity_mappings: _,
     } = input;
+
+    // Schema-shaped inputs contribute their orbitals, ledger and schemaVersion.
+    let raw_orbitals = super::compose_app::as_definitions(&raw_inputs);
+    let ledger = super::compose_app::merge_ledgers(&raw_inputs);
+    let schema_version = raw_inputs
+        .iter()
+        .filter(|i| i.get("orbitals").is_some_and(Value::is_array))
+        .filter_map(|i| i.get("schemaVersion").filter(|v| v.is_number()))
+        .fold(None, |max: Option<&Value>, v| match max {
+            Some(m) if m.as_f64() >= v.as_f64() => Some(m),
+            _ => Some(v),
+        })
+        .cloned();
 
     // Step 1: Apply event wiring.
     //
@@ -297,6 +313,10 @@ pub fn compose_behaviors(
         if already_has_pages {
             continue;
         }
+        // An orbital import's pages come whole from the imported orbital (LOLO §8b).
+        if obj.contains_key("reference") {
+            continue;
+        }
 
         let page = match strategy {
             LayoutStrategy::Dashboard | LayoutStrategy::Single => pages.first(),
@@ -322,6 +342,12 @@ pub fn compose_behaviors(
     schema_map.insert("name".to_string(), Value::String(app_name));
     schema_map.insert("version".to_string(), Value::String("1.0.0".to_string()));
     schema_map.insert("orbitals".to_string(), Value::Array(wired_orbitals));
+    if let Some(version) = schema_version {
+        schema_map.insert("schemaVersion".to_string(), version);
+    }
+    if let Some(ledger) = ledger {
+        schema_map.insert("ledger".to_string(), ledger);
+    }
     let schema = Value::Object(schema_map);
 
     let page_count = pages.len();

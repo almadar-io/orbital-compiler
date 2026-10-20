@@ -1,0 +1,240 @@
+{
+  "fn": "composeAppFromFiles",
+  "test": "__tests__/compose-app.test.ts > composeAppFromFiles — per-orbital files composed into one app > carries the hooks and egress the composed programs and the behaviors they import declare",
+  "args": [
+    [
+      {
+        "name": "AccountPage",
+        "version": "1.0.0",
+        "orbitals": [
+          {
+            "name": "AccountPage",
+            "entity": "App.entity",
+            "reference": {
+              "ref": "Up.orbitals.UpOrbital"
+            },
+            "uses": [
+              {
+                "from": "almadar-behaviors/std-identity",
+                "as": "Up"
+              }
+            ],
+            "traits": [],
+            "pages": []
+          }
+        ]
+      },
+      {
+        "name": "ShopOrbital",
+        "version": "1.0.0",
+        "orbitals": [
+          {
+            "name": "ShopOrbital",
+            "entity": "App.entity",
+            "reference": {
+              "ref": "Up.orbitals.UpOrbital"
+            },
+            "uses": [
+              {
+                "from": "almadar-behaviors/std-shop",
+                "as": "Up"
+              }
+            ],
+            "traits": [],
+            "pages": []
+          }
+        ],
+        "egress": [
+          "https://api.stripe.com",
+          "http://127.0.0.1:9099"
+        ]
+      }
+    ],
+    {
+      "appName": "Shop",
+      "importedProgramOf": {
+        "$function": "importedProgramOf"
+      }
+    }
+  ],
+  "argsAfter": [
+    [
+      {
+        "name": "AccountPage",
+        "version": "1.0.0",
+        "orbitals": [
+          {
+            "name": "AccountPage",
+            "entity": "App.entity",
+            "reference": {
+              "ref": "Up.orbitals.UpOrbital"
+            },
+            "uses": [
+              {
+                "from": "almadar-behaviors/std-identity",
+                "as": "Up"
+              }
+            ],
+            "traits": [],
+            "pages": []
+          }
+        ]
+      },
+      {
+        "name": "ShopOrbital",
+        "version": "1.0.0",
+        "orbitals": [
+          {
+            "name": "ShopOrbital",
+            "entity": "App.entity",
+            "reference": {
+              "ref": "Up.orbitals.UpOrbital"
+            },
+            "uses": [
+              {
+                "from": "almadar-behaviors/std-shop",
+                "as": "Up"
+              }
+            ],
+            "traits": [],
+            "pages": []
+          }
+        ],
+        "egress": [
+          "https://api.stripe.com",
+          "http://127.0.0.1:9099"
+        ]
+      }
+    ],
+    {
+      "appName": "Shop",
+      "importedProgramOf": {
+        "$function": "importedProgramOf"
+      }
+    }
+  ],
+  "lookups": [
+    {
+      "$lookup": "arg1.importedProgramOf",
+      "calls": [
+        {
+          "arg": {
+            "name": "AccountPage",
+            "entity": "App.entity",
+            "reference": {
+              "ref": "Up.orbitals.UpOrbital"
+            },
+            "uses": [
+              {
+                "from": "almadar-behaviors/std-identity",
+                "as": "Up"
+              }
+            ],
+            "traits": [],
+            "pages": []
+          },
+          "result": {
+            "name": "std-identity",
+            "version": "1.0.0",
+            "inbound": [
+              "personas",
+              "persona-sign-in"
+            ],
+            "egress": [
+              "http://127.0.0.1:9099"
+            ],
+            "orbitals": []
+          }
+        },
+        {
+          "arg": {
+            "name": "ShopOrbital",
+            "entity": "App.entity",
+            "reference": {
+              "ref": "Up.orbitals.UpOrbital"
+            },
+            "uses": [
+              {
+                "from": "almadar-behaviors/std-shop",
+                "as": "Up"
+              }
+            ],
+            "traits": [],
+            "pages": []
+          },
+          "result": null
+        }
+      ]
+    }
+  ],
+  "result": {
+    "schema": {
+      "name": "Shop",
+      "version": "1.0.0",
+      "orbitals": [
+        {
+          "name": "AccountPage",
+          "entity": "App.entity",
+          "reference": {
+            "ref": "Up.orbitals.UpOrbital"
+          },
+          "uses": [
+            {
+              "from": "almadar-behaviors/std-identity",
+              "as": "Up"
+            }
+          ],
+          "traits": [],
+          "pages": []
+        },
+        {
+          "name": "ShopOrbital",
+          "entity": "App.entity",
+          "reference": {
+            "ref": "Up.orbitals.UpOrbital"
+          },
+          "uses": [
+            {
+              "from": "almadar-behaviors/std-shop",
+              "as": "Up"
+            }
+          ],
+          "traits": [],
+          "pages": []
+        }
+      ],
+      "inbound": [
+        "personas",
+        "persona-sign-in"
+      ],
+      "egress": [
+        "http://127.0.0.1:9099",
+        "https://api.stripe.com"
+      ]
+    },
+    "layout": {
+      "strategy": "tabs",
+      "pageCount": 2
+    },
+    "wiring": {
+      "connections": 0
+    },
+    "surfaceRenames": {
+      "routes": [],
+      "traits": [],
+      "pageNames": []
+    },
+    "identity": {
+      "demotions": [],
+      "roleUnions": [],
+      "expectsRewrites": [],
+      "relationsRetargeted": []
+    },
+    "navItemsNarrowed": [],
+    "configNavItemsNarrowed": [],
+    "landingNavAdded": [],
+    "organismRenames": [],
+    "unrenamableCollisions": []
+  },
+  "error": null
+}

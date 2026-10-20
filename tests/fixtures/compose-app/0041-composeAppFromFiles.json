@@ -1,0 +1,109 @@
+{
+  "fn": "composeAppFromFiles",
+  "test": "__tests__/compose-app.test.ts > composeAppFromFiles — per-orbital files composed into one app > control: when nothing declares a hook or an origin the app declares none",
+  "args": [
+    [
+      {
+        "name": "Plain",
+        "version": "1.0.0",
+        "orbitals": [
+          {
+            "name": "PlainOrbital",
+            "entity": "App.entity",
+            "traits": [],
+            "pages": []
+          }
+        ]
+      }
+    ],
+    {
+      "appName": "Plain",
+      "importedProgramOf": {
+        "$function": "importedProgramOf"
+      }
+    }
+  ],
+  "argsAfter": [
+    [
+      {
+        "name": "Plain",
+        "version": "1.0.0",
+        "orbitals": [
+          {
+            "name": "PlainOrbital",
+            "entity": "App.entity",
+            "traits": [],
+            "pages": []
+          }
+        ]
+      }
+    ],
+    {
+      "appName": "Plain",
+      "importedProgramOf": {
+        "$function": "importedProgramOf"
+      }
+    }
+  ],
+  "lookups": [
+    {
+      "$lookup": "arg1.importedProgramOf",
+      "calls": [
+        {
+          "arg": {
+            "name": "PlainOrbital",
+            "entity": "App.entity",
+            "traits": [],
+            "pages": []
+          },
+          "result": null
+        }
+      ]
+    }
+  ],
+  "result": {
+    "schema": {
+      "name": "Plain",
+      "version": "1.0.0",
+      "orbitals": [
+        {
+          "name": "PlainOrbital",
+          "entity": "App.entity",
+          "traits": [],
+          "pages": [
+            {
+              "name": "PlainOrbitalPage",
+              "path": "/",
+              "isInitial": true,
+              "primaryEntity": "App"
+            }
+          ]
+        }
+      ]
+    },
+    "layout": {
+      "strategy": "single",
+      "pageCount": 1
+    },
+    "wiring": {
+      "connections": 0
+    },
+    "surfaceRenames": {
+      "routes": [],
+      "traits": [],
+      "pageNames": []
+    },
+    "identity": {
+      "demotions": [],
+      "roleUnions": [],
+      "expectsRewrites": [],
+      "relationsRetargeted": []
+    },
+    "navItemsNarrowed": [],
+    "configNavItemsNarrowed": [],
+    "landingNavAdded": [],
+    "organismRenames": [],
+    "unrenamableCollisions": []
+  },
+  "error": null
+}

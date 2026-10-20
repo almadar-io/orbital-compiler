@@ -1,0 +1,331 @@
+{
+  "fn": "composeAppFromFiles",
+  "test": "__tests__/compose-app.test.ts > composeAppFromFiles — per-orbital files composed into one app > an imported orbital owns its source's pages: its nav entry survives, an unowned one is still dropped",
+  "args": [
+    [
+      {
+        "name": "NoteOrbital",
+        "version": "1.0.0",
+        "config": {
+          "navItems": {
+            "type": "[NavItem]",
+            "default": [
+              {
+                "href": "/notes",
+                "label": "/notes"
+              },
+              {
+                "href": "/assistant",
+                "label": "/assistant"
+              },
+              {
+                "href": "/gone",
+                "label": "/gone"
+              }
+            ]
+          }
+        },
+        "orbitals": [
+          {
+            "name": "NoteOrbital",
+            "entity": "NoteOrbital.entity",
+            "traits": [
+              {
+                "ref": "AppShell.traits.AppLayout",
+                "name": "NoteOrbitalLayout",
+                "config": {
+                  "navItems": {
+                    "type": "unknown",
+                    "default": "@config.navItems"
+                  }
+                }
+              }
+            ],
+            "pages": [
+              {
+                "name": "NoteOrbitalPage",
+                "path": "/notes",
+                "traits": [
+                  {
+                    "ref": "NoteOrbitalLayout"
+                  }
+                ]
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "name": "NotesAssistantOrbital",
+        "version": "1.0.0",
+        "orbitals": [
+          {
+            "name": "NotesAssistantOrbital",
+            "entity": "Agent.orbitals.AgentAssistantOrbital.entity",
+            "reference": {
+              "ref": "Agent.orbitals.AgentAssistantOrbital"
+            },
+            "uses": [
+              {
+                "from": "std/behaviors/std-agent-assistant",
+                "as": "Agent"
+              }
+            ],
+            "traits": [],
+            "pages": []
+          }
+        ]
+      }
+    ],
+    {
+      "appName": "Notes",
+      "importedOrbitalOf": {
+        "$function": "importedOrbitalOf"
+      }
+    }
+  ],
+  "argsAfter": [
+    [
+      {
+        "name": "NoteOrbital",
+        "version": "1.0.0",
+        "config": {
+          "navItems": {
+            "type": "[NavItem]",
+            "default": [
+              {
+                "href": "/notes",
+                "label": "/notes"
+              },
+              {
+                "href": "/assistant",
+                "label": "/assistant"
+              },
+              {
+                "href": "/gone",
+                "label": "/gone"
+              }
+            ]
+          }
+        },
+        "orbitals": [
+          {
+            "name": "NoteOrbital",
+            "entity": "NoteOrbital.entity",
+            "traits": [
+              {
+                "ref": "AppShell.traits.AppLayout",
+                "name": "NoteOrbitalLayout",
+                "config": {
+                  "navItems": {
+                    "type": "unknown",
+                    "default": "@config.navItems"
+                  }
+                }
+              }
+            ],
+            "pages": [
+              {
+                "name": "NoteOrbitalPage",
+                "path": "/notes",
+                "traits": [
+                  {
+                    "ref": "NoteOrbitalLayout"
+                  }
+                ]
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "name": "NotesAssistantOrbital",
+        "version": "1.0.0",
+        "orbitals": [
+          {
+            "name": "NotesAssistantOrbital",
+            "entity": "Agent.orbitals.AgentAssistantOrbital.entity",
+            "reference": {
+              "ref": "Agent.orbitals.AgentAssistantOrbital"
+            },
+            "uses": [
+              {
+                "from": "std/behaviors/std-agent-assistant",
+                "as": "Agent"
+              }
+            ],
+            "traits": [],
+            "pages": []
+          }
+        ]
+      }
+    ],
+    {
+      "appName": "Notes",
+      "importedOrbitalOf": {
+        "$function": "importedOrbitalOf"
+      }
+    }
+  ],
+  "lookups": [
+    {
+      "$lookup": "arg1.importedOrbitalOf",
+      "calls": [
+        {
+          "arg": {
+            "name": "NotesAssistantOrbital",
+            "entity": "Agent.orbitals.AgentAssistantOrbital.entity",
+            "reference": {
+              "ref": "Agent.orbitals.AgentAssistantOrbital"
+            },
+            "uses": [
+              {
+                "from": "std/behaviors/std-agent-assistant",
+                "as": "Agent"
+              }
+            ],
+            "traits": [],
+            "pages": []
+          },
+          "result": {
+            "name": "AgentAssistantOrbital",
+            "entity": "AgentChat",
+            "traits": [],
+            "pages": [
+              {
+                "name": "AssistantPage",
+                "path": "/assistant",
+                "traits": []
+              }
+            ]
+          }
+        },
+        {
+          "arg": {
+            "name": "NotesAssistantOrbital",
+            "entity": "Agent.orbitals.AgentAssistantOrbital.entity",
+            "reference": {
+              "ref": "Agent.orbitals.AgentAssistantOrbital"
+            },
+            "uses": [
+              {
+                "from": "std/behaviors/std-agent-assistant",
+                "as": "Agent"
+              }
+            ],
+            "traits": [],
+            "pages": []
+          },
+          "result": {
+            "name": "AgentAssistantOrbital",
+            "entity": "AgentChat",
+            "traits": [],
+            "pages": [
+              {
+                "name": "AssistantPage",
+                "path": "/assistant",
+                "traits": []
+              }
+            ]
+          }
+        }
+      ]
+    }
+  ],
+  "result": {
+    "schema": {
+      "name": "Notes",
+      "version": "1.0.0",
+      "orbitals": [
+        {
+          "name": "NoteOrbital",
+          "entity": "NoteOrbital.entity",
+          "traits": [
+            {
+              "ref": "AppShell.traits.AppLayout",
+              "name": "NoteOrbitalLayout",
+              "config": {
+                "navItems": {
+                  "type": "unknown",
+                  "default": "@config.navItems"
+                }
+              }
+            }
+          ],
+          "pages": [
+            {
+              "name": "NoteOrbitalPage",
+              "path": "/notes",
+              "traits": [
+                {
+                  "ref": "NoteOrbitalLayout"
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "name": "NotesAssistantOrbital",
+          "entity": "Agent.orbitals.AgentAssistantOrbital.entity",
+          "reference": {
+            "ref": "Agent.orbitals.AgentAssistantOrbital"
+          },
+          "uses": [
+            {
+              "from": "std/behaviors/std-agent-assistant",
+              "as": "Agent"
+            }
+          ],
+          "traits": [],
+          "pages": []
+        }
+      ],
+      "config": {
+        "navItems": {
+          "type": "[NavItem]",
+          "default": [
+            {
+              "href": "/notes",
+              "label": "/notes"
+            },
+            {
+              "href": "/assistant",
+              "label": "/assistant"
+            }
+          ]
+        }
+      }
+    },
+    "layout": {
+      "strategy": "tabs",
+      "pageCount": 2
+    },
+    "wiring": {
+      "connections": 0
+    },
+    "surfaceRenames": {
+      "routes": [],
+      "traits": [],
+      "pageNames": []
+    },
+    "identity": {
+      "demotions": [],
+      "roleUnions": [],
+      "expectsRewrites": [],
+      "relationsRetargeted": []
+    },
+    "navItemsNarrowed": [],
+    "configNavItemsNarrowed": [
+      {
+        "knob": "navItems",
+        "droppedHrefs": [
+          "/gone"
+        ]
+      }
+    ],
+    "landingNavAdded": [],
+    "organismRenames": [],
+    "unrenamableCollisions": []
+  },
+  "error": null
+}

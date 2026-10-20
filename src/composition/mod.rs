@@ -9,11 +9,17 @@
 //! the canonical reference. This Rust port must produce byte-identical output
 //! for the same input. Algorithmic drift between Rust and TS is a blocker.
 
+pub mod compose_app;
 pub mod compose_behaviors;
 pub mod event_wiring;
 pub mod layout_strategy;
 pub mod pipe;
 
+pub use compose_app::{
+    compose_app_from_files, compose_orbital_surface, compose_programs, dedupe_composed_identity,
+    dedupe_composed_surface, identity_vocabulary_delta, union_os_grants, ComposeAppOptions,
+    ComposeLookups,
+};
 pub use compose_behaviors::{
     compose_behaviors, ComposeBehaviorsInput, ComposeBehaviorsResult, ComposeError, LayoutMetadata,
     WiringMetadata,

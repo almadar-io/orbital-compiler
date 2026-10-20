@@ -1,0 +1,148 @@
+{
+  "fn": "composeOrbitalSurface",
+  "test": "__tests__/compose-app.test.ts > composeOrbitalSurface — the app surface without generated pages or layout > does not mutate the caller's files",
+  "args": [
+    [
+      {
+        "name": "A",
+        "entity": "A.entity",
+        "traits": [
+          {
+            "ref": "X.traits.Y",
+            "name": "InlineRender1"
+          }
+        ],
+        "pages": [
+          {
+            "name": "P",
+            "path": "/",
+            "traits": []
+          }
+        ]
+      },
+      {
+        "name": "B",
+        "entity": "B.entity",
+        "traits": [
+          {
+            "ref": "X.traits.Y",
+            "name": "InlineRender1"
+          }
+        ],
+        "pages": [
+          {
+            "name": "Q",
+            "path": "/",
+            "traits": []
+          }
+        ]
+      }
+    ]
+  ],
+  "argsAfter": [
+    [
+      {
+        "name": "A",
+        "entity": "A.entity",
+        "traits": [
+          {
+            "ref": "X.traits.Y",
+            "name": "InlineRender1"
+          }
+        ],
+        "pages": [
+          {
+            "name": "P",
+            "path": "/",
+            "traits": []
+          }
+        ]
+      },
+      {
+        "name": "B",
+        "entity": "B.entity",
+        "traits": [
+          {
+            "ref": "X.traits.Y",
+            "name": "InlineRender1"
+          }
+        ],
+        "pages": [
+          {
+            "name": "Q",
+            "path": "/",
+            "traits": []
+          }
+        ]
+      }
+    ]
+  ],
+  "lookups": [],
+  "result": {
+    "orbitals": [
+      {
+        "name": "A",
+        "entity": "A.entity",
+        "traits": [
+          {
+            "ref": "X.traits.Y",
+            "name": "InlineRender1"
+          }
+        ],
+        "pages": [
+          {
+            "name": "P",
+            "path": "/",
+            "traits": []
+          }
+        ]
+      },
+      {
+        "name": "B",
+        "entity": "B.entity",
+        "traits": [
+          {
+            "ref": "X.traits.Y",
+            "name": "BInlineRender1"
+          }
+        ],
+        "pages": [
+          {
+            "name": "Q",
+            "path": "/b",
+            "traits": []
+          }
+        ]
+      }
+    ],
+    "surfaceRenames": {
+      "routes": [
+        {
+          "orbitalName": "B",
+          "from": "/",
+          "to": "/b"
+        }
+      ],
+      "traits": [
+        {
+          "orbitalName": "B",
+          "from": "InlineRender1",
+          "to": "BInlineRender1"
+        }
+      ],
+      "pageNames": []
+    },
+    "identity": {
+      "demotions": [],
+      "roleUnions": [],
+      "expectsRewrites": [],
+      "relationsRetargeted": []
+    },
+    "navItemsNarrowed": [],
+    "configNavItemsNarrowed": [],
+    "landingNavAdded": [],
+    "organismRenames": [],
+    "unrenamableCollisions": []
+  },
+  "error": null
+}

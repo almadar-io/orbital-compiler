@@ -1,0 +1,130 @@
+{
+  "fn": "dedupeComposedIdentity",
+  "test": "__tests__/compose-app.test.ts > dedupeComposedIdentity — a demoted identity's declared vocabulary joins the winner's > roles the demoted organism declares but compares only through config (an atom's allowedRoles) stay live",
+  "args": [
+    [
+      {
+        "name": "BillingStaffOrbital",
+        "entity": {
+          "name": "BillingStaff",
+          "persistence": "persistent",
+          "identity": true,
+          "fields": [
+            {
+              "name": "id",
+              "type": "string"
+            },
+            {
+              "name": "role",
+              "type": "string",
+              "values": [
+                "billing-admin"
+              ]
+            }
+          ]
+        },
+        "traits": [],
+        "pages": []
+      },
+      {
+        "name": "PlannerOrbital",
+        "entity": {
+          "name": "Planner",
+          "persistence": "persistent",
+          "identity": true,
+          "fields": [
+            {
+              "name": "id",
+              "type": "string"
+            },
+            {
+              "name": "role",
+              "type": "string",
+              "values": [
+                "team-lead",
+                "planner"
+              ]
+            }
+          ]
+        },
+        "traits": [],
+        "pages": []
+      }
+    ]
+  ],
+  "argsAfter": [
+    [
+      {
+        "name": "BillingStaffOrbital",
+        "entity": {
+          "name": "BillingStaff",
+          "persistence": "persistent",
+          "identity": true,
+          "fields": [
+            {
+              "name": "id",
+              "type": "string"
+            },
+            {
+              "name": "role",
+              "type": "string",
+              "values": [
+                "billing-admin",
+                "planner",
+                "team-lead"
+              ]
+            }
+          ]
+        },
+        "traits": [],
+        "pages": []
+      },
+      {
+        "name": "PlannerOrbital",
+        "entity": {
+          "name": "Planner",
+          "persistence": "persistent",
+          "fields": [
+            {
+              "name": "id",
+              "type": "string"
+            },
+            {
+              "name": "role",
+              "type": "string",
+              "values": [
+                "team-lead",
+                "planner"
+              ]
+            }
+          ]
+        },
+        "traits": [],
+        "pages": []
+      }
+    ]
+  ],
+  "lookups": [],
+  "result": {
+    "demotions": [
+      {
+        "orbitalName": "PlannerOrbital",
+        "entityName": "Planner"
+      }
+    ],
+    "roleUnions": [
+      {
+        "orbitalName": "BillingStaffOrbital",
+        "entityName": "BillingStaff",
+        "field": "role",
+        "addedLiterals": [
+          "planner",
+          "team-lead"
+        ]
+      }
+    ],
+    "expectsRewrites": [],
+    "relationsRetargeted": []
+  },
+  "error": null
+}

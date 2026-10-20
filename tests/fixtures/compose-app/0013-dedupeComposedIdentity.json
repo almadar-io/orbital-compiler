@@ -1,0 +1,184 @@
+{
+  "fn": "dedupeComposedIdentity",
+  "test": "__tests__/compose-app.test.ts > dedupeComposedIdentity — FIX-K (role-vocabulary union on identity demotion) > the demoted identity's declared vocabulary joins even where only its own entity name compares it (ruling 2026-10-04)",
+  "args": [
+    [
+      {
+        "name": "OnlineUserOrbital",
+        "entity": {
+          "name": "OnlineUser",
+          "persistence": "persistent",
+          "identity": true,
+          "fields": [
+            {
+              "name": "id",
+              "type": "string",
+              "required": true
+            },
+            {
+              "name": "role",
+              "type": "enum",
+              "values": [
+                "member",
+                "moderator",
+                "admin"
+              ]
+            }
+          ]
+        },
+        "traits": [],
+        "pages": []
+      },
+      {
+        "name": "TeamMemberOrbital",
+        "entity": {
+          "name": "TeamMember",
+          "persistence": "persistent",
+          "identity": true,
+          "fields": [
+            {
+              "name": "id",
+              "type": "string",
+              "required": true
+            },
+            {
+              "name": "role",
+              "type": "enum",
+              "values": [
+                "manager",
+                "product-owner",
+                "engineering-manager"
+              ]
+            }
+          ]
+        },
+        "traits": [],
+        "pages": []
+      },
+      {
+        "name": "ProjectOrbital",
+        "entity": {
+          "name": "Project",
+          "persistence": "persistent",
+          "update_policy": [
+            "==",
+            "@TeamMember.role",
+            "manager"
+          ],
+          "fields": [
+            {
+              "name": "id",
+              "type": "string",
+              "required": true
+            }
+          ]
+        },
+        "traits": [],
+        "pages": []
+      }
+    ]
+  ],
+  "argsAfter": [
+    [
+      {
+        "name": "OnlineUserOrbital",
+        "entity": {
+          "name": "OnlineUser",
+          "persistence": "persistent",
+          "identity": true,
+          "fields": [
+            {
+              "name": "id",
+              "type": "string",
+              "required": true
+            },
+            {
+              "name": "role",
+              "type": "enum",
+              "values": [
+                "member",
+                "moderator",
+                "admin",
+                "engineering-manager",
+                "manager",
+                "product-owner"
+              ]
+            }
+          ]
+        },
+        "traits": [],
+        "pages": []
+      },
+      {
+        "name": "TeamMemberOrbital",
+        "entity": {
+          "name": "TeamMember",
+          "persistence": "persistent",
+          "fields": [
+            {
+              "name": "id",
+              "type": "string",
+              "required": true
+            },
+            {
+              "name": "role",
+              "type": "enum",
+              "values": [
+                "manager",
+                "product-owner",
+                "engineering-manager"
+              ]
+            }
+          ]
+        },
+        "traits": [],
+        "pages": []
+      },
+      {
+        "name": "ProjectOrbital",
+        "entity": {
+          "name": "Project",
+          "persistence": "persistent",
+          "update_policy": [
+            "==",
+            "@TeamMember.role",
+            "manager"
+          ],
+          "fields": [
+            {
+              "name": "id",
+              "type": "string",
+              "required": true
+            }
+          ]
+        },
+        "traits": [],
+        "pages": []
+      }
+    ]
+  ],
+  "lookups": [],
+  "result": {
+    "demotions": [
+      {
+        "orbitalName": "TeamMemberOrbital",
+        "entityName": "TeamMember"
+      }
+    ],
+    "roleUnions": [
+      {
+        "orbitalName": "OnlineUserOrbital",
+        "entityName": "OnlineUser",
+        "field": "role",
+        "addedLiterals": [
+          "engineering-manager",
+          "manager",
+          "product-owner"
+        ]
+      }
+    ],
+    "expectsRewrites": [],
+    "relationsRetargeted": []
+  },
+  "error": null
+}

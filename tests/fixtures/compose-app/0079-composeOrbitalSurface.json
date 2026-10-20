@@ -1,0 +1,334 @@
+{
+  "fn": "composeOrbitalSurface",
+  "test": "__tests__/compose-app.test.ts > composeOrbitalSurface — an atom's implicit entity cannot move, so a declared one yields > control: an explicit binding brings no implicit entity, so nothing collides",
+  "args": [
+    [
+      {
+        "name": "MembershipOrbital",
+        "version": "1.0.0",
+        "orbitals": [
+          {
+            "name": "MembershipOrbital",
+            "entity": {
+              "name": "Membership",
+              "persistence": "persistent",
+              "fields": [
+                {
+                  "name": "id",
+                  "type": "string"
+                }
+              ]
+            },
+            "auxiliaryEntities": [
+              {
+                "name": "Subscription",
+                "persistence": "persistent",
+                "fields": [
+                  {
+                    "name": "id",
+                    "type": "string"
+                  },
+                  {
+                    "name": "searchTerm",
+                    "type": "string"
+                  }
+                ]
+              }
+            ],
+            "traits": [
+              {
+                "ref": "AppSearch.traits.AppSearch",
+                "name": "MembershipSearch",
+                "linkedEntity": "Subscription"
+              }
+            ],
+            "pages": [
+              {
+                "name": "Memberships",
+                "path": "/memberships",
+                "traits": []
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "name": "SubscriptionOrbital",
+        "version": "1.0.0",
+        "orbitals": [
+          {
+            "name": "SubscriptionOrbital",
+            "entity": {
+              "name": "Plan",
+              "persistence": "persistent",
+              "fields": [
+                {
+                  "name": "id",
+                  "type": "string"
+                }
+              ]
+            },
+            "traits": [
+              {
+                "ref": "Billing.traits.SubscriptionPanel",
+                "name": "Panel",
+                "linkedEntity": "Plan"
+              }
+            ],
+            "pages": [
+              {
+                "name": "Plans",
+                "path": "/plans",
+                "traits": []
+              }
+            ]
+          }
+        ]
+      }
+    ],
+    {
+      "organismOf": {
+        "$function": "organismOf"
+      },
+      "atomTraitOf": {
+        "$function": "atomTraitOf"
+      }
+    }
+  ],
+  "argsAfter": [
+    [
+      {
+        "name": "MembershipOrbital",
+        "version": "1.0.0",
+        "orbitals": [
+          {
+            "name": "MembershipOrbital",
+            "entity": {
+              "name": "Membership",
+              "persistence": "persistent",
+              "fields": [
+                {
+                  "name": "id",
+                  "type": "string"
+                }
+              ]
+            },
+            "auxiliaryEntities": [
+              {
+                "name": "Subscription",
+                "persistence": "persistent",
+                "fields": [
+                  {
+                    "name": "id",
+                    "type": "string"
+                  },
+                  {
+                    "name": "searchTerm",
+                    "type": "string"
+                  }
+                ]
+              }
+            ],
+            "traits": [
+              {
+                "ref": "AppSearch.traits.AppSearch",
+                "name": "MembershipSearch",
+                "linkedEntity": "Subscription"
+              }
+            ],
+            "pages": [
+              {
+                "name": "Memberships",
+                "path": "/memberships",
+                "traits": []
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "name": "SubscriptionOrbital",
+        "version": "1.0.0",
+        "orbitals": [
+          {
+            "name": "SubscriptionOrbital",
+            "entity": {
+              "name": "Plan",
+              "persistence": "persistent",
+              "fields": [
+                {
+                  "name": "id",
+                  "type": "string"
+                }
+              ]
+            },
+            "traits": [
+              {
+                "ref": "Billing.traits.SubscriptionPanel",
+                "name": "Panel",
+                "linkedEntity": "Plan"
+              }
+            ],
+            "pages": [
+              {
+                "name": "Plans",
+                "path": "/plans",
+                "traits": []
+              }
+            ]
+          }
+        ]
+      }
+    ],
+    {
+      "organismOf": {
+        "$function": "organismOf"
+      },
+      "atomTraitOf": {
+        "$function": "atomTraitOf"
+      }
+    }
+  ],
+  "lookups": [
+    {
+      "$lookup": "arg1.organismOf",
+      "calls": [
+        {
+          "arg": "MembershipOrbital",
+          "result": "std-fitness-studio"
+        },
+        {
+          "arg": "SubscriptionOrbital",
+          "result": "std-subscription-billing"
+        },
+        {
+          "arg": "MembershipOrbital",
+          "result": "std-fitness-studio"
+        },
+        {
+          "arg": "SubscriptionOrbital",
+          "result": "std-subscription-billing"
+        },
+        {
+          "arg": "MembershipOrbital",
+          "result": "std-fitness-studio"
+        },
+        {
+          "arg": "SubscriptionOrbital",
+          "result": "std-subscription-billing"
+        },
+        {
+          "arg": "MembershipOrbital",
+          "result": "std-fitness-studio"
+        },
+        {
+          "arg": "SubscriptionOrbital",
+          "result": "std-subscription-billing"
+        },
+        {
+          "arg": "MembershipOrbital",
+          "result": "std-fitness-studio"
+        },
+        {
+          "arg": "SubscriptionOrbital",
+          "result": "std-subscription-billing"
+        }
+      ]
+    },
+    {
+      "$lookup": "arg1.atomTraitOf",
+      "calls": []
+    }
+  ],
+  "result": {
+    "orbitals": [
+      {
+        "name": "MembershipOrbital",
+        "entity": {
+          "name": "Membership",
+          "persistence": "persistent",
+          "fields": [
+            {
+              "name": "id",
+              "type": "string"
+            }
+          ]
+        },
+        "auxiliaryEntities": [
+          {
+            "name": "Subscription",
+            "persistence": "persistent",
+            "fields": [
+              {
+                "name": "id",
+                "type": "string"
+              },
+              {
+                "name": "searchTerm",
+                "type": "string"
+              }
+            ]
+          }
+        ],
+        "traits": [
+          {
+            "ref": "AppSearch.traits.AppSearch",
+            "name": "MembershipSearch",
+            "linkedEntity": "Subscription"
+          }
+        ],
+        "pages": [
+          {
+            "name": "Memberships",
+            "path": "/memberships",
+            "traits": []
+          }
+        ]
+      },
+      {
+        "name": "SubscriptionOrbital",
+        "entity": {
+          "name": "Plan",
+          "persistence": "persistent",
+          "fields": [
+            {
+              "name": "id",
+              "type": "string"
+            }
+          ]
+        },
+        "traits": [
+          {
+            "ref": "Billing.traits.SubscriptionPanel",
+            "name": "Panel",
+            "linkedEntity": "Plan"
+          }
+        ],
+        "pages": [
+          {
+            "name": "Plans",
+            "path": "/plans",
+            "traits": []
+          }
+        ]
+      }
+    ],
+    "surfaceRenames": {
+      "routes": [],
+      "traits": [],
+      "pageNames": []
+    },
+    "identity": {
+      "demotions": [],
+      "roleUnions": [],
+      "expectsRewrites": [],
+      "relationsRetargeted": []
+    },
+    "navItemsNarrowed": [],
+    "configNavItemsNarrowed": [],
+    "landingNavAdded": [],
+    "organismRenames": [],
+    "unrenamableCollisions": []
+  },
+  "error": null
+}
