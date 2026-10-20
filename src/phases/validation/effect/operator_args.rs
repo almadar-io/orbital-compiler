@@ -283,6 +283,35 @@ mod tests {
         assert_eq!(got.len(), 1, "{got:?}");
     }
 
+    fn spawn_with(config: &str) -> Vec<String> {
+        mismatches(
+            &format!(r#"["os/spawn", "git", ["status"], {config}, {{"emit": {{"success": "S", "failure": "F"}}}}]"#),
+            HashMap::new(),
+        )
+    }
+
+    const SPAWN_OK: &str = r#"{"cwd": null, "env": null, "stdin": "null", "stdout": "pipe", "stderr": "pipe", "detached": false}"#;
+
+    #[test]
+    fn a_closed_shape_argument_is_checked_field_by_field() {
+        assert!(spawn_with(SPAWN_OK).is_empty(), "control: every declared field, each of its type");
+        let wrong = spawn_with(&SPAWN_OK.replace(r#""detached": false"#, r#""detached": "yes""#));
+        assert_eq!(wrong.len(), 1, "{wrong:?}");
+        assert!(wrong[0].contains("`detached`") && wrong[0].contains("boolean"), "{wrong:?}");
+        let stdin = spawn_with(&SPAWN_OK.replace(r#""stdin": "null""#, r#""stdin": 5"#));
+        assert_eq!(stdin.len(), 1, "{stdin:?}");
+    }
+
+    #[test]
+    fn a_closed_shape_argument_names_a_missing_field_and_an_unknown_one() {
+        let missing = spawn_with(&SPAWN_OK.replace(r#", "detached": false"#, ""));
+        assert_eq!(missing.len(), 1, "{missing:?}");
+        assert!(missing[0].contains("`detached`") && missing[0].contains("missing"), "{missing:?}");
+        let unknown = spawn_with(&SPAWN_OK.replace(r#""detached": false"#, r#""detached": false, "shell": true"#));
+        assert_eq!(unknown.len(), 1, "{unknown:?}");
+        assert!(unknown[0].contains("`shell`"), "{unknown:?}");
+    }
+
     #[test]
     fn unknowable_arguments_never_reject() {
         assert!(mismatches(r#"["str/upper", "@entity.unknown"]"#, HashMap::new()).is_empty());

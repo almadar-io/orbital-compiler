@@ -93,6 +93,11 @@ pub(crate) fn signature_of(name: &str) -> Option<Signature<'static>> {
     })
 }
 
+/// A closed `shape` parameter, whose literal argument is checked field by field.
+fn is_closed_shape(formal: &OperatorTypeRef) -> bool {
+    matches!(formal, OperatorTypeRef::Tagged(OperatorTypeRefKind::Object { fields, open }) if *open != Some(true) && !fields.is_empty())
+}
+
 /// Whether `name` is an effect: it runs for what it does and produces no value.
 pub(crate) fn is_effect(name: &str) -> bool {
     orbital_core_base::ir::is_substrate_operator(name) || get_operator(name).is_some_and(|meta| meta.has_side_effects)
@@ -146,6 +151,17 @@ impl<'c> Inferer<'c> {
             OirExpr::Null => Some(Known::Absent),
             OirExpr::Array { items } if items.is_empty() => Some(Known::EmptyList),
             OirExpr::Effect { effect } => {
+                // An `os/` effect's arguments are checked against the operation's declared parameters.
+                if let orbital_core_base::ir::OirEffect::Os { op, args, key, .. } = effect.as_ref() {
+                    if let Some(meta) = get_operator(op.name()) {
+                        let refs: Vec<&OirExpr> = args.iter().collect();
+                        self.call_signed(op.name(), &Signature::of(meta), &refs);
+                        if let Some(key) = key {
+                            self.known(key);
+                        }
+                        return Some(Known::Void);
+                    }
+                }
                 for child in effect.child_exprs() {
                     self.known(child);
                 }
@@ -154,7 +170,22 @@ impl<'c> Inferer<'c> {
             // An effect produces no value, but the expressions it is handed are checked where they stand, in the
             // scope of every `let` and lambda around them.
             OirExpr::Call { function, args } if is_effect(function) => {
-                for arg in args {
+                // An effect from the operator table is checked against its own declared parameters; the arguments
+                // past them (the `{ emit, key }` envelope) are checked where they stand.
+                let declared = (!orbital_core_base::ir::is_substrate_operator(function))
+                    .then(|| get_operator(function))
+                    .flatten()
+                    .map(|meta| (Signature::of(meta), meta.params.len()));
+                let checked = match declared {
+                    Some((signature, count)) => {
+                        let count = count.min(args.len());
+                        let refs: Vec<&OirExpr> = args[..count].iter().collect();
+                        self.call_signed(function, &signature, &refs);
+                        count
+                    }
+                    None => 0,
+                };
+                for arg in &args[checked..] {
                     self.known(arg);
                 }
                 Some(Known::Void)
@@ -347,7 +378,13 @@ impl<'c> Inferer<'c> {
                 );
                 accumulated
             }
-            OirExpr::Lambda { .. } | OirExpr::Effect { .. } => None,
+            OirExpr::Lambda { .. } => None,
+            // An `os/` effect has no value; its arguments are checked against the operation's parameters where it stands.
+            OirExpr::Effect { effect } if matches!(effect.as_ref(), orbital_core_base::ir::OirEffect::Os { .. }) => {
+                self.known(expr);
+                None
+            }
+            OirExpr::Effect { .. } => None,
         }
     }
 
@@ -412,8 +449,12 @@ impl<'c> Inferer<'c> {
     }
 
     fn call(&self, name: &str, args: &[&OirExpr]) -> Option<OirType> {
-        let name_fn = name;
         let signature = signature_of(name)?;
+        self.call_signed(name, &signature, args)
+    }
+
+    fn call_signed(&self, name: &str, signature: &Signature<'_>, args: &[&OirExpr]) -> Option<OirType> {
+        let name_fn = name;
         let mut bindings = CallBindings::new();
         let mut sound = true;
         if is_ordering(name) {
@@ -486,6 +527,23 @@ impl<'c> Inferer<'c> {
                         lambda: Some(&run),
                     };
                     signature.bind(&mut bindings, index, &actual, Mode::Static)
+                }
+                OirExpr::Object { fields } if signature.formal(index).is_some_and(is_closed_shape) => {
+                    let actuals: Vec<(String, Actual<'_>)> = fields
+                        .iter()
+                        .map(|(field, value)| {
+                            let actual = Actual {
+                                known: self.known(value),
+                                text: Self::literal_text(value),
+                                texts: Self::literal_texts(value),
+                                lambda: None,
+                            };
+                            (field.clone(), actual)
+                        })
+                        .collect();
+                    signature
+                        .bind_shape_literal(&mut bindings, index, &actuals, Mode::Static)
+                        .unwrap_or(Ok(()))
                 }
                 other => {
                     let known = self.known(other);

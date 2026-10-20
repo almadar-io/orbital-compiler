@@ -1168,6 +1168,23 @@ pub(crate) fn arms_in<'a>(
 /// nested effect), the same traversal shape `has_render_ui_effects`
 /// (`trait_validator.rs`) uses for a shallower, `if`-only version of this
 /// same question.
+/// True when an arm emits the answer of one of its trait's inbound hooks (EXEC-INBOUND-1): the failure reaches the
+/// caller that sent the request, as a painted toast reaches a viewer.
+fn arm_answers_a_hook(effects: &[SExpression], answers: &HashSet<&str>) -> bool {
+    fn scan(node: &SExpression, answers: &HashSet<&str>) -> bool {
+        let SExpression::Array(arr) = node else {
+            return false;
+        };
+        if let [SExpression::String(op), SExpression::String(event), ..] = arr.as_slice() {
+            if op == "emit" && answers.contains(event.as_str()) {
+                return true;
+            }
+        }
+        arr.iter().any(|n| scan(n, answers))
+    }
+    effects.iter().any(|e| scan(e, answers))
+}
+
 fn arm_paints_something(effects: &[SExpression]) -> bool {
     fn scan(node: &SExpression) -> bool {
         let SExpression::Array(arr) = node else {
@@ -1312,6 +1329,12 @@ fn node_or_descendant_is_self_overlay(node: &SExpression) -> bool {
 /// lookup, one pass, two-way branch).
 fn validate_failure_arms(state_machine: &StateMachine, path: &str) -> ValidationResult {
     let mut result = ValidationResult::new();
+    let hook_answers: HashSet<&str> = state_machine
+        .events
+        .iter()
+        .flatten()
+        .filter_map(|e| e.inbound.as_ref().map(|i| i.answers.as_str()))
+        .collect();
 
     for (i, transition) in state_machine.transitions.iter().enumerate() {
         let Some(effects) = &transition.effects else {
@@ -1343,10 +1366,11 @@ fn validate_failure_arms(state_machine: &StateMachine, path: &str) -> Validation
                         transition.to, failure_event
                     )),
                 );
-            } else if !handling_arms
-                .iter()
-                .any(|t| t.effects.as_deref().is_some_and(arm_paints_something))
-            {
+            } else if !handling_arms.iter().any(|t| {
+                t.effects.as_deref().is_some_and(|e| {
+                    arm_paints_something(e) || arm_answers_a_hook(e, &hook_answers)
+                })
+            }) {
                 result.add_error(
                     ValidationError::error(
                         ErrorCode::CircuitFailureArmRendersNothing,
@@ -3523,6 +3547,50 @@ mod tests {
     }
 
     #[test]
+    fn a_failure_arm_that_answers_the_traits_inbound_hook_reaches_the_caller() {
+        let sm = |answer: &str| StateMachine {
+            states: vec![state("ready")],
+            events: Some(vec![serde_json::from_value(serde_json::json!({
+                "key": "CALLED",
+                "inbound": { "name": "hook", "answers": "ANSWERED" }
+            }))
+            .unwrap()]),
+            transitions: vec![
+                sm_transition(
+                    "ready",
+                    "ready",
+                    "CALLED",
+                    effects_from(serde_json::json!([
+                        ["fetch", "Item", { "emit": { "failure": "LoadFailed" } }]
+                    ])),
+                ),
+                sm_transition(
+                    "ready",
+                    "ready",
+                    "LoadFailed",
+                    effects_from(serde_json::json!([
+                        ["emit", answer, { "status": 500, "body": "no" }]
+                    ])),
+                ),
+            ],
+        };
+        let renders_nothing = |sm: &StateMachine| {
+            validate_failure_arms(sm, "test")
+                .errors
+                .iter()
+                .any(|e| e.code == ErrorCode::CircuitFailureArmRendersNothing)
+        };
+        assert!(
+            !renders_nothing(&sm("ANSWERED")),
+            "the answer carries the failure to the hook's caller"
+        );
+        assert!(
+            renders_nothing(&sm("SOMETHING_ELSE")),
+            "control: an emit that answers no hook reaches nobody"
+        );
+    }
+
+    #[test]
     fn program_eval_failure_event_needs_a_handling_arm() {
         let sm = |ev: &str| StateMachine {
             states: vec![state("building")],
@@ -4460,10 +4528,10 @@ mod tests {
             metadata: None,
             schema_version: None,
             ledger: None,
-    egress: None,
-    inbound: None,
-    os_grants: None,
-    deployment: None,
+            egress: None,
+            inbound: None,
+            os_grants: None,
+            deployment: None,
         }
     }
 
