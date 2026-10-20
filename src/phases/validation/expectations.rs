@@ -31,7 +31,7 @@ use super::entity_mutation::trait_lands_a_write;
 use super::user_identity::vocabulary;
 use super::{field_type_str, ErrorCode, ValidationContext, ValidationError, ValidationResult};
 use orbital_core_base::schema::{
-    EntityDefinition, EntityRef, ExpectDeclaration, FieldDefinition, Orbital, OrbitalSchema,
+    ConfigField, EntityDefinition, EntityRef, ExpectDeclaration, FieldDefinition, Orbital, OrbitalSchema,
     PayloadField, SExpression, StringOrArray, TraitDefinition, TraitReference,
 };
 use orbital_core_base::type_compat::{enum_value_is_member, set_value_type_compatible};
@@ -385,6 +385,44 @@ fn providers(schema: &OrbitalSchema) -> Vec<(&EntityDefinition, &str)> {
     out
 }
 
+/// Every trait-declared config knob named `name`, with the trait that declares it.
+fn declared_knobs<'a>(schema: &'a OrbitalSchema, name: &str) -> Vec<(&'a str, &'a ConfigField)> {
+    schema
+        .orbitals
+        .iter()
+        .flat_map(|o| o.traits.iter())
+        .filter_map(|t| match t {
+            TraitReference::Inline(td) => td.config.as_ref().and_then(|c| c.get(name)).map(|k| (td.name.as_str(), k)),
+            _ => None,
+        })
+        .collect()
+}
+
+/// A knob's type: its type name, closed value set, element and record shapes.
+fn knob_type_matches(expected: &ConfigField, actual: &ConfigField) -> bool {
+    let sorted = |v: &Option<Vec<String>>| {
+        let mut v = v.clone().unwrap_or_default();
+        v.sort();
+        v
+    };
+    let shape = |k: &ConfigField| (serde_json::to_value(&k.items).ok(), serde_json::to_value(&k.properties).ok());
+    expected.field_type == actual.field_type && sorted(&expected.values) == sorted(&actual.values) && shape(expected) == shape(actual)
+}
+
+fn knob_type_label(k: &ConfigField) -> String {
+    match &k.values {
+        Some(v) if !v.is_empty() => v.iter().map(|s| format!("\"{s}\"")).collect::<Vec<_>>().join(" | "),
+        _ => k.field_type.clone(),
+    }
+}
+
+fn knob_default_label(k: &ConfigField) -> String {
+    k.default
+        .as_ref()
+        .and_then(|d| serde_json::to_string(d).ok())
+        .unwrap_or_else(|| "no default".to_string())
+}
+
 fn find_trait<'a>(schema: &'a OrbitalSchema, name: &str) -> Option<&'a TraitDefinition> {
     schema.orbitals.iter().flat_map(|o| o.traits.iter()).find_map(|t| match t {
         TraitReference::Inline(td) if td.name == name => Some(td),
@@ -431,6 +469,9 @@ fn unprovided(
                     .any(|p| p.as_inline().is_some_and(|page| page.path == *path))
             });
             (!declared).then(|| format!("page `{path}`"))
+        }
+        ExpectDeclaration::Config { name, .. } => {
+            declared_knobs(schema, name).is_empty().then(|| format!("config knob `{name}` on a trait"))
         }
     }
 }
@@ -664,8 +705,63 @@ fn validate_expectation_links(schema: &OrbitalSchema, result: &mut ValidationRes
                     }
                 }
                 ExpectDeclaration::Page { traits: None, .. } => {}
+                ExpectDeclaration::Config { name, knob, .. } => {
+                    check_config_knob(&orbital.name, name, knob, schema, &path, result);
+                }
             }
         }
+    }
+}
+
+/// `expects config { name : type = default }` against the knobs the program's traits declare under that name: one
+/// of them must have the type and, when the expectation states one, the default. No such knob is deferred (or, for a
+/// spec, reported by `unprovided`).
+fn check_config_knob(
+    consumer: &str,
+    name: &str,
+    expected: &ConfigField,
+    schema: &OrbitalSchema,
+    path: &str,
+    result: &mut ValidationResult,
+) {
+    let knobs = declared_knobs(schema, name);
+    if knobs.is_empty() {
+        return;
+    }
+    let typed: Vec<&(&str, &ConfigField)> = knobs.iter().filter(|(_, k)| knob_type_matches(expected, k)).collect();
+    if typed.is_empty() {
+        let found = knobs
+            .iter()
+            .map(|(t, k)| format!("`{t}` declares `{}`", knob_type_label(k)))
+            .collect::<Vec<_>>()
+            .join(", ");
+        result.add_error(
+            ValidationError::error(
+                ErrorCode::SchemaExpectedFieldTypeMismatch,
+                path,
+                format!("`{consumer}` expects config knob `{name} : {}`, but {found}.", knob_type_label(expected)),
+            )
+            .with_suggestion(format!("Declare `{name}` as `{}` in the trait's `config`.", knob_type_label(expected))),
+        );
+        return;
+    }
+    let Some(want) = &expected.default else {
+        return;
+    };
+    if !typed.iter().any(|(_, k)| k.default.as_ref() == Some(want)) {
+        let found = typed
+            .iter()
+            .map(|(t, k)| format!("`{t}` defaults it to {}", knob_default_label(k)))
+            .collect::<Vec<_>>()
+            .join(", ");
+        result.add_error(
+            ValidationError::error(
+                ErrorCode::SchemaExpectationUnsatisfied,
+                path,
+                format!("`{consumer}` expects config knob `{name}` to default to {}, but {found}.", knob_default_label(expected)),
+            )
+            .with_suggestion(format!("Default `{name}` to {} in the trait's `config`.", knob_default_label(expected))),
+        );
     }
 }
 
@@ -1096,5 +1192,90 @@ mod final_expectation_tests {
         assert!(validate_final_expectations(&program("StudioApp", false))
             .errors
             .is_empty());
+    }
+
+    fn knob_program(knob: Option<serde_json::Value>, expects: Option<serde_json::Value>) -> OrbitalSchema {
+        let mut runner = serde_json::json!({ "name": "CliRunner", "stateMachine": { "states": [{ "name": "idle", "isInitial": true }], "transitions": [] } });
+        if let Some(knob) = knob {
+            runner["config"] = serde_json::json!({ "stdio": knob });
+        }
+        let mut orbital = serde_json::json!({
+            "name": "CliOrbital",
+            "entity": { "name": "CliCall", "persistence": "runtime", "fields": [{ "name": "id", "type": "string" }] },
+            "traits": [runner],
+            "pages": []
+        });
+        if let Some(expects) = expects {
+            orbital["expects"] = serde_json::json!([expects]);
+        }
+        serde_json::from_value(serde_json::json!({ "name": "App", "orbitals": [orbital] })).expect("program json")
+    }
+
+    fn stdio_expectation(strict: bool) -> serde_json::Value {
+        serde_json::json!({ "kind": "config", "name": "stdio", "knob": { "type": "string", "default": "pipe" }, "strict": strict })
+    }
+
+    fn link_errors(schema: &OrbitalSchema) -> Vec<ValidationError> {
+        let mut r = ValidationResult::new();
+        validate_expectation_links(schema, &mut r);
+        r.errors
+    }
+
+    #[test]
+    fn a_knob_of_the_expected_type_and_default_satisfies_expects_config() {
+        let schema = knob_program(Some(serde_json::json!({ "type": "string", "default": "pipe" })), Some(stdio_expectation(true)));
+        assert!(link_errors(&schema).is_empty(), "{:?}", link_errors(&schema));
+    }
+
+    #[test]
+    fn a_missing_knob_fails_a_spec_config_expectation() {
+        let errors = link_errors(&knob_program(None, Some(stdio_expectation(true))));
+        assert!(
+            errors.iter().any(|e| e.code == ErrorCode::SchemaExpectationUnsatisfied && e.message.contains("stdio")),
+            "{errors:?}"
+        );
+    }
+
+    #[test]
+    fn control_a_missing_knob_outside_a_spec_is_deferred() {
+        assert!(link_errors(&knob_program(None, Some(stdio_expectation(false)))).is_empty());
+    }
+
+    #[test]
+    fn a_knob_of_another_type_fails_expects_config() {
+        let errors = link_errors(&knob_program(Some(serde_json::json!({ "type": "number", "default": 0 })), Some(stdio_expectation(true))));
+        assert!(
+            errors.iter().any(|e| e.code == ErrorCode::SchemaExpectedFieldTypeMismatch && e.message.contains("number")),
+            "{errors:?}"
+        );
+    }
+
+    #[test]
+    fn a_knob_with_another_closed_value_set_fails_expects_config() {
+        let expects = serde_json::json!({ "kind": "config", "name": "stdio", "knob": { "type": "string", "values": ["pipe", "inherit"] }, "strict": true });
+        let knob = serde_json::json!({ "type": "string", "values": ["pipe"], "default": "pipe" });
+        let errors = link_errors(&knob_program(Some(knob), Some(expects)));
+        assert!(errors.iter().any(|e| e.code == ErrorCode::SchemaExpectedFieldTypeMismatch), "{errors:?}");
+    }
+
+    #[test]
+    fn a_knob_with_another_default_fails_expects_config() {
+        let errors = link_errors(&knob_program(Some(serde_json::json!({ "type": "string", "default": "inherit" })), Some(stdio_expectation(true))));
+        assert!(
+            errors.iter().any(|e| e.code == ErrorCode::SchemaExpectationUnsatisfied && e.message.contains("\"inherit\"")),
+            "{errors:?}"
+        );
+    }
+
+    #[test]
+    fn an_expectation_without_a_default_accepts_any_default() {
+        let expects = serde_json::json!({ "kind": "config", "name": "stdio", "knob": { "type": "string" }, "strict": true });
+        let schema = knob_program(Some(serde_json::json!({ "type": "string", "default": "inherit" })), Some(expects));
+        assert!(link_errors(&schema).is_empty(), "{:?}", link_errors(&schema));
+    }
+
+    #[test]
+    fn control_a_program_without_expects_config_is_unaffected() {
+        assert!(link_errors(&knob_program(Some(serde_json::json!({ "type": "number", "default": 3 })), None)).is_empty());
     }
 }

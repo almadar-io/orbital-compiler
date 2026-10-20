@@ -490,6 +490,19 @@ impl<'c> Inferer<'c> {
                 });
             }
         }
+        // The shape a later argument names types an earlier lambda's childResults (`tree/fold`): bind it first.
+        if let Some((at, shape)) = signature
+            .shape_position()
+            .and_then(|at| Some((at, Self::literal_text(args.get(at)?)?)))
+        {
+            let actual = Actual {
+                known: Some(Known::Type(OirType::String)),
+                text: Some(shape),
+                texts: None,
+                lambda: None,
+            };
+            let _ = signature.bind(&mut bindings, at, &actual, Mode::Static);
+        }
         for (index, arg) in args.iter().enumerate() {
             let narrowed = self.present.borrow().len();
             self.present.borrow_mut().extend(guards_for(name, args, index));
@@ -497,7 +510,9 @@ impl<'c> Inferer<'c> {
                 OirExpr::Lambda { params, body } => {
                     // A callback the operator also hands the element's index: that parameter is a number.
                     let index_at = orbital_core_eval::evaluator::callback_index_position(name);
+                    let provisional = std::cell::Cell::new(signature.reads_lambda_twice(index));
                     let run = |types: &[Option<OirType>]| {
+                        let dropped = provisional.replace(false).then(|| self.diagnostics.borrow().len());
                         let mut typed = types.to_vec();
                         if let Some(at) = index_at {
                             typed.resize(at + 1, None);
@@ -518,7 +533,11 @@ impl<'c> Inferer<'c> {
                                 }
                             }
                         }
-                        self.infer_lambda(params, body, &typed, index_at.is_some())
+                        let result = self.infer_lambda(params, body, &typed, index_at.is_some());
+                        if let Some(mark) = dropped {
+                            self.diagnostics.borrow_mut().truncate(mark);
+                        }
+                        result
                     };
                     let actual = Actual {
                         known: None,
@@ -1267,6 +1286,47 @@ mod tests {
         assert!(found.is_empty(), "{:?}", found.iter().map(|d| &d.expression).collect::<Vec<_>>());
         let unlike = body(serde_json::json!(["object/merge", ["object/get", "@v", "entities", {}], { "n": 1 }]));
         assert_eq!(check_oir_expr(&lowered(unlike), &typed).len(), 1, "control: a map and a number record have no one value type");
+    }
+
+    fn tree_row() -> Row {
+        let own = || OirType::TypeRef { name: "Tree".to_string() };
+        let tree = OirType::Struct {
+            fields: vec![
+                OirField::new("label".to_string(), OirType::String),
+                OirField::new("kids".to_string(), OirType::array(own())),
+                OirField::new("parent".to_string(), own()),
+                OirField::new("tags".to_string(), OirType::array(OirType::String)),
+            ],
+        };
+        Row(vec![("tree", tree), ("out", OirType::String)])
+    }
+
+    fn fold_over_tree(step: serde_json::Value) -> serde_json::Value {
+        serde_json::json!(["tree/fold", "@entity.tree", ["fn", ["n", "k"], step], "Tree"])
+    }
+
+    fn reported(expr: &OirExpr, ctx: &Row) -> Vec<String> {
+        check_oir_expr(expr, ctx).iter().map(|d| format!("{}: {}", d.expression, d.mismatch)).collect()
+    }
+
+    #[test]
+    fn a_fold_step_reads_child_results_of_its_own_result_type() {
+        let ctx = tree_row();
+        let sum = lowered(fold_over_tree(serde_json::json!(["+", 1, ["array/len", ["array/compact", "@k.kids"]]])));
+        assert_eq!(reported(&sum, &ctx), Vec::<String>::new(), "the provisional reading's findings are dropped");
+        assert_eq!(infer_oir_expr_type(&sum, &ctx), Some(OirType::Number));
+        let joined = lowered(fold_over_tree(serde_json::json!(["str/concat", "@n.label", ["str/join", ["array/compact", "@k.kids"], ","]])));
+        assert_eq!(reported(&joined, &ctx), Vec::<String>::new(), "control: string children of a string step");
+        assert_eq!(infer_oir_expr_type(&joined, &ctx), Some(OirType::String));
+    }
+
+    #[test]
+    fn a_fold_step_that_reads_its_child_results_as_another_type_is_a_mismatch() {
+        let ctx = tree_row();
+        let step = serde_json::json!(["+", ["array/len", "@n.tags"], ["str/len", ["object/get", "@k", "parent", ""]]]);
+        let found = reported(&lowered(fold_over_tree(step)), &ctx);
+        assert_eq!(found.len(), 1, "{found:?}");
+        assert!(found[0].contains("str/len"), "the number result read as a string: {found:?}");
     }
 
     #[test]

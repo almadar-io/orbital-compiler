@@ -993,7 +993,7 @@ fn without_expects_a_dangling_relation_still_errors() {
 /// Slice whose single trait carries a guard reading `@user.id` — a field the
 /// declared shape does NOT carry. `imported` sets the inline phase's
 /// `sourceBehavior` provenance marker.
-fn slice_with_user_id_read(imported: bool) -> Value {
+fn slice_with_user_team_read(imported: bool) -> Value {
     let mut trait_def = json!({
         "name": "ProductBrowseList",
         "linkedEntity": "Product",
@@ -1004,7 +1004,7 @@ fn slice_with_user_id_read(imported: bool) -> Value {
             "transitions": [{
                 "from": "idle", "event": "LOAD", "to": "idle",
                 "effects": [["set", "rows",
-                    ["filter", "?rows", ["=", ["object/get", "@entity", "ownerId"], "@user.id"]]]]
+                    ["filter", "?rows", ["=", ["object/get", "@entity", "ownerId"], "@user.teamId"]]]]
             }]
         }
     });
@@ -1036,12 +1036,12 @@ fn slice_with_user_id_read(imported: bool) -> Value {
 }
 
 /// A `uses[]`-inlined body is the imported behavior's own contract: its
-/// internal `@user.id` read must NOT be checked against the consumer's
+/// internal `@user.teamId` read must NOT be checked against the consumer's
 /// derived declaration (derivation can only see the authored surface, so the
 /// check would manufacture a mismatch on every BrowseList consumer).
 #[test]
 fn an_imported_bodys_user_reads_are_not_checked_against_the_declaration() {
-    let codes = run_scoped(slice_with_user_id_read(true));
+    let codes = run_scoped(slice_with_user_team_read(true));
     assert_eq!(
         codes,
         Vec::<String>::new(),
@@ -1053,7 +1053,7 @@ fn an_imported_bodys_user_reads_are_not_checked_against_the_declaration() {
 /// surface — still checked, still failing outside the shape.
 #[test]
 fn an_authored_traits_user_reads_are_checked_against_the_declaration() {
-    let codes = run_scoped(slice_with_user_id_read(false));
+    let codes = run_scoped(slice_with_user_team_read(false));
     assert!(
         codes.contains(&"ORB_S_EXPECTATION_FIELD_UNDECLARED".to_string()),
         "authored reads stay self-consistent, got {codes:?}"
@@ -1154,7 +1154,8 @@ fn orbital_reading(user_field: &str, declared: Value) -> Value {
                             "fields": [{ "name": "id", "type": "string", "required": true },
                                        { "name": "name", "type": "string" },
                                        { "name": "email", "type": "string" },
-                                       { "name": "role", "type": "string" }] },
+                                       { "name": "role", "type": "string" },
+                                       { "name": "teamId", "type": "string" }] },
                 "traits": [], "pages": []
             },
             {
@@ -1179,22 +1180,22 @@ fn orbital_reading(user_field: &str, declared: Value) -> Value {
 #[test]
 fn under_declared_identity_expectation_fails_even_when_a_real_roster_exists() {
     let codes = run_scoped(orbital_reading(
-        "@user.email",
+        "@user.teamId",
         json!({ "kind": "identity", "name": "Person",
                 "shape": [{ "name": "role", "type": "string" }] }),
     ));
     assert!(
         codes.contains(&"ORB_S_EXPECTATION_FIELD_UNDECLARED".to_string()),
-        "reading @user.email while declaring only `role` must fail, got: {codes:?}"
+        "reading the roster's @user.teamId while declaring only `role` must fail, got: {codes:?}"
     );
 }
 
 #[test]
 fn identity_expectation_covering_the_read_passes() {
     let codes = run_scoped(orbital_reading(
-        "@user.email",
+        "@user.teamId",
         json!({ "kind": "identity", "name": "Person",
-                "shape": [{ "name": "email", "type": "string" }] }),
+                "shape": [{ "name": "teamId", "type": "string" }] }),
     ));
     assert!(
         !codes.contains(&"ORB_S_EXPECTATION_FIELD_UNDECLARED".to_string()),

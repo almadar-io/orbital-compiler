@@ -2612,10 +2612,11 @@ pub fn union_os_grants(a: Option<&Value>, b: Option<&Value>) -> Value {
         }
         out
     };
-    let keyed = |key: &str, id: &str, items: &str| -> Vec<Value> {
+    let anchored: Vec<&Value> = a.into_iter().chain(b).filter_map(|g| g.get("anchored")).collect();
+    let keyed_in = |sets: &[&Value], key: &str, ids: &[&str], items: &str| -> Vec<Value> {
         let mut out: Vec<Value> = Vec::new();
-        for g in a.into_iter().chain(b).flat_map(|g| arr_of(g, key)) {
-            match out.iter_mut().find(|o| o.get(id) == g.get(id)) {
+        for g in sets.iter().flat_map(|g| arr_of(g, key)) {
+            match out.iter_mut().find(|o| ids.iter().all(|id| o.get(id) == g.get(id))) {
                 Some(seen) => {
                     let mut merged = arr_of(seen, items).to_vec();
                     for x in arr_of(g, items) {
@@ -2630,9 +2631,24 @@ pub fn union_os_grants(a: Option<&Value>, b: Option<&Value>) -> Value {
         }
         out
     };
+    let mut anchored_out = Map::new();
+    let anchored_fs = keyed_in(&anchored, "fs", &["anchor", "glob"], "modes");
+    let anchored_net = keyed_in(&anchored, "net", &["host", "port"], "kinds");
+    let mut anchored_exec: Vec<Value> = Vec::new();
+    for v in anchored.iter().flat_map(|g| arr_of(g, "exec")) {
+        if !anchored_exec.contains(v) {
+            anchored_exec.push(v.clone());
+        }
+    }
+    for (key, items) in [("fs", anchored_fs), ("exec", anchored_exec), ("net", anchored_net)] {
+        if !items.is_empty() {
+            anchored_out.insert(key.to_string(), Value::Array(items));
+        }
+    }
     let mut out = Map::new();
-    let fs = keyed("fs", "glob", "modes");
-    let net = keyed("net", "target", "kinds");
+    let sets: Vec<&Value> = a.into_iter().chain(b).collect();
+    let fs = keyed_in(&sets, "fs", &["glob"], "modes");
+    let net = keyed_in(&sets, "net", &["target"], "kinds");
     if !fs.is_empty() {
         out.insert("fs".to_string(), Value::Array(fs));
     }
@@ -2644,6 +2660,9 @@ pub fn union_os_grants(a: Option<&Value>, b: Option<&Value>) -> Value {
         if !l.is_empty() {
             out.insert(key.to_string(), Value::Array(l));
         }
+    }
+    if !anchored_out.is_empty() {
+        out.insert("anchored".to_string(), Value::Object(anchored_out));
     }
     Value::Object(out)
 }
@@ -3067,5 +3086,22 @@ mod tests {
             json!({ "fs": [{ "glob": "~/.a/**", "modes": ["read", "write"] }, { "glob": "./x", "modes": ["meta"] }], "env": ["A", "B", "C"] })
         );
         assert_eq!(union_os_grants(None, None), json!({}));
+    }
+
+    #[test]
+    fn os_grants_union_carries_anchored_entries_and_merges_modes_on_the_same_anchor_and_glob() {
+        let a = json!({ "anchored": { "fs": [{ "anchor": "cwd", "glob": "docs/**", "modes": ["read"] }], "exec": [{ "anchor": "exe-dir", "path": "bun" }] } });
+        let b = json!({ "exec": ["bun"], "anchored": {
+            "fs": [{ "anchor": "cwd", "glob": "docs/**", "modes": ["write"] }, { "anchor": "exe-dir", "glob": "docs/**", "modes": ["read"] }],
+            "exec": [{ "anchor": "exe-dir", "path": "bun" }],
+            "net": [{ "host": { "anchor": { "env": "HOST" } }, "port": { "anchor": { "env": "PORT" } }, "kinds": ["listen"] }] } });
+        assert_eq!(
+            union_os_grants(Some(&a), Some(&b)),
+            json!({ "exec": ["bun"], "anchored": {
+                "fs": [{ "anchor": "cwd", "glob": "docs/**", "modes": ["read", "write"] }, { "anchor": "exe-dir", "glob": "docs/**", "modes": ["read"] }],
+                "exec": [{ "anchor": "exe-dir", "path": "bun" }],
+                "net": [{ "host": { "anchor": { "env": "HOST" } }, "port": { "anchor": { "env": "PORT" } }, "kinds": ["listen"] }] } })
+        );
+        assert!(union_os_grants(Some(&json!({ "exec": ["git"] })), None).get("anchored").is_none(), "control: no anchored key without anchored entries");
     }
 }

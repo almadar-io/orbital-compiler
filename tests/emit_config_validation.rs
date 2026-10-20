@@ -745,3 +745,34 @@ fn key_only_options_are_read_as_options_not_params() {
     )]))];
     assert!(has_code(effects, vec![], ErrorCode::CallServiceKeyType));
 }
+
+fn os_call(op: &str, emit: &[(&str, &str)]) -> SExpression {
+    SExpression::Array(vec![
+        SExpression::String(op.to_string()),
+        SExpression::String("127.0.0.1".to_string()),
+        SExpression::Number(0.0),
+        options_with_emit(emit_object(emit)),
+    ])
+}
+
+fn emit_key_invalid(op: &str, emit: &[(&str, &str)]) -> bool {
+    let declared = emit.iter().map(|(_, e)| declared_emit(e, false)).collect();
+    let schema = schema_with_effects(vec![os_call(op, emit)], declared);
+    validate_comprehensive_without_services(&schema)
+        .errors
+        .iter()
+        .any(|e| e.code == ErrorCode::EffectEmitKeyInvalid)
+}
+
+#[test]
+fn stream_os_ops_declare_the_on_message_key() {
+    for op in ["os/tcp-listen", "http/listen"] {
+        for key in ["onMessage", "on_message"] {
+            assert!(!emit_key_invalid(op, &[("success", "UP"), (key, "ARRIVED")]), "{op} emit.{key} must be accepted");
+        }
+    }
+    assert!(
+        emit_key_invalid("os/tcp-connect", &[("onMessage", "ARRIVED")]),
+        "control: a single-answer os op has no onMessage route"
+    );
+}

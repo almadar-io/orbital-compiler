@@ -3,16 +3,11 @@
 //! Named `user_identity` rather than `identity` because `identity`/`id_integrity`
 //! already mean the Rabit V4 dual-carry NODE ids in this crate.
 //!
-//! A program with no `[identity]` entity is validated against the **implicit
-//! default identity shape** — what `normalizeUserContext` produces (id, uid,
-//! email, name) plus an unconstrained `role : string`, minus `permissions`
-//! (`Almadar_LOLO_Identity.md` §11 "Also settled", lands with I.3). The corpus
-//! reads `@user` on exactly those fields, and the std library's six `@user`
-//! atoms read only `id`/`role`, so the default keeps every existing program
-//! compiling while making a typo'd field (which nothing can ever carry) an
-//! error. `role` carries no declared members in the default, so no literal
-//! comparison can be rejected without a declaration — the membership win stays
-//! exactly proportional to declaring.
+//! `@user` is the `Viewer` (the installed language's program type) plus the
+//! program's `[identity]` row: a program with no `[identity]` entity reads the
+//! viewer alone. `role` carries no declared members on the viewer, so no
+//! literal comparison can be rejected without a declaration — the membership
+//! win stays exactly proportional to declaring.
 //!
 //! The walk is over the whole serialized trait rather than over guards alone.
 //! std-healthcare's 13 dead `"patient"` comparisons live in **config knob
@@ -206,6 +201,7 @@ pub fn validate_user_identity(schema: &OrbitalSchema, ctx: &mut ValidationContex
                 _ => (&default_identity, IdentitySource::Default),
             },
         };
+        let identity = &with_viewer(identity);
         for (j, trait_ref) in orbital.traits.iter().enumerate() {
             let TraitReference::Inline(trait_def) = trait_ref else {
                 continue;
@@ -249,10 +245,10 @@ pub fn validate_user_identity(schema: &OrbitalSchema, ctx: &mut ValidationContex
         if matches!(source, IdentitySource::Declared) {
             if let Some(exp) = super::expectations::identity_expectation(orbital) {
                 if let Some(shape) = exp.shape {
-                    let declared = super::expectations::shape_as_identity_entity(
+                    let declared = with_viewer(&super::expectations::shape_as_identity_entity(
                         exp.name.unwrap_or("@user"),
                         shape,
-                    );
+                    ));
                     let declared_source = IdentitySource::Expectation {
                         orbital: orbital.name.as_str(),
                         entity: exp.name,
@@ -407,8 +403,8 @@ fn role_literal_error(
     ))
 }
 
-/// The type of `@user` for the trait named `trait_name`: the program's `[identity]` roster, else the declaring
-/// orbital's `expects entity [identity] { … }` shape, else the implicit default shape.
+/// The type of `@user` for the trait named `trait_name`: the viewer plus the program's `[identity]` roster, else
+/// plus the declaring orbital's `expects entity [identity] { … }` shape, else the viewer alone.
 pub(crate) fn identity_type(schema: &OrbitalSchema, trait_name: &str) -> orbital_core_base::ir::OirType {
     let orbital = schema.orbitals.iter().find(|o| {
         o.traits
@@ -419,9 +415,11 @@ pub(crate) fn identity_type(schema: &OrbitalSchema, trait_name: &str) -> orbital
         .and_then(super::expectations::identity_expectation)
         .and_then(|e| e.shape.map(<[_]>::to_vec));
     let roster = identity_entities(schema).into_iter().next().map(|def| def.fields.clone());
-    let fields = roster
-        .or(expected)
-        .unwrap_or_else(|| default_identity_shape().fields);
+    let row = EntityDefinition {
+        fields: roster.or(expected).unwrap_or_default(),
+        ..default_identity_shape()
+    };
+    let fields = with_viewer(&row).fields;
     orbital_core_base::ir::OirType::Struct {
         fields: fields
             .iter()
@@ -433,19 +431,22 @@ pub(crate) fn identity_type(schema: &OrbitalSchema, trait_name: &str) -> orbital
     }
 }
 
-/// The implicit `@user` shape of a program with no `[identity]` entity.
+/// The `@user` shape of a program with no `[identity]` entity: the viewer alone.
 pub(super) fn default_identity_shape() -> EntityDefinition {
-    serde_json::from_value(serde_json::json!({
-        "name": "@user",
-        "fields": [
-            { "name": "id", "type": "string" },
-            { "name": "uid", "type": "string" },
-            { "name": "email", "type": "string" },
-            { "name": "name", "type": "string" },
-            { "name": "role", "type": "string" }
-        ]
-    }))
-    .expect("default identity shape must deserialize")
+    let bare: EntityDefinition = serde_json::from_value(serde_json::json!({ "name": "@user", "fields": [] }))
+        .expect("bare identity shape must deserialize");
+    with_viewer(&bare)
+}
+
+/// `@user` over `identity`: its fields, then each `Viewer` field it does not declare itself.
+pub(crate) fn with_viewer(identity: &EntityDefinition) -> EntityDefinition {
+    let mut merged = identity.clone();
+    for field in orbital_core_base::language::program_types::viewer_fields() {
+        if field.name.as_deref().is_some_and(|name| identity_field(identity, name).is_none()) {
+            merged.fields.push(field.clone());
+        }
+    }
+    merged
 }
 
 fn walk(
@@ -890,5 +891,91 @@ mod tests {
         ]));
         assert_eq!(bad.errors.len(), 1);
         assert!(bad.errors[0].message.contains("\"ceo\""));
+    }
+
+    fn reading(user_field: &str, identity_fields: Option<serde_json::Value>, expects: Option<serde_json::Value>) -> OrbitalSchema {
+        let mut orbitals = Vec::new();
+        if let Some(fields) = identity_fields {
+            orbitals.push(serde_json::json!({
+                "name": "PeopleOrbital",
+                "entity": { "name": "Person", "identity": true, "persistence": "persistent", "collection": "people", "fields": fields },
+                "traits": [], "pages": []
+            }));
+        }
+        orbitals.push(serde_json::json!({
+            "name": "DocOrbital",
+            "expects": expects.into_iter().collect::<Vec<_>>(),
+            "entity": { "name": "Doc", "persistence": "persistent", "collection": "docs",
+                        "fields": [{ "name": "id", "type": "string", "required": true }] },
+            "traits": [{
+                "name": "DocView", "linkedEntity": "Doc", "category": "interaction",
+                "stateMachine": { "events": [], "states": [], "transitions": [{
+                    "from": "idle", "event": "OPEN", "to": "idle",
+                    "guard": ["=", user_field, "x"]
+                }]}
+            }],
+            "pages": []
+        }));
+        serde_json::from_value(serde_json::json!({ "name": "App", "orbitals": orbitals })).expect("schema fixture")
+    }
+
+    fn identity_codes(schema: &OrbitalSchema) -> Vec<String> {
+        let mut ctx = ValidationContext::new();
+        validate_user_identity(schema, &mut ctx);
+        ctx.result.errors.iter().map(|e| e.code.as_str().to_string()).collect()
+    }
+
+    fn roster(extra: &[&str]) -> serde_json::Value {
+        let mut fields = vec![serde_json::json!({ "name": "id", "type": "string", "required": true })];
+        fields.extend(extra.iter().map(|n| serde_json::json!({ "name": n, "type": "string" })));
+        serde_json::Value::Array(fields)
+    }
+
+    #[test]
+    fn a_viewer_field_reads_in_every_identity_environment() {
+        let role_only = serde_json::json!({ "kind": "identity", "shape": [{ "name": "role", "type": "string" }] });
+        for (label, schema) in [
+            ("declared roster without email", reading("@user.email", Some(roster(&["teamId"])), None)),
+            ("no roster", reading("@user.email", None, None)),
+            ("expects shape without email", reading("@user.email", None, Some(role_only.clone()))),
+            ("roster plus expects without email", reading("@user.email", Some(roster(&[])), Some(role_only))),
+            ("claims", reading("@user.claims", None, None)),
+        ] {
+            assert_eq!(identity_codes(&schema), Vec::<String>::new(), "{label}");
+        }
+    }
+
+    #[test]
+    fn an_identity_row_field_reads_only_where_the_roster_declares_it() {
+        assert_eq!(identity_codes(&reading("@user.teamId", Some(roster(&["teamId"])), None)), Vec::<String>::new());
+        assert_eq!(
+            identity_codes(&reading("@user.teamId", Some(roster(&["tier"])), None)),
+            vec!["ORB_S_UNKNOWN_IDENTITY_FIELD".to_string()]
+        );
+        assert_eq!(
+            identity_codes(&reading("@user.teamId", None, None)),
+            vec!["ORB_S_UNKNOWN_IDENTITY_FIELD".to_string()],
+            "control: with no roster `@user` is the viewer alone"
+        );
+        assert_eq!(
+            identity_codes(&reading("@user.uid", None, None)),
+            vec!["ORB_S_UNKNOWN_IDENTITY_FIELD".to_string()],
+            "the viewer has no `uid`"
+        );
+    }
+
+    #[test]
+    fn the_user_type_is_the_viewer_plus_the_roster_row() {
+        let names = |schema: &OrbitalSchema| match identity_type(schema, "DocView") {
+            orbital_core_base::ir::OirType::Struct { fields } => fields.into_iter().map(|f| f.name).collect::<Vec<_>>(),
+            other => panic!("a record, got {other:?}"),
+        };
+        let with_roster = names(&reading("@user.id", Some(roster(&["teamId"])), None));
+        for f in ["id", "teamId", "email", "name", "role", "permissions", "claims"] {
+            assert!(with_roster.contains(&f.to_string()), "{f} in {with_roster:?}");
+        }
+        let viewer_only = names(&reading("@user.id", None, None));
+        assert!(viewer_only.contains(&"email".to_string()), "{viewer_only:?}");
+        assert!(!viewer_only.contains(&"teamId".to_string()), "control: {viewer_only:?}");
     }
 }

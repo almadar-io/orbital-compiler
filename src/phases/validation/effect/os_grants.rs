@@ -75,10 +75,22 @@ fn describe(need: &OsRequirement) -> String {
     match need {
         OsRequirement::Fs { path, mode } => format!("fs {path:?} {}", mode.name()),
         OsRequirement::FsTree { root, mode } => format!("fs \"{root}**\" {}", mode.name()),
+        OsRequirement::FsAnchored { anchor, path, mode } => format!("fs {} {path:?} {}", anchor.label(), mode.name()),
+        OsRequirement::FsAnchoredTree { anchor, root, mode } => {
+            format!("fs {} \"{root}**\" {}", anchor.label(), mode.name())
+        }
         OsRequirement::Exec { command } => format!("exec {command:?}"),
+        OsRequirement::ExecAnchored { anchor, path } => match path {
+            Some(path) => format!("exec {} {path:?}", anchor.label()),
+            None => format!("exec {}", anchor.label()),
+        },
         OsRequirement::Net { host, port, kinds } => {
             let kinds: Vec<&str> = kinds.iter().map(|k| k.name()).collect();
             format!("net \"{host}:{port}\" {}", kinds.join(" or "))
+        }
+        OsRequirement::NetAnchored { host, port, kinds } => {
+            let kinds: Vec<&str> = kinds.iter().map(|k| k.name()).collect();
+            format!("net {}, {} {}", host.label(), port.label(), kinds.join(" or "))
         }
         OsRequirement::Env { name } => format!("env {name:?}"),
         OsRequirement::Stdio { kind } => format!("stdio {}", kind.name()),
@@ -95,9 +107,29 @@ fn suggestion(need: &OsRequirement) -> String {
         OsRequirement::FsTree { root, mode } => {
             format!("Add `fs: {{ \"{root}**\": [{}] }}` to the orbital's bracket (`orbital Name [ … ]`) or the app's", mode.name())
         }
+        OsRequirement::FsAnchored { anchor, path, mode } => format!(
+            "Add `fs: {{ {}: {path:?}: [{}] }}` to the orbital's bracket (`orbital Name [ … ]`) or the app's",
+            anchor.label(),
+            mode.name()
+        ),
+        OsRequirement::FsAnchoredTree { anchor, root, mode } => format!(
+            "Add `fs: {{ {}: \"{root}**\": [{}] }}` to the orbital's bracket (`orbital Name [ … ]`) or the app's",
+            anchor.label(),
+            mode.name()
+        ),
         OsRequirement::Exec { command } => {
             format!("Add `exec: [{command:?}]` to the orbital's bracket")
         }
+        OsRequirement::ExecAnchored { anchor, path } => match path {
+            Some(path) => format!("Add `exec: [{} {path:?}]` to the orbital's bracket", anchor.label()),
+            None => format!("Add `exec: [{}]` to the orbital's bracket", anchor.label()),
+        },
+        OsRequirement::NetAnchored { host, port, kinds } => format!(
+            "Add `net: {{ {}, {}: [{}] }}` to the orbital's bracket",
+            host.label(),
+            port.label(),
+            kinds.first().map_or("tcp", |k| k.name())
+        ),
         OsRequirement::Net { host, port, kinds } => format!(
             "Add `net: {{ \"{host}:{port}\": [{}] }}` to the orbital's bracket",
             kinds.first().map_or("tcp", |k| k.name())
@@ -172,7 +204,7 @@ pub(crate) fn validate_os_grants(schema: &OrbitalSchema) -> ValidationResult {
                                     arg + 1
                                 ),
                             )
-                            .with_suggestion("Write the path, command, host, port or name as a literal; a file path may instead be a `str/concat` that starts with a literal or `@config.<knob>` directory ending in `/`, covered by an fs grant ending in `/**`"),
+                            .with_suggestion("Write the path, command, host, port or name as a literal; a file path may instead be a `str/concat` that starts with a literal or `@config.<knob>` directory ending in `/`, covered by an fs grant ending in `/**`, or an anchored path `{ anchor: \"cwd\" path: … }` (anchors `exe-dir`, `cwd`, `{ env: \"NAME\" }`) covered by an anchored grant such as `fs: { cwd: \"docs/**\": [read] }`; a host or port may be `{ anchor: { env: \"PORT\" } }` covered by `net: { env HOST, env PORT: [listen] }`"),
                         ),
                         Ok(found) => {
                             for need in found {
@@ -463,4 +495,55 @@ pub(crate) fn validate_placement(schema: &OrbitalSchema) -> ValidationResult {
         }
     }
     result
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::json;
+
+    fn program(grants: serde_json::Value, effect: serde_json::Value) -> OrbitalSchema {
+        serde_json::from_value(json!({
+            "name": "p", "version": "1.0.0", "osGrants": grants,
+            "orbitals": [{
+                "name": "O", "entity": {"name": "E", "fields": [{"name": "id", "type": "string"}]}, "pages": [],
+                "traits": [{"name": "T", "stateMachine": {
+                    "states": [{"name": "s", "isInitial": true}], "events": [{"key": "GO", "name": "GO"}],
+                    "transitions": [{"from": "s", "to": "s", "event": "GO", "effects": [effect]}]
+                }}]
+            }]
+        }))
+        .expect("schema")
+    }
+
+    fn codes(result: &ValidationResult) -> Vec<ErrorCode> {
+        result.errors.iter().chain(&result.warnings).map(|e| e.code.clone()).collect()
+    }
+
+    #[test]
+    fn an_anchored_call_under_an_anchored_grant_validates_clean_and_controls_report() {
+        let grant = json!({"anchored": {"fs": [{"anchor": "cwd", "glob": "docs/**", "modes": ["read"]}]}});
+        let read = |path: serde_json::Value| json!(["os/read-file", {"anchor": "cwd", "path": path}, {"emit": {"success": "GO"}}]);
+        let clean = validate_os_grants(&program(grant.clone(), read(json!("docs/Almadar_Gaps.md"))));
+        assert!(codes(&clean).is_empty(), "{:?}", clean.errors);
+        let tree = validate_os_grants(&program(grant.clone(), read(json!(["str/concat", "docs/", "@entity.id"]))));
+        assert!(codes(&tree).is_empty(), "{:?}", tree.errors);
+        let outside = validate_os_grants(&program(grant.clone(), read(json!("src/a.rs"))));
+        assert!(codes(&outside).contains(&ErrorCode::OsGrantMissing), "control: outside the anchored glob");
+        assert!(codes(&outside).contains(&ErrorCode::OsGrantUnused), "control: the anchored grant then goes unused");
+        let plain = validate_os_grants(&program(grant, json!(["os/read-file", "/docs/a.md", {"emit": {"success": "GO"}}])));
+        assert!(codes(&plain).contains(&ErrorCode::OsGrantMissing), "control: a plain path is not covered by an anchored grant");
+        let bad = validate_os_grants(&program(json!({"anchored": {"fs": [{"anchor": "cwd", "glob": "/abs/**", "modes": ["read"]}]}}), read(json!("a"))));
+        assert!(codes(&bad).contains(&ErrorCode::OsGrantEntryInvalid));
+    }
+
+    #[test]
+    fn an_env_anchored_listen_validates_against_an_anchored_net_grant() {
+        let grant = json!({"anchored": {"net": [{"host": {"anchor": {"env": "HOST"}}, "port": {"anchor": {"env": "PORT"}}, "kinds": ["listen"]}]}});
+        let listen = json!(["os/tcp-listen", {"anchor": {"env": "HOST"}}, {"anchor": {"env": "PORT"}}, {"emit": {"success": "GO"}}]);
+        let clean = validate_os_grants(&program(grant.clone(), listen));
+        assert!(codes(&clean).is_empty(), "{:?}", clean.errors);
+        let literal = validate_os_grants(&program(grant, json!(["os/tcp-listen", "0.0.0.0", 8080, {"emit": {"success": "GO"}}])));
+        assert!(codes(&literal).contains(&ErrorCode::OsGrantMissing), "control: a literal target needs a literal grant");
+    }
 }

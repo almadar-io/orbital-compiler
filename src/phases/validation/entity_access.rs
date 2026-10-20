@@ -13,7 +13,7 @@
 
 use super::user_identity::{
     check_comparison, default_identity_shape, identity_entities, identity_entity_names,
-    identity_field, user_field_of, IdentitySource,
+    identity_field, user_field_of, with_viewer, IdentitySource,
 };
 use super::{field_type_str, ErrorCode, ValidationContext, ValidationError, ValidationResult};
 use orbital_core_base::schema::{EntityDefinition, EntityRef, FieldDefinition, OrbitalSchema};
@@ -217,6 +217,7 @@ pub fn validate_entity_access(schema: &OrbitalSchema, ctx: &mut ValidationContex
             }
             (None, _) => (&default_identity, IdentitySource::Default),
         };
+        let identity = &with_viewer(identity);
         // Any `expects entity [identity]` — bare included — satisfies the roster
         // requirement for this orbital's own policy directives.
         let identity_declared = declared_identity.is_some() || expectation.is_some();

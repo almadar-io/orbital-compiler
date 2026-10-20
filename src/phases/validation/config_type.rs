@@ -14,7 +14,8 @@ use std::collections::{HashMap, HashSet};
 
 use orbital_core_base::schema::{
     config_ref_event_knob, definer_knobs_for_trait, ConfigField, EntityDefinition, FieldDefinition,
-    FieldType, Orbital, OrbitalSchema, PayloadField, SExpression, TraitDefinition, TraitReference,
+    FieldType, Orbital, OrbitalSchema, PayloadField, SExpression, TagReading, TraitDefinition,
+    TraitReference, UnionVariantChoice,
 };
 use orbital_core_base::type_compat::set_value_type_compatible;
 
@@ -1443,7 +1444,7 @@ pub(crate) fn check_field_def_shape(
         // them would report every non-matching variant's fields as errors; not
         // checking at all is what `json` did.
         FieldType::Union => {
-            let (Some(names), Some(variants)) = (&schema.values, &schema.properties) else {
+            let (Some(names), Some(_)) = (&schema.values, &schema.properties) else {
                 // By-name recursive back-reference. Re-enter the ancestor
                 // whose expansion this reference names, if the outermost
                 // declaration made it discoverable; otherwise there is
@@ -1474,8 +1475,14 @@ pub(crate) fn check_field_def_shape(
                 ));
                 return result;
             };
-            match select_union_variant(map, names, variants) {
-                VariantChoice::Matched(chosen) => {
+            let keys: Vec<&str> = map.keys().map(String::as_str).collect();
+            let choice = schema.select_union_variant(&keys, |field, tag| match map.get(field) {
+                Some(SExpression::String(actual)) if actual.starts_with('@') => TagReading::LateBound,
+                Some(SExpression::String(actual)) if actual == tag => TagReading::Equal,
+                _ => TagReading::Differs,
+            });
+            match choice {
+                UnionVariantChoice::Matched(chosen) => {
                     result.merge(check_field_def_shape(
                         chosen,
                         value,
@@ -1511,8 +1518,8 @@ pub(crate) fn check_field_def_shape(
                         }
                     }
                 }
-                VariantChoice::Deferred => {}
-                VariantChoice::Ambiguous(fitting) => {
+                UnionVariantChoice::Deferred => {}
+                UnionVariantChoice::Ambiguous(fitting) => {
                     result.add_error(ValidationError::error(
                         ErrorCode::TraitConfigShapeMismatch,
                         path,
@@ -1522,7 +1529,14 @@ pub(crate) fn check_field_def_shape(
                         ),
                     ));
                 }
-                VariantChoice::NoMatch => {
+                UnionVariantChoice::Malformed(reason) => {
+                    result.add_error(ValidationError::error(
+                        ErrorCode::TraitConfigShapeMismatch,
+                        path,
+                        format!("the union definition is ill-formed: {reason}"),
+                    ));
+                }
+                UnionVariantChoice::NoMatch => {
                     result.add_error(ValidationError::error(
                         ErrorCode::TraitConfigShapeMismatch,
                         path,
@@ -1844,114 +1858,6 @@ pub(crate) fn check_field_def_shape(
         }
     }
     result
-}
-
-/// Type-tag → value-kind primitive check. SExpression bindings
-/// (`@entity.X`, `@config.X`, `@payload.X`) and function calls / nested
-/// expressions are late-bound; they pass the static check.
-/// Pick the union variant a value belongs to, by DISCRIMINATOR.
-///
-/// A variant's discriminator is any field it declares with a single-valued
-/// closed vocabulary (`type : "draw-shape"` lowers to `values: ["draw-shape"]`).
-/// The value belongs to the variant whose discriminators it all matches. This
-/// is data-driven rather than positional: reordering the union in source cannot
-/// change which variant a value selects.
-///
-/// A value carrying no variant's tag selects by SHAPE among the untagged variants:
-/// the one whose closed shape fits (every key declared; on a tie, every required
-/// member present). Zero fits is `NoMatch`; several is `Ambiguous` — never a guess.
-enum VariantChoice<'a> {
-    Matched(&'a FieldDefinition),
-    /// Several untagged variants fit the value equally; the union needs a discriminator.
-    Ambiguous(Vec<String>),
-    /// A discriminator's value is a late-bound reference (`@config.shape`), so
-    /// which variant applies is not decidable here. Deferring is mandatory:
-    /// reporting "matches no variant" for a binding would flag 35 correct
-    /// call sites in the svg corpus alone.
-    Deferred,
-    NoMatch,
-}
-
-fn select_union_variant<'a>(
-    value: &orbital_core_base::schema::SObject,
-    names: &[String],
-    variants: &'a HashMap<String, FieldDefinition>,
-) -> VariantChoice<'a> {
-    let mut untagged: Vec<&FieldDefinition> = Vec::new();
-    let mut deferred = false;
-    for name in names {
-        let Some(variant) = variants.get(name) else {
-            continue;
-        };
-        let Some(props) = &variant.properties else {
-            continue;
-        };
-        let mut discriminators = 0usize;
-        let mut agreed = 0usize;
-        for (field_name, def) in props {
-            let Some(vals) = &def.values else { continue };
-            if vals.len() != 1 {
-                continue;
-            }
-            discriminators += 1;
-            match value.get(field_name) {
-                Some(SExpression::String(actual)) if actual.starts_with('@') => {
-                    deferred = true;
-                }
-                Some(SExpression::String(actual)) if actual == &vals[0] => agreed += 1,
-                _ => {}
-            }
-        }
-        if discriminators > 0 && agreed == discriminators {
-            return VariantChoice::Matched(variant);
-        }
-        if discriminators == 0 {
-            untagged.push(variant);
-        }
-    }
-    if deferred {
-        return VariantChoice::Deferred;
-    }
-    let fits: Vec<&FieldDefinition> = untagged
-        .into_iter()
-        .filter(|v| {
-            v.properties
-                .as_ref()
-                .is_some_and(|props| value.keys().all(|k| props.contains_key(k)))
-        })
-        .collect();
-    let fits = if fits.len() > 1 {
-        let complete: Vec<&FieldDefinition> = fits
-            .iter()
-            .copied()
-            .filter(|v| {
-                v.properties.as_ref().is_some_and(|props| {
-                    props
-                        .iter()
-                        .all(|(k, d)| d.required != Some(true) || value.contains_key(k))
-                })
-            })
-            .collect();
-        if complete.is_empty() {
-            fits
-        } else {
-            complete
-        }
-    } else {
-        fits
-    };
-    match fits.as_slice() {
-        [] => VariantChoice::NoMatch,
-        [one] => VariantChoice::Matched(one),
-        many => {
-            let mut names: Vec<String> = many
-                .iter()
-                .map(|v| v.name.clone().unwrap_or_default())
-                .collect();
-            names.sort_unstable();
-            VariantChoice::Ambiguous(names)
-        }
-    }
 }
 
 /// The value-kind tag `check_primitive_shape` and the enum-membership check
@@ -4059,179 +3965,6 @@ mod top_level_event_address_tests {
     #[test]
     fn control_a_param_not_typed_event_address_is_not_checked() {
         assert!(codes(&run("query", "NOT_AN_INPUT")).is_empty());
-    }
-}
-
-#[cfg(test)]
-mod union_variant_selection_tests {
-    use super::*;
-
-    fn def(json: serde_json::Value) -> FieldDefinition {
-        serde_json::from_value(json).expect("field definition")
-    }
-
-    /// `{ scope: "declared"! } | { event: event! } | { read: string! }` — one tagged, two untagged.
-    fn agent_tool() -> HashMap<String, FieldDefinition> {
-        let mut v = HashMap::new();
-        v.insert("Scope".to_string(), def(serde_json::json!({ "name": "Scope", "type": "object", "properties": {
-            "scope": { "name": "scope", "type": "string", "required": true, "values": ["declared"] } } })));
-        v.insert(
-            "Input".to_string(),
-            def(
-                serde_json::json!({ "name": "Input", "type": "object", "properties": {
-            "event": { "name": "event", "type": "string", "required": true } } }),
-            ),
-        );
-        v.insert(
-            "Read".to_string(),
-            def(
-                serde_json::json!({ "name": "Read", "type": "object", "properties": {
-            "read": { "name": "read", "type": "string", "required": true } } }),
-            ),
-        );
-        v
-    }
-
-    fn names(order: &[&str]) -> Vec<String> {
-        order.iter().map(|s| s.to_string()).collect()
-    }
-
-    fn value(pairs: &[(&str, &str)]) -> orbital_core_base::schema::SObject {
-        pairs
-            .iter()
-            .map(|(k, v)| (k.to_string(), SExpression::String(v.to_string())))
-            .collect()
-    }
-
-    fn chosen<'a>(c: VariantChoice<'a>) -> Option<&'a str> {
-        match c {
-            VariantChoice::Matched(d) => d.name.as_deref(),
-            _ => None,
-        }
-    }
-
-    #[test]
-    fn a_tagged_variant_is_still_selected_by_its_tag() {
-        let v = agent_tool();
-        assert_eq!(
-            chosen(select_union_variant(
-                &value(&[("scope", "declared")]),
-                &names(&["Input", "Read", "Scope"]),
-                &v
-            )),
-            Some("Scope")
-        );
-    }
-
-    #[test]
-    fn an_untagged_value_selects_the_one_variant_its_closed_shape_fits() {
-        let v = agent_tool();
-        let order = names(&["Scope", "Input", "Read"]);
-        assert_eq!(
-            chosen(select_union_variant(
-                &value(&[("read", "Product")]),
-                &order,
-                &v
-            )),
-            Some("Read")
-        );
-        assert_eq!(
-            chosen(select_union_variant(
-                &value(&[("event", "Shop.ADD")]),
-                &order,
-                &v
-            )),
-            Some("Input")
-        );
-    }
-
-    #[test]
-    fn source_order_cannot_change_the_untagged_choice() {
-        let v = agent_tool();
-        for order in [
-            names(&["Input", "Read", "Scope"]),
-            names(&["Read", "Input", "Scope"]),
-        ] {
-            assert_eq!(
-                chosen(select_union_variant(
-                    &value(&[("read", "Product")]),
-                    &order,
-                    &v
-                )),
-                Some("Read")
-            );
-        }
-    }
-
-    #[test]
-    fn a_value_merging_two_variants_fits_none() {
-        let v = agent_tool();
-        assert!(matches!(
-            select_union_variant(
-                &value(&[("event", "Shop.ADD"), ("read", "Product")]),
-                &names(&["Scope", "Input", "Read"]),
-                &v
-            ),
-            VariantChoice::NoMatch
-        ));
-    }
-
-    #[test]
-    fn two_untagged_variants_the_value_fits_equally_are_ambiguous() {
-        let mut v = HashMap::new();
-        v.insert(
-            "A".to_string(),
-            def(
-                serde_json::json!({ "name": "A", "type": "object", "properties": {
-            "x": { "name": "x", "type": "string" } } }),
-            ),
-        );
-        v.insert(
-            "B".to_string(),
-            def(
-                serde_json::json!({ "name": "B", "type": "object", "properties": {
-            "x": { "name": "x", "type": "string" }, "y": { "name": "y", "type": "string" } } }),
-            ),
-        );
-        assert!(matches!(
-            select_union_variant(&value(&[("x", "1")]), &names(&["A", "B"]), &v),
-            VariantChoice::Ambiguous(_)
-        ));
-    }
-
-    #[test]
-    fn control_required_members_break_a_key_subset_tie() {
-        let mut v = HashMap::new();
-        v.insert(
-            "A".to_string(),
-            def(
-                serde_json::json!({ "name": "A", "type": "object", "properties": {
-            "x": { "name": "x", "type": "string", "required": true } } }),
-            ),
-        );
-        v.insert("B".to_string(), def(serde_json::json!({ "name": "B", "type": "object", "properties": {
-            "x": { "name": "x", "type": "string" }, "y": { "name": "y", "type": "string", "required": true } } })));
-        assert_eq!(
-            chosen(select_union_variant(
-                &value(&[("x", "1")]),
-                &names(&["B", "A"]),
-                &v
-            )),
-            Some("A")
-        );
-    }
-
-    #[test]
-    fn control_a_late_bound_tag_still_defers() {
-        let v = agent_tool();
-        assert!(matches!(
-            select_union_variant(
-                &value(&[("scope", "@config.scope")]),
-                &names(&["Scope", "Input", "Read"]),
-                &v
-            ),
-            VariantChoice::Deferred
-        ));
     }
 }
 

@@ -1527,7 +1527,8 @@ pub(crate) fn payload_field_oir_type(field: &orbital_core_base::schema::PayloadF
     payload_field_to_oir_type(field, &ctx)
 }
 
-/// The struct a declared alias (`type X = { … }`) names, as an `OirType`; `None` when no orbital declares it.
+/// The struct a declared alias (`type X = { … }`) names, as an `OirType`, else the installed language's program type
+/// of that name (`Viewer`, `BehaviorRef`, …); `None` when neither declares it.
 pub(crate) fn declared_struct_type(schema: &OrbitalSchema, name: &str) -> Option<OirType> {
     let named_types = RefCell::new(BTreeMap::new());
     let in_progress = RefCell::new(HashSet::new());
@@ -1547,6 +1548,7 @@ pub(crate) fn declared_struct_type(schema: &OrbitalSchema, name: &str) -> Option
         }
     }
     lookup_named_type_shape(name, &ctx)
+        .or_else(|| orbital_core_base::language::program_types::program_type(name).cloned())
 }
 
 /// Every entity name `resolve()` will push into `OirModule.entities`: each

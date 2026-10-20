@@ -107,9 +107,8 @@ fn without_a_declared_identity_entity_role_literals_stay_legal() {
     );
 }
 
-/// The I.3 default-shape arm: a field nothing can ever carry (not on the
-/// default id/uid/email/name/role shape, and no [identity] entity to extend it)
-/// is an error even in an undeclared program.
+/// A field nothing can ever carry (not on the `Viewer`, and no [identity]
+/// entity to extend it) is an error even in an undeclared program.
 #[test]
 fn without_a_declared_identity_entity_an_unknown_field_is_still_an_error() {
     let trait_def = json!({
@@ -273,7 +272,7 @@ fn reading_an_undeclared_identity_field_is_an_error() {
         "name": "Shell", "linkedEntity": "Person", "category": "interaction",
         "stateMachine": { "events": [], "states": [], "transitions": [{
             "from": "idle", "event": "GO", "to": "idle",
-            "guard": ["=", "@user.permissions", "write"]
+            "guard": ["=", "@user.clearance", "write"]
         }]}
     });
     let codes = run(schema_with(

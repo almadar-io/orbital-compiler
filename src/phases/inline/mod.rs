@@ -3084,6 +3084,8 @@ fn carry_obligation(decl: ExpectDeclaration, r: &ObligationRenames<'_>) -> Optio
             ExpectDeclaration::Event { trait_name, event: event(ev), payload, strict }
         }
         ExpectDeclaration::Page { strict: true, .. } => return None,
+        // A knob obligation binds the atom that declares the knob; the composer's call-site config is its own to set.
+        ExpectDeclaration::Config { .. } => return None,
         ExpectDeclaration::Entity {
             name,
             mut shape,
@@ -3360,6 +3362,15 @@ pub(super) fn merge_expectation(into: &mut Vec<ExpectDeclaration>, incoming: Exp
                 *existing_strict |= strict;
             } else {
                 into.push(ExpectDeclaration::Transition { trait_name, from, event, to, ensures, strict });
+            }
+        }
+        ExpectDeclaration::Config { name, knob, strict } => {
+            if let Some(ExpectDeclaration::Config { strict: existing_strict, .. }) =
+                into.iter_mut().find(|d| matches!(d, ExpectDeclaration::Config { name: n, .. } if *n == name))
+            {
+                *existing_strict |= strict;
+            } else {
+                into.push(ExpectDeclaration::Config { name, knob, strict });
             }
         }
     }

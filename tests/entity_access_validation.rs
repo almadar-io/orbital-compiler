@@ -111,7 +111,7 @@ fn the_bare_dotted_string_form_is_also_checked() {
 fn an_unknown_user_field_reuses_the_identity_error_code() {
     let codes = run(schema_with_ticket_policies(
         Value::Null,
-        json!(["=", "@user.permissions", "write"]),
+        json!(["=", "@user.clearance", "write"]),
         Value::Null,
         Value::Null,
     ));

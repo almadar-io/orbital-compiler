@@ -335,8 +335,8 @@ fn descend_field_path(f: &FieldDefinition, rest: &[&str], ctx: &BindingContext) 
 }
 
 /// Look up `field` on the program's identity entity — the `[identity]`-tagged
-/// entity if one is declared, else the implicit default shape (`id`, `uid`,
-/// `email`, `name`, `role`; see `user_identity::default_identity_shape`).
+/// entity plus the viewer if one is declared, else the viewer alone (see
+/// `user_identity::with_viewer`).
 /// Mirrors `user_identity.rs`'s field-EXISTENCE walk but resolves a TYPE for
 /// prop-compare purposes instead of emitting an unknown-field diagnostic —
 /// that check stays owned by `user_identity.rs`; this one only reuses its
@@ -359,14 +359,9 @@ fn resolve_user_field(field: &str, ctx: &BindingContext) -> BindingType {
     if ctx.trait_def.source_behavior.is_some() {
         return BindingType::Unknown;
     }
-    let declared = ctx.entity_definitions.values().find(|e| e.identity);
-    let default_identity;
-    let identity: &EntityDefinition = match declared {
-        Some(e) => e,
-        None => {
-            default_identity = super::user_identity::default_identity_shape();
-            &default_identity
-        }
+    let identity = match ctx.entity_definitions.values().find(|e| e.identity) {
+        Some(e) => super::user_identity::with_viewer(e),
+        None => super::user_identity::default_identity_shape(),
     };
     let mut parts = field.split('.');
     let top = parts.next().unwrap_or(field);
@@ -782,8 +777,7 @@ mod tests {
     #[test]
     fn resolves_user_field_against_implicit_default_shape() {
         // No `[identity]` entity declared anywhere in `entity_definitions` —
-        // falls back to `user_identity::default_identity_shape()`
-        // (id/uid/email/name all string, role string).
+        // `@user` is the viewer alone (`user_identity::default_identity_shape()`).
         let t = empty_trait("T", None);
         let entities: HashMap<String, EntityDefinition> = HashMap::new();
         let ctx = BindingContext {
@@ -805,8 +799,7 @@ mod tests {
 
     #[test]
     fn resolves_user_field_against_declared_identity_entity() {
-        // A real `[identity]` entity in `entity_definitions` wins over the
-        // implicit default shape, including fields the default doesn't have.
+        // A real `[identity]` entity in `entity_definitions` adds its fields to the viewer's.
         let t = empty_trait("T", None);
         let mut entities: HashMap<String, EntityDefinition> = HashMap::new();
         entities.insert(
@@ -861,12 +854,14 @@ mod tests {
             ),
             BindingType::Number
         );
-        // `role` is on the default shape but NOT on this declared entity —
-        // once a real identity entity is declared it is the sole source of
-        // truth, so an off-shape field resolves Unknown (skip), not a
-        // false-typed diagnostic.
+        // `@user` is the viewer plus the roster row: `role` comes from the
+        // viewer; a field on neither resolves Unknown (skip).
         assert_eq!(
             resolve_binding_type(&SExpression::String("@user.role".to_string()), &ctx),
+            BindingType::String
+        );
+        assert_eq!(
+            resolve_binding_type(&SExpression::String("@user.notReal".to_string()), &ctx),
             BindingType::Unknown
         );
     }

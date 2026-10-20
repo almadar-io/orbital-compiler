@@ -688,7 +688,8 @@ impl crate::type_infer::TypeCtx for ExprReturnCtx<'_> {
             schema
                 .orbitals
                 .iter()
-                .any(|o| o.types.as_ref().is_some_and(|t| t.contains_key(name))),
+                .any(|o| o.types.as_ref().is_some_and(|t| t.contains_key(name)))
+                || orbital_core_base::language::program_types::program_type(name).is_some(),
         )
     }
 }
@@ -1150,6 +1151,44 @@ mod return_type_tests {
         assert!(fields(ctx.entity_type("Note")).contains(&"title".to_string()));
         assert!(fields(ctx.entity_type("Own")).contains(&"id".to_string()), "control: a declared entity still resolves");
         assert_eq!(ctx.entity_type("Nobody"), None, "control: a name nothing declares or expects");
+    }
+
+    #[test]
+    fn a_language_program_type_is_a_declared_type_a_local_one_shadows() {
+        use crate::type_infer::TypeCtx;
+        use orbital_core_base::ir::OirType;
+
+        let schema_with = |types: serde_json::Value| -> orbital_core_base::schema::OrbitalSchema {
+            serde_json::from_value(serde_json::json!({
+                "name": "App",
+                "orbitals": [{
+                    "name": "O",
+                    "entity": { "name": "Own", "persistence": "runtime", "fields": [{ "name": "id", "type": "string" }] },
+                    "types": types,
+                    "traits": [],
+                    "pages": []
+                }]
+            }))
+            .expect("schema")
+        };
+        let fields = |ty: Option<OirType>| match ty {
+            Some(OirType::Struct { fields }) => fields.into_iter().map(|f| f.name).collect::<Vec<_>>(),
+            other => panic!("a struct, got {other:?}"),
+        };
+        let entity = HashMap::new();
+        let payload = HashMap::new();
+
+        let plain = schema_with(serde_json::json!({}));
+        let ctx = ExprReturnCtx { entity: &entity, payload: &payload, types: None, schema: Some(&plain) };
+        assert!(ctx.named_type("BehaviorRef").is_some());
+        assert!(fields(ctx.named_type("Viewer")).contains(&"email".to_string()));
+        assert_eq!(ctx.declared_type("Viewer"), Some(true));
+        assert_eq!(ctx.named_type("Viewr"), None, "control: neither local nor a program type");
+        assert_eq!(ctx.declared_type("Viewr"), Some(false));
+
+        let shadowed = schema_with(serde_json::json!({ "Viewer": [{ "name": "seat", "type": "number" }] }));
+        let ctx = ExprReturnCtx { entity: &entity, payload: &payload, types: None, schema: Some(&shadowed) };
+        assert_eq!(fields(ctx.named_type("Viewer")), vec!["seat".to_string()], "the local definition wins");
     }
 }
 
