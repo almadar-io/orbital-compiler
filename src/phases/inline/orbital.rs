@@ -3336,6 +3336,32 @@ mod tests {
             .unwrap_or_else(|| panic!("trait {name} not found; got {:?}", trait_names(orbital)))
     }
 
+    /// No resolver FINDING: the diagnostic is pushed for every import since it also
+    /// carries the rename data (`entity_renames`, `local_name`) the schema-level passes read.
+    fn findings_free(diagnostics: &[OrbitalRefDiagnostic]) -> bool {
+        diagnostics.iter().all(|d| {
+            d.unknown_config_keys.is_empty()
+                && d.omitted_but_embedded.is_empty()
+                && d.entity_unmapped.is_empty()
+                && d.entity_unknown_key.is_empty()
+                && d.entity_target_unknown.is_empty()
+                && d.role_unknown_upstream.is_empty()
+                && d.role_targets.is_empty()
+                && d.page_unknown_path.is_empty()
+                && d.extend_collision.is_empty()
+                && d.extend_unread.is_empty()
+                && d.mock_unknown_field.is_empty()
+                && d.retype_unknown_field.is_empty()
+                && d.retype_conflict.is_empty()
+                && d.entity_persistence_locked.is_none()
+                && d.traits_unknown_trait.is_empty()
+                && d.traits_omitted_trait.is_empty()
+                && d.traits_unknown_config_key.is_empty()
+                && d.field_rename_unapplied.is_empty()
+                && d.expected_entity_ambiguous.is_empty()
+        })
+    }
+
     fn trait_names(orbital: &Orbital) -> Vec<String> {
         orbital
             .traits
@@ -3389,7 +3415,7 @@ mod tests {
         for expected in ["LocalA", "LocalB", "LocalC"] {
             assert!(names.contains(&expected.to_string()), "{names:?}");
         }
-        assert!(diagnostics.is_empty(), "{diagnostics:?}");
+        assert!(findings_free(&diagnostics), "{diagnostics:?}");
     }
 
     #[test]
@@ -3991,7 +4017,7 @@ mod tests {
         )
         .expect("resolves");
         assert!(
-            diagnostics.is_empty(),
+            findings_free(&diagnostics),
             "aux-only PanelData must auto-clone, never demanding entities{{}}: {diagnostics:?}"
         );
         let aux = orbital
@@ -4075,7 +4101,7 @@ mod tests {
             &mut Vec::new(),
         )
         .expect("resolves");
-        assert!(diagnostics.is_empty(), "{diagnostics:?}");
+        assert!(findings_free(&diagnostics), "{diagnostics:?}");
 
         let cloned_id = orbital
             .auxiliary_entities
@@ -4914,7 +4940,7 @@ mod tests {
             &mut Vec::new(),
         )
         .expect("resolves");
-        assert!(diagnostics.is_empty(), "{diagnostics:?}");
+        assert!(findings_free(&diagnostics), "{diagnostics:?}");
 
         // Relation target + its dual-carry id sibling, re-pointed at the
         // CONSUMER entity's own id (not a freshly materialized one).
@@ -6247,7 +6273,7 @@ mod tests {
         .expect("resolves");
 
         assert!(
-            diagnostics.is_empty(),
+            findings_free(&diagnostics),
             "a field a config knob value names must not be flagged unread: {diagnostics:?}"
         );
     }

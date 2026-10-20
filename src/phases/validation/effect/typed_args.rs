@@ -117,8 +117,10 @@ fn tag(expr: &SExpression, next: &mut usize) -> SExpression {
             let mut out = Vec::with_capacity(items.len());
             for (i, item) in items.iter().enumerate() {
                 let inner = tag(item, next);
-                let computed = orbital_core_eval::lower::recognized_call_head(item).is_some()
-                    || matches!(item, SExpression::String(s) if s.starts_with('@'));
+                let declared = matches!(item, SExpression::Array(parts) if parts.first().and_then(SExpression::as_str) == Some("typed"));
+                let computed = !declared
+                    && (orbital_core_eval::lower::recognized_call_head(item).is_some()
+                        || matches!(item, SExpression::String(s) if s.starts_with('@')));
                 let wrap = i > 0 && computed && signature.is_some_and(|sig| is_list_of_variable(sig.formal(i - 1)));
                 if wrap {
                     let slot = format!("{SLOT}{}", *next);
@@ -139,7 +141,7 @@ fn tag(expr: &SExpression, next: &mut usize) -> SExpression {
 }
 
 /// Whether a declared type is a list whose items may differ in kind: a list of a union or of `SExpr`.
-fn needs_declaration(ty: &OirType) -> bool {
+pub(crate) fn needs_declaration(ty: &OirType) -> bool {
     let peel = |t: &OirType| match t {
         OirType::Optional { inner } => (**inner).clone(),
         other => other.clone(),

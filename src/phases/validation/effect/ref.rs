@@ -22,7 +22,7 @@ pub(crate) fn validate_ref(
         if let Some(emit_obj) = extract_emit_object_ref(obj) {
             result.merge(validate_emit_config(
                 emit_obj,
-                &["on_change", "failure"],
+                &["onChange", "failure"],
                 declared_emits,
                 path,
             ));

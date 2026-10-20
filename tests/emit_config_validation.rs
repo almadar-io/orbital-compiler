@@ -4,9 +4,9 @@
 //! for the `emit:` options key:
 //!
 //!   - `fetch`, `persist`, `call-service` → `success`, `failure`
-//!   - `ref`                              → `on_change`, `failure`
+//!   - `ref`                              → `onChange`, `failure`
 //!   - `set`                              → `success` (sync)
-//!   - `os/watch-*`                       → `on_message`, `failure`
+//!   - `os/watch-*`                       → `onMessage`, `failure`
 //!
 //! Violations:
 //!   - Unknown key for operator → `ORB_EFF_EMIT_KEY_INVALID`
@@ -366,7 +366,7 @@ fn os_watch_http_on_message_is_valid() {
     let effects = vec![SExpression::Array(vec![
         SExpression::String("os/watch-http".to_string()),
         SExpression::String("wss://push".to_string()),
-        options_with_emit(emit_object(&[("on_message", "PUSH_RECEIVED")])),
+        options_with_emit(emit_object(&[("onMessage", "PUSH_RECEIVED")])),
     ])];
     let schema = schema_with_effects(effects, vec![declared_emit("PUSH_RECEIVED", false)]);
     let result = validate_comprehensive_without_services(&schema);
@@ -385,7 +385,7 @@ fn ref_with_on_change_is_valid() {
     let effects = vec![SExpression::Array(vec![
         SExpression::String("ref".to_string()),
         SExpression::String("Patient".to_string()),
-        options_with_emit(emit_object(&[("on_change", "PATIENT_UPDATED")])),
+        options_with_emit(emit_object(&[("onChange", "PATIENT_UPDATED")])),
     ])];
     let schema = schema_with_effects(effects, vec![declared_emit("PATIENT_UPDATED", false)]);
     let result = validate_comprehensive_without_services(&schema);
@@ -420,25 +420,22 @@ fn ref_with_success_is_rejected() {
 }
 
 #[test]
-fn camel_case_on_message_alias_accepted() {
-    // Resolver accepts both `on_message` and `onMessage`; the validator
-    // should see them as the same canonical key, not report `onMessage`
-    // as unknown.
-    let effects = vec![SExpression::Array(vec![
-        SExpression::String("os/watch-http".to_string()),
-        SExpression::String("wss://push".to_string()),
-        options_with_emit(emit_object(&[("onMessage", "PUSH_RECEIVED")])),
-    ])];
-    let schema = schema_with_effects(effects, vec![declared_emit("PUSH_RECEIVED", false)]);
-    let result = validate_comprehensive_without_services(&schema);
-    assert!(
-        !result
-            .errors
-            .iter()
-            .any(|e| e.code == ErrorCode::EffectEmitKeyInvalid),
-        "camelCase onMessage should be accepted, got: {:?}",
-        result.errors
-    );
+fn snake_case_stream_keys_are_not_a_second_spelling() {
+    // One spelling per key, the runtime's route name: `on_message`/`on_change` are unknown keys.
+    for (op, key) in [("os/watch-http", "on_message"), ("ref", "on_change")] {
+        let effects = vec![SExpression::Array(vec![
+            SExpression::String(op.to_string()),
+            SExpression::String(if op == "ref" { "Patient" } else { "wss://push" }.to_string()),
+            options_with_emit(emit_object(&[(key, "PUSH_RECEIVED")])),
+        ])];
+        let schema = schema_with_effects(effects, vec![declared_emit("PUSH_RECEIVED", false)]);
+        let result = validate_comprehensive_without_services(&schema);
+        assert!(
+            result.errors.iter().any(|e| e.code == ErrorCode::EffectEmitKeyInvalid),
+            "{op} emit.{key} must be rejected, got: {:?}",
+            result.errors
+        );
+    }
 }
 
 // ============================================================================
@@ -766,10 +763,9 @@ fn emit_key_invalid(op: &str, emit: &[(&str, &str)]) -> bool {
 
 #[test]
 fn stream_os_ops_declare_the_on_message_key() {
-    for op in ["os/tcp-listen", "http/listen"] {
-        for key in ["onMessage", "on_message"] {
-            assert!(!emit_key_invalid(op, &[("success", "UP"), (key, "ARRIVED")]), "{op} emit.{key} must be accepted");
-        }
+    for op in ["os/tcp-listen"] {
+        assert!(!emit_key_invalid(op, &[("success", "UP"), ("onMessage", "ARRIVED")]), "{op} emit.onMessage must be accepted");
+        assert!(emit_key_invalid(op, &[("on_message", "ARRIVED")]), "control: {op} has no on_message key");
     }
     assert!(
         emit_key_invalid("os/tcp-connect", &[("onMessage", "ARRIVED")]),

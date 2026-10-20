@@ -1513,6 +1513,16 @@ pub(crate) fn config_field_oir_type(field: &orbital_core_base::schema::ConfigFie
     Resolver::new(schema).resolve_config_field_shape(field)
 }
 
+/// The `OirType` of a config knob whose shape its own `items` / `properties` carriers spell out, read where no program
+/// is in hand (the inline pass): every named type in a carrier is already inlined.
+pub(crate) fn config_field_carried_type(field: &orbital_core_base::schema::ConfigField) -> OirType {
+    thread_local! {
+        static NO_PROGRAM: OrbitalSchema =
+            serde_json::from_value(serde_json::json!({ "name": "", "orbitals": [] })).expect("the empty program");
+    }
+    NO_PROGRAM.with(|schema| Resolver::new(schema).resolve_config_field_shape(field))
+}
+
 /// The `OirType` a declared payload field has, named types resolved against the schema.
 pub(crate) fn payload_field_oir_type(field: &orbital_core_base::schema::PayloadField, schema: &OrbitalSchema) -> OirType {
     let named_types = RefCell::new(BTreeMap::new());
@@ -3058,14 +3068,15 @@ mod tests {
         }
     }
 
+    /// `loadedRow : RecordItem @intrinsic` holds the fetched row, not its id (core `field_shape`).
     #[test]
-    fn resolve_field_shape_intrinsic_to_one_relation_stays_reference() {
+    fn resolve_field_shape_intrinsic_to_one_relation_is_a_row() {
         let resolver = empty_resolver();
         let mut field = relation_field_json("many-to-one");
         field.intrinsic = Some(true);
         assert_eq!(
             resolver.resolve_field_shape(&field).unwrap(),
-            OirType::reference("Revision")
+            OirType::row("Revision")
         );
     }
 

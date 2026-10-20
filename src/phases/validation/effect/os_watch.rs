@@ -21,7 +21,7 @@ pub(crate) fn validate_os_watch(
             if let Some(emit_obj) = extract_emit_object_ref(options) {
                 result.merge(validate_emit_config(
                     emit_obj,
-                    &["on_message", "failure"],
+                    &["onMessage", "failure"],
                     declared_emits,
                     path,
                 ));

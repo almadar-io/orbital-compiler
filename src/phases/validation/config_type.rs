@@ -1465,14 +1465,32 @@ pub(crate) fn check_field_def_shape(
                 );
             };
             let SExpression::Object(map) = value else {
-                result.add_error(ValidationError::error(
-                    ErrorCode::TraitConfigShapeMismatch,
-                    path,
-                    format!(
-                        "expected one of the union variants ({}) but the value isn't an object",
-                        names.join(" | ")
-                    ),
-                ));
+                let fits = schema
+                    .properties
+                    .iter()
+                    .flat_map(|p| names.iter().filter_map(|n| p.get(n)))
+                    .any(|v| {
+                        let fit = check_field_def_shape(
+                            v,
+                            value,
+                            path,
+                            orbital_events,
+                            ancestors,
+                            skip_required_members,
+                        );
+                        fit.is_valid()
+                    });
+                if !fits {
+                    result.add_error(ValidationError::error(
+                        ErrorCode::TraitConfigShapeMismatch,
+                        path,
+                        format!(
+                            "expected one of the union variants ({}) but the value is {} and fits none of them",
+                            names.join(" | "),
+                            sexpr_kind(value)
+                        ),
+                    ));
+                }
                 return result;
             };
             let keys: Vec<&str> = map.keys().map(String::as_str).collect();
@@ -3761,6 +3779,44 @@ mod skip_required_members_tests {
         assert!(
             !result.errors.is_empty(),
             "trait config must still enforce required-member completeness"
+        );
+    }
+
+    /// `type CliCommand = string | AnchoredEnv | AnchoredPath`: a union with a
+    /// primitive member takes that primitive's value, not only records.
+    #[test]
+    fn a_union_with_a_primitive_member_takes_its_value() {
+        let schema: FieldDefinition = serde_json::from_value(serde_json::json!({
+            "type": "union",
+            "values": ["string", "AnchoredEnv", "AnchoredPath"],
+            "properties": {
+                "string": { "name": "string", "type": "string" },
+                "AnchoredEnv": { "name": "AnchoredEnv", "type": "object",
+                    "properties": { "env": { "name": "env", "type": "string", "required": true } } },
+                "AnchoredPath": { "name": "AnchoredPath", "type": "object",
+                    "properties": { "path": { "name": "path", "type": "string", "required": true } } }
+            }
+        }))
+        .expect("a union definition");
+        let check = |value: SExpression| {
+            check_field_def_shape(
+                &schema,
+                &value,
+                "t.config.commands[0]",
+                &EventScope::default(),
+                &HashMap::new(),
+                false,
+            )
+        };
+        let text = check(SExpression::String("ls".to_string()));
+        assert!(text.errors.is_empty(), "a string is the string variant: {:?}", text.errors);
+        let mut env = orbital_core_base::schema::SObject::new();
+        env.insert("env".to_string(), SExpression::String("HOME".to_string()));
+        let record = check(SExpression::Object(env));
+        assert!(record.errors.is_empty(), "a record variant still fits: {:?}", record.errors);
+        assert!(
+            !check(SExpression::Number(3.0)).errors.is_empty(),
+            "control: a number fits no variant"
         );
     }
 

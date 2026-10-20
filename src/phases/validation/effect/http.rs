@@ -701,7 +701,7 @@ fn check_http_call(arr: &[SExpression], site: &Site, result: &mut ValidationResu
             ));
         }
         let streams = request.is_some_and(|r| present(r, "stream"));
-        let has_on_message = emit.is_some_and(|e| present(e, "onMessage") || present(e, "on_message"));
+        let has_on_message = emit.is_some_and(|e| present(e, "onMessage"));
         if streams && !has_on_message {
             result.add_error(stream_without_on_message(site.path));
         }

@@ -426,7 +426,7 @@ fn validate_emit_success_return(
     // Each slot a call can fire: the bus key it fires on and the payload the
     // operator puts there. `None` = undecidable at this call site (no effect
     // metadata, an opaque `any`, an unresolvable union): never guess.
-    // `ref` fires `on_change`, so reading `success` for it would inspect a key
+    // `ref` fires `onChange`, so reading `success` for it would inspect a key
     // the runtime never fires.
     let slots: [(&[&str], Option<Vec<PayloadField>>); 3] = [
         (
@@ -434,7 +434,7 @@ fn validate_emit_success_return(
             produced_shape::produced_payload(op_name.as_str(), arr.as_slice(), entity_definitions, registry),
         ),
         (&["failure"], produced_shape::produced_failure_payload(op_name.as_str(), arr.as_slice())),
-        (&["onMessage", "on_message"], produced_shape::produced_message_payload(op_name.as_str())),
+        (&["onMessage"], produced_shape::produced_message_payload(op_name.as_str())),
     ];
     for (emit_keys, produced) in slots {
         let Some(produced) = produced else { continue };

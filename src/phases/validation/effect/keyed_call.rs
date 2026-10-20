@@ -13,7 +13,7 @@ use orbital_core_base::schema::{OrbitalSchema, SExpression};
 /// The `emit` slots a keyed call may declare (`onMessage` is accepted as the
 /// camelCase spelling of `on_message`).
 pub(super) const KEYED_CALL_EMIT_KEYS: [&str; 4] =
-    ["success", "failure", "on_message", "cancelled"];
+    ["success", "failure", "onMessage", "cancelled"];
 
 /// Operator heads that start a keyed call.
 pub(super) const KEYED_CALL_OPERATORS: [&str; 3] = ["call-service", "call_service", "http"];

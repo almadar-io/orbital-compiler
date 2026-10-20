@@ -538,6 +538,18 @@ mod tests {
     }
 
     #[test]
+    fn a_computed_anchored_path_under_a_narrow_anchored_glob_validates_and_controls_report() {
+        let grant = json!({"anchored": {"fs": [{"anchor": "cwd", "glob": "**/*.lolo", "modes": ["read"]}]}});
+        let computed = json!(["os/read-file", {"anchor": "cwd", "path": "@payload.path"}, {"emit": {"success": "GO"}}]);
+        let clean = validate_os_grants(&program(grant, computed.clone()));
+        assert!(codes(&clean).is_empty(), "{:?}", clean.errors);
+        let other = json!({"anchored": {"fs": [{"anchor": "exe-dir", "glob": "**/*.lolo", "modes": ["read"]}]}});
+        assert!(codes(&validate_os_grants(&program(other, computed))).contains(&ErrorCode::OsGrantMissing), "control: no glob grant on the anchor");
+        let plain = validate_os_grants(&program(json!({"anchored": {"fs": [{"anchor": "cwd", "glob": "**/*.lolo", "modes": ["read"]}]}}), json!(["os/read-file", "@payload.path", {"emit": {"success": "GO"}}])));
+        assert!(codes(&plain).contains(&ErrorCode::OsTargetNotStatic), "control: a computed path with no anchor stays a static error");
+    }
+
+    #[test]
     fn an_env_anchored_listen_validates_against_an_anchored_net_grant() {
         let grant = json!({"anchored": {"net": [{"host": {"anchor": {"env": "HOST"}}, "port": {"anchor": {"env": "PORT"}}, "kinds": ["listen"]}]}});
         let listen = json!(["os/tcp-listen", {"anchor": {"env": "HOST"}}, {"anchor": {"env": "PORT"}}, {"emit": {"success": "GO"}}]);

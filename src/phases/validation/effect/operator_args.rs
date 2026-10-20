@@ -117,7 +117,8 @@ fn effect_in(expr: &SExpression) -> Option<String> {
 }
 
 fn report(expr: &SExpression, path: &str, ctx: &ExprReturnCtx<'_>, result: &mut ValidationResult) {
-    let Ok(oir) = crate::phases::resolve::resolve_sexpr_standalone(expr) else {
+    // A `typed` value is read as the type the program declared for it.
+    let Ok(oir) = orbital_core_eval::lower::lower_sexpr_keeping_typed(expr) else {
         return;
     };
     for found in check_oir_expr(&oir, ctx) {
@@ -454,6 +455,24 @@ mod tests {
         assert_eq!(run(r#"["==", "@user.role", 3]"#), (0, 1), "control: role is a string");
         assert_eq!(run(r#"["==", "@user.nope", "x"]"#), (1, 0), "control: a field the roster does not declare");
         assert_eq!(run(r#"["==", "@config.other", 3]"#), (1, 0), "control: an undeclared knob");
+    }
+
+    #[test]
+    fn a_substituted_config_list_carrying_its_declared_type_is_typed() {
+        let mixed = serde_json::json!(["list", { "anchor": "exe-dir", "path": "tool" }, "tool"]);
+        let ty = crate::phases::resolve::config_field_carried_type(&serde_json::from_value(serde_json::json!({
+            "type": "[CliCommand]",
+            "items": { "type": "union", "values": ["string", "AnchoredPath"], "properties": {
+                "string": { "name": "string", "type": "string" },
+                "AnchoredPath": { "name": "AnchoredPath", "type": "object", "properties": {
+                    "anchor": { "name": "anchor", "type": "string", "required": true },
+                    "path": { "name": "path", "type": "string", "required": true } } }
+            } }
+        })).expect("knob"));
+        let typed = serde_json::json!(["array/len", ["typed", mixed, serde_json::to_string(&ty).unwrap()]]).to_string();
+        assert!(undetermined(&typed, HashMap::new()).is_empty(), "{:?}", undetermined(&typed, HashMap::new()));
+        let inline = serde_json::json!(["array/len", mixed]).to_string();
+        assert_eq!(undetermined(&inline, HashMap::new()).len(), 1, "control: a mixed literal written inline is refused");
     }
 
     #[test]

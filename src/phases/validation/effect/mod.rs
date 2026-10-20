@@ -65,6 +65,7 @@ pub(crate) use set::{
     validate_set_value_type, EntityFieldMeta,
 };
 pub use typed_args::record_declared_list_types;
+pub(crate) use typed_args::needs_declaration;
 pub use utils::effect_operators;
 pub(crate) use utils::{extract_payload_fields, is_valid_event_identifier};
 

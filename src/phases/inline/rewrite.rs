@@ -1014,8 +1014,8 @@ fn rewrite_identifiers_inner(
                                     slot.as_str(),
                                     "success"
                                         | "failure"
-                                        | "on_message"
-                                        | "on_change"
+                                        | "onMessage"
+                                        | "onChange"
                                         | "cancelled"
                                 ) {
                                     if let SExpression::String(ev) = slot_v {
@@ -1412,9 +1412,9 @@ pub(crate) fn rewrite_entity_refs(expr: &mut SExpression, from_entity: &str, to_
 /// tree starts with `@` — the runtime treats those strings as bindings
 /// regardless of wrapping, so the value cannot be pure data.
 ///
-/// Type-directed + deterministic — no operator-name heuristic: it fires only
-/// for array-typed slots and only for string-headed array values (object- or
-/// number-headed arrays are already unambiguous and pass through unchanged).
+/// Type-directed + deterministic: the declared array type decides, never the
+/// kind of the first item. Every non-empty literal in an array-typed slot is
+/// marked; the empty list stays `[]`.
 pub(crate) fn mark_literal_list_in_place(value: &mut SExpression, field_type: &str) {
     if !(field_type.starts_with('[') && field_type.ends_with(']')) {
         return;
@@ -1422,7 +1422,7 @@ pub(crate) fn mark_literal_list_in_place(value: &mut SExpression, field_type: &s
     let should_wrap = matches!(
         value,
         SExpression::Array(elems)
-            if matches!(elems.first(), Some(SExpression::String(s)) if s != "list")
+            if !elems.is_empty() && !matches!(elems.first(), Some(SExpression::String(s)) if s == "list")
     ) && !sexpr_tree_contains_binding(value);
     if should_wrap {
         if let SExpression::Array(elems) = value {
@@ -1572,31 +1572,10 @@ pub(crate) fn apply_inline_config_defaults(
     // (correctly — e.g. a render-ui children entry). See
     // `coerce_trait_knob_conditions`'s doc comment for the full rationale.
     coerce_trait_knob_conditions(trait_def, &trait_knobs, &effective_config);
+    let declared_types = declared_list_types(trait_def.config.as_ref(), &effective_config);
     let cfg = &effective_config;
     record_config_provenance(trait_def, cfg, recorder);
-    for p in trait_def.propositions_mut() {
-        rewrite_config_bindings(p, cfg);
-    }
-    for transition in trait_def.state_machine.transitions.iter_mut() {
-        if let Some(guard) = transition.guard.as_mut() {
-            rewrite_config_bindings(guard, cfg);
-        }
-        if let Some(effects) = transition.effects.as_mut() {
-            for effect in effects.iter_mut() {
-                rewrite_config_bindings(effect, cfg);
-            }
-        }
-    }
-    if let Some(ticks) = trait_def.ticks.as_mut() {
-        for tick in ticks.iter_mut() {
-            if let Some(guard) = tick.guard.as_mut() {
-                rewrite_config_bindings(guard, cfg);
-            }
-            for effect in tick.effects.iter_mut() {
-                rewrite_config_bindings(effect, cfg);
-            }
-        }
-    }
+    rewrite_trait_config_bindings(trait_def, cfg, &declared_types);
     // Standalone atom (no call site): `@config.<knob>` emit-name refs
     // resolve to the declared defaults collected above (Option B).
     super::r#trait::resolve_config_ref_emit_names(trait_def, cfg);
@@ -1686,13 +1665,79 @@ pub(crate) fn coerce_trait_knob_conditions(
     }
 }
 
+/// The `typed` value an operator reads for each knob whose declared type is a list whose items may differ in kind
+/// (`[CliCommand]`, `[SExpr]`) and whose value is a non-empty literal: the literal, carrying the declared type as
+/// JSON, so the checker reads the knob's type instead of one inferred from the items.
+pub(crate) fn declared_list_types(
+    declared: Option<&HashMap<String, ConfigField>>,
+    config_subs: &orbital_core_base::schema::SObject,
+) -> orbital_core_base::schema::SObject {
+    let mut out = orbital_core_base::schema::SObject::new();
+    let Some(declared) = declared else {
+        return out;
+    };
+    for (knob, value) in config_subs.iter() {
+        let Some(field) = declared.get(knob).filter(|f| f.items.is_some()) else {
+            continue;
+        };
+        if !matches!(value, SExpression::Array(items) if !items.is_empty()) || sexpr_tree_contains_binding(value) {
+            continue;
+        }
+        let ty = crate::phases::resolve::config_field_carried_type(field);
+        if !crate::phases::validation::effect::needs_declaration(&ty) {
+            continue;
+        }
+        let Ok(text) = serde_json::to_string(&ty) else {
+            continue;
+        };
+        out.insert(
+            knob.clone(),
+            SExpression::Array(vec![SExpression::String("typed".to_string()), value.clone(), SExpression::String(text)]),
+        );
+    }
+    out
+}
+
+/// [`rewrite_config_bindings`] over every expression a trait carries.
+pub(crate) fn rewrite_trait_config_bindings(
+    trait_def: &mut TraitDefinition,
+    cfg: &orbital_core_base::schema::SObject,
+    declared: &orbital_core_base::schema::SObject,
+) {
+    for p in trait_def.propositions_mut() {
+        rewrite_config_bindings(p, cfg, declared);
+    }
+    for transition in trait_def.state_machine.transitions.iter_mut() {
+        if let Some(guard) = transition.guard.as_mut() {
+            rewrite_config_bindings(guard, cfg, declared);
+        }
+        if let Some(effects) = transition.effects.as_mut() {
+            for effect in effects.iter_mut() {
+                rewrite_config_bindings(effect, cfg, declared);
+            }
+        }
+    }
+    if let Some(ticks) = trait_def.ticks.as_mut() {
+        for tick in ticks.iter_mut() {
+            if let Some(guard) = tick.guard.as_mut() {
+                rewrite_config_bindings(guard, cfg, declared);
+            }
+            for effect in tick.effects.iter_mut() {
+                rewrite_config_bindings(effect, cfg, declared);
+            }
+        }
+    }
+}
+
 /// Phase 3.A: Substitute `@config.<param>` binding strings with concrete
 /// SExpression values. All other SExpression variants recurse so nested
 /// `@config.X` strings inside render-ui payloads, array literals, etc. are
-/// rewritten in one walk.
+/// rewritten in one walk. An operator's operand reading a knob of `declared`
+/// takes that knob's `typed` value (see [`declared_list_types`]).
 pub(crate) fn rewrite_config_bindings(
     expr: &mut SExpression,
     config_subs: &orbital_core_base::schema::SObject,
+    declared: &orbital_core_base::schema::SObject,
 ) {
     if config_subs.is_empty() {
         return;
@@ -1732,7 +1777,7 @@ pub(crate) fn rewrite_config_bindings(
                             let still_same =
                                 matches!(expr, SExpression::String(ns) if *ns == *original);
                             if !still_same {
-                                rewrite_config_bindings(expr, config_subs);
+                                rewrite_config_bindings(expr, config_subs, declared);
                             }
                         }
                         Some(path) => {
@@ -1743,7 +1788,7 @@ pub(crate) fn rewrite_config_bindings(
                             if let SExpression::Object(_) = value {
                                 if let Some(leaf) = resolve_object_path(value, path) {
                                     *expr = leaf.clone();
-                                    rewrite_config_bindings(expr, config_subs);
+                                    rewrite_config_bindings(expr, config_subs, declared);
                                 }
                             }
                         }
@@ -1769,29 +1814,47 @@ pub(crate) fn rewrite_config_bindings(
                         for pair in pairs.iter_mut() {
                             if let SExpression::Array(parts) = pair {
                                 for part in parts.iter_mut().skip(1) {
-                                    if !is_empty_list_knob(part, config_subs) {
-                                        rewrite_config_bindings(part, config_subs);
+                                    if !is_empty_list_knob(part, config_subs) && !take_declared(part, declared) {
+                                        rewrite_config_bindings(part, config_subs, declared);
                                     }
                                 }
                                 continue;
                             }
-                            rewrite_config_bindings(pair, config_subs);
+                            rewrite_config_bindings(pair, config_subs, declared);
                         }
                         continue;
                     }
                 }
-                rewrite_config_bindings(item, config_subs);
+                if reads_as_operand && take_declared(item, declared) {
+                    continue;
+                }
+                rewrite_config_bindings(item, config_subs, declared);
             }
         }
         SExpression::Object(map) => {
             for (_k, v) in map.iter_mut() {
-                rewrite_config_bindings(v, config_subs);
+                rewrite_config_bindings(v, config_subs, declared);
             }
         }
     }
 }
 
 /// Whether `expr` is a bare `@config.<knob>` whose value is the empty list.
+/// Replace a bare `@config.<knob>` of `declared` with the knob's `typed` value; whether it did.
+fn take_declared(expr: &mut SExpression, declared: &orbital_core_base::schema::SObject) -> bool {
+    let typed = match expr {
+        SExpression::String(s) => s.strip_prefix("@config.").and_then(|knob| declared.get(knob)).cloned(),
+        _ => None,
+    };
+    match typed {
+        Some(value) => {
+            *expr = value;
+            true
+        }
+        None => false,
+    }
+}
+
 fn is_empty_list_knob(expr: &SExpression, config_subs: &orbital_core_base::schema::SObject) -> bool {
     let SExpression::String(s) = expr else {
         return false;
@@ -2936,16 +2999,81 @@ mod literal_list_tests {
     }
 
     #[test]
-    fn ignores_non_array_slots_and_non_string_heads() {
+    fn ignores_non_array_slots() {
         let mut scalar = arr(vec![SExpression::String("path".to_string())]);
         mark_literal_list_in_place(&mut scalar, "string");
         assert_eq!(scalar, arr(vec![SExpression::String("path".to_string())]));
-        let mut object_headed = arr(vec![SExpression::Object(orbital_core_base::schema::SObject::new())]);
+    }
+
+    #[test]
+    fn a_list_knob_whose_first_item_is_an_object_is_marked_as_a_list() {
+        let mut object_headed = arr(vec![
+            SExpression::Object(orbital_core_base::schema::SObject::new()),
+            SExpression::String("tool".to_string()),
+        ]);
         mark_literal_list_in_place(&mut object_headed, "[json]");
         match &object_headed {
-            SExpression::Array(items) => assert_eq!(items.len(), 1),
+            SExpression::Array(items) => {
+                assert_eq!(items.len(), 3, "{object_headed:?}");
+                assert_eq!(items[0], SExpression::String("list".to_string()));
+            }
             _ => panic!("expected array"),
         }
+        let mut empty = arr(vec![]);
+        mark_literal_list_in_place(&mut empty, "[json]");
+        assert_eq!(empty, arr(vec![]), "control: the empty list stays as written");
+    }
+
+    fn mixed_commands_trait(effect: serde_json::Value) -> TraitDefinition {
+        serde_json::from_value(serde_json::json!({
+            "name": "Runner",
+            "config": { "commands": {
+                "type": "[CliCommand]",
+                "default": [{ "anchor": { "env": "TOOL_PATH" } }, { "anchor": "exe-dir", "path": "tool" }, "tool"],
+                "items": { "type": "union", "values": ["string", "AnchoredEnv", "AnchoredPath"], "properties": {
+                    "string": { "name": "string", "type": "string" },
+                    "AnchoredEnv": { "name": "AnchoredEnv", "type": "object", "properties": {
+                        "anchor": { "name": "anchor", "type": "object", "required": true, "properties": {
+                            "env": { "name": "env", "type": "string", "required": true } } } } },
+                    "AnchoredPath": { "name": "AnchoredPath", "type": "object", "properties": {
+                        "anchor": { "name": "anchor", "type": "string", "required": true },
+                        "path": { "name": "path", "type": "string", "required": true } } }
+                } }
+            } },
+            "stateMachine": {
+                "states": [{ "name": "idle", "isInitial": true }],
+                "transitions": [{ "from": "idle", "to": "idle", "event": "RUN", "effects": [effect] }]
+            }
+        }))
+        .expect("trait")
+    }
+
+    fn first_effect(t: &TraitDefinition) -> SExpression {
+        t.state_machine.transitions[0].effects.as_ref().expect("effects")[0].clone()
+    }
+
+    #[test]
+    fn a_mixed_list_knob_read_by_an_operator_keeps_its_declared_type() {
+        let mut t = mixed_commands_trait(serde_json::json!(["set", "@entity.n", ["array/len", "@config.commands"]]));
+        apply_inline_config_defaults(&mut t, &mut Vec::new());
+        let effect = serde_json::to_value(first_effect(&t)).unwrap();
+        let arg = &effect[2][1];
+        assert_eq!(arg[0], "typed", "{effect}");
+        assert_eq!(arg[1][0], "list", "the value is the marked literal: {effect}");
+        let declared: orbital_core_base::ir::OirType =
+            serde_json::from_str(arg[2].as_str().expect("type text")).expect("an IR type");
+        assert!(
+            matches!(&declared, orbital_core_base::ir::OirType::Array { inner } if matches!(**inner, orbital_core_base::ir::OirType::Union { .. })),
+            "{declared:?}"
+        );
+    }
+
+    #[test]
+    fn control_a_mixed_list_knob_outside_an_operand_is_the_plain_value() {
+        let mut t = mixed_commands_trait(serde_json::json!(["render-ui", "main", { "type": "list", "items": "@config.commands" }]));
+        apply_inline_config_defaults(&mut t, &mut Vec::new());
+        let effect = serde_json::to_value(first_effect(&t)).unwrap();
+        assert_eq!(effect[2]["items"][0], "list", "{effect}");
     }
 }
 

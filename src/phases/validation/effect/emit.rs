@@ -100,22 +100,8 @@ pub(crate) fn validate_emit_config(
 ) -> ValidationResult {
     let mut result = ValidationResult::new();
 
-    // Normalize both camelCase and snake_case forms that the resolver
-    // accepts so the validator sees the same keys users typed.
-    let key_aliases: &[(&str, &str)] = &[("onChange", "on_change"), ("onMessage", "on_message")];
-    let canonical_of = |key: &str| -> String {
-        key_aliases
-            .iter()
-            .find(|(alt, _)| *alt == key)
-            .map_or(key, |(_, canon)| *canon)
-            .to_string()
-    };
-
     for (key, value) in emit_obj {
-        // Allowed keys come in either spelling (an operator table declares the runtime's `onMessage`).
-        let canonical = canonical_of(key);
-
-        if !allowed_keys.iter().any(|k| canonical_of(k) == canonical) {
+        if !allowed_keys.contains(&key.as_str()) {
             result.add_error(
                 ValidationError::error(
                     ErrorCode::EffectEmitKeyInvalid,

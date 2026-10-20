@@ -420,7 +420,7 @@ pub(crate) fn validate_fetch_stream(
                 path,
                 "fetch-stream requires entity name",
             )
-            .with_suggestion("Use: [\"fetch-stream\", \"EntityName\", { \"emit\": { \"on_message\": \"CHUNK\", \"success\": \"DONE\", \"failure\": \"FAILED\" } }]"),
+            .with_suggestion("Use: [\"fetch-stream\", \"EntityName\", { \"emit\": { \"onMessage\": \"CHUNK\", \"success\": \"DONE\", \"failure\": \"FAILED\" } }]"),
         );
         return result;
     }
@@ -448,7 +448,7 @@ pub(crate) fn validate_fetch_stream(
         if let Some(emit_obj) = extract_emit_object_ref(obj) {
             result.merge(validate_emit_config(
                 emit_obj,
-                &["on_message", "success", "failure"],
+                &["onMessage", "success", "failure"],
                 declared_emits,
                 path,
             ));

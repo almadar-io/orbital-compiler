@@ -25,12 +25,12 @@ use super::effect::entity_field_type_map;
 
 /// The bus key an operator fires its success payload on.
 ///
-/// Not every operator uses `success`: `ref` fires **`on_change`** in both
+/// Not every operator uses `success`: `ref` fires **`onChange`** in both
 /// executors (`EffectExecutor.ts:919-923`, `codegen/effect/server.rs:248-253`),
 /// so reading `emit.success` for it inspects a key the runtime never fires.
 pub(crate) fn success_emit_key(op_name: &str) -> &'static str {
     match op_name {
-        "ref" => "on_change",
+        "ref" => "onChange",
         _ => "success",
     }
 }

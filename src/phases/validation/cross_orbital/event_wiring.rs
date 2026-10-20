@@ -618,7 +618,7 @@ pub(crate) fn collect_effect_produced_events(trait_def: &TraitDefinition) -> Has
                         for (slot, slot_v) in emit_map {
                             if matches!(
                                 slot.as_str(),
-                                "success" | "failure" | "on_message" | "onMessage" | "on_change" | "cancelled"
+                                "success" | "failure" | "onMessage" | "onChange" | "cancelled"
                             ) {
                                 credit(slot_v, out);
                             }

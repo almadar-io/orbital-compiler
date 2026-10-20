@@ -336,9 +336,15 @@ impl<'c> Inferer<'c> {
             },
             OirExpr::Call { function, args } if function == "typed" && args.len() == 2 => {
                 let ty = self.infer(&args[0]);
-                if let OirExpr::String { value } = &args[1] {
-                    self.slots.borrow_mut().push((value.clone(), ty.clone()));
+                let OirExpr::String { value } = &args[1] else {
+                    return ty;
+                };
+                // A value the program declared a type for (a substituted config knob, a recorded argument) is read
+                // as that type; a slot tag only records what was inferred.
+                if let Ok(declared) = serde_json::from_str::<OirType>(value) {
+                    return Some(declared);
                 }
+                self.slots.borrow_mut().push((value.clone(), ty.clone()));
                 ty
             }
             OirExpr::Call { function, args } if function == "let" => self.infer_let(args),
@@ -1312,10 +1318,10 @@ mod tests {
     #[test]
     fn a_fold_step_reads_child_results_of_its_own_result_type() {
         let ctx = tree_row();
-        let sum = lowered(fold_over_tree(serde_json::json!(["+", 1, ["array/len", ["array/compact", "@k.kids"]]])));
+        let sum = lowered(fold_over_tree(serde_json::json!(["+", 1, ["array/len", "@k.kids"]])));
         assert_eq!(reported(&sum, &ctx), Vec::<String>::new(), "the provisional reading's findings are dropped");
         assert_eq!(infer_oir_expr_type(&sum, &ctx), Some(OirType::Number));
-        let joined = lowered(fold_over_tree(serde_json::json!(["str/concat", "@n.label", ["str/join", ["array/compact", "@k.kids"], ","]])));
+        let joined = lowered(fold_over_tree(serde_json::json!(["str/concat", "@n.label", ["str/join", "@k.kids", ","]])));
         assert_eq!(reported(&joined, &ctx), Vec::<String>::new(), "control: string children of a string step");
         assert_eq!(infer_oir_expr_type(&joined, &ctx), Some(OirType::String));
     }
@@ -1326,7 +1332,10 @@ mod tests {
         let step = serde_json::json!(["+", ["array/len", "@n.tags"], ["str/len", ["object/get", "@k", "parent", ""]]]);
         let found = reported(&lowered(fold_over_tree(step)), &ctx);
         assert_eq!(found.len(), 1, "{found:?}");
-        assert!(found[0].contains("str/len"), "the number result read as a string: {found:?}");
+        assert!(
+            found[0].contains("parent") && found[0].contains("expected number, got string"),
+            "the child result is the step's number, read with a string default: {found:?}"
+        );
     }
 
     #[test]

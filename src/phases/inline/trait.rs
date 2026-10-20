@@ -5,7 +5,7 @@ use super::context::{parse_reference, InlineContext, ParsedReference};
 use super::identity_normalize::rewrite_trait_embed_tokens;
 use super::rewrite::{
     apply_inline_config_defaults, coerce_trait_knob_conditions, mark_config_literal_lists,
-    record_config_provenance, rewrite_config_bindings, rewrite_entity_field_paths,
+    record_config_provenance, rewrite_entity_field_paths,
     rewrite_entity_ref_ids, rewrite_entity_typed_config_values, rewrite_identifiers,
     rewrite_payload_entity_refs, rewrite_trait_event_fields, stale_entity_rebind_subs,
 };
@@ -605,32 +605,8 @@ pub(crate) fn apply_overrides_to_trait(
             .filter(|(_, v)| !orbital_core_base::schema::contains_callsite_payload(v))
             .map(|(k, v)| (k.clone(), v.clone()))
             .collect();
-        let cfg = &subst_config;
-        {
-            for p in trait_def.propositions_mut() {
-                rewrite_config_bindings(p, cfg);
-            }
-            for transition in trait_def.state_machine.transitions.iter_mut() {
-                if let Some(guard) = transition.guard.as_mut() {
-                    rewrite_config_bindings(guard, cfg);
-                }
-                if let Some(effects) = transition.effects.as_mut() {
-                    for effect in effects.iter_mut() {
-                        rewrite_config_bindings(effect, cfg);
-                    }
-                }
-            }
-            if let Some(ticks) = trait_def.ticks.as_mut() {
-                for tick in ticks.iter_mut() {
-                    if let Some(guard) = tick.guard.as_mut() {
-                        rewrite_config_bindings(guard, cfg);
-                    }
-                    for effect in tick.effects.iter_mut() {
-                        rewrite_config_bindings(effect, cfg);
-                    }
-                }
-            }
-        }
+        let declared = crate::phases::inline::rewrite::declared_list_types(trait_def.config.as_ref(), &subst_config);
+        crate::phases::inline::rewrite::rewrite_trait_config_bindings(trait_def, &subst_config, &declared);
     }
 }
 
