@@ -2758,6 +2758,14 @@ pub fn compose_app_from_files(
     if !egress.is_empty() {
         schema["egress"] = Value::Array(egress);
     }
+    let program_grants = files
+        .iter()
+        .filter(|f| is_schema(f))
+        .filter_map(|f| f.get("osGrants"))
+        .fold(schema.get("osGrants").cloned(), |acc: Option<Value>, g| Some(union_os_grants(acc.as_ref(), Some(g))));
+    if let Some(grants) = program_grants {
+        schema["osGrants"] = grants;
+    }
     let mut out = Map::new();
     out.insert("schema".to_string(), schema);
     out.insert(
@@ -2812,6 +2820,7 @@ pub fn compose_programs(
     app_name: &str,
     layout: Option<&str>,
     theme: Option<&str>,
+    overrides: Option<&Value>,
     now: &str,
     load_source: &dyn Fn(&str) -> Result<Value, String>,
 ) -> Result<Value, String> {
@@ -2898,7 +2907,82 @@ pub fn compose_programs(
     if let Some(theme) = theme {
         schema["theme"] = Value::String(theme.to_string());
     }
+    if let Some(overrides) = overrides {
+        apply_compose_overrides(&mut schema, overrides)?;
+    }
+    refuse_ungranted_os_calls(&schema)?;
     Ok(schema)
+}
+
+/// The composing caller's explicit overrides: `"<Trait>.<knob>": value` sets that composed trait's knob default (the
+/// value of the knob's own kind), and `grants` (an `osGrants` object) is unioned into the program's grants. Both land in
+/// the program itself, so they are visible in it; a key naming no trait or no knob of it is refused, as is a trait name
+/// more than one orbital uses.
+pub fn apply_compose_overrides(schema: &mut Value, overrides: &Value) -> Result<(), String> {
+    let Some(entries) = overrides.as_object() else {
+        return Err("overrides must be an object".to_string());
+    };
+    for (key, value) in entries {
+        if key == "grants" {
+            if !value.is_object() {
+                return Err("overrides.grants must be an osGrants object".to_string());
+            }
+            schema["osGrants"] = union_os_grants(schema.get("osGrants"), Some(value));
+            continue;
+        }
+        let Some((trait_name, knob)) = key.split_once('.').filter(|(t, k)| !t.is_empty() && !k.is_empty() && !k.contains('.')) else {
+            return Err(format!("override \"{key}\" is not <Trait>.<knob> or grants"));
+        };
+        let mut found: Vec<&mut Value> = Vec::new();
+        for orbital in schema.get_mut("orbitals").and_then(Value::as_array_mut).into_iter().flatten() {
+            for t in orbital.get_mut("traits").and_then(Value::as_array_mut).into_iter().flatten() {
+                if str_of(t, "name") == Some(trait_name) {
+                    found.push(t);
+                }
+            }
+        }
+        let t = match found.len() {
+            0 => return Err(format!("override \"{key}\" names no trait {trait_name} in the composed program")),
+            1 => found.pop().expect("one trait"),
+            n => return Err(format!("override \"{key}\" is ambiguous: {n} traits are named {trait_name}")),
+        };
+        let Some(field) = t.get_mut("config").and_then(|c| c.get_mut(knob)).filter(|f| f.is_object()) else {
+            return Err(format!("override \"{key}\" names no knob {knob} of trait {trait_name}"));
+        };
+        let kind = |v: &Value| match v {
+            Value::Null => "null",
+            Value::Bool(_) => "boolean",
+            Value::Number(_) => "number",
+            Value::String(_) => "string",
+            Value::Array(_) => "array",
+            Value::Object(_) => "object",
+        };
+        if let Some(current) = field.get("default").filter(|d| !d.is_null()) {
+            if kind(current) != kind(value) {
+                return Err(format!("override \"{key}\" is a {}, the knob holds a {}", kind(value), kind(current)));
+            }
+        }
+        field["default"] = value.clone();
+    }
+    Ok(())
+}
+
+/// A composed program is checked for grants as an authored one is: an `os/` call its grants do not cover is refused here,
+/// not at the first ask of a booted server.
+fn refuse_ungranted_os_calls(schema: &Value) -> Result<(), String> {
+    let parsed: orbital_core_base::schema::OrbitalSchema =
+        serde_json::from_value(schema.clone()).map_err(|e| format!("the composed program does not parse: {e}"))?;
+    let result = crate::phases::validation::effect::validate_os_grants(&parsed);
+    let refused: Vec<String> = result
+        .errors
+        .iter()
+        .map(|e| format!("{} at {}: {}", e.code.as_str(), e.path, e.message))
+        .collect();
+    if refused.is_empty() {
+        Ok(())
+    } else {
+        Err(format!("the composed program's os calls are not granted:\n- {}", refused.join("\n- ")))
+    }
 }
 
 #[cfg(test)]
@@ -3103,5 +3187,83 @@ mod tests {
                 "net": [{ "host": { "anchor": { "env": "HOST" } }, "port": { "anchor": { "env": "PORT" } }, "kinds": ["listen"] }] } })
         );
         assert!(union_os_grants(Some(&json!({ "exec": ["git"] })), None).get("anchored").is_none(), "control: no anchored key without anchored entries");
+    }
+
+    fn composable(name: &str, orbital: &str, grants: Option<Value>, effect: Option<Value>, config: Option<Value>) -> Value {
+        let mut t = json!({
+            "name": format!("{orbital}Trait"), "linkedEntity": format!("{orbital}Row"),
+            "stateMachine": { "states": [{ "name": "idle", "isInitial": true }], "events": [{ "key": "GO", "name": "GO" }],
+                "transitions": [{ "from": "idle", "to": "idle", "event": "GO", "effects": effect.into_iter().collect::<Vec<_>>() }] }
+        });
+        if let Some(c) = config {
+            t["config"] = c;
+        }
+        let mut p = json!({
+            "name": name, "version": "1.0.0",
+            "orbitals": [{ "name": orbital, "entity": { "name": format!("{orbital}Row"), "persistence": "runtime", "fields": [{ "name": "id", "type": "string" }] },
+                "traits": [t], "pages": [{ "name": format!("{orbital}Page"), "path": format!("/{}", orbital.to_lowercase()), "traits": [{ "ref": format!("{orbital}Trait") }] }] }]
+        });
+        if let Some(g) = grants {
+            p["osGrants"] = g;
+        }
+        p
+    }
+
+    fn compose(programs: &[Value], overrides: Option<&Value>) -> Result<Value, String> {
+        compose_programs(programs, "served", None, None, overrides, "2026-10-21T00:00:00.000Z", &|from: &str| Err(format!("no source {from}")))
+    }
+
+    fn getenv(name: &str) -> Value {
+        json!(["os/getenv", name, { "emit": { "success": "GO", "failure": "GO" } }])
+    }
+
+    #[test]
+    fn composing_keeps_each_programs_top_level_grants() {
+        let server = composable("server", "Http", Some(json!({ "env": ["NODE_ENV"] })), Some(getenv("NODE_ENV")), None);
+        let app = composable("app", "Notes", None, None, None);
+        let composed = compose(&[app, server], None).unwrap();
+        assert_eq!(composed["osGrants"]["env"], json!(["NODE_ENV"]), "the server's env grant survives: {}", composed["osGrants"]);
+    }
+
+    #[test]
+    fn control_programs_declaring_no_grants_compose_to_none() {
+        let composed = compose(&[composable("app", "Notes", None, None, None), composable("other", "Desk", None, None, None)], None).unwrap();
+        assert!(composed.get("osGrants").is_none(), "{}", composed["osGrants"]);
+    }
+
+    #[test]
+    fn a_composed_os_call_no_grant_covers_is_refused_at_compose() {
+        let error = compose(&[composable("app", "Notes", None, Some(getenv("SECRET")), None)], None).unwrap_err();
+        assert!(error.contains("ORB_OS_GRANT_MISSING"), "{error}");
+    }
+
+    fn knobbed() -> Value {
+        composable("server", "Http", None, None, Some(json!({ "port": { "type": "number", "default": 3000 } })))
+    }
+
+    #[test]
+    fn an_override_reaches_the_knob_and_its_grant() {
+        let overrides = json!({ "HttpTrait.port": 4100, "grants": { "net": [{ "target": "127.0.0.1:4100", "kinds": ["listen"] }] } });
+        let composed = compose(&[knobbed()], Some(&overrides)).unwrap();
+        let t = &composed["orbitals"][0]["traits"][0];
+        assert_eq!(t["config"]["port"]["default"], json!(4100), "{t}");
+        assert_eq!(composed["osGrants"]["net"], json!([{ "target": "127.0.0.1:4100", "kinds": ["listen"] }]));
+        let plain = compose(&[knobbed()], None).unwrap();
+        assert_eq!(plain["orbitals"][0]["traits"][0]["config"]["port"]["default"], json!(3000), "control: no overrides keeps the default");
+        assert!(plain.get("osGrants").is_none(), "control: and widens no grant");
+    }
+
+    #[test]
+    fn an_override_naming_an_unknown_knob_or_trait_or_kind_is_refused() {
+        for (overrides, expect) in [
+            (json!({ "HttpTrait.prot": 1 }), "names no knob prot"),
+            (json!({ "Nope.port": 1 }), "names no trait Nope"),
+            (json!({ "HttpTrait.port": "4100" }), "is a string, the knob holds a number"),
+            (json!({ "port": 1 }), "is not <Trait>.<knob>"),
+            (json!({ "grants": ["127.0.0.1:1"] }), "osGrants object"),
+        ] {
+            let error = compose(&[knobbed()], Some(&overrides)).unwrap_err();
+            assert!(error.contains(expect), "{overrides}: {error}");
+        }
     }
 }

@@ -104,8 +104,8 @@ fn recorded_type(name: Option<String>, ty: OirType, aliases: &Aliases) -> String
     serde_json::to_string(&shape).unwrap_or_default()
 }
 
-/// `expr` with every `json/parse` whose shape names a program alias given that alias's recorded type, so the kernel
-/// checks the parsed value against it.
+/// `expr` with every `json/parse` whose shape names a program alias given that alias's recorded type, and every
+/// `typed` declaration given the program types it names, so the kernel checks the value against them.
 fn record_parse_shapes(expr: &SExpression, aliases: &Aliases) -> SExpression {
     match expr {
         SExpression::Object(fields) => {
@@ -121,6 +121,12 @@ fn record_parse_shapes(expr: &SExpression, aliases: &Aliases) -> SExpression {
             if let [SExpression::String(head), _, SExpression::String(shape)] = out.as_slice() {
                 if head == "json/parse" {
                     if let Some(declared) = DeclaredShape::of_alias(shape, aliases) {
+                        out[2] = SExpression::String(recorded_type(declared.name, declared.ty, aliases));
+                    }
+                } else if head == "typed" {
+                    // A knob's `typed` value (inline `declared_list_types`) records its type before the orbital's
+                    // aliases are in reach; the types it names are added here.
+                    if let Some(declared) = DeclaredShape::parse(shape).filter(|d| d.named.is_empty()) {
                         out[2] = SExpression::String(recorded_type(declared.name, declared.ty, aliases));
                     }
                 }
@@ -391,6 +397,76 @@ mod tests {
         let names = json!({ "name": "via", "type": "[string]" });
         let effect = json!(["set", "@entity.count", ["array/len", "@payload.via"]]);
         let mut schema = program(names, effect.clone());
+        record_declared_list_types(&mut schema);
+        assert_eq!(effect_of(&schema), effect);
+    }
+
+    fn with_tx_types(mut schema: OrbitalSchema) -> OrbitalSchema {
+        schema.orbitals[0].types = Some(
+            serde_json::from_value(json!({
+                "Expr": [{ "name": "", "type": "union", "properties": [
+                    { "name": "string", "type": "string" },
+                    { "name": "number", "type": "number" },
+                    { "name": "array", "type": "[Expr]" },
+                    { "name": "object", "type": "Map<string,Expr>" }
+                ] }],
+                "Tx": [
+                    { "name": "event", "type": "string" },
+                    { "name": "names", "type": "[string]" },
+                    { "name": "effects", "type": "[Expr]" }
+                ]
+            }))
+            .expect("aliases"),
+        );
+        schema
+    }
+
+    fn typed_around(expr: &serde_json::Value, value: &serde_json::Value) -> Option<OirType> {
+        let items = expr.as_array()?;
+        if items.len() == 3 && items[0] == "typed" && &items[1] == value {
+            return DeclaredShape::parse(items[2].as_str()?).map(|d| d.ty);
+        }
+        items.iter().find_map(|item| typed_around(item, value))
+    }
+
+    fn tx_effect(effect: serde_json::Value) -> serde_json::Value {
+        let txs = json!({ "name": "via", "type": "[Tx]" });
+        let mut schema = with_tx_types(program(txs, effect));
+        record_declared_list_types(&mut schema);
+        effect_of(&schema)
+    }
+
+    #[test]
+    fn a_field_of_an_alias_element_bound_by_a_lambda_records_its_declared_list() {
+        let effect = tx_effect(json!(["set", "@entity.count", ["array/len", ["array/flatten",
+            ["array/map", "@payload.via", ["fn", "t", ["array/filter", ["object/get", "@t", "effects", []], ["fn", "e", true]]]]]]]));
+        let declared = typed_around(&effect, &json!(["object/get", "@t", "effects", []]))
+            .unwrap_or_else(|| panic!("the lambda's element is a Tx: {effect}"));
+        assert!(needs_declaration(&declared), "{declared:?}");
+    }
+
+    #[test]
+    fn a_field_of_an_alias_element_returned_by_an_operator_records_its_declared_list() {
+        let effect = tx_effect(json!(["set", "@entity.count",
+            ["array/len", ["object/get", ["array/first", "@payload.via"], "effects", []]]]));
+        let declared = typed_around(&effect, &json!(["object/get", ["array/first", "@payload.via"], "effects", []]))
+            .unwrap_or_else(|| panic!("array/first's result is a Tx: {effect}"));
+        assert!(needs_declaration(&declared), "{declared:?}");
+    }
+
+    #[test]
+    fn control_a_field_of_one_kind_on_an_alias_element_is_left_as_written() {
+        let effect = json!(["set", "@entity.count", ["array/len", ["array/flatten",
+            ["array/map", "@payload.via", ["fn", "t", ["object/get", "@t", "names", []]]]]]]);
+        assert_eq!(tx_effect(effect.clone()), effect);
+    }
+
+    #[test]
+    fn control_a_list_of_entity_rows_read_through_a_lambda_is_left_as_written() {
+        let rows = json!({ "name": "via", "type": "[Probe]" });
+        let effect = json!(["set", "@entity.count", ["array/len",
+            ["array/filter", "@payload.via", ["fn", "r", ["=", ["object/get", "@r", "count"], 1.0]]]]]);
+        let mut schema = program(rows, effect.clone());
         record_declared_list_types(&mut schema);
         assert_eq!(effect_of(&schema), effect);
     }

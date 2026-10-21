@@ -3173,6 +3173,66 @@ mod literal_list_tests {
         let effect = serde_json::to_value(first_effect(&t)).unwrap();
         assert_eq!(effect[2]["items"][0], "list", "{effect}");
     }
+
+    /// `array/len` of a `[Cell]` knob (`type Cell = string | [Cell]`, the orbital's own recursive union) after
+    /// inline and resolve, evaluated by the kernel.
+    fn recursive_union_knob_len(default: serde_json::Value) -> Result<orbital_core_base::value::Value, String> {
+        let mut schema: orbital_core_base::schema::OrbitalSchema = serde_json::from_value(serde_json::json!({
+            "name": "probe",
+            "orbitals": [{
+                "name": "ProbeOrbital",
+                "types": { "Cell": [{ "name": "", "type": "union", "properties": [
+                    { "name": "string", "type": "string" },
+                    { "name": "array", "type": "[Cell]" }
+                ] }] },
+                "entity": { "name": "Probe", "persistence": "runtime", "fields": [
+                    { "name": "id", "type": "string", "required": true },
+                    { "name": "n", "type": "number" }
+                ] },
+                "traits": [{
+                    "name": "Prober",
+                    "linkedEntity": "Probe",
+                    "config": { "items": {
+                        "type": "[Cell]",
+                        "default": default,
+                        "items": { "type": "union", "values": ["string", "array"], "properties": {
+                            "string": { "name": "string", "type": "string" },
+                            "array": { "name": "array", "type": "array", "items": { "type": "union", "values": ["Cell"] } }
+                        } }
+                    } },
+                    "stateMachine": {
+                        "states": [{ "name": "idle", "isInitial": true }],
+                        "transitions": [{ "from": "idle", "to": "idle", "event": "RUN",
+                            "effects": [["set", "@entity.n", ["array/len", "@config.items"]]] }]
+                    }
+                }],
+                "pages": []
+            }]
+        }))
+        .expect("probe program");
+        let TraitReference::Inline(t) = &mut schema.orbitals[0].traits[0] else { panic!("inline trait") };
+        apply_inline_config_defaults(t, &mut Vec::new());
+        crate::phases::validation::effect::record_declared_list_types(&mut schema);
+        let TraitReference::Inline(t) = &schema.orbitals[0].traits[0] else { panic!("inline trait") };
+        let effect = first_effect(t);
+        let SExpression::Array(parts) = &effect else { panic!("set effect: {effect:?}") };
+        orbital_core_eval::evaluator::Evaluator::new()
+            .evaluate(&parts[2], &orbital_core_eval::evaluator::context::BindingContext::new())
+            .map_err(|e| e.to_string())
+    }
+
+    #[test]
+    fn a_recursive_union_knob_list_is_checked_element_by_element() {
+        assert_eq!(
+            recursive_union_knob_len(serde_json::json!(["a", ["b", ["c"]], "d"])),
+            Ok(orbital_core_base::value::Value::Number(3.0))
+        );
+    }
+
+    #[test]
+    fn control_a_recursive_union_knob_list_refuses_an_element_outside_the_union() {
+        assert!(recursive_union_knob_len(serde_json::json!(["a", ["b", 1]])).is_err());
+    }
 }
 
 #[cfg(test)]

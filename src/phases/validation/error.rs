@@ -1462,6 +1462,9 @@ pub enum ErrorCode {
     /// Inline's event-id hygiene derives per-instance ids at expansion, so this
     /// fires only on an artifact produced outside that path.
     OrbIdDuplicateEventId,
+    /// A ledger-less `.orb` carries an authored declaration id that loading
+    /// re-mints (`stamp::ensure_stamped`). Warning severity.
+    OrbIdAuthoredWithoutLedger,
 
     // =========================================================================
     // Behavior Package Errors (ORB_BEHAVIOR_*)
@@ -1946,6 +1949,7 @@ impl ErrorCode {
             ErrorCode::OrbIdKindMismatch => "ORB_ID_KIND_MISMATCH",
             ErrorCode::OrbIdLedgerOrphan => "ORB_ID_LEDGER_ORPHAN",
             ErrorCode::OrbIdDuplicateEventId => "ORB_ID_DUPLICATE_EVENT_ID",
+            ErrorCode::OrbIdAuthoredWithoutLedger => "ORB_ID_AUTHORED_WITHOUT_LEDGER",
 
             // Behavior Package
             ErrorCode::BehaviorPackageNotInstalled => "ORB_BEHAVIOR_PACKAGE_NOT_INSTALLED",
@@ -2365,7 +2369,8 @@ impl ErrorCode {
             | ErrorCode::OrbIdNameMismatch
             | ErrorCode::OrbIdKindMismatch
             | ErrorCode::OrbIdLedgerOrphan
-            | ErrorCode::OrbIdDuplicateEventId => "identity",
+            | ErrorCode::OrbIdDuplicateEventId
+            | ErrorCode::OrbIdAuthoredWithoutLedger => "identity",
 
             ErrorCode::BehaviorPackageNotInstalled
             | ErrorCode::BehaviorNotFound
