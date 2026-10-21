@@ -4513,6 +4513,7 @@ mod tests {
 
     fn schema_of(orbital: Orbital) -> OrbitalSchema {
         OrbitalSchema {
+            store: None,
             theme_definitions: None,
             themes: None,
             site: None,

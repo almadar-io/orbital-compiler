@@ -700,6 +700,129 @@ pub(super) fn check_comparison(
     }
 }
 
+/// The whole `@user` record filling a required slot with no guard on its presence. A dispatch with no viewer (an os/
+/// completion, a tick) runs with a null `@user`, so `viewer : Viewer!` <- `@user` is decidably able to miss.
+pub fn validate_user_into_required_slot(schema: &OrbitalSchema, ctx: &mut ValidationContext) {
+    let entities: Vec<&EntityDefinition> = schema
+        .orbitals
+        .iter()
+        .flat_map(|o| {
+            o.entity
+                .as_inline()
+                .into_iter()
+                .chain(o.auxiliary_entities.iter().flatten().filter_map(EntityRef::as_inline))
+        })
+        .collect();
+    let mut result = ValidationResult::new();
+    for (oi, orbital) in schema.orbitals.iter().enumerate() {
+        for (ti, trait_ref) in orbital.traits.iter().enumerate() {
+            let TraitReference::Inline(td) = trait_ref else { continue };
+            let emits = td.emits.as_deref().unwrap_or(&[]);
+            for (xi, tr) in td.state_machine.transitions.iter().enumerate() {
+                let guarded = tr.guard.as_ref().is_some_and(proves_user);
+                let path = format!("orbitals[{oi}].traits[{ti}].stateMachine.transitions[{xi}]");
+                let scope = SlotScope { emits, entities: &entities, path: &path };
+                for effect in tr.effects.as_deref().unwrap_or(&[]) {
+                    walk_user_slots(effect, guarded, &scope, &mut result);
+                }
+            }
+        }
+    }
+    ctx.result.merge(result);
+}
+
+struct SlotScope<'a> {
+    emits: &'a [orbital_core_base::schema::EmitDefinition],
+    entities: &'a [&'a EntityDefinition],
+    path: &'a str,
+}
+
+fn is_user(e: &orbital_core_base::schema::SExpression) -> bool {
+    matches!(e, orbital_core_base::schema::SExpression::String(s) if s == "@user")
+}
+
+/// `(!= @user null)` (either order), `(not (= @user null))`, or an `and` with one of them.
+fn proves_user(e: &orbital_core_base::schema::SExpression) -> bool {
+    use orbital_core_base::schema::SExpression as X;
+    let X::Array(items) = e else { return false };
+    let Some(X::String(op)) = items.first() else { return false };
+    let null_pair = |a: Option<&X>, b: Option<&X>| match (a, b) {
+        (Some(a), Some(b)) => (is_user(a) && matches!(b, X::Null)) || (is_user(b) && matches!(a, X::Null)),
+        _ => false,
+    };
+    match op.as_str() {
+        "!=" => items.len() == 3 && null_pair(items.get(1), items.get(2)),
+        "not" => matches!(items.get(1), Some(X::Array(inner))
+            if inner.len() == 3 && matches!(inner.first(), Some(X::String(o)) if o == "=") && null_pair(inner.get(1), inner.get(2))),
+        "and" => items[1..].iter().any(proves_user),
+        _ => false,
+    }
+}
+
+fn walk_user_slots(
+    e: &orbital_core_base::schema::SExpression,
+    guarded: bool,
+    scope: &SlotScope<'_>,
+    result: &mut ValidationResult,
+) {
+    use orbital_core_base::schema::SExpression as X;
+    let X::Array(items) = e else {
+        if let X::Object(obj) = e {
+            obj.values().for_each(|v| walk_user_slots(v, guarded, scope, result));
+        }
+        return;
+    };
+    let op = match items.first() {
+        Some(X::String(op)) => op.as_str(),
+        _ => "",
+    };
+    if op == "if" && items.len() >= 3 {
+        walk_user_slots(&items[2], guarded || proves_user(&items[1]), scope, result);
+        items[3..].iter().for_each(|i| walk_user_slots(i, guarded, scope, result));
+        return;
+    }
+    if !guarded {
+        let mut report = |slot: String| {
+            result.add_error(
+                ValidationError::error(
+                    ErrorCode::UserIntoRequiredSlot,
+                    scope.path,
+                    format!("{slot} is required but is filled with the whole `@user`, which is null when no viewer is signed in"),
+                )
+                .with_suggestion(
+                    "Guard the transition on `(!= @user null)`, or build the viewer explicitly (e.g. `(or @user { id: \"anonymous\", role: \"anonymous\", permissions: [] })`)",
+                ),
+            );
+        };
+        match (op, items.get(1), items.get(2), items.get(3)) {
+            ("emit", Some(X::String(event)), Some(X::Object(payload)), _) => {
+                if let Some(decl) = scope.emits.iter().find(|d| &d.event == event) {
+                    for f in decl.payload_schema.as_deref().unwrap_or(&[]) {
+                        if f.required == Some(true) && payload.get(&f.name).is_some_and(is_user) {
+                            report(format!("Emit '{event}' payload field '{}'", f.name));
+                        }
+                    }
+                }
+            }
+            ("persist", Some(X::String(action)), Some(X::String(entity)), Some(X::Object(data)))
+                if action == "create" || action == "update" || action == "upsert" =>
+            {
+                if let Some(def) = scope.entities.iter().find(|d| &d.name == entity) {
+                    for f in def.fields.iter().filter(|f| f.required == Some(true)) {
+                        if let Some(name) = f.name.as_deref() {
+                            if data.get(name).is_some_and(is_user) {
+                                report(format!("Entity '{entity}' field '{name}'"));
+                            }
+                        }
+                    }
+                }
+            }
+            _ => {}
+        }
+    }
+    items.iter().for_each(|i| walk_user_slots(i, guarded, scope, result));
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -977,5 +1100,69 @@ mod tests {
         let viewer_only = names(&reading("@user.id", None, None));
         assert!(viewer_only.contains(&"email".to_string()), "{viewer_only:?}");
         assert!(!viewer_only.contains(&"teamId".to_string()), "control: {viewer_only:?}");
+    }
+
+    fn user_slot_errors(guard: serde_json::Value, effect: serde_json::Value, required: bool) -> usize {
+        let schema: OrbitalSchema = serde_json::from_value(serde_json::json!({
+            "name": "app",
+            "orbitals": [{
+                "name": "TicketOrbital",
+                "entity": {
+                    "name": "Ticket",
+                    "persistence": "persistent",
+                    "fields": [
+                        { "name": "id", "type": "string", "required": true },
+                        { "name": "holder", "type": "string", "required": required }
+                    ]
+                },
+                "traits": [{
+                    "name": "Router",
+                    "emits": [{ "event": "MINT", "payloadSchema": [{ "name": "viewer", "type": "Viewer", "required": required }] }],
+                    "stateMachine": {
+                        "states": [{ "name": "idle", "isInitial": true }],
+                        "transitions": [{ "from": "idle", "to": "idle", "event": "GO", "guard": guard, "effects": [effect] }]
+                    }
+                }]
+            }]
+        }))
+        .expect("schema fixture must deserialize");
+        let mut ctx = ValidationContext::new();
+        validate_user_into_required_slot(&schema, &mut ctx);
+        ctx.result.errors.iter().filter(|e| e.code == ErrorCode::UserIntoRequiredSlot).count()
+    }
+
+    #[test]
+    fn the_whole_user_in_a_required_emit_slot_is_an_error() {
+        let emit = serde_json::json!(["emit", "MINT", { "viewer": "@user" }]);
+        assert_eq!(user_slot_errors(serde_json::Value::Null, emit.clone(), true), 1);
+        assert_eq!(user_slot_errors(serde_json::Value::Null, emit, false), 0, "control: an optional slot takes it");
+    }
+
+    #[test]
+    fn the_whole_user_in_a_required_entity_field_is_an_error() {
+        let persist = serde_json::json!(["persist", "create", "Ticket", { "holder": "@user" }]);
+        assert_eq!(user_slot_errors(serde_json::Value::Null, persist.clone(), true), 1);
+        assert_eq!(user_slot_errors(serde_json::Value::Null, persist, false), 0);
+    }
+
+    #[test]
+    fn a_presence_guard_or_a_default_clears_it() {
+        let emit = serde_json::json!(["emit", "MINT", { "viewer": "@user" }]);
+        assert_eq!(user_slot_errors(serde_json::json!(["!=", "@user", null]), emit.clone(), true), 0);
+        assert_eq!(user_slot_errors(serde_json::json!(["and", true, ["not", ["=", null, "@user"]]]), emit.clone(), true), 0);
+        assert_eq!(user_slot_errors(serde_json::Value::Null, serde_json::json!(["if", ["!=", "@user", null], emit.clone()]), true), 0);
+        let defaulted = serde_json::json!(["emit", "MINT", { "viewer": ["or", "@user", { "id": "anonymous" }] }]);
+        assert_eq!(user_slot_errors(serde_json::Value::Null, defaulted, true), 0);
+        assert_eq!(
+            user_slot_errors(serde_json::json!(["=", "@user", null]), emit, true),
+            1,
+            "control: a guard that does not prove presence does not clear it"
+        );
+    }
+
+    #[test]
+    fn a_user_field_read_is_not_the_whole_record() {
+        let emit = serde_json::json!(["emit", "MINT", { "viewer": "@user.id" }]);
+        assert_eq!(user_slot_errors(serde_json::Value::Null, emit, true), 0);
     }
 }

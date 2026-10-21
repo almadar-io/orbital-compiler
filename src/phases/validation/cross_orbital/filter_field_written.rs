@@ -583,6 +583,7 @@ mod tests {
         fields: Vec<FieldDefinition>,
     ) -> EntityDefinition {
         EntityDefinition {
+            store: None,
             name: name.to_string(),
             id: None,
             collection: collection.map(String::from),
@@ -677,6 +678,7 @@ mod tests {
 
     fn schema_with(orbitals: Vec<Orbital>) -> OrbitalSchema {
         OrbitalSchema {
+            store: None,
             theme_definitions: None,
             themes: None,
             site: None,

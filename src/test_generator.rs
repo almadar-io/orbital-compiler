@@ -745,6 +745,7 @@ fn default_value_for_type(ty: &orbital_core_base::ir::OirType) -> &'static str {
         // never an expansion; the empty placeholder terminates immediately,
         // same posture as the other struct-ish leaves above.
         OirType::TypeRef { .. } => "{}",
+        OirType::Var { .. } => "{}",
     }
 }
 
@@ -779,6 +780,7 @@ fn rust_default_value(ty: &orbital_core_base::ir::OirType) -> &'static str {
         OirType::SExpr => "String::from(\"noop\")",
         OirType::Node => "serde_json::Value::Null",
         OirType::TypeRef { .. } => "serde_json::Value::Null",
+        OirType::Var { .. } => "serde_json::Value::Null",
     }
 }
 
@@ -812,6 +814,7 @@ fn python_default_value(ty: &orbital_core_base::ir::OirType) -> &'static str {
         OirType::SExpr => "\"noop\"",
         OirType::Node => "None",
         OirType::TypeRef { .. } => "{}",
+        OirType::Var { .. } => "{}",
     }
 }
 

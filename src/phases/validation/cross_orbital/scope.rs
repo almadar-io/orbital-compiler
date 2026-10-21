@@ -309,6 +309,7 @@ mod tests {
             theme: None,
             services: None,
             entity: EntityRef::Inline(EntityDefinition {
+                store: None,
                 shared: false,
                 identity: false,
                 local: false,
@@ -373,6 +374,7 @@ mod tests {
             theme: None,
             services: None,
             entity: EntityRef::Inline(EntityDefinition {
+                store: None,
                 shared: false,
                 identity: false,
                 local: false,
@@ -406,6 +408,7 @@ mod tests {
         };
 
         OrbitalSchema {
+            store: None,
             theme_definitions: None,
             themes: None,
             site: None,

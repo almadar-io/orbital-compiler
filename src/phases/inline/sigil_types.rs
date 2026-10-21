@@ -90,7 +90,7 @@ fn field_type_of(name: &str) -> FieldType {
         .unwrap_or(FieldType::String)
 }
 
-fn field_of(p: &PayloadField) -> FieldDefinition {
+pub(crate) fn field_of(p: &PayloadField) -> FieldDefinition {
     FieldDefinition {
         mock: None,
         merged_from: None,
@@ -100,10 +100,13 @@ fn field_of(p: &PayloadField) -> FieldDefinition {
         primary_key: None,
         unique: None,
         default: None,
-        values: None,
+        values: p.values.clone(),
         relation: None,
         items: None,
-        properties: None,
+        properties: p
+            .properties
+            .as_ref()
+            .map(|nested| keyed(nested.iter().map(field_of).collect())),
         intrinsic: None,
         description: p.description.clone(),
         synonyms: None,

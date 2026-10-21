@@ -70,6 +70,8 @@ pub enum BindingType {
     Entity(String),
     /// Resolution failed or not yet implemented. Validator skips.
     Unknown,
+    /// An unbound type variable: opaque, so only a prop that takes any value fits it.
+    Var,
 }
 
 impl BindingType {
@@ -87,6 +89,7 @@ impl BindingType {
             BindingType::TraitRef => "trait",
             BindingType::Entity(_) => "object",
             BindingType::Unknown => "unknown",
+            BindingType::Var => "var",
         }
     }
 }
@@ -428,6 +431,7 @@ fn field_type_to_binding(ft: &FieldType) -> BindingType {
         FieldType::SExpr => BindingType::Unknown,
         // Every variant is an object, so a union binds like one.
         FieldType::Union => BindingType::Object,
+        FieldType::TypeVar(_) => BindingType::Var,
     }
 }
 
@@ -464,6 +468,7 @@ fn config_field_to_binding(cf: &ConfigField) -> BindingType {
         // resolve to string (every member is a string literal). Cheap
         // heuristic: if the type contains a `"`, assume string-union.
         s if s.contains('"') => BindingType::String,
+        s if s.len() > 1 && s.starts_with('$') => BindingType::Var,
         _ => BindingType::Unknown,
     }
 }
@@ -479,6 +484,7 @@ fn field_type_str_to_binding(s: &str) -> BindingType {
         "object" | "object!" => BindingType::Object,
         "datetime" | "date" | "timestamp" => BindingType::Datetime,
         "null" => BindingType::Null,
+        s if s.len() > 1 && s.starts_with('$') => BindingType::Var,
         // Typed entity references (e.g. `Article`, `Article!`) — recorded
         // as Entity(name) so future rules can recurse into the entity's
         // fields. Strip optional `!` suffix.
@@ -726,6 +732,7 @@ mod tests {
         entities.insert(
             "Article".to_string(),
             EntityDefinition {
+                store: None,
                 shared: false,
                 identity: false,
                 local: false,
@@ -805,6 +812,7 @@ mod tests {
         entities.insert(
             "Member".to_string(),
             EntityDefinition {
+                store: None,
                 shared: false,
                 identity: true,
                 local: false,
@@ -960,6 +968,8 @@ mod tests {
         assert_eq!(BindingType::Array.registry_type(), "array");
         assert_eq!(BindingType::Object.registry_type(), "object");
         assert_eq!(BindingType::Datetime.registry_type(), "string");
+        assert_eq!(field_type_str_to_binding("$t"), BindingType::Var);
+        assert_eq!(field_type_str_to_binding("$"), BindingType::Unknown, "control: no name");
     }
 
     // Intentionally referenced to silence unused-import warnings for

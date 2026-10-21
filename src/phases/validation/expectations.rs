@@ -95,6 +95,7 @@ pub(crate) fn expected_entity_names(orbital: &Orbital) -> Vec<&str> {
 /// it unchanged. `identity: true` because it models the viewer's roster.
 pub(super) fn shape_as_identity_entity(name: &str, shape: &[FieldDefinition]) -> EntityDefinition {
     EntityDefinition {
+        store: None,
         shared: false,
         identity: true,
         local: false,

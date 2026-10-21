@@ -13,7 +13,10 @@
 //! `.orb`/codegen would otherwise carry a literal `"$<param>"` type, which is
 //! not a real type in any downstream shell.
 
-use orbital_core_base::schema::{Orbital, PayloadField, TraitDefinition, TraitReference};
+use orbital_core_base::schema::{
+    EntityRef, FieldDefinition, FieldType, Orbital, PayloadField, TraitDefinition, TraitReference,
+    TypeVarName,
+};
 
 use super::{
     error::{ErrorCode, ValidationError},
@@ -160,6 +163,55 @@ fn check_payload_field(
     }
 }
 
+/// Every type variable still in a field shape, with its path.
+fn surviving_type_vars(field: &FieldDefinition, path: &str, out: &mut Vec<(String, String)>) {
+    if let FieldType::TypeVar(TypeVarName(var)) = &field.field_type {
+        out.push((path.to_string(), var.clone()));
+        return;
+    }
+    if let Some(items) = field.items.as_deref() {
+        surviving_type_vars(items, &format!("{path}[]"), out);
+    }
+    for (name, member) in field.properties.iter().flatten() {
+        surviving_type_vars(member, &format!("{path}.{name}"), out);
+    }
+}
+
+fn report_type_vars(
+    found: Vec<(String, String)>,
+    trait_def: Option<&TraitDefinition>,
+    defer_entity_kind: bool,
+    result: &mut super::ValidationResult,
+) {
+    for (path, var) in found {
+        let kind = trait_def
+            .and_then(|t| t.type_params.as_ref())
+            .and_then(|params| params.iter().find(|p| p.name == var))
+            .map(|p| p.kind.as_str());
+        if defer_entity_kind && kind == Some("Entity") {
+            continue;
+        }
+        let (reason, guidance) = match kind {
+            Some("Entity") => (
+                format!("'{path}' has the unbound type variable '{var}' — Entity-kind parameter '{var}' has no `linkedEntity` to bind it"),
+                ENTITY_GUIDANCE,
+            ),
+            Some(_) => (
+                format!("'{path}' has the unbound type variable '{var}' — parameter '{var}' was not supplied a `:: {var} <arg>` call-site argument"),
+                TYPE_GUIDANCE,
+            ),
+            None => (
+                format!("'{path}' has the unbound type variable '{var}' — no trait parameter of that name binds it"),
+                GENERIC_GUIDANCE,
+            ),
+        };
+        result.add_error(
+            ValidationError::error(ErrorCode::UnresolvedTypeParam, &path, reason)
+                .with_suggestion(guidance.to_string()),
+        );
+    }
+}
+
 /// Walk every inlined trait's `emits[].payloadSchema`,
 /// `stateMachine.events[].payloadSchema` AND `config[]` for a surviving
 /// sentinel. Blocking — see module docs.
@@ -177,6 +229,17 @@ pub fn validate_type_param_sentinels(
     let mut result = super::ValidationResult::new();
 
     for (i, orbital) in schema.orbitals.iter().enumerate() {
+        let entities = std::iter::once(&orbital.entity).chain(orbital.auxiliary_entities.iter().flatten());
+        for entity in entities {
+            if let EntityRef::Inline(def) = entity {
+                let mut found = Vec::new();
+                for field in &def.fields {
+                    let name = field.name.as_deref().unwrap_or_default();
+                    surviving_type_vars(field, &format!("orbitals[{i}].entity.{}.{name}", def.name), &mut found);
+                }
+                report_type_vars(found, None, false, &mut result);
+            }
+        }
         for (j, trait_ref) in orbital.traits.iter().enumerate() {
             let trait_def = match trait_ref {
                 TraitReference::Inline(trait_def) => trait_def,
@@ -205,6 +268,23 @@ pub fn validate_type_param_sentinels(
                 }
             }
             if let Some(config) = &trait_def.config {
+                let mut found = Vec::new();
+                for (knob, field) in config {
+                    let knob_path = format!("{trait_path}.config.{knob}");
+                    if let Some(items) = field.items.as_deref() {
+                        surviving_type_vars(items, &format!("{knob_path}[]"), &mut found);
+                    }
+                    for (name, member) in field.properties.iter().flatten() {
+                        surviving_type_vars(member, &format!("{knob_path}.{name}"), &mut found);
+                    }
+                }
+                for (knob, field) in config {
+                    let ft = field.field_type.as_str();
+                    if ft.starts_with('$') || (ft.starts_with("[$") && ft.ends_with(']')) {
+                        found.push((format!("{trait_path}.config.{knob}"), sentinel_param_name(ft).to_string()));
+                    }
+                }
+                report_type_vars(found, Some(trait_def), deferred, &mut result);
                 for (knob, field) in config {
                     if deferred
                         && (field.field_type == "@entity" || field.field_type == "[@entity]")
@@ -230,4 +310,76 @@ pub fn validate_type_param_sentinels(
     }
 
     ctx.merge(result);
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::json;
+
+    fn sweep(entity_field: serde_json::Value, config_items: serde_json::Value) -> Vec<String> {
+        let schema: orbital_core_base::schema::OrbitalSchema = serde_json::from_value(json!({
+            "name": "fixture",
+            "orbitals": [{
+                "name": "O",
+                "entity": { "name": "Item", "persistence": "persistent", "collection": "items",
+                            "fields": [ { "name": "id", "type": "string" }, entity_field ] },
+                "traits": [{
+                    "name": "T", "linkedEntity": "Item", "category": "interaction",
+                    "typeParams": [ { "name": "v", "kind": "Type" } ],
+                    "config": { "rows": { "type": "[Row]", "items": config_items } },
+                    "stateMachine": { "states": [ { "name": "idle", "isInitial": true } ], "transitions": [] }
+                }]
+            }]
+        }))
+        .expect("fixture");
+        let mut ctx = ValidationContext::new();
+        validate_type_param_sentinels(&schema, &mut ctx);
+        ctx.result.errors.iter().map(|e| format!("{} {}", e.code.as_str(), e.message)).collect()
+    }
+
+    #[test]
+    fn an_unbound_config_knob_sentinel_is_unresolved() {
+        let schema = |args: serde_json::Value, linked: serde_json::Value| -> orbital_core_base::schema::OrbitalSchema {
+            serde_json::from_value(json!({
+                "name": "fixture",
+                "orbitals": [{
+                    "name": "O",
+                    "entity": { "name": "Item", "persistence": "persistent", "collection": "items",
+                                "fields": [ { "name": "id", "type": "string" } ] },
+                    "traits": [{
+                        "name": "T", "linkedEntity": linked, "category": "interaction",
+                        "typeParams": [ { "name": "v", "kind": "Type" } ],
+                        "typeArgs": args,
+                        "config": { "result": { "type": "$v" }, "results": { "type": "[$v]" }, "plain": { "type": "string" } },
+                        "stateMachine": { "states": [ { "name": "idle", "isInitial": true } ], "transitions": [] }
+                    }]
+                }]
+            }))
+            .expect("fixture")
+        };
+        let mut ctx = ValidationContext::new();
+        validate_type_param_sentinels(&schema(json!(null), json!("Item")), &mut ctx);
+        let errors: Vec<String> = ctx.result.errors.iter().map(|e| format!("{} {}", e.code.as_str(), e.message)).collect();
+        assert_eq!(errors.len(), 2, "{errors:?}");
+        assert!(errors.iter().all(|e| e.starts_with("ORB_T_UNRESOLVED_TYPE_PARAM") && e.contains("call-site argument")));
+        assert!(errors.iter().any(|e| e.contains("config.results")));
+    }
+
+    #[test]
+    fn an_unbound_type_variable_in_a_field_shape_is_unresolved() {
+        let errors = sweep(
+            json!({ "name": "box", "type": "object", "properties": { "v": { "name": "v", "type": "$t" } } }),
+            json!({ "type": "object", "properties": { "value": { "name": "value", "type": "$v" } } }),
+        );
+        assert_eq!(errors.len(), 2, "{errors:?}");
+        assert!(errors.iter().all(|e| e.starts_with("ORB_T_UNRESOLVED_TYPE_PARAM")));
+        assert!(errors.iter().any(|e| e.contains("Item.box.v") && e.contains("'t'")));
+        assert!(errors.iter().any(|e| e.contains("config.rows[].value") && e.contains("call-site argument")));
+        let clean = sweep(
+            json!({ "name": "box", "type": "object", "properties": { "v": { "name": "v", "type": "number" } } }),
+            json!({ "type": "object", "properties": { "value": { "name": "value", "type": "string" } } }),
+        );
+        assert!(clean.is_empty(), "control: bound shapes are clean: {clean:?}");
+    }
 }

@@ -110,6 +110,7 @@ fn metric_spec_items() -> FieldDefinition {
 
 fn schema_with_config(config: HashMap<String, ConfigField>) -> OrbitalSchema {
     let entity = EntityDefinition {
+        store: None,
         shared: false,
         identity: false,
         local: false,
@@ -191,6 +192,7 @@ fn schema_with_config(config: HashMap<String, ConfigField>) -> OrbitalSchema {
         trait_embed_ids: None,
     };
     OrbitalSchema {
+        store: None,
         theme_definitions: None,
         themes: None,
         site: None,

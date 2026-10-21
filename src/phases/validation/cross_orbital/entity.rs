@@ -75,6 +75,7 @@ mod tests {
 
     fn create_minimal_schema() -> OrbitalSchema {
         OrbitalSchema {
+            store: None,
             theme_definitions: None,
             themes: None,
             site: None,
@@ -94,6 +95,7 @@ mod tests {
                 theme: None,
                 services: None,
                 entity: EntityRef::Inline(EntityDefinition {
+                    store: None,
                     shared: false,
                     identity: false,
                     local: false,
@@ -155,6 +157,7 @@ mod tests {
             theme: None,
             services: None,
             entity: EntityRef::Inline(EntityDefinition {
+                store: None,
                 shared: false,
                 identity: false,
                 local: false,

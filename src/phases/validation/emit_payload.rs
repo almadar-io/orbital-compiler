@@ -1292,4 +1292,11 @@ mod tests {
             "else-branch event must not warn as declared-but-unfired"
         );
     }
+
+    #[test]
+    fn a_record_literal_fills_a_program_type_slot_and_a_scalar_does_not() {
+        assert!(primitive_types_compatible("Viewer", "object"));
+        assert!(!primitive_types_compatible("Viewer", "number"));
+        assert!(!primitive_types_compatible("Viewer", "string"));
+    }
 }

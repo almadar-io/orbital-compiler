@@ -573,6 +573,7 @@ mod tests {
 
     fn create_minimal_schema() -> OrbitalSchema {
         OrbitalSchema {
+            store: None,
             theme_definitions: None,
             themes: None,
             site: None,
@@ -604,6 +605,7 @@ mod tests {
     fn expects_vs_provider_schema(consumer_first: bool) -> OrbitalSchema {
         let entity = |name: &str| {
             EntityRef::Inline(EntityDefinition {
+                store: None,
                 shared: false,
                 identity: false,
                 local: false,
@@ -671,6 +673,7 @@ mod tests {
             vec![provider, consumer]
         };
         OrbitalSchema {
+            store: None,
             theme_definitions: None,
             themes: None,
             site: None,

@@ -2962,6 +2962,7 @@ mod tests {
         use orbital_core_base::schema::{FieldDefinition, FieldType};
 
         let entity_def = EntityDefinition {
+            store: None,
             shared: false,
             identity: false,
             local: false,
@@ -3048,6 +3049,7 @@ mod tests {
         use orbital_core_base::schema::{FieldDefinition, FieldType};
 
         let entity_def = EntityDefinition {
+            store: None,
             shared: false,
             identity: false,
             local: false,
@@ -3098,6 +3100,7 @@ mod tests {
         use orbital_core_base::schema::{FieldDefinition, FieldType};
 
         let entity_def = EntityDefinition {
+            store: None,
             shared: false,
             identity: false,
             local: false,
@@ -3675,6 +3678,7 @@ mod tests {
 
     fn shared_entity_def(name: &str) -> EntityDefinition {
         EntityDefinition {
+            store: None,
             shared: true,
             identity: false,
             local: false,
@@ -4175,6 +4179,7 @@ mod tests {
         entity_defs.insert(
             "Solo".to_string(),
             EntityDefinition {
+                store: None,
                 shared: false,
                 identity: false,
                 local: false,

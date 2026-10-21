@@ -1904,6 +1904,7 @@ mod tests {
 
     fn make_entity(name: &str, fields: &[&str]) -> EntityDefinition {
         EntityDefinition {
+            store: None,
             shared: false,
             identity: false,
             local: false,

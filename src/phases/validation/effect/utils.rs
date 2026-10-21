@@ -956,6 +956,7 @@ mod tests {
         entity_defs.insert(
             "Inspection".to_string(),
             EntityDefinition {
+                store: None,
                 shared: false,
                 identity: false,
                 local: false,
@@ -1079,6 +1080,7 @@ mod tests {
         entity_defs.insert(
             "Inspection".to_string(),
             EntityDefinition {
+                store: None,
                 shared: false,
                 identity: false,
                 local: false,

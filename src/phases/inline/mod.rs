@@ -4061,6 +4061,7 @@ mod tests {
             theme: None,
             services: None,
             entity: EntityRef::Inline(EntityDefinition {
+                store: None,
                 shared: false,
                 identity: false,
                 local: false,
@@ -4346,6 +4347,7 @@ mod tests {
             theme: None,
             services: Some(vec![ServiceRef::Inline(service_def)]),
             entity: EntityRef::Inline(EntityDefinition {
+                store: None,
                 shared: false,
                 identity: false,
                 local: false,
@@ -4559,6 +4561,7 @@ mod tests {
             projected_from: None,
         };
         EntityDefinition {
+            store: None,
             shared: false,
             identity: false,
             local: false,
@@ -5940,6 +5943,7 @@ mod tests {
             theme: None,
             services: None,
             entity: EntityRef::Inline(EntityDefinition {
+                store: None,
                 shared: false,
                 identity: false,
                 local: false,
@@ -6001,6 +6005,7 @@ mod tests {
             theme: None,
             services: None,
             entity: EntityRef::Inline(EntityDefinition {
+                store: None,
                 shared: false,
                 identity: false,
                 local: false,
@@ -6095,6 +6100,7 @@ mod tests {
         use orbital_core_base::schema::FieldType;
 
         let mut caller = EntityDefinition {
+            store: None,
             shared: false,
             identity: false,
             local: false,
@@ -6117,6 +6123,7 @@ mod tests {
             invariants: None,
         };
         let imported = EntityDefinition {
+            store: None,
             shared: false,
             identity: false,
             local: false,
@@ -6162,6 +6169,7 @@ mod tests {
         use orbital_core_base::schema::FieldType;
 
         let mut caller = EntityDefinition {
+            store: None,
             shared: false,
             identity: false,
             local: false,
@@ -6184,6 +6192,7 @@ mod tests {
             invariants: None,
         };
         let imported = EntityDefinition {
+            store: None,
             shared: false,
             identity: false,
             local: false,
@@ -6223,6 +6232,7 @@ mod tests {
         use orbital_core_base::schema::FieldType;
 
         let mut caller = EntityDefinition {
+            store: None,
             shared: false,
             identity: false,
             local: false,
@@ -6249,6 +6259,7 @@ mod tests {
             invariants: None,
         };
         let imported = EntityDefinition {
+            store: None,
             shared: false,
             identity: false,
             local: false,
@@ -6311,6 +6322,7 @@ mod tests {
         use orbital_core_base::schema::FieldType;
 
         let mut caller = EntityDefinition {
+            store: None,
             shared: false,
             identity: false,
             local: false,
@@ -6330,6 +6342,7 @@ mod tests {
             invariants: None,
         };
         let import_browse = EntityDefinition {
+            store: None,
             shared: false,
             identity: false,
             local: false,
@@ -6353,6 +6366,7 @@ mod tests {
             invariants: None,
         };
         let import_modal = EntityDefinition {
+            store: None,
             shared: false,
             identity: false,
             local: false,
@@ -6412,6 +6426,7 @@ mod tests {
         use orbital_core_base::schema::FieldType;
 
         let caller = EntityDefinition {
+            store: None,
             shared: false,
             identity: false,
             local: false,
@@ -6452,6 +6467,7 @@ mod tests {
         use orbital_core_base::schema::{Cardinality, FieldType, RelationDefinition};
 
         let mut caller = EntityDefinition {
+            store: None,
             shared: false,
             identity: false,
             local: false,
@@ -6479,6 +6495,7 @@ mod tests {
             on_delete: None,
         });
         let imported = EntityDefinition {
+            store: None,
             shared: false,
             identity: false,
             local: false,
@@ -6541,6 +6558,7 @@ mod tests {
         let mut content_field = make_field("content", FieldType::String);
         content_field.required = Some(true);
         let mut caller = EntityDefinition {
+            store: None,
             shared: false,
             identity: false,
             local: false,
@@ -6563,6 +6581,7 @@ mod tests {
         let mut name_field = make_field("name", FieldType::String);
         name_field.required = Some(true);
         let imported = EntityDefinition {
+            store: None,
             shared: false,
             identity: false,
             local: false,
@@ -6622,6 +6641,7 @@ mod tests {
             theme: None,
             services: None,
             entity: EntityRef::Inline(EntityDefinition {
+                store: None,
                 shared: false,
                 identity: false,
                 local: false,
@@ -6663,6 +6683,7 @@ mod tests {
             theme: None,
             services: None,
             entity: EntityRef::Inline(EntityDefinition {
+                store: None,
                 shared: false,
                 identity: false,
                 local: false,
@@ -6783,6 +6804,7 @@ mod tests {
     /// HostEntity` with an optional call-site `fields` rename.
     fn pickup_consumer_schema(field_rename: Option<HashMap<String, String>>) -> OrbitalSchema {
         let host_entity = EntityDefinition {
+            store: None,
             shared: false,
             identity: false,
             local: false,
@@ -6848,6 +6870,7 @@ mod tests {
             config: None,
         };
         OrbitalSchema {
+            store: None,
             theme_definitions: None,
             themes: None,
             site: None,
@@ -7537,6 +7560,7 @@ mod tests {
 
     fn make_entity(name: &str, field_names: &[&str]) -> EntityDefinition {
         EntityDefinition {
+            store: None,
             shared: false,
             identity: false,
             local: false,
@@ -7596,6 +7620,7 @@ mod tests {
             config: None,
         };
         let mut schema = OrbitalSchema {
+            store: None,
             theme_definitions: None,
             themes: None,
             site: None,
@@ -7708,6 +7733,7 @@ mod tests {
             config: None,
         };
         let mut schema = OrbitalSchema {
+            store: None,
             theme_definitions: None,
             themes: None,
             site: None,
@@ -7795,6 +7821,7 @@ mod tests {
             config: None,
         };
         let mut schema = OrbitalSchema {
+            store: None,
             theme_definitions: None,
             themes: None,
             site: None,
@@ -8127,6 +8154,7 @@ mod tests {
             config: None,
         };
         let mut schema = OrbitalSchema {
+            store: None,
             theme_definitions: None,
             themes: None,
             site: None,
@@ -8208,6 +8236,7 @@ mod tests {
             config: None,
         };
         let mut schema = OrbitalSchema {
+            store: None,
             theme_definitions: None,
             themes: None,
             site: None,
@@ -8291,6 +8320,7 @@ mod tests {
             config: None,
         };
         OrbitalSchema {
+            store: None,
             theme_definitions: None,
             themes: None,
             site: None,

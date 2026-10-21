@@ -312,6 +312,7 @@ mod tests {
             theme: None,
             services: None,
             entity: EntityRef::Inline(EntityDefinition {
+                store: None,
                 shared: false,
                 identity: false,
                 local: false,
@@ -347,6 +348,7 @@ mod tests {
 
     fn schema_with(orbitals: Vec<Orbital>) -> OrbitalSchema {
         OrbitalSchema {
+            store: None,
             theme_definitions: None,
             themes: None,
             site: None,

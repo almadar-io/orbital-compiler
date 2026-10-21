@@ -498,8 +498,16 @@ fn call_service_result_has_key_controls() {
     assert!(!fires(&r, ErrorCode::CallServiceResultHasKey));
 }
 
+/// The installed registry no longer carries `queue` (host services moved into the kernel), so the
+/// service is pinned on a test-local registry.
 #[test]
 fn a_keyed_call_service_success_payload_is_the_record_plus_key() {
+    let registry = || {
+        parse_service_registry_data(
+            r#"{"services": {"queue": {"actions": [{"name": "enqueue", "params": [], "responseShape": {"jobId": "string"}}]}}}"#,
+        )
+        .unwrap()
+    };
     let reads = |name: &str| {
         let mut value = serde_json::to_value(program(ok_egress(), config(), call_service("queue", "enqueue", keyed_options()))).unwrap();
         value["orbitals"][0]["traits"][0]["emits"][0]["payloadSchema"] = json!([{ "name": name, "type": "string" }]);
@@ -507,7 +515,7 @@ fn a_keyed_call_service_success_payload_is_the_record_plus_key() {
             &serde_json::from_value::<OrbitalSchema>(value).unwrap(),
             None,
             SchemaLanguage::English,
-            baked_service_registry().clone(),
+            registry(),
             Vec::new(),
         )
     };

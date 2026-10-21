@@ -471,6 +471,7 @@ mod tests {
 
     fn minimal_schema(traits: Vec<TraitReference>) -> OrbitalSchema {
         OrbitalSchema {
+            store: None,
             theme_definitions: None,
             themes: None,
             site: None,
@@ -489,6 +490,7 @@ mod tests {
                 theme: None,
                 services: None,
                 entity: EntityRef::Inline(EntityDefinition {
+                    store: None,
                     shared: false,
                     identity: false,
                     local: false,

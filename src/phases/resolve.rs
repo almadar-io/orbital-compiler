@@ -1853,6 +1853,9 @@ fn parse_payload_field_type(field_type: &str) -> OirType {
     if trimmed.starts_with("@entity(") && trimmed.ends_with(')') {
         return OirType::Struct { fields: Vec::new() };
     }
+    if let Some(name) = trimmed.strip_prefix('$').filter(|n| !n.is_empty()) {
+        return OirType::Var { name: name.to_string() };
+    }
     // Any remaining non-empty identifier: treat as an entity reference.
     // `type_expr_to_string` on a `TypeExpr::Named` emits the bare identifier
     // for user-defined types, so `data : User` reaches us as `"User"` here.
@@ -1995,6 +1998,7 @@ mod tests {
     /// falls back to the containing-struct inference (the pre-Gap-A path).
     fn empty_schema() -> OrbitalSchema {
         OrbitalSchema {
+            store: None,
             theme_definitions: None,
             themes: None,
             site: None,
@@ -2366,6 +2370,7 @@ mod tests {
         }))
         .expect("field fixture must deserialize");
         let schema = OrbitalSchema {
+            store: None,
             theme_definitions: None,
             themes: None,
             site: None,
@@ -2523,6 +2528,7 @@ mod tests {
         }))
         .expect("field fixture must deserialize");
         let schema = OrbitalSchema {
+            store: None,
             theme_definitions: None,
             themes: None,
             site: None,
@@ -2560,6 +2566,7 @@ mod tests {
     #[test]
     fn a_union_without_variant_shapes_is_refused_not_degraded() {
         let schema = OrbitalSchema {
+            store: None,
             theme_definitions: None,
             themes: None,
             site: None,
@@ -2665,6 +2672,9 @@ mod tests {
     #[test]
     fn a_row_of_the_entity_an_unset_knob_names_is_an_empty_record() {
         assert_eq!(parse_payload_field_type("@entity(captureEntity)"), OirType::Struct { fields: Vec::new() });
+        assert_eq!(parse_payload_field_type("$t"), OirType::Var { name: "t".into() });
+        assert_eq!(parse_payload_field_type("[$t]"), OirType::array(OirType::Var { name: "t".into() }));
+        assert_eq!(parse_payload_field_type("$"), OirType::Reference { entity: "$".into() }, "control: no name");
         assert_eq!(
             parse_payload_field_type("[@entity(captureEntity)]"),
             OirType::array(OirType::Struct { fields: Vec::new() })
@@ -2961,6 +2971,7 @@ mod tests {
     #[test]
     fn test_resolve_minimal_schema() {
         let schema = OrbitalSchema {
+            store: None,
             theme_definitions: None,
             themes: None,
             site: None,
@@ -3008,6 +3019,7 @@ mod tests {
     fn empty_resolver() -> Resolver<'static> {
         static SCHEMA: std::sync::OnceLock<OrbitalSchema> = std::sync::OnceLock::new();
         let schema = SCHEMA.get_or_init(|| OrbitalSchema {
+            store: None,
             theme_definitions: None,
             themes: None,
             site: None,

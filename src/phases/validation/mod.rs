@@ -78,6 +78,7 @@ pub mod service;
 pub mod sexpr;
 pub mod sigil_context;
 pub mod slot;
+pub mod store_binding;
 pub mod sync;
 pub mod theme;
 pub mod time_unit;
@@ -566,6 +567,7 @@ pub fn validate_comprehensive_full(
     // No-ops entirely when the program declares no identity entity. Runs
     // post-inline so config knob defaults carry their call-site values.
     user_identity::validate_user_identity(schema, &mut ctx);
+    user_identity::validate_user_into_required_slot(schema, &mut ctx);
     trait_id_uniqueness::validate_unique_trait_ids(schema, &mut ctx);
 
     // Phase 11c3: entity access directives (`@read`/`@create`/`@update`/
@@ -573,6 +575,7 @@ pub fn validate_comprehensive_full(
     // predicates. Runs immediately after identity for the same reason (needs
     // the resolved `[identity]` entity, post-inline).
     entity_access::validate_entity_access(schema, &mut ctx);
+    store_binding::validate_store_bindings(schema, &mut ctx);
 
     // Phase 11c4: `expects` consumer-side requirement declarations —
     // persist-payload self-consistency against the consumer's own declared

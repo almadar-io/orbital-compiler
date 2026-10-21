@@ -1865,6 +1865,7 @@ mod tests {
 
     fn entity(name: &str, shared: bool, persistence: Option<Persistence>) -> EntityDefinition {
         EntityDefinition {
+            store: None,
             shared,
             identity: false,
             local: false,
@@ -3849,6 +3850,7 @@ mod tests {
 
     fn schema_of(orbitals: Vec<Orbital>) -> OrbitalSchema {
         OrbitalSchema {
+            store: None,
             theme_definitions: None,
             themes: None,
             site: None,

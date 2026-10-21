@@ -102,13 +102,13 @@ fn cart_events_fixture_path() -> PathBuf {
 }
 
 /// Phase 3.5.G.F.7 fixture — exercises the new `listens` and `emitsScope`
-/// post-substitution overrides. References `std-agent-tool-call` (which has
-/// upstream listens AND multiple emits with default `external` scope), then:
+/// post-substitution overrides. References `std-agent-fix-loop` (whose
+/// `FixLoopExecution` has upstream listens AND multiple `external` emits), then:
 ///   - `listens: []` clears all upstream listen entries
 ///   - `emitsScope: "internal"` sets every emit's scope to internal
-fn fixloop_tool_call_fixture_path() -> PathBuf {
+fn fix_loop_overrides_fixture_path() -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-        .join("../../test-schemas/use-std-behavior/fixloop-tool-call.orb")
+        .join("../../test-schemas/use-std-behavior/fix-loop-overrides.orb")
 }
 
 /// Phase 3.5.G.F.8 fixture — exercises the per-transition `effects` override.
@@ -792,7 +792,7 @@ fn cart_events_lowered_output_renames_event_keys_on_transitions() {
 // Phase 3.5.G.F.7 — listens / emitsScope post-substitution overrides
 // ---------------------------------------------------------------------------
 //
-// `fixloop-tool-call.orb` references `std-agent-tool-call` (an atom whose
+// `fix-loop-overrides.orb` references `std-agent-fix-loop` (an atom whose
 // trait declares external-scoped emits AND a non-empty listens array) and
 // passes `listens: []` + `emitsScope: "internal"`. The lowered OIR must
 // show the trait's listeners cleared AND every emit's scope set to internal.
@@ -862,10 +862,10 @@ fn cart_effects_override_replaces_transition_effects() {
 }
 
 #[test]
-fn fixloop_tool_call_clears_listens_via_listens_override() {
-    let path = fixloop_tool_call_fixture_path();
+fn fix_loop_trait_clears_listens_via_listens_override() {
+    let path = fix_loop_overrides_fixture_path();
     let oir = compile_file(&path, &lowered_oir_options())
-        .expect("compile_file must succeed on the fixloop-tool-call fixture");
+        .expect("compile_file must succeed on the fix-loop-overrides fixture");
 
     let trait_def = oir
         .find_trait("FixLoopValidateCall")
@@ -879,11 +879,11 @@ fn fixloop_tool_call_clears_listens_via_listens_override() {
 }
 
 #[test]
-fn fixloop_tool_call_sets_emit_scope_via_emits_scope_override() {
+fn fix_loop_trait_sets_emit_scope_via_emits_scope_override() {
     use orbital_core_base::ir::OirEventScope;
-    let path = fixloop_tool_call_fixture_path();
+    let path = fix_loop_overrides_fixture_path();
     let oir = compile_file(&path, &lowered_oir_options())
-        .expect("compile_file must succeed on the fixloop-tool-call fixture");
+        .expect("compile_file must succeed on the fix-loop-overrides fixture");
 
     let trait_def = oir
         .find_trait("FixLoopValidateCall")
@@ -891,7 +891,7 @@ fn fixloop_tool_call_sets_emit_scope_via_emits_scope_override() {
 
     assert!(
         !trait_def.emits.is_empty(),
-        "the upstream agent-tool-call atom is expected to declare at least one emit"
+        "the upstream std-agent-fix-loop atom is expected to declare at least one emit"
     );
     for emit in &trait_def.emits {
         assert_eq!(

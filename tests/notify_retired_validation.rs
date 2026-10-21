@@ -13,6 +13,7 @@ use orbital_core_base::schema::{
 
 fn schema_with_effects(effects: Vec<SExpression>) -> OrbitalSchema {
     let entity = EntityDefinition {
+        store: None,
         shared: false,
         identity: false,
         local: false,
@@ -96,6 +97,7 @@ fn schema_with_effects(effects: Vec<SExpression>) -> OrbitalSchema {
     };
 
     OrbitalSchema {
+        store: None,
         theme_definitions: None,
         themes: None,
         site: None,

@@ -661,6 +661,7 @@ mod render_ui_pattern_contract_reference_tests {
 
     fn entity(name: &str) -> EntityDefinition {
         EntityDefinition {
+            store: None,
             shared: false,
             identity: false,
             local: false,

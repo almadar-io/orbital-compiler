@@ -221,6 +221,57 @@ fn validate_persist_batch(
     result
 }
 
+/// Why a persist `where:` guard is not a one-param row predicate the executor compiles (EXEC-STEP-8), if it is not.
+fn where_problem(op: Option<&str>, guard: &SExpression) -> Option<String> {
+    if !matches!(op, Some("delete" | "update")) {
+        return Some("is taken only by a single delete or update".to_string());
+    }
+    let Some([head, params, body]) = guard.as_array().map(Vec::as_slice) else {
+        return Some("must be (fn row <predicate>)".to_string());
+    };
+    if head.as_str() != Some("fn") {
+        return Some("must be (fn row <predicate>)".to_string());
+    }
+    let one_param = match params {
+        SExpression::String(_) => true,
+        SExpression::Array(list) => matches!(list.as_slice(), [SExpression::String(_)]),
+        _ => false,
+    };
+    if !one_param {
+        return Some("takes exactly one parameter, the stored row".to_string());
+    }
+    fn reads_entity(e: &SExpression) -> bool {
+        match e {
+            SExpression::String(s) => s == "@entity" || s.starts_with("@entity."),
+            SExpression::Array(items) => items.iter().any(reads_entity),
+            SExpression::Object(obj) => obj.values().any(reads_entity),
+            _ => false,
+        }
+    }
+    if reads_entity(body) {
+        return Some("reads @entity: the guard sees only the stored row and the event's literals".to_string());
+    }
+    non_boolean(body).map(|kind| format!("returns {kind}, not boolean"))
+}
+
+/// The declared kind of `body` when it is decidably not a boolean: a non-boolean literal, or a call whose
+/// operator declares a non-boolean result. A binding path or a type-variable result is not decided here.
+fn non_boolean(body: &SExpression) -> Option<String> {
+    match body {
+        SExpression::Bool(_) => None,
+        SExpression::Number(_) => Some("a number".to_string()),
+        SExpression::Object(_) => Some("an object".to_string()),
+        SExpression::String(s) if !s.starts_with('@') => Some("a string".to_string()),
+        SExpression::Array(items) => {
+            let op = items.first()?.as_str()?;
+            let kind = orbital_core_base::language::canonical_operators::get_canonical_operator(op)?.return_type;
+            matches!(kind, "number" | "string" | "array" | "object" | "entity" | "function" | "void")
+                .then(|| format!("{op}'s {kind}"))
+        }
+        _ => None,
+    }
+}
+
 /// Validate persist effect (array form)
 pub(crate) fn validate_persist(
     arr: &[SExpression],
@@ -280,12 +331,25 @@ pub(crate) fn validate_persist(
     // an expression there resolves to no row key at run time (`no-row-key`).
     if entity_index == 2 {
         let args_after_entity = &arr[entity_index + 1..];
-        let positional = match args_after_entity.last() {
-            Some(SExpression::Object(options)) if extract_emit_object_ref(options).is_some() => {
-                &args_after_entity[..args_after_entity.len() - 1]
+        let positional = orbital_core_base::effect_types::strip_trailing_emit_options(args_after_entity);
+        if positional.len() < args_after_entity.len() {
+            if let Some(SExpression::Object(options)) = args_after_entity.last() {
+                if let Some(guard) = options.get("where") {
+                    if let Some(problem) = where_problem(arr[1].as_str(), guard) {
+                        result.add_error(
+                            ValidationError::error(
+                                ErrorCode::PersistWhereNotAPredicate,
+                                path,
+                                format!("persist {} `where:` {problem}", arr[1].as_str().unwrap_or("?")),
+                            )
+                            .with_suggestion(
+                                "Write { where: (fn row (= @row.used false)) } on a single persist delete or update; read the frame into @payload or the guard's literals",
+                            ),
+                        );
+                    }
+                }
             }
-            _ => args_after_entity,
-        };
+        }
         let id_arg = match arr[1].as_str() {
             Some("delete") => positional.first(),
             Some("update") if positional.len() >= 2 => positional.first(),
@@ -659,6 +723,44 @@ mod tests {
         assert_eq!(id_not_a_path_hits(r#"["persist", "update", "Message", "@payload.id", { "text": "x" }]"#), 0);
         assert_eq!(id_not_a_path_hits(r#"["persist", "update", "Message", { "id": ["str/concat", "a", "b"], "text": "x" }]"#), 0, "the data form names its id inside the row");
         assert_eq!(id_not_a_path_hits(r#"["persist", "batch", [["delete", "Message", ["str/concat", "a", "b"]]]]"#), 0, "a batch op takes an expression");
+    }
+
+    fn where_hits(json: &str) -> usize {
+        let arr: Vec<SExpression> = serde_json::from_str(json).unwrap();
+        let known = ["Message".to_string()].into_iter().collect();
+        validate_persist(&arr, "test", &known, &HashMap::new(), None)
+            .all_issues()
+            .filter(|e| e.code == ErrorCode::PersistWhereNotAPredicate)
+            .count()
+    }
+
+    #[test]
+    fn a_where_only_options_object_is_options_not_a_positional_argument() {
+        let merged = r#"["object/merge", "@entity", { "text": "x" }]"#;
+        let guard = r#"{ "where": ["fn", "row", ["=", "@row.text", "a"]] }"#;
+        assert_eq!(id_not_a_path_hits(&format!(r#"["persist", "update", "Message", {merged}, {guard}]"#)), 0);
+        assert_eq!(id_not_a_path_hits(&format!(r#"["persist", "update", "Message", {merged}]"#)), 0, "control: no options");
+    }
+
+    /// `where:` is a one-param `fn` over the stored row: it never reads the frame (`@entity`), and only the single
+    /// `delete`/`update` take it.
+    #[test]
+    fn a_where_that_is_not_a_one_param_row_predicate_is_refused() {
+        assert_eq!(where_hits(r#"["persist", "delete", "Message", "@payload.id", { "where": ["=", "@entity.text", "a"] }]"#), 1, "not a fn");
+        assert_eq!(where_hits(r#"["persist", "delete", "Message", "@payload.id", { "where": ["fn", ["a", "b"], true] }]"#), 1, "two params");
+        assert_eq!(where_hits(r#"["persist", "delete", "Message", "@payload.id", { "where": ["fn", "row", ["=", "@row.text", "@entity.text"]] }]"#), 1, "reads @entity");
+        assert_eq!(where_hits(r#"["persist", "create", "Message", { "text": "a" }, { "where": ["fn", "row", true] }]"#), 1, "create takes no where");
+        assert_eq!(where_hits(r#"["persist", "delete", "Message", "@payload.id", { "where": ["fn", "row", ["str/concat", "@row.text", "a"]] }]"#), 1, "returns a string");
+        assert_eq!(where_hits(r#"["persist", "delete", "Message", "@payload.id", { "where": ["fn", "row", 1] }]"#), 1, "a number literal");
+    }
+
+    #[test]
+    fn control_a_one_param_row_predicate_on_delete_or_update_is_accepted() {
+        assert_eq!(where_hits(r#"["persist", "delete", "Message", "@payload.id", { "where": ["fn", "row", ["=", "@row.text", "@payload.text"]] }]"#), 0);
+        assert_eq!(where_hits(r#"["persist", "update", "Message", "@payload.id", { "text": "b" }, { "where": ["fn", ["row"], ["=", "@row.text", "a"]], "emit": { "success": "OK" } }]"#), 0);
+        assert_eq!(where_hits(r#"["persist", "delete", "Message", "@payload.id"]"#), 0);
+        assert_eq!(where_hits(r#"["persist", "delete", "Message", "@payload.id", { "where": ["fn", "row", ["and", "@row.used", ["not", "@row.done"]]] }]"#), 0);
+        assert_eq!(where_hits(r#"["persist", "delete", "Message", "@payload.id", { "where": ["fn", "row", "@row.used"] }]"#), 0, "a path is not decided here");
     }
 
     #[test]

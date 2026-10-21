@@ -2299,6 +2299,25 @@ pub(crate) fn resolve_type_param_sentinels(
         }
     }
     let mut changed = false;
+    let bindings: HashMap<String, FieldDefinition> = subs
+        .iter()
+        .filter_map(|(name, sub)| param_sub_field(sub).map(|f| (name.clone(), f)))
+        .collect();
+    if let Some(config) = trait_def.config.as_mut() {
+        for knob in config.values_mut() {
+            changed |= resolve_config_sentinel(knob, &subs, &bindings);
+        }
+    }
+    if let (false, Some(config)) = (bindings.is_empty(), trait_def.config.as_mut()) {
+        for knob in config.values_mut() {
+            if let Some(items) = knob.items.as_deref_mut() {
+                items.substitute_type_vars(&bindings);
+            }
+            for member in knob.properties.iter_mut().flat_map(|p| p.values_mut()) {
+                member.substitute_type_vars(&bindings);
+            }
+        }
+    }
     if let Some(emits) = trait_def.emits.as_mut() {
         for emit in emits.iter_mut() {
             if resolve_payload_entity_schema(
@@ -2502,6 +2521,85 @@ enum ParamSub {
     /// sentinel field becomes `field_type: "object"` + this flattened shape,
     /// same treatment an Entity substitution gets.
     Struct(Vec<PayloadField>),
+}
+
+/// A config knob typed by a trait parameter (`config { result : V }` lowers to
+/// `"$V"`, `[V]` to `"[$V]"`) takes the parameter's binding, spelled as the payload
+/// sentinel's is: the primitive, or `object` with the bound shape. Unbound stays for the sweep.
+fn resolve_config_sentinel(
+    knob: &mut ConfigField,
+    subs: &HashMap<String, ParamSub>,
+    bindings: &HashMap<String, FieldDefinition>,
+) -> bool {
+    let (param, is_array) = match knob.field_type.strip_prefix("[$").and_then(|s| s.strip_suffix(']')) {
+        Some(p) => (p.to_string(), true),
+        None => match knob.field_type.strip_prefix('$') {
+            Some(p) => (p.to_string(), false),
+            None => return false,
+        },
+    };
+    let Some(sub) = subs.get(&param) else {
+        return false;
+    };
+    let tag = match sub {
+        ParamSub::Scalar(prim) => prim.clone(),
+        ParamSub::Entity(_) | ParamSub::Struct(_) => "object".to_string(),
+    };
+    let shape = bindings.get(&param).cloned();
+    if is_array {
+        knob.field_type = format!("[{tag}]");
+        knob.items = shape.map(Box::new);
+        knob.properties = None;
+    } else {
+        knob.field_type = tag;
+        knob.properties = shape.and_then(|s| s.properties);
+    }
+    true
+}
+
+/// A parameter's binding as the field shape that replaces its type variable:
+/// a primitive's tag, or an entity row / struct alias as an object of its fields.
+fn param_sub_field(sub: &ParamSub) -> Option<FieldDefinition> {
+    let (field_type, properties) = match sub {
+        ParamSub::Scalar(prim) => (FieldType::from_primitive_name(prim)?, None),
+        ParamSub::Entity(entity) => (
+            FieldType::Object,
+            Some(
+                entity
+                    .fields
+                    .iter()
+                    .filter_map(|f| f.name.clone().map(|n| (n, f.clone())))
+                    .collect(),
+            ),
+        ),
+        ParamSub::Struct(fields) => (
+            FieldType::Object,
+            Some(
+                fields
+                    .iter()
+                    .map(|f| (f.name.clone(), super::sigil_types::field_of(f)))
+                    .collect(),
+            ),
+        ),
+    };
+    Some(FieldDefinition {
+        mock: None,
+        merged_from: None,
+        name: None,
+        field_type,
+        required: None,
+        primary_key: None,
+        unique: None,
+        default: None,
+        values: None,
+        relation: None,
+        items: None,
+        properties,
+        intrinsic: None,
+        description: None,
+        synonyms: None,
+        projected_from: None,
+    })
 }
 
 /// The primitive type-name vocabulary a call-site type-parameter arg may
@@ -4109,6 +4207,76 @@ mod payload_entity_marker_tests {
             !by_name.contains_key("draft"),
             "@intrinsic fields never appear on a row payload"
         );
+    }
+
+    #[test]
+    fn a_trait_parameter_binds_the_type_variables_of_its_config_shapes() {
+        let trait_with = |args: serde_json::Value| -> TraitDefinition {
+            serde_json::from_value(json!({
+                "name": "T",
+                "linkedEntity": "Item",
+                "category": "interaction",
+                "typeParams": [ { "name": "v", "kind": "Type" }, { "name": "e", "kind": "Entity" }, { "name": "w", "kind": "Type" } ],
+                "typeArgs": args,
+                "config": {
+                    "rows": { "type": "[Row]", "items": { "type": "object", "properties": {
+                        "value": { "name": "value", "type": "$v", "required": true },
+                        "owner": { "name": "owner", "type": "$e" },
+                        "other": { "name": "other", "type": "$w" }
+                    } } }
+                },
+                "stateMachine": { "states": [ { "name": "idle", "isInitial": true } ], "transitions": [] }
+            }))
+            .expect("fixture deserializes")
+        };
+        let item = entity_with_fields("Item", &[("id", "string"), ("title", "string")]);
+        let entities = std::collections::HashMap::from([("Item".to_string(), item.clone())]);
+        let mut td = trait_with(json!({ "v": "number" }));
+        resolve_type_param_sentinels(&mut td, Some(&item), &entities, &BTreeMap::new());
+        let members = td.config.as_ref().expect("config")["rows"]
+            .items
+            .as_ref()
+            .and_then(|i| i.properties.clone())
+            .expect("row members");
+        assert_eq!(members["value"].field_type, FieldType::Number);
+        assert_eq!(members["value"].required, Some(true), "the occurrence keeps its own flags");
+        assert_eq!(members["owner"].field_type, FieldType::Object, "Entity kind defaults to the bound row");
+        assert!(members["owner"].properties.as_ref().expect("row").contains_key("title"));
+        assert_eq!(members["other"].field_type, FieldType::type_var("w"), "control: no argument, no binding");
+    }
+
+    #[test]
+    fn a_config_knob_typed_by_a_trait_parameter_takes_its_binding() {
+        let mut td: TraitDefinition = serde_json::from_value(json!({
+            "name": "T",
+            "linkedEntity": "Item",
+            "category": "interaction",
+            "typeParams": [ { "name": "v", "kind": "Type" }, { "name": "e", "kind": "Entity" }, { "name": "w", "kind": "Type" } ],
+            "typeArgs": { "v": "number" },
+            "config": {
+                "result": { "type": "$v" },
+                "results": { "type": "[$v]" },
+                "owner": { "type": "$e" },
+                "owners": { "type": "[$e]" },
+                "other": { "type": "$w" },
+                "plain": { "type": "string" }
+            },
+            "stateMachine": { "states": [ { "name": "idle", "isInitial": true } ], "transitions": [] }
+        }))
+        .expect("fixture deserializes");
+        let item = entity_with_fields("Item", &[("id", "string"), ("title", "string")]);
+        let entities = std::collections::HashMap::from([("Item".to_string(), item.clone())]);
+        resolve_type_param_sentinels(&mut td, Some(&item), &entities, &BTreeMap::new());
+        let config = td.config.as_ref().expect("config");
+        assert_eq!(config["result"].field_type, "number");
+        assert_eq!(config["results"].field_type, "[number]");
+        assert_eq!(config["owner"].field_type, "object");
+        assert!(config["owner"].properties.as_ref().expect("row").contains_key("title"));
+        assert_eq!(config["owners"].field_type, "[object]");
+        let row = config["owners"].items.as_ref().and_then(|i| i.properties.as_ref()).expect("row items");
+        assert!(row.contains_key("title"));
+        assert_eq!(config["other"].field_type, "$w", "control: no argument, no binding");
+        assert_eq!(config["plain"].field_type, "string", "control: a concrete knob is untouched");
     }
 
     #[test]

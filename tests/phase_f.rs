@@ -58,6 +58,7 @@ fn emit_def(event: &str, fields: Vec<PayloadField>) -> EmitDefinition {
 
 fn task_entity() -> EntityDefinition {
     EntityDefinition {
+        store: None,
         shared: false,
         identity: false,
         local: false,
@@ -173,6 +174,7 @@ fn schema_for_f1(strict_target_event: &str) -> OrbitalSchema {
     };
 
     OrbitalSchema {
+        store: None,
         theme_definitions: None,
         themes: None,
         site: None,
@@ -360,6 +362,7 @@ fn schema_with_two_emitters_and_listener_source(
         config: None,
     };
     OrbitalSchema {
+        store: None,
         theme_definitions: None,
         themes: None,
         site: None,
@@ -753,6 +756,7 @@ fn schema_with_render_action_payload(
         config: None,
     };
     OrbitalSchema {
+        store: None,
         theme_definitions: None,
         themes: None,
         site: None,
@@ -857,6 +861,7 @@ fn f2_render_action_payload_mismatch_still_detected() {
 
 fn schema_with_default(field: FieldDefinition) -> OrbitalSchema {
     let entity = EntityDefinition {
+        store: None,
         shared: false,
         identity: false,
         local: false,
@@ -896,6 +901,7 @@ fn schema_with_default(field: FieldDefinition) -> OrbitalSchema {
         invariants: None,
     };
     OrbitalSchema {
+        store: None,
         theme_definitions: None,
         themes: None,
         site: None,

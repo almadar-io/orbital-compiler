@@ -1082,6 +1082,7 @@ mod tests {
 
         // Insert and retrieve
         let schema = OrbitalSchema {
+            store: None,
             theme_definitions: None,
             themes: None,
             site: None,

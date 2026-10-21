@@ -740,6 +740,7 @@ fn field_type_to_string(field_type: &FieldType) -> String {
         FieldType::EventAddress => "EventAddress".to_string(),
         FieldType::SExpr => "SExpr".to_string(),
         FieldType::Union => "union".to_string(),
+        FieldType::TypeVar(v) => format!("${}", v.0),
     }
 }
 
@@ -750,6 +751,7 @@ mod tests {
 
     fn create_valid_entity() -> EntityDefinition {
         EntityDefinition {
+            store: None,
             shared: false,
             identity: false,
             local: false,

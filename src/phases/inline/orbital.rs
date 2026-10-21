@@ -4730,6 +4730,7 @@ mod tests {
             orbitals.push(owner);
         }
         let schema = OrbitalSchema {
+            store: None,
             theme_definitions: None,
             themes: None,
             site: None,

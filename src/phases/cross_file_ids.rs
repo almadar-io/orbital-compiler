@@ -502,6 +502,7 @@ mod tests {
 
     fn empty_entity(name: &str) -> EntityDefinition {
         EntityDefinition {
+            store: None,
             name: name.to_string(),
             id: None,
             collection: None,
@@ -577,6 +578,7 @@ mod tests {
             *ref_id = stored.map(str::to_string);
         }
         OrbitalSchema {
+            store: None,
             theme_definitions: None,
             themes: None,
             site: None,
@@ -657,6 +659,7 @@ mod tests {
     #[test]
     fn resolves_dotted_trait_ref_from_imported_ledger() {
         let mut schema = OrbitalSchema {
+            store: None,
             theme_definitions: None,
             themes: None,
             site: None,
@@ -707,6 +710,7 @@ mod tests {
     #[test]
     fn leaves_unresolvable_dotted_ref_none_without_panic() {
         let mut schema = OrbitalSchema {
+            store: None,
             theme_definitions: None,
             themes: None,
             site: None,
@@ -757,6 +761,7 @@ mod tests {
     #[test]
     fn leaves_unknown_alias_ref_none() {
         let mut schema = OrbitalSchema {
+            store: None,
             theme_definitions: None,
             themes: None,
             site: None,
@@ -876,6 +881,7 @@ mod tests {
         std::fs::write(dir.path().join("frame.orb"), FRAME_ORB).expect("write frame.orb");
 
         let mut schema = OrbitalSchema {
+            store: None,
             theme_definitions: None,
             themes: None,
             site: None,
@@ -951,6 +957,7 @@ mod tests {
         std::fs::write(dir.path().join("b.orb"), b_orb).expect("write b.orb");
 
         let mut schema = OrbitalSchema {
+            store: None,
             theme_definitions: None,
             themes: None,
             site: None,

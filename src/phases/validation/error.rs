@@ -950,6 +950,9 @@ pub enum ErrorCode {
     /// `(emit EVT {...})` literal provides a value whose primitive type
     /// does not match the declared `PayloadField.field_type`. Error severity.
     EmitPayloadFieldTypeMismatch,
+    /// The whole `@user` record fills a required slot (an emit payload `X!`, a required entity field) with no guard
+    /// on its presence: a dispatch with no viewer (an os/ completion, a tick) has a null `@user`. Error severity.
+    UserIntoRequiredSlot,
     /// An `emit` repeats an earlier one of the same transition identically: the dispatch loop collapses the second.
     EmitRepeatsIdentically,
     /// An event/emit `payloadSchema` field name is not a valid TypeScript
@@ -1051,6 +1054,9 @@ pub enum ErrorCode {
     /// `persist delete E <expression>` / `persist update E <expression> data`: the single forms take the row id as a
     /// binding path or a literal, so an expression resolves no row key at run time. Error severity.
     PersistIdNotAPath,
+    /// `persist … { where: … }`: the guard is a one-param `fn` over the stored row that never reads the frame
+    /// (`@entity`), on a single `delete` or `update` only (EXEC-STEP-8). Error severity.
+    PersistWhereNotAPredicate,
     /// An effect (`emit`, `persist`, `set`, `notify`, …) inside the `fn` body of a collection operator: a lambda is
     /// evaluated for its value, an effect there never runs. Error severity.
     EffectInLambda,
@@ -1355,6 +1361,16 @@ pub enum ErrorCode {
     /// reason. An undeclared policy is ALLOW-ALL, not deny-all, so every
     /// viewer reads every row. L3 port of JS `unscoped-owned-entity`.
     EntityOwnerColumnUnscoped,
+    /// `store: X` (entity or app header) names no orbital of the program (EXEC-STORE-4). Error severity.
+    StoreUnknownOrbital,
+    /// A store driver orbital has no trait handling one of ROW_READ / ROW_LIST / ROWS_QUERY / ROWS_WRITE
+    /// (`spec/infra/row-store.lolo`). Error severity.
+    StoreDriverContract,
+    /// `store:` on an entity whose rows live in no store (`[runtime]` or browser-`local`). Error severity.
+    StoreOnNonPersistent,
+    /// A single `persist delete|update` on an entity whose driver declares `writeCapabilities.conditional`
+    /// false: the take is one conditional op (EXEC-STEP-8). Error severity.
+    StoreDriverNotConditional,
     /// A trait's `config.groupByField` + `config.columns[].key` bucket rows
     /// of the linked entity by strict key equality, but the field's declared
     /// enum allows a value no column key names — those rows match no column
@@ -1807,6 +1823,7 @@ impl ErrorCode {
             ErrorCode::EmitPayloadMissingRequired => "ORB_EMIT_PAYLOAD_MISSING_REQUIRED",
             ErrorCode::EmitPayloadExtraField => "ORB_EMIT_PAYLOAD_EXTRA_FIELD",
             ErrorCode::EmitPayloadFieldTypeMismatch => "ORB_EMIT_PAYLOAD_FIELD_TYPE_MISMATCH",
+            ErrorCode::UserIntoRequiredSlot => "ORB_USER_INTO_REQUIRED_SLOT",
             ErrorCode::EmitRepeatsIdentically => "ORB_EMIT_REPEATS_IDENTICALLY",
             ErrorCode::PayloadFieldNameInvalid => "ORB_X_PAYLOAD_FIELD_NAME",
             ErrorCode::UntypedArrayField => "ORB_X_UNTYPED_ARRAY",
@@ -1827,6 +1844,7 @@ impl ErrorCode {
             ErrorCode::PersistCreateMissingPolicyField => "ORB_PERSIST_CREATE_MISSING_POLICY_FIELD",
             ErrorCode::PersistCreateLiteralId => "ORB_PERSIST_CREATE_LITERAL_ID",
             ErrorCode::PersistIdNotAPath => "ORB_PERSIST_ID_NOT_A_PATH",
+            ErrorCode::PersistWhereNotAPredicate => "ORB_PERSIST_WHERE_NOT_A_PREDICATE",
             ErrorCode::EffectInLambda => "ORB_EFFECT_IN_LAMBDA",
             ErrorCode::BindingTraitMissingName => "ORB_BINDING_TRAIT_MISSING_NAME",
             ErrorCode::BindingTraitInvalidFormat => "ORB_BINDING_TRAIT_INVALID_FORMAT",
@@ -1909,6 +1927,10 @@ impl ErrorCode {
             }
             ErrorCode::SchemaOwnerFieldNotIdentityTyped => "ORB_S_OWNER_FIELD_NOT_IDENTITY_TYPED",
             ErrorCode::EntityOwnerColumnUnscoped => "ORB_ENTITY_OWNER_COLUMN_UNSCOPED",
+            ErrorCode::StoreUnknownOrbital => "ORB_STORE_UNKNOWN_ORBITAL",
+            ErrorCode::StoreDriverContract => "ORB_STORE_DRIVER_CONTRACT",
+            ErrorCode::StoreOnNonPersistent => "ORB_STORE_ON_NON_PERSISTENT",
+            ErrorCode::StoreDriverNotConditional => "ORB_STORE_DRIVER_NOT_CONDITIONAL",
             ErrorCode::RenderGroupbyEnumColumnGap => "ORB_RENDER_GROUPBY_ENUM_COLUMN_GAP",
             ErrorCode::EmbedConfigForwardMultiReferrer => "ORB_EMBED_CONFIG_FORWARD_MULTI_REFERRER",
             ErrorCode::ThemePinContradictsApp => "ORB_THEME_PIN_CONTRADICTS_APP",
@@ -2259,6 +2281,7 @@ impl ErrorCode {
             | ErrorCode::EmitPayloadMissingRequired
             | ErrorCode::EmitPayloadExtraField
             | ErrorCode::EmitPayloadFieldTypeMismatch
+            | ErrorCode::UserIntoRequiredSlot
             | ErrorCode::EmitRepeatsIdentically
             | ErrorCode::PayloadFieldNameInvalid
             | ErrorCode::EmitSuccessPayloadReturnMismatch
@@ -2278,6 +2301,7 @@ impl ErrorCode {
             | ErrorCode::PersistCreateMissingPolicyField
             | ErrorCode::PersistCreateLiteralId
             | ErrorCode::PersistIdNotAPath
+            | ErrorCode::PersistWhereNotAPredicate
             | ErrorCode::EffectInLambda => "binding",
 
             ErrorCode::EntitySplitMutation
@@ -2372,7 +2396,11 @@ impl ErrorCode {
             | ErrorCode::MissingField
             | ErrorCode::DuplicateEntity => "generic",
 
-            ErrorCode::EntityOwnerColumnUnscoped => "entity",
+            ErrorCode::EntityOwnerColumnUnscoped
+            | ErrorCode::StoreUnknownOrbital
+            | ErrorCode::StoreDriverContract
+            | ErrorCode::StoreOnNonPersistent
+            | ErrorCode::StoreDriverNotConditional => "entity",
             ErrorCode::RenderGroupbyEnumColumnGap => "render_ui",
             ErrorCode::EmbedConfigForwardMultiReferrer => "cross",
             ErrorCode::ThemePinContradictsApp => "schema",
