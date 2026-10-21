@@ -8,10 +8,11 @@
 use super::set::ExprReturnCtx;
 use super::TraitScopes;
 use crate::type_infer::typed_slot_types;
-use orbital_core_base::ir::types::OirType;
+use orbital_core_base::ir::types::{DeclaredShape, OirType};
+use orbital_core_base::schema::types::PayloadField;
 use orbital_core_base::language::registry::{OperatorTypeRef, OperatorTypeRefKind};
 use orbital_core_base::schema::{EntityDefinition, OrbitalSchema, SExpression, TraitReference};
-use std::collections::HashMap;
+use std::collections::{BTreeMap, HashMap};
 
 const SLOT: &str = "#slot:";
 
@@ -30,6 +31,7 @@ pub fn record_declared_list_types(schema: &mut OrbitalSchema) {
         }
     }
     for (i, orbital) in view.orbitals.iter().enumerate() {
+        let aliases = orbital.types.clone().unwrap_or_default();
         for (j, trait_ref) in orbital.traits.iter().enumerate() {
             let TraitReference::Inline(trait_def) = trait_ref else {
                 continue;
@@ -49,10 +51,10 @@ pub fn record_declared_list_types(schema: &mut OrbitalSchema) {
                 };
                 let out = &mut target.state_machine.transitions[k];
                 if let Some(guard) = &transition.guard {
-                    out.guard = Some(declare(guard, &ctx));
+                    out.guard = Some(declare(guard, &ctx, &aliases));
                 }
                 if let Some(effects) = &transition.effects {
-                    out.effects = Some(effects.iter().map(|e| declare(e, &ctx)).collect());
+                    out.effects = Some(effects.iter().map(|e| declare(e, &ctx, &aliases)).collect());
                 }
             }
             if let Some(ticks) = &trait_def.ticks {
@@ -67,27 +69,66 @@ pub fn record_declared_list_types(schema: &mut OrbitalSchema) {
                 };
                 for (k, tick) in ticks.iter().enumerate() {
                     if let Some(guard) = &tick.guard {
-                        out_ticks[k].guard = Some(declare(guard, &ctx));
+                        out_ticks[k].guard = Some(declare(guard, &ctx, &aliases));
                     }
-                    out_ticks[k].effects = tick.effects.iter().map(|e| declare(e, &ctx)).collect();
+                    out_ticks[k].effects = tick.effects.iter().map(|e| declare(e, &ctx, &aliases)).collect();
                 }
             }
         }
     }
 }
 
-/// `expr` with each list argument whose declared type needs recording wrapped in `typed`.
-fn declare(expr: &SExpression, ctx: &ExprReturnCtx<'_>) -> SExpression {
+/// `expr` with each list argument whose declared type needs recording wrapped in `typed`, and each `json/parse` shape
+/// naming a program alias recorded as that alias's type (G-ORB-420).
+fn declare(expr: &SExpression, ctx: &ExprReturnCtx<'_>, aliases: &Aliases) -> SExpression {
     let mut next = 0usize;
     let tagged = tag(expr, &mut next);
     if next == 0 {
-        return expr.clone();
+        return record_parse_shapes(expr, aliases);
     }
     let Ok(lowered) = orbital_core_eval::lower::lower_sexpr_keeping_typed(&tagged) else {
-        return expr.clone();
+        return record_parse_shapes(expr, aliases);
     };
     let slots = typed_slot_types(&lowered, ctx);
-    untag(&tagged, &slots)
+    record_parse_shapes(&untag(&tagged, &slots, aliases), aliases)
+}
+
+type Aliases = BTreeMap<String, Vec<PayloadField>>;
+
+/// A declared type as the kernel's run-time check reads it: the type, with the program types it names, transitively.
+fn recorded_type(name: Option<String>, ty: OirType, aliases: &Aliases) -> String {
+    let shape = DeclaredShape::with_named(name, ty, aliases);
+    if shape.named.is_empty() && shape.name.is_none() {
+        return serde_json::to_string(&shape.ty).unwrap_or_default();
+    }
+    serde_json::to_string(&shape).unwrap_or_default()
+}
+
+/// `expr` with every `json/parse` whose shape names a program alias given that alias's recorded type, so the kernel
+/// checks the parsed value against it.
+fn record_parse_shapes(expr: &SExpression, aliases: &Aliases) -> SExpression {
+    match expr {
+        SExpression::Object(fields) => {
+            SExpression::Object(fields.iter().map(|(k, v)| (k.clone(), record_parse_shapes(v, aliases))).collect())
+        }
+        SExpression::Array(items) => {
+            if let Some(SExpression::String(head)) = items.first() {
+                if matches!(head.as_str(), "quote" | "quasiquote") {
+                    return expr.clone();
+                }
+            }
+            let mut out: Vec<SExpression> = items.iter().map(|item| record_parse_shapes(item, aliases)).collect();
+            if let [SExpression::String(head), _, SExpression::String(shape)] = out.as_slice() {
+                if head == "json/parse" {
+                    if let Some(declared) = DeclaredShape::of_alias(shape, aliases) {
+                        out[2] = SExpression::String(recorded_type(declared.name, declared.ty, aliases));
+                    }
+                }
+            }
+            SExpression::Array(out)
+        }
+        other => other.clone(),
+    }
 }
 
 /// Whether the parameter at this position is a list of a type variable (`[T]`).
@@ -183,26 +224,26 @@ fn declared_list(ty: &OirType) -> Option<OirType> {
     }
 }
 
-fn untag(expr: &SExpression, slots: &HashMap<String, OirType>) -> SExpression {
+fn untag(expr: &SExpression, slots: &HashMap<String, OirType>, aliases: &Aliases) -> SExpression {
     match expr {
         SExpression::Object(fields) => {
-            SExpression::Object(fields.iter().map(|(k, v)| (k.clone(), untag(v, slots))).collect())
+            SExpression::Object(fields.iter().map(|(k, v)| (k.clone(), untag(v, slots, aliases))).collect())
         }
         SExpression::Array(items) => {
             if let [SExpression::String(head), value, SExpression::String(slot)] = items.as_slice() {
                 if head == "typed" && slot.starts_with(SLOT) {
-                    let value = untag(value, slots);
+                    let value = untag(value, slots, aliases);
                     return match slots.get(slot).and_then(declared_list) {
                         Some(ty) => SExpression::Array(vec![
                             SExpression::String("typed".to_string()),
                             value,
-                            SExpression::String(serde_json::to_string(&ty).unwrap_or_default()),
+                            SExpression::String(recorded_type(None, ty, aliases)),
                         ]),
                         None => value,
                     };
                 }
             }
-            SExpression::Array(items.iter().map(|item| untag(item, slots)).collect())
+            SExpression::Array(items.iter().map(|item| untag(item, slots, aliases)).collect())
         }
         other => other.clone(),
     }
@@ -293,6 +334,56 @@ mod tests {
         let mut schema = program(via, effect.clone());
         record_declared_list_types(&mut schema);
         assert_eq!(effect_of(&schema), effect);
+    }
+
+    fn with_row_types(mut schema: OrbitalSchema) -> OrbitalSchema {
+        schema.orbitals[0].types = Some(
+            serde_json::from_value(json!({
+                "RowFile": [
+                    { "name": "rows", "type": "[Row]", "required": true },
+                    { "name": "changes", "type": "[string]", "required": true }
+                ],
+                "Row": [{ "name": "", "type": "Map<string,RowCell>" }],
+                "RowCell": [{ "name": "", "type": "union", "properties": [
+                    { "name": "string", "type": "string" },
+                    { "name": "array", "type": "[RowCell]" }
+                ] }],
+                "Point": [{ "name": "x", "type": "number", "required": true }]
+            }))
+            .expect("aliases"),
+        );
+        schema
+    }
+
+    fn parse_shape_of(shape: &str) -> serde_json::Value {
+        let via = json!({ "name": "via", "type": "string" });
+        let effect = json!(["set", "@entity.count", ["json/parse", "@payload.via", shape]]);
+        let mut schema = with_row_types(program(via, effect));
+        record_declared_list_types(&mut schema);
+        effect_of(&schema)[2][2].clone()
+    }
+
+    #[test]
+    fn a_json_parse_naming_a_program_alias_records_its_type_with_every_type_it_names() {
+        let recorded: DeclaredShape =
+            serde_json::from_str(parse_shape_of("RowFile").as_str().expect("shape text")).expect("a recorded shape");
+        assert_eq!(recorded.name.as_deref(), Some("RowFile"));
+        assert!(matches!(recorded.ty, OirType::Struct { .. }), "{:?}", recorded.ty);
+        assert_eq!(recorded.named.keys().collect::<Vec<_>>(), ["Row", "RowCell"], "transitively, the recursive one once");
+    }
+
+    #[test]
+    fn a_json_parse_naming_a_non_recursive_alias_records_its_type() {
+        let recorded: DeclaredShape =
+            serde_json::from_str(parse_shape_of("Point").as_str().expect("shape text")).expect("a recorded shape");
+        assert!(matches!(recorded.ty, OirType::Struct { ref fields } if fields.len() == 1));
+        assert!(recorded.named.is_empty());
+    }
+
+    #[test]
+    fn control_a_json_parse_naming_no_program_alias_is_left_as_written() {
+        assert_eq!(parse_shape_of("number"), json!("number"));
+        assert_eq!(parse_shape_of("Elsewhere"), json!("Elsewhere"));
     }
 
     #[test]

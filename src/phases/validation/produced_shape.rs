@@ -331,6 +331,7 @@ pub(crate) fn produced_payload(
         op_name,
         "credential-status"
             | "credential-forget"
+            | "access-check"
             | "browser/beacon"
             | "browser/prompt"
             | "browser/embed"

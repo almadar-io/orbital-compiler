@@ -676,7 +676,20 @@ pub fn validate_field(
         ));
     }
 
-    // Validate relation fields reference existing entities
+    check_relation_targets(field, path, all_entity_names, &mut result);
+
+    result
+}
+
+/// A relation anywhere in a field's shape (the field itself, a list element, a map value, a struct
+/// member) names an existing entity; one the resolver cannot type is reported here, never as a raw
+/// resolution error.
+fn check_relation_targets(
+    field: &FieldDefinition,
+    path: &str,
+    all_entity_names: &HashSet<String>,
+    result: &mut ValidationResult,
+) {
     if field.field_type == FieldType::Relation {
         if let Some(relation) = &field.relation {
             if !all_entity_names.contains(&relation.entity) {
@@ -704,8 +717,21 @@ pub fn validate_field(
             );
         }
     }
-
-    result
+    if let Some(items) = &field.items {
+        check_relation_targets(items, &format!("{}.items", path), all_entity_names, result);
+    }
+    if let Some(props) = &field.properties {
+        let mut names: Vec<&String> = props.keys().collect();
+        names.sort();
+        for name in names {
+            check_relation_targets(
+                &props[name],
+                &format!("{}.properties.{}", path, name),
+                all_entity_names,
+                result,
+            );
+        }
+    }
 }
 
 /// Convert FieldType to string for validation
@@ -1329,6 +1355,59 @@ mod tests {
             .errors
             .iter()
             .any(|e| e.code == ErrorCode::SchemaSharedWithoutPersistenceMode));
+    }
+
+    fn keyed_entity(by_key: serde_json::Value) -> EntityDefinition {
+        let mut entity = create_valid_entity();
+        entity.fields.push(serde_json::from_value(by_key).expect("field fixture"));
+        entity
+    }
+
+    fn relation_errors(entity: &EntityDefinition) -> Vec<String> {
+        let known: HashSet<String> = ["Task".to_string(), "Asset".to_string()].into_iter().collect();
+        validate_entity(entity, "test", &known, true)
+            .errors
+            .into_iter()
+            .filter(|e| e.code == ErrorCode::EntityInvalidRelation)
+            .map(|e| e.path)
+            .collect()
+    }
+
+    #[test]
+    fn a_map_value_relation_without_a_definition_is_a_coded_error() {
+        let bare = keyed_entity(serde_json::json!({
+            "name": "byKey", "type": "object", "default": {}, "items": { "type": "relation" }
+        }));
+        assert_eq!(relation_errors(&bare), vec!["test.fields[1].items.relation".to_string()]);
+
+        let nested = keyed_entity(serde_json::json!({
+            "name": "packs", "type": "array", "items": { "type": "object", "properties": {
+                "byKey": { "name": "byKey", "type": "object", "items": { "type": "object", "items": { "type": "relation" } } }
+            } }
+        }));
+        assert_eq!(
+            relation_errors(&nested),
+            vec!["test.fields[1].items.properties.byKey.items.items.relation".to_string()]
+        );
+
+        let ghost = keyed_entity(serde_json::json!({
+            "name": "byKey", "type": "object", "items": {
+                "type": "relation", "relation": { "entity": "Nope", "cardinality": "one" }, "intrinsic": true
+            }
+        }));
+        assert_eq!(relation_errors(&ghost), vec!["test.fields[1].items.relation.entity".to_string()]);
+    }
+
+    #[test]
+    fn control_a_map_of_known_entity_rows_with_an_empty_default_is_clean() {
+        let entity = keyed_entity(serde_json::json!({
+            "name": "byKey", "type": "object", "default": {}, "items": {
+                "type": "relation", "relation": { "entity": "Asset", "cardinality": "one" }, "intrinsic": true
+            }
+        }));
+        let known: HashSet<String> = ["Task".to_string(), "Asset".to_string()].into_iter().collect();
+        let result = validate_entity(&entity, "test", &known, true);
+        assert!(result.is_valid(), "{:?}", result.errors);
     }
 }
 

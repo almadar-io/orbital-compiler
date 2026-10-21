@@ -285,6 +285,7 @@ pub const EFFECT_OPERATORS: &[&str] = &[
     "credential-test",
     "credential-mode",
     "credential-rotate",
+    "access-check",
     "oauth-authorize",
     "oauth-connection-status",
     "oauth-connection-forget",

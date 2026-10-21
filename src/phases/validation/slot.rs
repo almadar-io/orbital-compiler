@@ -334,47 +334,6 @@ fn matches_state(from: &orbital_core_base::schema::StringOrArray, state: &str) -
     }
 }
 
-/// Validate main slot coverage for a specific set of traits and state
-pub fn validate_main_slot_coverage(
-    traits: &[&TraitDefinition],
-    state: &str,
-    path: &str,
-) -> ValidationResult {
-    let mut result = ValidationResult::new();
-    let mut has_main = false;
-
-    for trait_def in traits {
-        for transition in &trait_def.state_machine.transitions {
-            if matches_state(&transition.from, state) {
-                if let Some(effects) = &transition.effects {
-                    for effect in effects {
-                        if is_render_ui_effect(effect) {
-                            if let Some(slot) = extract_slot(effect) {
-                                if slot == "main" {
-                                    has_main = true;
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-        }
-    }
-
-    if !has_main && !traits.is_empty() {
-        result.add_error(
-            ValidationError::error(
-                ErrorCode::SlotMainNotCovered,
-                path,
-                format!("Main slot may not be covered in state '{}'", state),
-            )
-            .with_suggestion("Ensure main slot is rendered in all visual states"),
-        );
-    }
-
-    result
-}
-
 /// Resolve a page's trait mounts to this orbital's own trait definitions.
 ///
 /// A `page "/x" -> A, B` declaration lowers to

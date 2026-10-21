@@ -1,4 +1,4 @@
-//! `random-bytes`, `credential-*` validation
+//! `random-bytes`, `access-check`, `credential-*` validation
 //! (`docs/Almadar_Embedded_Kernel.md` H.7 P4, P6): arity, the closed options
 //! object (`emit { success, failure }` only), and a literal byte count in range.
 
@@ -10,8 +10,9 @@ use super::{extract_emit_object_ref, validate_emit_config};
 use orbital_core_base::credential_admin::CredentialAdminOp;
 use orbital_core_base::schema::{OrbitalSchema, SExpression};
 
-const HOST_EFFECTS: [&str; 9] = [
+const HOST_EFFECTS: [&str; 10] = [
     "random-bytes",
+    "access-check",
     "credential-status",
     "credential-forget",
     "credential-list",

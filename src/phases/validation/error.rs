@@ -167,6 +167,22 @@ pub enum ErrorCode {
     /// parameters. Hard error since 2026-09-01 (both behavior packages
     /// report zero occurrences).
     GenericTypeDeprecated,
+    /// A type reference names no declared type, entity or primitive
+    TypeUnknown,
+    /// A type composition chain refers back to itself
+    TypeCycle,
+    /// Composed types do not share a kind (all Entity, all Trait, …)
+    TypeKindMismatch,
+    /// A field is declared in more than one composed entity
+    TypeCompositionConflict,
+    /// A type body does not match its `::` type annotation
+    TypeAnnotationMismatch,
+    /// A type alias body uses a type parameter the alias does not declare
+    TypeUnknownParam,
+    /// A type alias is applied with the wrong number of type arguments
+    TypeWrongArgCount,
+    /// An `emits` entry names a declared type that is not an Event type
+    EventTypeWrongKind,
     /// A `node`-typed entity field receives a value the validator cannot
     /// statically check (a computed expression rather than a pattern-tree
     /// literal). Non-blocking: computed renderable content is legitimate,
@@ -414,10 +430,6 @@ pub enum ErrorCode {
     SlotContentionTick,
     /// Invalid slot nesting (e.g., modal in modal)
     SlotInvalidNesting,
-    /// Priority conflict between traits on same slot
-    SlotPriorityConflict,
-    /// Invalid slot name
-    SlotInvalidName,
     /// HUD slot used in non-game context
     SlotHudNonGame,
 
@@ -552,6 +564,8 @@ pub enum ErrorCode {
     InboundDuplicate,
     /// an inbound handler answers with an event its trait does not declare in `emits`
     InboundAnswerUndeclared,
+    /// a trait other than an inbound handler emits the handler's answer event and the handler does not relay it: only the handler's own emit answers
+    InboundAnswerForeign,
     /// an inbound `verifies` header is not a lower-case header name, or its credential is not a credential name
     InboundVerifyInvalid,
     /// an `os/` call needs something the calling orbital's grants do not cover
@@ -736,28 +750,6 @@ pub enum ErrorCode {
     SExprParseError,
 
     // =========================================================================
-    // Service Errors (ORB_SVC_*)
-    // =========================================================================
-    /// Duplicate service name
-    ServiceDuplicateName,
-    /// REST service missing baseUrl
-    ServiceMissingBaseUrl,
-    /// Invalid service URL
-    ServiceInvalidUrl,
-    /// Socket service missing events config
-    ServiceMissingEvents,
-    /// Reserved socket event name used
-    ServiceReservedEvent,
-    /// MCP service missing capabilities
-    ServiceMissingCapabilities,
-    /// MCP service missing serverPath
-    ServiceMissingServerPath,
-    /// Unknown service type
-    ServiceUnknownType,
-    /// Invalid integrator
-    ServiceInvalidIntegrator,
-
-    // =========================================================================
     // Cross-Orbital Errors (ORB_X_*)
     // =========================================================================
     /// Duplicate entity name across orbitals
@@ -780,8 +772,6 @@ pub enum ErrorCode {
     ClientTickNotLocal,
     /// Circular dependency in event wiring
     CrossOrbitalCircularDependency,
-    /// Event namespace collision
-    CrossOrbitalEventCollision,
     /// Orbital missing name
     CrossOrbitalMissingName,
     /// Payload mismatch between emitter and listener
@@ -1196,7 +1186,10 @@ pub enum ErrorCode {
     /// The failure-handling arm found for [`CircuitFailureArmMissing`]'s
     /// contract exists but paints nothing (no `render-ui <slot> <non-null>`
     /// anywhere in its effects, including through `if`/`do`) — the failure is
-    /// caught but never shown to the user. Ported from `failure-arm-renders-
+    /// caught but never shown to the user. A trait declared `[integration]`
+    /// is headless, so its arm also handles the failure by emitting an event
+    /// some trait in the program listens to, or one it declares `-> external`;
+    /// an emit nobody hears still reports. Ported from `failure-arm-renders-
     /// nothing`. Error severity.
     CircuitFailureArmRendersNothing,
     /// A transition renders a non-self-overlaying pattern into an overlay
@@ -1317,8 +1310,6 @@ pub enum ErrorCode {
     TraitEventTickUndeclared,
     /// Listener scope mismatch
     TraitEventScopeMismatch,
-    /// Duplicate event in trait.emits
-    TraitEventDuplicate,
     /// External emit missing payload definition
     TraitEventExternalMissingPayload,
 
@@ -1567,6 +1558,14 @@ impl ErrorCode {
             ErrorCode::TraitConfigShapeMismatch => "ORB_T_CONFIG_SHAPE_MISMATCH",
             ErrorCode::TraitConfigObjectArrayForbidden => "ORB_T_CONFIG_OBJECT_ARRAY_FORBIDDEN",
             ErrorCode::GenericTypeDeprecated => "ORB_T_GENERIC_TYPE_DEPRECATED",
+            ErrorCode::TypeUnknown => "ORB_T_TYPE_UNKNOWN",
+            ErrorCode::TypeCycle => "ORB_T_TYPE_CYCLE",
+            ErrorCode::TypeKindMismatch => "ORB_T_TYPE_KIND_MISMATCH",
+            ErrorCode::TypeCompositionConflict => "ORB_T_TYPE_COMPOSITION_CONFLICT",
+            ErrorCode::TypeAnnotationMismatch => "ORB_T_TYPE_ANNOTATION_MISMATCH",
+            ErrorCode::TypeUnknownParam => "ORB_T_TYPE_UNKNOWN_PARAM",
+            ErrorCode::TypeWrongArgCount => "ORB_T_TYPE_WRONG_ARG_COUNT",
+            ErrorCode::EventTypeWrongKind => "ORB_T_EVENT_TYPE_WRONG_KIND",
             ErrorCode::NodeFieldUncheckedContent => "ORB_RUI_NODE_FIELD_UNCHECKED_CONTENT",
             ErrorCode::RenderableContentInGenericField => "ORB_RUI_RENDERABLE_IN_GENERIC_FIELD",
             ErrorCode::TraitConfigTierInvalid => "ORB_T_CONFIG_TIER_INVALID",
@@ -1633,8 +1632,6 @@ impl ErrorCode {
             ErrorCode::SlotContentionRuntime => "ORB_SLOT_CONTENTION_RUNTIME",
             ErrorCode::SlotContentionTick => "ORB_SLOT_CONTENTION_TICK",
             ErrorCode::SlotInvalidNesting => "ORB_SLOT_INVALID_NESTING",
-            ErrorCode::SlotPriorityConflict => "ORB_SLOT_PRIORITY_CONFLICT",
-            ErrorCode::SlotInvalidName => "ORB_SLOT_INVALID_NAME",
             ErrorCode::SlotHudNonGame => "ORB_SLOT_HUD_NON_GAME",
 
             // Render-UI
@@ -1681,6 +1678,7 @@ impl ErrorCode {
             ErrorCode::InboundEntryInvalid => "ORB_INBOUND_ENTRY_INVALID",
             ErrorCode::InboundDuplicate => "ORB_INBOUND_DUPLICATE",
             ErrorCode::InboundAnswerUndeclared => "ORB_INBOUND_ANSWER_UNDECLARED",
+            ErrorCode::InboundAnswerForeign => "ORB_INBOUND_ANSWER_FOREIGN",
             ErrorCode::InboundVerifyInvalid => "ORB_INBOUND_VERIFY_INVALID",
             ErrorCode::OsGrantMissing => "ORB_OS_GRANT_MISSING",
             ErrorCode::OsTargetNotStatic => "ORB_OS_TARGET_NOT_STATIC",
@@ -1760,17 +1758,6 @@ impl ErrorCode {
             ErrorCode::SExprUnknownEntity => "SEXPR_UNKNOWN_ENTITY",
             ErrorCode::SExprParseError => "SEXPR_PARSE_ERROR",
 
-            // Service
-            ErrorCode::ServiceDuplicateName => "ORB_SVC_DUPLICATE_NAME",
-            ErrorCode::ServiceMissingBaseUrl => "ORB_SVC_MISSING_BASE_URL",
-            ErrorCode::ServiceInvalidUrl => "ORB_SVC_INVALID_URL",
-            ErrorCode::ServiceMissingEvents => "ORB_SVC_MISSING_EVENTS",
-            ErrorCode::ServiceReservedEvent => "ORB_SVC_RESERVED_EVENT",
-            ErrorCode::ServiceMissingCapabilities => "ORB_SVC_MISSING_CAPABILITIES",
-            ErrorCode::ServiceMissingServerPath => "ORB_SVC_MISSING_SERVER_PATH",
-            ErrorCode::ServiceUnknownType => "ORB_SVC_UNKNOWN_TYPE",
-            ErrorCode::ServiceInvalidIntegrator => "ORB_SVC_INVALID_INTEGRATOR",
-
             // Cross-Orbital
             ErrorCode::CrossOrbitalDuplicateEntity => "ORB_X_DUPLICATE_ENTITY",
             ErrorCode::CrossMixedResidence => "ORB_X_MIXED_RESIDENCE",
@@ -1779,7 +1766,6 @@ impl ErrorCode {
             ErrorCode::EmitUnroutedToHandler => "ORB_EMIT_UNROUTED_TO_HANDLER",
             ErrorCode::ClientTickNotLocal => "ORB_T_CLIENT_TICK_NOT_LOCAL",
             ErrorCode::CrossOrbitalCircularDependency => "ORB_X_CIRCULAR_DEPENDENCY",
-            ErrorCode::CrossOrbitalEventCollision => "ORB_X_EVENT_COLLISION",
             ErrorCode::CrossOrbitalMissingName => "ORB_X_MISSING_ORBITAL_NAME",
             ErrorCode::CrossOrbitalPayloadMismatch => "ORB_X_PAYLOAD_MISMATCH",
             ErrorCode::CrossOrbitalListenSourceUnresolved => "ORB_X_LISTEN_SOURCE_UNRESOLVED",
@@ -1915,7 +1901,6 @@ impl ErrorCode {
             ErrorCode::TraitEventInvalidName => "ORB_T_EVT_INVALID_NAME",
             ErrorCode::TraitEventTickUndeclared => "ORB_T_EVT_TICK_UNDECLARED",
             ErrorCode::TraitEventScopeMismatch => "ORB_T_EVT_SCOPE_MISMATCH",
-            ErrorCode::TraitEventDuplicate => "ORB_T_EVT_DUPLICATE",
             ErrorCode::TraitEventExternalMissingPayload => "ORB_T_EVT_EXTERNAL_MISSING_PAYLOAD",
 
             // Schema
@@ -2043,6 +2028,14 @@ impl ErrorCode {
             | ErrorCode::TraitConfigUnknownCallSiteKey
             | ErrorCode::TraitConfigMissingRequiredKey
             | ErrorCode::UnresolvedTypeParam
+            | ErrorCode::TypeUnknown
+            | ErrorCode::TypeCycle
+            | ErrorCode::TypeKindMismatch
+            | ErrorCode::TypeCompositionConflict
+            | ErrorCode::TypeAnnotationMismatch
+            | ErrorCode::TypeUnknownParam
+            | ErrorCode::TypeWrongArgCount
+            | ErrorCode::EventTypeWrongKind
             | ErrorCode::TraitLocalTouchesServer
             | ErrorCode::TraitClientTickServerEffect
             | ErrorCode::TraitLocalOnNonSharedPersistent
@@ -2098,8 +2091,6 @@ impl ErrorCode {
             | ErrorCode::SlotContentionRuntime
             | ErrorCode::SlotContentionTick
             | ErrorCode::SlotInvalidNesting
-            | ErrorCode::SlotPriorityConflict
-            | ErrorCode::SlotInvalidName
             | ErrorCode::SlotHudNonGame => "slot",
 
             ErrorCode::RenderUIInvalidSlot
@@ -2146,6 +2137,7 @@ impl ErrorCode {
             | ErrorCode::InboundEntryInvalid
             | ErrorCode::InboundDuplicate
             | ErrorCode::InboundAnswerUndeclared
+            | ErrorCode::InboundAnswerForeign
             | ErrorCode::InboundVerifyInvalid
             | ErrorCode::OsGrantMissing
             | ErrorCode::OsTargetNotStatic
@@ -2233,16 +2225,6 @@ impl ErrorCode {
             | ErrorCode::SExprUnknownEntity
             | ErrorCode::SExprParseError => "sexpr",
 
-            ErrorCode::ServiceDuplicateName
-            | ErrorCode::ServiceMissingBaseUrl
-            | ErrorCode::ServiceInvalidUrl
-            | ErrorCode::ServiceMissingEvents
-            | ErrorCode::ServiceReservedEvent
-            | ErrorCode::ServiceMissingCapabilities
-            | ErrorCode::ServiceMissingServerPath
-            | ErrorCode::ServiceUnknownType
-            | ErrorCode::ServiceInvalidIntegrator => "service",
-
             ErrorCode::CrossMixedResidence
             | ErrorCode::CrossOrbitalDuplicateEntity
             | ErrorCode::CrossOrbitalOrphanListener
@@ -2250,7 +2232,6 @@ impl ErrorCode {
             | ErrorCode::EmitUnroutedToHandler
             | ErrorCode::ClientTickNotLocal
             | ErrorCode::CrossOrbitalCircularDependency
-            | ErrorCode::CrossOrbitalEventCollision
             | ErrorCode::CrossOrbitalMissingName
             | ErrorCode::CrossOrbitalPayloadMismatch
             | ErrorCode::CrossOrbitalListenSourceUnresolved
@@ -2357,7 +2338,6 @@ impl ErrorCode {
             | ErrorCode::TraitEventInvalidName
             | ErrorCode::TraitEventTickUndeclared
             | ErrorCode::TraitEventScopeMismatch
-            | ErrorCode::TraitEventDuplicate
             | ErrorCode::TraitEventExternalMissingPayload => "trait_event",
 
             ErrorCode::SchemaMissingName
@@ -2694,6 +2674,27 @@ mod tests {
             "ORB_T_NO_INITIAL_STATE"
         );
         assert_eq!(ErrorCode::PageMissingPath.as_str(), "ORB_P_MISSING_PATH");
+    }
+
+    #[test]
+    fn every_lolo_type_error_code_is_a_known_code() {
+        let known = |s: &str| ErrorCode::ALL.iter().any(|c| c.as_str() == s);
+        for code in [
+            "ORB_T_TYPE_UNKNOWN",
+            "ORB_T_TYPE_CYCLE",
+            "ORB_T_TYPE_KIND_MISMATCH",
+            "ORB_T_TYPE_COMPOSITION_CONFLICT",
+            "ORB_T_TYPE_ANNOTATION_MISMATCH",
+            "ORB_T_TYPE_UNKNOWN_PARAM",
+            "ORB_T_TYPE_WRONG_ARG_COUNT",
+            "ORB_T_EVENT_TYPE_WRONG_KIND",
+            "ORB_T_GENERIC_TYPE_DEPRECATED",
+        ] {
+            assert!(known(code), "{code} is not in ErrorCode::ALL");
+        }
+        assert!(!known("ORB_T_TYPE_NOT_A_REAL_CODE"));
+        assert!(!known("ELOLO_T_PAYLOAD_SIBLING"));
+        assert_eq!(ErrorCode::TypeUnknown.category(), "trait");
     }
 
     #[test]

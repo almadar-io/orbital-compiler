@@ -88,6 +88,29 @@ mod tests {
         assert_eq!(duplicates(&schema), 0);
     }
 
+    fn pipeline_duplicates(schema: &OrbitalSchema) -> usize {
+        crate::phases::validate_comprehensive_without_services(schema)
+            .errors
+            .iter()
+            .filter(|e| e.code == ErrorCode::CrossDuplicateTraitId)
+            .count()
+    }
+
+    #[test]
+    fn shared_id_fires_through_validate_comprehensive() {
+        let id = Some("trt_D3MHYC8PV7BDKNT20E3SN8RFSA");
+        assert_eq!(pipeline_duplicates(&program([id, id])), 1);
+    }
+
+    #[test]
+    fn control_distinct_ids_pass_through_validate_comprehensive() {
+        let schema = program([
+            Some("trt_D3MHYC8PV7BDKNT20E3SN8RFSA"),
+            Some("trt_ZSKW13TYGSF8CQNE490K961PEB"),
+        ]);
+        assert_eq!(pipeline_duplicates(&schema), 0);
+    }
+
     #[test]
     fn control_traits_without_ids_are_not_compared() {
         assert_eq!(duplicates(&program([None, None])), 0);

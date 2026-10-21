@@ -22,6 +22,7 @@ fn program(effects: Value) -> OrbitalSchema {
                     { "event": "DRAW_FAILED", "payloadSchema": [{ "name": "error", "type": "string", "required": true }] },
                     { "event": "DRAWN_KEYED", "payloadSchema": [{ "name": "value", "type": "string", "required": true }, { "name": "key", "type": "string", "required": true }] },
                     { "event": "KNOWN", "payloadSchema": [{ "name": "connected", "type": "boolean", "required": true }] },
+                    { "event": "VERDICT", "payloadSchema": [{ "name": "allowed", "type": "boolean", "required": true }] },
                     { "event": "SPOILED", "payloadSchema": [{ "name": "bytes", "type": "string", "required": true }] }
                 ],
                 "stateMachine": {
@@ -1021,4 +1022,18 @@ mod postgres {
         let right = check(json!([call(json!("postgres://db.internal:5432"), json!("SELECT 1"), json!([]), vec![user(), routes()])]));
         assert!(!fires(&right, ErrorCode::EmitPayloadNotProduced), "{:?}", right.errors);
     }
+}
+
+#[test]
+fn access_check_takes_one_request_and_optional_routes_and_its_verdict_payload_is_checked() {
+    let request = json!({ "entity": "Row", "action": "read", "row": {}, "viewer": null });
+    let ok = check(json!([["access-check", request.clone(), { "emit": { "success": "VERDICT", "failure": "DRAW_FAILED" } }]]));
+    for code in [ErrorCode::HostEffectArity, ErrorCode::HostEffectOptionUnknown, ErrorCode::EmitPayloadNotProduced] {
+        assert!(!fires(&ok, code), "{code:?}: {:?}", ok.errors);
+    }
+    assert!(fires(&check(json!([["access-check"]])), ErrorCode::HostEffectArity));
+    assert!(fires(&check(json!([["access-check", request.clone(), {}, {}]])), ErrorCode::HostEffectArity));
+    assert!(fires(&check(json!([["access-check", request.clone(), { "key": "k" }]])), ErrorCode::HostEffectOptionUnknown));
+    let spoiled = check(json!([["access-check", request, { "emit": { "success": "SPOILED" } }]]));
+    assert!(fires(&spoiled, ErrorCode::EmitPayloadNotProduced), "{:?}", spoiled.errors);
 }
