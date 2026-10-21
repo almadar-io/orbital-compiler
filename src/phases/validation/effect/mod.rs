@@ -49,7 +49,10 @@ pub(crate) use fetch::{
     validate_fetch_object,
 };
 pub(crate) use navigate::{validate_navigate, validate_send_server};
-pub(crate) use keyed_call::{validate_call_key_literals_are_used, validate_call_service_keys_are_unique_per_transition};
+pub(crate) use keyed_call::{
+    validate_call_key_literals_are_used, validate_call_service_keys_are_unique_per_transition,
+    validate_effect_options_carry_their_key,
+};
 use keyed_call::CallKeyFacts;
 pub(crate) use operator_args::validate_operator_arg_types;
 pub(crate) use os_grants::{validate_final_os_targets, validate_os_grants, validate_placement};
@@ -87,6 +90,7 @@ pub fn validate_all_effects(schema: &OrbitalSchema, ctx: &mut ValidationContext)
         ctx.merge(result);
     }
     ctx.merge(validate_call_key_literals_are_used(schema));
+    ctx.merge(validate_effect_options_carry_their_key(schema));
     ctx.merge(validate_call_service_keys_are_unique_per_transition(schema));
     ctx.merge(validate_http_effects(schema));
     ctx.merge(validate_inbound(schema));

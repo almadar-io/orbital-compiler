@@ -410,6 +410,61 @@ pub(crate) fn validate_call_key_literals_are_used(schema: &OrbitalSchema) -> Val
     result
 }
 
+/// Effects whose options take `emit` but carry no `key`: a key written there never reaches the completion.
+const UNKEYED_EMIT_OPERATORS: [&str; 2] = ["persist", "fetch"];
+
+/// `ORB_EFFECT_OPTION_DROPPED`: an options object declaring `emit` and `key` on an effect that carries no key
+/// (G-ORB-425). The completion would arrive without `key`, so a `?key` guard on its arm could never match.
+pub(crate) fn validate_effect_options_carry_their_key(schema: &OrbitalSchema) -> ValidationResult {
+    fn scan(expr: &SExpression, path: &str, result: &mut ValidationResult) {
+        match expr {
+            SExpression::Array(arr) => {
+                if let Some(head) = arr.first().and_then(SExpression::as_str) {
+                    if UNKEYED_EMIT_OPERATORS.contains(&head) {
+                        let dropped = arr[1..].iter().any(|arg| {
+                            matches!(arg, SExpression::Object(o) if o.contains_key("emit") && o.contains_key("key"))
+                        });
+                        if dropped {
+                            result.add_error(
+                                ValidationError::error(
+                                    ErrorCode::EffectOptionDropped,
+                                    path,
+                                    format!("`{head}` carries no `key`, so its completion would never echo the `key` its options declare"),
+                                )
+                                .with_suggestion(format!("Remove `key` from the `{head}` options, or tell the arm apart by its event")),
+                            );
+                        }
+                    }
+                }
+                for item in arr {
+                    scan(item, path, result);
+                }
+            }
+            SExpression::Object(obj) => {
+                for v in obj.values() {
+                    scan(v, path, result);
+                }
+            }
+            _ => {}
+        }
+    }
+
+    let mut result = ValidationResult::new();
+    for (trait_def, path) in super::super::inline_traits(schema) {
+        for (i, transition) in trait_def.state_machine.transitions.iter().enumerate() {
+            for (j, effect) in transition.effects.iter().flatten().enumerate() {
+                scan(effect, &format!("{path}.stateMachine.transitions[{i}].effects[{j}]"), &mut result);
+            }
+        }
+        for (i, tick) in trait_def.ticks.iter().flatten().enumerate() {
+            for (j, effect) in tick.effects.iter().enumerate() {
+                scan(effect, &format!("{path}.ticks[{i}].effects[{j}]"), &mut result);
+            }
+        }
+    }
+    result
+}
+
 /// `ORB_CALL_SERVICE_KEY_DUPLICATE`: a transition runs its effects as one step, and a step refuses a second
 /// `call-service` under a key already used in it (the second fails with the step's visible error). Two such calls
 /// in the transition's own effect list, with the same literal `key`, can never both run.

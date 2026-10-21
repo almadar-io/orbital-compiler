@@ -531,6 +531,8 @@ pub enum ErrorCode {
     CancelCallNoKeyedCall,
     /// a literal `(as "k" CallKey)` in a program whose keyed calls are all keyed by literals, none of them `"k"`
     CallKeyUnused,
+    /// an emit-options `key` on an effect that carries no key, so its completion could never echo it
+    EffectOptionDropped,
     /// `--final`: a `cancel-call` on a `CallKey` (or a list of them) in a finished program where no keyed call has a
     /// `CallKey`-typed `key:`, so nothing the program runs is named by a key made with `as`
     CancelCallKeyNeverCalled,
@@ -1669,6 +1671,7 @@ impl ErrorCode {
             ErrorCode::CallServiceKeyType => "ORB_CALL_SERVICE_KEY_TYPE",
             ErrorCode::CancelCallNoKeyedCall => "ORB_CANCEL_CALL_NO_KEYED_CALL",
             ErrorCode::CallKeyUnused => "ORB_CALL_KEY_UNUSED",
+            ErrorCode::EffectOptionDropped => "ORB_EFFECT_OPTION_DROPPED",
             ErrorCode::CancelCallKeyNeverCalled => "ORB_CANCEL_CALL_KEY_NEVER_CALLED",
             ErrorCode::CallServiceKeyDuplicate => "ORB_CALL_SERVICE_KEY_DUPLICATE",
             ErrorCode::CallServiceResultHasKey => "ORB_CALL_SERVICE_RESULT_HAS_KEY",
@@ -2133,6 +2136,7 @@ impl ErrorCode {
             | ErrorCode::CallServiceKeyType
             | ErrorCode::CancelCallNoKeyedCall
             | ErrorCode::CallKeyUnused
+            | ErrorCode::EffectOptionDropped
             | ErrorCode::CancelCallKeyNeverCalled
             | ErrorCode::CallServiceKeyDuplicate
             | ErrorCode::CallServiceResultHasKey
