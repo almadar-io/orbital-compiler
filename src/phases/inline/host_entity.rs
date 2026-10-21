@@ -1,5 +1,5 @@
 //! Inline's call of `OrbitalSchema::bind_unlinked_traits_to_host_entity`, and
-//! its end-to-end tests through `inline_schema` (`tools/parity-cascade` fixture
+//! its end-to-end tests through `inline_schema` (parity fixture
 //! `dispatch-mode`).
 
 use orbital_core_base::schema::OrbitalSchema;
