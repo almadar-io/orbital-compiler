@@ -96,6 +96,7 @@ fn describe(need: &OsRequirement) -> String {
         OsRequirement::Stdio { kind } => format!("stdio {}", kind.name()),
         OsRequirement::Sys { kind } => format!("sys {}", kind.name()),
         OsRequirement::Desktop { kind } => format!("desktop {}", kind.name()),
+        OsRequirement::Kv { store, mode } => format!("kv {store:?} {}", mode.name()),
     }
 }
 
@@ -144,6 +145,10 @@ fn suggestion(need: &OsRequirement) -> String {
         OsRequirement::Desktop { kind } => {
             format!("Add `desktop: [{}]` to the orbital's bracket", kind.name())
         }
+        OsRequirement::Kv { store, mode } => format!(
+            "Add `kv: {{ {store:?}: [{}] }}` to the orbital's bracket (`orbital Name [ … ]`) or the app's",
+            mode.name()
+        ),
     }
 }
 
