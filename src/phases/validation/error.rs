@@ -1366,7 +1366,7 @@ pub enum ErrorCode {
     /// `store: X` (entity or app header) names no orbital of the program (EXEC-STORE-4). Error severity.
     StoreUnknownOrbital,
     /// A store driver orbital has no trait handling one of ROW_READ / ROW_LIST / ROWS_QUERY / ROWS_WRITE
-    /// (`spec/infra/row-store.lolo`). Error severity.
+    /// (`spec/store/row-store.lolo`). Error severity.
     StoreDriverContract,
     /// `store:` on an entity whose rows live in no store (`[runtime]` or browser-`local`). Error severity.
     StoreOnNonPersistent,

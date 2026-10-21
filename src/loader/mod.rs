@@ -760,7 +760,7 @@ impl ExternalOrbitalLoader {
             // StdLibNotConfigured is classified as validator INFRA downstream
             // ("do not edit, retry"), which turns a fixable bad import into an
             // unfixable dead end (battery 2026-07-20 free-lolo-infra-approval:
-            // `std/infra/atoms/std-approval-gate` retried 9× to no avail).
+            // `std/flow/atoms/std-approval-gate` retried 9× to no avail).
             None => {
                 let basename = {
                     let b = import_path.rsplit('/').next().unwrap_or("");

@@ -1,5 +1,5 @@
 //! The store seam's binding checks (EXEC-STORE-4): `store:` names a driver orbital that answers every row
-//! verb of `spec/infra/row-store.lolo`, binds only an entity whose rows live in a store, and a driver that
+//! verb of `spec/store/row-store.lolo`, binds only an entity whose rows live in a store, and a driver that
 //! declares no conditional write never backs an entity the program takes with a single delete or update.
 
 use super::{ErrorCode, ValidationContext, ValidationError, ValidationResult};
@@ -98,7 +98,7 @@ fn check_driver<'a>(
             ValidationError::error(
                 ErrorCode::StoreDriverContract,
                 path,
-                format!("store driver {driver} has no trait handling {missing:?} (spec/infra/row-store.lolo RowStoreDriver)"),
+                format!("store driver {driver} has no trait handling {missing:?} (spec/store/row-store.lolo RowStoreDriver)"),
             )
             .with_suggestion("Compose a std store driver atom, or give the driver a trait that answers every row verb"),
         );
