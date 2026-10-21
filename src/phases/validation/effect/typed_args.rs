@@ -152,6 +152,37 @@ pub(crate) fn needs_declaration(ty: &OirType) -> bool {
     }
 }
 
+/// The list type to record for an argument of a list parameter declared `ty`: `ty` when it is a list whose items may
+/// differ in kind, or the one list member of a union (`OrbValue = … | [OrbValue] | …`) whose items are a union or an
+/// alias, so each item is matched against the union on its own (G-ORB-452).
+fn declared_list(ty: &OirType) -> Option<OirType> {
+    if needs_declaration(ty) {
+        return Some(ty.clone());
+    }
+    let ty = match ty {
+        OirType::Optional { inner } => inner,
+        other => other,
+    };
+    let OirType::Union { variants } = ty else {
+        return None;
+    };
+    let mut lists = variants.iter().filter(|v| matches!(v.field_type, OirType::Array { .. }));
+    match (lists.next(), lists.next()) {
+        (Some(only), None) => match &only.field_type {
+            OirType::Array { inner }
+                if matches!(
+                    **inner,
+                    OirType::Union { .. } | OirType::SExpr | OirType::TypeRef { .. } | OirType::Reference { .. }
+                ) =>
+            {
+                Some(only.field_type.clone())
+            }
+            _ => None,
+        },
+        _ => None,
+    }
+}
+
 fn untag(expr: &SExpression, slots: &HashMap<String, OirType>) -> SExpression {
     match expr {
         SExpression::Object(fields) => {
@@ -161,11 +192,11 @@ fn untag(expr: &SExpression, slots: &HashMap<String, OirType>) -> SExpression {
             if let [SExpression::String(head), value, SExpression::String(slot)] = items.as_slice() {
                 if head == "typed" && slot.starts_with(SLOT) {
                     let value = untag(value, slots);
-                    return match slots.get(slot).filter(|ty| needs_declaration(ty)) {
+                    return match slots.get(slot).and_then(declared_list) {
                         Some(ty) => SExpression::Array(vec![
                             SExpression::String("typed".to_string()),
                             value,
-                            SExpression::String(serde_json::to_string(ty).unwrap_or_default()),
+                            SExpression::String(serde_json::to_string(&ty).unwrap_or_default()),
                         ]),
                         None => value,
                     };
@@ -233,6 +264,35 @@ mod tests {
         assert_eq!(filter_arg[1], "@payload.via");
         let declared: OirType = serde_json::from_str(filter_arg[2].as_str().expect("type text")).expect("an IR type");
         assert!(needs_declaration(&declared), "{declared:?}");
+    }
+
+    #[test]
+    fn a_recursive_union_handed_to_a_list_parameter_records_its_list_member() {
+        let via = json!({ "name": "via", "type": "union", "properties": [
+            { "name": "string", "type": "string" },
+            { "name": "number", "type": "number" },
+            { "name": "array", "type": "[OrbValue]" },
+            { "name": "object", "type": "Map<string,OrbValue>" }
+        ] });
+        let mut schema = program(via, json!(["set", "@entity.count", ["array/len", "@payload.via"]]));
+        record_declared_list_types(&mut schema);
+        let effect = effect_of(&schema);
+        let arg = &effect[2][1];
+        assert_eq!(arg[0], "typed", "{effect}");
+        let declared: OirType = serde_json::from_str(arg[2].as_str().expect("type text")).expect("an IR type");
+        assert!(matches!(declared, OirType::Array { .. }), "the union's list member: {declared:?}");
+    }
+
+    #[test]
+    fn control_a_union_without_a_list_member_is_left_as_written() {
+        let via = json!({ "name": "via", "type": "union", "properties": [
+            { "name": "string", "type": "string" },
+            { "name": "number", "type": "number" }
+        ] });
+        let effect = json!(["set", "@entity.count", ["array/len", "@payload.via"]]);
+        let mut schema = program(via, effect.clone());
+        record_declared_list_types(&mut schema);
+        assert_eq!(effect_of(&schema), effect);
     }
 
     #[test]
