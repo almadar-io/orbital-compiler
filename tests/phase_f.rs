@@ -24,7 +24,7 @@ fn s(s: &str) -> SExpression {
 }
 
 fn payload_field(name: &str, ty: &str, required: bool) -> PayloadField {
-    PayloadField { values: None,
+    PayloadField { nullable: None, additional_properties: None, values: None,
         name: name.to_string(),
         field_type: ty.to_string(),
         required: if required { Some(true) } else { None },
@@ -78,6 +78,8 @@ fn task_entity() -> EntityDefinition {
         collection: Some("tasks".to_string()),
         persistence: None,
         fields: vec![FieldDefinition {
+            nullable: None,
+            additional_properties: None,
             mock: None,
             merged_from: None,
             name: Some("id".to_string()),
@@ -180,6 +182,8 @@ fn schema_for_f1(strict_target_event: &str) -> OrbitalSchema {
     };
 
     OrbitalSchema {
+        type_contract_version: None,
+        types: None,
         store: None,
         theme_definitions: None,
         themes: None,
@@ -369,6 +373,8 @@ fn schema_with_two_emitters_and_listener_source(
         config: None,
     };
     OrbitalSchema {
+        type_contract_version: None,
+        types: None,
         store: None,
         theme_definitions: None,
         themes: None,
@@ -766,6 +772,8 @@ fn schema_with_render_action_payload(
         config: None,
     };
     OrbitalSchema {
+        type_contract_version: None,
+        types: None,
         store: None,
         theme_definitions: None,
         themes: None,
@@ -892,6 +900,8 @@ fn schema_with_default(field: FieldDefinition) -> OrbitalSchema {
         persistence: None,
         fields: vec![
             FieldDefinition {
+                nullable: None,
+                additional_properties: None,
                 mock: None,
                 merged_from: None,
                 name: Some("id".to_string()),
@@ -916,6 +926,8 @@ fn schema_with_default(field: FieldDefinition) -> OrbitalSchema {
         invariants: None,
     };
     OrbitalSchema {
+        type_contract_version: None,
+        types: None,
         store: None,
         theme_definitions: None,
         themes: None,
@@ -963,6 +975,8 @@ fn schema_with_default(field: FieldDefinition) -> OrbitalSchema {
 #[test]
 fn f3_default_outside_values_errors() {
     let field = FieldDefinition {
+        nullable: None,
+        additional_properties: None,
         mock: None,
         merged_from: None,
         name: Some("status".to_string()),
@@ -996,6 +1010,8 @@ fn f3_default_outside_values_errors() {
 #[test]
 fn f3_default_inside_values_passes() {
     let field = FieldDefinition {
+        nullable: None,
+        additional_properties: None,
         mock: None,
         merged_from: None,
         name: Some("status".to_string()),
@@ -1030,6 +1046,8 @@ fn f3_default_inside_values_passes() {
 fn f3_no_values_passes() {
     // A field with a default but no values list is fine.
     let field = FieldDefinition {
+        nullable: None,
+        additional_properties: None,
         mock: None,
         merged_from: None,
         name: Some("status".to_string()),

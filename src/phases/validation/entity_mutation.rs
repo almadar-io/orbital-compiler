@@ -1886,6 +1886,8 @@ mod tests {
             persistence,
             instances: None,
             fields: vec![FieldDefinition {
+                nullable: None,
+                additional_properties: None,
                 mock: None,
                 merged_from: None,
                 name: Some("value".to_string()),
@@ -2969,6 +2971,8 @@ mod tests {
     fn entity_with_intrinsic_field(name: &str, intrinsic_field: &str) -> EntityDefinition {
         let mut e = entity(name, false, Some(Persistence::Persistent));
         e.fields.push(FieldDefinition {
+            nullable: None,
+            additional_properties: None,
             mock: None,
             merged_from: None,
             name: Some(intrinsic_field.to_string()),
@@ -3042,6 +3046,8 @@ mod tests {
             tier: None,
             scope: None,
             payload_schema: Some(vec![PayloadField {
+                nullable: None,
+                additional_properties: None,
                 values: None,
                 name: "data".to_string(),
                 field_type: "Note".to_string(),
@@ -3096,12 +3102,16 @@ mod tests {
             tier: None,
             scope: None,
             payload_schema: Some(vec![PayloadField {
+                nullable: None,
+                additional_properties: None,
                 values: None,
                 name: "data".to_string(),
                 field_type: "object".to_string(),
                 required: None,
                 description: None,
                 properties: Some(vec![PayloadField {
+                    nullable: None,
+                    additional_properties: None,
                     values: None,
                     name: "title".to_string(),
                     field_type: "string".to_string(),
@@ -3807,6 +3817,8 @@ mod tests {
 
     fn merged_field(name: &str, source: &str) -> FieldDefinition {
         FieldDefinition {
+            nullable: None,
+            additional_properties: None,
             mock: None,
             merged_from: Some(source.to_string()),
             name: Some(name.to_string()),
@@ -3856,6 +3868,8 @@ mod tests {
 
     fn schema_of(orbitals: Vec<Orbital>) -> OrbitalSchema {
         OrbitalSchema {
+            type_contract_version: None,
+            types: None,
             store: None,
             theme_definitions: None,
             themes: None,

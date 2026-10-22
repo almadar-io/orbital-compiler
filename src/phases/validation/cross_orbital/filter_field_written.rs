@@ -559,6 +559,8 @@ mod tests {
 
     fn field(name: &str, default: Option<SExpression>) -> FieldDefinition {
         FieldDefinition {
+            nullable: None,
+            additional_properties: None,
             mock: None,
             name: Some(name.to_string()),
             field_type: FieldType::String,
@@ -684,6 +686,8 @@ mod tests {
 
     fn schema_with(orbitals: Vec<Orbital>) -> OrbitalSchema {
         OrbitalSchema {
+            type_contract_version: None,
+            types: None,
             store: None,
             theme_definitions: None,
             themes: None,

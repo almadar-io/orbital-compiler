@@ -977,6 +977,8 @@ mod tests {
                 persistence: None,
                 fields: vec![
                     FieldDefinition {
+                        nullable: None,
+                        additional_properties: None,
                         mock: None,
                         merged_from: None,
                         name: Some("id".to_string()),
@@ -995,6 +997,8 @@ mod tests {
                         projected_from: None,
                     },
                     FieldDefinition {
+                        nullable: None,
+                        additional_properties: None,
                         mock: None,
                         merged_from: None,
                         name: Some("companyId".to_string()),
@@ -1106,6 +1110,8 @@ mod tests {
                 persistence: None,
                 fields: vec![
                     FieldDefinition {
+                        nullable: None,
+                        additional_properties: None,
                         mock: None,
                         merged_from: None,
                         name: Some("id".to_string()),
@@ -1124,6 +1130,8 @@ mod tests {
                         projected_from: None,
                     },
                     FieldDefinition {
+                        nullable: None,
+                        additional_properties: None,
                         mock: None,
                         merged_from: None,
                         name: Some("companyId".to_string()),

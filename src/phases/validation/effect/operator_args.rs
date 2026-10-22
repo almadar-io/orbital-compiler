@@ -200,7 +200,7 @@ mod tests {
     fn no_types() -> BindingTypes {
         BindingTypes {
             payload: HashMap::new(),
-            user: orbital_core_base::ir::OirType::Struct { fields: Vec::new() },
+            user: orbital_core_base::ir::OirType::Struct { additional: None, fields: Vec::new() },
             config: HashMap::new(),
             prev_payload: None,
             optional_payload: Default::default(),
@@ -418,7 +418,7 @@ mod tests {
     #[test]
     fn a_declared_payload_field_has_its_full_type() {
         use orbital_core_base::ir::{OirField, OirType};
-        let row = OirType::Struct { fields: vec![OirField::new("name".to_string(), OirType::String)] };
+        let row = OirType::Struct { additional: None, fields: vec![OirField::new("name".to_string(), OirType::String)] };
         let declared = [("data", OirType::array(row))];
         assert!(with_payload(r#"["array/len", "@payload.data"]"#, &declared).is_empty());
         assert!(
@@ -438,7 +438,7 @@ mod tests {
         use orbital_core_base::ir::{OirField, OirType};
         let types = BindingTypes {
             payload: HashMap::new(),
-            user: OirType::Struct { fields: vec![OirField::new("role".to_string(), OirType::String)] },
+            user: OirType::Struct { additional: None, fields: vec![OirField::new("role".to_string(), OirType::String)] },
             config: [("limit".to_string(), OirType::Number)].into_iter().collect(),
             prev_payload: None,
             optional_payload: Default::default(),
@@ -479,6 +479,7 @@ mod tests {
     fn a_sequential_let_over_an_entity_list_is_typed() {
         use orbital_core_base::ir::{OirField, OirType};
         let band = OirType::Struct {
+            additional: None,
             fields: vec![
                 OirField::new("upperBound".to_string(), OirType::Number),
                 OirField::new("label".to_string(), OirType::String),
@@ -704,7 +705,7 @@ mod tests {
             let r = validate_operator_arg_types(&parse(expr), "p", &HashMap::new(), &HashMap::new(), types, None);
             r.errors.len()
         };
-        let declared = OirType::Struct { fields: vec![OirField::new("id".to_string(), OirType::String)] };
+        let declared = OirType::Struct { additional: None, fields: vec![OirField::new("id".to_string(), OirType::String)] };
         assert_eq!(run(&with(Some(declared))), 0);
         assert!(run(&with(None)) > 0, "control: no agreed payload, so reading a field of it is an error");
     }
@@ -807,6 +808,7 @@ mod tests {
     fn tags() -> HashMap<String, EntityFieldMeta> {
         use orbital_core_base::ir::{OirField, OirType};
         let profile = OirType::Struct {
+            additional: None,
             fields: vec![OirField::new("name".to_string(), OirType::String)],
         };
         shaped(&[

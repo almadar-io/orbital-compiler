@@ -98,6 +98,8 @@ mod tests {
 
     fn payload_field(name: &str, field_type: &str) -> PayloadField {
         PayloadField {
+            nullable: None,
+            additional_properties: None,
             values: None,
             name: name.to_string(),
             field_type: field_type.to_string(),

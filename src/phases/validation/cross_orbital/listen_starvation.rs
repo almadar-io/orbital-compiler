@@ -344,6 +344,8 @@ mod tests {
     /// object literal (e.g. `ui-button`'s `actionPayload`).
     fn payload_companion_field(knob: &str, default: SExpression) -> ConfigField {
         ConfigField {
+            nullable: None,
+            additional_properties: None,
             field_type: "GeneratePayload".to_string(),
             default: Some(default),
             label: None,
@@ -395,6 +397,8 @@ mod tests {
 
     fn field(name: &str, required: bool) -> PayloadField {
         PayloadField {
+            nullable: None,
+            additional_properties: None,
             values: None,
             name: name.to_string(),
             field_type: "string".to_string(),
@@ -410,6 +414,8 @@ mod tests {
 
     fn object_field(name: &str, required: bool, properties: Vec<PayloadField>) -> PayloadField {
         PayloadField {
+            nullable: None,
+            additional_properties: None,
             values: None,
             name: name.to_string(),
             field_type: "object".to_string(),
@@ -425,6 +431,8 @@ mod tests {
 
     fn entity_field(name: &str, required: bool, entity: &str) -> PayloadField {
         PayloadField {
+            nullable: None,
+            additional_properties: None,
             values: None,
             name: name.to_string(),
             field_type: "object".to_string(),
@@ -508,6 +516,8 @@ mod tests {
 
     fn schema_with(orbitals: Vec<Orbital>) -> OrbitalSchema {
         OrbitalSchema {
+            type_contract_version: None,
+            types: None,
             store: None,
             theme_definitions: None,
             themes: None,

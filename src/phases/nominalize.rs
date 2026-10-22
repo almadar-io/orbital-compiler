@@ -110,8 +110,8 @@ fn nominalize_type(ty: &OirType, hint: &str, ctx: &mut Ctx) -> OirType {
         OirType::Optional { inner } => OirType::Optional {
             inner: Box::new(nominalize_type(inner, hint, ctx)),
         },
-        OirType::Struct { fields } => {
-            nominalize_shape(sorted_fields(fields.clone()), hint, ctx, ShapeKind::Struct)
+        OirType::Struct { fields, additional } => {
+            nominalize_shape(sorted_fields(fields.clone()), hint, ctx, ShapeKind::Struct(additional.clone()))
         }
         OirType::Union { variants } => {
             nominalize_shape(sorted_fields(variants.clone()), hint, ctx, ShapeKind::Union)
@@ -120,9 +120,8 @@ fn nominalize_type(ty: &OirType, hint: &str, ctx: &mut Ctx) -> OirType {
     }
 }
 
-#[derive(Clone, Copy)]
 enum ShapeKind {
-    Struct,
+    Struct(Option<Box<OirType>>),
     Union,
 }
 
@@ -146,11 +145,18 @@ fn nominalize_shape(fields: Vec<OirField>, hint: &str, ctx: &mut Ctx, kind: Shap
             f
         })
         .collect::<Vec<_>>();
+    let additional = match &kind {
+        ShapeKind::Struct(additional) => additional.as_deref().map(|ty| {
+            Box::new(nominalize_type(ty, &format!("{}Value", hint), ctx))
+        }),
+        ShapeKind::Union => None,
+    };
     ctx.in_progress.remove(&name);
 
     let shape = match kind {
-        ShapeKind::Struct => OirType::Struct {
+        ShapeKind::Struct(_) => OirType::Struct {
             fields: child_fields,
+            additional,
         },
         ShapeKind::Union => OirType::Union {
             variants: child_fields,
@@ -188,8 +194,9 @@ fn nominalize_shape(fields: Vec<OirField>, hint: &str, ctx: &mut Ctx, kind: Shap
 /// only — the entry itself is never mutated.
 fn canonicalize(ty: &OirType) -> OirType {
     match ty {
-        OirType::Struct { fields } => OirType::Struct {
+        OirType::Struct { fields, additional } => OirType::Struct {
             fields: sorted_fields(fields.clone()),
+            additional: additional.clone(),
         },
         OirType::Union { variants } => OirType::Union {
             variants: sorted_fields(variants.clone()),

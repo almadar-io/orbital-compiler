@@ -2736,6 +2736,8 @@ mod tests {
     fn test_payload_field_undeclared_missing_field() {
         let expr = SExpression::String("@payload.unknownField".to_string());
         let fields = vec![PayloadField {
+            nullable: None,
+            additional_properties: None,
             values: None,
             name: "rawData".to_string(),
             field_type: "array".to_string(),
@@ -2758,6 +2760,8 @@ mod tests {
     fn test_payload_field_declared() {
         let expr = SExpression::String("@payload.rawData".to_string());
         let fields = vec![PayloadField {
+            nullable: None,
+            additional_properties: None,
             values: None,
             name: "rawData".to_string(),
             field_type: "array".to_string(),
@@ -2779,6 +2783,8 @@ mod tests {
         // must name the sigil mistake, not "add a field named payload".
         let expr = SExpression::String("@payload.payload.date".to_string());
         let fields = vec![PayloadField {
+            nullable: None,
+            additional_properties: None,
             values: None,
             name: "date".to_string(),
             field_type: "string".to_string(),
@@ -2813,12 +2819,16 @@ mod tests {
         // mistake — deeper misses under it keep the generic suggestion.
         let expr = SExpression::String("@payload.payload.missing".to_string());
         let fields = vec![PayloadField {
+            nullable: None,
+            additional_properties: None,
             values: None,
             name: "payload".to_string(),
             field_type: "object".to_string(),
             required: Some(true),
             description: None,
             properties: Some(vec![PayloadField {
+                nullable: None,
+                additional_properties: None,
                 values: None,
                 name: "present".to_string(),
                 field_type: "string".to_string(),
@@ -2981,6 +2991,8 @@ mod tests {
             name: "Task".to_string(),
             fields: vec![
                 FieldDefinition {
+                    nullable: None,
+                    additional_properties: None,
                     mock: None,
                     merged_from: None,
                     name: Some("title".to_string()),
@@ -2999,6 +3011,8 @@ mod tests {
                     projected_from: None,
                 },
                 FieldDefinition {
+                    nullable: None,
+                    additional_properties: None,
                     mock: None,
                     merged_from: None,
                     name: Some("status".to_string()),
@@ -3072,6 +3086,8 @@ mod tests {
             access_waivers: None,
             name: "Task".to_string(),
             fields: vec![FieldDefinition {
+                nullable: None,
+                additional_properties: None,
                 mock: None,
                 merged_from: None,
                 name: Some("title".to_string()),
@@ -3128,6 +3144,8 @@ mod tests {
             access_waivers: None,
             name: "User".to_string(),
             fields: vec![FieldDefinition {
+                nullable: None,
+                additional_properties: None,
                 mock: None,
                 merged_from: None,
                 name: Some("email".to_string()),

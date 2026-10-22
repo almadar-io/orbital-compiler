@@ -1318,6 +1318,8 @@ mod entity_prop_contract_tests {
             fields: field_names
                 .iter()
                 .map(|fname| FieldDefinition {
+                    nullable: None,
+                    additional_properties: None,
                     mock: None,
                     merged_from: None,
                     name: Some(fname.to_string()),

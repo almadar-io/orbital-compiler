@@ -419,6 +419,8 @@ mod tests {
         };
 
         OrbitalSchema {
+            type_contract_version: None,
+            types: None,
             store: None,
             theme_definitions: None,
             themes: None,

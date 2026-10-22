@@ -573,7 +573,7 @@ mod per_event_payload_tests {
         let trait_def = listening_trait();
         let per_event = collect_per_event_payload_shapes(&trait_def, &schema);
         let types = binding_types(&trait_def, &schema, HashMap::new(), &per_event);
-        let Some(OirType::Struct { fields }) = types.prev_payload else {
+        let Some(OirType::Struct { fields, .. }) = types.prev_payload else {
             panic!("a trait that listens has a prior delivery payload");
         };
         let by_name = |name: &str| fields.iter().find(|f| f.name == name).map(|f| f.field_type.clone());

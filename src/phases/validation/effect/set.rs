@@ -595,9 +595,9 @@ impl crate::type_infer::TypeCtx for ExprReturnCtx<'_> {
                         }
                     }
                 }
-                OirType::Struct { fields }
+                OirType::Struct { additional: None, fields }
             }
-            _ if self.types.is_some() => self.types.map(BindingTypes::payload_struct).unwrap_or(OirType::Struct { fields: Vec::new() }),
+            _ if self.types.is_some() => self.types.map(BindingTypes::payload_struct).unwrap_or(OirType::Struct { additional: None, fields: Vec::new() }),
             _ => {
                 // Only a payload field of a primitive kind has a type here: a struct-, list- or entity-typed one is
                 // carried as a bare kind string, which says nothing of its shape.
@@ -613,6 +613,7 @@ impl crate::type_infer::TypeCtx for ExprReturnCtx<'_> {
                     .collect();
                 names.sort();
                 OirType::Struct {
+                    additional: None,
                     fields: names
                         .into_iter()
                         .map(|n| OirField::new(n.clone(), orbital_core_base::type_compat::compat_kind_oir(&self.payload[n])))
@@ -685,7 +686,7 @@ impl crate::type_infer::TypeCtx for ExprReturnCtx<'_> {
                 fields.push(OirField::new(system.to_string(), ty));
             }
         }
-        Some(OirType::Struct { fields })
+        Some(OirType::Struct { additional: None, fields })
     }
 
     fn named_type(&self, name: &str) -> Option<orbital_core_base::ir::OirType> {
@@ -695,7 +696,8 @@ impl crate::type_infer::TypeCtx for ExprReturnCtx<'_> {
     fn declared_type(&self, name: &str) -> Option<bool> {
         let schema = self.schema?;
         Some(
-            schema
+            schema.types.as_ref().is_some_and(|types| types.contains_key(name))
+                || schema
                 .orbitals
                 .iter()
                 .any(|o| o.types.as_ref().is_some_and(|t| t.contains_key(name)))
@@ -724,7 +726,7 @@ impl BindingTypes {
             .map(|(n, t)| orbital_core_base::ir::OirField::new(n.clone(), t.clone()))
             .collect();
         fields.sort_by(|a, b| a.name.cmp(&b.name));
-        orbital_core_base::ir::OirType::Struct { fields }
+        orbital_core_base::ir::OirType::Struct { additional: None, fields }
     }
 
     pub(crate) fn payload_struct(&self) -> orbital_core_base::ir::OirType {
@@ -1155,7 +1157,7 @@ mod return_type_tests {
         let payload = HashMap::new();
         let ctx = ExprReturnCtx { entity: &entity, payload: &payload, types: None, schema: Some(&schema) };
         let fields = |ty: Option<OirType>| match ty {
-            Some(OirType::Struct { fields }) => fields.into_iter().map(|f| f.name).collect::<Vec<_>>(),
+            Some(OirType::Struct { fields, .. }) => fields.into_iter().map(|f| f.name).collect::<Vec<_>>(),
             other => panic!("a struct row, got {other:?}"),
         };
         assert!(fields(ctx.entity_type("Viewer")).contains(&"role".to_string()));
@@ -1183,7 +1185,7 @@ mod return_type_tests {
             .expect("schema")
         };
         let fields = |ty: Option<OirType>| match ty {
-            Some(OirType::Struct { fields }) => fields.into_iter().map(|f| f.name).collect::<Vec<_>>(),
+            Some(OirType::Struct { fields, .. }) => fields.into_iter().map(|f| f.name).collect::<Vec<_>>(),
             other => panic!("a struct, got {other:?}"),
         };
         let entity = HashMap::new();

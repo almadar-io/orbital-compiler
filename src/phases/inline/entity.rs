@@ -682,6 +682,8 @@ mod render_ui_pattern_contract_reference_tests {
             persistence: Some(Persistence::Persistent),
             instances: None,
             fields: vec![FieldDefinition {
+                nullable: None,
+                additional_properties: None,
                 mock: None,
                 merged_from: None,
                 name: Some("id".to_string()),

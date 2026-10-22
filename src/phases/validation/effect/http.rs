@@ -540,7 +540,7 @@ fn check_headers(expr: &SExpression, grant: bool, path: &str, ctx: &ExprReturnCt
     let SExpression::Object(headers) = expr else {
         let error = match operand(expr, ctx) {
             RetryOperand::Literal(value) => parse_http_headers(Some(&value)).err().map(|error| error.message()),
-            RetryOperand::Typed(ty) if !orbital_core_base::type_compat::oir_type_satisfies(&ty, &OirType::Struct { fields: Vec::new() }) => Some("headers must evaluate to an object".to_string()),
+            RetryOperand::Typed(ty) if !orbital_core_base::type_compat::oir_type_satisfies(&ty, &OirType::Struct { fields: Vec::new(), additional: None }) => Some("headers must evaluate to an object".to_string()),
             RetryOperand::Items(_) => Some("headers must be an object".to_string()),
             _ => None,
         };
@@ -609,7 +609,7 @@ fn check_retry(expr: &SExpression, path: &str, ctx: &ExprReturnCtx<'_>, result: 
         }
         _ => match operand(expr, ctx) {
             RetryOperand::Literal(value) => parse_retry(&value).err().map(|error| error.message()),
-            RetryOperand::Typed(ty) if !orbital_core_base::type_compat::oir_type_satisfies(&ty, &OirType::Struct { fields: Vec::new() }) => Some("retry must evaluate to an object".to_string()),
+            RetryOperand::Typed(ty) if !orbital_core_base::type_compat::oir_type_satisfies(&ty, &OirType::Struct { fields: Vec::new(), additional: None }) => Some("retry must evaluate to an object".to_string()),
             RetryOperand::Items(_) => Some("retry must be an object".to_string()),
             _ => None,
         },
@@ -651,7 +651,7 @@ pub(super) fn check_http_operand_types(arr: &[SExpression], path: &str, ctx: &Ex
                     SExpression::Object(options) => check_request_operands(options, true, path, ctx, &mut result),
                     _ => {
                         if let RetryOperand::Typed(ty) = operand(grant_request, ctx) {
-                            if !orbital_core_base::type_compat::oir_type_satisfies(&ty, &OirType::Struct { fields: Vec::new() }) {
+                            if !orbital_core_base::type_compat::oir_type_satisfies(&ty, &OirType::Struct { additional: None, fields: Vec::new() }) {
                                 result.add_error(ValidationError::error(ErrorCode::HttpAuthInvalid, path, "auth.grantRequest must evaluate to an object"));
                             }
                         }

@@ -37,7 +37,7 @@ fn emit_effect(event: &str, literal: Option<SExpression>) -> SExpression {
 }
 
 fn payload_field(name: &str, ty: &str, required: bool) -> PayloadField {
-    PayloadField { values: None,
+    PayloadField { nullable: None, additional_properties: None, values: None,
         name: name.to_string(),
         field_type: ty.to_string(),
         required: if required { Some(true) } else { None },
@@ -87,6 +87,8 @@ fn schema_with_emit(emit: SExpression, declared: EmitDefinition) -> OrbitalSchem
         collection: Some("tasks".to_string()),
         persistence: None,
         fields: vec![FieldDefinition {
+            nullable: None,
+            additional_properties: None,
             mock: None,
             merged_from: None,
             name: Some("id".to_string()),
@@ -155,6 +157,8 @@ fn schema_with_emit(emit: SExpression, declared: EmitDefinition) -> OrbitalSchem
         trait_embed_ids: None,
     };
     OrbitalSchema {
+        type_contract_version: None,
+        types: None,
         store: None,
         theme_definitions: None,
         themes: None,

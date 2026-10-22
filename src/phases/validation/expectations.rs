@@ -26,15 +26,18 @@
 //! drop its own `[identity]`, declare what it expects, and stay valid
 //! standalone — the composed program is where the provider is checked.
 
-use super::fired_events::{collect_schema_fired_events, trait_has_dynamic_event_prop_binding, FiredEvents};
 use super::entity_mutation::trait_lands_a_write;
+use super::fired_events::{
+    collect_schema_fired_events, trait_has_dynamic_event_prop_binding, FiredEvents,
+};
 use super::user_identity::vocabulary;
 use super::{field_type_str, ErrorCode, ValidationContext, ValidationError, ValidationResult};
+use orbital_core_base::ir::types::{field_shape, payload_field_shape, OirType};
 use orbital_core_base::schema::{
-    ConfigField, EntityDefinition, EntityRef, ExpectDeclaration, FieldDefinition, Orbital, OrbitalSchema,
-    PayloadField, SExpression, StringOrArray, TraitDefinition, TraitReference,
+    ConfigField, EntityDefinition, EntityRef, ExpectDeclaration, FieldDefinition, Orbital,
+    OrbitalSchema, PayloadField, SExpression, StringOrArray, TraitDefinition, TraitReference,
 };
-use orbital_core_base::type_compat::{enum_value_is_member, set_value_type_compatible};
+use orbital_core_base::type_compat::{checked_sub_with_named, enum_value_is_member};
 
 /// An orbital's `expects entity [identity]` declaration, if it carries one.
 pub(super) struct IdentityExpectation<'a> {
@@ -153,17 +156,34 @@ fn validate_propositions(schema: &OrbitalSchema, result: &mut ValidationResult) 
                     schema,
                     |e| matches!(e, ExpectDeclaration::Entity { name, invariants: Some(list), .. } if name == entity && list.contains(expr)),
                     |o| {
-                        std::iter::once(&o.entity).chain(o.auxiliary_entities.iter().flatten()).enumerate().find_map(|(k, e)| match e {
-                            orbital_core_base::schema::EntityRef::Inline(def) if def.name == *entity && def.invariants.iter().flatten().any(|i| i == expr) => {
-                                Some(if k == 0 { "entity".to_string() } else { format!("auxiliaryEntities[{}]", k - 1) })
-                            }
-                            _ => None,
-                        })
+                        std::iter::once(&o.entity)
+                            .chain(o.auxiliary_entities.iter().flatten())
+                            .enumerate()
+                            .find_map(|(k, e)| match e {
+                                orbital_core_base::schema::EntityRef::Inline(def)
+                                    if def.name == *entity
+                                        && def.invariants.iter().flatten().any(|i| i == expr) =>
+                                {
+                                    Some(if k == 0 {
+                                        "entity".to_string()
+                                    } else {
+                                        format!("auxiliaryEntities[{}]", k - 1)
+                                    })
+                                }
+                                _ => None,
+                            })
                     },
                 ),
             ),
-            Proposition::State { trait_name, state, expr } => (
-                format!("`state {state} @holds {}` of trait `{trait_name}`", format_sexpr(expr)),
+            Proposition::State {
+                trait_name,
+                state,
+                expr,
+            } => (
+                format!(
+                    "`state {state} @holds {}` of trait `{trait_name}`",
+                    format_sexpr(expr)
+                ),
                 proposition_path(
                     schema,
                     |e| matches!(e, ExpectDeclaration::State { trait_name: t, state: s, holds: Some(_), .. } if t == trait_name && s == state),
@@ -178,18 +198,34 @@ fn validate_propositions(schema: &OrbitalSchema, result: &mut ValidationResult) 
                     },
                 ),
             ),
-            Proposition::Transition { trait_name, from, event, to, expr } => (
-                format!("`{from} --{event}--> {to} @ensures {}` of trait `{trait_name}`", format_sexpr(expr)),
+            Proposition::Transition {
+                trait_name,
+                from,
+                event,
+                to,
+                expr,
+            } => (
+                format!(
+                    "`{from} --{event}--> {to} @ensures {}` of trait `{trait_name}`",
+                    format_sexpr(expr)
+                ),
                 proposition_path(
                     schema,
-                    |e| matches!(e, ExpectDeclaration::Transition { trait_name: t, from: f, event: v, to: o, ensures: Some(list), .. }
-                        if t == trait_name && f == from && v == event && o == to && list.contains(expr)),
+                    |e| {
+                        matches!(e, ExpectDeclaration::Transition { trait_name: t, from: f, event: v, to: o, ensures: Some(list), .. }
+                        if t == trait_name && f == from && v == event && o == to && list.contains(expr))
+                    },
                     |o| {
                         body_trait(o, trait_name).and_then(|(j, td)| {
                             td.state_machine
                                 .transitions
                                 .iter()
-                                .position(|t| t.event == *event && t.to == *to && t.from.states().contains(&from.as_str()) && t.ensures.iter().flatten().any(|e| e == expr))
+                                .position(|t| {
+                                    t.event == *event
+                                        && t.to == *to
+                                        && t.from.states().contains(&from.as_str())
+                                        && t.ensures.iter().flatten().any(|e| e == expr)
+                                })
                                 .map(|k| format!("traits[{j}].stateMachine.transitions[{k}]"))
                         })
                     },
@@ -200,7 +236,10 @@ fn validate_propositions(schema: &OrbitalSchema, result: &mut ValidationResult) 
             ErrorCode::SchemaInvariantViolated => "Guard the transition so the write keeps the proposition, or change what it writes.",
             _ => "State the proposition and the guards it needs with comparisons, and/or/not and arithmetic by constants over number, string, boolean and enum fields; write values the prover can follow (a literal record, not a whole-record binding).",
         };
-        result.add_error(ValidationError::error(code, &path, format!("{what} {detail}.")).with_suggestion(suggestion.to_string()));
+        result.add_error(
+            ValidationError::error(code, &path, format!("{what} {detail}."))
+                .with_suggestion(suggestion.to_string()),
+        );
     }
 }
 
@@ -212,12 +251,21 @@ fn proposition_path(
 ) -> String {
     let orbitals = || schema.orbitals.iter().enumerate();
     orbitals()
-        .find_map(|(i, o)| o.expects.iter().flatten().position(&matches).map(|j| format!("orbitals[{i}].expects[{j}]")))
+        .find_map(|(i, o)| {
+            o.expects
+                .iter()
+                .flatten()
+                .position(&matches)
+                .map(|j| format!("orbitals[{i}].expects[{j}]"))
+        })
         .or_else(|| orbitals().find_map(|(i, o)| in_body(o).map(|p| format!("orbitals[{i}].{p}"))))
         .unwrap_or_else(|| "orbitals".to_string())
 }
 
-fn body_trait<'a>(o: &'a orbital_core_base::schema::Orbital, name: &str) -> Option<(usize, &'a orbital_core_base::schema::TraitDefinition)> {
+fn body_trait<'a>(
+    o: &'a orbital_core_base::schema::Orbital,
+    name: &str,
+) -> Option<(usize, &'a orbital_core_base::schema::TraitDefinition)> {
     o.traits.iter().enumerate().find_map(|(j, t)| match t {
         orbital_core_base::schema::TraitReference::Inline(td) if td.name == name => Some((j, td)),
         _ => None,
@@ -323,7 +371,12 @@ fn check_persist_payload_keys(
     // The orbital's own declaration is its view of the entity; a spec obligation's shape (strict) is only a minimum
     // the provider must meet, so it never limits what the orbital may write.
     let own = orbital.expects.iter().flatten().find_map(|e| match e {
-        ExpectDeclaration::Entity { name, shape, strict: false, .. } if name == entity_name => Some(shape.as_deref()),
+        ExpectDeclaration::Entity {
+            name,
+            shape,
+            strict: false,
+            ..
+        } if name == entity_name => Some(shape.as_deref()),
         _ => None,
     });
     let Some(Some(shape)) = own else {
@@ -387,7 +440,11 @@ fn declared_knobs<'a>(schema: &'a OrbitalSchema, name: &str) -> Vec<(&'a str, &'
         .iter()
         .flat_map(|o| o.traits.iter())
         .filter_map(|t| match t {
-            TraitReference::Inline(td) => td.config.as_ref().and_then(|c| c.get(name)).map(|k| (td.name.as_str(), k)),
+            TraitReference::Inline(td) => td
+                .config
+                .as_ref()
+                .and_then(|c| c.get(name))
+                .map(|k| (td.name.as_str(), k)),
             _ => None,
         })
         .collect()
@@ -400,13 +457,24 @@ fn knob_type_matches(expected: &ConfigField, actual: &ConfigField) -> bool {
         v.sort();
         v
     };
-    let shape = |k: &ConfigField| (serde_json::to_value(&k.items).ok(), serde_json::to_value(&k.properties).ok());
-    expected.field_type == actual.field_type && sorted(&expected.values) == sorted(&actual.values) && shape(expected) == shape(actual)
+    let shape = |k: &ConfigField| {
+        (
+            serde_json::to_value(&k.items).ok(),
+            serde_json::to_value(&k.properties).ok(),
+        )
+    };
+    expected.field_type == actual.field_type
+        && sorted(&expected.values) == sorted(&actual.values)
+        && shape(expected) == shape(actual)
 }
 
 fn knob_type_label(k: &ConfigField) -> String {
     match &k.values {
-        Some(v) if !v.is_empty() => v.iter().map(|s| format!("\"{s}\"")).collect::<Vec<_>>().join(" | "),
+        Some(v) if !v.is_empty() => v
+            .iter()
+            .map(|s| format!("\"{s}\""))
+            .collect::<Vec<_>>()
+            .join(" | "),
         _ => k.field_type.clone(),
     }
 }
@@ -419,10 +487,14 @@ fn knob_default_label(k: &ConfigField) -> String {
 }
 
 fn find_trait<'a>(schema: &'a OrbitalSchema, name: &str) -> Option<&'a TraitDefinition> {
-    schema.orbitals.iter().flat_map(|o| o.traits.iter()).find_map(|t| match t {
-        TraitReference::Inline(td) if td.name == name => Some(td),
-        _ => None,
-    })
+    schema
+        .orbitals
+        .iter()
+        .flat_map(|o| o.traits.iter())
+        .find_map(|t| match t {
+            TraitReference::Inline(td) if td.name == name => Some(td),
+            _ => None,
+        })
 }
 
 /// What nothing in the program provides for `expectation`, phrased for the message, or `None`
@@ -435,14 +507,17 @@ fn unprovided(
 ) -> Option<String> {
     match expectation {
         ExpectDeclaration::Entity { name, .. } => {
-            (!providers.iter().any(|(def, _)| def.name == *name)).then(|| format!("entity `{name}`"))
+            (!providers.iter().any(|(def, _)| def.name == *name))
+                .then(|| format!("entity `{name}`"))
         }
         ExpectDeclaration::Identity {
             name: Some(name), ..
         } => (!providers.iter().any(|(def, _)| def.name == *name))
             .then(|| format!("identity `{name}`")),
-        ExpectDeclaration::Identity { name: None, .. } => (!providers.iter().any(|(def, _)| def.identity))
-            .then(|| "an [identity] entity".to_string()),
+        ExpectDeclaration::Identity { name: None, .. } => {
+            (!providers.iter().any(|(def, _)| def.identity))
+                .then(|| "an [identity] entity".to_string())
+        }
         ExpectDeclaration::Event {
             trait_name, event, ..
         } => {
@@ -453,9 +528,10 @@ fn unprovided(
             });
             (!declared).then(|| format!("trait `{trait_name}` (to emit `{event}`)"))
         }
-        ExpectDeclaration::State { trait_name, .. } | ExpectDeclaration::Transition { trait_name, .. } => {
-            find_trait(schema, trait_name).is_none().then(|| format!("trait `{trait_name}`"))
-        }
+        ExpectDeclaration::State { trait_name, .. }
+        | ExpectDeclaration::Transition { trait_name, .. } => find_trait(schema, trait_name)
+            .is_none()
+            .then(|| format!("trait `{trait_name}`")),
         ExpectDeclaration::Page { path, .. } => {
             let declared = schema.orbitals.iter().any(|o| {
                 o.pages
@@ -465,18 +541,13 @@ fn unprovided(
             });
             (!declared).then(|| format!("page `{path}`"))
         }
-        ExpectDeclaration::Config { name, .. } => {
-            declared_knobs(schema, name).is_empty().then(|| format!("config knob `{name}` on a trait"))
-        }
+        ExpectDeclaration::Config { name, .. } => declared_knobs(schema, name)
+            .is_empty()
+            .then(|| format!("config knob `{name}` on a trait")),
     }
 }
 
-fn unsatisfied_error(
-    orbital: &str,
-    what: &str,
-    path: &str,
-    cause: &str,
-) -> ValidationError {
+fn unsatisfied_error(orbital: &str, what: &str, path: &str, cause: &str) -> ValidationError {
     ValidationError::error(
         ErrorCode::SchemaExpectationUnsatisfied,
         path,
@@ -546,7 +617,9 @@ fn validate_expectation_links(schema: &OrbitalSchema, result: &mut ValidationRes
                                 check_shape(&orbital.name, def, shape, &path, result);
                             }
                             check_entity_facts(&orbital.name, def, expectation, &path, result);
-                            if expectation.is_strict() && persistent_never_written(expectation, schema) {
+                            if expectation.is_strict()
+                                && persistent_never_written(expectation, schema)
+                            {
                                 result.add_error(unsatisfied_error(
                                     &orbital.name,
                                     &format!("entity `{name}` to be persisted"),
@@ -557,7 +630,9 @@ fn validate_expectation_links(schema: &OrbitalSchema, result: &mut ValidationRes
                         }
                     }
                 }
-                ExpectDeclaration::State { trait_name, state, .. } => {
+                ExpectDeclaration::State {
+                    trait_name, state, ..
+                } => {
                     if let Some(td) = find_trait(schema, trait_name) {
                         if !td.state_machine.states.iter().any(|s| s.name == *state) {
                             result.add_error(unsatisfied_error(
@@ -588,7 +663,9 @@ fn validate_expectation_links(schema: &OrbitalSchema, result: &mut ValidationRes
                         if !has_edge {
                             result.add_error(unsatisfied_error(
                                 &orbital.name,
-                                &format!("trait `{trait_name}` to move `{from}` to `{to}` on `{event}`"),
+                                &format!(
+                                    "trait `{trait_name}` to move `{from}` to `{to}` on `{event}`"
+                                ),
                                 &path,
                                 &format!("`{trait_name}` has no such transition"),
                             ));
@@ -627,7 +704,9 @@ fn validate_expectation_links(schema: &OrbitalSchema, result: &mut ValidationRes
                         let emits = emitted.is_some();
                         if emits
                             && expectation.is_strict()
-                            && !fired.get_or_insert_with(|| collect_schema_fired_events(schema)).contains_for_trait(trait_name, event)
+                            && !fired
+                                .get_or_insert_with(|| collect_schema_fired_events(schema))
+                                .contains_for_trait(trait_name, event)
                             && !trait_has_dynamic_event_prop_binding(td)
                         {
                             result.add_error(unsatisfied_error(
@@ -723,7 +802,10 @@ fn check_config_knob(
     if knobs.is_empty() {
         return;
     }
-    let typed: Vec<&(&str, &ConfigField)> = knobs.iter().filter(|(_, k)| knob_type_matches(expected, k)).collect();
+    let typed: Vec<&(&str, &ConfigField)> = knobs
+        .iter()
+        .filter(|(_, k)| knob_type_matches(expected, k))
+        .collect();
     if typed.is_empty() {
         let found = knobs
             .iter()
@@ -734,9 +816,15 @@ fn check_config_knob(
             ValidationError::error(
                 ErrorCode::SchemaExpectedFieldTypeMismatch,
                 path,
-                format!("`{consumer}` expects config knob `{name} : {}`, but {found}.", knob_type_label(expected)),
+                format!(
+                    "`{consumer}` expects config knob `{name} : {}`, but {found}.",
+                    knob_type_label(expected)
+                ),
             )
-            .with_suggestion(format!("Declare `{name}` as `{}` in the trait's `config`.", knob_type_label(expected))),
+            .with_suggestion(format!(
+                "Declare `{name}` as `{}` in the trait's `config`.",
+                knob_type_label(expected)
+            )),
         );
         return;
     }
@@ -753,9 +841,15 @@ fn check_config_knob(
             ValidationError::error(
                 ErrorCode::SchemaExpectationUnsatisfied,
                 path,
-                format!("`{consumer}` expects config knob `{name}` to default to {}, but {found}.", knob_default_label(expected)),
+                format!(
+                    "`{consumer}` expects config knob `{name}` to default to {}, but {found}.",
+                    knob_default_label(expected)
+                ),
             )
-            .with_suggestion(format!("Default `{name}` to {} in the trait's `config`.", knob_default_label(expected))),
+            .with_suggestion(format!(
+                "Default `{name}` to {} in the trait's `config`.",
+                knob_default_label(expected)
+            )),
         );
     }
 }
@@ -792,8 +886,12 @@ fn check_event_payload(
             continue;
         };
         let required_ok = !want.required.unwrap_or(false) || have.required.unwrap_or(false);
-        let types_ok = set_value_type_compatible(&want.field_type, &have.field_type)
-            || set_value_type_compatible(&have.field_type, &want.field_type);
+        let types_ok = expectation_shapes_compatible(
+            payload_field_shape(want),
+            payload_field_shape(have),
+            want.values.as_ref().map(|_| false),
+            have.values.as_ref().map(|_| false),
+        );
         let values_ok = match (&want.values, &have.values) {
             (Some(w), Some(h)) => w.iter().all(|m| enum_value_is_member(m, h)),
             _ => true,
@@ -806,7 +904,10 @@ fn check_event_payload(
         } else if !values_ok {
             "the expected values are not all members of the event's".to_string()
         } else {
-            format!("the event declares `{}`, the expectation `{}`", have.field_type, want.field_type)
+            format!(
+                "the event declares `{}`, the expectation `{}`",
+                have.field_type, want.field_type
+            )
         };
         result.add_error(
             ValidationError::error(
@@ -863,15 +964,30 @@ fn check_entity_facts(
         if actual != *mode {
             mismatch(
                 format!("to be {mode:?}, but it is {actual:?}").to_lowercase(),
-                format!("Change `{}`'s storage mode, or the expectation's.", provider.name),
+                format!(
+                    "Change `{}`'s storage mode, or the expectation's.",
+                    provider.name
+                ),
             );
         }
     }
     if *shared && !provider.shared {
-        mismatch("to be `shared`, but it is not".to_string(), format!("Tag `{}` `[shared]`, or drop the tag from the expectation.", provider.name));
+        mismatch(
+            "to be `shared`, but it is not".to_string(),
+            format!(
+                "Tag `{}` `[shared]`, or drop the tag from the expectation.",
+                provider.name
+            ),
+        );
     }
     if *local && !provider.local {
-        mismatch("to be `local`, but it is not".to_string(), format!("Tag `{}` `[local]`, or drop the tag from the expectation.", provider.name));
+        mismatch(
+            "to be `local`, but it is not".to_string(),
+            format!(
+                "Tag `{}` `[local]`, or drop the tag from the expectation.",
+                provider.name
+            ),
+        );
     }
     for (op, expected, actual) in [
         ("read", read_policy, &provider.read_policy),
@@ -882,18 +998,56 @@ fn check_entity_facts(
         if let Some(expected) = expected {
             if actual.as_ref() != Some(expected) {
                 mismatch(
-                    format!("to carry the `@{op}` policy it states, but its `@{op}` is {}", if actual.is_some() { "a different expression" } else { "absent" }),
-                    format!("Make `{}`'s `@{op}` the same expression, or change the expectation.", provider.name),
+                    format!(
+                        "to carry the `@{op}` policy it states, but its `@{op}` is {}",
+                        if actual.is_some() {
+                            "a different expression"
+                        } else {
+                            "absent"
+                        }
+                    ),
+                    format!(
+                        "Make `{}`'s `@{op}` the same expression, or change the expectation.",
+                        provider.name
+                    ),
                 );
             }
         }
     }
     if let Some(wanted) = access_waivers {
         for (op, expected, actual) in [
-            ("read", &wanted.read, provider.access_waivers.as_ref().and_then(|w| w.read.as_ref())),
-            ("create", &wanted.create, provider.access_waivers.as_ref().and_then(|w| w.create.as_ref())),
-            ("update", &wanted.update, provider.access_waivers.as_ref().and_then(|w| w.update.as_ref())),
-            ("delete", &wanted.delete, provider.access_waivers.as_ref().and_then(|w| w.delete.as_ref())),
+            (
+                "read",
+                &wanted.read,
+                provider
+                    .access_waivers
+                    .as_ref()
+                    .and_then(|w| w.read.as_ref()),
+            ),
+            (
+                "create",
+                &wanted.create,
+                provider
+                    .access_waivers
+                    .as_ref()
+                    .and_then(|w| w.create.as_ref()),
+            ),
+            (
+                "update",
+                &wanted.update,
+                provider
+                    .access_waivers
+                    .as_ref()
+                    .and_then(|w| w.update.as_ref()),
+            ),
+            (
+                "delete",
+                &wanted.delete,
+                provider
+                    .access_waivers
+                    .as_ref()
+                    .and_then(|w| w.delete.as_ref()),
+            ),
         ] {
             if expected.is_some() && actual.is_none() {
                 mismatch(
@@ -1108,18 +1262,47 @@ fn check_shape(
     }
 }
 
-/// Type compatibility via orbital-core's canonical predicate ONLY. The
-/// consumer's declared type is what it assumes the provider's values to be, so
-/// either assignment direction discharges the check; two closed literal unions
-/// (a `string`+`values` expectation against an `enum`+`values` provider) are
-/// string-kind by construction and compare by the subset rule instead.
+/// Provider values must satisfy the consumer's shape without a conversion.
+/// Vocabulary membership is checked separately by the expectation's subset rule.
 fn types_compatible(expected: &FieldDefinition, actual: &FieldDefinition) -> bool {
-    let e = field_type_str(expected);
-    let a = field_type_str(actual);
-    if set_value_type_compatible(&e, &a) || set_value_type_compatible(&a, &e) {
-        return true;
+    expectation_shapes_compatible(
+        field_shape(expected),
+        field_shape(actual),
+        vocabulary(expected).map(|_| expected.values.as_ref().is_none_or(Vec::is_empty)),
+        vocabulary(actual).map(|_| actual.values.as_ref().is_none_or(Vec::is_empty)),
+    )
+}
+
+fn expectation_shapes_compatible(
+    mut expected: OirType,
+    mut actual: OirType,
+    expected_vocabulary: Option<bool>,
+    actual_vocabulary: Option<bool>,
+) -> bool {
+    for (mut shape, vocabulary) in [
+        (&mut expected, expected_vocabulary),
+        (&mut actual, actual_vocabulary),
+    ] {
+        let Some(array_item) = vocabulary else {
+            continue;
+        };
+        while let OirType::Optional { inner } = shape {
+            shape = inner;
+        }
+        if array_item {
+            let OirType::Array { inner } = shape else {
+                continue;
+            };
+            shape = inner;
+            while let OirType::Optional { inner } = shape {
+                shape = inner;
+            }
+        }
+        if matches!(shape, OirType::Enum { .. }) {
+            *shape = OirType::String;
+        }
     }
-    vocabulary(expected).is_some() && vocabulary(actual).is_some()
+    checked_sub_with_named(&actual, &expected, &|_| None).is_some()
 }
 
 #[cfg(test)]
@@ -1144,17 +1327,28 @@ mod final_expectation_tests {
     fn undeclared(schema: &OrbitalSchema) -> usize {
         let mut r = ValidationResult::new();
         validate_persist_payload_self_consistency(schema, &mut r);
-        r.errors.iter().filter(|e| e.code == ErrorCode::SchemaExpectationFieldUndeclared).count()
+        r.errors
+            .iter()
+            .filter(|e| e.code == ErrorCode::SchemaExpectationFieldUndeclared)
+            .count()
     }
 
     #[test]
     fn a_spec_obligations_shape_is_a_minimum_not_the_orbitals_view() {
-        assert_eq!(undeclared(&persisting(true)), 0, "a strict spec shape names what the provider must have at least");
+        assert_eq!(
+            undeclared(&persisting(true)),
+            0,
+            "a strict spec shape names what the provider must have at least"
+        );
     }
 
     #[test]
     fn control_the_orbitals_own_expectation_is_its_source_of_truth() {
-        assert_eq!(undeclared(&persisting(false)), 1, "`payload` is outside the orbital's own declared view");
+        assert_eq!(
+            undeclared(&persisting(false)),
+            1,
+            "`payload` is outside the orbital's own declared view"
+        );
     }
 
     fn program(provider_entity: &str, identity: bool) -> OrbitalSchema {
@@ -1189,7 +1383,10 @@ mod final_expectation_tests {
             .is_empty());
     }
 
-    fn knob_program(knob: Option<serde_json::Value>, expects: Option<serde_json::Value>) -> OrbitalSchema {
+    fn knob_program(
+        knob: Option<serde_json::Value>,
+        expects: Option<serde_json::Value>,
+    ) -> OrbitalSchema {
         let mut runner = serde_json::json!({ "name": "CliRunner", "stateMachine": { "states": [{ "name": "idle", "isInitial": true }], "transitions": [] } });
         if let Some(knob) = knob {
             runner["config"] = serde_json::json!({ "stdio": knob });
@@ -1203,7 +1400,8 @@ mod final_expectation_tests {
         if let Some(expects) = expects {
             orbital["expects"] = serde_json::json!([expects]);
         }
-        serde_json::from_value(serde_json::json!({ "name": "App", "orbitals": [orbital] })).expect("program json")
+        serde_json::from_value(serde_json::json!({ "name": "App", "orbitals": [orbital] }))
+            .expect("program json")
     }
 
     fn stdio_expectation(strict: bool) -> serde_json::Value {
@@ -1218,15 +1416,25 @@ mod final_expectation_tests {
 
     #[test]
     fn a_knob_of_the_expected_type_and_default_satisfies_expects_config() {
-        let schema = knob_program(Some(serde_json::json!({ "type": "string", "default": "pipe" })), Some(stdio_expectation(true)));
-        assert!(link_errors(&schema).is_empty(), "{:?}", link_errors(&schema));
+        let schema = knob_program(
+            Some(serde_json::json!({ "type": "string", "default": "pipe" })),
+            Some(stdio_expectation(true)),
+        );
+        assert!(
+            link_errors(&schema).is_empty(),
+            "{:?}",
+            link_errors(&schema)
+        );
     }
 
     #[test]
     fn a_missing_knob_fails_a_spec_config_expectation() {
         let errors = link_errors(&knob_program(None, Some(stdio_expectation(true))));
         assert!(
-            errors.iter().any(|e| e.code == ErrorCode::SchemaExpectationUnsatisfied && e.message.contains("stdio")),
+            errors
+                .iter()
+                .any(|e| e.code == ErrorCode::SchemaExpectationUnsatisfied
+                    && e.message.contains("stdio")),
             "{errors:?}"
         );
     }
@@ -1238,9 +1446,15 @@ mod final_expectation_tests {
 
     #[test]
     fn a_knob_of_another_type_fails_expects_config() {
-        let errors = link_errors(&knob_program(Some(serde_json::json!({ "type": "number", "default": 0 })), Some(stdio_expectation(true))));
+        let errors = link_errors(&knob_program(
+            Some(serde_json::json!({ "type": "number", "default": 0 })),
+            Some(stdio_expectation(true)),
+        ));
         assert!(
-            errors.iter().any(|e| e.code == ErrorCode::SchemaExpectedFieldTypeMismatch && e.message.contains("number")),
+            errors
+                .iter()
+                .any(|e| e.code == ErrorCode::SchemaExpectedFieldTypeMismatch
+                    && e.message.contains("number")),
             "{errors:?}"
         );
     }
@@ -1250,14 +1464,25 @@ mod final_expectation_tests {
         let expects = serde_json::json!({ "kind": "config", "name": "stdio", "knob": { "type": "string", "values": ["pipe", "inherit"] }, "strict": true });
         let knob = serde_json::json!({ "type": "string", "values": ["pipe"], "default": "pipe" });
         let errors = link_errors(&knob_program(Some(knob), Some(expects)));
-        assert!(errors.iter().any(|e| e.code == ErrorCode::SchemaExpectedFieldTypeMismatch), "{errors:?}");
+        assert!(
+            errors
+                .iter()
+                .any(|e| e.code == ErrorCode::SchemaExpectedFieldTypeMismatch),
+            "{errors:?}"
+        );
     }
 
     #[test]
     fn a_knob_with_another_default_fails_expects_config() {
-        let errors = link_errors(&knob_program(Some(serde_json::json!({ "type": "string", "default": "inherit" })), Some(stdio_expectation(true))));
+        let errors = link_errors(&knob_program(
+            Some(serde_json::json!({ "type": "string", "default": "inherit" })),
+            Some(stdio_expectation(true)),
+        ));
         assert!(
-            errors.iter().any(|e| e.code == ErrorCode::SchemaExpectationUnsatisfied && e.message.contains("\"inherit\"")),
+            errors
+                .iter()
+                .any(|e| e.code == ErrorCode::SchemaExpectationUnsatisfied
+                    && e.message.contains("\"inherit\"")),
             "{errors:?}"
         );
     }
@@ -1265,12 +1490,23 @@ mod final_expectation_tests {
     #[test]
     fn an_expectation_without_a_default_accepts_any_default() {
         let expects = serde_json::json!({ "kind": "config", "name": "stdio", "knob": { "type": "string" }, "strict": true });
-        let schema = knob_program(Some(serde_json::json!({ "type": "string", "default": "inherit" })), Some(expects));
-        assert!(link_errors(&schema).is_empty(), "{:?}", link_errors(&schema));
+        let schema = knob_program(
+            Some(serde_json::json!({ "type": "string", "default": "inherit" })),
+            Some(expects),
+        );
+        assert!(
+            link_errors(&schema).is_empty(),
+            "{:?}",
+            link_errors(&schema)
+        );
     }
 
     #[test]
     fn control_a_program_without_expects_config_is_unaffected() {
-        assert!(link_errors(&knob_program(Some(serde_json::json!({ "type": "number", "default": 3 })), None)).is_empty());
+        assert!(link_errors(&knob_program(
+            Some(serde_json::json!({ "type": "number", "default": 3 })),
+            None
+        ))
+        .is_empty());
     }
 }

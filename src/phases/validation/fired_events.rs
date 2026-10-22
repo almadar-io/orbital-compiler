@@ -471,6 +471,8 @@ mod tests {
 
     fn minimal_schema(traits: Vec<TraitReference>) -> OrbitalSchema {
         OrbitalSchema {
+            type_contract_version: None,
+            types: None,
             store: None,
             theme_definitions: None,
             themes: None,

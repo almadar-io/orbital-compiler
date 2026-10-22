@@ -2955,6 +2955,8 @@ mod entity_id_reader_tests {
 
     fn payload_field(name: &str) -> PayloadField {
         PayloadField {
+            nullable: None,
+            additional_properties: None,
             values: None,
             name: name.to_string(),
             field_type: "string".to_string(),

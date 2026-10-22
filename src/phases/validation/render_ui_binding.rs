@@ -695,6 +695,8 @@ mod tests {
         let t = empty_trait("T", None);
         let entities: HashMap<String, EntityDefinition> = HashMap::new();
         let payload = vec![PayloadField {
+            nullable: None,
+            additional_properties: None,
             values: None,
             name: "tabId".to_string(),
             field_type: "string".to_string(),
@@ -754,6 +756,8 @@ mod tests {
                 persistence: None,
                 instances: None,
                 fields: vec![FieldDefinition {
+                    nullable: None,
+                    additional_properties: None,
                     mock: None,
                     merged_from: None,
                     name: Some("title".to_string()),
@@ -839,6 +843,8 @@ mod tests {
                 persistence: None,
                 instances: None,
                 fields: vec![FieldDefinition {
+                    nullable: None,
+                    additional_properties: None,
                     mock: None,
                     merged_from: None,
                     name: Some("loyaltyPoints".to_string()),
@@ -939,6 +945,8 @@ mod tests {
         let t = empty_trait("T", None);
         let entities: HashMap<String, EntityDefinition> = HashMap::new();
         let payload = vec![PayloadField {
+            nullable: None,
+            additional_properties: None,
             values: None,
             name: "totalCount".to_string(),
             field_type: "number".to_string(),

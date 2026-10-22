@@ -262,7 +262,7 @@ impl<'c> Inferer<'c> {
             while let Some(OirType::Optional { inner }) = parent_type {
                 parent_type = Some(*inner);
             }
-            if let Some(OirType::Struct { fields }) = parent_type {
+            if let Some(OirType::Struct { fields, .. }) = parent_type {
                 absent |= fields.iter().any(|field| {
                     field.name == binding.path[depth - 1]
                         && field.default.is_none()
@@ -393,7 +393,7 @@ impl<'c> Inferer<'c> {
                     record.push(OirField::new(name, ty?));
                 }
                 record.sort_by(|a, b| a.name.cmp(&b.name));
-                Some(OirType::Struct { fields: record })
+                Some(OirType::Struct { additional: None, fields: record })
             }
             OirExpr::Binding { binding } => self.binding(binding),
             OirExpr::BinaryOp { op, left, right } => {
@@ -719,7 +719,7 @@ impl<'c> Inferer<'c> {
         match (expr, expected) {
             (OirExpr::String { value }, OirType::Enum { name }) => {
                 orbital_core_base::type_compat::literal_union_members(name)
-                    .filter(|members| members.contains(&value.as_str()))
+                    .filter(|members| members.contains(value))
                     .map(|_| expected.clone())
             }
             (OirExpr::Array { items }, OirType::Array { inner }) => {
@@ -737,22 +737,27 @@ impl<'c> Inferer<'c> {
                 Some(expected.clone())
             }
             (OirExpr::Object { fields }, OirType::Map { key, value }) => {
-                for item in fields.values() {
-                    orbital_core_base::type_compat::checked_sub_with_named(
-                        &OirType::String,
+                for (name, item) in fields {
+                    self.infer_contextual(
+                        &OirExpr::String {
+                            value: name.clone(),
+                        },
                         key,
-                        &resolve,
+                        named,
+                        &mut Vec::new(),
                     )?;
                     self.infer_contextual(item, value, named, &mut Vec::new())?;
                 }
                 Some(expected.clone())
             }
-            (OirExpr::Object { fields }, OirType::Struct { fields: members }) => {
+            (OirExpr::Object { fields }, OirType::Struct { fields: members, additional }) => {
                 let mut actual = Vec::new();
                 for (name, item) in fields {
                     let ty =
                         if let Some(member) = members.iter().find(|member| member.name == *name) {
                             self.infer_contextual(item, &member.field_type, named, &mut Vec::new())?
+                        } else if let Some(additional) = additional {
+                            self.infer_contextual(item, additional, named, &mut Vec::new())?
                         } else {
                             self.infer(item)?
                         };
@@ -764,7 +769,7 @@ impl<'c> Inferer<'c> {
                         .filter(|member| !member.required && !fields.contains_key(&member.name))
                         .cloned(),
                 );
-                let source = OirType::Struct { fields: actual };
+                let source = OirType::Struct { additional: additional.clone(), fields: actual };
                 orbital_core_base::type_compat::checked_sub_with_named(
                     &source, expected, &resolve,
                 )?;
@@ -1124,7 +1129,7 @@ impl<'c> Inferer<'c> {
     /// A by-name result (the shape `json/parse` was given) is the declared type it names, when the context knows it.
     fn unfold(&self, mut ty: OirType) -> OirType {
         let mut seen = std::collections::HashSet::new();
-        while let OirType::TypeRef { name } = &ty {
+        while let OirType::TypeRef { name } | OirType::Reference { entity: name } = &ty {
             if !seen.insert(name.clone()) {
                 break;
             }
@@ -1147,6 +1152,7 @@ fn language_binding(
     let field = |name: &str, ty: OirType| OirField::new(name.to_string(), ty);
     // The emitter's envelope: the ten `BusEventSource` fields, each present only when the delivery carries it.
     let source = || OirType::Struct {
+        additional: None,
         fields: vec![
             field("orbital", OirType::String),
             field("orbitalId", OirType::String),
@@ -1173,14 +1179,14 @@ fn language_binding(
             if let Some(payload) = payload {
                 fields.push(field("payload", payload));
             }
-            OirType::Struct { fields }
+            OirType::Struct { additional: None, fields }
         }
         OirBindingRoot::PrevEvents => {
             let mut fields = vec![field("event", OirType::String), field("source", source())];
             if let Some(payload) = prev_payload {
                 fields.push(field("payload", payload));
             }
-            OirType::array(OirType::Struct { fields })
+            OirType::array(OirType::Struct { additional: None, fields })
         }
         OirBindingRoot::Trait(_) => OirType::Node,
         _ => return None,
@@ -1705,6 +1711,69 @@ mod tests {
     }
 
     #[test]
+    fn native_contract_optional_nonnull_member_read_can_be_absent() {
+        for required in [false, true] {
+            let mut label = OirField::new("label", OirType::String);
+            label.required = required;
+            let context = Row(vec![("record", OirType::Struct {
+                fields: vec![label],
+                additional: None,
+            })]);
+            assert_eq!(
+                infer_oir_expr_type(&entity(&["record", "label"]), &context),
+                Some(if required { OirType::String } else { OirType::optional(OirType::String) }),
+                "required={required}: missing-member reads may be null; admission still excludes null"
+            );
+        }
+    }
+
+    #[test]
+    fn native_contract_optional_nonnull_member_admits_missing_but_refuses_null() {
+        let mut label = OirField::new("label", OirType::String);
+        label.required = false;
+        let expected = OirType::Struct { fields: vec![label], additional: None };
+        for (fields, accepted) in [
+            (Vec::new(), true),
+            (vec![("label".into(), text("present"))], true),
+            (vec![("label".into(), OirExpr::Null)], false),
+        ] {
+            let expr = checked_local(OirExpr::Object { fields: fields.into_iter().collect() }, expected.clone());
+            assert_eq!(infer_oir_expr_type(&expr, &NoCtx).is_some(), accepted, "{expr:?}");
+        }
+    }
+
+    #[test]
+    fn native_contract_contextual_literal_checks_every_additional_member() {
+        let expected = OirType::Struct {
+            fields: vec![OirField::new("label", OirType::String)],
+            additional: Some(Box::new(OirType::Number)),
+        };
+        for (fields, accepted) in [
+            (vec![("label".into(), text("present"))], true),
+            (vec![("label".into(), text("present")), ("rate".into(), num(2.0))], true),
+            (vec![("label".into(), text("present")), ("rate".into(), text("wrong"))], false),
+            (vec![("label".into(), num(2.0))], false),
+            (Vec::new(), false),
+        ] {
+            let expr = checked_local(OirExpr::Object { fields: fields.into_iter().collect() }, expected.clone());
+            assert_eq!(infer_oir_expr_type(&expr, &NoCtx).is_some(), accepted, "{expr:?}");
+        }
+    }
+
+    #[test]
+    fn native_contract_contextual_empty_literal_does_not_narrow_an_opaque_record() {
+        let expected = OirType::Struct {
+            fields: Vec::new(),
+            additional: Some(Box::new(OirType::Number)),
+        };
+        let literal = checked_local(OirExpr::Object { fields: Default::default() }, expected.clone());
+        assert_eq!(infer_oir_expr_type(&literal, &NoCtx), Some(expected.clone()));
+        let opaque = Row(vec![("opaque", OirType::Struct { fields: Vec::new(), additional: None })]);
+        let expr = checked_local(entity(&["opaque"]), expected);
+        assert_eq!(infer_oir_expr_type(&expr, &opaque), None);
+    }
+
+    #[test]
     fn checked_local_annotations_refuse_wrong_or_undetermined_initializers() {
         for value in [
             text("wrong"),
@@ -1747,6 +1816,7 @@ mod tests {
         assert_eq!(infer_oir_expr_type(&expr, &NoCtx), Some(array));
         assert!(check_oir_expr(&expr, &NoCtx).is_empty());
         let required = OirType::Struct {
+            additional: None,
             fields: vec![OirField::new("name", OirType::String)],
         };
         let expr = checked_local(
@@ -1797,6 +1867,39 @@ mod tests {
         assert!(!check_oir_expr(&narrowed, &context).is_empty());
     }
 
+    #[test]
+    fn checked_local_annotations_prove_literal_enum_keys_and_refuse_illegal_keys() {
+        let map = OirType::map(
+            OirType::Enum {
+                name: "\"allowed\" | \"other\"".into(),
+            },
+            OirType::Number,
+        );
+        for (key, accepted) in [("allowed", true), ("illegal", false)] {
+            let initializer = OirExpr::Object {
+                fields: [(key.into(), num(1.0))].into_iter().collect(),
+            };
+            let expr = checked_local(initializer, map.clone());
+            assert_eq!(check_oir_expr(&expr, &NoCtx).is_empty(), accepted, "{key}");
+        }
+        let unknown = OirType::map(
+            OirType::TypeRef {
+                name: "Missing".into(),
+            },
+            OirType::Number,
+        );
+        let empty = checked_local(
+            OirExpr::Object {
+                fields: Default::default(),
+            },
+            unknown,
+        );
+        assert!(
+            !check_oir_expr(&empty, &NoCtx).is_empty(),
+            "empty maps still require a declared key contract"
+        );
+    }
+
     /// Resolves `@entity.<field>` against a fixed field list, whole `@entity` to the struct of them.
     struct Row(Vec<(&'static str, OirType)>);
     impl TypeCtx for Row {
@@ -1805,6 +1908,7 @@ mod tests {
                 return None;
             }
             let whole = OirType::Struct {
+                additional: None,
                 fields: self
                     .0
                     .iter()
@@ -2167,6 +2271,7 @@ mod tests {
             }
             type_at_path(
                 &OirType::Struct {
+                    additional: None,
                     fields: vec![OirField::new(
                         "result",
                         OirType::TypeRef {
@@ -2183,6 +2288,7 @@ mod tests {
                 let mut field = OirField::new("rejections", OirType::array(OirType::Boolean));
                 field.required = self.required;
                 OirType::Struct {
+                    additional: None,
                     fields: vec![field],
                 }
             })
@@ -2273,6 +2379,7 @@ mod tests {
     fn a_merge_of_maps_read_in_a_lambda_is_a_typed_result() {
         let words = OirType::map(OirType::String, OirType::String);
         let item = OirType::Struct {
+            additional: None,
             fields: vec![OirField::new("entities".to_string(), words)],
         };
         let typed = Row(vec![
@@ -2337,8 +2444,8 @@ mod tests {
         fn named_type(&self, name: &str) -> Option<OirType> {
             match name {
                 "Value" => Some(recursive_value_type()),
-                "Alias" => Some(OirType::TypeRef {
-                    name: "Value".into(),
+                "Alias" => Some(OirType::Reference {
+                    entity: "Value".into(),
                 }),
                 _ => None,
             }
@@ -2686,6 +2793,7 @@ mod tests {
             }
             fn named_type(&self, name: &str) -> Option<OirType> {
                 (name == "SampleCell").then(|| OirType::Struct {
+                    additional: None,
                     fields: vec![OirField::new("kind", OirType::String)],
                 })
             }
@@ -2696,7 +2804,7 @@ mod tests {
         let branch = lowered(serde_json::json!(["if", "@entity.flag", {"raw":"x"}, {"raw":3}]));
         let found = check_oir_expr(&branch, &Cells);
         assert!(found.is_empty(), "{found:?}");
-        let OirType::Struct { fields } =
+        let OirType::Struct { fields, .. } =
             infer_oir_expr_type(&branch, &Cells).expect("record result")
         else {
             panic!("record result")
@@ -2762,6 +2870,7 @@ mod tests {
             name: "Tree".to_string(),
         };
         let tree = OirType::Struct {
+            additional: None,
             fields: vec![
                 OirField::new("label".to_string(), OirType::String),
                 OirField::new("kids".to_string(), OirType::array(own())),
@@ -2840,6 +2949,7 @@ mod tests {
             }
             fn named_type(&self, name: &str) -> Option<OirType> {
                 (name == "Point").then(|| OirType::Struct {
+                    additional: None,
                     fields: vec![OirField::new("x".to_string(), OirType::Number)],
                 })
             }
@@ -2848,6 +2958,7 @@ mod tests {
         assert_eq!(
             infer_oir_expr_type(&parse, &Named),
             Some(OirType::Struct {
+                additional: None,
                 fields: vec![OirField::new("x".to_string(), OirType::Number)]
             })
         );

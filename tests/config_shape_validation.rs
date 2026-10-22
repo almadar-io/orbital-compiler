@@ -24,6 +24,8 @@ fn metric_spec_items() -> FieldDefinition {
     props.insert(
         "label".to_string(),
         FieldDefinition {
+            nullable: None,
+            additional_properties: None,
             mock: None,
             merged_from: None,
             name: Some("label".to_string()),
@@ -45,6 +47,8 @@ fn metric_spec_items() -> FieldDefinition {
     props.insert(
         "value".to_string(),
         FieldDefinition {
+            nullable: None,
+            additional_properties: None,
             mock: None,
             merged_from: None,
             name: Some("value".to_string()),
@@ -66,6 +70,8 @@ fn metric_spec_items() -> FieldDefinition {
     props.insert(
         "format".to_string(),
         FieldDefinition {
+            nullable: None,
+            additional_properties: None,
             mock: None,
             merged_from: None,
             name: Some("format".to_string()),
@@ -89,6 +95,8 @@ fn metric_spec_items() -> FieldDefinition {
         },
     );
     FieldDefinition {
+        nullable: None,
+        additional_properties: None,
         mock: None,
         merged_from: None,
         name: None,
@@ -130,6 +138,8 @@ fn schema_with_config(config: HashMap<String, ConfigField>) -> OrbitalSchema {
         collection: Some("dashboards".to_string()),
         persistence: None,
         fields: vec![FieldDefinition {
+            nullable: None,
+            additional_properties: None,
             mock: None,
             merged_from: None,
             name: Some("id".to_string()),
@@ -198,6 +208,8 @@ fn schema_with_config(config: HashMap<String, ConfigField>) -> OrbitalSchema {
         trait_embed_ids: None,
     };
     OrbitalSchema {
+        type_contract_version: None,
+        types: None,
         store: None,
         theme_definitions: None,
         themes: None,
@@ -271,6 +283,8 @@ fn good_array_of_metricspec_passes() {
     config.insert(
         "metrics".to_string(),
         ConfigField {
+            nullable: None,
+            additional_properties: None,
             field_type: "[MetricSpec]".to_string(),
             default: Some(SExpression::Array(vec![SExpression::Object(good_metric)])),
             label: None,
@@ -307,6 +321,8 @@ fn string_value_where_number_expected_fails() {
     config.insert(
         "metrics".to_string(),
         ConfigField {
+            nullable: None,
+            additional_properties: None,
             field_type: "[MetricSpec]".to_string(),
             default: Some(SExpression::Array(vec![SExpression::Object(bad_metric)])),
             label: None,
@@ -349,6 +365,8 @@ fn bare_string_in_array_of_objects_fails() {
         format_props.insert(
             (*name).to_string(),
             FieldDefinition {
+                nullable: None,
+                additional_properties: None,
                 mock: None,
                 merged_from: None,
                 name: Some((*name).to_string()),
@@ -369,6 +387,8 @@ fn bare_string_in_array_of_objects_fails() {
         );
     }
     let format_items = FieldDefinition {
+        nullable: None,
+        additional_properties: None,
         mock: None,
         merged_from: None,
         name: None,
@@ -390,6 +410,8 @@ fn bare_string_in_array_of_objects_fails() {
     config.insert(
         "formats".to_string(),
         ConfigField {
+            nullable: None,
+            additional_properties: None,
             field_type: "[FormatOption]".to_string(),
             default: Some(SExpression::Array(vec![
                 SExpression::String("csv".to_string()),
@@ -429,6 +451,8 @@ fn missing_required_field_fails() {
     config.insert(
         "metrics".to_string(),
         ConfigField {
+            nullable: None,
+            additional_properties: None,
             field_type: "[MetricSpec]".to_string(),
             default: Some(SExpression::Array(vec![SExpression::Object(no_label)])),
             label: None,
@@ -474,6 +498,8 @@ fn enum_value_outside_allowed_set_fails() {
     config.insert(
         "metrics".to_string(),
         ConfigField {
+            nullable: None,
+            additional_properties: None,
             field_type: "[MetricSpec]".to_string(),
             default: Some(SExpression::Array(vec![SExpression::Object(bad_enum)])),
             label: None,
@@ -517,6 +543,8 @@ fn binding_strings_pass_the_check() {
     config.insert(
         "metrics".to_string(),
         ConfigField {
+            nullable: None,
+            additional_properties: None,
             field_type: "[MetricSpec]".to_string(),
             default: Some(SExpression::Array(vec![SExpression::Object(
                 binding_metric,
@@ -566,6 +594,8 @@ fn computed_sexpr_call_for_array_items_defers() {
     config.insert(
         "metrics".to_string(),
         ConfigField {
+            nullable: None,
+            additional_properties: None,
             field_type: "[MetricSpec]".to_string(),
             default: Some(call),
             label: None,
@@ -614,6 +644,8 @@ fn computed_sexpr_call_nested_in_object_property_defers() {
     config.insert(
         "metrics".to_string(),
         ConfigField {
+            nullable: None,
+            additional_properties: None,
             field_type: "[MetricSpec]".to_string(),
             default: Some(SExpression::Array(vec![SExpression::Object(metric)])),
             label: None,
@@ -651,6 +683,8 @@ fn literal_wrong_shape_still_errors_alongside_computed_defer() {
     format_props.insert(
         "id".to_string(),
         FieldDefinition {
+            nullable: None,
+            additional_properties: None,
             mock: None,
             merged_from: None,
             name: Some("id".to_string()),
@@ -670,6 +704,8 @@ fn literal_wrong_shape_still_errors_alongside_computed_defer() {
         },
     );
     let format_items = FieldDefinition {
+        nullable: None,
+        additional_properties: None,
         mock: None,
         merged_from: None,
         name: None,
@@ -691,6 +727,8 @@ fn literal_wrong_shape_still_errors_alongside_computed_defer() {
     config.insert(
         "formats".to_string(),
         ConfigField {
+            nullable: None,
+            additional_properties: None,
             field_type: "[FormatOption]".to_string(),
             default: Some(SExpression::Array(vec![SExpression::String(
                 "csv".to_string(),
@@ -726,6 +764,8 @@ fn array_typed_slot_with_scalar_default_fails() {
     config.insert(
         "metrics".to_string(),
         ConfigField {
+            nullable: None,
+            additional_properties: None,
             field_type: "[MetricSpec]".to_string(),
             default: Some(SExpression::String("not an array".to_string())),
             label: None,
@@ -762,6 +802,8 @@ fn number_on_a_name_carrying_scalar_tag_fails() {
         config.insert(
             "knob".to_string(),
             ConfigField {
+                nullable: None,
+                additional_properties: None,
                 field_type: tag.to_string(),
                 default: Some(SExpression::Number(7.0)),
                 label: None,
@@ -799,6 +841,8 @@ fn string_and_null_on_a_name_carrying_scalar_tag_pass() {
         config.insert(
             "knob".to_string(),
             ConfigField {
+                nullable: None,
+                additional_properties: None,
                 field_type: "icon".to_string(),
                 default: Some(value.clone()),
                 label: None,
@@ -833,6 +877,8 @@ fn non_number_on_int_or_float_fails() {
         config.insert(
             "knob".to_string(),
             ConfigField {
+                nullable: None,
+                additional_properties: None,
                 field_type: tag.to_string(),
                 default: Some(SExpression::String("1.5".to_string())),
                 label: None,
@@ -863,6 +909,8 @@ fn non_number_on_int_or_float_fails() {
 
 fn string_value_field() -> FieldDefinition {
     FieldDefinition {
+        nullable: None,
+        additional_properties: None,
         mock: None,
         merged_from: None,
         name: None,
@@ -887,6 +935,8 @@ fn map_knob(default: SExpression) -> OrbitalSchema {
     config.insert(
         "labels".to_string(),
         ConfigField {
+            nullable: None,
+            additional_properties: None,
             field_type: "Map<string,string>".to_string(),
             default: Some(default),
             label: None,
@@ -970,6 +1020,8 @@ fn an_array_type_merely_starting_with_map_is_not_treated_as_a_map() {
     config.insert(
         "markers".to_string(),
         ConfigField {
+            nullable: None,
+            additional_properties: None,
             field_type: "[MapViewMarkersItem]".to_string(),
             default: Some(SExpression::Array(vec![])),
             label: None,
@@ -998,6 +1050,8 @@ fn an_array_type_merely_starting_with_map_is_not_treated_as_a_map() {
 
 fn sexpr_args_slot(item_type: FieldType, default: Vec<SExpression>) -> OrbitalSchema {
     let item = FieldDefinition {
+        nullable: None,
+        additional_properties: None,
         mock: None,
         merged_from: None,
         name: None,
@@ -1019,6 +1073,8 @@ fn sexpr_args_slot(item_type: FieldType, default: Vec<SExpression>) -> OrbitalSc
     config.insert(
         "args".to_string(),
         ConfigField {
+            nullable: None,
+            additional_properties: None,
             field_type: "[SExpr]".to_string(),
             default: Some(SExpression::Array(default)),
             label: None,

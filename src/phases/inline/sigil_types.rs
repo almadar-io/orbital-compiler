@@ -91,22 +91,58 @@ fn field_type_of(name: &str) -> FieldType {
 }
 
 pub(crate) fn field_of(p: &PayloadField) -> FieldDefinition {
+    let element = orbital_core_base::ir::types::payload_array_item_type(&p.field_type);
     FieldDefinition {
+        nullable: p.nullable,
+        additional_properties: p
+            .additional_properties
+            .as_deref()
+            .map(field_of)
+            .map(Box::new),
         mock: None,
         merged_from: None,
         name: Some(p.name.clone()),
-        field_type: field_type_of(&p.field_type),
+        field_type: if element.is_some() {
+            FieldType::Array
+        } else {
+            field_type_of(&p.field_type)
+        },
         required: p.required,
         primary_key: None,
         unique: None,
         default: None,
         values: p.values.clone(),
         relation: None,
-        items: None,
-        properties: p
-            .properties
-            .as_ref()
-            .map(|nested| keyed(nested.iter().map(field_of).collect())),
+        items: p
+            .items
+            .as_deref()
+            .map(field_of)
+            .or_else(|| {
+                element.map(|element| {
+                    field_of(&PayloadField {
+                        name: String::new(),
+                        field_type: element.to_string(),
+                        nullable: None,
+                        required: None,
+                        properties: p.properties.clone(),
+                        items: None,
+                        additional_properties: None,
+                        values: p.values.clone(),
+                        description: None,
+                        type_when: None,
+                        entity: p.entity.clone(),
+                        projected_from: p.projected_from.clone(),
+                    })
+                })
+            })
+            .map(Box::new),
+        properties: if element.is_some() {
+            None
+        } else {
+            p.properties
+                .as_ref()
+                .map(|nested| keyed(nested.iter().map(field_of).collect()))
+        },
         intrinsic: None,
         description: p.description.clone(),
         synonyms: None,
@@ -218,7 +254,10 @@ pub(crate) fn resolve_sigil_types(schema: &mut OrbitalSchema) {
             let resolve = |knob: &str| {
                 let name = knob_value(declared.as_ref(), knob)?;
                 let fields = entities.get(&name)?;
-                Some((fields.iter().map(payload_field_of).collect::<Vec<_>>(), name))
+                Some((
+                    fields.iter().map(payload_field_of).collect::<Vec<_>>(),
+                    name,
+                ))
             };
             for emit in td.emits.iter_mut().flatten() {
                 if let Some(schema_fields) = emit.payload_schema.as_mut() {
@@ -319,7 +358,9 @@ pub(crate) fn resolve_sigil_types(schema: &mut OrbitalSchema) {
 pub(crate) fn payload_field_of(f: &FieldDefinition) -> PayloadField {
     let union_items = matches!(f.field_type, FieldType::Array | FieldType::Object)
         && f.properties.is_none()
-        && f.items.as_deref().is_some_and(|item| item.field_type == FieldType::Union);
+        && f.items
+            .as_deref()
+            .is_some_and(|item| item.field_type == FieldType::Union);
     // `Object` + `items` is a MAP (dynamic keys, uniform value): it has no
     // properties by construction and carries its value shape in the tag.
     let tag = if union_items && f.field_type == FieldType::Object {
@@ -391,7 +432,13 @@ pub(crate) fn payload_field_of(f: &FieldDefinition) -> PayloadField {
     };
 
     PayloadField {
-        values: None,
+        nullable: f.nullable,
+        additional_properties: f
+            .additional_properties
+            .as_deref()
+            .map(payload_field_of)
+            .map(Box::new),
+        values: f.values.clone(),
         name: f.name.clone().unwrap_or_default(),
         field_type: tag,
         required: f.required,
@@ -400,8 +447,13 @@ pub(crate) fn payload_field_of(f: &FieldDefinition) -> PayloadField {
         type_when: None,
         entity: None,
         projected_from: None,
-        items: if union_items {
-            f.items.as_deref().map(|item| Box::new(PayloadField { name: "item".to_string(), ..payload_field_of(item) }))
+        items: if f.items.is_some() {
+            f.items.as_deref().map(|item| {
+                Box::new(PayloadField {
+                    name: item.name.clone().unwrap_or_else(|| "item".to_string()),
+                    ..payload_field_of(item)
+                })
+            })
         } else {
             None
         },
@@ -433,9 +485,17 @@ fn substitute_named_entity_sentinels(
     resolve: impl Fn(&str) -> Option<(Vec<PayloadField>, String)>,
 ) {
     for f in fields.iter_mut() {
-        let (knob, shape) = if let Some(k) = f.field_type.strip_prefix("[@entity(").and_then(|r| r.strip_suffix(")]")) {
+        let (knob, shape) = if let Some(k) = f
+            .field_type
+            .strip_prefix("[@entity(")
+            .and_then(|r| r.strip_suffix(")]"))
+        {
             (k, "[object]")
-        } else if let Some(k) = f.field_type.strip_prefix("@entity(").and_then(|r| r.strip_suffix(')')) {
+        } else if let Some(k) = f
+            .field_type
+            .strip_prefix("@entity(")
+            .and_then(|r| r.strip_suffix(')'))
+        {
             (k, "object")
         } else {
             continue;
@@ -509,7 +569,9 @@ mod tests {
     fn a_payload_field_typed_by_the_entity_a_knob_names_takes_that_entitys_row() {
         let rows = |knob: &str| match knob {
             "sourceEntity" => Some((
-                vec![payload(serde_json::json!({ "name": "status", "type": "string" }))],
+                vec![payload(
+                    serde_json::json!({ "name": "status", "type": "string" }),
+                )],
                 "Order".to_string(),
             )),
             _ => None,
@@ -523,7 +585,10 @@ mod tests {
         substitute_named_entity_sentinels(&mut fields, rows);
         assert_eq!(fields[0].field_type, "object");
         assert_eq!(fields[0].entity.as_deref(), Some("Order"));
-        assert_eq!(fields[0].properties.as_ref().map(|p| p[0].name.as_str()), Some("status"));
+        assert_eq!(
+            fields[0].properties.as_ref().map(|p| p[0].name.as_str()),
+            Some("status")
+        );
         assert_eq!(fields[1].field_type, "[object]");
         assert_eq!(fields[1].entity.as_deref(), Some("Order"));
         // controls: a knob that names no entity leaves its sentinel for the pass that reports it; a plain field is untouched.

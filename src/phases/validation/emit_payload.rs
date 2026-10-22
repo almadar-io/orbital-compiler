@@ -690,6 +690,8 @@ fn list_item_mismatch(
                     item,
                     &crate::phases::resolve::payload_field_oir_type(
                         &PayloadField {
+                            nullable: None,
+                            additional_properties: None,
                             name: String::new(), field_type: element.to_string(), values: None, required: None,
                             description: None, properties: None, type_when: None, entity: None, projected_from: None, items: None,
                         }, schema_types,

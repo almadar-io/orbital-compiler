@@ -426,6 +426,7 @@ pub(crate) fn identity_type(schema: &OrbitalSchema, trait_name: &str) -> orbital
     };
     let fields = with_viewer(&row).fields;
     orbital_core_base::ir::OirType::Struct {
+        additional: None,
         fields: fields
             .iter()
             .filter_map(|f| {
@@ -1095,7 +1096,7 @@ mod tests {
     #[test]
     fn the_user_type_is_the_viewer_plus_the_roster_row() {
         let names = |schema: &OrbitalSchema| match identity_type(schema, "DocView") {
-            orbital_core_base::ir::OirType::Struct { fields } => fields.into_iter().map(|f| f.name).collect::<Vec<_>>(),
+            orbital_core_base::ir::OirType::Struct { fields, .. } => fields.into_iter().map(|f| f.name).collect::<Vec<_>>(),
             other => panic!("a record, got {other:?}"),
         };
         let with_roster = names(&reading("@user.id", Some(roster(&["teamId"])), None));

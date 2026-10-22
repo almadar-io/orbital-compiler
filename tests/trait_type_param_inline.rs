@@ -329,6 +329,8 @@ fn lookup_run_trait(schema: &OrbitalSchema) -> &orbital_core_base::schema::Trait
 fn candidate_field(
     trait_def: &orbital_core_base::schema::TraitDefinition,
 ) -> &orbital_core_base::schema::PayloadField {
+    nullable: None,
+    additional_properties: None,
     &trait_def.emits.as_ref().unwrap()[0]
         .payload_schema
         .as_ref()

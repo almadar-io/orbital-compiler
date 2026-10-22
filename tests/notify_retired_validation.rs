@@ -33,6 +33,8 @@ fn schema_with_effects(effects: Vec<SExpression>) -> OrbitalSchema {
         collection: Some("toasts".to_string()),
         persistence: None,
         fields: vec![FieldDefinition {
+            nullable: None,
+            additional_properties: None,
             mock: None,
             merged_from: None,
             name: Some("id".to_string()),
@@ -103,6 +105,8 @@ fn schema_with_effects(effects: Vec<SExpression>) -> OrbitalSchema {
     };
 
     OrbitalSchema {
+        type_contract_version: None,
+        types: None,
         store: None,
         theme_definitions: None,
         themes: None,

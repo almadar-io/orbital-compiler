@@ -45,6 +45,9 @@ fn warn(path: &str, position: &str, declared: &str) -> ValidationError {
 
 fn check_payload_field(field: &PayloadField, path: &str, result: &mut ValidationResult) {
     let field_path = format!("{}.{}", path, field.name);
+    if let Some(additional) = &field.additional_properties {
+        check_payload_field(additional, &format!("{field_path}{{}}"), result);
+    }
     // A list or map whose element is itself a typed field (`[(A | B)]`, `Map string (A | B)`) is typed by that element.
     if let Some(item) = &field.items {
         check_payload_field(item, &format!("{field_path}[]"), result);
@@ -55,7 +58,7 @@ fn check_payload_field(field: &PayloadField, path: &str, result: &mut Validation
         "json" | "any" | "scalar" => {
             result.add_error(warn(&field_path, "Payload field", &field.field_type));
         }
-        "object" if field.properties.as_ref().map_or(true, |p| p.is_empty()) => {
+        "object" if field.additional_properties.is_none() && field.properties.as_ref().map_or(true, |p| p.is_empty()) => {
             result.add_error(warn(
                 &field_path,
                 "Payload field",
@@ -116,12 +119,12 @@ fn check_config_type(field_type: &str, path: &str, result: &mut ValidationResult
 
 fn check_types_map(
     types: Option<&std::collections::BTreeMap<String, Vec<PayloadField>>>,
-    oi: usize,
+    owner: &str,
     result: &mut ValidationResult,
 ) {
     if let Some(types) = types {
         for (alias, fields) in types {
-            let path = format!("orbitals[{oi}].types.{alias}");
+            let path = format!("{owner}.{alias}");
             for field in fields {
                 check_payload_field(field, &path, result);
             }
@@ -147,8 +150,30 @@ pub fn validate_generic_types(schema: &OrbitalSchema, ctx: &mut ValidationContex
     // (recursive back-reference), so a generic type inside an alias shape is
     // invisible to the payload walks below — the exact hole `targetQuestionId:
     // json` sat in while the file validated 0/0.
+    check_types_map(schema.types.as_ref(), "types", &mut result);
+    if let Some(types) = &schema.types {
+        for (alias, fields) in types {
+            let shape = orbital_core_base::ir::types::declared_alias_shape(fields);
+            let mut names = Vec::new();
+            orbital_core_base::ir::types::names_in(&shape, &mut names);
+            names.sort();
+            names.dedup();
+            for name in names {
+                if !types.contains_key(&name)
+                    && !ctx.entity_definitions.contains_key(&name)
+                    && orbital_core_base::language::program_types::program_type(&name).is_none()
+                {
+                    result.add_error(ValidationError::error(
+                        ErrorCode::TypeUnknown,
+                        format!("types.{alias}"),
+                        format!("Type export `{alias}` references undeclared type `{name}`"),
+                    ));
+                }
+            }
+        }
+    }
     for (oi, orbital) in schema.orbitals.iter().enumerate() {
-        check_types_map(orbital.types.as_ref(), oi, &mut result);
+        check_types_map(orbital.types.as_ref(), &format!("orbitals[{oi}].types"), &mut result);
     }
 
     for (trait_def, trait_path) in inline_traits(schema) {
@@ -189,6 +214,8 @@ mod tests {
 
     fn entity_field(field_type: FieldType) -> FieldDefinition {
         FieldDefinition {
+            nullable: None,
+            additional_properties: None,
             mock: None,
             merged_from: None,
             name: None,
@@ -210,6 +237,8 @@ mod tests {
 
     fn payload(field_type: &str, properties: Option<Vec<PayloadField>>) -> PayloadField {
         PayloadField {
+            nullable: None,
+            additional_properties: None,
             values: None,
             name: "value".to_string(),
             field_type: field_type.to_string(),
@@ -236,7 +265,7 @@ mod tests {
         )]
         .into_iter()
         .collect();
-        check_types_map(Some(&types), 0, &mut result);
+        check_types_map(Some(&types), "orbitals[0].types", &mut result);
         assert_eq!(result.errors.len(), 1);
         assert_eq!(
             result.errors[0].code.as_str(),

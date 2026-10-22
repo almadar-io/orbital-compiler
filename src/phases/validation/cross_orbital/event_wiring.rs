@@ -934,6 +934,8 @@ mod tests {
 
     fn create_minimal_schema() -> OrbitalSchema {
         OrbitalSchema {
+            type_contract_version: None,
+            types: None,
             store: None,
             theme_definitions: None,
             themes: None,
@@ -1755,6 +1757,8 @@ mod tests {
                 [(
                     "action".to_string(),
                     orbital_core_base::schema::ConfigField {
+                        nullable: None,
+                        additional_properties: None,
                         field_type: "event".to_string(),
                         default: Some(orbital_core_base::schema::SExpression::String(event.to_string())),
                         label: None,

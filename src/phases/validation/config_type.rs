@@ -1260,6 +1260,8 @@ fn check_config_default_shape(
             // synthesized here since a `ConfigField` isn't a `FieldDefinition`
             // (they're structurally parallel but distinct wire types).
             let root_struct = FieldDefinition {
+                nullable: None,
+                additional_properties: None,
                 mock: None,
                 merged_from: None,
                 name: None,
@@ -3551,6 +3553,8 @@ mod recursive_type_literal_tests {
     /// properties: None }`.
     fn menu_item_config_field() -> ConfigField {
         let back_ref = FieldDefinition {
+            nullable: None,
+            additional_properties: None,
             mock: None,
             merged_from: None,
             name: Some("subMenu".to_string()),
@@ -3569,6 +3573,8 @@ mod recursive_type_literal_tests {
             projected_from: None,
         };
         let sub_menu_array = FieldDefinition {
+            nullable: None,
+            additional_properties: None,
             mock: None,
             merged_from: None,
             name: Some("subMenu".to_string()),
@@ -3587,6 +3593,8 @@ mod recursive_type_literal_tests {
             projected_from: None,
         };
         let label = FieldDefinition {
+            nullable: None,
+            additional_properties: None,
             mock: None,
             merged_from: None,
             name: Some("label".to_string()),
@@ -3608,6 +3616,8 @@ mod recursive_type_literal_tests {
         props.insert("label".to_string(), label);
         props.insert("subMenu".to_string(), sub_menu_array);
         let menu_item = FieldDefinition {
+            nullable: None,
+            additional_properties: None,
             mock: None,
             merged_from: None,
             name: None,
@@ -3626,6 +3636,8 @@ mod recursive_type_literal_tests {
             projected_from: None,
         };
         ConfigField {
+            nullable: None,
+            additional_properties: None,
             field_type: "[MenuItem]".to_string(),
             default: None,
             label: None,
@@ -3722,6 +3734,8 @@ mod skip_required_members_tests {
     /// `ImportSourceOption`.
     fn alias_with_required_members() -> FieldDefinition {
         let required_string = |name: &str| FieldDefinition {
+            nullable: None,
+            additional_properties: None,
             mock: None,
             merged_from: None,
             name: Some(name.to_string()),
@@ -3743,6 +3757,8 @@ mod skip_required_members_tests {
         props.insert("id".to_string(), required_string("id"));
         props.insert("kind".to_string(), required_string("kind"));
         FieldDefinition {
+            nullable: None,
+            additional_properties: None,
             mock: None,
             merged_from: None,
             name: Some("source".to_string()),

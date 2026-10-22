@@ -498,6 +498,8 @@ mod tests {
             tier: None,
             scope: None,
             payload_schema: Some(vec![PayloadField {
+                nullable: None,
+                additional_properties: None,
                 values: None,
                 name: field.to_string(),
                 field_type: "string".to_string(),

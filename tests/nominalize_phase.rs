@@ -20,11 +20,13 @@ fn derives_positional_names_for_nested_array_and_map_shapes() {
     entity.fields.push(OirField::new(
         "meta",
         OirType::Struct {
+            additional: None,
             fields: vec![
                 OirField::new("label", OirType::String),
                 OirField::new(
                     "geo",
                     OirType::Struct {
+                        additional: None,
                         fields: vec![
                             OirField::new("lat", OirType::Number),
                             OirField::new("lng", OirType::Number),
@@ -32,9 +34,11 @@ fn derives_positional_names_for_nested_array_and_map_shapes() {
                     },
                 ),
                 OirField::new("tags", OirType::array(OirType::Struct {
+                    additional: None,
                     fields: vec![OirField::new("name", OirType::String)],
                 })),
                 OirField::new("scores", OirType::map(OirType::String, OirType::Struct {
+                    additional: None,
                     fields: vec![OirField::new("grade", OirType::Number)],
                 })),
             ],
@@ -58,7 +62,7 @@ fn derives_positional_names_for_nested_array_and_map_shapes() {
         panic!("the field must become a TypeRef");
     };
     assert_eq!(name, "OrderMeta");
-    let OirType::Struct { fields } = &module.named_types["OrderMeta"] else {
+    let OirType::Struct { fields, .. } = &module.named_types["OrderMeta"] else {
         panic!("the registered entry carries the struct shape");
     };
     let geo = fields.iter().find(|f| f.name == "geo").unwrap();
@@ -97,9 +101,11 @@ fn cycle_guard_resolves_a_self_recursive_struct_to_a_typeref() {
     entity.fields.push(OirField::new(
         "self",
         OirType::Struct {
+            additional: None,
             fields: vec![OirField::new(
                 "",
                 OirType::Struct {
+                    additional: None,
                     fields: vec![OirField::new("value", OirType::String)],
                 },
             )],
@@ -116,7 +122,7 @@ fn cycle_guard_resolves_a_self_recursive_struct_to_a_typeref() {
         "outer struct nominalizes to NodeSelf, got {:?}",
         module.entities[0].fields[0].field_type
     );
-    let OirType::Struct { fields } = &module.named_types["NodeSelf"] else {
+    let OirType::Struct { fields, .. } = &module.named_types["NodeSelf"] else {
         panic!("NodeSelf registered");
     };
     assert!(
@@ -137,6 +143,7 @@ fn never_overwrites_a_preexisting_recursive_alias_entry() {
     entity.fields.push(OirField::new(
         "root",
         OirType::Struct {
+            additional: None,
             fields: vec![OirField::new("label", OirType::String)],
         },
     ));
@@ -144,6 +151,7 @@ fn never_overwrites_a_preexisting_recursive_alias_entry() {
     module.named_types.insert(
         "MenuRoot".to_string(),
         OirType::Struct {
+            additional: None,
             fields: vec![OirField::new(
                 "label",
                 // A DIFFERENT shape than the anonymous one — the collision
@@ -159,7 +167,7 @@ fn never_overwrites_a_preexisting_recursive_alias_entry() {
     assert_eq!(stats.skipped_collisions, 1);
     assert_eq!(stats.registered, 0);
     // The pre-existing entry is untouched (first-registration-wins).
-    let OirType::Struct { fields } = &module.named_types["MenuRoot"] else {
+    let OirType::Struct { fields, .. } = &module.named_types["MenuRoot"] else {
         panic!("the pre-existing entry survives");
     };
     assert!(
@@ -184,6 +192,7 @@ fn same_shape_from_both_resolve_paths_dedups_to_one_entry() {
     // both orders are ONE identity — one entry, both use-sites TypeRef it.
     let shape_a = || {
         OirType::Struct {
+            additional: None,
             fields: vec![
                 OirField::new("alpha", OirType::String),
                 OirField::new("beta", OirType::Number),
@@ -192,6 +201,7 @@ fn same_shape_from_both_resolve_paths_dedups_to_one_entry() {
     };
     let shape_b = || {
         OirType::Struct {
+            additional: None,
             fields: vec![
                 OirField::new("beta", OirType::Number),
                 OirField::new("alpha", OirType::String),
@@ -234,7 +244,7 @@ fn same_shape_from_both_resolve_paths_dedups_to_one_entry() {
         "the payload use-site TypeRefs the same entry, got {payload_ty:?}"
     );
     // The registered entry is in canonical (sorted) order.
-    let OirType::Struct { fields } = &module.named_types[&shared] else {
+    let OirType::Struct { fields, .. } = &module.named_types[&shared] else {
         panic!("entry is a struct");
     };
     assert_eq!(
@@ -249,6 +259,7 @@ fn enum_values_survive_into_the_registered_entry() {
     entity.fields.push(OirField::new(
         "status",
         OirType::Struct {
+            additional: None,
             fields: vec![{
                 let mut f = OirField::new("level", OirType::String);
                 f.enum_values = Some(vec!["low".to_string(), "high".to_string()]);
@@ -259,7 +270,7 @@ fn enum_values_survive_into_the_registered_entry() {
     let mut module = module_with(entity);
     nominalize_module(&mut module);
 
-    let OirType::Struct { fields } = &module.named_types["TaskStatus"] else {
+    let OirType::Struct { fields, .. } = &module.named_types["TaskStatus"] else {
         panic!("entry registered");
     };
     assert_eq!(
@@ -275,6 +286,7 @@ fn second_run_is_a_noop_reuse() {
     entity.fields.push(OirField::new(
         "meta",
         OirType::Struct {
+            additional: None,
             fields: vec![OirField::new("label", OirType::String)],
         },
     ));
@@ -301,12 +313,14 @@ fn unions_nominalize_and_register() {
                 OirField::new(
                     "book",
                     OirType::Struct {
+                        additional: None,
                         fields: vec![OirField::new("title", OirType::String)],
                     },
                 ),
                 OirField::new(
                     "movie",
                     OirType::Struct {
+                        additional: None,
                         fields: vec![OirField::new("runtime", OirType::Number)],
                     },
                 ),

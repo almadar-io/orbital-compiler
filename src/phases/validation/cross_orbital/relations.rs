@@ -127,6 +127,8 @@ mod tests {
 
     fn create_minimal_schema() -> OrbitalSchema {
         OrbitalSchema {
+            type_contract_version: None,
+            types: None,
             store: None,
             theme_definitions: None,
             themes: None,
@@ -256,6 +258,8 @@ mod tests {
         // Point Task.patient at Patient — should resolve cleanly.
         if let EntityRef::Inline(task) = &mut schema.orbitals[0].entity {
             task.fields.push(FieldDefinition {
+                nullable: None,
+                additional_properties: None,
                 mock: None,
                 merged_from: None,
                 name: Some("patient".to_string()),
@@ -300,6 +304,8 @@ mod tests {
         let mut schema = create_minimal_schema();
         if let EntityRef::Inline(task) = &mut schema.orbitals[0].entity {
             task.fields.push(FieldDefinition {
+                nullable: None,
+                additional_properties: None,
                 mock: None,
                 merged_from: None,
                 name: Some("patient".to_string()),
@@ -349,6 +355,8 @@ mod tests {
         let mut schema = create_minimal_schema();
         if let EntityRef::Inline(task) = &mut schema.orbitals[0].entity {
             task.fields.push(FieldDefinition {
+                nullable: None,
+                additional_properties: None,
                 mock: None,
                 merged_from: None,
                 name: Some("patientList".to_string()),
@@ -360,6 +368,8 @@ mod tests {
                 values: None,
                 relation: None,
                 items: Some(Box::new(FieldDefinition {
+                    nullable: None,
+                    additional_properties: None,
                     mock: None,
                     merged_from: None,
                     name: None,

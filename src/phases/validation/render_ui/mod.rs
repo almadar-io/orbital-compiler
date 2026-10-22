@@ -1161,6 +1161,8 @@ mod tests {
                 access_waivers: None,
                 name: "Company".to_string(),
                 fields: vec![FieldDefinition {
+                    nullable: None,
+                    additional_properties: None,
                     mock: None,
                     merged_from: None,
                     name: Some("name".to_string()),
@@ -1209,6 +1211,8 @@ mod tests {
                 name: "Inspection".to_string(),
                 fields: vec![
                     FieldDefinition {
+                        nullable: None,
+                        additional_properties: None,
                         mock: None,
                         merged_from: None,
                         name: Some("title".to_string()),
@@ -1227,6 +1231,8 @@ mod tests {
                         projected_from: None,
                     },
                     FieldDefinition {
+                        nullable: None,
+                        additional_properties: None,
                         mock: None,
                         merged_from: None,
                         name: Some("companyId".to_string()),
@@ -1325,6 +1331,8 @@ mod tests {
                 access_waivers: None,
                 name: "Inspection".to_string(),
                 fields: vec![FieldDefinition {
+                    nullable: None,
+                    additional_properties: None,
                     mock: None,
                     merged_from: None,
                     name: Some("title".to_string()),

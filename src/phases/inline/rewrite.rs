@@ -5,8 +5,9 @@ use crate::phases::validation::sync::patterns::{PATTERN_EVENT_LIST_PROPS, PATTER
 use crate::phases::validation::user_identity::{user_field_of, EQUALITY_OPS};
 use crate::phases::validation::value_walk::all_sources;
 use orbital_core_base::schema::{
-    ConfigField, ConfigProvenanceRecord, EntityDefinition, EntityRef, FieldDefinition, FieldType,
-    ListenSource, Orbital, PayloadField, SExpression, TraitDefinition, TraitReference,
+    compose_nullability, ConfigField, ConfigProvenanceRecord, EntityDefinition, EntityRef,
+    FieldDefinition, FieldType, ListenSource, Orbital, PayloadField, SExpression, TraitDefinition,
+    TraitReference,
 };
 use std::collections::{BTreeMap, HashMap, HashSet};
 
@@ -62,9 +63,9 @@ pub(crate) fn map_event_typed_members(
             };
             // A union's `properties` are its VARIANTS; each element carries one
             // variant's members, so walk every variant's members, each key once.
-            if items
-                .is_some_and(|schema| schema.field_type == orbital_core_base::schema::FieldType::Union)
-            {
+            if items.is_some_and(|schema| {
+                schema.field_type == orbital_core_base::schema::FieldType::Union
+            }) {
                 let mut seen: std::collections::HashSet<String> = std::collections::HashSet::new();
                 let mut touched = false;
                 for variant in properties.values() {
@@ -121,7 +122,8 @@ pub(crate) fn map_event_typed_members(
 fn is_event_typed(ft: &orbital_core_base::schema::FieldType) -> bool {
     matches!(
         ft,
-        orbital_core_base::schema::FieldType::Event | orbital_core_base::schema::FieldType::EventAddress
+        orbital_core_base::schema::FieldType::Event
+            | orbital_core_base::schema::FieldType::EventAddress
     )
 }
 
@@ -1012,11 +1014,7 @@ fn rewrite_identifiers_inner(
                             for (slot, slot_v) in emit_map.iter_mut() {
                                 if matches!(
                                     slot.as_str(),
-                                    "success"
-                                        | "failure"
-                                        | "onMessage"
-                                        | "onChange"
-                                        | "cancelled"
+                                    "success" | "failure" | "onMessage" | "onChange" | "cancelled"
                                 ) {
                                     if let SExpression::String(ev) = slot_v {
                                         if let Some(to) = event_subs.get(ev) {
@@ -1549,7 +1547,8 @@ pub(crate) fn apply_inline_config_defaults(
     let Some(declared) = trait_def.config.as_ref() else {
         return;
     };
-    let mut effective_config: orbital_core_base::schema::SObject = orbital_core_base::schema::SObject::new();
+    let mut effective_config: orbital_core_base::schema::SObject =
+        orbital_core_base::schema::SObject::new();
     let mut trait_knobs: HashSet<String> = HashSet::new();
     for (k, field) in declared.iter() {
         if field.field_type == "trait" {
@@ -1680,7 +1679,9 @@ pub(crate) fn declared_list_types(
         let Some(field) = declared.get(knob).filter(|f| f.items.is_some()) else {
             continue;
         };
-        if !matches!(value, SExpression::Array(items) if !items.is_empty()) || sexpr_tree_contains_binding(value) {
+        if !matches!(value, SExpression::Array(items) if !items.is_empty())
+            || sexpr_tree_contains_binding(value)
+        {
             continue;
         }
         let ty = crate::phases::resolve::config_field_carried_type(field);
@@ -1692,7 +1693,11 @@ pub(crate) fn declared_list_types(
         };
         out.insert(
             knob.clone(),
-            SExpression::Array(vec![SExpression::String("typed".to_string()), value.clone(), SExpression::String(text)]),
+            SExpression::Array(vec![
+                SExpression::String("typed".to_string()),
+                value.clone(),
+                SExpression::String(text),
+            ]),
         );
     }
     out
@@ -1704,27 +1709,41 @@ pub(crate) fn rewrite_trait_config_bindings(
     cfg: &orbital_core_base::schema::SObject,
     declared: &orbital_core_base::schema::SObject,
 ) {
+    rewrite_trait_expressions(trait_def, &mut |expr| {
+        rewrite_config_bindings(expr, cfg, declared)
+    });
+}
+
+fn rewrite_trait_expressions(
+    trait_def: &mut TraitDefinition,
+    rewrite: &mut impl FnMut(&mut SExpression),
+) {
     for p in trait_def.propositions_mut() {
-        rewrite_config_bindings(p, cfg, declared);
+        rewrite(p);
     }
     for transition in trait_def.state_machine.transitions.iter_mut() {
         if let Some(guard) = transition.guard.as_mut() {
-            rewrite_config_bindings(guard, cfg, declared);
+            rewrite(guard);
         }
         if let Some(effects) = transition.effects.as_mut() {
             for effect in effects.iter_mut() {
-                rewrite_config_bindings(effect, cfg, declared);
+                rewrite(effect);
             }
         }
     }
     if let Some(ticks) = trait_def.ticks.as_mut() {
         for tick in ticks.iter_mut() {
             if let Some(guard) = tick.guard.as_mut() {
-                rewrite_config_bindings(guard, cfg, declared);
+                rewrite(guard);
             }
             for effect in tick.effects.iter_mut() {
-                rewrite_config_bindings(effect, cfg, declared);
+                rewrite(effect);
             }
+        }
+    }
+    for listen in trait_def.listens.iter_mut().flatten() {
+        if let Some(guard) = listen.guard.as_mut() {
+            rewrite(guard);
         }
     }
 }
@@ -1803,7 +1822,9 @@ pub(crate) fn rewrite_config_bindings(
             // option, a written row).
             let head = items.first().and_then(|h| h.as_str()).map(str::to_string);
             let is_let = head.as_deref() == Some("let");
-            let reads_as_operand = head.as_deref().is_some_and(crate::type_infer::is_value_operator);
+            let reads_as_operand = head
+                .as_deref()
+                .is_some_and(crate::type_infer::is_value_operator);
             for (at, item) in items.iter_mut().enumerate() {
                 if reads_as_operand && is_empty_list_knob(item, config_subs) {
                     continue;
@@ -1814,7 +1835,9 @@ pub(crate) fn rewrite_config_bindings(
                         for pair in pairs.iter_mut() {
                             if let SExpression::Array(parts) = pair {
                                 for part in parts.iter_mut().skip(1) {
-                                    if !is_empty_list_knob(part, config_subs) && !take_declared(part, declared) {
+                                    if !is_empty_list_knob(part, config_subs)
+                                        && !take_declared(part, declared)
+                                    {
                                         rewrite_config_bindings(part, config_subs, declared);
                                     }
                                 }
@@ -1843,7 +1866,10 @@ pub(crate) fn rewrite_config_bindings(
 /// Replace a bare `@config.<knob>` of `declared` with the knob's `typed` value; whether it did.
 fn take_declared(expr: &mut SExpression, declared: &orbital_core_base::schema::SObject) -> bool {
     let typed = match expr {
-        SExpression::String(s) => s.strip_prefix("@config.").and_then(|knob| declared.get(knob)).cloned(),
+        SExpression::String(s) => s
+            .strip_prefix("@config.")
+            .and_then(|knob| declared.get(knob))
+            .cloned(),
         _ => None,
     };
     match typed {
@@ -1855,7 +1881,10 @@ fn take_declared(expr: &mut SExpression, declared: &orbital_core_base::schema::S
     }
 }
 
-fn is_empty_list_knob(expr: &SExpression, config_subs: &orbital_core_base::schema::SObject) -> bool {
+fn is_empty_list_knob(
+    expr: &SExpression,
+    config_subs: &orbital_core_base::schema::SObject,
+) -> bool {
     let SExpression::String(s) = expr else {
         return false;
     };
@@ -2110,6 +2139,58 @@ pub(crate) fn rewrite_payload_entity_refs(
             }
         }
     }
+    rewrite_trait_expressions(trait_def, &mut |expr| {
+        rewrite_recorded_shapes(expr, &mut |shape| {
+            let old = shape.clone();
+            let mut renamed = BTreeMap::new();
+            let referenced = std::cell::RefCell::new(HashSet::new());
+            let replace = |ty: &orbital_core_base::ir::OirType| match ty {
+                orbital_core_base::ir::OirType::Reference { entity } => {
+                    entity_subs.get(entity).map(|name| {
+                        referenced.borrow_mut().insert(entity.clone());
+                        orbital_core_base::ir::OirType::Reference {
+                            entity: name.clone(),
+                        }
+                    })
+                }
+                orbital_core_base::ir::OirType::Row { entity } => {
+                    entity_subs.get(entity).map(|name| {
+                        referenced.borrow_mut().insert(entity.clone());
+                        orbital_core_base::ir::OirType::Row {
+                            entity: name.clone(),
+                        }
+                    })
+                }
+                _ => None,
+            };
+            if let orbital_core_base::ir::OirType::Reference { entity }
+            | orbital_core_base::ir::OirType::Row { entity } = &shape.ty
+            {
+                if let Some(name) = entity_subs.get(entity) {
+                    if shape.name.as_ref() == Some(entity) {
+                        shape.name = Some(name.clone());
+                    }
+                }
+            }
+            shape.ty.rewrite(&replace);
+            for ty in shape.named.values_mut() {
+                ty.rewrite(&replace);
+            }
+            for (name, ty) in std::mem::take(&mut shape.named) {
+                let rewritten_name = if referenced.borrow().contains(&name) {
+                    entity_subs
+                        .get(&name)
+                        .cloned()
+                        .unwrap_or_else(|| name.clone())
+                } else {
+                    name
+                };
+                renamed.insert(rewritten_name, ty);
+            }
+            shape.named = renamed;
+            *shape != old
+        });
+    });
 }
 
 /// Rewrite `TraitDefinition.entity_ref_ids` (the V4 leverage-id side-map:
@@ -2303,6 +2384,58 @@ pub(crate) fn resolve_type_param_sentinels(
         .iter()
         .filter_map(|(name, sub)| param_sub_field(sub).map(|f| (name.clone(), f)))
         .collect();
+    let declared_bindings: BTreeMap<String, orbital_core_base::ir::OirType> = subs
+        .iter()
+        .filter_map(|(name, sub)| {
+            let ty = match sub {
+                ParamSub::Scalar(_) => orbital_core_base::ir::field_shape(bindings.get(name)?),
+                ParamSub::Struct(fields) => {
+                    orbital_core_base::ir::types::declared_alias_shape(fields)
+                }
+                ParamSub::Entity(entity) => orbital_core_base::ir::OirType::Reference {
+                    entity: entity.name.clone(),
+                },
+            };
+            Some((name.clone(), ty))
+        })
+        .collect();
+    rewrite_trait_expressions(trait_def, &mut |expr| {
+        changed |= rewrite_recorded_shapes(expr, &mut |shape| {
+            let old = shape.clone();
+            let root_variable = matches!(&shape.ty, orbital_core_base::ir::OirType::Var { name } if declared_bindings.contains_key(name));
+            shape.ty.substitute_type_vars(&declared_bindings);
+            for ty in shape.named.values_mut() {
+                ty.substitute_type_vars(&declared_bindings);
+            }
+            if root_variable {
+                shape.name = match &shape.ty {
+                    orbital_core_base::ir::OirType::Reference { entity } => Some(entity.clone()),
+                    _ => None,
+                };
+            }
+            let recorded = &shape.named;
+            *shape = orbital_core_base::ir::types::DeclaredShape::with_resolver(
+                shape.name.clone(),
+                shape.ty.clone(),
+                |name| {
+                    entities_by_name
+                        .get(name)
+                        .map(|entity| {
+                            orbital_core_base::ir::types::declared_alias_shape(
+                                &entity_fields_to_payload_fields(entity),
+                            )
+                        })
+                        .or_else(|| recorded.get(name).cloned())
+                        .or_else(|| {
+                            types_by_name.get(name).map(|fields| {
+                                orbital_core_base::ir::types::declared_alias_shape(fields)
+                            })
+                        })
+                },
+            );
+            *shape != old
+        });
+    });
     if let Some(config) = trait_def.config.as_mut() {
         for knob in config.values_mut() {
             changed |= resolve_config_sentinel(knob, &subs, &bindings);
@@ -2333,7 +2466,13 @@ pub(crate) fn resolve_type_param_sentinels(
                 continue;
             }
             if let Some(schema) = emit.payload_schema.as_mut() {
-                changed |= resolve_sentinel_fields(schema, entity_def, &subs, &declared_names, entities_by_name);
+                changed |= resolve_sentinel_fields(
+                    schema,
+                    entity_def,
+                    &subs,
+                    &declared_names,
+                    entities_by_name,
+                );
             }
         }
     }
@@ -2352,9 +2491,57 @@ pub(crate) fn resolve_type_param_sentinels(
                 continue;
             }
             if let Some(schema) = ev.payload_schema.as_mut() {
-                changed |= resolve_sentinel_fields(schema, entity_def, &subs, &declared_names, entities_by_name);
+                changed |= resolve_sentinel_fields(
+                    schema,
+                    entity_def,
+                    &subs,
+                    &declared_names,
+                    entities_by_name,
+                );
             }
         }
+    }
+    changed
+}
+
+fn rewrite_recorded_shapes(
+    expr: &mut SExpression,
+    rewrite: &mut impl FnMut(&mut orbital_core_base::ir::types::DeclaredShape) -> bool,
+) -> bool {
+    use orbital_core_base::schema::RewriteVisit;
+    let mut changed = false;
+    let output: Result<_, std::convert::Infallible> = expr.try_rewrite(
+        |node| {
+            Ok(if matches!(node.operator(), Some("quote" | "quasiquote")) {
+                RewriteVisit::Keep
+            } else {
+                RewriteVisit::Descend
+            })
+        },
+        |mut node| {
+            if let SExpression::Array(items) = &mut node {
+                if let [SExpression::String(head), _, SExpression::String(declaration)] =
+                    items.as_mut_slice()
+                {
+                    if head.as_str() == "typed" {
+                        if let Some(mut shape) =
+                            orbital_core_base::ir::types::DeclaredShape::parse(declaration)
+                        {
+                            if rewrite(&mut shape) {
+                                *declaration = serde_json::to_string(&shape)
+                                    .expect("declared shape serializes");
+                                changed = true;
+                            }
+                        }
+                    }
+                }
+            }
+            Ok(node)
+        },
+    );
+    match output {
+        Ok(output) => *expr = output,
+        Err(never) => match never {},
     }
     changed
 }
@@ -2462,7 +2649,11 @@ fn resolve_config_sentinel(
     subs: &HashMap<String, ParamSub>,
     bindings: &HashMap<String, FieldDefinition>,
 ) -> bool {
-    let (param, is_array) = match knob.field_type.strip_prefix("[$").and_then(|s| s.strip_suffix(']')) {
+    let (param, is_array) = match knob
+        .field_type
+        .strip_prefix("[$")
+        .and_then(|s| s.strip_suffix(']'))
+    {
         Some(p) => (p.to_string(), true),
         None => match knob.field_type.strip_prefix('$') {
             Some(p) => (p.to_string(), false),
@@ -2472,18 +2663,28 @@ fn resolve_config_sentinel(
     let Some(sub) = subs.get(&param) else {
         return false;
     };
-    let tag = match sub {
+    let mut tag = match sub {
         ParamSub::Scalar(prim) => prim.clone(),
         ParamSub::Entity(_) | ParamSub::Struct(_) => "object".to_string(),
     };
     let shape = bindings.get(&param).cloned();
+    if let Some(shape) = shape.as_ref() {
+        tag = super::sigil_types::payload_field_of(shape).field_type;
+    }
     if is_array {
         knob.field_type = format!("[{tag}]");
         knob.items = shape.map(Box::new);
         knob.properties = None;
+        knob.additional_properties = None;
     } else {
         knob.field_type = tag;
-        knob.properties = shape.and_then(|s| s.properties);
+        if let Some(shape) = shape {
+            knob.nullable = compose_nullability(knob.nullable, shape.nullable);
+            knob.properties = shape.properties;
+            knob.items = shape.items;
+            knob.additional_properties = shape.additional_properties;
+            knob.values = shape.values;
+        }
     }
     true
 }
@@ -2491,6 +2692,15 @@ fn resolve_config_sentinel(
 /// A parameter's binding as the field shape that replaces its type variable:
 /// a primitive's tag, or an entity row / struct alias as an object of its fields.
 fn param_sub_field(sub: &ParamSub) -> Option<FieldDefinition> {
+    if let ParamSub::Struct(fields) = sub {
+        if let [shape] = fields.as_slice() {
+            if shape.name.is_empty() {
+                let mut shape = super::sigil_types::field_of(shape);
+                shape.name = None;
+                return Some(shape);
+            }
+        }
+    }
     let (field_type, properties) = match sub {
         ParamSub::Scalar(prim) => (FieldType::from_primitive_name(prim)?, None),
         ParamSub::Entity(entity) => (
@@ -2514,6 +2724,8 @@ fn param_sub_field(sub: &ParamSub) -> Option<FieldDefinition> {
         ),
     };
     Some(FieldDefinition {
+        nullable: None,
+        additional_properties: None,
         mock: None,
         merged_from: None,
         name: None,
@@ -2604,8 +2816,13 @@ fn resolve_sentinel_fields(
     for field in fields.iter_mut() {
         if matches!(field.field_type.as_str(), "object" | "[object]")
             && resolve_payload_entity_schema(
-                &mut field.entity, &mut field.properties, entities_by_name,
-                entity_def, subs, declared_names, None,
+                &mut field.entity,
+                &mut field.properties,
+                entities_by_name,
+                entity_def,
+                subs,
+                declared_names,
+                None,
             )
         {
             changed = true;
@@ -2677,13 +2894,24 @@ fn resolve_sentinel_fields(
                         // `object`/`[object]` too and needs the SAME marker.
                         field.entity = Some(entity.name.clone());
                     }
-                    ParamSub::Struct(shape) => {
-                        field.field_type = if is_array_sentinel {
-                            "[object]".to_string()
+                    ParamSub::Struct(_) => {
+                        let mut bound = super::sigil_types::payload_field_of(
+                            &param_sub_field(sub).expect("a structural binding has a field shape"),
+                        );
+                        if is_array_sentinel {
+                            field.field_type = format!("[{}]", bound.field_type);
+                            field.properties = None;
+                            field.additional_properties = None;
+                            bound.name.clear();
+                            field.items = Some(Box::new(bound));
                         } else {
-                            "object".to_string()
-                        };
-                        field.properties = Some(shape.clone());
+                            field.field_type = bound.field_type;
+                            field.nullable = compose_nullability(field.nullable, bound.nullable);
+                            field.properties = bound.properties;
+                            field.items = bound.items;
+                            field.additional_properties = bound.additional_properties;
+                            field.values = bound.values;
+                        }
                     }
                 }
                 changed = true;
@@ -2722,7 +2950,8 @@ fn resolve_sentinel_fields(
             continue;
         }
         if let Some(props) = field.properties.as_mut() {
-            changed |= resolve_sentinel_fields(props, entity_def, subs, declared_names, entities_by_name);
+            changed |=
+                resolve_sentinel_fields(props, entity_def, subs, declared_names, entities_by_name);
         }
     }
     changed
@@ -3060,7 +3289,11 @@ mod literal_list_tests {
         }
         let mut empty = arr(vec![]);
         mark_literal_list_in_place(&mut empty, "[json]");
-        assert_eq!(empty, arr(vec![]), "control: the empty list stays as written");
+        assert_eq!(
+            empty,
+            arr(vec![]),
+            "control: the empty list stays as written"
+        );
     }
 
     fn mixed_commands_trait(effect: serde_json::Value) -> TraitDefinition {
@@ -3088,17 +3321,28 @@ mod literal_list_tests {
     }
 
     fn first_effect(t: &TraitDefinition) -> SExpression {
-        t.state_machine.transitions[0].effects.as_ref().expect("effects")[0].clone()
+        t.state_machine.transitions[0]
+            .effects
+            .as_ref()
+            .expect("effects")[0]
+            .clone()
     }
 
     #[test]
     fn a_mixed_list_knob_read_by_an_operator_keeps_its_declared_type() {
-        let mut t = mixed_commands_trait(serde_json::json!(["set", "@entity.n", ["array/len", "@config.commands"]]));
+        let mut t = mixed_commands_trait(serde_json::json!([
+            "set",
+            "@entity.n",
+            ["array/len", "@config.commands"]
+        ]));
         apply_inline_config_defaults(&mut t, &mut Vec::new());
         let effect = serde_json::to_value(first_effect(&t)).unwrap();
         let arg = &effect[2][1];
         assert_eq!(arg[0], "typed", "{effect}");
-        assert_eq!(arg[1][0], "list", "the value is the marked literal: {effect}");
+        assert_eq!(
+            arg[1][0], "list",
+            "the value is the marked literal: {effect}"
+        );
         let declared: orbital_core_base::ir::OirType =
             serde_json::from_str(arg[2].as_str().expect("type text")).expect("an IR type");
         assert!(
@@ -3109,7 +3353,9 @@ mod literal_list_tests {
 
     #[test]
     fn control_a_mixed_list_knob_outside_an_operand_is_the_plain_value() {
-        let mut t = mixed_commands_trait(serde_json::json!(["render-ui", "main", { "type": "list", "items": "@config.commands" }]));
+        let mut t = mixed_commands_trait(
+            serde_json::json!(["render-ui", "main", { "type": "list", "items": "@config.commands" }]),
+        );
         apply_inline_config_defaults(&mut t, &mut Vec::new());
         let effect = serde_json::to_value(first_effect(&t)).unwrap();
         assert_eq!(effect[2]["items"][0], "list", "{effect}");
@@ -3117,7 +3363,9 @@ mod literal_list_tests {
 
     /// `array/len` of a `[Cell]` knob (`type Cell = string | [Cell]`, the orbital's own recursive union) after
     /// inline and resolve, evaluated by the kernel.
-    fn recursive_union_knob_len(default: serde_json::Value) -> Result<orbital_core_base::value::Value, String> {
+    fn recursive_union_knob_len(
+        default: serde_json::Value,
+    ) -> Result<orbital_core_base::value::Value, String> {
         let mut schema: orbital_core_base::schema::OrbitalSchema = serde_json::from_value(serde_json::json!({
             "name": "probe",
             "orbitals": [{
@@ -3151,14 +3399,23 @@ mod literal_list_tests {
             }]
         }))
         .expect("probe program");
-        let TraitReference::Inline(t) = &mut schema.orbitals[0].traits[0] else { panic!("inline trait") };
+        let TraitReference::Inline(t) = &mut schema.orbitals[0].traits[0] else {
+            panic!("inline trait")
+        };
         apply_inline_config_defaults(t, &mut Vec::new());
         crate::phases::validation::effect::record_declared_list_types(&mut schema);
-        let TraitReference::Inline(t) = &schema.orbitals[0].traits[0] else { panic!("inline trait") };
+        let TraitReference::Inline(t) = &schema.orbitals[0].traits[0] else {
+            panic!("inline trait")
+        };
         let effect = first_effect(t);
-        let SExpression::Array(parts) = &effect else { panic!("set effect: {effect:?}") };
+        let SExpression::Array(parts) = &effect else {
+            panic!("set effect: {effect:?}")
+        };
         orbital_core_eval::evaluator::Evaluator::new()
-            .evaluate(&parts[2], &orbital_core_eval::evaluator::context::BindingContext::new())
+            .evaluate(
+                &parts[2],
+                &orbital_core_eval::evaluator::context::BindingContext::new(),
+            )
             .map_err(|e| e.to_string())
     }
 
@@ -3931,7 +4188,8 @@ mod payload_entity_marker_tests {
     fn projected_from_follows_rebind() {
         let mut td = trait_with_payload_fields(json!([
             { "name": "tagId", "type": "string", "projectedFrom": { "type": "ConfirmAction", "field": "id" } },
-            { "name": "other", "type": "string", "projectedFrom": { "type": "Elsewhere", "field": "id" } }
+            { "name": "other", "type": "string", "projectedFrom": { "type": "Elsewhere", "field": "id" } },
+            { "name": "named", "type": "object", "projectedFrom": { "type": "ConfirmAction" } }
         ]));
         let mut subs = std::collections::HashMap::new();
         subs.insert("ConfirmAction".to_string(), "Note".to_string());
@@ -3945,7 +4203,7 @@ mod payload_entity_marker_tests {
             Some("Note")
         );
         assert_eq!(
-            fields[0].projected_from.as_ref().map(|p| p.field.as_str()),
+            fields[0].projected_from.as_ref().and_then(|p| p.field.as_deref()),
             Some("id")
         );
         assert_eq!(
@@ -3955,6 +4213,8 @@ mod payload_entity_marker_tests {
                 .map(|p| p.type_name.as_str()),
             Some("Elsewhere")
         );
+        assert_eq!(fields[2].projected_from.as_ref().map(|projection| projection.type_name.as_str()), Some("Note"));
+        assert!(fields[2].projected_from.as_ref().unwrap().field.is_none());
     }
 
     /// A nested `properties` entity marker (an entity-typed field several
@@ -4052,8 +4312,12 @@ mod payload_entity_marker_tests {
             { "name": "data", "type": "@entity" }
         ]));
         let note = entity_fixture("Note");
-        let changed =
-            resolve_type_param_sentinels(&mut td, Some(&note), &std::collections::HashMap::new(), &BTreeMap::new());
+        let changed = resolve_type_param_sentinels(
+            &mut td,
+            Some(&note),
+            &std::collections::HashMap::new(),
+            &BTreeMap::new(),
+        );
         assert!(changed);
         let fields = payload_fields(&td);
         assert_eq!(fields[1].field_type, "object");
@@ -4072,7 +4336,12 @@ mod payload_entity_marker_tests {
             { "name": "rows", "type": "[@entity]" }
         ]));
         let note = entity_fixture("Note");
-        resolve_type_param_sentinels(&mut td, Some(&note), &std::collections::HashMap::new(), &BTreeMap::new());
+        resolve_type_param_sentinels(
+            &mut td,
+            Some(&note),
+            &std::collections::HashMap::new(),
+            &BTreeMap::new(),
+        );
         let fields = payload_fields(&td);
         assert_eq!(fields[0].field_type, "[object]");
         assert_eq!(fields[0].entity.as_deref(), Some("Note"));
@@ -4091,8 +4360,12 @@ mod payload_entity_marker_tests {
             { "name": "row", "type": "$SomeUndeclaredAlias" }
         ]));
         let note = entity_fixture("Note");
-        let changed =
-            resolve_type_param_sentinels(&mut td, Some(&note), &std::collections::HashMap::new(), &BTreeMap::new());
+        let changed = resolve_type_param_sentinels(
+            &mut td,
+            Some(&note),
+            &std::collections::HashMap::new(),
+            &BTreeMap::new(),
+        );
         assert!(changed);
         let fields = payload_fields(&td);
         assert_eq!(fields[0].field_type, "object");
@@ -4117,7 +4390,12 @@ mod payload_entity_marker_tests {
             { "name": "data", "type": "@entity" }
         ]));
         let note = entity_fixture("Note");
-        resolve_type_param_sentinels(&mut td, Some(&note), &std::collections::HashMap::new(), &BTreeMap::new());
+        resolve_type_param_sentinels(
+            &mut td,
+            Some(&note),
+            &std::collections::HashMap::new(),
+            &BTreeMap::new(),
+        );
         assert_eq!(payload_fields(&td)[0].entity.as_deref(), Some("Note"));
 
         // A later rename (e.g. this trait rides an orbital-import splice
@@ -4240,10 +4518,26 @@ mod payload_entity_marker_tests {
             .and_then(|i| i.properties.clone())
             .expect("row members");
         assert_eq!(members["value"].field_type, FieldType::Number);
-        assert_eq!(members["value"].required, Some(true), "the occurrence keeps its own flags");
-        assert_eq!(members["owner"].field_type, FieldType::Object, "Entity kind defaults to the bound row");
-        assert!(members["owner"].properties.as_ref().expect("row").contains_key("title"));
-        assert_eq!(members["other"].field_type, FieldType::type_var("w"), "control: no argument, no binding");
+        assert_eq!(
+            members["value"].required,
+            Some(true),
+            "the occurrence keeps its own flags"
+        );
+        assert_eq!(
+            members["owner"].field_type,
+            FieldType::Object,
+            "Entity kind defaults to the bound row"
+        );
+        assert!(members["owner"]
+            .properties
+            .as_ref()
+            .expect("row")
+            .contains_key("title"));
+        assert_eq!(
+            members["other"].field_type,
+            FieldType::type_var("w"),
+            "control: no argument, no binding"
+        );
     }
 
     #[test]
@@ -4272,12 +4566,26 @@ mod payload_entity_marker_tests {
         assert_eq!(config["result"].field_type, "number");
         assert_eq!(config["results"].field_type, "[number]");
         assert_eq!(config["owner"].field_type, "object");
-        assert!(config["owner"].properties.as_ref().expect("row").contains_key("title"));
+        assert!(config["owner"]
+            .properties
+            .as_ref()
+            .expect("row")
+            .contains_key("title"));
         assert_eq!(config["owners"].field_type, "[object]");
-        let row = config["owners"].items.as_ref().and_then(|i| i.properties.as_ref()).expect("row items");
+        let row = config["owners"]
+            .items
+            .as_ref()
+            .and_then(|i| i.properties.as_ref())
+            .expect("row items");
         assert!(row.contains_key("title"));
-        assert_eq!(config["other"].field_type, "$w", "control: no argument, no binding");
-        assert_eq!(config["plain"].field_type, "string", "control: a concrete knob is untouched");
+        assert_eq!(
+            config["other"].field_type, "$w",
+            "control: no argument, no binding"
+        );
+        assert_eq!(
+            config["plain"].field_type, "string",
+            "control: a concrete knob is untouched"
+        );
     }
 
     #[test]
@@ -4362,8 +4670,12 @@ mod payload_entity_marker_tests {
             Some("Ghost"),
             json!([ { "name": "hourlyRate", "type": "number" } ]),
         );
-        let changed =
-            resolve_type_param_sentinels(&mut td, None, &std::collections::HashMap::new(), &BTreeMap::new());
+        let changed = resolve_type_param_sentinels(
+            &mut td,
+            None,
+            &std::collections::HashMap::new(),
+            &BTreeMap::new(),
+        );
         assert!(!changed);
         let names: Vec<&str> = td.emits.as_ref().unwrap()[0]
             .payload_schema
@@ -4373,6 +4685,134 @@ mod payload_entity_marker_tests {
             .map(|f| f.name.as_str())
             .collect();
         assert_eq!(names, vec!["hourlyRate"]);
+    }
+}
+
+#[cfg(test)]
+mod native_record_generic_metadata_tests {
+    use super::*;
+    use serde_json::json;
+
+    fn alias() -> PayloadField {
+        serde_json::from_value(json!({
+            "name": "", "type": "object", "nullable": true,
+            "properties": [{ "name": "rows", "type": "[string]", "nullable": false,
+                "items": { "name": "", "type": "string", "nullable": true } }],
+            "additionalProperties": { "name": "", "type": "[number]", "nullable": false,
+                "items": { "name": "", "type": "number", "nullable": true } }
+        }))
+        .unwrap()
+    }
+
+    #[test]
+    fn native_record_generic_alias_retains_its_nullable_shape() {
+        let shape = param_sub_field(&ParamSub::Struct(vec![alias()])).unwrap();
+        assert_eq!(shape.field_type, FieldType::Object);
+        assert_eq!(shape.nullable, Some(true));
+        let properties = shape.properties.unwrap();
+        assert!(properties.contains_key("rows"));
+        assert!(!properties.contains_key(""));
+        assert_eq!(
+            properties["rows"].items.as_ref().unwrap().nullable,
+            Some(true)
+        );
+        let extra = shape.additional_properties.unwrap();
+        assert_eq!(extra.field_type, FieldType::Array);
+        assert_eq!(extra.items.as_ref().unwrap().nullable, Some(true));
+    }
+
+    #[test]
+    fn native_record_generic_carrier_conversion_keeps_list_depth_and_scalar_kind() {
+        use orbital_core_base::ir::types::{field_shape, payload_field_shape, OirType};
+        for tag in ["string", "[string]", "[[string]]"] {
+            let payload: PayloadField = serde_json::from_value(json!({
+                "name": "result", "type": tag, "required": true, "nullable": false
+            }))
+            .unwrap();
+            let field = super::super::sigil_types::field_of(&payload);
+            assert_eq!(field_shape(&field), payload_field_shape(&payload));
+            let returned = super::super::sigil_types::payload_field_of(&field);
+            assert_eq!(returned.name, "result");
+            assert_eq!(returned.required, Some(true));
+            assert_eq!(returned.nullable, Some(false));
+            assert_eq!(
+                payload_field_shape(&returned),
+                payload_field_shape(&payload)
+            );
+            if tag == "string" {
+                assert!(matches!(field_shape(&field), OirType::String));
+                assert!(field.items.is_none());
+            }
+        }
+    }
+
+    #[test]
+    fn native_record_generic_config_preserves_occurrence_and_bound_contracts() {
+        let sub = ParamSub::Struct(vec![alias()]);
+        let subs = HashMap::from([("V".into(), sub)]);
+        let bound: FieldDefinition = serde_json::from_value(json!({
+            "type": "object", "nullable": true,
+            "properties": { "rows": { "type": "array", "nullable": false,
+                "items": { "type": "string", "nullable": true } } },
+            "additionalProperties": { "type": "array", "nullable": false,
+                "items": { "type": "number", "nullable": true } }
+        }))
+        .unwrap();
+        let bindings = HashMap::from([("V".into(), bound.clone())]);
+        for (tag, array) in [("$V", false), ("[$V]", true)] {
+            let mut knob: ConfigField = serde_json::from_value(json!({
+                "type": tag, "required": true, "nullable": false
+            }))
+            .unwrap();
+            assert!(resolve_config_sentinel(&mut knob, &subs, &bindings));
+            assert_eq!(knob.required, Some(true));
+            assert_eq!(knob.nullable, Some(!array));
+            if array {
+                assert_eq!(serde_json::to_value(&knob.items).unwrap(), json!(bound));
+                assert!(knob.properties.is_none());
+                assert!(knob.additional_properties.is_none());
+            } else {
+                assert_eq!(
+                    serde_json::to_value(&knob.properties).unwrap(),
+                    json!(bound.properties)
+                );
+                assert_eq!(
+                    serde_json::to_value(&knob.additional_properties).unwrap(),
+                    json!(bound.additional_properties)
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn native_record_generic_payload_preserves_occurrence_and_bound_contracts() {
+        let bound = alias();
+        let subs = HashMap::from([("V".into(), ParamSub::Struct(vec![bound.clone()]))]);
+        for (tag, array) in [("$V", false), ("[$V]", true)] {
+            let mut fields: Vec<PayloadField> = serde_json::from_value(json!([{
+                "name": "result", "type": tag, "required": true, "nullable": false
+            }]))
+            .unwrap();
+            assert!(resolve_sentinel_fields(
+                &mut fields,
+                None,
+                &subs,
+                &HashSet::new(),
+                &HashMap::new()
+            ));
+            let result = &fields[0];
+            assert_eq!(result.name, "result");
+            assert_eq!(result.required, Some(true));
+            assert_eq!(result.nullable, Some(!array));
+            if array {
+                assert_eq!(result.items.as_deref(), Some(&bound));
+                assert!(result.properties.is_none());
+                assert!(result.additional_properties.is_none());
+            } else {
+                assert_eq!(result.properties, bound.properties);
+                assert_eq!(result.additional_properties, bound.additional_properties);
+            }
+        }
     }
 }
 

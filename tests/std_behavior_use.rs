@@ -26,7 +26,7 @@ use std::path::PathBuf;
 /// Packages.md` §10) removed the embedded std fallback the default
 /// `InlineConfig`/`CompilerOptions` used to resolve through.
 fn discovered_packages() -> Vec<orbital_core_base::behavior_packages::BehaviorPackage> {
-    orbital_compiler::loader::register_source_lowerer(orbital_test_support::lower_lolo_file);
+    orbital_compiler::loader::register_source_lowerer(|path, _, _| orbital_test_support::lower_lolo_file(path));
     let start = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
     let user_store =
         orbital_core_base::behavior_packages::user_store_dir().unwrap_or_else(|| start.clone());

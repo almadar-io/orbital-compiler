@@ -1927,6 +1927,8 @@ mod tests {
             fields: fields
                 .iter()
                 .map(|f| FieldDefinition {
+                    nullable: None,
+                    additional_properties: None,
                     mock: None,
                     merged_from: None,
                     name: Some(f.to_string()),

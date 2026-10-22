@@ -267,6 +267,8 @@ mod tests {
                 synonyms: None,
                 tier: None,
                 payload_schema: Some(vec![orbital_core_base::schema::PayloadField {
+                    nullable: None,
+                    additional_properties: None,
                     values: None,
                     name: field.to_string(),
                     field_type: "string".to_string(),
@@ -354,6 +356,8 @@ mod tests {
 
     fn schema_with(orbitals: Vec<Orbital>) -> OrbitalSchema {
         OrbitalSchema {
+            type_contract_version: None,
+            types: None,
             store: None,
             theme_definitions: None,
             themes: None,
@@ -509,6 +513,8 @@ mod tests {
                     "ORDER_PAID",
                     EventScope::External,
                     Some(vec![PayloadField {
+                        nullable: None,
+                        additional_properties: None,
                         values: None,
                         name: "orderId".to_string(),
                         field_type: "string".to_string(),
