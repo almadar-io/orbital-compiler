@@ -434,7 +434,7 @@ fn validate_emit_success_return(
             produced_shape::produced_payload(op_name.as_str(), arr.as_slice(), entity_definitions, registry),
         ),
         (&["failure"], produced_shape::produced_failure_payload(op_name.as_str(), arr.as_slice())),
-        (&["onMessage"], produced_shape::produced_message_payload(op_name.as_str())),
+        (&["onMessage"], produced_shape::produced_message_payload(op_name.as_str(), arr.as_slice())),
     ];
     for (emit_keys, produced) in slots {
         let Some(produced) = produced else { continue };

@@ -317,6 +317,15 @@ pub(crate) fn produced_payload(
     entity_definitions: &HashMap<String, EntityDefinition>,
     registry: &ServiceRegistryData,
 ) -> Option<Vec<PayloadField>> {
+    if orbital_core_base::os::OsOp::from_name(op_name).is_some() {
+        let keyed = call_has_key(op_name, args);
+        let variant = if op_name == "os/stdin-read" && keyed {
+            CallVariant::StdinStream
+        } else {
+            CallVariant::Plain
+        };
+        return with_os_key(op_name, args, produced_to_fields(success_payload(op_name, variant)));
+    }
     if op_name == "http" {
         let variant = http_variant(args);
         return produced_to_fields(success_payload("http", variant));
@@ -373,6 +382,10 @@ pub(crate) fn produced_payload(
 }
 
 fn call_has_key(op_name: &str, args: &[SExpression]) -> bool {
+    if let Some(op) = orbital_core_base::os::OsOp::from_name(op_name) {
+        let (_, envelope) = orbital_core_base::os::split_envelope(op, args.get(1..).unwrap_or_default());
+        return envelope.is_some_and(|options| !matches!(options.get("key"), None | Some(SExpression::Null)));
+    }
     match op_name {
         "http" | "redis" | "postgres" => true,
         "browser/page-facts" | "random-bytes" => matches!(
@@ -398,6 +411,19 @@ fn call_has_key(op_name: &str, args: &[SExpression]) -> bool {
     }
 }
 
+fn with_os_key(
+    op_name: &str,
+    args: &[SExpression],
+    fields: Option<Vec<PayloadField>>,
+) -> Option<Vec<PayloadField>> {
+    let mut fields = fields?;
+    if orbital_core_base::os::OsOp::from_name(op_name).is_some() && call_has_key(op_name, args) {
+        fields.push(scalar_field("key", "string"));
+        fields.sort_by(|a, b| a.name.cmp(&b.name));
+    }
+    Some(fields)
+}
+
 /// The payload an operator call site puts on `emit.failure`, or `None` (do not
 /// check) when its failure shape is not decidable here.
 pub(crate) fn produced_failure_payload(
@@ -408,10 +434,10 @@ pub(crate) fn produced_failure_payload(
         ("persist", Some(action)) => CallVariant::PersistAction(action),
         _ => CallVariant::Plain,
     };
-    produced_to_fields(failure_payload(op_name, variant, call_has_key(op_name, args)))
+    with_os_key(op_name, args, produced_to_fields(failure_payload(op_name, variant, call_has_key(op_name, args))))
 }
 
 /// The payload an operator call site puts on `emit.onMessage` (an `http` `stream`).
-pub(crate) fn produced_message_payload(op_name: &str) -> Option<Vec<PayloadField>> {
-    produced_to_fields(message_payload(op_name))
+pub(crate) fn produced_message_payload(op_name: &str, args: &[SExpression]) -> Option<Vec<PayloadField>> {
+    with_os_key(op_name, args, produced_to_fields(message_payload(op_name)))
 }

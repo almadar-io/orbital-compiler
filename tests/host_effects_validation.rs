@@ -107,6 +107,84 @@ fn the_success_payload_a_handler_declares_must_be_one_the_effect_produces() {
 }
 
 #[test]
+fn os_binary_payloads_reject_string_handlers_and_accept_bytes() {
+    for effect in [
+        json!(["os/read-file", "/data/a", { "emit": { "success": "DATA" } }]),
+        json!(["os/read", 1, 64, { "emit": { "success": "DATA" } }]),
+        json!(["os/recv", 1, 64, { "emit": { "success": "DATA" } }]),
+        json!(["os/recvfrom", 1, 64, { "emit": { "success": "DATA" } }]),
+        json!(["os/stdin-read", 64, { "key": "stdin", "emit": { "onMessage": "DATA" } }]),
+    ] {
+        for (field_type, rejected) in [("string", true), ("bytes", false)] {
+            let mut schema = serde_json::to_value(program(json!([effect.clone()]))).unwrap();
+            schema["orbitals"][0]["traits"][0]["emits"] = json!([
+                { "event": "DATA", "payloadSchema": [{ "name": "data", "type": field_type, "required": true }] }
+            ]);
+            let schema: OrbitalSchema = serde_json::from_value(schema).unwrap();
+            let result = validate_comprehensive_without_services(&schema);
+            assert_eq!(fires(&result, ErrorCode::EmitPayloadNotProduced), rejected, "{effect}, {field_type}: {:?}", result.errors);
+        }
+    }
+}
+
+#[test]
+fn stdin_success_allows_data_only_for_a_single_read() {
+    for options in [
+        json!({ "emit": { "success": "DATA" } }),
+        json!({ "key": null, "emit": { "success": "DATA" } }),
+        json!({ "key": "stdin", "emit": { "success": "DATA", "onMessage": "CHUNK" } }),
+    ] {
+        for include_data in [false, true] {
+            let mut schema = serde_json::to_value(program(json!([["os/stdin-read", 64, options.clone()]]))).unwrap();
+            let mut payload = vec![json!({ "name": "eof", "type": "boolean", "required": true })];
+            if include_data {
+                payload.push(json!({ "name": "data", "type": "bytes", "required": true }));
+            }
+            schema["orbitals"][0]["traits"][0]["emits"] = json!([
+                { "event": "DATA", "payloadSchema": payload },
+                { "event": "CHUNK", "payloadSchema": [{ "name": "data", "type": "bytes", "required": true }] }
+            ]);
+            let schema: OrbitalSchema = serde_json::from_value(schema).unwrap();
+            let result = validate_comprehensive_without_services(&schema);
+            let streamed = options["key"] == "stdin";
+            assert_eq!(fires(&result, ErrorCode::EmitPayloadNotProduced), streamed && include_data, "{options}, data={include_data}: {:?}", result.errors);
+        }
+    }
+}
+
+#[test]
+fn os_keys_extend_success_failure_and_stream_messages_only_when_keyed() {
+    for (operator, route, field, field_type) in [
+        ("os/read", "success", "data", "bytes"),
+        ("os/read", "failure", "error", "string"),
+        ("os/stdin-read", "onMessage", "data", "bytes"),
+    ] {
+        for keyed in [false, true] {
+            let options = if keyed {
+                json!({ "key": "read", "emit": { route: "DATA" } })
+            } else {
+                json!({ "emit": { route: "DATA" } })
+            };
+            let effect = if operator == "os/read" {
+                json!([operator, 1, 64, options])
+            } else {
+                json!([operator, 64, options])
+            };
+            let mut schema = serde_json::to_value(program(json!([effect]))).unwrap();
+            schema["orbitals"][0]["traits"][0]["emits"] = json!([
+                { "event": "DATA", "payloadSchema": [
+                    { "name": field, "type": field_type, "required": true },
+                    { "name": "key", "type": "string", "required": true }
+                ] }
+            ]);
+            let schema: OrbitalSchema = serde_json::from_value(schema).unwrap();
+            let result = validate_comprehensive_without_services(&schema);
+            assert_eq!(fires(&result, ErrorCode::EmitPayloadNotProduced), !keyed, "{operator}, {route}, keyed={keyed}: {:?}", result.errors);
+        }
+    }
+}
+
+#[test]
 fn random_bytes_takes_a_string_key_and_only_it_and_emit() {
     let keyed = |key: Value| json!([["random-bytes", 8, { "key": key, "emit": { "success": "DRAWN_KEYED", "failure": "DRAW_FAILED" } }]]);
     let ok = check(keyed(json!("@entity.id")));

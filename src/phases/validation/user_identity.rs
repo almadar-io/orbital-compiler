@@ -416,6 +416,11 @@ pub(crate) fn identity_type(schema: &OrbitalSchema, trait_name: &str) -> orbital
         .and_then(|e| e.shape.map(<[_]>::to_vec));
     let roster = identity_entities(schema).into_iter().next().map(|def| def.fields.clone());
     let row = EntityDefinition {
+        timestamps: None,
+        soft_delete: None,
+        description: None,
+        visual_prompt: None,
+        asset_ref: None,
         fields: roster.or(expected).unwrap_or_default(),
         ..default_identity_shape()
     };

@@ -502,6 +502,11 @@ mod tests {
 
     fn empty_entity(name: &str) -> EntityDefinition {
         EntityDefinition {
+            timestamps: None,
+            soft_delete: None,
+            description: None,
+            visual_prompt: None,
+            asset_ref: None,
             store: None,
             name: name.to_string(),
             id: None,

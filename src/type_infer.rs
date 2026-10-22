@@ -95,7 +95,7 @@ pub(crate) fn signature_of(name: &str) -> Option<Signature<'static>> {
 
 /// A closed `shape` parameter, whose literal argument is checked field by field.
 fn is_closed_shape(formal: &OperatorTypeRef) -> bool {
-    matches!(formal, OperatorTypeRef::Tagged(OperatorTypeRefKind::Object { fields, open }) if *open != Some(true) && !fields.is_empty())
+    matches!(formal, OperatorTypeRef::Tagged(OperatorTypeRefKind::Object { fields, open, .. }) if *open != Some(true) && !fields.is_empty())
 }
 
 /// Whether `name` is an effect: it runs for what it does and produces no value.
@@ -627,7 +627,15 @@ impl<'c> Inferer<'c> {
         if refuted {
             return None;
         }
-        let result = signature.result(&bindings)?;
+        let result = signature.result_with_options(&bindings, |index, field| match args.get(index) {
+            None => Some(false),
+            Some(OirExpr::Object { fields }) => match fields.iter().find(|(name, _)| name == field).map(|(_, value)| value) {
+                None => Some(false),
+                Some(OirExpr::Bool { value }) => Some(*value),
+                _ => None,
+            },
+            _ => None,
+        })?;
         if let (OperatorTypeRef::Tagged(OperatorTypeRefKind::Shape), OirType::TypeRef { name }) =
             (signature.returns(), &result)
         {

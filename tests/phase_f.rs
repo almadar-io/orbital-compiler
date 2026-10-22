@@ -58,6 +58,11 @@ fn emit_def(event: &str, fields: Vec<PayloadField>) -> EmitDefinition {
 
 fn task_entity() -> EntityDefinition {
     EntityDefinition {
+        timestamps: None,
+        soft_delete: None,
+        description: None,
+        visual_prompt: None,
+        asset_ref: None,
         store: None,
         shared: false,
         identity: false,
@@ -861,6 +866,11 @@ fn f2_render_action_payload_mismatch_still_detected() {
 
 fn schema_with_default(field: FieldDefinition) -> OrbitalSchema {
     let entity = EntityDefinition {
+        timestamps: None,
+        soft_delete: None,
+        description: None,
+        visual_prompt: None,
+        asset_ref: None,
         store: None,
         shared: false,
         identity: false,

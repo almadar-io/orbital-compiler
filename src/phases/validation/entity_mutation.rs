@@ -1865,6 +1865,11 @@ mod tests {
 
     fn entity(name: &str, shared: bool, persistence: Option<Persistence>) -> EntityDefinition {
         EntityDefinition {
+            timestamps: None,
+            soft_delete: None,
+            description: None,
+            visual_prompt: None,
+            asset_ref: None,
             store: None,
             shared,
             identity: false,

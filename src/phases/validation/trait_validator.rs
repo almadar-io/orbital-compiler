@@ -1904,6 +1904,11 @@ mod tests {
 
     fn make_entity(name: &str, fields: &[&str]) -> EntityDefinition {
         EntityDefinition {
+            timestamps: None,
+            soft_delete: None,
+            description: None,
+            visual_prompt: None,
+            asset_ref: None,
             store: None,
             shared: false,
             identity: false,

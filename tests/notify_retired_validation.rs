@@ -13,6 +13,11 @@ use orbital_core_base::schema::{
 
 fn schema_with_effects(effects: Vec<SExpression>) -> OrbitalSchema {
     let entity = EntityDefinition {
+        timestamps: None,
+        soft_delete: None,
+        description: None,
+        visual_prompt: None,
+        asset_ref: None,
         store: None,
         shared: false,
         identity: false,

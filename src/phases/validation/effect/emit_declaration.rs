@@ -234,11 +234,7 @@ pub(crate) fn validate_required_emit_success(
     result
 }
 
-/// Validate an effect and every effect nested in its control flow. `do`, `if`, `when` and `let` are the
-/// effect-sequencing forms (`exec_effect_expr` in the runtime kernel); each child effect is validated
-/// exactly like a top-level one, at `<path>.do[i]` / `.then` / `.else` / `.body[i]`. A branch written as a
-/// list of effects (`[[effect…]]`) adds `[k]`. Conditions and `let` values are value positions: they only get
-/// the nested call-service walk.
+#[cfg(test)]
 #[allow(clippy::too_many_arguments)]
 pub(crate) fn validate_effect(
     effect: &SExpression,
@@ -267,7 +263,11 @@ pub(crate) fn validate_effect(
     )
 }
 
-/// [`validate_effect`] with the program's declared types, which `json/parse` over a type alias needs.
+/// Validate an effect and every effect nested in its control flow. `do`, `if`, `when` and `let` are the
+/// effect-sequencing forms (`exec_effect_expr` in the runtime kernel); each child effect is validated
+/// exactly like a top-level one, at `<path>.do[i]` / `.then` / `.else` / `.body[i]`. A branch written as a
+/// list of effects (`[[effect…]]`) adds `[k]`. Conditions and `let` values are value positions: they only get
+/// the nested call-service walk.
 #[allow(clippy::too_many_arguments)]
 pub(crate) fn validate_effect_in(
     effect: &SExpression,

@@ -732,6 +732,11 @@ mod tests {
         entities.insert(
             "Article".to_string(),
             EntityDefinition {
+                timestamps: None,
+                soft_delete: None,
+                description: None,
+                visual_prompt: None,
+                asset_ref: None,
                 store: None,
                 shared: false,
                 identity: false,
@@ -812,6 +817,11 @@ mod tests {
         entities.insert(
             "Member".to_string(),
             EntityDefinition {
+                timestamps: None,
+                soft_delete: None,
+                description: None,
+                visual_prompt: None,
+                asset_ref: None,
                 store: None,
                 shared: false,
                 identity: true,

@@ -4061,6 +4061,11 @@ mod tests {
             theme: None,
             services: None,
             entity: EntityRef::Inline(EntityDefinition {
+                timestamps: None,
+                soft_delete: None,
+                description: None,
+                visual_prompt: None,
+                asset_ref: None,
                 store: None,
                 shared: false,
                 identity: false,
@@ -4347,6 +4352,11 @@ mod tests {
             theme: None,
             services: Some(vec![ServiceRef::Inline(service_def)]),
             entity: EntityRef::Inline(EntityDefinition {
+                timestamps: None,
+                soft_delete: None,
+                description: None,
+                visual_prompt: None,
+                asset_ref: None,
                 store: None,
                 shared: false,
                 identity: false,
@@ -4561,6 +4571,11 @@ mod tests {
             projected_from: None,
         };
         EntityDefinition {
+            timestamps: None,
+            soft_delete: None,
+            description: None,
+            visual_prompt: None,
+            asset_ref: None,
             store: None,
             shared: false,
             identity: false,
@@ -5943,6 +5958,11 @@ mod tests {
             theme: None,
             services: None,
             entity: EntityRef::Inline(EntityDefinition {
+                timestamps: None,
+                soft_delete: None,
+                description: None,
+                visual_prompt: None,
+                asset_ref: None,
                 store: None,
                 shared: false,
                 identity: false,
@@ -6005,6 +6025,11 @@ mod tests {
             theme: None,
             services: None,
             entity: EntityRef::Inline(EntityDefinition {
+                timestamps: None,
+                soft_delete: None,
+                description: None,
+                visual_prompt: None,
+                asset_ref: None,
                 store: None,
                 shared: false,
                 identity: false,
@@ -6100,6 +6125,11 @@ mod tests {
         use orbital_core_base::schema::FieldType;
 
         let mut caller = EntityDefinition {
+            timestamps: None,
+            soft_delete: None,
+            description: None,
+            visual_prompt: None,
+            asset_ref: None,
             store: None,
             shared: false,
             identity: false,
@@ -6123,6 +6153,11 @@ mod tests {
             invariants: None,
         };
         let imported = EntityDefinition {
+            timestamps: None,
+            soft_delete: None,
+            description: None,
+            visual_prompt: None,
+            asset_ref: None,
             store: None,
             shared: false,
             identity: false,
@@ -6169,6 +6204,11 @@ mod tests {
         use orbital_core_base::schema::FieldType;
 
         let mut caller = EntityDefinition {
+            timestamps: None,
+            soft_delete: None,
+            description: None,
+            visual_prompt: None,
+            asset_ref: None,
             store: None,
             shared: false,
             identity: false,
@@ -6192,6 +6232,11 @@ mod tests {
             invariants: None,
         };
         let imported = EntityDefinition {
+            timestamps: None,
+            soft_delete: None,
+            description: None,
+            visual_prompt: None,
+            asset_ref: None,
             store: None,
             shared: false,
             identity: false,
@@ -6232,6 +6277,11 @@ mod tests {
         use orbital_core_base::schema::FieldType;
 
         let mut caller = EntityDefinition {
+            timestamps: None,
+            soft_delete: None,
+            description: None,
+            visual_prompt: None,
+            asset_ref: None,
             store: None,
             shared: false,
             identity: false,
@@ -6259,6 +6309,11 @@ mod tests {
             invariants: None,
         };
         let imported = EntityDefinition {
+            timestamps: None,
+            soft_delete: None,
+            description: None,
+            visual_prompt: None,
+            asset_ref: None,
             store: None,
             shared: false,
             identity: false,
@@ -6322,6 +6377,11 @@ mod tests {
         use orbital_core_base::schema::FieldType;
 
         let mut caller = EntityDefinition {
+            timestamps: None,
+            soft_delete: None,
+            description: None,
+            visual_prompt: None,
+            asset_ref: None,
             store: None,
             shared: false,
             identity: false,
@@ -6342,6 +6402,11 @@ mod tests {
             invariants: None,
         };
         let import_browse = EntityDefinition {
+            timestamps: None,
+            soft_delete: None,
+            description: None,
+            visual_prompt: None,
+            asset_ref: None,
             store: None,
             shared: false,
             identity: false,
@@ -6366,6 +6431,11 @@ mod tests {
             invariants: None,
         };
         let import_modal = EntityDefinition {
+            timestamps: None,
+            soft_delete: None,
+            description: None,
+            visual_prompt: None,
+            asset_ref: None,
             store: None,
             shared: false,
             identity: false,
@@ -6426,6 +6496,11 @@ mod tests {
         use orbital_core_base::schema::FieldType;
 
         let caller = EntityDefinition {
+            timestamps: None,
+            soft_delete: None,
+            description: None,
+            visual_prompt: None,
+            asset_ref: None,
             store: None,
             shared: false,
             identity: false,
@@ -6467,6 +6542,11 @@ mod tests {
         use orbital_core_base::schema::{Cardinality, FieldType, RelationDefinition};
 
         let mut caller = EntityDefinition {
+            timestamps: None,
+            soft_delete: None,
+            description: None,
+            visual_prompt: None,
+            asset_ref: None,
             store: None,
             shared: false,
             identity: false,
@@ -6495,6 +6575,11 @@ mod tests {
             on_delete: None,
         });
         let imported = EntityDefinition {
+            timestamps: None,
+            soft_delete: None,
+            description: None,
+            visual_prompt: None,
+            asset_ref: None,
             store: None,
             shared: false,
             identity: false,
@@ -6558,6 +6643,11 @@ mod tests {
         let mut content_field = make_field("content", FieldType::String);
         content_field.required = Some(true);
         let mut caller = EntityDefinition {
+            timestamps: None,
+            soft_delete: None,
+            description: None,
+            visual_prompt: None,
+            asset_ref: None,
             store: None,
             shared: false,
             identity: false,
@@ -6581,6 +6671,11 @@ mod tests {
         let mut name_field = make_field("name", FieldType::String);
         name_field.required = Some(true);
         let imported = EntityDefinition {
+            timestamps: None,
+            soft_delete: None,
+            description: None,
+            visual_prompt: None,
+            asset_ref: None,
             store: None,
             shared: false,
             identity: false,
@@ -6641,6 +6736,11 @@ mod tests {
             theme: None,
             services: None,
             entity: EntityRef::Inline(EntityDefinition {
+                timestamps: None,
+                soft_delete: None,
+                description: None,
+                visual_prompt: None,
+                asset_ref: None,
                 store: None,
                 shared: false,
                 identity: false,
@@ -6683,6 +6783,11 @@ mod tests {
             theme: None,
             services: None,
             entity: EntityRef::Inline(EntityDefinition {
+                timestamps: None,
+                soft_delete: None,
+                description: None,
+                visual_prompt: None,
+                asset_ref: None,
                 store: None,
                 shared: false,
                 identity: false,
@@ -6804,6 +6909,11 @@ mod tests {
     /// HostEntity` with an optional call-site `fields` rename.
     fn pickup_consumer_schema(field_rename: Option<HashMap<String, String>>) -> OrbitalSchema {
         let host_entity = EntityDefinition {
+            timestamps: None,
+            soft_delete: None,
+            description: None,
+            visual_prompt: None,
+            asset_ref: None,
             store: None,
             shared: false,
             identity: false,
@@ -7560,6 +7670,11 @@ mod tests {
 
     fn make_entity(name: &str, field_names: &[&str]) -> EntityDefinition {
         EntityDefinition {
+            timestamps: None,
+            soft_delete: None,
+            description: None,
+            visual_prompt: None,
+            asset_ref: None,
             store: None,
             shared: false,
             identity: false,

@@ -1298,6 +1298,11 @@ mod entity_prop_contract_tests {
 
     fn entity_with_fields(name: &str, field_names: &[&str]) -> EntityDefinition {
         EntityDefinition {
+            timestamps: None,
+            soft_delete: None,
+            description: None,
+            visual_prompt: None,
+            asset_ref: None,
             store: None,
             shared: false,
             identity: false,

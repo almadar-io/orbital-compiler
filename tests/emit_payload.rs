@@ -67,6 +67,11 @@ fn declared_emit_with_payload(event: &str, fields: Vec<PayloadField>) -> EmitDef
 
 fn schema_with_emit(emit: SExpression, declared: EmitDefinition) -> OrbitalSchema {
     let entity = EntityDefinition {
+        timestamps: None,
+        soft_delete: None,
+        description: None,
+        visual_prompt: None,
+        asset_ref: None,
         store: None,
         shared: false,
         identity: false,

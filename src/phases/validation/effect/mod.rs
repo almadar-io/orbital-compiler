@@ -39,11 +39,9 @@ pub(crate) use http::validate_http_effects;
 pub(crate) use inbound::validate_inbound;
 pub(crate) use http_site::validate_http_auth_placement;
 pub(crate) use emit::{extract_emit_object_ref, validate_emit, validate_emit_config};
-pub(crate) use emit_declaration::{
-    collect_declared_emits, validate_effect,
-};
+pub(crate) use emit_declaration::collect_declared_emits;
 #[cfg(test)]
-pub(crate) use emit_declaration::validate_emit_against_declaration;
+pub(crate) use emit_declaration::{validate_effect, validate_emit_against_declaration};
 pub(crate) use fetch::{
     parse_fetch_include_literals, resolve_fetch_include_field, validate_fetch,
     validate_fetch_object,

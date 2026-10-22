@@ -44,6 +44,11 @@ fn schema_with_effects(
     declared_emits: Vec<EmitDefinition>,
 ) -> OrbitalSchema {
     let entity = EntityDefinition {
+        timestamps: None,
+        soft_delete: None,
+        description: None,
+        visual_prompt: None,
+        asset_ref: None,
         store: None,
         shared: false,
         identity: false,

@@ -54,17 +54,6 @@ pub(super) fn identity_expectation(orbital: &Orbital) -> Option<IdentityExpectat
     })
 }
 
-/// The declared shape of the orbital's `expects entity <name>`, if declared.
-pub(super) fn entity_expectation<'a>(
-    orbital: &'a Orbital,
-    name: &str,
-) -> Option<Option<&'a [FieldDefinition]>> {
-    orbital.expects.as_ref()?.iter().find_map(|e| match e {
-        ExpectDeclaration::Entity { name: n, shape, .. } if n == name => Some(shape.as_deref()),
-        _ => None,
-    })
-}
-
 /// Every entity name the orbital's expects declarations license. A NAMED
 /// `expects entity [identity]` counts: it asserts the entity exists, and the dual form
 /// (`expects entity X` alongside `expects entity X [identity]`) is
@@ -95,6 +84,11 @@ pub(crate) fn expected_entity_names(orbital: &Orbital) -> Vec<&str> {
 /// it unchanged. `identity: true` because it models the viewer's roster.
 pub(super) fn shape_as_identity_entity(name: &str, shape: &[FieldDefinition]) -> EntityDefinition {
     EntityDefinition {
+        timestamps: None,
+        soft_delete: None,
+        description: None,
+        visual_prompt: None,
+        asset_ref: None,
         store: None,
         shared: false,
         identity: true,

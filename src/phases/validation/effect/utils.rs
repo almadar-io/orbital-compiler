@@ -956,6 +956,11 @@ mod tests {
         entity_defs.insert(
             "Inspection".to_string(),
             EntityDefinition {
+                timestamps: None,
+                soft_delete: None,
+                description: None,
+                visual_prompt: None,
+                asset_ref: None,
                 store: None,
                 shared: false,
                 identity: false,
@@ -1080,6 +1085,11 @@ mod tests {
         entity_defs.insert(
             "Inspection".to_string(),
             EntityDefinition {
+                timestamps: None,
+                soft_delete: None,
+                description: None,
+                visual_prompt: None,
+                asset_ref: None,
                 store: None,
                 shared: false,
                 identity: false,

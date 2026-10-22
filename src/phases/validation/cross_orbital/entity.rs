@@ -95,6 +95,11 @@ mod tests {
                 theme: None,
                 services: None,
                 entity: EntityRef::Inline(EntityDefinition {
+                    timestamps: None,
+                    soft_delete: None,
+                    description: None,
+                    visual_prompt: None,
+                    asset_ref: None,
                     store: None,
                     shared: false,
                     identity: false,
@@ -157,6 +162,11 @@ mod tests {
             theme: None,
             services: None,
             entity: EntityRef::Inline(EntityDefinition {
+                timestamps: None,
+                soft_delete: None,
+                description: None,
+                visual_prompt: None,
+                asset_ref: None,
                 store: None,
                 shared: false,
                 identity: false,
