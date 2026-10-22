@@ -297,18 +297,6 @@ impl LoaderCache {
         }
     }
 
-    /// [`Self::get_or_insert_with`] for a path the caller already canonicalized.
-    fn get_or_insert_canonical<E>(
-        &mut self,
-        canonical: PathBuf,
-        produce: impl FnOnce() -> Result<LoadedSchema, E>,
-    ) -> Result<&LoadedSchema, E> {
-        match self.cache.entry(canonical) {
-            Entry::Occupied(e) => Ok(e.into_mut()),
-            Entry::Vacant(e) => Ok(e.insert(produce()?)),
-        }
-    }
-
     fn get_canonical(&self, canonical: &Path) -> Option<&LoadedSchema> {
         self.cache.get(canonical)
     }
@@ -405,7 +393,7 @@ pub fn map_browse_specifier(import_path: &str) -> BrowseMapping {
 
 /// Lowers a `.lolo` source file to a schema. orbital-compiler cannot depend on
 /// orbital-lolo (they are siblings), so the binary that links both registers it.
-pub type SourceLowerer = fn(&Path) -> Result<OrbitalSchema, String>;
+pub type SourceLowerer = fn(&Path, &mut ExternalOrbitalLoader, &mut ImportChain) -> Result<OrbitalSchema, String>;
 
 static SOURCE_LOWERER: OnceLock<SourceLowerer> = OnceLock::new();
 
@@ -417,12 +405,12 @@ pub fn register_source_lowerer(lowerer: SourceLowerer) {
 
 /// A `.lolo` file lowered by the registered lowerer, stamped.
 pub(crate) fn lower_source(path: &Path) -> Result<OrbitalSchema, String> {
-    let lower = SOURCE_LOWERER
-        .get()
-        .ok_or_else(|| "no .lolo lowerer is registered in this process".to_string())?;
-    let mut schema = lower(path)?;
-    orbital_core_base::stamp::ensure_stamped(&mut schema);
-    Ok(schema)
+    let mut loader = ExternalOrbitalLoader::new(LoaderConfig {
+        base_path: path.parent().unwrap_or(Path::new(".")).to_path_buf(),
+        ..Default::default()
+    });
+    loader.load_from_path(path.to_path_buf(), &path.to_string_lossy(), &mut ImportChain::new())
+        .map(|loaded| loaded.schema.clone()).map_err(|error| error.to_string())
 }
 
 #[derive(Debug, Clone)]
@@ -436,6 +424,8 @@ pub type SourceTraitOrigins = HashMap<(PathBuf, String), SourceTraitOrigin>;
 
 /// ExternalOrbitalLoader - Loads external .orb files with security and caching
 pub struct ExternalOrbitalLoader {
+    #[cfg(test)]
+    source_lowerer_override: Option<SourceLowerer>,
     trait_origins: std::rc::Rc<RefCell<SourceTraitOrigins>>,
     config: LoaderConfig,
     cache: LoaderCache,
@@ -459,6 +449,8 @@ pub struct ExternalOrbitalLoader {
 impl ExternalOrbitalLoader {
     pub fn new(config: LoaderConfig) -> Self {
         Self {
+            #[cfg(test)]
+            source_lowerer_override: None,
             trait_origins: Default::default(),
             config,
             cache: LoaderCache::new(),
@@ -534,16 +526,23 @@ impl ExternalOrbitalLoader {
         import_path: &str,
         chain: &mut ImportChain,
     ) -> Result<&LoadedSchema, LoaderError> {
+        let source = absolute_path.with_extension("lolo");
+        let absolute_path = if !absolute_path.exists() && source.exists() && self.source_lowerer().is_some() {
+            source
+        } else {
+            absolute_path
+        };
         let canonical = self.canonical(&absolute_path);
         if let Some(error) = chain.push_canonical(canonical.clone()) {
             return Err(LoaderError::CircularImport(error));
         }
-        let loaded = self
-            .cache
-            .get_or_insert_canonical(canonical.clone(), || {
-                Self::load_file(&absolute_path, import_path)
-            })
-            .map(|_| ());
+        let loaded: Result<(), LoaderError> = (|| {
+            if self.cache.get_canonical(&canonical).is_none() {
+                let schema = self.load_file(&absolute_path, import_path, chain)?;
+                self.cache.insert(canonical.clone(), schema);
+            }
+            Ok(())
+        })();
         chain.pop();
         loaded?;
         self.note_loaded(&canonical);
@@ -733,6 +732,7 @@ impl ExternalOrbitalLoader {
         import_path: &str,
         from_path: Option<&Path>,
     ) -> Result<PathBuf, LoaderError> {
+
         // Standard library
         if import_path.starts_with("std/") {
             return self.resolve_std_path(import_path);
@@ -922,10 +922,26 @@ impl ExternalOrbitalLoader {
         }
     }
 
-    fn load_file(path: &Path, import_path: &str) -> Result<LoadedSchema, LoaderError> {
+    fn source_lowerer(&self) -> Option<SourceLowerer> {
+        #[cfg(test)]
+        if self.source_lowerer_override.is_some() {
+            return self.source_lowerer_override;
+        }
+        SOURCE_LOWERER.get().copied()
+    }
+
+    fn lower_source_file(&mut self, path: &Path, chain: &mut ImportChain) -> Result<OrbitalSchema, String> {
+        let lower = self.source_lowerer()
+            .ok_or_else(|| "no .lolo lowerer is registered in this process".to_string())?;
+        let mut schema = lower(path, self, chain)?;
+        orbital_core_base::stamp::ensure_stamped(&mut schema);
+        Ok(schema)
+    }
+
+    fn load_file(&mut self, path: &Path, import_path: &str, chain: &mut ImportChain) -> Result<LoadedSchema, LoaderError> {
         // A live package's behavior is its `.lolo` source, lowered on read.
         if path.extension().is_some_and(|e| e == "lolo") {
-            let schema = lower_source(path)
+            let schema = self.lower_source_file(path, chain)
                 .map_err(|e| LoaderError::SourceLowering(path.display().to_string(), e))?;
             return Ok(LoadedSchema {
                 schema,
@@ -936,8 +952,8 @@ impl ExternalOrbitalLoader {
         if !path.exists() {
             // An `.orb` beside the importer wins; else its `.lolo` source, lowered.
             let source = path.with_extension("lolo");
-            if let (Some(lower), true) = (SOURCE_LOWERER.get(), source.exists()) {
-                let mut schema = lower(&source)
+            if self.source_lowerer().is_some() && source.exists() {
+                let mut schema = self.lower_source_file(&source, chain)
                     .map_err(|e| LoaderError::SourceLowering(source.display().to_string(), e))?;
                 orbital_core_base::stamp::ensure_stamped(&mut schema);
                 return Ok(LoadedSchema {
@@ -1097,6 +1113,8 @@ mod tests {
 
         // Insert and retrieve
         let schema = OrbitalSchema {
+            type_contract_version: None,
+            types: None,
             store: None,
             theme_definitions: None,
             themes: None,
@@ -1131,6 +1149,30 @@ mod tests {
         // Clear
         cache.clear();
         assert!(cache.is_empty());
+    }
+
+    #[test]
+    fn native_type_import_cycle_keeps_the_active_source_chain() {
+        fn lower(path: &Path, loader: &mut ExternalOrbitalLoader, chain: &mut ImportChain) -> Result<OrbitalSchema, String> {
+            if chain.push(path).is_none() {
+                chain.pop();
+                return Err("source callback lost its active import chain".to_string());
+            }
+            let import = std::fs::read_to_string(path).map_err(|error| error.to_string())?;
+            loader.load(import.trim(), Some(path), chain)
+                .map(|loaded| loaded.schema.clone()).map_err(|error| error.to_string())
+        }
+        let root = tempfile::tempdir().unwrap();
+        let first = root.path().join("first.lolo");
+        let second = root.path().join("second.lolo");
+        std::fs::write(&first, "./second.lolo").unwrap();
+        std::fs::write(&second, "./first.lolo").unwrap();
+        let mut loader = ExternalOrbitalLoader::new(LoaderConfig { base_path: root.path().to_path_buf(), ..Default::default() });
+        loader.source_lowerer_override = Some(lower);
+        let error = loader.load_from_path(first.clone(), "first.lolo", &mut ImportChain::new()).unwrap_err();
+        assert!(error.to_string().contains("Circular import"), "{error}");
+        assert!(error.to_string().contains("first.lolo") && error.to_string().contains("second.lolo"), "{error}");
+        assert!(loader.cache.is_empty());
     }
 
     #[test]
@@ -1838,7 +1880,7 @@ mod tests {
     }
 
     fn sibling_loader(dir: &Path) -> ExternalOrbitalLoader {
-        register_source_lowerer(orbital_test_support::lower_lolo_file);
+        register_source_lowerer(|path, _, _| orbital_test_support::lower_lolo_file(path));
         ExternalOrbitalLoader::new(LoaderConfig {
             base_path: dir.to_path_buf(),
             ..Default::default()
@@ -1925,7 +1967,7 @@ mod embedded_loader_tests {
     use super::*;
 
     fn std_loader_config() -> LoaderConfig {
-        register_source_lowerer(orbital_test_support::lower_lolo_file);
+        register_source_lowerer(|path, _, _| orbital_test_support::lower_lolo_file(path));
         let std_pkg = orbital_test_support::installed_package(
             "almadar-std",
             Path::new(env!("CARGO_MANIFEST_DIR")),

@@ -4575,6 +4575,8 @@ mod tests {
     /// real registry shape that the cart molecule consumes.
     fn make_modal_entity_def() -> EntityDefinition {
         let make_field = |n: &str, t: FieldType| FieldDefinition {
+            nullable: None,
+            additional_properties: None,
             mock: None,
             merged_from: None,
             name: Some(n.to_string()),
@@ -4669,6 +4671,8 @@ mod tests {
     /// `fields` array.
     fn make_extra_field(name: &str, ft: FieldType) -> FieldDefinition {
         FieldDefinition {
+            nullable: None,
+            additional_properties: None,
             mock: None,
             merged_from: None,
             name: Some(name.to_string()),
@@ -6115,6 +6119,8 @@ mod tests {
     /// Helper to build a FieldDefinition with just a name and type.
     fn make_field(name: &str, ft: orbital_core_base::schema::FieldType) -> FieldDefinition {
         FieldDefinition {
+            nullable: None,
+            additional_properties: None,
             mock: None,
             merged_from: None,
             name: Some(name.to_string()),
@@ -7005,6 +7011,8 @@ mod tests {
             config: None,
         };
         OrbitalSchema {
+            type_contract_version: None,
+            types: None,
             store: None,
             theme_definitions: None,
             themes: None,
@@ -7760,6 +7768,8 @@ mod tests {
             config: None,
         };
         let mut schema = OrbitalSchema {
+            type_contract_version: None,
+            types: None,
             store: None,
             theme_definitions: None,
             themes: None,
@@ -7873,6 +7883,8 @@ mod tests {
             config: None,
         };
         let mut schema = OrbitalSchema {
+            type_contract_version: None,
+            types: None,
             store: None,
             theme_definitions: None,
             themes: None,
@@ -7961,6 +7973,8 @@ mod tests {
             config: None,
         };
         let mut schema = OrbitalSchema {
+            type_contract_version: None,
+            types: None,
             store: None,
             theme_definitions: None,
             themes: None,
@@ -8294,6 +8308,8 @@ mod tests {
             config: None,
         };
         let mut schema = OrbitalSchema {
+            type_contract_version: None,
+            types: None,
             store: None,
             theme_definitions: None,
             themes: None,
@@ -8376,6 +8392,8 @@ mod tests {
             config: None,
         };
         let mut schema = OrbitalSchema {
+            type_contract_version: None,
+            types: None,
             store: None,
             theme_definitions: None,
             themes: None,
@@ -8460,6 +8478,8 @@ mod tests {
             config: None,
         };
         OrbitalSchema {
+            type_contract_version: None,
+            types: None,
             store: None,
             theme_definitions: None,
             themes: None,

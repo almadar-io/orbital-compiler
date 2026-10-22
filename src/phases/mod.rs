@@ -481,7 +481,7 @@ mod app_root_tests {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use serde_json::{json, Value};
+    use serde_json::json;
 
     fn watch_program(event: &str) -> OrbitalSchema {
         serde_json::from_value(json!({

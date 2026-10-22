@@ -127,7 +127,7 @@ mod tests {
 
     #[test]
     fn a_lolo_file_parses_through_the_registered_lowerer() {
-        crate::loader::register_source_lowerer(orbital_test_support::lower_lolo_file);
+        crate::loader::register_source_lowerer(|path, _, _| orbital_test_support::lower_lolo_file(path));
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("door.lolo");
         std::fs::write(

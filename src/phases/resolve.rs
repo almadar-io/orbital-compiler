@@ -410,6 +410,12 @@ impl<'a> Resolver<'a> {
             }
         }
 
+        if let Some(exports) = &self.schema.types {
+            for (name, fields) in exports {
+                self.named_types.borrow_mut().entry(name.clone())
+                    .or_insert_with(|| orbital_core_base::ir::types::declared_alias_shape(fields));
+            }
+        }
         module.named_types = self.named_types.take();
 
         Ok(module)
@@ -750,6 +756,15 @@ impl<'a> Resolver<'a> {
     /// Reads `field.items`/`field.properties` so arrays-of-structs and inline
     /// objects keep their shape in OIR (`OirType::Struct { fields }`).
     fn resolve_field_shape(&self, field: &FieldDefinition) -> Result<OirType, ResolveError> {
+        let shape = self.resolve_field_shape_inner(field)?;
+        Ok(if field.nullable == Some(true) {
+            OirType::optional(shape)
+        } else {
+            shape
+        })
+    }
+
+    fn resolve_field_shape_inner(&self, field: &FieldDefinition) -> Result<OirType, ResolveError> {
         if field.field_type == FieldType::Tuple {
             let items = field
                 .tuple_slots()
@@ -787,8 +802,10 @@ impl<'a> Resolver<'a> {
                         v.name = name.clone();
                     }
                     // A member is never optional: the value IS one member or another.
-                    if let OirType::Optional { inner } = &v.field_type {
-                        v.field_type = (**inner).clone();
+                    if def.nullable != Some(true) || !v.required {
+                        if let OirType::Optional { inner } = &v.field_type {
+                            v.field_type = (**inner).clone();
+                        }
                     }
                     v.required = true;
                     variants.push(v);
@@ -812,9 +829,9 @@ impl<'a> Resolver<'a> {
                 Ok(OirType::array(inner))
             }
             FieldType::Object => {
-                if let Some(props) = &field.properties {
+                if field.properties.is_some() || field.additional_properties.is_some() {
                     let mut struct_fields: Vec<OirField> = Vec::new();
-                    for (name, def) in props {
+                    for (name, def) in field.properties.iter().flatten() {
                         let mut nested = self.resolve_field(def)?;
                         if nested.name.is_empty() {
                             nested.name = name.clone();
@@ -826,6 +843,9 @@ impl<'a> Resolver<'a> {
                     register_named_type_children(&struct_fields, &self.named_type_ctx());
                     Ok(OirType::Struct {
                         fields: struct_fields,
+                        additional: field.additional_properties.as_deref()
+                            .map(|value| self.resolve_field_shape(value).map(Box::new))
+                            .transpose()?,
                     })
                 } else if let Some(items) = &field.items {
                     // A `Map K V` field nested inside a struct/alias lowers to
@@ -865,6 +885,18 @@ impl<'a> Resolver<'a> {
     /// rules so a typed config slot's TS shape parallels what entity fields
     /// emit.
     fn resolve_config_field_shape(
+        &self,
+        field: &orbital_core_base::schema::ConfigField,
+    ) -> OirType {
+        let shape = self.resolve_config_field_shape_inner(field);
+        if field.nullable == Some(true) {
+            OirType::optional(shape)
+        } else {
+            shape
+        }
+    }
+
+    fn resolve_config_field_shape_inner(
         &self,
         field: &orbital_core_base::schema::ConfigField,
     ) -> OirType {
@@ -922,9 +954,9 @@ impl<'a> Resolver<'a> {
         // Object slot with inline / named struct: `prefs : { theme: string }`
         // lowers to `field_type: "object"` plus `properties: {...}`. Walk each
         // property via the existing resolver.
-        if let Some(props) = &field.properties {
+        if field.properties.is_some() || field.additional_properties.is_some() {
             let mut struct_fields: Vec<OirField> = Vec::new();
-            for (name, def) in props {
+            for (name, def) in field.properties.iter().flatten() {
                 let nested = match self.resolve_field(def) {
                     Ok(mut f) => {
                         if f.name.is_empty() {
@@ -939,6 +971,9 @@ impl<'a> Resolver<'a> {
             struct_fields.sort_by(|a, b| a.name.cmp(&b.name));
             return OirType::Struct {
                 fields: struct_fields,
+                additional: field.additional_properties.as_deref()
+                    .map(orbital_core_base::ir::types::field_shape)
+                    .map(Box::new),
             };
         }
         // No structural carrier — primitives / closed-string enums.
@@ -1564,6 +1599,12 @@ pub(crate) fn declared_struct_type(schema: &OrbitalSchema, name: &str) -> Option
                     .map(|shape| shape.ty)
             })
         })
+        .or_else(|| {
+            schema.types.as_ref().and_then(|aliases| {
+                orbital_core_base::ir::types::DeclaredShape::of_alias(name, aliases)
+                    .map(|shape| shape.ty)
+            })
+        })
         .or_else(|| orbital_core_base::language::program_types::program_type(name).cloned())
 }
 
@@ -1593,114 +1634,22 @@ fn payload_field_to_oir_type(
     field: &orbital_core_base::schema::PayloadField,
     ctx: &NamedTypeCtx,
 ) -> OirType {
-    if let Some(slots) = orbital_core_base::ir::types::payload_tuple_slots(field) {
-        return OirType::Tuple {
-            items: slots
-                .into_iter()
-                .map(|slot| payload_field_to_oir_type(slot, ctx))
-                .collect(),
-        };
+    let shape = orbital_core_base::ir::types::payload_field_shape_with_entity(
+        field,
+        &|entity| ctx.entity_names.contains(entity),
+    );
+    if let OirType::Struct { fields, .. } = &shape {
+        register_named_type_children(fields, ctx);
     }
-    if let (true, Some(item)) = (field.field_type == "array", field.items.as_deref()) {
-        return OirType::array(payload_field_to_oir_type(item, ctx));
+    let declared = orbital_core_base::ir::types::DeclaredShape::with_resolver(
+        None,
+        shape,
+        |name| lookup_named_type_shape(name, ctx),
+    );
+    for (name, shape) in declared.named {
+        ctx.named_types.borrow_mut().entry(name).or_insert(shape);
     }
-    if let (true, None, Some(item)) = (
-        field.field_type == "object",
-        &field.properties,
-        field.items.as_deref(),
-    ) {
-        return OirType::map(OirType::String, payload_field_to_oir_type(item, ctx));
-    }
-    // Recursive back-reference marker: `properties: Some([])` — present but
-    // EMPTY, distinct from the absent (`None`) case `parse_payload_field_type`
-    // handles below. `orbital-lolo`'s cycle guard (`lower/emit_listen.rs`'s
-    // `struct_payload_properties`) degrades a self-referential struct alias to
-    // this shape instead of expanding forever: `field_type` stays the bare
-    // alias name (or its array form, `"[Name]"`), but `properties` is an
-    // empty — not absent — Vec so this arm can tell "a recursive struct
-    // reference" apart from "an unresolved/entity name" (which also reaches
-    // here as a bare string, via `parse_payload_field_type`'s fallback, but
-    // with `properties: None`).
-    if field.properties.as_ref().is_some_and(|p| p.is_empty()) {
-        let trimmed = field.field_type.trim();
-        let name = trimmed
-            .strip_prefix('[')
-            .and_then(|s| s.strip_suffix(']'))
-            .unwrap_or(trimmed);
-        let type_ref = OirType::TypeRef {
-            name: name.to_string(),
-        };
-        return if trimmed.starts_with('[') {
-            OirType::array(type_ref)
-        } else {
-            type_ref
-        };
-    }
-    // An entity-typed field (`row : Note` / `rows : [Note]`) is flattened to
-    // `object`/`[object]` + `properties` by the lolo lowerer so the emitted
-    // `.orb` schema is self-describing, but codegen must render it as the
-    // NAMED entity interface, not this inline literal — an inferred client
-    // read of the field (a filtered/mapped collection bound straight into a
-    // component's `entity:` prop) needs an assignable-to-`EntityRow` type,
-    // and a structural literal naming another declared entity (`authorId?:
-    // Author`) is not one (`Author` has no index signature). Only when
-    // `field.entity` names an entity THIS schema actually declares — a
-    // foreign/renamed name has no local interface to reference, so the
-    // existing flattened-struct fallback below stays the safe default.
-    if field.field_type != "union" {
-        if let Some(entity_name) = field.entity.as_deref() {
-            if ctx.entity_names.contains(entity_name) {
-                let reference = OirType::Reference {
-                    entity: entity_name.to_string(),
-                };
-                return if field.field_type.trim_start().starts_with('[') {
-                    OirType::array(reference)
-                } else {
-                    reference
-                };
-            }
-        }
-    }
-    if let Some(props) = &field.properties {
-        let fields: Vec<OirField> = props
-            .iter()
-            .map(|p| OirField {
-                declared: None,
-                merged_from: None,
-                intrinsic: false,
-                name: p.name.clone(),
-                field_type: payload_field_to_oir_type(p, ctx),
-                description: p.description.clone(),
-                required: p.required.unwrap_or(false),
-                default: None,
-                constraints: Vec::new(),
-                enum_values: None,
-                relation: None,
-            })
-            .collect();
-        // `field_type` "union" signals a TYPE UNION: `properties` holds the
-        // VARIANTS, not members-of-one-object. Emitting a struct here made a
-        // union payload render as `{ string?: string; number?: number; … }` —
-        // an object of optional variant keys, which the value a control actually
-        // sends (`"hello"`) does not satisfy. `OirType::Union` is what the TS
-        // renderer turns into a real `A | B | C`.
-        if field.field_type == "union" {
-            return OirType::Union { variants: fields };
-        }
-        // Named-type registration — see `register_named_type_children`'s doc.
-        // Runs before the array-wrap decision below — the registered shape is
-        // always the ELEMENT's struct, never the array.
-        register_named_type_children(&fields, ctx);
-        let struct_ty = OirType::Struct { fields };
-        // `field_type` "[object]" signals an array-of-struct: `properties` holds
-        // the ELEMENT shape, so wrap in an array. Plain "object" is a direct
-        // struct field.
-        if field.field_type.trim_start().starts_with('[') {
-            return OirType::array(struct_ty);
-        }
-        return struct_ty;
-    }
-    parse_payload_field_type(&field.field_type)
+    declared.ty
 }
 
 /// The alias name a resolved `OirType` self-references, if it is (or wraps,
@@ -1745,6 +1694,7 @@ fn register_named_type_children(fields: &[OirField], ctx: &NamedTypeCtx) {
             continue;
         }
         let shape = lookup_named_type_shape(name, ctx).unwrap_or_else(|| OirType::Struct {
+            additional: None,
             fields: fields.to_vec(),
         });
         ctx.named_types
@@ -1767,32 +1717,10 @@ fn register_named_type_children(fields: &[OirField], ctx: &NamedTypeCtx) {
 /// the alias's own BODY (not from a call site re-entering it), so the cycle
 /// guard triggers one level deeper. Structurally equivalent; not normalized.
 fn lookup_named_type_shape(name: &str, ctx: &NamedTypeCtx) -> Option<OirType> {
-    for orbital in &ctx.schema.orbitals {
-        let Some(types_map) = &orbital.types else {
-            continue;
-        };
-        let Some(payload_fields) = types_map.get(name) else {
-            continue;
-        };
-        let fields: Vec<OirField> = payload_fields
-            .iter()
-            .map(|p| OirField {
-                declared: None,
-                merged_from: None,
-                intrinsic: false,
-                name: p.name.clone(),
-                field_type: payload_field_to_oir_type(p, ctx),
-                description: p.description.clone(),
-                required: p.required.unwrap_or(false),
-                default: None,
-                constraints: Vec::new(),
-                enum_values: None,
-                relation: None,
-            })
-            .collect();
-        return Some(OirType::Struct { fields });
-    }
-    None
+    ctx.schema.orbitals.iter().filter_map(|orbital| orbital.types.as_ref())
+        .chain(ctx.schema.types.iter())
+        .find_map(|types| types.get(name))
+        .map(|members| orbital_core_base::ir::types::declared_alias_shape(members))
 }
 
 fn parse_payload_field_type(field_type: &str) -> OirType {
@@ -1804,14 +1732,34 @@ mod tests {
     use super::*;
     use orbital_core_base::ir::{OirBinaryOp, OirBinding};
 
-    /// `OirTrait.slots_used` gates whether the TS backend even imports and
-    /// mounts `ModalSlot`/`DrawerSlot`/`ToastSlot` on the page
-    /// (backend/pages.rs) — a trait whose ENTIRE modal render-ui sits
-    /// behind a config switch (`(if @config.look (render-ui modal A) (render-
-    /// ui modal B))`) used to report zero slots, so the page never mounted a
-    /// portal host for it: the trait's own view computes the right JSX with
-    /// nowhere to portal into, and clicking whatever opens the modal
-    /// silently does nothing (C-SLOTS-USED-CONDITIONAL-BLIND).
+    #[test]
+    fn native_contract_nested_explicit_entity_markers_keep_nominal_identity() {
+        let schema = empty_schema();
+        let named_types = RefCell::new(BTreeMap::new());
+        let in_progress = RefCell::new(HashSet::new());
+        let entity_names: HashSet<String> = ["Note".to_string()].into_iter().collect();
+        let ctx = NamedTypeCtx { schema: &schema, named_types: &named_types, in_progress: &in_progress, entity_names: &entity_names };
+        for entity in ["Note", "Ghost"] {
+            let field: orbital_core_base::schema::PayloadField = serde_json::from_value(serde_json::json!({
+                "name": "envelope", "type": "object",
+                "properties": [{ "name": "rows", "type": "[object]", "nullable": true, "entity": entity,
+                    "properties": [{ "name": "id", "type": "string", "required": true }] }],
+                "additionalProperties": { "name": "", "type": "object", "entity": entity,
+                    "properties": [{ "name": "id", "type": "string", "required": true }] }
+            })).unwrap();
+            let OirType::Struct { fields, additional: Some(additional) } = payload_field_to_oir_type(&field, &ctx) else { panic!("envelope must retain its catchall") };
+            let OirType::Optional { inner } = &fields[0].field_type else { panic!("nullable nested list must retain nullability") };
+            let OirType::Array { inner } = inner.as_ref() else { panic!("nested rows must remain a list") };
+            if entity == "Note" {
+                assert!(matches!(inner.as_ref(), OirType::Reference { entity } if entity == "Note"));
+                assert!(matches!(additional.as_ref(), OirType::Reference { entity } if entity == "Note"));
+            } else {
+                assert!(matches!(inner.as_ref(), OirType::Struct { .. }));
+                assert!(matches!(additional.as_ref(), OirType::Struct { .. }));
+            }
+        }
+    }
+
     #[test]
     fn collect_slots_from_effect_reaches_a_render_ui_nested_inside_a_conditional() {
         let effect = OirExpr::Conditional {
@@ -1929,6 +1877,8 @@ mod tests {
     /// falls back to the containing-struct inference (the pre-Gap-A path).
     fn empty_schema() -> OrbitalSchema {
         OrbitalSchema {
+            type_contract_version: None,
+            types: None,
             store: None,
             theme_definitions: None,
             themes: None,
@@ -1959,6 +1909,8 @@ mod tests {
     #[test]
     fn union_payload_field_resolves_to_a_union_not_a_struct() {
         let variant = |name: &str, ty: &str| orbital_core_base::schema::PayloadField {
+            nullable: None,
+            additional_properties: None,
             values: None,
             name: name.to_string(),
             field_type: ty.to_string(),
@@ -1971,6 +1923,8 @@ mod tests {
             items: None,
         };
         let field = orbital_core_base::schema::PayloadField {
+            nullable: None,
+            additional_properties: None,
             values: None,
             name: "value".to_string(),
             field_type: "union".to_string(),
@@ -2047,12 +2001,16 @@ mod tests {
     #[test]
     fn object_payload_field_with_properties_still_resolves_to_a_struct() {
         let field = orbital_core_base::schema::PayloadField {
+            nullable: None,
+            additional_properties: None,
             values: None,
             name: "change".to_string(),
             field_type: "object".to_string(),
             required: Some(true),
             description: None,
             properties: Some(vec![orbital_core_base::schema::PayloadField {
+                nullable: None,
+                additional_properties: None,
                 values: None,
                 name: "fieldId".to_string(),
                 field_type: "string".to_string(),
@@ -2098,12 +2056,16 @@ mod tests {
     #[test]
     fn entity_marked_payload_field_resolves_to_reference_when_entity_is_declared() {
         let field = orbital_core_base::schema::PayloadField {
+            nullable: None,
+            additional_properties: None,
             values: None,
             name: "data".to_string(),
             field_type: "[object]".to_string(),
             required: None,
             description: None,
             properties: Some(vec![orbital_core_base::schema::PayloadField {
+                nullable: None,
+                additional_properties: None,
                 values: None,
                 name: "id".to_string(),
                 field_type: "string".to_string(),
@@ -2150,12 +2112,16 @@ mod tests {
     #[test]
     fn entity_marked_payload_field_falls_back_to_struct_when_entity_is_not_declared() {
         let field = orbital_core_base::schema::PayloadField {
+            nullable: None,
+            additional_properties: None,
             values: None,
             name: "data".to_string(),
             field_type: "[object]".to_string(),
             required: None,
             description: None,
             properties: Some(vec![orbital_core_base::schema::PayloadField {
+                nullable: None,
+                additional_properties: None,
                 values: None,
                 name: "id".to_string(),
                 field_type: "string".to_string(),
@@ -2204,6 +2170,8 @@ mod tests {
     #[test]
     fn recursive_struct_payload_field_resolves_to_type_ref_and_registers() {
         let sub_menu_backref = orbital_core_base::schema::PayloadField {
+            nullable: None,
+            additional_properties: None,
             values: None,
             name: "subMenu".to_string(),
             field_type: "[MenuItem]".to_string(),
@@ -2216,6 +2184,8 @@ mod tests {
             items: None,
         };
         let row = orbital_core_base::schema::PayloadField {
+            nullable: None,
+            additional_properties: None,
             values: None,
             name: "row".to_string(),
             field_type: "object".to_string(),
@@ -2223,6 +2193,8 @@ mod tests {
             description: None,
             properties: Some(vec![
                 orbital_core_base::schema::PayloadField {
+                    nullable: None,
+                    additional_properties: None,
                     values: None,
                     name: "label".to_string(),
                     field_type: "string".to_string(),
@@ -2252,7 +2224,7 @@ mod tests {
             entity_names: &entity_names,
         };
         let resolved = payload_field_to_oir_type(&row, &ctx);
-        let OirType::Struct { fields } = &resolved else {
+        let OirType::Struct { fields, .. } = &resolved else {
             panic!("expected a struct, got {resolved:?}");
         };
         let sub_menu = fields
@@ -2301,6 +2273,8 @@ mod tests {
         }))
         .expect("field fixture must deserialize");
         let schema = OrbitalSchema {
+            type_contract_version: None,
+            types: None,
             store: None,
             theme_definitions: None,
             themes: None,
@@ -2326,7 +2300,7 @@ mod tests {
         let resolved = resolver
             .resolve_field_shape(&field)
             .expect("field resolves");
-        let OirType::Struct { fields } = &resolved else {
+        let OirType::Struct { fields, .. } = &resolved else {
             panic!("expected a struct, got {resolved:?}");
         };
         let sub_menu = fields
@@ -2432,7 +2406,7 @@ mod tests {
             .get("A")
             .cloned()
             .expect("A must be registered");
-        let OirType::Struct { fields } = &registered else {
+        let OirType::Struct { fields, .. } = &registered else {
             panic!("expected a struct, got {registered:?}");
         };
         assert_eq!(
@@ -2459,6 +2433,8 @@ mod tests {
         }))
         .expect("field fixture must deserialize");
         let schema = OrbitalSchema {
+            type_contract_version: None,
+            types: None,
             store: None,
             theme_definitions: None,
             themes: None,
@@ -2497,6 +2473,8 @@ mod tests {
     #[test]
     fn a_union_without_variant_shapes_is_refused_not_degraded() {
         let schema = OrbitalSchema {
+            type_contract_version: None,
+            types: None,
             store: None,
             theme_definitions: None,
             themes: None,
@@ -2605,7 +2583,7 @@ mod tests {
     fn a_row_of_the_entity_an_unset_knob_names_is_an_empty_record() {
         assert_eq!(
             parse_payload_field_type("@entity(captureEntity)"),
-            OirType::Struct { fields: Vec::new() }
+            OirType::Struct { additional: None, fields: Vec::new() }
         );
         assert_eq!(
             parse_payload_field_type("$t"),
@@ -2622,7 +2600,7 @@ mod tests {
         );
         assert_eq!(
             parse_payload_field_type("[@entity(captureEntity)]"),
-            OirType::array(OirType::Struct { fields: Vec::new() })
+            OirType::array(OirType::Struct { additional: None, fields: Vec::new() })
         );
         // control: a bare name stays a reference to the entity it names.
         assert_eq!(
@@ -2640,7 +2618,7 @@ mod tests {
         assert_eq!(parse_payload_field_type("boolean"), OirType::Boolean);
         assert_eq!(
             parse_payload_field_type("object"),
-            OirType::Struct { fields: Vec::new() }
+            OirType::Struct { additional: None, fields: Vec::new() }
         );
     }
 
@@ -2921,6 +2899,8 @@ mod tests {
     #[test]
     fn test_resolve_minimal_schema() {
         let schema = OrbitalSchema {
+            type_contract_version: None,
+            types: None,
             store: None,
             theme_definitions: None,
             themes: None,
@@ -2969,6 +2949,8 @@ mod tests {
     fn empty_resolver() -> Resolver<'static> {
         static SCHEMA: std::sync::OnceLock<OrbitalSchema> = std::sync::OnceLock::new();
         let schema = SCHEMA.get_or_init(|| OrbitalSchema {
+            type_contract_version: None,
+            types: None,
             store: None,
             theme_definitions: None,
             themes: None,

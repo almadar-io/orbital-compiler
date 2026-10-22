@@ -1322,8 +1322,6 @@ pub enum ErrorCode {
     SchemaMissingName,
     /// Schema has no orbitals
     SchemaNoOrbitals,
-    /// The explicit source role conflicts with the program declarations.
-    SchemaSourceRoleInvalid,
     /// Schema version is empty
     SchemaEmptyVersion,
     /// More than one differently-named `[identity]` entity in one composed
@@ -1914,7 +1912,6 @@ impl ErrorCode {
             // Schema
             ErrorCode::SchemaMissingName => "ORB_S_MISSING_NAME",
             ErrorCode::SchemaNoOrbitals => "ORB_S_NO_ORBITALS",
-            ErrorCode::SchemaSourceRoleInvalid => "ORB_S_SOURCE_ROLE_INVALID",
             ErrorCode::SchemaEmptyVersion => "ORB_S_EMPTY_VERSION",
             ErrorCode::SchemaIdentityNotUnique => "ORB_S_IDENTITY_NOT_UNIQUE",
             ErrorCode::SchemaRoleLiteralNotMember => "ORB_S_ROLE_LITERAL_NOT_MEMBER",
@@ -2353,7 +2350,6 @@ impl ErrorCode {
 
             ErrorCode::SchemaMissingName
             | ErrorCode::SchemaNoOrbitals
-            | ErrorCode::SchemaSourceRoleInvalid
             | ErrorCode::SchemaEmptyVersion
             | ErrorCode::SchemaIdentityNotUnique
             | ErrorCode::SchemaRoleLiteralNotMember
