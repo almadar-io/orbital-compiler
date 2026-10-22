@@ -11,7 +11,7 @@ use crate::type_infer::typed_slot_types;
 use orbital_core_base::ir::types::{DeclaredShape, OirType};
 use orbital_core_base::schema::types::PayloadField;
 use orbital_core_base::language::registry::{OperatorTypeRef, OperatorTypeRefKind};
-use orbital_core_base::schema::{EntityDefinition, OrbitalSchema, SExpression, TraitReference};
+use orbital_core_base::schema::{EntityDefinition, OrbitalSchema, RewriteVisit, SExpression, TraitReference};
 use std::collections::{BTreeMap, HashMap};
 
 const SLOT: &str = "#slot:";
@@ -107,17 +107,19 @@ fn recorded_type(name: Option<String>, ty: OirType, aliases: &Aliases) -> String
 /// `expr` with every `json/parse` whose shape names a program alias given that alias's recorded type, and every
 /// `typed` declaration given the program types it names, so the kernel checks the value against them.
 fn record_parse_shapes(expr: &SExpression, aliases: &Aliases) -> SExpression {
-    match expr {
-        SExpression::Object(fields) => {
-            SExpression::Object(fields.iter().map(|(k, v)| (k.clone(), record_parse_shapes(v, aliases))).collect())
-        }
-        SExpression::Array(items) => {
-            if let Some(SExpression::String(head)) = items.first() {
-                if matches!(head.as_str(), "quote" | "quasiquote") {
-                    return expr.clone();
-                }
-            }
-            let mut out: Vec<SExpression> = items.iter().map(|item| record_parse_shapes(item, aliases)).collect();
+    let rewritten: Result<SExpression, std::convert::Infallible> = expr.try_rewrite(
+        |node| {
+            Ok(if matches!(node.operator(), Some("quote" | "quasiquote")) {
+                RewriteVisit::Keep
+            } else {
+                RewriteVisit::Descend
+            })
+        },
+        |node| {
+            let mut out = match node {
+                SExpression::Array(out) => out,
+                other => return Ok(other),
+            };
             if let [SExpression::String(head), _, SExpression::String(shape)] = out.as_slice() {
                 if head == "json/parse" {
                     if let Some(declared) = DeclaredShape::of_alias(shape, aliases) {
@@ -131,9 +133,12 @@ fn record_parse_shapes(expr: &SExpression, aliases: &Aliases) -> SExpression {
                     }
                 }
             }
-            SExpression::Array(out)
-        }
-        other => other.clone(),
+            Ok(SExpression::Array(out))
+        },
+    );
+    match rewritten {
+        Ok(out) => out,
+        Err(never) => match never {},
     }
 }
 
@@ -469,5 +474,25 @@ mod tests {
         let mut schema = program(rows, effect.clone());
         record_declared_list_types(&mut schema);
         assert_eq!(effect_of(&schema), effect);
+    }
+
+    fn reduce_over(source: serde_json::Value) -> serde_json::Value {
+        let effect = json!(["set", "@entity.count", ["array/len",
+            ["array/reduce", source, "@payload.via", ["fn", ["cur", "seg"], "@cur"]]]]);
+        let mut schema = program(union_via(), effect);
+        record_declared_list_types(&mut schema);
+        effect_of(&schema)
+    }
+
+    #[test]
+    fn a_reduce_over_an_empty_list_keeps_its_accumulator_type() {
+        let effect = reduce_over(json!([]));
+        assert_eq!(effect[2][1][0], "typed", "the reduce's result is its accumulator, a list of a union: {effect}");
+    }
+
+    #[test]
+    fn control_a_reduce_over_a_list_of_one_kind_keeps_its_accumulator_type() {
+        let effect = reduce_over(json!(["0"]));
+        assert_eq!(effect[2][1][0], "typed", "{effect}");
     }
 }

@@ -55,6 +55,18 @@ pub(super) fn trailing_options(arr: &[SExpression]) -> Option<&orbital_core_base
     }
 }
 
+/// The `key` a substrate or program op declares beside its `emit` routes (EXEC-QUEUE-13): the trailing options object
+/// the kernel splits off, which carries both. A keyed substrate op is a call `cancel-call` reaches.
+pub(super) fn substrate_key<'a>(head: &str, arr: &'a [SExpression]) -> Option<&'a SExpression> {
+    if !orbital_core_base::ir::is_substrate_operator(head) {
+        return None;
+    }
+    match arr.last() {
+        Some(SExpression::Object(o)) if arr.len() > 1 && o.contains_key("emit") => declared_key(o),
+        _ => None,
+    }
+}
+
 pub(super) fn declared_key(options: &orbital_core_base::schema::SObject) -> Option<&SExpression> {
     options.get("key")
 }
@@ -160,7 +172,7 @@ pub(crate) fn program_has_keyed_call(schema: &OrbitalSchema) -> bool {
                     {
                         return true;
                     }
-                    if on_device_or_tab_key(head, arr).is_some() {
+                    if on_device_or_tab_key(head, arr).is_some() || substrate_key(head, arr).is_some() {
                         return true;
                     }
                 }
@@ -273,7 +285,7 @@ pub(super) fn check_cancel_call_arg(
         ValidationError::error(
             ErrorCode::CancelCallNoKeyedCall,
             path,
-            "cancel-call has nothing to cancel: no call-service or http call in this app carries a `key`",
+            "cancel-call has nothing to cancel: no call-service, http or substrate call in this app carries a `key`",
         )
         .with_suggestion(
             "Add `key: <string expression>` to the options of the call to cancel, or cancel a `CallKey` (`(as <string> CallKey)`) the composing program supplies",
@@ -338,7 +350,7 @@ pub(crate) fn validate_call_key_literals_are_used(schema: &OrbitalSchema) -> Val
                     let keyed = if KEYED_CALL_OPERATORS.contains(&head.as_str()) {
                         trailing_options(arr).and_then(declared_key)
                     } else {
-                        on_device_or_tab_key(head, arr)
+                        on_device_or_tab_key(head, arr).or_else(|| substrate_key(head, arr))
                     };
                     if let Some(key) = keyed {
                         out.keys.push(key_text(key));

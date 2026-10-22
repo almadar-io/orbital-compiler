@@ -379,6 +379,17 @@ fn call_has_key(op_name: &str, args: &[SExpression]) -> bool {
             args.get(2),
             Some(SExpression::Object(options)) if !matches!(options.get("key"), None | Some(SExpression::Null))
         ),
+        // Agent-port and program ops take their emit options last at any arity (`program/dispatch`'s inbound ask
+        // is two arguments, its address form four): the key is the one beside `emit`.
+        op if orbital_core_base::agent_ports::is_agent_port_operator(op)
+            || orbital_core_base::language::registry::is_program_host_effect(op) =>
+        {
+            args.iter().skip(1).rev().find_map(|arg| match arg {
+                SExpression::Object(options) if options.contains_key("emit") => Some(options),
+                _ => None,
+            })
+            .is_some_and(|options| !matches!(options.get("key"), None | Some(SExpression::Null)))
+        }
         _ => matches!(
             args.last(),
             Some(SExpression::Object(options))

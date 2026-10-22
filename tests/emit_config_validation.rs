@@ -674,6 +674,26 @@ fn cancel_call_is_satisfied_by_a_keyed_call_in_another_trait_of_the_app() {
 }
 
 #[test]
+fn cancel_call_is_satisfied_by_a_keyed_substrate_op_and_not_by_an_unkeyed_one() {
+    let substrate = |opts: SExpression| SExpression::Array(vec![str_expr("program/eval"), str_expr("@entity.id"), opts]);
+    let keyed = substrate(options(vec![("key", str_expr("k")), ("emit", emit_object(&[("success", "DONE")]))]));
+    assert!(
+        !has_code(vec![keyed, cancel_call(str_expr("k"))], vec![declared_emit("DONE", false)], ErrorCode::CancelCallNoKeyedCall),
+        "a keyed substrate op is a call cancel-call reaches"
+    );
+    let unkeyed = substrate(options(vec![("emit", emit_object(&[("success", "DONE")]))]));
+    assert!(
+        has_code(vec![unkeyed, cancel_call(str_expr("k"))], vec![declared_emit("DONE", false)], ErrorCode::CancelCallNoKeyedCall),
+        "control: an unkeyed one is not"
+    );
+    let key_as_argument = substrate(options(vec![("key", str_expr("k"))]));
+    assert!(
+        has_code(vec![key_as_argument, cancel_call(str_expr("k"))], vec![], ErrorCode::CancelCallNoKeyedCall),
+        "edge: a trailing object without emit is an argument, not options"
+    );
+}
+
+#[test]
 fn cancel_call_inside_a_conditional_is_still_found() {
     let nested = SExpression::Array(vec![
         str_expr("if"),

@@ -390,6 +390,18 @@ impl<'c> Inferer<'c> {
                 self.known(expr);
                 None
             }
+            // A `set` value is a value expression: its reads are checked exactly as they are in a guard.
+            OirExpr::Effect { effect }
+                if matches!(
+                    effect.as_ref(),
+                    orbital_core_base::ir::OirEffect::Set { .. } | orbital_core_base::ir::OirEffect::SetDynamic { .. }
+                ) =>
+            {
+                for child in effect.child_exprs() {
+                    self.infer(child);
+                }
+                None
+            }
             OirExpr::Effect { .. } => None,
         }
     }
@@ -463,6 +475,9 @@ impl<'c> Inferer<'c> {
         let name_fn = name;
         let mut bindings = CallBindings::new();
         let mut sound = true;
+        // An argument whose type is not determined is a finding, but it refutes only what depends on it: a result
+        // its variable does not reach (a reduce's accumulator over a list of unknown items) stays determined.
+        let mut refuted = false;
         if is_ordering(name) {
             for (index, arg) in args.iter().enumerate() {
                 if let Some(operand) = self.absent_operand(arg) {
@@ -584,6 +599,7 @@ impl<'c> Inferer<'c> {
             self.present.borrow_mut().truncate(narrowed);
             if let Err(mismatch) = outcome {
                 sound = false;
+                refuted |= !matches!(mismatch, Mismatch::Undetermined { .. });
                 self.diagnostics.borrow_mut().push(Diagnostic {
                     function: name.to_string(),
                     index,
@@ -598,6 +614,7 @@ impl<'c> Inferer<'c> {
         let finished = if sound { signature.finish(&bindings, args.len()) } else { Ok(()) };
         if let Err((index, mismatch)) = finished {
             sound = false;
+            refuted = true;
             self.diagnostics.borrow_mut().push(Diagnostic {
                 function: name.to_string(),
                 index,
@@ -607,7 +624,7 @@ impl<'c> Inferer<'c> {
             });
         }
         self.void.set(sound && (signature.returns_void() || signature.result_is_void(&bindings)));
-        if !sound {
+        if refuted {
             return None;
         }
         let result = signature.result(&bindings)?;

@@ -570,6 +570,51 @@ mod tests {
     }
 
     #[test]
+    fn a_set_value_reads_a_row_field_under_the_same_check_as_a_guard() {
+        use orbital_core_base::ir::OirType;
+        let schema: orbital_core_base::schema::OrbitalSchema = serde_json::from_value(serde_json::json!({
+            "name": "App",
+            "orbitals": [{
+                "name": "O",
+                "entity": { "name": "Note", "collection": "notes", "fields": [
+                    { "name": "title", "type": "string" }
+                ] },
+                "traits": [], "pages": []
+            }]
+        }))
+        .unwrap();
+        let types = BindingTypes {
+            payload: [
+                ("row".to_string(), OirType::Reference { entity: "Note".into() }),
+                ("byKey".to_string(), OirType::map(OirType::String, OirType::row("Note"))),
+            ]
+            .into_iter()
+            .collect(),
+            ..no_types()
+        };
+        let mismatches = |json: &str| {
+            validate_operator_arg_types(&parse(json), "p", &HashMap::new(), &HashMap::new(), &types, Some(&schema))
+                .errors
+                .iter()
+                .filter(|e| e.code == ErrorCode::OperatorArgTypeMismatch)
+                .count()
+        };
+        assert_eq!(mismatches(r#"["==", ["object/get", "@payload.row", "nope"], "x"]"#), 1, "the guard form");
+        assert_eq!(mismatches(r#"["set", "@entity.label", ["object/get", "@payload.row", "nope"]]"#), 1);
+        assert_eq!(
+            mismatches(r#"["set", "@entity.label", ["object/get", ["object/get", "@payload.byKey", "k"], "nope"]]"#),
+            1,
+            "through a map of rows"
+        );
+        assert_eq!(mismatches(r#"["set", "@entity.label", ["object/get", "@payload.row", "title"]]"#), 0, "control");
+        assert_eq!(
+            mismatches(r#"["set", "@entity.label", ["object/get", ["object/get", "@payload.byKey", "k"], "title"]]"#),
+            0,
+            "control through the map"
+        );
+    }
+
+    #[test]
     fn an_object_literal_is_exactly_the_record_it_writes() {
         assert!(undetermined(r#"["str/upper", ["object/get", {"a": "x"}, "a"]]"#, HashMap::new()).is_empty());
         assert!(mismatches(r#"["str/upper", ["object/get", {"a": "x"}, "a"]]"#, HashMap::new()).is_empty());

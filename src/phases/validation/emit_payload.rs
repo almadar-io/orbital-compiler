@@ -990,6 +990,33 @@ mod tests {
         assert!(!has_wrapped(&ctx, "ThreadPostsFailed"));
     }
 
+    const KEYED_FAILED: &str = r#"{ "event": "HOOK_FAILED", "payloadSchema": [{ "name": "error", "type": "string" }, { "name": "errors", "type": "array" }, { "name": "key", "type": "string" }] }"#;
+
+    /// A keyed `program/dispatch` echoes its `key` on failure (R-b1), whatever its arity: the two-argument inbound
+    /// form and the four-argument address form both carry the key in their emit options.
+    #[test]
+    fn a_keyed_program_dispatch_failure_declaring_its_key_does_not_warn() {
+        for effect in [
+            r#"["program/dispatch", { "inbound": "hook", "body": "", "headers": {} }, { "key": "@entity.id", "emit": { "failure": "HOOK_FAILED" } }]"#,
+            r#"["program/dispatch", "O.T.E", {}, { "wire": true, "orbital": "O", "event": "E" }, { "key": "k", "emit": { "failure": "HOOK_FAILED" } }]"#,
+        ] {
+            assert!(!has_wrapped(&check(KEYED_FAILED, effect), "HOOK_FAILED"), "{effect}");
+        }
+    }
+
+    /// CONTROL — an unkeyed call echoes no key, so a declared `key` is never delivered; a `key` inside the ask
+    /// itself is the ask's data, not the call's key.
+    #[test]
+    fn an_unkeyed_program_dispatch_failure_declaring_a_key_warns() {
+        for effect in [
+            r#"["program/dispatch", { "inbound": "hook", "body": "", "headers": {} }, { "emit": { "failure": "HOOK_FAILED" } }]"#,
+            r#"["program/dispatch", "O.T.E", { "key": "data" }, { "emit": { "failure": "HOOK_FAILED" } }]"#,
+            r#"["program/dispatch", "O.T.E", {}, { "emit": { "failure": "HOOK_FAILED" }, "key": null }]"#,
+        ] {
+            assert!(has_wrapped(&check(KEYED_FAILED, effect), "HOOK_FAILED"), "{effect}");
+        }
+    }
+
     /// NEGATIVE CONTROL — the FIXED shape. A bare `type X = Event ThreadPost`
     /// lowers to the entity's own fields flat at the payload root, which is
     /// exactly what persist emits. Nothing to report.
