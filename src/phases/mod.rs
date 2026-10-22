@@ -17,23 +17,32 @@
 //! 4. **Inline**: Resolve `uses` declarations and inline external references
 //! 5. **Resolve**: Resolve all references and produce final OIR
 
-pub mod await_render;
+// the pipeline, in order: parse → inline → compose → enrich → validate → reflect → resolve → nominalize; lazy splits a `uses lazy` import
 pub mod compose;
-pub mod cross_file_ids;
-pub(crate) mod embed_graph;
 pub mod enrich;
 pub mod inline;
 pub mod lazy;
-pub mod messages;
 pub mod nominalize;
-pub mod page_content_owner;
 pub mod parse;
-pub mod public;
 pub mod reflect;
 pub mod resolve;
 pub mod sexpr_json;
 pub mod validate;
 pub mod validation;
+
+// program — program-level facts and files derived from the whole schema
+#[path = "program/await_render.rs"]
+pub mod await_render;
+#[path = "program/cross_file_ids.rs"]
+pub mod cross_file_ids;
+#[path = "program/embed_graph.rs"]
+pub(crate) mod embed_graph;
+#[path = "program/messages.rs"]
+pub mod messages;
+#[path = "program/page_content_owner.rs"]
+pub mod page_content_owner;
+#[path = "program/public.rs"]
+pub mod public;
 
 pub use compose::{compose_schema, ComposeConfig};
 pub use cross_file_ids::{resolve_cross_file_id_edges, CrossFileIdError};

@@ -38,56 +38,118 @@
 //! }
 //! ```
 
-pub(crate) mod async_results;
+// shared
 pub mod binding;
-pub use orbital_core_base::language::canonical_operators;
-pub(crate) mod client_tick_locality;
-pub mod closed_circuit;
-pub mod composed_wiring;
-pub mod config_type;
-pub mod cross_emitter;
-pub mod cross_orbital;
-pub mod cross_registry;
-pub mod effect;
-pub mod emit_config_ref;
-pub mod emit_payload;
-pub mod entity;
-pub mod entity_access;
-pub mod entity_mutation;
 pub mod error;
-pub mod expectations;
-mod fetch_by_id_payload;
-mod fetch_deliver;
 pub mod final_program;
-pub mod fired_events;
-pub mod generic_types;
-pub mod embed_bridge;
-pub mod icon;
 pub mod id_integrity;
-mod init_coverage;
-pub mod literal_default;
-pub mod orbital_config;
-pub mod orbital_ref_config;
-pub mod orbital_ref_extend;
-pub mod page;
-pub mod payload_field_name;
-pub mod produced_shape;
-pub mod render_ui;
-pub mod render_ui_binding;
-pub mod service;
-pub mod sexpr;
-pub mod sigil_context;
-pub mod slot;
-pub mod store_binding;
-pub mod sync;
-pub mod theme;
-pub mod time_unit;
-pub mod trait_ref_config;
-pub mod trait_validator;
-pub mod type_param_sweep;
-pub mod trait_id_uniqueness;
-pub mod user_identity;
 pub(crate) mod value_walk;
+
+// entities — entity shape, mutation and the row store
+#[path = "entities/entity.rs"]
+pub mod entity;
+#[path = "entities/entity_mutation.rs"]
+pub mod entity_mutation;
+#[path = "entities/fetch_by_id_payload.rs"]
+mod fetch_by_id_payload;
+#[path = "entities/fetch_deliver.rs"]
+mod fetch_deliver;
+#[path = "entities/store_binding.rs"]
+pub mod store_binding;
+
+// identity — identity and access
+#[path = "identity/entity_access.rs"]
+pub mod entity_access;
+#[path = "identity/user_identity.rs"]
+pub mod user_identity;
+
+// traits
+#[path = "traits/client_tick_locality.rs"]
+pub(crate) mod client_tick_locality;
+#[path = "traits/sigil_context.rs"]
+pub mod sigil_context;
+#[path = "traits/trait_id_uniqueness.rs"]
+pub mod trait_id_uniqueness;
+#[path = "traits/trait_validator.rs"]
+pub mod trait_validator;
+
+// circuit — Event → Guard → Transition → Effects → UI → Event, and the payloads it carries
+#[path = "circuit/async_results.rs"]
+pub(crate) mod async_results;
+#[path = "circuit/closed_circuit.rs"]
+pub mod closed_circuit;
+#[path = "circuit/cross_emitter.rs"]
+pub mod cross_emitter;
+#[path = "circuit/cross_orbital/mod.rs"]
+pub mod cross_orbital;
+#[path = "circuit/emit_payload.rs"]
+pub mod emit_payload;
+#[path = "circuit/fired_events.rs"]
+pub mod fired_events;
+#[path = "circuit/init_coverage.rs"]
+mod init_coverage;
+#[path = "circuit/payload_field_name.rs"]
+pub mod payload_field_name;
+#[path = "circuit/produced_shape.rs"]
+pub mod produced_shape;
+
+// expressions — expressions and effects
+#[path = "expressions/effect/mod.rs"]
+pub mod effect;
+#[path = "expressions/service.rs"]
+pub mod service;
+#[path = "expressions/sexpr/mod.rs"]
+pub mod sexpr;
+
+// types — types, type integrity and time
+#[path = "types/config_type.rs"]
+pub mod config_type;
+#[path = "types/generic_types.rs"]
+pub mod generic_types;
+#[path = "types/literal_default.rs"]
+pub mod literal_default;
+#[path = "types/time_unit.rs"]
+pub mod time_unit;
+#[path = "types/type_param_sweep.rs"]
+pub mod type_param_sweep;
+
+// ui — render-ui, patterns, slots, pages
+#[path = "ui/icon.rs"]
+pub mod icon;
+#[path = "ui/page.rs"]
+pub mod page;
+#[path = "ui/render_ui/mod.rs"]
+pub mod render_ui;
+#[path = "ui/render_ui_binding.rs"]
+pub mod render_ui_binding;
+#[path = "ui/slot.rs"]
+pub mod slot;
+#[path = "ui/sync/mod.rs"]
+pub mod sync;
+#[path = "ui/theme.rs"]
+pub mod theme;
+
+// composition — call sites, config knobs and cross-program contracts
+#[path = "composition/composed_wiring.rs"]
+pub mod composed_wiring;
+#[path = "composition/cross_registry.rs"]
+pub mod cross_registry;
+#[path = "composition/embed_bridge.rs"]
+pub mod embed_bridge;
+#[path = "composition/emit_config_ref.rs"]
+pub mod emit_config_ref;
+#[path = "composition/expectations.rs"]
+pub mod expectations;
+#[path = "composition/orbital_config.rs"]
+pub mod orbital_config;
+#[path = "composition/orbital_ref_config.rs"]
+pub mod orbital_ref_config;
+#[path = "composition/orbital_ref_extend.rs"]
+pub mod orbital_ref_extend;
+#[path = "composition/trait_ref_config.rs"]
+pub mod trait_ref_config;
+
+pub use orbital_core_base::language::canonical_operators;
 
 // Re-export main types
 pub use error::{ErrorCode, Severity, ValidationError, ValidationResult};

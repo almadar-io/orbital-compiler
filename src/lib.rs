@@ -25,17 +25,33 @@
 //! let output = generate_from_file("app.orb", "./output", &shell, &backend, &gen_options)?;
 //! ```
 
+//! Directories under `src/` are organizational only: every module keeps its flat public path via `#[path]`.
+
+// phases — the L2 pipeline (inline · compose · enrich · validate · resolve) and the loader that resolves `uses`
 pub mod composition;
-pub use orbital_core_base::language::registry as embedded;
-pub mod exhaustive_tests;
-pub mod generate;
-pub mod ir_helpers;
 pub mod loader;
-pub use orbital_core_base::language::pattern_registry;
 pub mod phases;
-pub mod shell;
-pub mod test_generator;
+
+// inference — expression type inference
+#[path = "inference/ir_helpers.rs"]
+pub mod ir_helpers;
+#[path = "inference/type_infer.rs"]
 pub mod type_infer;
+
+// codegen — IR handed to a shell backend
+#[path = "codegen/generate.rs"]
+pub mod generate;
+#[path = "codegen/shell.rs"]
+pub mod shell;
+
+// testing — the exhaustive-test generator
+#[path = "testing/exhaustive_tests.rs"]
+pub mod exhaustive_tests;
+#[path = "testing/test_generator.rs"]
+pub mod test_generator;
+
+pub use orbital_core_base::language::pattern_registry;
+pub use orbital_core_base::language::registry as embedded;
 
 pub use composition::ComposeError;
 pub use exhaustive_tests::{
