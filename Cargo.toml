@@ -21,7 +21,7 @@ syn = { version = "2", features = ["full"] }
 [dev-dependencies]
 pretty_assertions.workspace = true
 tempfile = "3.10"
-orbital-test-support = { path = "../orbital-test-support" }
+orbital-test-support = { package = "orbital-integration-tests", path = "../orbital-integration-tests" }
 
 [[bin]]
 name = "compose_only"
