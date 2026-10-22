@@ -6,7 +6,10 @@
 use super::{
     is_std_trait, ErrorCode, ValidationContext, ValidationError, ValidationResult, VALID_VIEW_TYPES,
 };
-use orbital_core_base::schema::{OrbitalSchema, PageDefinition, SExpression, TraitReference};
+use orbital_core_base::effect_row::EffectSite;
+use orbital_core_base::schema::{
+    OrbitalSchema, PageDefinition, SExpression, TraitCategory, TraitDefinition, TraitReference,
+};
 use regex::Regex;
 use std::collections::{HashMap, HashSet};
 use std::sync::LazyLock;
@@ -16,6 +19,116 @@ static PATH_REGEX: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"^/[a-zA-Z0-9\
 
 /// Regex for valid page names (PascalCase)
 static NAME_REGEX: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"^[A-Z][a-zA-Z0-9]*$").unwrap());
+
+pub(super) fn requires_page(trait_def: &TraitDefinition) -> bool {
+    if !matches!(
+        trait_def.category,
+        Some(TraitCategory::Integration | TraitCategory::Lifecycle)
+    ) {
+        return true;
+    }
+    let mut effects = Vec::new();
+    for transition in &trait_def.state_machine.transitions {
+        for effect in transition.effects.iter().flatten() {
+            effect.collect_effect_uses(EffectSite::Transition, &mut effects);
+        }
+    }
+    for tick in trait_def.ticks.iter().flatten() {
+        for effect in &tick.effects {
+            effect.collect_effect_uses(EffectSite::Tick, &mut effects);
+        }
+    }
+    effects.iter().any(|effect| effect.kind == "render-ui")
+}
+
+#[cfg(test)]
+mod category_page_tests {
+    use super::*;
+    use crate::phases::validation::slot::validate_all_slots;
+    use serde_json::{json, Value};
+
+    fn diagnostics(category: Value, page: bool, effects: Value, ticks: Value) -> Vec<ErrorCode> {
+        let mut orbital = json!({
+            "name": "Worker",
+            "entity": {"name": "Work", "persistence": "runtime", "fields": [{"name": "id", "type": "string"}]},
+            "traits": [{"name": "Run", "category": category, "ticks": ticks, "stateMachine": {
+                "states": [{"name": "ready", "isInitial": true}],
+                "transitions": [{"from": "ready", "to": "ready", "event": "INIT", "effects": effects}]
+            }}]
+        });
+        if page {
+            orbital["pages"] = json!([{"name": "WorkerPage", "path": "/worker", "traits": [orbital["traits"][0].clone()]}]);
+        }
+        let schema: OrbitalSchema =
+            serde_json::from_value(json!({"name": "worker", "orbitals": [orbital]})).unwrap();
+        let mut ctx = ValidationContext::new();
+        validate_all_pages(&schema, &mut ctx);
+        validate_all_slots(&schema, &mut ctx);
+        ctx.result
+            .errors
+            .into_iter()
+            .map(|error| error.code)
+            .collect()
+    }
+
+    #[test]
+    fn explicit_computational_categories_need_neither_page_nor_main_slot() {
+        for category in ["integration", "lifecycle"] {
+            for page in [false, true] {
+                assert!(
+                    diagnostics(json!(category), page, json!([]), Value::Null).is_empty(),
+                    "{category}, page={page}"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn default_and_ui_categories_keep_page_and_main_requirements() {
+        for category in [
+            Value::Null,
+            json!("interaction"),
+            json!("game-core"),
+            json!("game-entity"),
+            json!("game-ui"),
+        ] {
+            assert!(
+                diagnostics(category.clone(), false, json!([]), Value::Null)
+                    .contains(&ErrorCode::OrbitalMissingPages),
+                "{category}"
+            );
+            assert!(
+                diagnostics(category.clone(), true, json!([]), Value::Null)
+                    .contains(&ErrorCode::SlotMainNotCovered),
+                "{category}"
+            );
+        }
+    }
+
+    #[test]
+    fn computational_category_cannot_hide_declared_render_effects() {
+        for category in ["integration", "lifecycle"] {
+            for effects in [
+                json!([["render-ui", "sidebar", {"type": "card"}]]),
+                json!([["if", true, ["render-ui", "sidebar", {"type": "card"}]]]),
+            ] {
+                assert!(
+                    diagnostics(json!(category), false, effects.clone(), Value::Null)
+                        .contains(&ErrorCode::OrbitalMissingPages)
+                );
+                assert!(diagnostics(json!(category), true, effects, Value::Null)
+                    .contains(&ErrorCode::SlotMainNotCovered));
+            }
+            let ticks = json!([{"name": "paint", "interval": "1s", "effects": [["render-ui", "sidebar", {"type": "card"}]]}]);
+            assert!(
+                diagnostics(json!(category), false, json!([]), ticks.clone())
+                    .contains(&ErrorCode::OrbitalMissingPages)
+            );
+            assert!(diagnostics(json!(category), true, json!([]), ticks)
+                .contains(&ErrorCode::SlotMainNotCovered));
+        }
+    }
+}
 
 /// Validate all pages in a schema
 pub fn validate_all_pages(schema: &OrbitalSchema, ctx: &mut ValidationContext) {
@@ -30,7 +143,12 @@ pub fn validate_all_pages(schema: &OrbitalSchema, ctx: &mut ValidationContext) {
             .map(|p| !p.is_empty())
             .unwrap_or(false);
 
-        if !has_pages {
+        let needs_page = orbital.traits.is_empty()
+            || orbital.traits.iter().any(|trait_ref| match trait_ref {
+                TraitReference::Inline(trait_def) => requires_page(trait_def),
+                TraitReference::Reference { .. } => true,
+            });
+        if !has_pages && needs_page {
             ctx.add_error(
                 ValidationError::error(
                     ErrorCode::OrbitalMissingPages,

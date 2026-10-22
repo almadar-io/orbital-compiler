@@ -1587,6 +1587,9 @@ fn payload_field_to_oir_type(
     field: &orbital_core_base::schema::PayloadField,
     ctx: &NamedTypeCtx,
 ) -> OirType {
+    if let Some(slots) = orbital_core_base::ir::types::payload_tuple_slots(field) {
+        return OirType::Tuple { items: slots.into_iter().map(|slot| payload_field_to_oir_type(slot, ctx)).collect() };
+    }
     if let (true, Some(item)) = (field.field_type == "array", field.items.as_deref()) {
         return OirType::array(payload_field_to_oir_type(item, ctx));
     }

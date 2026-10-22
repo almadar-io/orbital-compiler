@@ -118,6 +118,7 @@ struct Inferer<'c> {
     present: RefCell<Vec<String>>,
     /// The `let` locals bound to an operand that can be missing.
     absent_locals: RefCell<Vec<String>>,
+    refinements: RefCell<Vec<TypeFact>>,
     /// The type inferred for each `["typed", value, "#slot:<n>"]` the typed-arguments pass tagged.
     slots: RefCell<Vec<(String, Option<OirType>)>>,
 }
@@ -131,6 +132,7 @@ impl<'c> Inferer<'c> {
             void: std::cell::Cell::new(false),
             present: RefCell::new(Vec::new()),
             absent_locals: RefCell::new(Vec::new()),
+            refinements: RefCell::new(Vec::new()),
             slots: RefCell::new(Vec::new()),
         }
     }
@@ -225,6 +227,14 @@ impl<'c> Inferer<'c> {
     }
 
     fn binding(&self, binding: &OirBinding) -> Option<OirType> {
+        let mut ty = self.binding_unrefined(binding)?;
+        for fact in self.refinements.borrow().iter().filter(|fact| fact.operand == *binding) {
+            ty = refine_type(&self.unfold(ty.clone()), fact.predicate, fact.truth).unwrap_or(ty);
+        }
+        Some(ty)
+    }
+
+    fn binding_unrefined(&self, binding: &OirBinding) -> Option<OirType> {
         if let OirBindingRoot::Local(name) = &binding.root {
             let scoped = self
                 .scopes
@@ -260,6 +270,7 @@ impl<'c> Inferer<'c> {
     /// A reference to a row (or a list of them) as the row it stands for, one level deep.
     fn unfold_rows(&self, ty: OirType) -> OirType {
         match &ty {
+            OirType::TypeRef { .. } => self.unfold(ty),
             OirType::Reference { entity } | OirType::Row { entity } => self
                 .ctx
                 .entity_type(entity)
@@ -409,7 +420,12 @@ impl<'c> Inferer<'c> {
     fn with_scope<R>(&self, names: &[(String, Option<OirType>)], f: impl FnOnce() -> R) -> R {
         let depth = self.scopes.borrow().len();
         self.scopes.borrow_mut().extend(names.iter().cloned());
+        let visible = self.refinements.borrow().iter().filter(|fact| {
+            !matches!(&fact.operand.root, OirBindingRoot::Local(name) if names.iter().any(|(local, _)| local == name))
+        }).cloned().collect();
+        let previous = self.refinements.replace(visible);
         let out = f();
+        self.refinements.replace(previous);
         self.scopes.borrow_mut().truncate(depth);
         out
     }
@@ -524,7 +540,16 @@ impl<'c> Inferer<'c> {
             };
             let _ = signature.bind(&mut bindings, at, &actual, Mode::Static);
         }
+        let declared_node = signature.shape_position()
+            .and_then(|at| Self::literal_text(args.get(at)?))
+            .and_then(|shape| self.ctx.named_type(orbital_core_base::ir::types::DeclaredShape::name_of(&shape).as_ref()))
+            .map(|ty| self.unfold(ty));
         for (index, arg) in args.iter().enumerate() {
+            if let Some(declared) = &declared_node {
+                signature.bind_declared_node(&mut bindings, index, declared.clone());
+            }
+            let refined = self.refinements.borrow().len();
+            self.refinements.borrow_mut().extend(type_guards_for(name, args, index));
             let narrowed = self.present.borrow().len();
             self.present.borrow_mut().extend(guards_for(name, args, index));
             let outcome = match arg {
@@ -597,6 +622,7 @@ impl<'c> Inferer<'c> {
                 }
             };
             self.present.borrow_mut().truncate(narrowed);
+            self.refinements.borrow_mut().truncate(refined);
             if let Err(mismatch) = outcome {
                 sound = false;
                 refuted |= !matches!(mismatch, Mismatch::Undetermined { .. });
@@ -629,7 +655,7 @@ impl<'c> Inferer<'c> {
         }
         let result = signature.result_with_options(&bindings, |index, field| match args.get(index) {
             None => Some(false),
-            Some(OirExpr::Object { fields }) => match fields.iter().find(|(name, _)| name == field).map(|(_, value)| value) {
+            Some(OirExpr::Object { fields }) => match fields.iter().find(|(name, _)| name.as_str() == field).map(|(_, value)| value) {
                 None => Some(false),
                 Some(OirExpr::Bool { value }) => Some(*value),
                 _ => None,
@@ -683,11 +709,14 @@ impl<'c> Inferer<'c> {
     }
 
     /// A by-name result (the shape `json/parse` was given) is the declared type it names, when the context knows it.
-    fn unfold(&self, ty: OirType) -> OirType {
-        match &ty {
-            OirType::TypeRef { name } => self.ctx.named_type(name).unwrap_or(ty),
-            _ => ty,
+    fn unfold(&self, mut ty: OirType) -> OirType {
+        let mut seen = std::collections::HashSet::new();
+        while let OirType::TypeRef { name } = &ty {
+            if !seen.insert(name.clone()) { break; }
+            let Some(next) = self.ctx.named_type(name) else { break; };
+            ty = next;
         }
+        ty
     }
 }
 
@@ -839,6 +868,9 @@ fn presence(expr: &OirExpr, truth: bool) -> Vec<String> {
     let Some((name, args)) = as_call(expr) else {
         return Vec::new();
     };
+    if truth && orbital_core_eval::evaluator::operators::get_operator(name).and_then(|op| op.type_predicate()).is_some() {
+        return args.first().and_then(|arg| operand_key(arg)).into_iter().collect();
+    }
     let null_compared = |args: &[&OirExpr]| -> Option<String> {
         match args {
             [OirExpr::Null, other] | [other, OirExpr::Null] => operand_key(other),
@@ -868,6 +900,63 @@ fn guards_for(name: &str, args: &[&OirExpr], index: usize) -> Vec<String> {
             None => Vec::new(),
         },
         _ => Vec::new(),
+    }
+}
+
+#[derive(Clone, PartialEq)]
+struct TypeFact {
+    operand: OirBinding,
+    predicate: orbital_core_eval::evaluator::operators::TypePredicate,
+    truth: bool,
+}
+
+fn type_facts(expr: &OirExpr, truth: bool) -> Vec<TypeFact> {
+    let Some((name, args)) = as_call(expr) else { return Vec::new(); };
+    if let Some(predicate) = orbital_core_eval::evaluator::operators::get_operator(name).and_then(|op| op.type_predicate()) {
+        return args.first().and_then(|arg| operand_binding(arg)).map(|operand| TypeFact { operand, predicate, truth }).into_iter().collect();
+    }
+    let combine = |parts: Vec<Vec<TypeFact>>, all: bool| {
+        if all { return parts.into_iter().flatten().collect(); }
+        let mut iter = parts.into_iter();
+        let first = iter.next().unwrap_or_default();
+        iter.fold(first, |facts, next| facts.into_iter().filter(|fact| next.contains(fact)).collect())
+    };
+    match name {
+        "not" => args.first().map(|arg| type_facts(arg, !truth)).unwrap_or_default(),
+        "and" => combine(args.iter().map(|arg| type_facts(arg, truth)).collect(), truth),
+        "or" => combine(args.iter().map(|arg| type_facts(arg, truth)).collect(), !truth),
+        _ => Vec::new(),
+    }
+}
+
+fn type_guards_for(name: &str, args: &[&OirExpr], index: usize) -> Vec<TypeFact> {
+    match name {
+        "and" => args[..index].iter().flat_map(|arg| type_facts(arg, true)).collect(),
+        "or" => args[..index].iter().flat_map(|arg| type_facts(arg, false)).collect(),
+        "if" | "when" if index >= 1 => args.first().map(|condition| type_facts(condition, name == "when" || index == 1)).unwrap_or_default(),
+        _ => Vec::new(),
+    }
+}
+
+fn refine_type(ty: &OirType, predicate: orbital_core_eval::evaluator::operators::TypePredicate, truth: bool) -> Option<OirType> {
+    match ty {
+        OirType::Union { variants } => {
+            let variants: Vec<_> = variants.iter().filter_map(|variant| {
+                Some(OirField { field_type: refine_type(&variant.field_type, predicate, truth)?, ..variant.clone() })
+            }).collect();
+            match variants.as_slice() {
+                [] => None,
+                [only] => Some(only.field_type.clone()),
+                _ => Some(OirType::Union { variants }),
+            }
+        }
+        OirType::Optional { inner } => match (truth, refine_type(inner, predicate, truth)) {
+            (true, found) => found,
+            (false, Some(found)) => Some(OirType::optional(found)),
+            (false, None) => None,
+        },
+        _ if predicate.matches_type(ty).is_none_or(|matches| matches == truth) => Some(ty.clone()),
+        _ => None,
     }
 }
 
@@ -1317,6 +1406,90 @@ mod tests {
         assert!(found.is_empty(), "{:?}", found.iter().map(|d| &d.expression).collect::<Vec<_>>());
         let unlike = body(serde_json::json!(["object/merge", ["object/get", "@v", "entities", {}], { "n": 1 }]));
         assert_eq!(check_oir_expr(&lowered(unlike), &typed).len(), 1, "control: a map and a number record have no one value type");
+    }
+
+    fn recursive_value_type() -> OirType {
+        OirType::Union { variants: vec![
+            OirField::new("text", OirType::String),
+            OirField::new("count", OirType::Number),
+            OirField::new("list", OirType::array(OirType::TypeRef { name: "Value".into() })),
+        ] }
+    }
+
+    struct DeclaredFold;
+    impl TypeCtx for DeclaredFold {
+        fn binding_type(&self, _: &OirBinding) -> Option<OirType> { Some(OirType::String) }
+        fn named_type(&self, name: &str) -> Option<OirType> {
+            match name {
+                "Value" => Some(recursive_value_type()),
+                "Alias" => Some(OirType::TypeRef { name: "Value".into() }),
+                _ => None,
+            }
+        }
+    }
+
+    #[test]
+    fn declared_union_fold_nodes_narrow_by_their_exact_type_predicate() {
+        for shape in ["Value", "Alias"] {
+            let fold = lowered(serde_json::json!(["tree/fold", "@entity.value", ["fn", ["n", "kids"],
+                ["if", ["validate/array", "@n"], ["array/len", "@n"], 0]
+            ], shape]));
+            let found = check_oir_expr(&fold, &DeclaredFold);
+            assert!(found.is_empty(), "{shape}: {found:?}");
+            assert_eq!(infer_oir_expr_type(&fold, &DeclaredFold), Some(OirType::Number));
+        }
+    }
+
+    #[test]
+    fn type_predicates_refine_true_false_and_logical_branches_without_leaking() {
+        let ctx = Row(vec![("value", recursive_value_type()), ("flag", OirType::Boolean)]);
+        for body in [
+            serde_json::json!(["if", ["validate/array", "@entity.value"], ["array/len", "@entity.value"], 0]),
+            serde_json::json!(["if", ["not", ["validate/string", "@entity.value"]], 0, ["str/len", "@entity.value"]]),
+            serde_json::json!(["if", ["and", ["validate/array", "@entity.value"], "@entity.flag"], ["array/len", "@entity.value"], 0]),
+            serde_json::json!(["and", ["validate/string", "@entity.value"], [">", ["str/len", "@entity.value"], 0]]),
+            serde_json::json!(["if", ["or", ["not", ["validate/array", "@entity.value"]], false], 0, ["array/len", "@entity.value"]]),
+        ] {
+            let found = check_oir_expr(&lowered(body.clone()), &ctx);
+            assert!(found.is_empty(), "{body}: {found:?}");
+        }
+        let unguarded = lowered(serde_json::json!(["+", ["if", ["validate/array", "@entity.value"], ["array/len", "@entity.value"], 0], ["array/len", "@entity.value"]]));
+        assert!(!check_oir_expr(&unguarded, &ctx).is_empty(), "the sibling read is still unguarded");
+        let disjunction = lowered(serde_json::json!(["if", ["or", ["validate/array", "@entity.value"], "@entity.flag"], ["array/len", "@entity.value"], 0]));
+        assert!(!check_oir_expr(&disjunction, &ctx).is_empty(), "either disjunct can make the branch run");
+        let shadow = Row(vec![("values", OirType::array(recursive_value_type()))]);
+        let nested = lowered(serde_json::json!(["array/map", ["list", "text"], ["fn", "n",
+            ["if", ["validate/string", "@n"], ["array/map", "@entity.values", ["fn", "n", ["str/len", "@n"]]], []]
+        ]]));
+        assert!(!check_oir_expr(&nested, &shadow).is_empty(), "a shadowed lambda does not inherit its parent's proof");
+    }
+
+    #[test]
+    fn branch_records_keep_each_known_field_type_and_named_rows_reject_bad_fields() {
+        struct Cells;
+        impl TypeCtx for Cells {
+            fn binding_type(&self, binding: &OirBinding) -> Option<OirType> {
+                if binding.path.first().is_some_and(|field| field == "flag") { Some(OirType::Boolean) }
+                else { Some(OirType::array(OirType::TypeRef { name: "SampleCell".into() })) }
+            }
+            fn named_type(&self, name: &str) -> Option<OirType> {
+                (name == "SampleCell").then(|| OirType::Struct { fields: vec![OirField::new("kind", OirType::String)] })
+            }
+            fn object_literals_are_exact(&self) -> bool { true }
+        }
+        let branch = lowered(serde_json::json!(["if", "@entity.flag", {"raw":"x"}, {"raw":3}]));
+        let found = check_oir_expr(&branch, &Cells);
+        assert!(found.is_empty(), "{found:?}");
+        let OirType::Struct { fields } = infer_oir_expr_type(&branch, &Cells).expect("record result") else { panic!("record result") };
+        let OirType::Union { variants } = &fields[0].field_type else { panic!("both raw types remain") };
+        assert!(variants.iter().any(|v| v.field_type == OirType::String));
+        assert!(variants.iter().any(|v| v.field_type == OirType::Number));
+        for item in [serde_json::json!({"kind":3}), serde_json::json!(3)] {
+            let expr = lowered(serde_json::json!(["array/append", "@entity.cells", item]));
+            assert!(!check_oir_expr(&expr, &Cells).is_empty(), "malformed row must fail");
+        }
+        let good = lowered(serde_json::json!(["array/append", "@entity.cells", {"kind":"ok"}]));
+        assert!(check_oir_expr(&good, &Cells).is_empty());
     }
 
     fn tree_row() -> Row {

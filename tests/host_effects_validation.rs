@@ -132,6 +132,7 @@ fn stdin_success_allows_data_only_for_a_single_read() {
     for options in [
         json!({ "emit": { "success": "DATA" } }),
         json!({ "key": null, "emit": { "success": "DATA" } }),
+        json!({ "key": "stdin", "emit": { "success": "DATA" } }),
         json!({ "key": "stdin", "emit": { "success": "DATA", "onMessage": "CHUNK" } }),
     ] {
         for include_data in [false, true] {
@@ -146,7 +147,7 @@ fn stdin_success_allows_data_only_for_a_single_read() {
             ]);
             let schema: OrbitalSchema = serde_json::from_value(schema).unwrap();
             let result = validate_comprehensive_without_services(&schema);
-            let streamed = options["key"] == "stdin";
+            let streamed = options["key"] == "stdin" && options["emit"]["onMessage"] == "CHUNK";
             assert_eq!(fires(&result, ErrorCode::EmitPayloadNotProduced), streamed && include_data, "{options}, data={include_data}: {:?}", result.errors);
         }
     }

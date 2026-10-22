@@ -100,7 +100,11 @@ pub fn validate_page_slots(
     }
 
     // Check main slot coverage
-    if !initial_slots.contains_key("main") && !traits.is_empty() {
+    if !initial_slots.contains_key("main")
+        && traits
+            .iter()
+            .any(|trait_def| super::page::requires_page(trait_def))
+    {
         result.add_error(
             ValidationError::error(
                 ErrorCode::SlotMainNotCovered,
@@ -559,6 +563,7 @@ mod tests {
             config: None,
             data_entities: None,
             scope: None,
+            source_declaration: None,
             source_behavior: None,
             source_entity_definition: None,
             id: None,
@@ -738,6 +743,7 @@ mod tests {
             config: None,
             data_entities: None,
             scope: None,
+            source_declaration: None,
             source_behavior: None,
             source_entity_definition: None,
             id: None,
@@ -961,6 +967,7 @@ mod tests {
             config: None,
             data_entities: None,
             scope: None,
+            source_declaration: None,
             source_behavior: None,
             source_entity_definition: None,
             id: None,

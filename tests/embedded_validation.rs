@@ -62,6 +62,7 @@ fn make_trait_with_transition(
         config: None,
         data_entities: None,
         scope: None,
+        source_declaration: None,
         source_behavior: None,
         source_entity_definition: None,
         id: None,

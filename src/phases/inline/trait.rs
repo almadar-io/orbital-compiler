@@ -1860,6 +1860,10 @@ pub(crate) fn inline_traits(
                                 &name,
                                 ref_id.as_deref(),
                             );
+                            let source_origin = match &inlined {
+                                TraitReference::Inline(td) => ctx.trait_origin(td, &alias),
+                                _ => None,
+                            };
                             let provenance = SourceBehaviorMetadata {
                                 behavior: source_label,
                                 alias: alias.clone(),
@@ -1888,6 +1892,7 @@ pub(crate) fn inline_traits(
                                     if let Some(decl) = decl_id.as_ref() {
                                         trait_def.id = Some(decl.clone());
                                     }
+                                    ctx.record_trait_origin(&trait_def, source_origin);
                                     // Apply name / linkedEntity / events /
                                     // config overrides to the cloned trait
                                     // so the single Inline pushed below
@@ -2599,6 +2604,7 @@ pub(crate) fn inline_traits(
                 // trait) — leave the `@trait.X` for the validator to flag.
                 continue;
             };
+            let source_origin = ctx.trait_origin(&sibling_def, &alias);
             // Apply the SAME rebind a hand-written sibling ref would: rewrite
             // every `@X.path` / `["ref", X]` / fetch/persist literal to the
             // consumer's entity. KEEP the original name (no `name` override) so
@@ -2654,6 +2660,7 @@ pub(crate) fn inline_traits(
                 }
                 rewrite_parent(&mut result, &parent_name, &sibling_name, &final_name);
             }
+            ctx.record_trait_origin(&sibling_def, source_origin);
             // Provenance + source entity, mirroring the main ref path so Studio
             // and the mock generator treat the pulled sibling like any ref.
             if let Ok(entry) = ctx.get_entry(&alias) {
@@ -3026,6 +3033,7 @@ mod entity_id_reader_tests {
             config: None,
             data_entities: None,
             scope: None,
+            source_declaration: None,
             source_behavior: None,
             source_entity_definition: None,
             id: None,
@@ -3212,6 +3220,7 @@ mod entity_id_reader_tests {
             config: None,
             data_entities: None,
             scope: None,
+            source_declaration: None,
             source_behavior: None,
             source_entity_definition: None,
             id: None,

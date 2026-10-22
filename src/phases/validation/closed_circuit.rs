@@ -1904,6 +1904,9 @@ fn validate_client_bound_state_machines(
         let TraitReference::Inline(trait_def) = trait_ref else {
             continue;
         };
+        if !super::page::requires_page(trait_def) {
+            continue;
+        }
         let transition_count = trait_def.state_machine.transitions.len();
         if transition_count == 0 {
             continue;
@@ -3476,6 +3479,7 @@ mod tests {
             data_entities: None,
             scope: None,
             local: false,
+            source_declaration: None,
             source_behavior: None,
             source_entity_definition: None,
             type_params: None,
@@ -4229,6 +4233,30 @@ mod tests {
             "a bound trait must stay silent: {:?}",
             result.errors
         );
+    }
+
+    #[test]
+    fn client_binding_is_not_required_for_explicit_computational_traits() {
+        for category in ["integration", "lifecycle"] {
+            let mut trait_def = inline_trait_with_a_transition("Worker");
+            trait_def["category"] = serde_json::json!(category);
+            let orbital = orbital_json(vec![trait_def.clone()], serde_json::json!([]));
+            assert!(
+                validate_client_bound_state_machines(0, &orbital, &HashSet::new())
+                    .errors
+                    .is_empty()
+            );
+
+            trait_def["stateMachine"]["transitions"][0]["effects"] =
+                serde_json::json!([["render-ui", "main", {"type": "card"}]]);
+            let orbital = orbital_json(vec![trait_def], serde_json::json!([]));
+            assert!(
+                validate_client_bound_state_machines(0, &orbital, &HashSet::new())
+                    .errors
+                    .iter()
+                    .any(|error| error.code == ErrorCode::CircuitClientUnboundStateMachine)
+            );
+        }
     }
 
     /// A trait with an empty `stateMachine.transitions` has nothing to bind

@@ -319,7 +319,7 @@ pub(crate) fn produced_payload(
 ) -> Option<Vec<PayloadField>> {
     if orbital_core_base::os::OsOp::from_name(op_name).is_some() {
         let keyed = call_has_key(op_name, args);
-        let variant = if op_name == "os/stdin-read" && keyed {
+        let variant = if op_name == "os/stdin-read" && keyed && stdin_has_message_route(args) {
             CallVariant::StdinStream
         } else {
             CallVariant::Plain
@@ -409,6 +409,17 @@ fn call_has_key(op_name: &str, args: &[SExpression]) -> bool {
                 if args.len() > 4 && !matches!(options.get("key"), None | Some(SExpression::Null))
         ),
     }
+}
+
+fn stdin_has_message_route(args: &[SExpression]) -> bool {
+    let (_, envelope) = orbital_core_base::os::split_envelope(
+        orbital_core_base::os::OsOp::StdinRead,
+        args.get(1..).unwrap_or_default(),
+    );
+    let Some(SExpression::Object(routes)) = envelope.and_then(|options| options.get("emit")) else {
+        return false;
+    };
+    !matches!(routes.get("onMessage"), None | Some(SExpression::Null))
 }
 
 fn with_os_key(

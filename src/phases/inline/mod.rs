@@ -348,6 +348,15 @@ pub struct InlineConfig {
 pub struct InlineSession(std::rc::Rc<std::cell::RefCell<InlineSessionState>>);
 
 impl InlineSession {
+    pub fn trait_origins(&self) -> crate::loader::SourceTraitOrigins {
+        self.0
+            .borrow()
+            .loader
+            .as_ref()
+            .map(|loader| loader.trait_origins().borrow().clone())
+            .unwrap_or_default()
+    }
+
     /// Every behavior file the last inline through this session loaded, as
     /// parsed (before `@config.<knob>` reads were substituted).
     pub fn each_loaded_schema(&self, visit: &mut dyn FnMut(&crate::loader::LoadedSchema)) {
@@ -1455,6 +1464,12 @@ fn inline_orbital(
     deferred_merges: &mut Vec<DeferredMerge>,
     imports: &mut ImportMemo,
 ) -> Result<(), InlineError> {
+    for reference in &mut orbital.traits {
+        if let TraitReference::Inline(definition) = reference {
+            orbital_core_base::schema::capture_trait_source_declaration(definition)
+                .expect("a trait definition serializes to JSON");
+        }
+    }
     // Skip the import-loading + reference-substitution machinery when
     // the orbital has no `uses[]` declarations (e.g. an atom compiled
     // standalone). Inline traits still need their own declared
@@ -1518,6 +1533,8 @@ fn inline_orbital(
 
     // Build context by loading all imports.
     let mut ctx = InlineContext::new();
+    ctx.trait_origins = loader.trait_origins();
+    ctx.current_source_path = source_path.map(|path| loader.canonical(path));
     // When this orbital is itself an import (not the top-level compilation
     // target), defer `@config.X` substitution in resolved traits so a downstream
     // consumer can still override those bindings. Substituting here with this
@@ -1747,6 +1764,10 @@ fn inline_orbital(
         // That is what the author wrote, so it is the actionable label when
         // a trait/page lookup fails.
         ctx.add_alias_multi(&use_decl.alias, inlined_orbitals, use_decl.from.clone());
+        ctx.aliases
+            .get_mut(&use_decl.alias)
+            .expect("registered alias")
+            .source_path = Some(loader.canonical(&loaded_source));
     }
 
     // `orbital X = Alias.orbitals.Y { … }` — resolve AFTER every alias in
@@ -3749,6 +3770,7 @@ mod tests {
             config: None,
             data_entities: None,
             scope: None,
+            source_declaration: None,
             source_behavior: None,
             source_entity_definition: None,
             id: None,
@@ -5309,6 +5331,7 @@ mod tests {
             config: None,
             data_entities: None,
             scope: None,
+            source_declaration: None,
             source_behavior: None,
             source_entity_definition: None,
             id: None,
@@ -5404,6 +5427,7 @@ mod tests {
             config: None,
             data_entities: None,
             scope: None,
+            source_declaration: None,
             source_behavior: None,
             source_entity_definition: None,
             id: None,
@@ -5669,6 +5693,7 @@ mod tests {
             config: None,
             data_entities: None,
             scope: None,
+            source_declaration: None,
             source_behavior: None,
             source_entity_definition: None,
             id: None,

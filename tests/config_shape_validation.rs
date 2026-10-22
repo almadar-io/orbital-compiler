@@ -189,6 +189,7 @@ fn schema_with_config(config: HashMap<String, ConfigField>) -> OrbitalSchema {
         config: Some(config),
         data_entities: None,
         scope: None,
+        source_declaration: None,
         source_behavior: None,
         source_entity_definition: None,
         id: None,

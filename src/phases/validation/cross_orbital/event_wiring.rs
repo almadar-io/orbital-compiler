@@ -1049,6 +1049,7 @@ mod tests {
             config: None,
             data_entities: None,
             scope: None,
+            source_declaration: None,
             source_behavior: None,
             source_entity_definition: None,
             id: None,
@@ -1111,6 +1112,7 @@ mod tests {
             config: None,
             data_entities: None,
             scope: None,
+            source_declaration: None,
             source_behavior: None,
             source_entity_definition: None,
             id: None,
@@ -1160,6 +1162,7 @@ mod tests {
             config: None,
             data_entities: None,
             scope: None,
+            source_declaration: None,
             source_behavior: None,
             source_entity_definition: None,
             id: None,
@@ -1774,6 +1777,7 @@ mod tests {
             ),
             data_entities: None,
             scope: None,
+            source_declaration: None,
             source_behavior: if imported {
                 Some(orbital_core_base::schema::SourceBehaviorMetadata {
                     behavior: "ui-input".to_string(),

@@ -425,8 +425,18 @@ pub(crate) fn lower_source(path: &Path) -> Result<OrbitalSchema, String> {
     Ok(schema)
 }
 
+#[derive(Debug, Clone)]
+pub struct SourceTraitOrigin {
+    pub root_callsite: Option<(usize, String)>,
+    pub trait_id: String,
+    pub source_path: Option<PathBuf>,
+}
+
+pub type SourceTraitOrigins = HashMap<(PathBuf, String), SourceTraitOrigin>;
+
 /// ExternalOrbitalLoader - Loads external .orb files with security and caching
 pub struct ExternalOrbitalLoader {
+    trait_origins: std::rc::Rc<RefCell<SourceTraitOrigins>>,
     config: LoaderConfig,
     cache: LoaderCache,
     /// Behavior name → `.orb` path per registry root, built by one walk of the
@@ -449,6 +459,7 @@ pub struct ExternalOrbitalLoader {
 impl ExternalOrbitalLoader {
     pub fn new(config: LoaderConfig) -> Self {
         Self {
+            trait_origins: Default::default(),
             config,
             cache: LoaderCache::new(),
             registry_index: RefCell::new(HashMap::new()),
@@ -456,6 +467,10 @@ impl ExternalOrbitalLoader {
             touched: HashSet::new(),
             recordings: Vec::new(),
         }
+    }
+
+    pub(crate) fn trait_origins(&self) -> std::rc::Rc<RefCell<SourceTraitOrigins>> {
+        self.trait_origins.clone()
     }
 
     /// Start a new schema on this loader: the files loaded so far stay cached,

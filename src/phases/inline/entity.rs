@@ -748,6 +748,7 @@ mod render_ui_pattern_contract_reference_tests {
             config: None,
             data_entities: None,
             scope: None,
+            source_declaration: None,
             source_behavior: None,
             source_entity_definition: None,
             id: None,

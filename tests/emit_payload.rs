@@ -146,6 +146,7 @@ fn schema_with_emit(emit: SExpression, declared: EmitDefinition) -> OrbitalSchem
         config: None,
         data_entities: None,
         scope: None,
+        source_declaration: None,
         source_behavior: None,
         source_entity_definition: None,
         id: None,

@@ -842,6 +842,12 @@ pub(crate) fn resolve_orbital_reference(
             &local_name,
             orbital_core_base::identity::IdKind::Trait,
         );
+        if let Some(mut origin) = ctx.trait_origin(td, &alias) {
+            origin.root_callsite = orbital_index.map(|i| (i, td.name.clone()));
+            if let Some(path) = ctx.current_source_path.as_ref() {
+                ctx.trait_origins.borrow_mut().insert((path.clone(), final_id.clone()), origin);
+            }
+        }
         td.name = final_name.clone();
         td.id = Some(final_id.clone());
         id_by_name.insert(final_name, final_id);

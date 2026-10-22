@@ -113,11 +113,14 @@ pub(crate) struct AliasEntry {
     /// Shared: one inlined import serves every orbital that uses it.
     pub(crate) orbitals: std::rc::Rc<Vec<Orbital>>,
     pub(crate) source_label: String,
+    pub(crate) source_path: Option<std::path::PathBuf>,
 }
 
 /// Context for inlining references within an orbital
 /// Uses owned copies to avoid borrow checker issues with loader cache
 pub(crate) struct InlineContext {
+    pub(crate) current_source_path: Option<std::path::PathBuf>,
+    pub(crate) trait_origins: std::rc::Rc<std::cell::RefCell<crate::loader::SourceTraitOrigins>>,
     /// Mapping from alias to the full set of orbitals loaded under that alias.
     pub(crate) aliases: HashMap<String, AliasEntry>,
     /// When true, this orbital is being resolved as an IMPORT (not the
@@ -136,8 +139,29 @@ pub(crate) struct InlineContext {
 impl InlineContext {
     pub(crate) fn new() -> Self {
         Self {
+            current_source_path: None,
+            trait_origins: Default::default(),
             aliases: HashMap::new(),
             defer_config_subst: false,
+        }
+    }
+
+    pub(crate) fn trait_origin(&self, td: &orbital_core_base::schema::TraitDefinition, alias: &str) -> Option<crate::loader::SourceTraitOrigin> {
+        let source_id = td.source_declaration.as_ref().map(|s| &s.trait_id).or(td.id.as_ref())?;
+        let source_path = self.aliases.get(alias).and_then(|entry| entry.source_path.clone());
+        if let Some(path) = source_path.as_ref() {
+            if let Some(origin) = td.id.as_ref().and_then(|id| self.trait_origins.borrow().get(&(path.clone(), id.clone())).cloned()) { return Some(origin); }
+        }
+        Some(crate::loader::SourceTraitOrigin {
+            root_callsite: None,
+            trait_id: source_id.clone(),
+            source_path,
+        })
+    }
+
+    pub(crate) fn record_trait_origin(&self, td: &orbital_core_base::schema::TraitDefinition, origin: Option<crate::loader::SourceTraitOrigin>) {
+        if let (Some(path), Some(id), Some(origin)) = (&self.current_source_path, &td.id, origin) {
+            self.trait_origins.borrow_mut().insert((path.clone(), id.clone()), origin);
         }
     }
 
@@ -152,6 +176,7 @@ impl InlineContext {
             AliasEntry {
                 orbitals: std::rc::Rc::new(vec![orbital.clone()]),
                 source_label: label,
+                source_path: None,
             },
         );
     }
@@ -171,6 +196,7 @@ impl InlineContext {
             AliasEntry {
                 orbitals: orbitals.into(),
                 source_label,
+                source_path: None,
             },
         );
     }
