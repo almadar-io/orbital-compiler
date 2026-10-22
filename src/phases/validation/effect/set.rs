@@ -438,15 +438,25 @@ pub(crate) fn expr_return_incompatible(
     if !matches!(value, SExpression::Array(_)) {
         return None;
     }
-    let oir_value = crate::phases::resolve::resolve_sexpr_standalone(value).ok()?;
     let ctx = ExprReturnCtx {
         entity: entity_field_types,
         payload: payload_field_types,
         types: None,
         schema,
     };
-    let inferred = crate::type_infer::infer_oir_expr_type(&oir_value, &ctx)?;
-    if orbital_core_base::type_compat::oir_type_satisfies(&inferred, declared) {
+    expr_return_incompatible_in_ctx(value, declared, &ctx)
+}
+
+pub(crate) fn expr_return_incompatible_in_ctx<C: crate::type_infer::TypeCtx>(
+    value: &SExpression,
+    declared: &orbital_core_base::ir::OirType,
+    ctx: &C,
+) -> Option<orbital_core_base::ir::OirType> {
+    let oir_value = crate::phases::resolve::resolve_sexpr_standalone(value).ok()?;
+    let inferred = crate::type_infer::infer_oir_expr_type(&oir_value, ctx)?;
+    if orbital_core_base::type_compat::is_unknowable(&inferred)
+        || orbital_core_base::type_compat::sub_with_named(&inferred, declared, &|name| ctx.named_type(name)).is_some()
+    {
         None
     } else {
         Some(inferred)
@@ -534,14 +544,14 @@ fn operand_kind(operand: &SExpression, ctx: &ExprReturnCtx<'_>) -> Option<&'stat
 /// declared `OirType` from the validator's field-type maps. Deeper paths and
 /// other roots resolve to `None` → the inferencer treats them as `Json`
 /// (conservative).
-pub(super) struct ExprReturnCtx<'a> {
-    pub(super) entity: &'a HashMap<String, EntityFieldMeta>,
-    pub(super) payload: &'a HashMap<String, String>,
+pub(crate) struct ExprReturnCtx<'a> {
+    pub(crate) entity: &'a HashMap<String, EntityFieldMeta>,
+    pub(crate) payload: &'a HashMap<String, String>,
     /// The program, for the struct aliases its orbitals declare; `None` where a check has only the field maps.
     /// The full declared types of the bindings in scope. `None` for a consumer that only compares the primitive
     /// kinds (it never reports an undetermined value).
-    pub(super) types: Option<&'a BindingTypes>,
-    pub(super) schema: Option<&'a orbital_core_base::schema::OrbitalSchema>,
+    pub(crate) types: Option<&'a BindingTypes>,
+    pub(crate) schema: Option<&'a orbital_core_base::schema::OrbitalSchema>,
 }
 
 impl crate::type_infer::TypeCtx for ExprReturnCtx<'_> {

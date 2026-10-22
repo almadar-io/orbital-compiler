@@ -136,7 +136,7 @@ fn report(expr: &SExpression, path: &str, ctx: &ExprReturnCtx<'_>, result: &mut 
                     ),
                 )
                 .with_suggestion(
-                    "Give the value a real type: read it from a declared payload or entity shape, bind it with a typed `let`, or declare a named union alias for a list of differently-shaped items. There is no untyped escape",
+                    "Give the value a real type: read it from a declared payload or entity shape, or declare a named union alias for a list of differently-shaped items. There is no untyped escape",
                 ),
             );
             continue;

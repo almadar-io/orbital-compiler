@@ -248,6 +248,26 @@ fn a_data_origin_is_accepted_only_when_egress_is_declared() {
 }
 
 #[test]
+fn invalid_literal_http_paths_are_rejected_even_with_a_dynamic_origin() {
+    for path in ["", "relative", "//other.example/path", "/a\\b", "/a#fragment"] {
+        for origin in [json!(ORIGIN), json!("@payload.base")] {
+            let result = check(ok_egress(), config(), json!([["http", "GET", origin, path, {}, emit()]]));
+            assert!(fires(&result, ErrorCode::HttpPathInvalid), "{path:?}: {result:?}");
+        }
+    }
+}
+
+#[test]
+fn valid_and_dynamic_http_paths_preserve_the_existing_contract() {
+    for path in [json!("/"), json!("/a?query=1"), json!("/a/../b"), json!("@payload.path"), json!(["str/concat", "/", "@payload.name"])] {
+        let result = check(ok_egress(), config(), json!([["http", "GET", "@payload.base", path, {}, emit()]]));
+        assert!(!fires(&result, ErrorCode::HttpPathInvalid), "{path:?}: {result:?}");
+    }
+    let result = check(ok_egress(), config(), json!([["http", "POST", "oauth-endpoint", "token", {}, emit()]]));
+    assert!(!fires(&result, ErrorCode::HttpPathInvalid), "virtual OAuth endpoint paths have their own contract");
+}
+
+#[test]
 fn method_unknown() {
     let r = check(ok_egress(), config(), json!([["http", "FETCH", ORIGIN, "/s", {}, emit()]]));
     assert!(fires(&r, ErrorCode::HttpMethodUnknown));

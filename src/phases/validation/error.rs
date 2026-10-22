@@ -588,6 +588,8 @@ pub enum ErrorCode {
     HttpOriginNotStatic,
     /// an `http` method is not one of GET POST PUT PATCH DELETE
     HttpMethodUnknown,
+    /// an `http` path violates the kernel's absolute-path contract
+    HttpPathInvalid,
     /// an `http` request/auth/paginate object carries a key outside its closed set
     HttpOptionUnknown,
     /// `http` `auth.scheme` is not in the closed scheme set
@@ -915,7 +917,7 @@ pub enum ErrorCode {
     /// A value handed to an operator's type variable has no determined type — an unresolved expression, an
     /// expression value, json, a list whose items share no type — so what the variable stands for, and the type of
     /// the call's result, is unknown. There are no generic types: give the value a real type (a declared
-    /// payload or entity shape, a typed `let`, a named union alias for a list of differently-shaped items).
+    /// payload or entity shape, a named union alias for a list of differently-shaped items).
     OperatorArgUndetermined,
     /// An ordering comparison (`<`, `<=`, `>`, `>=`) over an operand that can be missing or null — an optional
     /// entity field with no default, an optional payload field — that the program neither guards with a presence
@@ -1693,6 +1695,7 @@ impl ErrorCode {
             ErrorCode::PlacementUnitEmpty => "ORB_PLACEMENT_UNIT_EMPTY",
             ErrorCode::HttpOriginNotStatic => "ORB_HTTP_ORIGIN_NOT_STATIC",
             ErrorCode::HttpMethodUnknown => "ORB_HTTP_METHOD_UNKNOWN",
+            ErrorCode::HttpPathInvalid => "ORB_HTTP_PATH_INVALID",
             ErrorCode::HttpOptionUnknown => "ORB_HTTP_OPTION_UNKNOWN",
             ErrorCode::HttpAuthSchemeUnknown => "ORB_HTTP_AUTH_SCHEME_UNKNOWN",
             ErrorCode::HttpAuthInvalid => "ORB_HTTP_AUTH_INVALID",
@@ -2153,6 +2156,7 @@ impl ErrorCode {
             | ErrorCode::PlacementUnitEmpty
             | ErrorCode::HttpOriginNotStatic
             | ErrorCode::HttpMethodUnknown
+            | ErrorCode::HttpPathInvalid
             | ErrorCode::HttpOptionUnknown
             | ErrorCode::HttpAuthSchemeUnknown
             | ErrorCode::HttpAuthInvalid

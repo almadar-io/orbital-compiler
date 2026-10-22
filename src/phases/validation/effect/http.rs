@@ -683,6 +683,18 @@ fn check_http_call(arr: &[SExpression], site: &Site, result: &mut ValidationResu
         check_url_position(origin, false, "origin", site, result);
     }
 
+    if !oauth_endpoint {
+        if let Some(SExpression::String(path)) = arr.get(3).filter(|value| !matches!(value, SExpression::String(path) if is_dynamic(path))) {
+            if let Err(error) = orbital_core_base::http_wire::check_http_path(path) {
+                result.add_error(ValidationError::error(
+                    ErrorCode::HttpPathInvalid,
+                    site.path,
+                    format!("invalid http path {path:?}: {}", error.message()),
+                ).with_suggestion("Use an absolute request path beginning with `/`; origin is a separate argument"));
+            }
+        }
+    }
+
     let (request, options) = http_objects(arr);
     if let Some(request) = request {
         check_request(method, request, site, result);

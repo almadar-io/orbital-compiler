@@ -3820,6 +3820,29 @@ mod skip_required_members_tests {
         );
     }
 
+    #[test]
+    fn partial_entity_defaults_keep_known_fields_without_requiring_later_members() {
+        let schema = alias_with_required_members();
+        let check = |kind, skip_required_members| {
+            let mut fields = orbital_core_base::schema::SObject::new();
+            fields.insert("kind".to_string(), kind);
+            check_field_def_shape(
+                &schema,
+                &SExpression::Object(fields),
+                "orbitals[0].entity.fields[1].default",
+                &EventScope::default(),
+                &HashMap::new(),
+                skip_required_members,
+            )
+        };
+        let partial = check(SExpression::String("text".to_string()), true);
+        assert!(partial.errors.is_empty(), "partial entity default: {:?}", partial.errors);
+        let strict = check(SExpression::String("text".to_string()), false);
+        assert!(!strict.errors.is_empty(), "complete assignments still require id");
+        let malformed = check(SExpression::Number(3.0), true);
+        assert!(!malformed.errors.is_empty(), "partial defaults still check present fields");
+    }
+
     /// The same `source : Alias = {}` shape, checked the way the entity
     /// adapter calls it: an entity default is an initial state, not a
     /// complete value, so `!` on a struct member is not enforced here.

@@ -356,3 +356,82 @@ fn an_empty_list_takes_the_declared_list_type() {
 fn control_a_string_in_a_list_field_is_a_mismatch() {
     assert!(list_field_emit(string_sexpr("github")));
 }
+
+fn declared_shape_emit_mismatches(
+    source: serde_json::Value,
+    declared: serde_json::Value,
+    aliases: serde_json::Value,
+) -> bool {
+    let value = serde_json::from_value(serde_json::json!([
+        "object/get", "@entity.out", "value"
+    ])).unwrap();
+    let mut literal = orbital_core_base::schema::SObject::new();
+    literal.insert("value".to_string(), value);
+    let mut schema = schema_with_emit(
+        emit_effect("USER_SAVED", Some(SExpression::Object(literal))),
+        declared_emit_with_payload("USER_SAVED", vec![serde_json::from_value(declared).unwrap()]),
+    );
+    schema.orbitals[0].types = Some(serde_json::from_value(aliases).unwrap());
+    let EntityRef::Inline(entity) = &mut schema.orbitals[0].entity else { unreachable!() };
+    entity.fields.push(serde_json::from_value(serde_json::json!({
+        "name": "out", "type": "object", "properties": {"value": source}
+    })).unwrap());
+    validate_comprehensive_without_services(&schema).errors.iter().any(|e|
+        matches!(e.code, ErrorCode::EmitPayloadFieldTypeMismatch)
+    )
+}
+
+#[test]
+fn declared_recursive_union_emit_preserves_its_structural_shape() {
+    let union = serde_json::json!({
+        "type": "union", "values": ["string", "map"], "properties": {
+            "string": {"type": "string"},
+            "map": {"type": "object", "items": {"type": "union", "values": ["V"]}}
+        }
+    });
+    let aliases = serde_json::json!({"V": [{"name": "", "type": "union", "properties": [
+        {"name": "string", "type": "string"},
+        {"name": "object", "type": "Map<string,V>"}
+    ]}]});
+    assert!(!declared_shape_emit_mismatches(union, serde_json::json!({"name": "value", "type": "V"}), aliases.clone()));
+    assert!(!declared_shape_emit_mismatches(
+        serde_json::json!({"type": "union", "values": ["string", "map"], "properties": {
+            "string": {"type": "string"}, "map": {"type": "object", "items": {"type": "string"}}
+        }}),
+        serde_json::json!({"name": "value", "type": "union", "properties": [
+            {"name": "string", "type": "string"}, {"name": "object", "type": "Map<string,string>"}
+        ]}), serde_json::json!({}),
+    ));
+    assert!(!declared_shape_emit_mismatches(
+        serde_json::json!({"type": "object", "items": {"type": "union", "values": ["V"]}}),
+        serde_json::json!({"name": "value", "type": "Map<string,V>"}), aliases,
+    ));
+    assert!(!declared_shape_emit_mismatches(
+        serde_json::json!({"type": "object", "items": {"type": "string"}}),
+        serde_json::json!({"name": "value", "type": "Map<string,string>"}), serde_json::json!({}),
+    ));
+}
+
+#[test]
+fn declared_record_emit_checks_fields_and_required_members() {
+    let aliases = serde_json::json!({"NoteRecord": [
+        {"name": "title", "type": "string", "required": true},
+        {"name": "count", "type": "number", "required": true}
+    ]});
+    for (source, expected_mismatch) in [
+        (serde_json::json!({"type": "object", "properties": {
+            "title": {"type": "string", "required": true}, "count": {"type": "number", "required": true}
+        }}), false),
+        (serde_json::json!({"type": "object", "properties": {
+            "title": {"type": "number", "required": true}, "count": {"type": "number", "required": true}
+        }}), true),
+        (serde_json::json!({"type": "object", "properties": {
+            "title": {"type": "string", "required": true}
+        }}), true),
+        (serde_json::json!({"type": "number"}), true),
+    ] {
+        assert_eq!(declared_shape_emit_mismatches(source.clone(), serde_json::json!({
+            "name": "value", "type": "NoteRecord", "required": true
+        }), aliases.clone()), expected_mismatch, "source: {source}");
+    }
+}

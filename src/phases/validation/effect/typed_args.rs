@@ -9,9 +9,11 @@ use super::set::ExprReturnCtx;
 use super::TraitScopes;
 use crate::type_infer::typed_slot_types;
 use orbital_core_base::ir::types::{DeclaredShape, OirType};
-use orbital_core_base::schema::types::PayloadField;
 use orbital_core_base::language::registry::{OperatorTypeRef, OperatorTypeRefKind};
-use orbital_core_base::schema::{EntityDefinition, OrbitalSchema, RewriteVisit, SExpression, TraitReference};
+use orbital_core_base::schema::types::PayloadField;
+use orbital_core_base::schema::{
+    EntityDefinition, OrbitalSchema, RewriteVisit, SExpression, TraitReference,
+};
 use std::collections::{BTreeMap, HashMap};
 
 const SLOT: &str = "#slot:";
@@ -54,7 +56,8 @@ pub fn record_declared_list_types(schema: &mut OrbitalSchema) {
                     out.guard = Some(declare(guard, &ctx, &aliases));
                 }
                 if let Some(effects) = &transition.effects {
-                    out.effects = Some(effects.iter().map(|e| declare(e, &ctx, &aliases)).collect());
+                    out.effects =
+                        Some(effects.iter().map(|e| declare(e, &ctx, &aliases)).collect());
                 }
             }
             if let Some(ticks) = &trait_def.ticks {
@@ -71,7 +74,11 @@ pub fn record_declared_list_types(schema: &mut OrbitalSchema) {
                     if let Some(guard) = &tick.guard {
                         out_ticks[k].guard = Some(declare(guard, &ctx, &aliases));
                     }
-                    out_ticks[k].effects = tick.effects.iter().map(|e| declare(e, &ctx, &aliases)).collect();
+                    out_ticks[k].effects = tick
+                        .effects
+                        .iter()
+                        .map(|e| declare(e, &ctx, &aliases))
+                        .collect();
                 }
             }
         }
@@ -123,13 +130,17 @@ fn record_parse_shapes(expr: &SExpression, aliases: &Aliases) -> SExpression {
             if let [SExpression::String(head), _, SExpression::String(shape)] = out.as_slice() {
                 if head == "json/parse" {
                     if let Some(declared) = DeclaredShape::of_alias(shape, aliases) {
-                        out[2] = SExpression::String(recorded_type(declared.name, declared.ty, aliases));
+                        out[2] =
+                            SExpression::String(recorded_type(declared.name, declared.ty, aliases));
                     }
                 } else if head == "typed" {
                     // A knob's `typed` value (inline `declared_list_types`) records its type before the orbital's
                     // aliases are in reach; the types it names are added here.
-                    if let Some(declared) = DeclaredShape::parse(shape).filter(|d| d.named.is_empty()) {
-                        out[2] = SExpression::String(recorded_type(declared.name, declared.ty, aliases));
+                    if let Some(declared) =
+                        DeclaredShape::parse(shape).filter(|d| d.named.is_empty())
+                    {
+                        out[2] =
+                            SExpression::String(recorded_type(declared.name, declared.ty, aliases));
                     }
                 }
             }
@@ -146,7 +157,10 @@ fn record_parse_shapes(expr: &SExpression, aliases: &Aliases) -> SExpression {
 fn is_list_of_variable(formal: Option<&OperatorTypeRef>) -> bool {
     match formal {
         Some(OperatorTypeRef::Tagged(OperatorTypeRefKind::Array { of })) => {
-            matches!(&**of, OperatorTypeRef::Tagged(OperatorTypeRefKind::Var { .. }))
+            matches!(
+                &**of,
+                OperatorTypeRef::Tagged(OperatorTypeRefKind::Var { .. })
+            )
         }
         _ => false,
     }
@@ -154,12 +168,25 @@ fn is_list_of_variable(formal: Option<&OperatorTypeRef>) -> bool {
 
 fn tag(expr: &SExpression, next: &mut usize) -> SExpression {
     match expr {
-        SExpression::Object(fields) => {
-            SExpression::Object(fields.iter().map(|(k, v)| (k.clone(), tag(v, next))).collect())
-        }
+        SExpression::Object(fields) => SExpression::Object(
+            fields
+                .iter()
+                .map(|(k, v)| (k.clone(), tag(v, next)))
+                .collect(),
+        ),
         SExpression::Array(items) => {
             if let Some(SExpression::String(head)) = items.first() {
-                if matches!(head.as_str(), "quote" | "quasiquote" | "typed") {
+                if matches!(head.as_str(), "quote" | "quasiquote") {
+                    return expr.clone();
+                }
+                if head == "typed" {
+                    if let [head, initializer, declaration] = items.as_slice() {
+                        return SExpression::Array(vec![
+                            head.clone(),
+                            tag(initializer, next),
+                            declaration.clone(),
+                        ]);
+                    }
                     return expr.clone();
                 }
             }
@@ -173,7 +200,9 @@ fn tag(expr: &SExpression, next: &mut usize) -> SExpression {
                 let computed = !declared
                     && (orbital_core_eval::lower::recognized_call_head(item).is_some()
                         || matches!(item, SExpression::String(s) if s.starts_with('@')));
-                let wrap = i > 0 && computed && signature.is_some_and(|sig| is_list_of_variable(sig.formal(i - 1)));
+                let wrap = i > 0
+                    && computed
+                    && signature.is_some_and(|sig| is_list_of_variable(sig.formal(i - 1)));
                 if wrap {
                     let slot = format!("{SLOT}{}", *next);
                     *next += 1;
@@ -206,8 +235,9 @@ pub(crate) fn needs_declaration(ty: &OirType) -> bool {
 
 /// The list type to record for an argument of a list parameter declared `ty`: `ty` when it is a list whose items may
 /// differ in kind, or the one list member of a union (`OrbValue = … | [OrbValue] | …`) whose items are a union or an
-/// alias, so each item is matched against the union on its own (G-ORB-452).
-fn declared_list(ty: &OirType) -> Option<OirType> {
+/// alias, so each item is matched against the union on its own (G-ORB-452). A narrowed direct list keeps its
+/// named element when the current program declares that alias.
+fn declared_list(ty: &OirType, aliases: &Aliases) -> Option<OirType> {
     if needs_declaration(ty) {
         return Some(ty.clone());
     }
@@ -215,16 +245,34 @@ fn declared_list(ty: &OirType) -> Option<OirType> {
         OirType::Optional { inner } => inner,
         other => other,
     };
+    if let OirType::Array { inner } = ty {
+        let inner = match &**inner {
+            OirType::Optional { inner } => &**inner,
+            other => other,
+        };
+        let named = match inner {
+            OirType::TypeRef { name } | OirType::Reference { entity: name } => {
+                aliases.contains_key(name)
+            }
+            _ => false,
+        };
+        return named.then(|| ty.clone());
+    }
     let OirType::Union { variants } = ty else {
         return None;
     };
-    let mut lists = variants.iter().filter(|v| matches!(v.field_type, OirType::Array { .. }));
+    let mut lists = variants
+        .iter()
+        .filter(|v| matches!(v.field_type, OirType::Array { .. }));
     match (lists.next(), lists.next()) {
         (Some(only), None) => match &only.field_type {
             OirType::Array { inner }
                 if matches!(
                     **inner,
-                    OirType::Union { .. } | OirType::SExpr | OirType::TypeRef { .. } | OirType::Reference { .. }
+                    OirType::Union { .. }
+                        | OirType::SExpr
+                        | OirType::TypeRef { .. }
+                        | OirType::Reference { .. }
                 ) =>
             {
                 Some(only.field_type.clone())
@@ -237,14 +285,18 @@ fn declared_list(ty: &OirType) -> Option<OirType> {
 
 fn untag(expr: &SExpression, slots: &HashMap<String, OirType>, aliases: &Aliases) -> SExpression {
     match expr {
-        SExpression::Object(fields) => {
-            SExpression::Object(fields.iter().map(|(k, v)| (k.clone(), untag(v, slots, aliases))).collect())
-        }
+        SExpression::Object(fields) => SExpression::Object(
+            fields
+                .iter()
+                .map(|(k, v)| (k.clone(), untag(v, slots, aliases)))
+                .collect(),
+        ),
         SExpression::Array(items) => {
-            if let [SExpression::String(head), value, SExpression::String(slot)] = items.as_slice() {
+            if let [SExpression::String(head), value, SExpression::String(slot)] = items.as_slice()
+            {
                 if head == "typed" && slot.starts_with(SLOT) {
                     let value = untag(value, slots, aliases);
-                    return match slots.get(slot).and_then(declared_list) {
+                    return match slots.get(slot).and_then(|ty| declared_list(ty, aliases)) {
                         Some(ty) => SExpression::Array(vec![
                             SExpression::String("typed".to_string()),
                             value,
@@ -254,7 +306,12 @@ fn untag(expr: &SExpression, slots: &HashMap<String, OirType>, aliases: &Aliases
                     };
                 }
             }
-            SExpression::Array(items.iter().map(|item| untag(item, slots, aliases)).collect())
+            SExpression::Array(
+                items
+                    .iter()
+                    .map(|item| untag(item, slots, aliases))
+                    .collect(),
+            )
         }
         other => other.clone(),
     }
@@ -264,6 +321,24 @@ fn untag(expr: &SExpression, slots: &HashMap<String, OirType>, aliases: &Aliases
 mod tests {
     use super::*;
     use serde_json::json;
+
+    #[test]
+    fn narrowed_named_lists_require_an_explicit_alias_environment() {
+        let list = OirType::array(OirType::TypeRef {
+            name: "Value".into(),
+        });
+        assert_eq!(declared_list(&list, &Aliases::new()), None);
+        let aliases = Aliases::from([("Value".into(), Vec::new())]);
+        assert_eq!(declared_list(&list, &aliases), Some(list));
+        assert_eq!(
+            declared_list(&OirType::array(OirType::Json), &aliases),
+            None
+        );
+        assert_eq!(
+            declared_list(&OirType::array(OirType::String), &aliases),
+            None
+        );
+    }
 
     fn program(via: serde_json::Value, effect: serde_json::Value) -> OrbitalSchema {
         serde_json::from_value(json!({
@@ -297,15 +372,30 @@ mod tests {
     }
 
     fn effect_of(schema: &OrbitalSchema) -> serde_json::Value {
-        let TraitReference::Inline(t) = &schema.orbitals[0].traits[0] else { panic!("inline trait") };
-        serde_json::to_value(&t.state_machine.transitions[0].effects.as_ref().expect("effects")[0]).unwrap()
+        let TraitReference::Inline(t) = &schema.orbitals[0].traits[0] else {
+            panic!("inline trait")
+        };
+        serde_json::to_value(
+            &t.state_machine.transitions[0]
+                .effects
+                .as_ref()
+                .expect("effects")[0],
+        )
+        .unwrap()
     }
 
     #[test]
     fn a_list_of_a_union_handed_to_a_list_parameter_records_its_declared_type() {
         let mut schema = program(
             union_via(),
-            json!(["set", "@entity.count", ["array/len", ["array/filter", "@payload.via", ["fn", "x", true]]]]),
+            json!([
+                "set",
+                "@entity.count",
+                [
+                    "array/len",
+                    ["array/filter", "@payload.via", ["fn", "x", true]]
+                ]
+            ]),
         );
         record_declared_list_types(&mut schema);
         let effect = effect_of(&schema);
@@ -314,8 +404,56 @@ mod tests {
         let filter_arg = &len_arg[1][1];
         assert_eq!(filter_arg[0], "typed", "array/filter's list: {effect}");
         assert_eq!(filter_arg[1], "@payload.via");
-        let declared: OirType = serde_json::from_str(filter_arg[2].as_str().expect("type text")).expect("an IR type");
+        let declared: OirType =
+            serde_json::from_str(filter_arg[2].as_str().expect("type text")).expect("an IR type");
         assert!(needs_declaration(&declared), "{declared:?}");
+    }
+
+    #[test]
+    fn checked_local_initializers_keep_nested_declared_union_arguments_at_runtime() {
+        use orbital_core_base::ir::OirField;
+        use orbital_core_eval::evaluator::{context::BindingContextBuilder, Evaluator};
+        let ty = OirType::array(OirType::Union {
+            variants: vec![
+                OirField::new(
+                    "Adv",
+                    OirType::Struct {
+                        fields: vec![OirField::new("id", OirType::Number)],
+                    },
+                ),
+                OirField::new("string", OirType::String),
+            ],
+        });
+        let mut via = union_via();
+        via["items"]["properties"][0]["properties"][0]["required"] = json!(true);
+        let mut schema = program(
+            via,
+            json!([
+                "set",
+                "@entity.count",
+                [
+                    "let",
+                    [[
+                        "values",
+                        [
+                            "typed",
+                            ["array/filter", "@payload.via", ["fn", "x", true]],
+                            serde_json::to_string(&ty).unwrap()
+                        ]
+                    ]],
+                    ["array/len", "@values"]
+                ]
+            ]),
+        );
+        record_declared_list_types(&mut schema);
+        let effect = effect_of(&schema);
+        let expression = serde_json::from_value(effect[2].clone()).unwrap();
+        let payload = serde_json::from_value(json!({"via": [{"id": 1}, "text"]})).unwrap();
+        let context = BindingContextBuilder::new().payload(payload).build();
+        let actual = Evaluator::new()
+            .evaluate(&expression, &context)
+            .unwrap_or_else(|error| panic!("declared union argument inside a checked initializer: {error}; effect={effect}"));
+        assert_eq!(actual, orbital_core_base::value::Value::Number(2.0));
     }
 
     #[test]
@@ -326,13 +464,20 @@ mod tests {
             { "name": "array", "type": "[OrbValue]" },
             { "name": "object", "type": "Map<string,OrbValue>" }
         ] });
-        let mut schema = program(via, json!(["set", "@entity.count", ["array/len", "@payload.via"]]));
+        let mut schema = program(
+            via,
+            json!(["set", "@entity.count", ["array/len", "@payload.via"]]),
+        );
         record_declared_list_types(&mut schema);
         let effect = effect_of(&schema);
         let arg = &effect[2][1];
         assert_eq!(arg[0], "typed", "{effect}");
-        let declared: OirType = serde_json::from_str(arg[2].as_str().expect("type text")).expect("an IR type");
-        assert!(matches!(declared, OirType::Array { .. }), "the union's list member: {declared:?}");
+        let declared: OirType =
+            serde_json::from_str(arg[2].as_str().expect("type text")).expect("an IR type");
+        assert!(
+            matches!(declared, OirType::Array { .. }),
+            "the union's list member: {declared:?}"
+        );
     }
 
     #[test]
@@ -368,7 +513,11 @@ mod tests {
 
     fn parse_shape_of(shape: &str) -> serde_json::Value {
         let via = json!({ "name": "via", "type": "string" });
-        let effect = json!(["set", "@entity.count", ["json/parse", "@payload.via", shape]]);
+        let effect = json!([
+            "set",
+            "@entity.count",
+            ["json/parse", "@payload.via", shape]
+        ]);
         let mut schema = with_row_types(program(via, effect));
         record_declared_list_types(&mut schema);
         effect_of(&schema)[2][2].clone()
@@ -377,16 +526,26 @@ mod tests {
     #[test]
     fn a_json_parse_naming_a_program_alias_records_its_type_with_every_type_it_names() {
         let recorded: DeclaredShape =
-            serde_json::from_str(parse_shape_of("RowFile").as_str().expect("shape text")).expect("a recorded shape");
+            serde_json::from_str(parse_shape_of("RowFile").as_str().expect("shape text"))
+                .expect("a recorded shape");
         assert_eq!(recorded.name.as_deref(), Some("RowFile"));
-        assert!(matches!(recorded.ty, OirType::Struct { .. }), "{:?}", recorded.ty);
-        assert_eq!(recorded.named.keys().collect::<Vec<_>>(), ["Row", "RowCell"], "transitively, the recursive one once");
+        assert!(
+            matches!(recorded.ty, OirType::Struct { .. }),
+            "{:?}",
+            recorded.ty
+        );
+        assert_eq!(
+            recorded.named.keys().collect::<Vec<_>>(),
+            ["Row", "RowCell"],
+            "transitively, the recursive one once"
+        );
     }
 
     #[test]
     fn a_json_parse_naming_a_non_recursive_alias_records_its_type() {
         let recorded: DeclaredShape =
-            serde_json::from_str(parse_shape_of("Point").as_str().expect("shape text")).expect("a recorded shape");
+            serde_json::from_str(parse_shape_of("Point").as_str().expect("shape text"))
+                .expect("a recorded shape");
         assert!(matches!(recorded.ty, OirType::Struct { ref fields } if fields.len() == 1));
         assert!(recorded.named.is_empty());
     }
@@ -443,8 +602,29 @@ mod tests {
 
     #[test]
     fn a_field_of_an_alias_element_bound_by_a_lambda_records_its_declared_list() {
-        let effect = tx_effect(json!(["set", "@entity.count", ["array/len", ["array/flatten",
-            ["array/map", "@payload.via", ["fn", "t", ["array/filter", ["object/get", "@t", "effects", []], ["fn", "e", true]]]]]]]));
+        let effect = tx_effect(json!([
+            "set",
+            "@entity.count",
+            [
+                "array/len",
+                [
+                    "array/flatten",
+                    [
+                        "array/map",
+                        "@payload.via",
+                        [
+                            "fn",
+                            "t",
+                            [
+                                "array/filter",
+                                ["object/get", "@t", "effects", []],
+                                ["fn", "e", true]
+                            ]
+                        ]
+                    ]
+                ]
+            ]
+        ]));
         let declared = typed_around(&effect, &json!(["object/get", "@t", "effects", []]))
             .unwrap_or_else(|| panic!("the lambda's element is a Tx: {effect}"));
         assert!(needs_declaration(&declared), "{declared:?}");
@@ -452,33 +632,76 @@ mod tests {
 
     #[test]
     fn a_field_of_an_alias_element_returned_by_an_operator_records_its_declared_list() {
-        let effect = tx_effect(json!(["set", "@entity.count",
-            ["array/len", ["object/get", ["array/first", "@payload.via"], "effects", []]]]));
-        let declared = typed_around(&effect, &json!(["object/get", ["array/first", "@payload.via"], "effects", []]))
-            .unwrap_or_else(|| panic!("array/first's result is a Tx: {effect}"));
+        let effect = tx_effect(json!([
+            "set",
+            "@entity.count",
+            [
+                "array/len",
+                ["object/get", ["array/first", "@payload.via"], "effects", []]
+            ]
+        ]));
+        let declared = typed_around(
+            &effect,
+            &json!(["object/get", ["array/first", "@payload.via"], "effects", []]),
+        )
+        .unwrap_or_else(|| panic!("array/first's result is a Tx: {effect}"));
         assert!(needs_declaration(&declared), "{declared:?}");
     }
 
     #[test]
     fn control_a_field_of_one_kind_on_an_alias_element_is_left_as_written() {
-        let effect = json!(["set", "@entity.count", ["array/len", ["array/flatten",
-            ["array/map", "@payload.via", ["fn", "t", ["object/get", "@t", "names", []]]]]]]);
+        let effect = json!([
+            "set",
+            "@entity.count",
+            [
+                "array/len",
+                [
+                    "array/flatten",
+                    [
+                        "array/map",
+                        "@payload.via",
+                        ["fn", "t", ["object/get", "@t", "names", []]]
+                    ]
+                ]
+            ]
+        ]);
         assert_eq!(tx_effect(effect.clone()), effect);
     }
 
     #[test]
     fn control_a_list_of_entity_rows_read_through_a_lambda_is_left_as_written() {
         let rows = json!({ "name": "via", "type": "[Probe]" });
-        let effect = json!(["set", "@entity.count", ["array/len",
-            ["array/filter", "@payload.via", ["fn", "r", ["=", ["object/get", "@r", "count"], 1.0]]]]]);
+        let effect = json!([
+            "set",
+            "@entity.count",
+            [
+                "array/len",
+                [
+                    "array/filter",
+                    "@payload.via",
+                    ["fn", "r", ["=", ["object/get", "@r", "count"], 1.0]]
+                ]
+            ]
+        ]);
         let mut schema = program(rows, effect.clone());
         record_declared_list_types(&mut schema);
         assert_eq!(effect_of(&schema), effect);
     }
 
     fn reduce_over(source: serde_json::Value) -> serde_json::Value {
-        let effect = json!(["set", "@entity.count", ["array/len",
-            ["array/reduce", source, "@payload.via", ["fn", ["cur", "seg"], "@cur"]]]]);
+        let effect = json!([
+            "set",
+            "@entity.count",
+            [
+                "array/len",
+                [
+                    "array/reduce",
+                    source,
+                    "@payload.via",
+                    ["fn", ["cur", "seg"], "@cur"]
+                ]
+            ]
+        ]);
         let mut schema = program(union_via(), effect);
         record_declared_list_types(&mut schema);
         effect_of(&schema)
@@ -487,7 +710,10 @@ mod tests {
     #[test]
     fn a_reduce_over_an_empty_list_keeps_its_accumulator_type() {
         let effect = reduce_over(json!([]));
-        assert_eq!(effect[2][1][0], "typed", "the reduce's result is its accumulator, a list of a union: {effect}");
+        assert_eq!(
+            effect[2][1][0], "typed",
+            "the reduce's result is its accumulator, a list of a union: {effect}"
+        );
     }
 
     #[test]

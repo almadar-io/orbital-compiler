@@ -21,7 +21,7 @@ use orbital_core_base::schema::{
 
 use crate::embedded::ServiceRegistryData;
 use super::effect::{
-    collect_payload_field_types, entity_field_type_map, expr_return_incompatible, EntityFieldMeta,
+    expr_return_incompatible_in_ctx, ExprReturnCtx, TraitScopes,
 };
 use super::error::{ErrorCode, ValidationError};
 use super::fired_events::trait_has_dynamic_event_prop_binding;
@@ -63,15 +63,17 @@ pub fn validate_all_emit_payloads(schema: &OrbitalSchema, ctx: &mut ValidationCo
             // `(emit EVT { f: (op …) })` value is type-checked identically to
             // `(set @entity.f (op …))`. Both resolve `@entity`/`@payload` bindings
             // inside the expression; absent entries degrade to `Json` (permissive).
-            let entity_field_types = trait_def
-                .linked_entity
-                .as_ref()
-                .and_then(|e| ctx.entity_definitions.get(e))
-                .map(entity_field_type_map)
-                .unwrap_or_default();
-            let payload_field_types = collect_payload_field_types(trait_def);
+            let scopes = TraitScopes::new(schema, trait_def, &ctx.entity_definitions);
 
             for (i, transition) in trait_def.state_machine.transitions.iter().enumerate() {
+                let payload = scopes.payload_for(&transition.event);
+                let types = scopes.types_for(schema, trait_def, &transition.event);
+                let type_ctx = ExprReturnCtx {
+                    entity: &scopes.entity_field_types,
+                    payload: &payload,
+                    types: Some(&types),
+                    schema: Some(schema),
+                };
                 if let Some(effects) = &transition.effects {
                     check_repeated_emits(
                         effects,
@@ -88,8 +90,7 @@ pub fn validate_all_emit_payloads(schema: &OrbitalSchema, ctx: &mut ValidationCo
                                 effect,
                                 &path,
                                 &emit_schemas,
-                                &entity_field_types,
-                                &payload_field_types,
+                                &type_ctx,
                                 schema,
                             );
                             ctx.merge(result);
@@ -109,6 +110,12 @@ pub fn validate_all_emit_payloads(schema: &OrbitalSchema, ctx: &mut ValidationCo
             }
 
             if let Some(ticks) = &trait_def.ticks {
+                let type_ctx = ExprReturnCtx {
+                    entity: &scopes.entity_field_types,
+                    payload: &scopes.payload_field_types,
+                    types: Some(&scopes.tick_types),
+                    schema: Some(schema),
+                };
                 for (i, tick) in ticks.iter().enumerate() {
                     for (j, effect) in tick.effects.iter().enumerate() {
                         let path = format!("{}.ticks[{}].effects[{}]", trait_path, i, j);
@@ -117,8 +124,7 @@ pub fn validate_all_emit_payloads(schema: &OrbitalSchema, ctx: &mut ValidationCo
                                 effect,
                                 &path,
                                 &emit_schemas,
-                                &entity_field_types,
-                                &payload_field_types,
+                                &type_ctx,
                                 schema,
                             );
                             ctx.merge(result);
@@ -208,8 +214,7 @@ fn validate_emit_literal(
     effect: &SExpression,
     path: &str,
     emit_schemas: &HashMap<&str, &[PayloadField]>,
-    entity_field_types: &HashMap<String, EntityFieldMeta>,
-    payload_field_types: &HashMap<String, String>,
+    type_ctx: &ExprReturnCtx<'_>,
     schema_types: &OrbitalSchema,
 ) -> ValidationResult {
     let mut result = ValidationResult::new();
@@ -264,9 +269,9 @@ fn validate_emit_literal(
     // Extra-field + primitive-type-mismatch checks are only meaningful when
     // the emit actually carries a literal payload object.
     if let Some(obj) = payload_obj {
-        let declared: HashMap<&str, &str> = schema
+        let declared: HashMap<&str, &PayloadField> = schema
             .iter()
-            .map(|f| (f.name.as_str(), f.field_type.as_str()))
+            .map(|f| (f.name.as_str(), f))
             .collect();
         for (key, value) in obj.iter() {
             match declared.get(key.as_str()) {
@@ -286,10 +291,11 @@ fn validate_emit_literal(
                         )),
                     );
                 }
-                Some(expected) => {
+                Some(field) => {
+                    let expected = field.field_type.as_str();
                     // An empty list has no element type of its own; it takes the slot's.
                     let empty_list_in_list_slot = matches!(value, SExpression::Array(items) if items.is_empty())
-                        && (expected.starts_with('[') || *expected == "array");
+                        && (expected.starts_with('[') || expected == "array");
                     let list_items = match value {
                         SExpression::Array(items)
                             if orbital_core_eval::literal_type::literal_value_type(value) == Some("array") =>
@@ -301,7 +307,7 @@ fn validate_emit_literal(
                     if empty_list_in_list_slot {
                     } else if let Some((element, items)) = list_items {
                         if let Some(actual) =
-                            list_item_mismatch(element, items, entity_field_types, payload_field_types, schema_types)
+                            list_item_mismatch(element, items, type_ctx, schema_types)
                         {
                             result.add_error(
                                 ValidationError::error(
@@ -335,12 +341,10 @@ fn validate_emit_literal(
                                 )),
                             );
                         }
-                    } else if let Some(inferred) = expr_return_incompatible(
+                    } else if let Some(inferred) = expr_return_incompatible_in_ctx(
                         value,
-                        &orbital_core_base::type_compat::compat_kind_oir(expected),
-                        entity_field_types,
-                        payload_field_types,
-                        Some(schema_types),
+                        &crate::phases::resolve::payload_field_oir_type(field, schema_types),
+                        type_ctx,
                     ) {
                         // Operator-call payload value (e.g. `(object/get (array/find …) id)`):
                         // `literal_value_type` returned `None`, so infer its result type through
@@ -662,15 +666,14 @@ fn list_element_type(declared: &str) -> Option<&str> {
 fn list_item_mismatch(
     element: &str,
     items: &[SExpression],
-    entity_field_types: &HashMap<String, EntityFieldMeta>,
-    payload_field_types: &HashMap<String, String>,
+    type_ctx: &ExprReturnCtx<'_>,
     schema_types: &OrbitalSchema,
 ) -> Option<String> {
     for item in items {
         match orbital_core_eval::literal_type::literal_value_type(item) {
             Some("array") => {
                 if let (SExpression::Array(inner), Some(inner_element)) = (item, list_element_type(element)) {
-                    if let Some(bad) = list_item_mismatch(inner_element, inner, entity_field_types, payload_field_types, schema_types) {
+                    if let Some(bad) = list_item_mismatch(inner_element, inner, type_ctx, schema_types) {
                         return Some(bad);
                     }
                 } else if !primitive_types_compatible(element, "array") {
@@ -683,12 +686,15 @@ fn list_item_mismatch(
                 }
             }
             None => {
-                if let Some(inferred) = expr_return_incompatible(
+                if let Some(inferred) = expr_return_incompatible_in_ctx(
                     item,
-                    &orbital_core_base::type_compat::compat_kind_oir(element),
-                    entity_field_types,
-                    payload_field_types,
-                    Some(schema_types),
+                    &crate::phases::resolve::payload_field_oir_type(
+                        &PayloadField {
+                            name: String::new(), field_type: element.to_string(), values: None, required: None,
+                            description: None, properties: None, type_when: None, entity: None, projected_from: None, items: None,
+                        }, schema_types,
+                    ),
+                    type_ctx,
                 ) {
                     return Some(orbital_core_base::type_compat::oir_type_kind(&inferred));
                 }

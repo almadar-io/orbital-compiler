@@ -2321,38 +2321,38 @@ pub(crate) fn resolve_type_param_sentinels(
     if let Some(emits) = trait_def.emits.as_mut() {
         for emit in emits.iter_mut() {
             if resolve_payload_entity_schema(
-                emit.payload_entity.as_deref(),
+                &mut emit.payload_entity,
                 &mut emit.payload_schema,
                 entities_by_name,
+                entity_def,
+                &subs,
+                &declared_names,
+                type_args.as_ref(),
             ) {
                 changed = true;
                 continue;
             }
             if let Some(schema) = emit.payload_schema.as_mut() {
-                if flatten_bare_entity_payload(schema, entity_def, &subs) {
-                    changed = true;
-                } else {
-                    changed |= resolve_sentinel_fields(schema, entity_def, &subs, &declared_names);
-                }
+                changed |= resolve_sentinel_fields(schema, entity_def, &subs, &declared_names, entities_by_name);
             }
         }
     }
     if let Some(events) = trait_def.state_machine.events.as_mut() {
         for ev in events.iter_mut() {
             if resolve_payload_entity_schema(
-                ev.payload_entity.as_deref(),
+                &mut ev.payload_entity,
                 &mut ev.payload_schema,
                 entities_by_name,
+                entity_def,
+                &subs,
+                &declared_names,
+                type_args.as_ref(),
             ) {
                 changed = true;
                 continue;
             }
             if let Some(schema) = ev.payload_schema.as_mut() {
-                if flatten_bare_entity_payload(schema, entity_def, &subs) {
-                    changed = true;
-                } else {
-                    changed |= resolve_sentinel_fields(schema, entity_def, &subs, &declared_names);
-                }
+                changed |= resolve_sentinel_fields(schema, entity_def, &subs, &declared_names, entities_by_name);
             }
         }
     }
@@ -2373,20 +2373,40 @@ pub(crate) fn resolve_type_param_sentinels(
 /// emitted fields then disagree with the declared `payloadSchema`
 /// (`ORB_EMIT_PAYLOAD_NOT_PRODUCED`).
 ///
-/// Orthogonal to the `@entity`/`$<param>` sentinel mechanism below (a
-/// payload never carries both markers), so this always takes precedence
-/// when present and skips the sentinel walk entirely for this field.
-/// `false` (no-op, `payload_schema` untouched) when `payload_entity` is
-/// `None` or names an entity gone from this orbital's set.
+/// Whole-payload provenance resolves concrete, implicit and explicit generic bindings here.
 fn resolve_payload_entity_schema(
-    payload_entity: Option<&str>,
+    payload_entity: &mut Option<String>,
     payload_schema: &mut Option<Vec<PayloadField>>,
     entities_by_name: &HashMap<String, EntityDefinition>,
+    entity_def: Option<&EntityDefinition>,
+    subs: &HashMap<String, ParamSub>,
+    declared_names: &HashSet<String>,
+    explicit_args: Option<&HashMap<String, String>>,
 ) -> bool {
-    let Some(name) = payload_entity else {
+    let Some(origin) = payload_entity.clone() else {
         return false;
     };
-    let Some(entity) = entities_by_name.get(name) else {
+    let entity = if origin == "@entity" {
+        entity_def
+    } else if let Some(param) = origin.strip_prefix('$') {
+        match subs.get(param) {
+            Some(ParamSub::Entity(entity)) => {
+                if explicit_args.is_some_and(|args| args.contains_key(param)) {
+                    *payload_entity = Some(entity.name.clone());
+                }
+                Some(entity)
+            }
+            Some(ParamSub::Scalar(_) | ParamSub::Struct(_)) => {
+                *payload_entity = None;
+                None
+            }
+            None if !declared_names.contains(param) => entity_def,
+            None => None,
+        }
+    } else {
+        entities_by_name.get(&origin)
+    };
+    let Some(entity) = entity else {
         return false;
     };
     // A row payload is row-BEARING, not a complete row: the re-derived list
@@ -2417,95 +2437,6 @@ fn resolve_payload_entity_schema(
     *payload_schema = Some(fields);
     true
 }
-
-/// Canonicalize a BARE entity payload so the generic spelling produces the same
-/// shape as the concrete one.
-///
-/// The payload invariant is that an event's declared type IS its access path: an
-/// event declaring a row is read as `?field`, an event declaring `{ row : … }` is
-/// read as `?row.field`. `orbital-lolo` honors that for a concrete bare alias —
-/// `type X = Event Survey` lowers via `resolve_payload_type` to the entity's own
-/// fields FLAT at the payload root. But the generic spellings (`Event @entity`,
-/// `type X (E : Entity) = Event E`) cannot name an entity at lower time, so they
-/// fall through to `type_expr_to_payload_fields`' primitive catch-all and arrive
-/// here as a single synthetic field named `"value"` carrying the sentinel. If we
-/// let the ordinary nested substitution run, that field becomes
-/// `value: object` + properties — a wrapper the author never wrote, read as
-/// `?value.field`. Same authored intent, two incompatible access paths.
-///
-/// So when the sole field IS the whole payload, splice the entity's fields in at
-/// the root instead of wrapping — making `Event @entity` and `Event $E` mean
-/// exactly what `Event Survey` already means.
-///
-/// Deliberately narrow:
-/// - Only the synthetic `"value"` carrier qualifies. A field the author NAMED
-///   (`{ row : @entity }`) is a real wrapper and keeps wrapping — the declared
-///   type still describes its own access path.
-/// - Array payloads (`Event [@entity]`, `Event [$E]`) keep wrapping: a list is
-///   legitimately one value, and flattening rows into the root would be
-///   meaningless.
-/// - A `Scalar` substitution (`:: V string`) keeps wrapping — a primitive has no
-///   fields to splice.
-///
-/// Returns `true` (and rewrites `fields`) when it flattened, `false` to leave
-/// `fields` untouched for the ordinary nested resolution.
-fn flatten_bare_entity_payload(
-    fields: &mut Vec<PayloadField>,
-    entity_def: Option<&EntityDefinition>,
-    subs: &HashMap<String, ParamSub>,
-) -> bool {
-    let [field] = fields.as_slice() else {
-        return false;
-    };
-    if field.name != BARE_PAYLOAD_CARRIER {
-        return false;
-    }
-    let entity = match field.field_type.as_str() {
-        // Still-unresolved sentinel: the common single-level case.
-        "@entity" => entity_def,
-        // An ALREADY-RESOLVED carrier. Reached when the atom is composed
-        // through an intermediate atom: the inner level substituted the
-        // sentinel and WRAPPED it (`value: object` + properties) before this
-        // pass ever saw it, so the un-flattened payload used to survive to
-        // codegen and every `?<field>` read on it was undefined. That is what
-        // forced `std-version-history`'s `RevisionRolledBack` back to a
-        // concrete entity (docs/Almadar_Std_Gaps.md, B8).
-        //
-        // Re-resolving against THIS level's entity is not just a repair, it is
-        // the correct binding: for a `@rebindable` trait the payload must
-        // reflect the FINAL bound entity, not whichever one an intermediate
-        // level happened to carry.
-        "object" if field.properties.is_some() => entity_def,
-        ft => match ft.strip_prefix('$').and_then(|p| subs.get(p)) {
-            Some(ParamSub::Entity(e)) => Some(e),
-            _ => None,
-        },
-    };
-    let Some(entity) = entity else {
-        return false;
-    };
-    *fields = entity_fields_to_payload_fields(entity);
-    true
-}
-
-/// The synthetic field name `orbital-lolo` gives a payload lowered from a BARE
-/// type position — `type_expr_to_payload_fields`' catch-all arm in
-/// `lower/emit_listen.rs`. Its presence is what distinguishes "this sentinel is
-/// the entire payload" from "the author named a field that happens to hold a
-/// row".
-///
-/// ⚠️ **Known residual ambiguity.** `value` is an authorable field name, so a
-/// hand-written sole-field payload `type X = Event { value : SomeEntity }`
-/// lowers to the same shape as the synthetic carrier and would be flattened
-/// here — silently changing its access path from `?value.f` to `?f`. Verified
-/// 2026-08-30 that the corpus contains **zero** such declarations
-/// (`= Event { value : <Entity|@entity> }` matches nothing), so nothing is
-/// mis-handled today, but the collision is real. The proper fix is to give the
-/// synthetic carrier a name authors cannot write (the sentinel `$`-prefix
-/// convention already used for type parameters); that changes `.orb` output for
-/// every bare-primitive payload (`Event string`), so it is tracked rather than
-/// bundled here. See `docs/Almadar_Std_Gaps.md` (B11).
-const BARE_PAYLOAD_CARRIER: &str = "value";
 
 /// A resolved Increment 3-II substitution for one declared type param.
 enum ParamSub {
@@ -2667,9 +2598,19 @@ fn resolve_sentinel_fields(
     entity_def: Option<&EntityDefinition>,
     subs: &HashMap<String, ParamSub>,
     declared_names: &HashSet<String>,
+    entities_by_name: &HashMap<String, EntityDefinition>,
 ) -> bool {
     let mut changed = false;
     for field in fields.iter_mut() {
+        if matches!(field.field_type.as_str(), "object" | "[object]")
+            && resolve_payload_entity_schema(
+                &mut field.entity, &mut field.properties, entities_by_name,
+                entity_def, subs, declared_names, None,
+            )
+        {
+            changed = true;
+            continue;
+        }
         // `@entity` — the bound-entity row SELF-reference. Semantically the
         // Entity-kind default without a parameter: substitute the trait's
         // linked entity, or leave for the sweep when there is none.
@@ -2781,7 +2722,7 @@ fn resolve_sentinel_fields(
             continue;
         }
         if let Some(props) = field.properties.as_mut() {
-            changed |= resolve_sentinel_fields(props, entity_def, subs, declared_names);
+            changed |= resolve_sentinel_fields(props, entity_def, subs, declared_names, entities_by_name);
         }
     }
     changed

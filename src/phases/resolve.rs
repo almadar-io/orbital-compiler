@@ -10,12 +10,12 @@ use orbital_core_base::ir::{
     OirState, OirTick, OirTrait, OirTraitBinding, OirTraitSource, OirTransition, OirTransitionFrom,
     OirType, OirValue,
 };
-use orbital_core_eval::lower::{ExprLowerer, LowerError};
 use orbital_core_base::schema::{
     Cardinality, EntityDefinition, EntityRef, FieldDefinition, FieldType, OrbitalSchema,
     PageDefinition, PageRef, SExpression, SectionDefinition, ServiceRef, StringOrArray, ThemeRef,
     TraitDefinition, TraitReference, TransitionDefinition,
 };
+use orbital_core_eval::lower::{ExprLowerer, LowerError};
 use std::cell::RefCell;
 use std::collections::{BTreeMap, HashMap, HashSet};
 use thiserror::Error;
@@ -198,7 +198,9 @@ impl<'a> Resolver<'a> {
             for expectation in expects {
                 let name = match expectation {
                     orbital_core_base::schema::ExpectDeclaration::Entity { name, .. } => Some(name),
-                    orbital_core_base::schema::ExpectDeclaration::Identity { name, .. } => name.as_ref(),
+                    orbital_core_base::schema::ExpectDeclaration::Identity { name, .. } => {
+                        name.as_ref()
+                    }
                     _ => None,
                 };
                 if let Some(name) = name {
@@ -331,7 +333,9 @@ impl<'a> Resolver<'a> {
                     if let ServiceRef::Inline(service) = service_ref {
                         let service_name = match service {
                             orbital_core_base::schema::ServiceDefinition::Rest(r) => r.name.clone(),
-                            orbital_core_base::schema::ServiceDefinition::Socket(s) => s.name.clone(),
+                            orbital_core_base::schema::ServiceDefinition::Socket(s) => {
+                                s.name.clone()
+                            }
                             orbital_core_base::schema::ServiceDefinition::Mcp(m) => m.name.clone(),
                         };
                         if seen_services.insert(service_name) {
@@ -860,7 +864,10 @@ impl<'a> Resolver<'a> {
     /// Mirrors `resolve_field_shape` on `FieldDefinition` — same recursion
     /// rules so a typed config slot's TS shape parallels what entity fields
     /// emit.
-    fn resolve_config_field_shape(&self, field: &orbital_core_base::schema::ConfigField) -> OirType {
+    fn resolve_config_field_shape(
+        &self,
+        field: &orbital_core_base::schema::ConfigField,
+    ) -> OirType {
         // Tuple slot: `[T1, T2, …]` with each slot's shape riding `properties` by index.
         if orbital_core_base::type_compat::tuple_type_slots(&field.field_type).is_some() {
             let slots = orbital_core_base::schema::tuple_slots_of(field.properties.as_ref());
@@ -1327,7 +1334,9 @@ impl<'a> Resolver<'a> {
                 } else if orbital_core_base::cron::is_valid_cron_expression(s) {
                     // A real 5-field cron expression (e.g. "0 9 * * *") —
                     // previously silently collapsed to `Seconds { value: 1 }`.
-                    OirInterval::Cron { expression: s.clone() }
+                    OirInterval::Cron {
+                        expression: s.clone(),
+                    }
                 } else {
                     return Err(ResolveError::InvalidTickInterval(s.clone()));
                 }
@@ -1509,7 +1518,10 @@ struct NamedTypeCtx<'a> {
 }
 
 /// The `OirType` a declared trait config knob has.
-pub(crate) fn config_field_oir_type(field: &orbital_core_base::schema::ConfigField, schema: &OrbitalSchema) -> OirType {
+pub(crate) fn config_field_oir_type(
+    field: &orbital_core_base::schema::ConfigField,
+    schema: &OrbitalSchema,
+) -> OirType {
     Resolver::new(schema).resolve_config_field_shape(field)
 }
 
@@ -1524,7 +1536,10 @@ pub(crate) fn config_field_carried_type(field: &orbital_core_base::schema::Confi
 }
 
 /// The `OirType` a declared payload field has, named types resolved against the schema.
-pub(crate) fn payload_field_oir_type(field: &orbital_core_base::schema::PayloadField, schema: &OrbitalSchema) -> OirType {
+pub(crate) fn payload_field_oir_type(
+    field: &orbital_core_base::schema::PayloadField,
+    schema: &OrbitalSchema,
+) -> OirType {
     let named_types = RefCell::new(BTreeMap::new());
     let in_progress = RefCell::new(HashSet::new());
     let entity_names = declared_entity_names(schema);
@@ -1540,24 +1555,15 @@ pub(crate) fn payload_field_oir_type(field: &orbital_core_base::schema::PayloadF
 /// The struct a declared alias (`type X = { … }`) names, as an `OirType`, else the installed language's program type
 /// of that name (`Viewer`, `BehaviorRef`, …); `None` when neither declares it.
 pub(crate) fn declared_struct_type(schema: &OrbitalSchema, name: &str) -> Option<OirType> {
-    let named_types = RefCell::new(BTreeMap::new());
-    let in_progress = RefCell::new(HashSet::new());
-    let entity_names = declared_entity_names(schema);
-    let ctx = NamedTypeCtx {
-        schema,
-        named_types: &named_types,
-        in_progress: &in_progress,
-        entity_names: &entity_names,
-    };
-    // A dictionary or list alias is one entry with the empty name whose type string is the alias's value.
-    for orbital in &schema.orbitals {
-        if let Some([only]) = orbital.types.as_ref().and_then(|t| t.get(name)).map(Vec::as_slice) {
-            if only.name.is_empty() {
-                return Some(payload_field_to_oir_type(only, &ctx));
-            }
-        }
-    }
-    lookup_named_type_shape(name, &ctx)
+    schema
+        .orbitals
+        .iter()
+        .find_map(|orbital| {
+            orbital.types.as_ref().and_then(|aliases| {
+                orbital_core_base::ir::types::DeclaredShape::of_alias(name, aliases)
+                    .map(|shape| shape.ty)
+            })
+        })
         .or_else(|| orbital_core_base::language::program_types::program_type(name).cloned())
 }
 
@@ -1588,12 +1594,21 @@ fn payload_field_to_oir_type(
     ctx: &NamedTypeCtx,
 ) -> OirType {
     if let Some(slots) = orbital_core_base::ir::types::payload_tuple_slots(field) {
-        return OirType::Tuple { items: slots.into_iter().map(|slot| payload_field_to_oir_type(slot, ctx)).collect() };
+        return OirType::Tuple {
+            items: slots
+                .into_iter()
+                .map(|slot| payload_field_to_oir_type(slot, ctx))
+                .collect(),
+        };
     }
     if let (true, Some(item)) = (field.field_type == "array", field.items.as_deref()) {
         return OirType::array(payload_field_to_oir_type(item, ctx));
     }
-    if let (true, None, Some(item)) = (field.field_type == "object", &field.properties, field.items.as_deref()) {
+    if let (true, None, Some(item)) = (
+        field.field_type == "object",
+        &field.properties,
+        field.items.as_deref(),
+    ) {
         return OirType::map(OirType::String, payload_field_to_oir_type(item, ctx));
     }
     // Recursive back-reference marker: `properties: Some([])` — present but
@@ -1930,10 +1945,10 @@ mod tests {
             ledger: None,
             schema_version: None,
             config: None,
-    egress: None,
-    inbound: None,
-    os_grants: None,
-    deployment: None,
+            egress: None,
+            inbound: None,
+            os_grants: None,
+            deployment: None,
         }
     }
 
@@ -2302,10 +2317,10 @@ mod tests {
             ledger: None,
             schema_version: None,
             config: None,
-    egress: None,
-    inbound: None,
-    os_grants: None,
-    deployment: None,
+            egress: None,
+            inbound: None,
+            os_grants: None,
+            deployment: None,
         };
         let resolver = Resolver::new(&schema);
         let resolved = resolver
@@ -2460,10 +2475,10 @@ mod tests {
             ledger: None,
             schema_version: None,
             config: None,
-    egress: None,
-    inbound: None,
-    os_grants: None,
-    deployment: None,
+            egress: None,
+            inbound: None,
+            os_grants: None,
+            deployment: None,
         };
         let resolver = Resolver::new(&schema);
         let resolved = resolver.resolve_field_shape(&field).expect("resolves");
@@ -2498,10 +2513,10 @@ mod tests {
             ledger: None,
             schema_version: None,
             config: None,
-    egress: None,
-    inbound: None,
-    os_grants: None,
-    deployment: None,
+            egress: None,
+            inbound: None,
+            os_grants: None,
+            deployment: None,
         };
         let resolver = Resolver::new(&schema);
         for malformed in [
@@ -2513,7 +2528,8 @@ mod tests {
             assert!(resolver.resolve_field_shape(&field).is_err(), "{malformed}");
         }
         let by_name: FieldDefinition =
-            serde_json::from_value(serde_json::json!({ "type": "union", "values": ["Node"] })).unwrap();
+            serde_json::from_value(serde_json::json!({ "type": "union", "values": ["Node"] }))
+                .unwrap();
         assert!(matches!(
             resolver.resolve_field_shape(&by_name),
             Ok(OirType::TypeRef { .. })
@@ -2587,10 +2603,23 @@ mod tests {
 
     #[test]
     fn a_row_of_the_entity_an_unset_knob_names_is_an_empty_record() {
-        assert_eq!(parse_payload_field_type("@entity(captureEntity)"), OirType::Struct { fields: Vec::new() });
-        assert_eq!(parse_payload_field_type("$t"), OirType::Var { name: "t".into() });
-        assert_eq!(parse_payload_field_type("[$t]"), OirType::array(OirType::Var { name: "t".into() }));
-        assert_eq!(parse_payload_field_type("$"), OirType::Reference { entity: "$".into() }, "control: no name");
+        assert_eq!(
+            parse_payload_field_type("@entity(captureEntity)"),
+            OirType::Struct { fields: Vec::new() }
+        );
+        assert_eq!(
+            parse_payload_field_type("$t"),
+            OirType::Var { name: "t".into() }
+        );
+        assert_eq!(
+            parse_payload_field_type("[$t]"),
+            OirType::array(OirType::Var { name: "t".into() })
+        );
+        assert_eq!(
+            parse_payload_field_type("$"),
+            OirType::Reference { entity: "$".into() },
+            "control: no name"
+        );
         assert_eq!(
             parse_payload_field_type("[@entity(captureEntity)]"),
             OirType::array(OirType::Struct { fields: Vec::new() })
@@ -2598,7 +2627,9 @@ mod tests {
         // control: a bare name stays a reference to the entity it names.
         assert_eq!(
             parse_payload_field_type("Order"),
-            OirType::Reference { entity: "Order".to_string() }
+            OirType::Reference {
+                entity: "Order".to_string()
+            }
         );
     }
 
@@ -2607,7 +2638,10 @@ mod tests {
         assert_eq!(parse_payload_field_type("string"), OirType::String);
         assert_eq!(parse_payload_field_type("int"), OirType::Integer);
         assert_eq!(parse_payload_field_type("boolean"), OirType::Boolean);
-        assert_eq!(parse_payload_field_type("object"), OirType::Json);
+        assert_eq!(
+            parse_payload_field_type("object"),
+            OirType::Struct { fields: Vec::new() }
+        );
     }
 
     #[test]
@@ -2903,10 +2937,10 @@ mod tests {
             ledger: None,
             schema_version: None,
             config: None,
-    egress: None,
-    inbound: None,
-    os_grants: None,
-    deployment: None,
+            egress: None,
+            inbound: None,
+            os_grants: None,
+            deployment: None,
         };
 
         let result = resolve_to_oir(&schema);
@@ -2951,10 +2985,10 @@ mod tests {
             ledger: None,
             schema_version: None,
             config: None,
-    egress: None,
-    inbound: None,
-    os_grants: None,
-    deployment: None,
+            egress: None,
+            inbound: None,
+            os_grants: None,
+            deployment: None,
         });
         Resolver::new(schema)
     }
@@ -3060,7 +3094,9 @@ mod tests {
             .expect("valid cron should resolve");
         assert_eq!(
             resolved.interval,
-            OirInterval::Cron { expression: "0 9 * * *".to_string() }
+            OirInterval::Cron {
+                expression: "0 9 * * *".to_string()
+            }
         );
     }
 
