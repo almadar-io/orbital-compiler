@@ -228,6 +228,7 @@ pub fn validate_trait_effects(
                     Some(&declared_emits),
                     &entity_field_types,
                     &scoped_payload,
+                    &scoped_shapes.payload,
                     Some(schema),
                 );
                 result.merge(effect_result);
@@ -283,6 +284,7 @@ pub fn validate_trait_effects(
                     Some(&declared_emits),
                     &entity_field_types,
                     &payload_field_types,
+                    &tick_types.payload,
                     Some(schema),
                 );
                 result.merge(effect_result);

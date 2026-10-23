@@ -36,6 +36,25 @@ const ATOM: &str = r#"{
         }
       }],
       "pages": [ { "name": "UserPage", "path": "/user", "traits": [ { "ref": "RecLog" } ] } ]
+    },
+    {
+      "name": "StoreOrbital",
+      "entity": { "name": "StoreState", "persistence": "runtime",
+        "fields": [ { "name": "id", "type": "string", "required": true } ] },
+      "auxiliaryEntities": [ { "name": "Ledger", "persistence": "persistent", "collection": "ledgers",
+        "fields": [ { "name": "id", "type": "string", "required": true } ] } ],
+      "traits": [{
+        "name": "LedgerLog",
+        "linkedEntity": "Ledger",
+        "category": "interaction",
+        "stateMachine": {
+          "states": [ { "name": "idle", "isInitial": true } ],
+          "events": [ { "key": "INIT" } ],
+          "transitions": [ { "from": "idle", "to": "idle", "event": "INIT",
+            "effects": [ ["fetch", "Ledger", {}] ] } ]
+        }
+      }],
+      "pages": [ { "name": "StorePage", "path": "/store", "traits": [ { "ref": "LedgerLog" } ] } ]
     }
   ]
 }"#;
@@ -55,6 +74,13 @@ fn block(target: &str) -> String {
         "fields": [ {{ "name": "id", "type": "string", "required": true }} ] }} ],
       "traits": [],
       "pages": [ {{ "name": "ThingsPage", "path": "/things", "traits": [] }} ]
+    }},
+    {{
+      "name": "Sib",
+      "uses": [ {{ "from": "./atom.orb", "as": "At" }} ],
+      "entity": "At.orbitals.StoreOrbital.entity",
+      "traits": [],
+      "reference": {{ "ref": "At.orbitals.StoreOrbital" }}
     }},
     {{
       "name": "HelperOrbital",
@@ -116,5 +142,66 @@ fn control_a_target_the_block_does_not_declare_is_still_reported() {
     assert_eq!(
         entity_target_unknown("Nowhere"),
         vec![("Rec".to_string(), "Nowhere".to_string())]
+    );
+}
+
+#[test]
+fn a_block_import_target_a_sibling_import_materializes_resolves() {
+    assert_eq!(
+        entity_target_unknown("SibLedger"),
+        Vec::<(String, String)>::new(),
+        "an auxiliary entity an earlier import of the block materializes is a target its later imports can name"
+    );
+}
+
+/// The app re-imports the block's orbitals under their own names; the helper's retarget names the block's
+/// `Thing`, the primary of a sibling orbital the app imports by its own name too.
+const APP_SAME_NAMES: &str = r#"{
+  "name": "app",
+  "version": "1.0.0",
+  "orbitals": [
+    {
+      "name": "ThingOrbital",
+      "uses": [ { "from": "./block.orb", "as": "Blk" } ],
+      "entity": "Blk.orbitals.ThingOrbital.entity",
+      "traits": [],
+      "reference": { "ref": "Blk.orbitals.ThingOrbital" }
+    },
+    {
+      "name": "HelperOrbital",
+      "uses": [ { "from": "./block.orb", "as": "Blk" } ],
+      "entity": "Blk.orbitals.HelperOrbital.entity",
+      "traits": [],
+      "reference": { "ref": "Blk.orbitals.HelperOrbital" }
+    }
+  ]
+}"#;
+
+fn entity_unmapped_same_names(target: &str) -> Vec<(String, String)> {
+    let dir = tempfile::TempDir::new().expect("temp dir");
+    std::fs::write(dir.path().join("atom.orb"), ATOM).expect("write atom");
+    std::fs::write(dir.path().join("block.orb"), block(target)).expect("write block");
+    let path = dir.path().join("app.orb");
+    std::fs::write(&path, APP_SAME_NAMES).expect("write app");
+    let mut schema = parse_file(&path).expect("app parses");
+    let (mut trait_cfg, mut orbital_ref, mut uses_cfg) = (Vec::new(), Vec::new(), Vec::new());
+    inline_schema_with_orbital_diagnostics(
+        &mut schema,
+        &InlineConfig::default(),
+        Some(&path),
+        &mut trait_cfg,
+        &mut orbital_ref,
+        &mut uses_cfg,
+    )
+    .expect("inline succeeds");
+    orbital_ref.into_iter().flat_map(|d| d.entity_unmapped).collect()
+}
+
+#[test]
+fn a_same_name_reimport_keeps_a_sibling_entity_the_app_also_reimports() {
+    assert_eq!(
+        entity_unmapped_same_names("Thing"),
+        Vec::<(String, String)>::new(),
+        "the helper's reference to the block's Thing stands: the app re-imports ThingOrbital by its own name"
     );
 }

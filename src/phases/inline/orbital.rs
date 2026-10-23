@@ -227,6 +227,17 @@ pub(crate) fn forward_consumer_app_knobs(
 /// itself a non-Inline form (never arises on the real resolve path, since
 /// `ctx.get_orbital` only ever returns already-inlined orbitals; the
 /// pre-pass's shallow, non-recursive load can legitimately hit this).
+/// The prefix an import's names take (§4.3): the local orbital name, except for an import that keeps the upstream
+/// orbital's own name (`orbital X = Alias.orbitals.X`), which reproduces it as declared. A second import of the same
+/// upstream needs another local name, so it is prefixed and stays disjoint.
+pub(crate) fn import_prefix<'a>(local_name: &'a str, obj: &OrbitalRefObject) -> &'a str {
+    if obj.reference.rsplit('.').next() == Some(local_name) {
+        ""
+    } else {
+        local_name
+    }
+}
+
 pub(crate) fn materialized_primary_entity(
     upstream: &Orbital,
     obj: &OrbitalRefObject,
@@ -238,14 +249,13 @@ pub(crate) fn materialized_primary_entity(
     let primary_final = obj
         .entity
         .clone()
-        .unwrap_or_else(|| format!("{local_name}{}", upstream_entity.name));
+        .unwrap_or_else(|| format!("{}{}", import_prefix(local_name, obj), upstream_entity.name));
     let primary_id = derive_materialized_id(
         upstream_entity.id.as_deref(),
         upstream.id.as_deref(),
         &upstream_entity.name,
-        local_name,
-        orbital_core_base::identity::IdKind::Entity,
-    );
+        import_prefix(local_name, obj),
+        orbital_core_base::identity::IdKind::Entity);
     Some((primary_final, primary_id))
 }
 
@@ -460,14 +470,13 @@ pub(crate) fn materialized_trait_subs(
         if !keep {
             continue;
         }
-        let final_name = format!("{local_name}{name}");
+        let final_name = format!("{}{name}", import_prefix(local_name, obj));
         let final_id = derive_materialized_id(
             id.as_deref(),
             upstream.id.as_deref(),
             &name,
-            local_name,
-            orbital_core_base::identity::IdKind::Trait,
-        );
+            import_prefix(local_name, obj),
+            orbital_core_base::identity::IdKind::Trait);
         out.insert(name, (final_name, final_id));
     }
     out
@@ -741,14 +750,14 @@ pub(crate) fn resolve_orbital_reference(
         .collect();
     let mut subs: HashMap<String, String> = HashMap::new();
     for td in &kept {
-        subs.insert(td.name.clone(), format!("{local_name}{}", td.name));
+        subs.insert(td.name.clone(), format!("{}{}", import_prefix(&local_name, obj), td.name));
     }
     subs.insert(upstream_entity.name.clone(), primary_final.clone());
     let mut entity_renames: HashMap<String, String> = HashMap::new();
     entity_renames.insert(upstream_entity.name.clone(), primary_final.clone());
     for e in &aux_entities {
-        subs.insert(e.name.clone(), format!("{local_name}{}", e.name));
-        entity_renames.insert(e.name.clone(), format!("{local_name}{}", e.name));
+        subs.insert(e.name.clone(), format!("{}{}", import_prefix(&local_name, obj), e.name));
+        entity_renames.insert(e.name.clone(), format!("{}{}", import_prefix(&local_name, obj), e.name));
     }
     let field_subs: HashMap<String, String> = obj.fields.clone().unwrap_or_default();
 
@@ -839,9 +848,8 @@ pub(crate) fn resolve_orbital_reference(
             td.id.as_deref(),
             upstream.id.as_deref(),
             &td.name,
-            &local_name,
-            orbital_core_base::identity::IdKind::Trait,
-        );
+            import_prefix(&local_name, obj),
+            orbital_core_base::identity::IdKind::Trait);
         if let Some(mut origin) = ctx.trait_origin(td, &alias) {
             origin.root_callsite = orbital_index.map(|i| (i, td.name.clone()));
             if let Some(path) = ctx.current_source_path.as_ref() {
@@ -864,9 +872,8 @@ pub(crate) fn resolve_orbital_reference(
             e.id.as_deref(),
             upstream.id.as_deref(),
             &e.name,
-            &local_name,
-            orbital_core_base::identity::IdKind::Entity,
-        );
+            import_prefix(&local_name, obj),
+            orbital_core_base::identity::IdKind::Entity);
         entity_ids.insert(final_name.clone(), final_id.clone());
         let mut ed = e.clone();
         ed.name = final_name;
@@ -1070,10 +1077,14 @@ pub(crate) fn resolve_orbital_reference(
             }
             continue;
         }
-        if obj
-            .entities
-            .as_ref()
-            .is_none_or(|m| !m.contains_key(entity))
+        // A same-name import keeps its sibling references: the consumer declaring that exact entity (its own
+        // same-name import of the sibling) is the entity the reference already names.
+        let kept_as_is = import_prefix(&local_name, obj).is_empty() && consumer_entity_ids.contains_key(entity);
+        if !kept_as_is
+            && obj
+                .entities
+                .as_ref()
+                .is_none_or(|m| !m.contains_key(entity))
         {
             entity_unmapped.push((site.clone(), entity.clone()));
         }
@@ -1193,14 +1204,13 @@ pub(crate) fn resolve_orbital_reference(
         let Some(def) = upstream_universe_defs.get(name) else {
             continue;
         };
-        let final_name = format!("{local_name}{name}");
+        let final_name = format!("{}{name}", import_prefix(&local_name, obj));
         let final_id = derive_materialized_id(
             def.id.as_deref(),
             upstream.id.as_deref(),
             name,
-            &local_name,
-            orbital_core_base::identity::IdKind::Entity,
-        );
+            import_prefix(&local_name, obj),
+            orbital_core_base::identity::IdKind::Entity);
         subs.insert(name.clone(), final_name.clone());
         entity_renames.insert(name.clone(), final_name.clone());
         entity_ids.insert(final_name.clone(), final_id.clone());
@@ -1584,7 +1594,7 @@ pub(crate) fn resolve_orbital_reference(
             // remap) would otherwise collide on `PageDefinition.name` even
             // though their paths are disjoint. JS twin: identical rule in
             // `materializeOrbitalRef`.
-            pd.name = format!("{local_name}{}", pd.name);
+            pd.name = format!("{}{}", import_prefix(&local_name, obj), pd.name);
             // Same rule as traits/entities: a page id is re-derived per
             // import so two imports of one upstream never share one (JS twin:
             // `asPageId(deriveMaterializedId(...))` in `materializeOrbitalRef`).
@@ -1592,9 +1602,8 @@ pub(crate) fn resolve_orbital_reference(
                 page_def.id.as_deref(),
                 upstream.id.as_deref(),
                 &page_def.name,
-                &local_name,
-                orbital_core_base::identity::IdKind::Page,
-            ));
+                import_prefix(&local_name, obj),
+                orbital_core_base::identity::IdKind::Page));
             if let Some(traits) = pd.traits.as_mut() {
                 traits.retain_mut(|tr| {
                     if let TraitReference::Reference {
@@ -2198,6 +2207,10 @@ pub(crate) fn derive_materialized_id(
     local_name: &str,
     kind: orbital_core_base::identity::IdKind,
 ) -> String {
+    // An import that keeps the upstream's name (an empty prefix) reproduces its ids as declared.
+    if let (true, Some(id)) = (local_name.is_empty(), source_id) {
+        return id.to_string();
+    }
     let seed;
     let parent: &str = match source_id {
         Some(id) => id,
@@ -3421,6 +3434,42 @@ mod tests {
         for expected in ["LocalA", "LocalB", "LocalC"] {
             assert!(names.contains(&expected.to_string()), "{names:?}");
         }
+        assert!(findings_free(&diagnostics), "{diagnostics:?}");
+    }
+
+    #[test]
+    fn an_import_that_keeps_the_upstream_name_reproduces_it_unprefixed() {
+        let ctx = ctx_with_upstream(None);
+        let mut orbital = consumer_orbital("UpOrbital");
+        let obj = OrbitalRefObject {
+            reference: "Up.orbitals.UpOrbital".to_string(),
+            ..Default::default()
+        };
+        let mut diagnostics = Vec::new();
+        resolve_orbital_reference(
+            &mut orbital,
+            &obj,
+            &ctx,
+            &HashMap::new(),
+            &HashMap::new(),
+            &HashMap::new(),
+            None,
+            &mut diagnostics,
+            None,
+            &mut Vec::new(),
+        )
+        .expect("resolves");
+
+        let mut names = trait_names(&orbital);
+        names.sort();
+        assert_eq!(names, vec!["A", "B", "C"], "the same-name import keeps every trait name");
+        let a = kept_trait(&orbital, "A");
+        match a.listens.as_ref().expect("listens carried")[0].source.as_ref().expect("source") {
+            ListenSource::Trait { trait_name, .. } => assert_eq!(trait_name, "B"),
+            other => panic!("expected ListenSource::Trait, got {other:?}"),
+        }
+        let EntityRef::Inline(entity) = &orbital.entity else { panic!("the primary entity is inlined") };
+        assert_eq!(entity.name, "Widget", "the same-name import keeps the entity name");
         assert!(findings_free(&diagnostics), "{diagnostics:?}");
     }
 

@@ -37,6 +37,7 @@ use orbital_core_base::schema::{
     ConfigField, EntityDefinition, EntityRef, ExpectDeclaration, FieldDefinition, Orbital,
     OrbitalSchema, PayloadField, SExpression, StringOrArray, TraitDefinition, TraitReference,
 };
+use crate::phases::resolve::declared_struct_type;
 use orbital_core_base::type_compat::{checked_sub_with_named, enum_value_is_member};
 
 /// An orbital's `expects entity [identity]` declaration, if it carries one.
@@ -604,7 +605,7 @@ fn validate_expectation_links(schema: &OrbitalSchema, result: &mut ValidationRes
             }
             match expectation {
                 ExpectDeclaration::Identity { name, shape, .. } => {
-                    check_identity_link(&orbital.name, name, shape, &providers, &path, result);
+                    check_identity_link(&orbital.name, name, shape, &providers, &path, schema, result);
                 }
                 ExpectDeclaration::Entity { name, shape, .. } => {
                     let provider = providers.iter().find(|(def, _)| def.name == *name);
@@ -614,7 +615,7 @@ fn validate_expectation_links(schema: &OrbitalSchema, result: &mut ValidationRes
                         None => {}
                         Some((def, _)) => {
                             if let Some(shape) = shape {
-                                check_shape(&orbital.name, def, shape, &path, result);
+                                check_shape(&orbital.name, def, shape, &path, schema, result);
                             }
                             check_entity_facts(&orbital.name, def, expectation, &path, result);
                             if expectation.is_strict()
@@ -698,6 +699,7 @@ fn validate_expectation_links(schema: &OrbitalSchema, result: &mut ValidationRes
                                 expected,
                                 emit.payload_schema.as_deref().unwrap_or(&[]),
                                 &path,
+                                schema,
                                 result,
                             );
                         }
@@ -864,6 +866,7 @@ fn check_event_payload(
     expected: &[PayloadField],
     provided: &[PayloadField],
     path: &str,
+    schema: &OrbitalSchema,
     result: &mut ValidationResult,
 ) {
     for want in expected {
@@ -891,6 +894,7 @@ fn check_event_payload(
             payload_field_shape(have),
             want.values.as_ref().map(|_| false),
             have.values.as_ref().map(|_| false),
+            schema,
         );
         let values_ok = match (&want.values, &have.values) {
             (Some(w), Some(h)) => w.iter().all(|m| enum_value_is_member(m, h)),
@@ -1083,6 +1087,7 @@ fn check_identity_link(
     shape: &Option<Vec<FieldDefinition>>,
     providers: &[(&EntityDefinition, &str)],
     path: &str,
+    schema: &OrbitalSchema,
     result: &mut ValidationResult,
 ) {
     match name {
@@ -1109,7 +1114,7 @@ fn check_identity_link(
                 ),
                 Some((def, _)) => {
                     if let Some(shape) = shape {
-                        check_shape(consumer, def, shape, path, result);
+                        check_shape(consumer, def, shape, path, schema, result);
                     }
                 }
             }
@@ -1121,7 +1126,7 @@ fn check_identity_link(
                 None => {}
                 Some((def, _)) => {
                     if let Some(shape) = shape {
-                        check_shape(consumer, def, shape, path, result);
+                        check_shape(consumer, def, shape, path, schema, result);
                     }
                 }
             }
@@ -1139,6 +1144,7 @@ fn check_shape(
     provider: &EntityDefinition,
     shape: &[FieldDefinition],
     path: &str,
+    schema: &OrbitalSchema,
     result: &mut ValidationResult,
 ) {
     for expected in shape {
@@ -1205,7 +1211,7 @@ fn check_shape(
                     .all(|m| enum_value_is_member(m, provider_members)),
             },
         };
-        if required_match && vocab_ok && types_compatible(expected, actual) {
+        if required_match && vocab_ok && types_compatible(expected, actual, schema) {
             continue;
         }
 
@@ -1264,12 +1270,13 @@ fn check_shape(
 
 /// Provider values must satisfy the consumer's shape without a conversion.
 /// Vocabulary membership is checked separately by the expectation's subset rule.
-fn types_compatible(expected: &FieldDefinition, actual: &FieldDefinition) -> bool {
+fn types_compatible(expected: &FieldDefinition, actual: &FieldDefinition, schema: &OrbitalSchema) -> bool {
     expectation_shapes_compatible(
         field_shape(expected),
         field_shape(actual),
         vocabulary(expected).map(|_| expected.values.as_ref().is_none_or(Vec::is_empty)),
         vocabulary(actual).map(|_| actual.values.as_ref().is_none_or(Vec::is_empty)),
+        schema,
     )
 }
 
@@ -1278,6 +1285,7 @@ fn expectation_shapes_compatible(
     mut actual: OirType,
     expected_vocabulary: Option<bool>,
     actual_vocabulary: Option<bool>,
+    schema: &OrbitalSchema,
 ) -> bool {
     for (mut shape, vocabulary) in [
         (&mut expected, expected_vocabulary),
@@ -1302,7 +1310,7 @@ fn expectation_shapes_compatible(
             *shape = OirType::String;
         }
     }
-    checked_sub_with_named(&actual, &expected, &|_| None).is_some()
+    checked_sub_with_named(&actual, &expected, &|name| declared_struct_type(schema, name)).is_some()
 }
 
 #[cfg(test)]
@@ -1508,5 +1516,39 @@ mod final_expectation_tests {
             None
         ))
         .is_empty());
+    }
+
+    fn alias_program() -> OrbitalSchema {
+        serde_json::from_value(serde_json::json!({
+            "name": "App",
+            "orbitals": [{
+                "name": "Llm",
+                "entity": { "name": "Call", "persistence": "runtime", "fields": [{ "name": "id", "type": "string" }] },
+                "types": {
+                    "Arg": [{ "name": "value", "type": "string", "required": true }],
+                    "Other": [{ "name": "value", "type": "number", "required": true }]
+                },
+                "traits": [],
+                "pages": []
+            }]
+        }))
+        .expect("program json")
+    }
+
+    fn list_of(name: &str) -> OirType {
+        OirType::array(OirType::TypeRef { name: name.to_string() })
+    }
+
+    #[test]
+    fn a_list_of_an_alias_satisfies_an_expectation_of_the_same_alias() {
+        let schema = alias_program();
+        assert!(expectation_shapes_compatible(list_of("Arg"), list_of("Arg"), None, None, &schema));
+    }
+
+    #[test]
+    fn control_a_list_of_another_alias_does_not_satisfy_the_expectation() {
+        let schema = alias_program();
+        assert!(!expectation_shapes_compatible(list_of("Arg"), list_of("Other"), None, None, &schema));
+        assert!(!expectation_shapes_compatible(list_of("Arg"), list_of("Undeclared"), None, None, &schema));
     }
 }

@@ -2815,6 +2815,14 @@ fn import_source(orbital: &Value) -> Option<(String, String)> {
 /// `program/compose`: the programs, in order, as one app program (`compose_app_from_files`), the registry reads
 /// served from the source of every behavior their orbitals import, loaded once up front (`load_source` takes a
 /// `uses` specifier). An orbital value at `orbitals[i]` stands for its import orbital.
+/// The app header declarations the composer does not own: the composed program takes each from the first program that
+/// declares it (the app comes first), so composing an app with its server keeps the app's locales, public folder and
+/// themes.
+const APP_HEADER_KEYS: [&str; 13] = [
+    "version", "description", "theme", "themes", "themeDefinitions", "locales", "publicDir", "site", "store",
+    "deployment", "lazyPages", "typeContractVersion", "types",
+];
+
 pub fn compose_programs(
     programs: &[Value],
     app_name: &str,
@@ -2904,6 +2912,13 @@ pub fn compose_programs(
         now: now.to_string(),
     };
     let mut schema = compose_app_from_files(&programs, &options, &lookups)?["schema"].take();
+    for key in APP_HEADER_KEYS {
+        if schema.get(key).is_none() {
+            if let Some(value) = programs.iter().find_map(|p| p.get(key).filter(|v| !v.is_null())) {
+                schema[key] = value.clone();
+            }
+        }
+    }
     if let Some(theme) = theme {
         schema["theme"] = Value::String(theme.to_string());
     }
@@ -3223,6 +3238,28 @@ mod tests {
         let app = composable("app", "Notes", None, None, None);
         let composed = compose(&[app, server], None).unwrap();
         assert_eq!(composed["osGrants"]["env"], json!(["NODE_ENV"]), "the server's env grant survives: {}", composed["osGrants"]);
+    }
+
+    #[test]
+    fn composing_keeps_the_app_header_its_first_declaring_program_states() {
+        let mut app = composable("app", "Notes", None, None, None);
+        app["locales"] = json!(["en", "ar"]);
+        app["publicDir"] = json!("public");
+        app["description"] = json!("Notes.");
+        let mut server = composable("server", "Http", None, None, None);
+        server["locales"] = json!(["sl"]);
+        let composed = compose(&[app, server], None).unwrap();
+        assert_eq!(composed["locales"], json!(["en", "ar"]), "the app's locales, not the later program's: {}", composed["locales"]);
+        assert_eq!(composed["publicDir"], json!("public"));
+        assert_eq!(composed["description"], json!("Notes."));
+        let later = compose(&[composable("app", "Notes", None, None, None), { let mut s = composable("server", "Http", None, None, None); s["locales"] = json!(["sl"]); s }], None).unwrap();
+        assert_eq!(later["locales"], json!(["sl"]), "edge: the first program that declares it");
+    }
+
+    #[test]
+    fn control_programs_declaring_no_header_compose_to_none_of_it() {
+        let composed = compose(&[composable("app", "Notes", None, None, None)], None).unwrap();
+        assert!(composed.get("locales").is_none() && composed.get("publicDir").is_none(), "{composed}");
     }
 
     #[test]

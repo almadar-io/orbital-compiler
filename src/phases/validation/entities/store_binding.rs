@@ -1,6 +1,7 @@
 //! The store seam's binding checks (EXEC-STORE-4): `store:` names a driver orbital that answers every row
-//! verb of `spec/store/row-store.lolo`, binds only an entity whose rows live in a store, and a driver that
-//! declares no conditional write never backs an entity the program takes with a single delete or update.
+//! verb of `spec/store/row-store.lolo`, binds only an entity whose rows live in a store, a driver that
+//! declares no conditional write never backs an entity the program takes with a single delete or update, and no
+//! trait outside a driver emits a row verb (the seam asks a driver, one frame per ask).
 
 use super::{ErrorCode, ValidationContext, ValidationError, ValidationResult};
 use orbital_core_base::schema::{EntityRef, OrbitalSchema, Persistence, SExpression, TraitReference};
@@ -41,6 +42,31 @@ pub(crate) fn store_binding_issues(schema: &OrbitalSchema) -> ValidationResult {
             if in_store {
                 if let Some(driver) = def.store.as_deref().or(schema.store.as_deref()) {
                     bound.insert(def.name.as_str(), driver);
+                }
+            }
+        }
+    }
+    let drivers: Vec<&str> = checked.keys().copied().filter(|d| schema.orbitals.iter().any(|o| o.name == *d)).collect();
+    if !drivers.is_empty() {
+        for (i, orbital) in schema.orbitals.iter().enumerate() {
+            if drivers.contains(&orbital.name.as_str()) {
+                continue;
+            }
+            for t in &orbital.traits {
+                let TraitReference::Inline(def) = t else { continue };
+                for transition in &def.state_machine.transitions {
+                    for effect in transition.effects.iter().flatten() {
+                        emitted_verbs(effect, &mut |verb| {
+                            result.add_error(
+                                ValidationError::error(
+                                    ErrorCode::StoreVerbOutsideSeam,
+                                    format!("orbitals[{i}].traits.{}", def.name),
+                                    format!("trait {} emits the row verb {verb}; a store driver is asked only by the store seam, one frame per ask (EXEC-STORE-4)", def.name),
+                                )
+                                .with_suggestion("Read and write the rows through persist/fetch on an entity bound to the driver"),
+                            );
+                        });
+                    }
                 }
             }
         }
@@ -110,6 +136,21 @@ pub(crate) fn write_conditional(schema: &OrbitalSchema, driver: &str) -> Option<
     let orbital = schema.orbitals.iter().find(|o| o.name == driver)?;
     let declared = orbital.config.as_ref()?.get("writeCapabilities")?.default.as_ref()?;
     declared.as_object()?.get("conditional")?.as_bool()
+}
+
+/// Every row verb an `(emit <verb> …)` in `effect` raises.
+fn emitted_verbs(effect: &SExpression, found: &mut impl FnMut(&str)) {
+    let Some(items) = effect.as_array() else { return };
+    if let [head, event, ..] = items.as_slice() {
+        if head.as_str() == Some("emit") {
+            if let Some(verb) = event.as_str().filter(|e| VERBS.contains(e)) {
+                found(verb);
+            }
+        }
+    }
+    for item in items {
+        emitted_verbs(item, found);
+    }
 }
 
 /// Every entity a single `persist delete|update` in `effect` takes.
@@ -201,5 +242,31 @@ mod tests {
         by_app.store = Some("Rows".to_string());
         assert_eq!(codes(&by_app), ["ORB_STORE_DRIVER_NOT_CONDITIONAL"], "the app default binds too");
         assert!(codes(&program(ticket(json!({})), true, driver("Rows", &[], None))).is_empty(), "an unbound program");
+    }
+
+    fn emitting(event: &str) -> OrbitalSchema {
+        let mut p = program(ticket(json!({ "store": "Rows" })), false, driver("Rows", &VERBS, None));
+        let caller: Value = json!({ "name": "Caller", "pages": [],
+            "entity": { "name": "CallerRow", "persistence": "runtime", "fields": [{ "name": "id", "type": "string" }] },
+            "traits": [{ "name": "Asker", "stateMachine": { "states": [{ "name": "idle", "isInitial": true }],
+                "transitions": [{ "from": "idle", "to": "idle", "event": "GO", "effects": [["emit", event, { "key": "k" }]] }] } }] });
+        p.orbitals.push(serde_json::from_value(caller).unwrap());
+        p
+    }
+
+    #[test]
+    fn a_trait_emitting_a_row_verb_outside_the_driver_is_refused() {
+        for verb in VERBS {
+            assert_eq!(codes(&emitting(verb)), ["ORB_STORE_VERB_OUTSIDE_SEAM"], "{verb}");
+        }
+    }
+
+    #[test]
+    fn control_an_ordinary_emit_beside_a_driver_and_a_verb_with_no_driver_are_accepted() {
+        assert!(codes(&emitting("SAVED")).is_empty());
+        let mut no_driver = emitting("ROW_READ");
+        no_driver.orbitals[0].entity = serde_json::from_value(ticket(json!({}))).unwrap();
+        no_driver.store = None;
+        assert!(codes(&no_driver).is_empty(), "{:?}", codes(&no_driver));
     }
 }

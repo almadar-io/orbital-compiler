@@ -124,6 +124,9 @@ struct Inferer<'c> {
     /// The `let` locals bound to an operand that can be missing.
     absent_locals: RefCell<Vec<String>>,
     refinements: RefCell<Vec<TypeFact>>,
+    /// `let` locals bound to one member of a value (`(let ((k (object/get @n "kind" ""))) ...)`): a tag test on the
+    /// local narrows that value.
+    tag_aliases: RefCell<Vec<(String, OirBinding, String)>>,
     children: RefCell<Vec<ChildrenDependency>>,
     named_types: RefCell<std::sync::Arc<std::collections::BTreeMap<String, OirType>>>,
     /// The type inferred for each `["typed", value, "#slot:<n>"]` the typed-arguments pass tagged.
@@ -148,6 +151,7 @@ impl<'c> Inferer<'c> {
             present: RefCell::new(Vec::new()),
             absent_locals: RefCell::new(Vec::new()),
             refinements: RefCell::new(Vec::new()),
+            tag_aliases: RefCell::new(Vec::new()),
             children: RefCell::new(Vec::new()),
             named_types: RefCell::new(std::sync::Arc::default()),
             slots: RefCell::new(Vec::new()),
@@ -275,14 +279,21 @@ impl<'c> Inferer<'c> {
 
     fn binding(&self, binding: &OirBinding) -> Option<OirType> {
         let mut ty = self.binding_unrefined(binding)?;
+        if let (OirBindingRoot::Local(_), false) = (&binding.root, binding.path.is_empty()) {
+            let base = OirBinding { root: binding.root.clone(), path: Vec::new() };
+            let refined = self
+                .binding(&base)
+                .and_then(|base| type_at_path(&self.unfold_rows(self.unfold(base)), &binding.path));
+            ty = refined.unwrap_or(ty);
+        }
         for dependency in self
             .children
             .borrow()
             .iter()
             .filter(|dependency| dependency.children == *binding)
         {
-            let declared = self.binding_unrefined(&dependency.node)?;
-            let refined = self.binding(&dependency.node)?;
+            let declared = self.unfold(self.binding_unrefined(&dependency.node)?);
+            let refined = self.unfold(self.binding(&dependency.node)?);
             let projected =
                 orbital_core_base::signature::project_children_type(&declared, &ty, &refined);
             ty = projected.unwrap_or(ty);
@@ -293,7 +304,7 @@ impl<'c> Inferer<'c> {
             .iter()
             .filter(|fact| fact.projection.is_none() && fact.operand == *binding)
         {
-            ty = refine_type(&self.unfold(ty.clone()), fact.predicate, fact.truth).unwrap_or(ty);
+            ty = self.narrow(&ty, &fact.predicate, fact.truth).unwrap_or(ty);
         }
         Some(ty)
     }
@@ -359,8 +370,7 @@ impl<'c> Inferer<'c> {
                 .iter()
                 .filter(|fact| fact.operand == operand && fact.projection == projection)
             {
-                inferred = refine_type(&self.unfold(inferred.clone()), fact.predicate, fact.truth)
-                    .unwrap_or(inferred);
+                inferred = self.narrow(&inferred, &fact.predicate, fact.truth).unwrap_or(inferred);
             }
         }
         Some(inferred)
@@ -591,6 +601,7 @@ impl<'c> Inferer<'c> {
             return None;
         };
         let mut scopes = Vec::new();
+        let mut aliased = 0usize;
         for pair in bindings {
             if let OirExpr::Array { items } = pair {
                 if let (Some(OirExpr::String { value: name }), Some(value)) =
@@ -598,7 +609,12 @@ impl<'c> Inferer<'c> {
                 {
                     let ty = self.infer_local_initializer(value);
                     let absent = self.absent_operand(value).is_some();
+                    let alias = member_read(value);
                     scopes.push(self.enter_scope(&[(name.clone(), ty)]));
+                    if let Some((owner, member)) = alias {
+                        self.tag_aliases.borrow_mut().push((name.clone(), owner, member));
+                        aliased += 1;
+                    }
                     if absent {
                         self.absent_locals.borrow_mut().push(name.clone());
                     }
@@ -606,6 +622,11 @@ impl<'c> Inferer<'c> {
             }
         }
         let body_known = self.known(body);
+        {
+            let mut aliases = self.tag_aliases.borrow_mut();
+            let kept = aliases.len() - aliased;
+            aliases.truncate(kept);
+        }
         for scope in scopes.into_iter().rev() {
             self.leave_scope(scope);
         }
@@ -906,9 +927,8 @@ impl<'c> Inferer<'c> {
                 signature.bind_declared_node(&mut bindings, index, declared.clone());
             }
             let refined = self.refinements.borrow().len();
-            self.refinements
-                .borrow_mut()
-                .extend(type_guards_for(name, args, index));
+            let guards = self.through_aliases(type_guards_for(name, args, index));
+            self.refinements.borrow_mut().extend(guards);
             let narrowed = self.present.borrow().len();
             self.present
                 .borrow_mut()
@@ -1073,6 +1093,15 @@ impl<'c> Inferer<'c> {
                 return None;
             }
         }
+        let defaulted = signature
+            .field_projection()
+            .and_then(|projection| projection.default_arg)
+            .and_then(|index| args.get(index))
+            .is_some_and(|default| !matches!(default, OirExpr::Null));
+        let result = match result {
+            OirType::Optional { inner } if defaulted => *inner,
+            other => other,
+        };
         Some(self.unfold(result))
     }
 
@@ -1127,6 +1156,82 @@ impl<'c> Inferer<'c> {
     }
 
     /// A by-name result (the shape `json/parse` was given) is the declared type it names, when the context knows it.
+    /// Facts with a tag test on a `let` local bound to one member of a value, restated on that value.
+    fn through_aliases(&self, facts: Vec<TypeFact>) -> Vec<TypeFact> {
+        let aliases = self.tag_aliases.borrow();
+        facts
+            .into_iter()
+            .filter_map(|fact| match &fact.predicate {
+                Narrowing::Tag { member, literals } if member.is_empty() => {
+                    let OirBindingRoot::Local(local) = &fact.operand.root else {
+                        return None;
+                    };
+                    let (_, owner, member) = aliases.iter().rev().find(|(name, _, _)| name == local)?;
+                    Some(TypeFact {
+                        operand: owner.clone(),
+                        projection: None,
+                        predicate: Narrowing::Tag { member: member.clone(), literals: literals.clone() },
+                        truth: fact.truth,
+                    })
+                }
+                _ => Some(fact),
+            })
+            .collect()
+    }
+
+    /// `ty` as a fact narrows it: a type test keeps the matching types, a tag test the matching tagged-union variants.
+    fn narrow(&self, ty: &OirType, narrowing: &Narrowing, truth: bool) -> Option<OirType> {
+        match narrowing {
+            Narrowing::Type(predicate) => refine_type(&self.unfold(ty.clone()), *predicate, truth),
+            Narrowing::Tag { member, literals } => self.narrow_tag(&self.unfold(ty.clone()), member, literals, truth),
+        }
+    }
+
+    /// The variants of a tagged union whose `member` tag is (`truth`) or is not one of `literals`; a variant without
+    /// that tag stays either way. A comparison that holds also shows an optional value present.
+    fn narrow_tag(&self, ty: &OirType, member: &str, literals: &[String], truth: bool) -> Option<OirType> {
+        match ty {
+            OirType::Optional { inner } => {
+                let narrowed = self.narrow_tag(&self.unfold((**inner).clone()), member, literals, truth)?;
+                Some(if truth { narrowed } else { OirType::optional(narrowed) })
+            }
+            OirType::Union { variants } => {
+                let kept: Vec<OirField> = variants
+                    .iter()
+                    .filter(|variant| match self.variant_tag(&variant.field_type, member) {
+                        Some(tag) => literals.contains(&tag) == truth,
+                        None => true,
+                    })
+                    .cloned()
+                    .collect();
+                match kept.as_slice() {
+                    [] => None,
+                    _ if kept.len() == variants.len() => Some(ty.clone()),
+                    [only] => Some(only.field_type.clone()),
+                    _ => Some(OirType::Union { variants: kept }),
+                }
+            }
+            _ => Some(ty.clone()),
+        }
+    }
+
+    /// The single literal a struct variant's `member` field holds (its tag), when it has one.
+    fn variant_tag(&self, variant: &OirType, member: &str) -> Option<String> {
+        let OirType::Struct { fields, .. } = self.unfold(variant.clone()) else {
+            return None;
+        };
+        let field = fields.into_iter().find(|field| field.name == member)?;
+        let members = match (&field.field_type, field.enum_values) {
+            (OirType::Enum { name }, _) => orbital_core_base::type_compat::literal_union_members(name)?,
+            (_, Some(values)) => values,
+            _ => return None,
+        };
+        match members.as_slice() {
+            [only] => Some(only.clone()),
+            _ => None,
+        }
+    }
+
     fn unfold(&self, mut ty: OirType) -> OirType {
         let mut seen = std::collections::HashSet::new();
         while let OirType::TypeRef { name } | OirType::Reference { entity: name } = &ty {
@@ -1377,8 +1482,16 @@ struct ChildrenDependency {
 struct TypeFact {
     operand: OirBinding,
     projection: Option<ReadProjection>,
-    predicate: orbital_core_eval::evaluator::operators::TypePredicate,
+    predicate: Narrowing,
     truth: bool,
+}
+
+/// What a fact shows of its operand: a type test (`validate/string`), or a tagged union's tag compared with a literal.
+#[derive(Clone, PartialEq)]
+enum Narrowing {
+    Type(orbital_core_eval::evaluator::operators::TypePredicate),
+    /// The member's tag is one of `literals` (an `or` of tag tests on one member joins them).
+    Tag { member: String, literals: Vec<String> },
 }
 
 #[derive(Clone, PartialEq)]
@@ -1443,7 +1556,7 @@ fn type_facts(expr: &OirExpr, truth: bool) -> Vec<TypeFact> {
             .map(|(operand, projection)| TypeFact {
                 operand,
                 projection,
-                predicate,
+                predicate: Narrowing::Type(predicate),
                 truth,
             })
             .into_iter()
@@ -1463,6 +1576,22 @@ fn type_facts(expr: &OirExpr, truth: bool) -> Vec<TypeFact> {
         })
     };
     match name {
+        "=" | "==" | "!=" => {
+            let equal = name != "!=";
+            match args.as_slice() {
+                [left, right] => tag_fact(left, right)
+                    .or_else(|| tag_fact(right, left))
+                    .map(|(operand, member, literal)| TypeFact {
+                        operand,
+                        projection: None,
+                        predicate: Narrowing::Tag { member, literals: vec![literal] },
+                        truth: truth == equal,
+                    })
+                    .into_iter()
+                    .collect(),
+                _ => Vec::new(),
+            }
+        }
         "not" => args
             .first()
             .map(|arg| type_facts(arg, !truth))
@@ -1471,12 +1600,80 @@ fn type_facts(expr: &OirExpr, truth: bool) -> Vec<TypeFact> {
             args.iter().map(|arg| type_facts(arg, truth)).collect(),
             truth,
         ),
+        "or" if truth => {
+            let parts: Vec<Vec<TypeFact>> = args.iter().map(|arg| type_facts(arg, true)).collect();
+            joined_tags(&parts).unwrap_or_else(|| combine(parts, false))
+        }
         "or" => combine(
             args.iter().map(|arg| type_facts(arg, truth)).collect(),
             !truth,
         ),
         _ => Vec::new(),
     }
+}
+
+/// An `or` whose every part is one tag test on the same value and member: one test of the joined literals.
+fn joined_tags(parts: &[Vec<TypeFact>]) -> Option<Vec<TypeFact>> {
+    let mut joined: Option<TypeFact> = None;
+    for part in parts {
+        let [fact] = part.as_slice() else {
+            return None;
+        };
+        let Narrowing::Tag { member, literals } = &fact.predicate else {
+            return None;
+        };
+        if !fact.truth {
+            return None;
+        }
+        match &mut joined {
+            None => joined = Some(fact.clone()),
+            Some(TypeFact { operand, predicate: Narrowing::Tag { member: seen, literals: all }, .. })
+                if *operand == fact.operand && seen == member =>
+            {
+                all.extend(literals.iter().cloned());
+            }
+            Some(_) => return None,
+        }
+    }
+    joined.map(|fact| vec![fact])
+}
+
+/// `side` read as one member of a value (`@n.kind`, or `(object/get @n "kind" d)` with a text key) compared with the
+/// text literal `other`: the value, the member and the literal. Which variants carry that member as a tag is the
+/// value's type to say; a member that is no tag narrows nothing.
+fn tag_fact(side: &OirExpr, other: &OirExpr) -> Option<(OirBinding, String, String)> {
+    let OirExpr::String { value: literal } = other else {
+        return None;
+    };
+    if let Some(binding) = operand_binding(side) {
+        if binding.path.is_empty() && matches!(binding.root, OirBindingRoot::Local(_)) {
+            return Some((binding, String::new(), literal.clone()));
+        }
+        let (member, owner) = binding.path.split_last()?;
+        return Some((
+            OirBinding { root: binding.root.clone(), path: owner.to_vec() },
+            member.clone(),
+            literal.clone(),
+        ));
+    }
+    let (operand, projection) = guarded_operand(side)?;
+    let OirExpr::String { value: member } = projection?.key else {
+        return None;
+    };
+    Some((operand, member, literal.clone()))
+}
+
+/// A read of one member of a value: `@n.kind`, or `(object/get @n "kind" d)` with a text key.
+fn member_read(expr: &OirExpr) -> Option<(OirBinding, String)> {
+    if let Some(binding) = operand_binding(expr) {
+        let (member, owner) = binding.path.split_last()?;
+        return Some((OirBinding { root: binding.root.clone(), path: owner.to_vec() }, member.clone()));
+    }
+    let (operand, projection) = guarded_operand(expr)?;
+    let OirExpr::String { value: member } = projection?.key else {
+        return None;
+    };
+    Some((operand, member))
 }
 
 fn type_guards_for(name: &str, args: &[&OirExpr], index: usize) -> Vec<TypeFact> {
@@ -2301,6 +2498,63 @@ mod tests {
         check_oir_expr(&expr, &NestedOptionalPayload { required })
     }
 
+    struct OptionalTagsPayload;
+
+    impl TypeCtx for OptionalTagsPayload {
+        fn binding_type(&self, binding: &OirBinding) -> Option<OirType> {
+            if binding.root != OirBindingRoot::Payload {
+                return None;
+            }
+            let mut tags = OirField::new("tags", OirType::array(OirType::String));
+            tags.required = false;
+            type_at_path(
+                &OirType::Struct {
+                    additional: None,
+                    fields: vec![OirField::new(
+                        "result",
+                        OirType::Struct {
+                            additional: None,
+                            fields: vec![tags],
+                        },
+                    )],
+                },
+                &binding.path,
+            )
+        }
+    }
+
+    fn let_bound_read_findings(default: serde_json::Value) -> Vec<Diagnostic> {
+        let expr = lowered(serde_json::json!([
+            "let",
+            [["c", ["object/get", "@payload.result", "tags", default]]],
+            ["array/includes", "@c", "a"]
+        ]));
+        check_oir_expr(&expr, &OptionalTagsPayload)
+    }
+
+    #[test]
+    fn a_let_bound_read_with_a_non_null_default_is_present() {
+        let found = let_bound_read_findings(serde_json::json!([]));
+        assert!(found.is_empty(), "{found:?}");
+    }
+
+    #[test]
+    fn a_let_bound_read_with_a_null_default_can_be_missing() {
+        let found = let_bound_read_findings(serde_json::Value::Null);
+        assert!(!found.is_empty(), "a null default leaves the read optional");
+    }
+
+    #[test]
+    fn a_let_bound_read_without_a_default_can_be_missing() {
+        let expr = lowered(serde_json::json!([
+            "let",
+            [["c", ["object/get", "@payload.result", "tags"]]],
+            ["array/includes", "@c", "a"]
+        ]));
+        let found = check_oir_expr(&expr, &OptionalTagsPayload);
+        assert!(!found.is_empty(), "no default leaves the read optional");
+    }
+
     #[test]
     fn nested_named_optional_collection_is_a_null_operand() {
         let found = nested_optional_array_findings(
@@ -2937,6 +3191,62 @@ mod tests {
         assert!(
             found[0].contains("parent") && found[0].contains("expected number, got string"),
             "the child result is the step's number, read with a string default: {found:?}"
+        );
+    }
+
+    struct PredCtx;
+    impl TypeCtx for PredCtx {
+        fn binding_type(&self, binding: &OirBinding) -> Option<OirType> {
+            matches!(binding.root, OirBindingRoot::Entity)
+                .then(|| OirType::TypeRef { name: "Pred".into() })
+        }
+        fn named_type(&self, name: &str) -> Option<OirType> {
+            let own = || OirType::TypeRef { name: "Pred".into() };
+            let node = |of: OirType| OirType::Struct {
+                additional: None,
+                fields: vec![
+                    OirField::new("kind".to_string(), OirType::String),
+                    OirField::new("of".to_string(), of),
+                ],
+            };
+            (name == "Pred").then(|| OirType::Union {
+                variants: vec![
+                    OirField::new("All", node(OirType::array(own()))),
+                    OirField::new("Not", node(own())),
+                ],
+            })
+        }
+    }
+
+    #[test]
+    fn a_fold_step_reading_a_single_child_variants_field_as_a_list_is_rejected_unguarded() {
+        let fold = |step: serde_json::Value| {
+            lowered(serde_json::json!([
+                "tree/fold",
+                "@entity.p",
+                ["fn", ["n", "k"], step],
+                "Pred"
+            ]))
+        };
+        let unguarded = fold(serde_json::json!([
+            "if",
+            ["=", ["object/get", "@n", "kind", ""], "leaf"],
+            1,
+            ["array/len", ["object/get", "@k", "of", []]]
+        ]));
+        assert!(
+            !check_oir_expr(&unguarded, &PredCtx).is_empty(),
+            "`of` is a list on one variant and one result on the other"
+        );
+        let guarded = fold(serde_json::json!([
+            "let",
+            [["o", ["object/get", "@k", "of", 0]]],
+            ["if", ["validate/array", "@o"], ["array/len", "@o"], 1]
+        ]));
+        assert!(
+            check_oir_expr(&guarded, &PredCtx).is_empty(),
+            "control: a read guarded as a list is accepted: {:?}",
+            check_oir_expr(&guarded, &PredCtx)
         );
     }
 

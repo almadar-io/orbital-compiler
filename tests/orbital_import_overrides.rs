@@ -124,8 +124,6 @@ fn entity(schema: &OrbitalSchema) -> &EntityDefinition {
 }
 
 fn field<'a>(schema: &'a OrbitalSchema, name: &str) -> &'a FieldDefinition {
-    nullable: None,
-    additional_properties: None,
     entity(schema)
         .fields
         .iter()

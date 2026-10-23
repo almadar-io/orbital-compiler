@@ -683,7 +683,7 @@ pub fn inline_schema_with_orbital_diagnostics(
     // further fallback, and `ORB_T_REBIND_TARGET_UNRESOLVED` reports it.
     settle_shadowed_auxiliaries(&mut schema.orbitals, &deferred_merges);
 
-    uniquify_cross_orbital_pulled_siblings(schema, &pulled_by_orbital);
+    uniquify_cross_orbital_pulled_siblings(&mut schema.orbitals, schema.ledger.as_mut(), &pulled_by_orbital);
 
     // Preserve cross-file identity: copy the ledger rows of any source id that a
     // cloned node still references but the consumer arena/ledger doesn't carry.
@@ -867,7 +867,8 @@ fn trait_blob_mentions(blob: &str, entity: &str) -> bool {
 /// also appears (pulled or explicit) in another orbital, so single-use pulls
 /// keep their clean source name.
 fn uniquify_cross_orbital_pulled_siblings(
-    schema: &mut OrbitalSchema,
+    orbitals: &mut [Orbital],
+    mut ledger: Option<&mut orbital_core_base::identity::IdentityLedger>,
     pulled_by_orbital: &[(usize, Vec<String>)],
 ) {
     if pulled_by_orbital.is_empty() {
@@ -875,7 +876,7 @@ fn uniquify_cross_orbital_pulled_siblings(
     }
     // Count how many orbitals declare each trait name (any kind).
     let mut name_orbital_count: HashMap<String, usize> = HashMap::new();
-    for orbital in &schema.orbitals {
+    for orbital in orbitals.iter() {
         let mut local: HashSet<String> = HashSet::new();
         for tr in &orbital.traits {
             if let Some(n) = trait_ref_name(tr) {
@@ -894,7 +895,7 @@ fn uniquify_cross_orbital_pulled_siblings(
     // row cannot carry two curNames.
     let mut id_claimed: HashSet<String> = HashSet::new();
     for (orbital_idx, pulled) in pulled_by_orbital {
-        let orbital_name = schema.orbitals[*orbital_idx].name.clone();
+        let orbital_name = orbitals[*orbital_idx].name.clone();
         let mut renames: HashMap<String, String> = HashMap::new();
         // (source_id, new_name, derived_copy_id) — applied to the ledger after
         // the trait borrow ends.
@@ -907,7 +908,7 @@ fn uniquify_cross_orbital_pulled_siblings(
             if name_orbital_count.contains_key(&new_name) {
                 continue;
             }
-            let orbital = &mut schema.orbitals[*orbital_idx];
+            let orbital = &mut orbitals[*orbital_idx];
             for tr in orbital.traits.iter_mut() {
                 if let TraitReference::Inline(td) = tr {
                     if td.name == *old_name {
@@ -943,7 +944,7 @@ fn uniquify_cross_orbital_pulled_siblings(
             renames.insert(old_name.clone(), new_name);
         }
         if !ledger_ops.is_empty() {
-            if let Some(ledger) = schema.ledger.as_mut() {
+            if let Some(ledger) = ledger.as_deref_mut() {
                 let at = orbital_core_base::time_util::now_rfc3339();
                 for (source_id, new_name, copy_id) in &ledger_ops {
                     match copy_id {
@@ -982,7 +983,7 @@ fn uniquify_cross_orbital_pulled_siblings(
         // never carries the token and the name IS the only handle the binding
         // validator + runtime resolve by.
         if !renames.is_empty() {
-            for tr in schema.orbitals[*orbital_idx].traits.iter_mut() {
+            for tr in orbitals[*orbital_idx].traits.iter_mut() {
                 if let TraitReference::Inline(td) = tr {
                     rewrite_trait_embed_tokens(td, &renames);
                 }
@@ -1049,14 +1050,13 @@ fn precompute_reference_form_primary_ids(
             let primary_name = reference
                 .entity
                 .clone()
-                .unwrap_or_else(|| format!("{}{up_name}", orbital.name));
+                .unwrap_or_else(|| format!("{}{up_name}", orbital::import_prefix(&orbital.name, reference)));
             let primary_id = derive_materialized_id(
                 up_id.as_deref(),
                 upstream_id.as_deref(),
                 &up_name,
-                &orbital.name,
-                orbital_core_base::identity::IdKind::Entity,
-            );
+                orbital::import_prefix(&orbital.name, reference),
+                orbital_core_base::identity::IdKind::Entity);
             out.insert(primary_name, primary_id);
         }
     }
@@ -1098,14 +1098,13 @@ fn flattened_primary_entity(
     let final_name = reference
         .entity
         .clone()
-        .unwrap_or_else(|| format!("{}{up_name}", orbital.name));
+        .unwrap_or_else(|| format!("{}{up_name}", orbital::import_prefix(&orbital.name, reference)));
     let final_id = derive_materialized_id(
         up_id.as_deref(),
         upstream_id.as_deref(),
         &up_name,
-        &orbital.name,
-        orbital_core_base::identity::IdKind::Entity,
-    );
+        orbital::import_prefix(&orbital.name, reference),
+        orbital_core_base::identity::IdKind::Entity);
     let effective_id = orbital.id.clone().or_else(|| {
         upstream_id
             .as_deref()
@@ -1182,10 +1181,9 @@ fn precompute_reference_form_listen_targets(
                         id.as_deref(),
                         upstream_id.as_deref(),
                         &n,
-                        &orbital.name,
-                        orbital_core_base::identity::IdKind::Trait,
-                    );
-                    (n.clone(), (format!("{}{n}", orbital.name), final_id))
+                        orbital::import_prefix(&orbital.name, reference),
+                        orbital_core_base::identity::IdKind::Trait);
+                    (n.clone(), (format!("{}{n}", orbital::import_prefix(&orbital.name, reference)), final_id))
                 })
                 .collect();
         }
@@ -1275,10 +1273,9 @@ fn flattened_traits(
                 id.as_deref(),
                 upstream_id.as_deref(),
                 &n,
-                &orbital.name,
-                orbital_core_base::identity::IdKind::Trait,
-            );
-            traits.push((format!("{}{n}", orbital.name), Some(final_id)));
+                orbital::import_prefix(&orbital.name, reference),
+                orbital_core_base::identity::IdKind::Trait);
+            traits.push((format!("{}{n}", orbital::import_prefix(&orbital.name, reference)), Some(final_id)));
         }
     }
     let effective_id = own_id.or_else(|| {
@@ -1697,14 +1694,16 @@ fn inline_orbital(
                         chain,
                         Some(&loaded_source),
                     ));
-                    for inlined_orbital in &mut inlined_orbitals {
+                    let mut nested_pulled: Vec<(usize, Vec<String>)> = Vec::new();
+                    for (nested_idx, inlined_orbital) in inlined_orbitals.iter_mut().enumerate() {
+                        let mut pulled: Vec<String> = Vec::new();
                         inline_orbital(
                             inlined_orbital,
                             loader,
                             chain,
                             Some(&loaded_source),
                             false,
-                            None,
+                            Some(&mut pulled),
                             recorder,
                             config_diagnostics,
                             alias_config.as_ref(),
@@ -1716,7 +1715,19 @@ fn inline_orbital(
                             deferred_merges,
                             imports,
                         )?;
+                        // As at the top level: an orbital's final entities (an import's
+                        // materialized auxiliaries included) are targets the alias's later
+                        // orbitals may name.
+                        for (name, id) in collect_orbital_entity_ids(inlined_orbital) {
+                            nested_entity_ids.entry(name).or_insert(id);
+                        }
+                        if !pulled.is_empty() {
+                            nested_pulled.push((nested_idx, pulled));
+                        }
                     }
+                    // As at the top level: siblings two of the alias's orbitals pull under one
+                    // name are made app-unique, so an import of them carries distinct traits.
+                    uniquify_cross_orbital_pulled_siblings(&mut inlined_orbitals, None, &nested_pulled);
                     address_imported_traits(&mut inlined_orbitals, &nested_imported_trait_names);
                     Ok(())
                 })();
@@ -3533,7 +3544,8 @@ mod tests {
         .expect("valid schema");
 
         uniquify_cross_orbital_pulled_siblings(
-            &mut schema,
+            &mut schema.orbitals,
+            schema.ledger.as_mut(),
             &[
                 (0, vec!["DataGrid1".to_string()]),
                 (1, vec!["DataGrid1".to_string()]),
@@ -3618,7 +3630,8 @@ mod tests {
         .expect("valid schema");
 
         uniquify_cross_orbital_pulled_siblings(
-            &mut schema,
+            &mut schema.orbitals,
+            schema.ledger.as_mut(),
             &[
                 (0, vec!["CloseButton".to_string()]),
                 (1, vec!["CloseButton".to_string()]),

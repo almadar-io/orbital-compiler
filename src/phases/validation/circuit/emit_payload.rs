@@ -324,7 +324,9 @@ fn validate_emit_literal(
                                 )),
                             );
                         }
-                    } else if let Some(actual) = orbital_core_eval::literal_type::literal_value_type(value) {
+                    } else if let Some(actual) = orbital_core_eval::literal_type::literal_value_type(value)
+                        .filter(|_| !matches!(value, SExpression::Object(_)))
+                    {
                         if !primitive_types_compatible(expected, actual) {
                             result.add_error(
                                 ValidationError::error(
@@ -341,11 +343,21 @@ fn validate_emit_literal(
                                 )),
                             );
                         }
-                    } else if let Some(inferred) = expr_return_incompatible_in_ctx(
+                    } else if let Some(inferred) = record_literal_incompatible(
                         value,
                         &crate::phases::resolve::payload_field_oir_type(field, schema_types),
                         type_ctx,
-                    ) {
+                    )
+                    .or_else(|| {
+                        if matches!(value, SExpression::Object(_)) {
+                            return None;
+                        }
+                        expr_return_incompatible_in_ctx(
+                            value,
+                            &crate::phases::resolve::payload_field_oir_type(field, schema_types),
+                            type_ctx,
+                        )
+                    }) {
                         // Operator-call payload value (e.g. `(object/get (array/find …) id)`):
                         // `literal_value_type` returned `None`, so infer its result type through
                         // the expression, mirroring the `(set …)` backstop. Only a CONCRETE
@@ -706,6 +718,44 @@ fn list_item_mismatch(
     None
 }
 
+/// The record an object literal writes, each member typed by its own value (an uninferable member is unknown).
+fn literal_record_type<C: crate::type_infer::TypeCtx>(
+    value: &SExpression,
+    ctx: &C,
+) -> orbital_core_base::ir::OirType {
+    use orbital_core_base::ir::{OirField, OirType};
+    match value {
+        SExpression::Object(members) => {
+            let mut fields: Vec<OirField> = members
+                .iter()
+                .map(|(name, member)| OirField::new(name.clone(), literal_record_type(member, ctx)))
+                .collect();
+            fields.sort_by(|a, b| a.name.cmp(&b.name));
+            OirType::Struct { additional: None, fields }
+        }
+        _ => crate::phases::resolve::resolve_sexpr_standalone(value)
+            .ok()
+            .and_then(|resolved| crate::type_infer::infer_oir_expr_type(&resolved, ctx))
+            .unwrap_or(OirType::Json),
+    }
+}
+
+/// An object literal against its declared slot, compared as the record it writes through the one assignability
+/// relation (aliases and program types resolved). `Some(record)` when it does not fit; `None` for any other value.
+fn record_literal_incompatible<C: crate::type_infer::TypeCtx>(
+    value: &SExpression,
+    declared: &orbital_core_base::ir::OirType,
+    ctx: &C,
+) -> Option<orbital_core_base::ir::OirType> {
+    if !matches!(value, SExpression::Object(_)) {
+        return None;
+    }
+    let literal = literal_record_type(value, ctx);
+    let fits = orbital_core_base::type_compat::sub_with_named(&literal, declared, &|name| ctx.named_type(name))
+        .is_some_and(|c| !c.requires_cast());
+    (!fits).then_some(literal)
+}
+
 fn primitive_types_compatible(declared: &str, actual: &str) -> bool {
     orbital_core_base::type_compat::set_value_type_compatible(declared, actual)
 }
@@ -856,6 +906,33 @@ mod tests {
             CREATE_FAILING,
         );
         assert!(!has_wrapped(&ctx, "ThreadPostFailed"));
+    }
+
+    const VIEWER_EMIT: &str = r#"{ "event": "OUT", "payloadSchema": [{ "name": "viewer", "type": "Viewer", "required": true }] }"#;
+
+    fn viewer_literal_mismatch(literal: &str) -> bool {
+        let effect = format!(r#"["emit", "OUT", {{ "viewer": {literal} }}]"#);
+        check(VIEWER_EMIT, &effect)
+            .result
+            .errors
+            .iter()
+            .any(|e| e.code == ErrorCode::EmitPayloadFieldTypeMismatch)
+    }
+
+    /// A record literal fills a program type when it carries the type's required members.
+    #[test]
+    fn a_record_literal_with_the_required_members_fills_a_program_type_slot() {
+        assert!(!viewer_literal_mismatch(r#"{ "id": "a", "claims": [] }"#));
+        assert!(!viewer_literal_mismatch(
+            r#"{ "id": "anonymous", "role": "anonymous", "permissions": [], "claims": [] }"#
+        ));
+    }
+
+    /// NEGATIVE CONTROL: a missing required member or a member of the wrong type is still refused.
+    #[test]
+    fn a_record_literal_missing_a_required_member_or_mistyped_is_refused_in_a_program_type_slot() {
+        assert!(viewer_literal_mismatch(r#"{ "claims": [] }"#));
+        assert!(viewer_literal_mismatch(r#"{ "id": 5, "claims": [] }"#));
     }
 
     const EXEC_EMIT: &str = r#"{ "event": "EXEC", "payloadSchema": [{ "name": "argv", "type": "[string]" }] }"#;
@@ -1329,8 +1406,7 @@ mod tests {
     }
 
     #[test]
-    fn a_record_literal_fills_a_program_type_slot_and_a_scalar_does_not() {
-        assert!(primitive_types_compatible("Viewer", "object"));
+    fn a_scalar_never_fills_a_program_type_slot() {
         assert!(!primitive_types_compatible("Viewer", "number"));
         assert!(!primitive_types_compatible("Viewer", "string"));
     }

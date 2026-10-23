@@ -582,7 +582,7 @@ fn check_timeout(expr: &SExpression, path: &str, ctx: &ExprReturnCtx<'_>, result
         _ => None,
     };
     if let Some(error) = error {
-        result.add_error(ValidationError::error(ErrorCode::HttpAuthInvalid, path, error));
+        result.add_error(ValidationError::error(ErrorCode::HttpRequestOptionInvalid, path, error));
     }
 }
 
@@ -594,7 +594,7 @@ fn check_delay(expr: &SExpression, path: &str, ctx: &ExprReturnCtx<'_>, result: 
         _ => None,
     };
     if let Some(error) = error {
-        result.add_error(ValidationError::error(ErrorCode::HttpAuthInvalid, path, error));
+        result.add_error(ValidationError::error(ErrorCode::HttpRequestOptionInvalid, path, error));
     }
 }
 
@@ -615,7 +615,7 @@ fn check_retry(expr: &SExpression, path: &str, ctx: &ExprReturnCtx<'_>, result: 
         },
     };
     if let Some(error) = error {
-        result.add_error(ValidationError::error(ErrorCode::HttpAuthInvalid, path, error));
+        result.add_error(ValidationError::error(ErrorCode::HttpRequestOptionInvalid, path, error));
     }
 }
 

@@ -600,6 +600,8 @@ pub enum ErrorCode {
     HttpTokenRotateInvalid,
     /// An HTTP request/auth header name is not a token, or its value is not a single-line string.
     HttpHeaderInvalid,
+    /// An HTTP request's `timeoutMs`, `delayMs` or `retry` is not a value of its declared kind.
+    HttpRequestOptionInvalid,
     /// an `http` with `auth` sits where its trait runs on the client (a `local` trait, a browser-run tick)
     HttpAuthOnClient,
     /// an `http` request has more than one body kind, or a body on GET
@@ -1363,6 +1365,9 @@ pub enum ErrorCode {
     StoreDriverContract,
     /// `store:` on an entity whose rows live in no store (`[runtime]` or browser-`local`). Error severity.
     StoreOnNonPersistent,
+    /// A trait outside a store driver orbital emits a row verb: the store seam alone asks a driver, one frame per
+    /// ask (EXEC-STORE-4). Error severity.
+    StoreVerbOutsideSeam,
     /// A single `persist delete|update` on an entity whose driver declares `writeCapabilities.conditional`
     /// false: the take is one conditional op (EXEC-STEP-8). Error severity.
     StoreDriverNotConditional,
@@ -1701,6 +1706,7 @@ impl ErrorCode {
             ErrorCode::HttpAuthInvalid => "ORB_HTTP_AUTH_INVALID",
             ErrorCode::HttpTokenRotateInvalid => "ORB_HTTP_TOKEN_ROTATE_INVALID",
             ErrorCode::HttpHeaderInvalid => "ORB_HTTP_HEADER_INVALID",
+            ErrorCode::HttpRequestOptionInvalid => "ORB_HTTP_REQUEST_OPTION_INVALID",
             ErrorCode::HttpAuthOnClient => "ORB_HTTP_AUTH_ON_CLIENT",
             ErrorCode::HttpBodyConflict => "ORB_HTTP_BODY_CONFLICT",
             ErrorCode::HostEffectArity => "ORB_HOST_EFFECT_ARITY",
@@ -1924,6 +1930,7 @@ impl ErrorCode {
             ErrorCode::StoreUnknownOrbital => "ORB_STORE_UNKNOWN_ORBITAL",
             ErrorCode::StoreDriverContract => "ORB_STORE_DRIVER_CONTRACT",
             ErrorCode::StoreOnNonPersistent => "ORB_STORE_ON_NON_PERSISTENT",
+            ErrorCode::StoreVerbOutsideSeam => "ORB_STORE_VERB_OUTSIDE_SEAM",
             ErrorCode::StoreDriverNotConditional => "ORB_STORE_DRIVER_NOT_CONDITIONAL",
             ErrorCode::RenderGroupbyEnumColumnGap => "ORB_RENDER_GROUPBY_ENUM_COLUMN_GAP",
             ErrorCode::EmbedConfigForwardMultiReferrer => "ORB_EMBED_CONFIG_FORWARD_MULTI_REFERRER",
@@ -2162,6 +2169,7 @@ impl ErrorCode {
             | ErrorCode::HttpAuthInvalid
             | ErrorCode::HttpTokenRotateInvalid
             | ErrorCode::HttpHeaderInvalid
+            | ErrorCode::HttpRequestOptionInvalid
             | ErrorCode::HttpAuthOnClient
             | ErrorCode::HttpBodyConflict
             | ErrorCode::HostEffectArity
@@ -2393,6 +2401,7 @@ impl ErrorCode {
             | ErrorCode::StoreUnknownOrbital
             | ErrorCode::StoreDriverContract
             | ErrorCode::StoreOnNonPersistent
+            | ErrorCode::StoreVerbOutsideSeam
             | ErrorCode::StoreDriverNotConditional => "entity",
             ErrorCode::RenderGroupbyEnumColumnGap => "render_ui",
             ErrorCode::EmbedConfigForwardMultiReferrer => "cross",

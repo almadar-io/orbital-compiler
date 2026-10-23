@@ -358,6 +358,13 @@ fn collect_fired_with_knobs(
                         .insert((trait_name.to_string(), event.clone()));
                 }
             }
+            if let [SExpression::String(op), SExpression::String(address), _, SExpression::Object(options), ..] = arr.as_slice() {
+                if op == "program/dispatch" {
+                    if let Some(event) = orbital_core_base::agent_ports::calling_trait_event(address, options.keys().map(String::as_str)) {
+                        fired.by_effect.insert((trait_name.to_string(), event.to_string()));
+                    }
+                }
+            }
             // `[op, ..., {emit: {success: "X", failure: "Y", on_message:
             // "Z", ...}}]` — scan every string value under any `emit`
             // sub-key. Done generically so every operator + every
@@ -767,6 +774,28 @@ mod tests {
             "the always-taken else branch must still count as fired: {:?}",
             fired.by_effect
         );
+    }
+
+    #[test]
+    fn a_request_addressed_at_the_calling_trait_fires_its_event() {
+        let fired_by = |effect: serde_json::Value| {
+            let tree: SExpression = serde_json::from_value(effect).unwrap();
+            let mut fired = FiredEvents::default();
+            collect_fired_with_knobs("T", &tree, &orbital_core_base::schema::SObject::new(), &mut fired);
+            fired.by_effect
+        };
+        let key = |event: &str| ("T".to_string(), event.to_string());
+        let own = fired_by(serde_json::json!(["program/dispatch", "WRITE", { "ops": [] }, { "viewer": null }, { "key": "k", "emit": { "success": "DONE" } }]));
+        assert!(own.contains(&key("WRITE")) && own.contains(&key("DONE")), "{own:?}");
+        for control in [
+            serde_json::json!(["program/dispatch", "WRITE", { "ops": [] }]),
+            serde_json::json!(["program/dispatch", "WRITE", { "ops": [] }, { "schema": [] }]),
+            serde_json::json!(["program/dispatch", "Other.T.WRITE", { "ops": [] }, { "viewer": null }]),
+            serde_json::json!(["program/dispatch", "WRITE", { "ops": [] }, { "orbital": "O", "event": "WRITE", "viewer": null }]),
+            serde_json::json!(["program/dispatch", "@payload.address", { "ops": [] }, { "viewer": null }]),
+        ] {
+            assert!(!fired_by(control.clone()).iter().any(|(_, e)| e.ends_with("WRITE")), "control {control}");
+        }
     }
 
     #[test]

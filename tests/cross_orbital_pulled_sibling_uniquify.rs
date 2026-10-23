@@ -206,3 +206,42 @@ fn cross_orbital_pulled_siblings_are_uniquified() {
         );
     }
 }
+
+/// An app that re-imports the consumer's two orbitals under their own names.
+const REIMPORT: &str = r#"{
+  "name": "test-checkin-reimport",
+  "version": "1.0.0",
+  "orbitals": [
+    {
+      "name": "TechnicianOrbital",
+      "uses": [ { "from": "./consumer.orb", "as": "App" } ],
+      "entity": "App.orbitals.TechnicianOrbital.entity",
+      "traits": [],
+      "reference": { "ref": "App.orbitals.TechnicianOrbital" }
+    },
+    {
+      "name": "JobCheckinOrbital",
+      "uses": [ { "from": "./consumer.orb", "as": "App" } ],
+      "entity": "App.orbitals.JobCheckinOrbital.entity",
+      "traits": [],
+      "reference": { "ref": "App.orbitals.JobCheckinOrbital" }
+    }
+  ]
+}"#;
+
+#[test]
+fn a_same_name_reimport_keeps_the_pulled_siblings_unique() {
+    let dir = tempfile::TempDir::new().expect("temp dir");
+    std::fs::write(dir.path().join("atom.orb"), ATOM).expect("write atom");
+    std::fs::write(dir.path().join("consumer.orb"), CONSUMER).expect("write consumer");
+    let app_path = dir.path().join("app.orb");
+    std::fs::write(&app_path, REIMPORT).expect("write app");
+
+    let mut schema = parse_file(&app_path).expect("app parses");
+    inline_schema(&mut schema, &InlineConfig::default(), Some(&app_path)).expect("inline succeeds");
+
+    let tech = orbital_trait_names(&schema, 0);
+    let job = orbital_trait_names(&schema, 1);
+    let shared: Vec<&String> = tech.iter().filter(|n| job.contains(n)).collect();
+    assert!(shared.is_empty(), "every trait name is app-unique, as in the imported program: {tech:?} / {job:?}");
+}

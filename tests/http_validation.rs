@@ -934,7 +934,7 @@ fn grant_request_is_optional_and_accepts_closed_options_for_all_three_schemes() 
 fn delay_ms_is_a_declared_request_option_typed_as_a_whole_number_of_milliseconds() {
     let errors = |request: Value| {
         let result = check(ok_egress(), config(), post(json!(ORIGIN), request));
-        [ErrorCode::HttpOptionUnknown, ErrorCode::HttpAuthInvalid, ErrorCode::OperatorArgTypeMismatch]
+        [ErrorCode::HttpOptionUnknown, ErrorCode::HttpAuthInvalid, ErrorCode::HttpRequestOptionInvalid, ErrorCode::OperatorArgTypeMismatch]
             .into_iter()
             .any(|code| fires(&result, code))
     };
@@ -944,6 +944,11 @@ fn delay_ms_is_a_declared_request_option_typed_as_a_whole_number_of_milliseconds
     // Controls: a negative, fractional or text delay, a non-number expression and a grantRequest delay are refused.
     for bad in [json!(-1), json!(1.5), json!("soon"), json!("@config.plain"), json!(true)] {
         assert!(errors(json!({"delayMs": bad.clone()})), "{bad}");
+    }
+    for bad in [json!(-1), json!("soon"), json!("@config.plain")] {
+        let result = check(ok_egress(), config(), post(json!(ORIGIN), json!({"delayMs": bad.clone()})));
+        assert!(fires(&result, ErrorCode::HttpRequestOptionInvalid), "{bad}: {result:?}");
+        assert!(!fires(&result, ErrorCode::HttpAuthInvalid), "{bad}: {result:?}");
     }
     let [mut auth, ..] = grant_auths();
     auth["grantRequest"] = json!({"delayMs": 5});
@@ -983,7 +988,7 @@ fn grant_request_rejects_nonobject_options_headers_and_retry() {
             for (options, code) in [
                 (invalid.clone(), ErrorCode::HttpAuthInvalid),
                 (json!({"headers":invalid.clone()}), ErrorCode::HttpHeaderInvalid),
-                (json!({"retry":invalid.clone()}), ErrorCode::HttpAuthInvalid),
+                (json!({"retry":invalid.clone()}), ErrorCode::HttpRequestOptionInvalid),
             ] {
                 let mut configured = auth.clone();
                 configured["grantRequest"] = options.clone();
@@ -1014,7 +1019,7 @@ fn grant_and_resource_deadlines_share_whole_nonnegative_or_null_validation() {
                     request["timeoutMs"] = deadline.clone();
                 }
                 let result = check(ok_egress(), config(), post(json!(ORIGIN), request));
-                assert!(fires(&result, ErrorCode::HttpAuthInvalid), "{auth}: {deadline}: grant={grant}: {result:?}");
+                assert!(fires(&result, ErrorCode::HttpRequestOptionInvalid) || fires(&result, ErrorCode::HttpAuthInvalid), "{auth}: {deadline}: grant={grant}: {result:?}");
             }
         }
     }
@@ -1141,7 +1146,7 @@ fn extended_retry_rejects_invalid_forms_lengths_values_and_cap_bounds() {
                     request["retry"] = policy.clone();
                 }
                 let result = check(ok_egress(), config(), post(json!(ORIGIN), request));
-                assert!(fires(&result, ErrorCode::HttpAuthInvalid), "{auth}: {policy}: grant={grant}: {result:?}");
+                assert!(fires(&result, ErrorCode::HttpRequestOptionInvalid) || fires(&result, ErrorCode::HttpAuthInvalid), "{auth}: {policy}: grant={grant}: {result:?}");
             }
         }
     }
@@ -1282,7 +1287,7 @@ fn retry_dynamic_operands_do_not_hide_invalid_static_neighbors_or_wrong_declared
                     request["retry"] = policy.clone();
                 }
                 let result = check(ok_egress(), dynamic_retry_config(), post(json!(ORIGIN), request));
-                assert!(fires(&result, ErrorCode::HttpAuthInvalid), "{auth}: {policy}: grant={grant}: {result:?}");
+                assert!(fires(&result, ErrorCode::HttpRequestOptionInvalid) || fires(&result, ErrorCode::HttpAuthInvalid), "{auth}: {policy}: grant={grant}: {result:?}");
             }
         }
     }

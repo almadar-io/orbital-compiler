@@ -2,7 +2,7 @@
 
 use super::super::{ErrorCode, ValidationError, ValidationResult};
 use super::{extract_emit_object_ref, validate_emit_config, DeclaredEmit};
-use orbital_core_base::schema::{EntityDefinition, FieldType, SExpression};
+use orbital_core_base::schema::{EntityDefinition, FieldType, OrbitalSchema, SExpression};
 use std::collections::HashMap;
 
 /// Validate set effect (array form)
@@ -124,17 +124,18 @@ pub(crate) fn is_path_expression(arr: &[SExpression]) -> bool {
 /// author time for `.lolo`; raw `.orb` IR (agent/factory output) bypasses that
 /// path, so this validator pass is the backstop.
 ///
-/// `entity_field_types` is the `{ fieldName -> type }` map of the trait's
-/// linked entity (from its `EntityDefinition.fields`). `payload_field_types`
-/// is the `{ fieldName -> type }` map sourced from the trait's
-/// `emits[].payload_schema` and `listens` payload metadata. A comparison only
-/// fires when BOTH sides carry a known declared type — an unknown type on
-/// either side is left to the structural/name checks elsewhere.
+/// `entity_field_types` is the `{ fieldName -> meta }` map of the trait's
+/// linked entity (from its `EntityDefinition.fields`). `payload_shapes` is the
+/// `{ fieldName -> OirType }` map of the triggering event's declared payload.
+/// Both sides compare as real types through the one assignability relation in
+/// orbital-core, never through a kind string. A comparison only fires when
+/// BOTH sides carry a known declared type.
 pub(crate) fn validate_set_value_type(
     arr: &[SExpression],
     path: &str,
     entity_field_types: &HashMap<String, EntityFieldMeta>,
-    payload_field_types: &HashMap<String, String>,
+    payload_shapes: &HashMap<String, orbital_core_base::ir::OirType>,
+    schema: Option<&OrbitalSchema>,
 ) -> ValidationResult {
     let mut result = ValidationResult::new();
 
@@ -152,15 +153,17 @@ pub(crate) fn validate_set_value_type(
         return result;
     };
 
-    let (Some(entity_meta), Some(payload_ty)) = (
+    let (Some(entity_meta), Some(payload_shape)) = (
         entity_field_types.get(entity_field),
-        payload_field_types.get(payload_field),
+        payload_shapes.get(payload_field),
     ) else {
         return result;
     };
     let entity_ty = &entity_meta.field_type;
+    let payload_ty = orbital_core_base::type_compat::oir_type_kind(payload_shape);
 
-    if !orbital_core_base::type_compat::oir_type_accepts_kind(&entity_meta.shape, payload_ty) {
+    let resolve = |name: &str| schema.and_then(|s| crate::phases::resolve::declared_struct_type(s, name));
+    if !orbital_core_base::type_compat::oir_type_satisfies_with_named(payload_shape, &entity_meta.shape, &resolve) {
         result.add_error(
             ValidationError::error(
                 ErrorCode::SetValueTypeMismatch,
@@ -455,7 +458,8 @@ pub(crate) fn expr_return_incompatible_in_ctx<C: crate::type_infer::TypeCtx>(
     let oir_value = crate::phases::resolve::resolve_sexpr_standalone(value).ok()?;
     let inferred = crate::type_infer::infer_oir_expr_type(&oir_value, ctx)?;
     if orbital_core_base::type_compat::is_unknowable(&inferred)
-        || orbital_core_base::type_compat::sub_with_named(&inferred, declared, &|name| ctx.named_type(name)).is_some()
+        || orbital_core_base::type_compat::sub_with_named(&inferred, declared, &|name| ctx.named_type(name))
+            .is_some_and(|c| !c.is_explicit())
     {
         None
     } else {
@@ -1418,5 +1422,134 @@ mod comparison_operand_tests {
             st("@config.quietStartHour"),
         ]);
         assert_eq!(comparison_errors(expr, HashMap::new()), 0);
+    }
+}
+
+#[cfg(test)]
+mod set_value_type_tests {
+    use super::*;
+    use orbital_core_base::ir::{OirField, OirType};
+
+    fn record(fields: &[(&str, OirType)]) -> OirType {
+        OirType::Struct {
+            additional: None,
+            fields: fields.iter().map(|(n, t)| OirField::new(n.to_string(), t.clone())).collect(),
+        }
+    }
+
+    fn check(entity_shape: OirType, kind: &str, payload_shape: OirType) -> ValidationResult {
+        check_in(entity_shape, kind, payload_shape, None)
+    }
+
+    fn check_in(
+        entity_shape: OirType,
+        kind: &str,
+        payload_shape: OirType,
+        schema: Option<&OrbitalSchema>,
+    ) -> ValidationResult {
+        let entity = HashMap::from([(
+            "out".to_string(),
+            EntityFieldMeta {
+                field_type: kind.into(),
+                shape: entity_shape,
+                enum_values: vec![],
+                required: false,
+                defaulted: false,
+            },
+        )]);
+        let payload = HashMap::from([("input".to_string(), payload_shape)]);
+        let arr = vec![
+            SExpression::String("set".into()),
+            SExpression::String("@entity.out".into()),
+            SExpression::String("?input".into()),
+        ];
+        validate_set_value_type(&arr, "p", &entity, &payload, schema)
+    }
+
+    #[test]
+    fn record_payload_is_accepted_by_the_same_record_field() {
+        let shape = record(&[("value", OirType::String)]);
+        let r = check(shape.clone(), "object", shape);
+        assert!(r.errors.is_empty(), "{:?}", r.errors);
+    }
+
+    #[test]
+    fn record_payload_missing_a_required_field_is_rejected() {
+        let r = check(
+            record(&[("value", OirType::String)]),
+            "object",
+            record(&[("other", OirType::String)]),
+        );
+        assert_eq!(r.errors.len(), 1, "{:?}", r.errors);
+        assert_eq!(r.errors[0].code, ErrorCode::SetValueTypeMismatch);
+    }
+
+    #[test]
+    fn scalar_payload_is_rejected_by_a_number_field() {
+        let r = check(OirType::Number, "number", OirType::String);
+        assert_eq!(r.errors.len(), 1, "{:?}", r.errors);
+        assert_eq!(r.errors[0].code, ErrorCode::SetValueTypeMismatch);
+    }
+
+    fn schema_with_message_alias() -> OrbitalSchema {
+        serde_json::from_value(serde_json::json!({
+            "name": "App",
+            "orbitals": [{
+                "name": "Chat",
+                "entity": { "name": "Thread", "persistence": "runtime", "fields": [{ "name": "id", "type": "string" }] },
+                "types": { "M": [{ "name": "content", "type": "string", "required": true }] },
+                "traits": [],
+                "pages": []
+            }]
+        }))
+        .expect("program json")
+    }
+
+    fn named(name: &str) -> OirType {
+        OirType::TypeRef { name: name.to_string() }
+    }
+
+    #[test]
+    fn a_list_of_an_alias_is_accepted_by_a_list_field_of_the_expanded_alias() {
+        let schema = schema_with_message_alias();
+        let expanded = OirType::array(record(&[("content", OirType::String)]));
+        let r = check_in(expanded.clone(), "array", OirType::array(named("M")), Some(&schema));
+        assert!(r.errors.is_empty(), "{:?}", r.errors);
+        let r = check_in(OirType::array(named("M")), "array", OirType::array(named("M")), Some(&schema));
+        assert!(r.errors.is_empty(), "{:?}", r.errors);
+        let r = check_in(OirType::array(named("M")), "array", expanded, Some(&schema));
+        assert!(r.errors.is_empty(), "{:?}", r.errors);
+    }
+
+    #[test]
+    fn a_list_of_an_alias_is_rejected_by_a_list_field_of_a_different_member() {
+        let schema = schema_with_message_alias();
+        let other = OirType::array(record(&[("content", OirType::Number)]));
+        let r = check_in(other, "array", OirType::array(named("M")), Some(&schema));
+        assert_eq!(r.errors.len(), 1, "{:?}", r.errors);
+        assert_eq!(r.errors[0].code, ErrorCode::SetValueTypeMismatch);
+    }
+
+    #[test]
+    fn a_string_operator_result_never_fills_a_call_key_field() {
+        let concat = SExpression::Array(vec![
+            SExpression::String("str/concat".into()),
+            SExpression::String("search".into()),
+            SExpression::String("x".into()),
+        ]);
+        let resolved = crate::phases::resolve::resolve_sexpr_standalone(&concat).expect("resolves");
+        struct Empty;
+        impl crate::type_infer::TypeCtx for Empty {
+            fn binding_type(&self, _: &orbital_core_base::ir::OirBinding) -> Option<OirType> {
+                None
+            }
+        }
+        let inferred = crate::type_infer::infer_oir_expr_type(&resolved, &Empty);
+        assert_eq!(inferred, Some(OirType::String), "str/concat infers a string");
+        let entity = HashMap::new();
+        assert!(
+            expr_return_incompatible(&concat, &OirType::CallKey, &entity, &HashMap::new(), None).is_some(),
+            "a string is not a call key"
+        );
     }
 }
