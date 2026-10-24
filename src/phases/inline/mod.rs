@@ -262,6 +262,12 @@ pub enum InlineError {
     )]
     PageAccessWeakened { reference: String, path: String },
 
+    #[error(
+        "Page reference '{reference}' at {path} is written as `{found}` but the page it references is `{expected}`; \
+         restate the referenced page's protocol word"
+    )]
+    PageProtocolMismatch { reference: String, path: String, expected: String, found: String },
+
     #[error("Behavior value '{literal}' at {path} does not resolve: {reason}")]
     BehaviorRefUnresolved {
         literal: String,
@@ -296,6 +302,7 @@ impl InlineError {
             InlineError::OrbitalRefListenTargetUnknown { path, .. } => path,
             InlineError::LazyEagerRef { path, .. } => path,
             InlineError::PageAccessWeakened { path, .. } => path,
+            InlineError::PageProtocolMismatch { path, .. } => path,
             InlineError::BehaviorRefUnresolved { path, .. } => path,
             InlineError::BehaviorRefNotLiteral { path } => path,
             InlineError::UnquoteOutsideQuasiquote { path } => path,
@@ -321,6 +328,7 @@ impl InlineError {
             InlineError::LazyNoPages { .. } => "ORB_LAZY_NO_PAGES",
             InlineError::LazyNotSplit { .. } => "ORB_LAZY_NOT_SPLIT",
             InlineError::PageAccessWeakened { .. } => "ORB_O_PAGE_ACCESS_WEAKENED",
+            InlineError::PageProtocolMismatch { .. } => "ORB_O_PAGE_PROTOCOL_MISMATCH",
             InlineError::BehaviorRefUnresolved { .. } => "ORB_T_BEHAVIOR_REF_UNRESOLVED",
             InlineError::BehaviorRefNotLiteral { .. } => "ORB_T_BEHAVIOR_REF_NOT_LITERAL",
             InlineError::UnquoteOutsideQuasiquote { .. } => "ORB_T_UNQUOTE_OUTSIDE_QUASIQUOTE",
@@ -1576,6 +1584,7 @@ fn inline_orbital(
                 // `@config.X` is final (an import load defers substitution,
                 // so splicing there would freeze pre-override templates).
                 splice_lambda_trait_refs(orbital, &format!("orbitals[name={}]", orbital.name))?;
+                page::resolve_page_addresses(&mut orbital.pages, orbital.config.as_ref(), schema_config);
             }
             return Ok(());
         }
@@ -3179,7 +3188,7 @@ fn carry_obligation(decl: ExpectDeclaration, r: &ObligationRenames<'_>) -> Optio
             mut shape,
             persistence,
             shared,
-            local,
+            browser,
             mut read_policy,
             mut create_policy,
             mut update_policy,
@@ -3204,7 +3213,7 @@ fn carry_obligation(decl: ExpectDeclaration, r: &ObligationRenames<'_>) -> Optio
                 shape,
                 persistence,
                 shared,
-                local,
+                browser,
                 read_policy,
                 create_policy,
                 update_policy,
@@ -3348,7 +3357,7 @@ pub(super) fn merge_expectation(into: &mut Vec<ExpectDeclaration>, incoming: Exp
                     shape,
                     persistence,
                     shared,
-                    local,
+                    browser,
                     read_policy,
                     create_policy,
                     update_policy,
@@ -3388,14 +3397,14 @@ pub(super) fn merge_expectation(into: &mut Vec<ExpectDeclaration>, incoming: Exp
         }
         // A route has no shape to union — the path IS the declaration, so
         // dedup by path and keep the first.
-        ExpectDeclaration::Page { path, traits, strict } => {
+        ExpectDeclaration::Page { path, protocol, traits, strict } => {
             if let Some(ExpectDeclaration::Page {
                 traits: existing_traits,
                 strict: existing_strict,
                 ..
             }) = into
                 .iter_mut()
-                .find(|d| matches!(d, ExpectDeclaration::Page { path: p, .. } if *p == path))
+                .find(|d| matches!(d, ExpectDeclaration::Page { path: p, protocol: q, .. } if *p == path && *q == protocol))
             {
                 if let Some(incoming) = traits {
                     let mounted = existing_traits.get_or_insert_with(Vec::new);
@@ -3407,7 +3416,7 @@ pub(super) fn merge_expectation(into: &mut Vec<ExpectDeclaration>, incoming: Exp
                 }
                 *existing_strict |= strict;
             } else {
-                into.push(ExpectDeclaration::Page { path, traits, strict });
+                into.push(ExpectDeclaration::Page { path, protocol, traits, strict });
             }
         }
         ExpectDeclaration::State { trait_name, state, holds, strict } => {
@@ -3817,6 +3826,7 @@ mod tests {
     fn make_trait(name: &str) -> TraitDefinition {
         use orbital_core_base::schema::StateMachine;
         TraitDefinition {
+            dispatch: None,
             effect_row: None,
             type_params: None,
             type_args: None,
@@ -4250,6 +4260,41 @@ mod tests {
             Some(Some(orbital_core_base::schema::DispatchMode::Client))
         );
         assert_eq!(dispatch_of("PlainModal"), Some(None));
+    }
+
+    /// Call-site `[server]` overrides an atom that declares `[client]`; a call
+    /// site with no word keeps the atom's own mode.
+    #[test]
+    fn a_call_site_server_rebind_overrides_the_atoms_client() {
+        use orbital_core_base::schema::DispatchMode;
+        let mut atom = make_trait("ModalRecordModal");
+        atom.dispatch = Some(DispatchMode::Client);
+        let mut ctx = InlineContext::new();
+        ctx.add_alias("Modal", &make_orbital_with_trait("Modal", atom));
+        let mut server_ref = modal_ref(Some("ServerModal"), Some("CartItem"));
+        if let TraitReference::Reference { dispatch, .. } = &mut server_ref {
+            *dispatch = Some(DispatchMode::Server);
+        }
+        let traits = vec![server_ref, modal_ref(Some("PlainModal"), Some("CartItem"))];
+        let result = inline_traits(
+            &traits,
+            &ctx,
+            "<test>",
+            &HashMap::new(),
+            &mut Vec::new(),
+            None,
+            None,
+            &HashMap::new(),
+        )
+        .expect("inlines");
+        let dispatch_of = |name: &str| {
+            result.0.iter().find_map(|t| match t {
+                TraitReference::Inline(td) if td.name == name => Some(td.dispatch),
+                _ => None,
+            })
+        };
+        assert_eq!(dispatch_of("ServerModal"), Some(Some(DispatchMode::Server)));
+        assert_eq!(dispatch_of("PlainModal"), Some(Some(DispatchMode::Client)));
     }
 
     #[test]
@@ -5324,6 +5369,7 @@ mod tests {
             EventDefinition, StateDefinition, StateMachine, StringOrArray, TransitionDefinition,
         };
         let mut trait_def = TraitDefinition {
+            dispatch: None,
             effect_row: None,
             type_params: None,
             type_args: None,
@@ -5439,6 +5485,7 @@ mod tests {
             EventDefinition, StateDefinition, StateMachine, StringOrArray, TransitionDefinition,
         };
         let mut trait_def = TraitDefinition {
+            dispatch: None,
             effect_row: None,
             type_params: None,
             type_args: None,
@@ -5707,6 +5754,7 @@ mod tests {
         use orbital_core_base::schema::{StateMachine, StringOrArray, TransitionDefinition};
 
         let mut trait_def = TraitDefinition {
+            dispatch: None,
             effect_row: None,
             type_params: None,
             type_args: None,

@@ -719,6 +719,7 @@ pub(crate) fn resolve_orbital_reference(
                 &mut recorder,
             );
             apply_post_subst_overrides_to_trait(td, ov.listens.as_ref(), ov.emits_scope.as_ref());
+            td.dispatch = ov.dispatch.or(td.dispatch);
         }
     }
 
@@ -3538,6 +3539,112 @@ mod tests {
             }
             other => panic!("expected ListenSource::Trait, got {other:?}"),
         }
+    }
+
+    fn resolve_with_trait_modes(
+        modes: &[(&str, orbital_core_base::schema::DispatchMode)],
+    ) -> (Orbital, Vec<OrbitalRefDiagnostic>) {
+        let mut upstream = upstream_orbital(None);
+        if let TraitReference::Inline(td) = &mut upstream.traits[2] {
+            td.dispatch = Some(orbital_core_base::schema::DispatchMode::Client);
+        }
+        let mut ctx = InlineContext::new();
+        ctx.add_alias("Up", &upstream);
+        let mut orbital = consumer_orbital("Local");
+        let obj = OrbitalRefObject {
+            reference: "Up.orbitals.UpOrbital".to_string(),
+            traits: Some(
+                modes
+                    .iter()
+                    .map(|(name, mode)| {
+                        (
+                            name.to_string(),
+                            orbital_core_base::schema::OrbitalRefTraitOverride {
+                                dispatch: Some(*mode),
+                                ..Default::default()
+                            },
+                        )
+                    })
+                    .collect(),
+            ),
+            ..Default::default()
+        };
+        let mut diagnostics = Vec::new();
+        resolve_orbital_reference(
+            &mut orbital,
+            &obj,
+            &ctx,
+            &HashMap::new(),
+            &HashMap::new(),
+            &HashMap::new(),
+            None,
+            &mut diagnostics,
+            None,
+            &mut Vec::new(),
+        )
+        .expect("resolves");
+        (orbital, diagnostics)
+    }
+
+    #[test]
+    fn an_import_traits_override_sets_the_named_traits_dispatch_only() {
+        use orbital_core_base::schema::DispatchMode;
+        let (orbital, diagnostics) = resolve_with_trait_modes(&[
+            ("A", DispatchMode::Optimistic),
+            ("C", DispatchMode::Server),
+        ]);
+        assert_eq!(kept_trait(&orbital, "LocalA").dispatch, Some(DispatchMode::Optimistic));
+        assert_eq!(kept_trait(&orbital, "LocalB").dispatch, None, "an unnamed trait is untouched");
+        assert_eq!(
+            kept_trait(&orbital, "LocalC").dispatch,
+            Some(DispatchMode::Server),
+            "the override beats the atom's declared [client]"
+        );
+        assert!(findings_free(&diagnostics), "{diagnostics:?}");
+    }
+
+    #[test]
+    fn an_import_traits_override_without_a_mode_keeps_the_atoms_declared_mode() {
+        let mut upstream = upstream_orbital(None);
+        if let TraitReference::Inline(td) = &mut upstream.traits[2] {
+            td.dispatch = Some(orbital_core_base::schema::DispatchMode::Client);
+        }
+        let mut ctx = InlineContext::new();
+        ctx.add_alias("Up", &upstream);
+        let mut orbital = consumer_orbital("Local");
+        let obj = OrbitalRefObject {
+            reference: "Up.orbitals.UpOrbital".to_string(),
+            traits: Some(HashMap::from([(
+                "C".to_string(),
+                orbital_core_base::schema::OrbitalRefTraitOverride::default(),
+            )])),
+            ..Default::default()
+        };
+        let mut diagnostics = Vec::new();
+        resolve_orbital_reference(
+            &mut orbital,
+            &obj,
+            &ctx,
+            &HashMap::new(),
+            &HashMap::new(),
+            &HashMap::new(),
+            None,
+            &mut diagnostics,
+            None,
+            &mut Vec::new(),
+        )
+        .expect("resolves");
+        assert_eq!(
+            kept_trait(&orbital, "LocalC").dispatch,
+            Some(orbital_core_base::schema::DispatchMode::Client)
+        );
+    }
+
+    #[test]
+    fn an_import_traits_override_naming_an_unknown_trait_is_diagnosed() {
+        let (_, diagnostics) =
+            resolve_with_trait_modes(&[("Nope", orbital_core_base::schema::DispatchMode::Server)]);
+        assert_eq!(diagnostics[0].traits_unknown_trait, vec!["Nope".to_string()]);
     }
 
     #[test]

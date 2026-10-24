@@ -35,7 +35,7 @@ use super::{field_type_str, ErrorCode, ValidationContext, ValidationError, Valid
 use orbital_core_base::ir::types::{field_shape, payload_field_shape, OirType};
 use orbital_core_base::schema::{
     ConfigField, EntityDefinition, EntityRef, ExpectDeclaration, FieldDefinition, Orbital,
-    OrbitalSchema, PayloadField, SExpression, StringOrArray, TraitDefinition, TraitReference,
+    OrbitalSchema, PageDefinition, PayloadField, SExpression, StringOrArray, TraitDefinition, TraitReference,
 };
 use crate::phases::resolve::declared_struct_type;
 use orbital_core_base::type_compat::{checked_sub_with_named, enum_value_is_member};
@@ -532,19 +532,35 @@ fn unprovided(
         | ExpectDeclaration::Transition { trait_name, .. } => find_trait(schema, trait_name)
             .is_none()
             .then(|| format!("trait `{trait_name}`")),
-        ExpectDeclaration::Page { path, .. } => {
-            let declared = schema.orbitals.iter().any(|o| {
-                o.pages
-                    .iter()
-                    .flatten()
-                    .any(|p| p.as_inline().is_some_and(|page| page.path == *path))
-            });
-            (!declared).then(|| format!("page `{path}`"))
+        ExpectDeclaration::Page { path, protocol, .. } => {
+            let declared = expected_pages(schema, path, protocol.as_deref())
+                .next()
+                .is_some();
+            (!declared).then(|| match protocol {
+                Some(word) => format!("a `{word}` page"),
+                None => format!("page `{path}`"),
+            })
         }
         ExpectDeclaration::Config { name, .. } => declared_knobs(schema, name)
             .is_empty()
             .then(|| format!("config knob `{name}` on a trait")),
     }
+}
+
+fn expected_pages<'a>(
+    schema: &'a OrbitalSchema,
+    route: &'a str,
+    protocol: Option<&'a str>,
+) -> impl Iterator<Item = &'a PageDefinition> + 'a {
+    schema
+        .orbitals
+        .iter()
+        .flat_map(|o| o.pages.iter().flatten())
+        .filter_map(|p| p.as_inline())
+        .filter(move |page| match protocol {
+            Some(word) => page.protocol.as_deref() == Some(word),
+            None => page.is_route() && page.path == route,
+        })
 }
 
 fn unsatisfied_error(orbital: &str, what: &str, path: &str, cause: &str) -> ValidationError {
@@ -742,41 +758,50 @@ fn validate_expectation_links(schema: &OrbitalSchema, result: &mut ValidationRes
                 // genuine typo derives nothing and still fails `validate_navigate`.
                 ExpectDeclaration::Page {
                     path: route,
+                    protocol,
                     traits: Some(expected),
                     ..
                 } => {
-                    let page = schema
-                        .orbitals
+                    let label = match protocol {
+                        Some(word) => format!("a `{word}` page"),
+                        None => format!("page `{route}`"),
+                    };
+                    let candidates: Vec<Vec<&str>> = expected_pages(schema, route, protocol.as_deref())
+                        .map(|page| {
+                            page.traits
+                                .iter()
+                                .flatten()
+                                .filter_map(TraitReference::trait_name)
+                                .collect()
+                        })
+                        .collect();
+                    let satisfied = candidates
                         .iter()
-                        .flat_map(|o| o.pages.iter().flatten())
-                        .find_map(|p| p.as_inline().filter(|page| page.path == *route));
-                    if let Some(page) = page {
-                        let mounted: Vec<&str> = page
-                            .traits
-                            .iter()
-                            .flatten()
-                            .filter_map(TraitReference::trait_name)
-                            .collect();
-                        let missing: Vec<&str> = expected
+                        .any(|mounted| expected.iter().all(|t| mounted.iter().any(|m| m == t)));
+                    if !candidates.is_empty() && !satisfied {
+                        let mut mounted: Vec<&str> = candidates.into_iter().flatten().collect();
+                        mounted.dedup();
+                        let mut missing: Vec<&str> = expected
                             .iter()
                             .map(String::as_str)
                             .filter(|t| !mounted.contains(t))
                             .collect();
-                        if !missing.is_empty() {
-                            result.add_error(
-                                ValidationError::error(
-                                    ErrorCode::SchemaExpectationProviderMismatch,
-                                    &path,
-                                    format!(
-                                        "`{}` expects page `{route}` to mount {}, but the page mounts: {}.",
-                                        orbital.name,
-                                        missing.join(", "),
-                                        if mounted.is_empty() { "nothing".to_string() } else { mounted.join(", ") }
-                                    ),
-                                )
-                                .with_suggestion(format!("Mount {} on the page, or drop it from the expectation.", missing.join(", "))),
-                            );
+                        if missing.is_empty() {
+                            missing = expected.iter().map(String::as_str).collect();
                         }
+                        result.add_error(
+                            ValidationError::error(
+                                ErrorCode::SchemaExpectationProviderMismatch,
+                                &path,
+                                format!(
+                                    "`{}` expects {label} to mount {}, but the page mounts: {}.",
+                                    orbital.name,
+                                    missing.join(", "),
+                                    if mounted.is_empty() { "nothing".to_string() } else { mounted.join(", ") }
+                                ),
+                            )
+                            .with_suggestion(format!("Mount {} on the page, or drop it from the expectation.", missing.join(", "))),
+                        );
                     }
                 }
                 ExpectDeclaration::Page { traits: None, .. } => {}
@@ -930,7 +955,7 @@ fn check_event_payload(
 }
 
 /// What an `expects entity X [persistent, shared] { @read … }` states about the provider beyond its fields: the
-/// storage mode, `shared`/`local`, each stated access policy (structurally equal) and each declared waiver.
+/// storage mode, `shared`/`browser`, each stated access policy (structurally equal) and each declared waiver.
 fn check_entity_facts(
     consumer: &str,
     provider: &EntityDefinition,
@@ -941,7 +966,7 @@ fn check_entity_facts(
     let ExpectDeclaration::Entity {
         persistence,
         shared,
-        local,
+        browser,
         read_policy,
         create_policy,
         update_policy,
@@ -983,11 +1008,11 @@ fn check_entity_facts(
             ),
         );
     }
-    if *local && !provider.local {
+    if *browser && !provider.browser {
         mismatch(
-            "to be `local`, but it is not".to_string(),
+            "to be `browser`, but it is not".to_string(),
             format!(
-                "Tag `{}` `[local]`, or drop the tag from the expectation.",
+                "Tag `{}` `[browser]`, or drop the tag from the expectation.",
                 provider.name
             ),
         );

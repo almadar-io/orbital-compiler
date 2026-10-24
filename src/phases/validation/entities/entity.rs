@@ -244,68 +244,34 @@ pub fn validate_entity(
     result
 }
 
-/// `[persistent: x, local]` / `mock` / `instances`: where an entity's rows live
+/// `[persistent: x, browser]` / `instances`: where an entity's rows live
 /// and what they start as, each decidable on the declaration.
 fn validate_browser_storage(entity: &EntityDefinition, path: &str, result: &mut ValidationResult) {
     let persistent = !matches!(entity.persistence, Some(Persistence::Runtime));
-    if entity.local && !persistent {
+    if entity.browser && !persistent {
         result.add_error(
             ValidationError::error(
                 ErrorCode::EntityLocalRequiresPersistent,
-                format!("{}.local", path),
+                format!("{}.browser", path),
                 format!(
-                    "Entity '{}' is [runtime, local] — a runtime entity's frame already lives in the client; `local` declares where PERSISTED rows live",
+                    "Entity '{}' is [runtime, browser] — a runtime entity's frame already lives in the client; `browser` declares where PERSISTED rows live",
                     entity.name
                 ),
             )
-            .with_suggestion("Use `[persistent: <collection>, local]` for rows stored in the browser, or drop `local`."),
+            .with_suggestion("Use `[persistent: <collection>, browser]` for rows stored in the browser, or drop `browser`."),
         );
     }
-    if entity.seed_mock && !entity.local {
-        result.add_error(
-            ValidationError::error(
-                ErrorCode::EntityMockSeedNotLocal,
-                format!("{}.seedMock", path),
-                format!(
-                    "Entity '{}' declares `mock` seeding but its rows are not browser-stored — a server's mock data is its own deployment mode",
-                    entity.name
-                ),
-            )
-            .with_suggestion("Add `local` (`[persistent: <collection>, local, mock]`) or drop `mock`."),
-        );
-    }
-    let has_rows = entity
-        .instances
-        .as_ref()
-        .is_some_and(|rows| !rows.is_empty())
-        || entity
-            .locale_instances
-            .as_ref()
-            .is_some_and(|m| !m.is_empty());
-    if entity.seed_mock && has_rows {
-        result.add_error(
-            ValidationError::error(
-                ErrorCode::EntitySeedSourceConflict,
-                format!("{}.instances", path),
-                format!(
-                    "Entity '{}' declares both `mock` seeding and written-out `instances` — exactly one seed source",
-                    entity.name
-                ),
-            )
-            .with_suggestion("Keep the written-out rows, or drop them and keep `mock`."),
-        );
-    }
-    if entity.identity && entity.local {
+    if entity.identity && entity.browser {
         result.add_error(
             ValidationError::error(
                 ErrorCode::EntityIdentityLocal,
-                format!("{}.local", path),
+                format!("{}.browser", path),
                 format!(
-                    "Entity '{}' is [identity] and `local` — the viewer directory is never browser-resident",
+                    "Entity '{}' is [identity] and `browser` — the viewer directory is never browser-resident",
                     entity.name
                 ),
             )
-            .with_suggestion("Drop `local` from the identity entity."),
+            .with_suggestion("Drop `browser` from the identity entity."),
         );
     }
     check_instance_rows(
@@ -361,7 +327,7 @@ fn check_instance_rows<'a>(
                 ));
             }
         }
-        if entity.local && !row.contains_key("id") {
+        if entity.browser && !row.contains_key("id") {
             result.add_error(
                 ValidationError::error(
                     ErrorCode::EntityInstanceInvalid,
@@ -399,14 +365,14 @@ pub fn validate_all_locale_instances(
                 continue;
             };
             let blocks_path = format!("{}.localeInstances", path);
-            if !entity.local {
+            if !entity.browser {
                 result.add_error(
                     ValidationError::error(
                         ErrorCode::EntityLocaleInstancesNotLocal,
                         blocks_path.clone(),
                         format!("Entity '{}' writes rows per locale but its rows are not browser-stored; a server's rows are shared by every viewer", entity.name),
                     )
-                    .with_suggestion("Add `local` (`[persistent: <collection>, local]`) or keep one `instances` block."),
+                    .with_suggestion("Add `browser` (`[persistent: <collection>, browser]`) or keep one `instances` block."),
                 );
             }
             let default = declared.first();

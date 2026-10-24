@@ -3,12 +3,11 @@
 //! Validates slot coverage, contention, and nesting.
 //! Ported from `builder/packages/shared/src/orbitals/validation/slot-validator.ts`.
 
-use super::{
-    render_ui::{extract_slot, is_render_ui_effect},
-    Domain, ErrorCode, ValidationContext, ValidationError, ValidationResult,
-};
+use super::{Domain, ErrorCode, ValidationContext, ValidationError, ValidationResult};
+use orbital_core_base::effect_row::EffectSite;
 use orbital_core_base::schema::{
-    Orbital, OrbitalSchema, PageDefinition, StateMachine, TraitDefinition, TraitReference,
+    trait_embed_children, Orbital, OrbitalSchema, PageDefinition, SExpression, StateMachine,
+    TraitDefinition, TraitReference,
 };
 use std::collections::{HashMap, HashSet, VecDeque};
 
@@ -28,25 +27,7 @@ pub fn validate_all_slots(schema: &OrbitalSchema, ctx: &mut ValidationContext) {
 
                 // Only validate inline pages, not references
                 if let Some(page) = page_ref.as_inline().filter(|p| p.is_route()) {
-                    // Collect all inline traits for this page
-                    // Note: Only inline traits are supported. Referenced traits should be defined inline within orbitals.
-                    let page_traits: Vec<&TraitDefinition> = page
-                        .traits
-                        .as_ref()
-                        .map(|traits| {
-                            traits
-                                .iter()
-                                .filter_map(|tr| match tr {
-                                    TraitReference::Inline(def) => Some(def),
-                                    TraitReference::Reference { .. } => {
-                                        // Referenced traits are no longer supported at schema level.
-                                        // Traits should be defined inline within orbitals.
-                                        None
-                                    }
-                                })
-                                .collect()
-                        })
-                        .unwrap_or_default();
+                    let page_traits = resolve_page_traits(orbital, page);
 
                     // Validate slots for this page
                     let result = validate_page_slots(&page_traits, &path, ctx.domain);
@@ -65,6 +46,16 @@ pub fn validate_page_slots(
 ) -> ValidationResult {
     let mut result = ValidationResult::new();
 
+    // A trait named by `@trait.X` in a sibling's render-ui paints only inside
+    // that sibling's frame (EXEC-EVAL-9), so it never owns a page slot.
+    let embedded = embedded_trait_names(traits);
+    let traits: Vec<&TraitDefinition> = traits
+        .iter()
+        .copied()
+        .filter(|t| !embedded.contains(t.name.as_str()))
+        .collect();
+    let traits = traits.as_slice();
+
     // Collect all slots rendered by traits on initial state
     let mut initial_slots: HashMap<String, Vec<String>> = HashMap::new(); // slot -> [trait names]
     let mut all_slots: HashSet<String> = HashSet::new();
@@ -81,17 +72,13 @@ pub fn validate_page_slots(
                     .unwrap_or(false);
 
             if let Some(effects) = &transition.effects {
-                for effect in effects {
-                    if is_render_ui_effect(effect) {
-                        if let Some(slot) = extract_slot(effect) {
-                            all_slots.insert(slot.clone());
+                for slot in rendered_slots(effects) {
+                    all_slots.insert(slot.clone());
 
-                            if is_init_transition {
-                                initial_slots
-                                    .entry(slot)
-                                    .or_default()
-                                    .push(trait_def.name.clone());
-                            }
+                    if is_init_transition {
+                        let owners = initial_slots.entry(slot).or_default();
+                        if !owners.contains(&trait_def.name) {
+                            owners.push(trait_def.name.clone());
                         }
                     }
                 }
@@ -159,15 +146,11 @@ pub fn validate_page_slots(
                             if initial_state.as_deref() == Some(state.as_str()) {
                                 continue;
                             }
-                            for effect in effects {
-                                if is_render_ui_effect(effect) {
-                                    if let Some(slot) = extract_slot(effect) {
-                                        runtime_slots
-                                            .entry((state.clone(), slot))
-                                            .or_default()
-                                            .push(trait_def.name.clone());
-                                    }
-                                }
+                            for slot in rendered_slots(effects) {
+                                runtime_slots
+                                    .entry((state.clone(), slot))
+                                    .or_default()
+                                    .push(trait_def.name.clone());
                             }
                         }
                         continue;
@@ -180,15 +163,11 @@ pub fn validate_page_slots(
                         continue;
                     }
 
-                    for effect in effects {
-                        if is_render_ui_effect(effect) {
-                            if let Some(slot) = extract_slot(effect) {
-                                runtime_slots
-                                    .entry(((*from_state).to_string(), slot))
-                                    .or_default()
-                                    .push(trait_def.name.clone());
-                            }
-                        }
+                    for slot in rendered_slots(effects) {
+                        runtime_slots
+                            .entry(((*from_state).to_string(), slot))
+                            .or_default()
+                            .push(trait_def.name.clone());
                     }
                 }
             }
@@ -235,6 +214,24 @@ pub fn validate_page_slots(
     result.merge(validate_slot_nesting(&all_slots, path));
 
     result
+}
+
+/// Names of the traits that some trait in `traits` embeds with `@trait.X`.
+fn embedded_trait_names(traits: &[&TraitDefinition]) -> HashSet<String> {
+    traits.iter().flat_map(|t| trait_embed_children(t)).collect()
+}
+
+/// Every slot a `render-ui` paints in `effects`, including those nested in
+/// `if` / `do` / `when` bodies.
+fn rendered_slots(effects: &[SExpression]) -> Vec<String> {
+    let mut uses = Vec::new();
+    for effect in effects {
+        effect.collect_effect_uses(EffectSite::Transition, &mut uses);
+    }
+    uses.into_iter()
+        .filter(|u| u.kind == "render-ui")
+        .filter_map(|u| u.resource)
+        .collect()
 }
 
 /// Validate slot nesting rules
@@ -600,6 +597,145 @@ mod tests {
             .errors
             .iter()
             .any(|e| e.code == ErrorCode::SlotContention));
+    }
+
+    #[test]
+    fn sibling_traits_may_share_the_modal_and_toast_overlays() {
+        for overlay in ["modal", "toast"] {
+            let a = create_trait_with_render_ui("Create", overlay);
+            let b = create_trait_with_render_ui("Edit", overlay);
+            let result = validate_page_slots(&[&a, &b], "test", Domain::Business);
+            assert!(
+                !result.errors.iter().any(|e| matches!(e.code, ErrorCode::SlotContention | ErrorCode::SlotContentionRuntime)),
+                "{overlay}: {:?}",
+                result.errors
+            );
+        }
+    }
+
+    fn create_embedding_trait(name: &str, slot: &str, embeds: &[&str], wrap_in_if: bool) -> TraitDefinition {
+        let mut trait_def = create_trait_with_render_ui(name, slot);
+        let children = SExpression::Array(
+            embeds
+                .iter()
+                .map(|e| SExpression::String(format!("@trait.{e}")))
+                .collect(),
+        );
+        let render = SExpression::Array(vec![
+            SExpression::String("render-ui".to_string()),
+            SExpression::String(slot.to_string()),
+            SExpression::Object(
+                [
+                    ("type".to_string(), SExpression::String("stack".to_string())),
+                    ("children".to_string(), children),
+                ]
+                .into_iter()
+                .collect(),
+            ),
+        ]);
+        let effect = if wrap_in_if {
+            SExpression::Array(vec![
+                SExpression::String("if".to_string()),
+                SExpression::Bool(true),
+                render,
+                SExpression::Null,
+            ])
+        } else {
+            render
+        };
+        trait_def.state_machine.transitions[0].effects = Some(vec![effect]);
+        trait_def
+    }
+
+    #[test]
+    fn test_embedded_trait_does_not_contend_for_main() {
+        let host = create_embedding_trait("Host", "main", &["Child"], false);
+        let child = create_trait_with_render_ui("Child", "main");
+        let result = validate_page_slots(&[&host, &child], "test", Domain::Business);
+        assert!(result.is_valid(), "Errors: {:?}", result.errors);
+    }
+
+    #[test]
+    fn test_nested_embeds_and_conditional_embeds_do_not_contend() {
+        let host = create_embedding_trait("Host", "main", &["Card"], true);
+        let card = create_embedding_trait("Card", "main", &["Leaf"], false);
+        let leaf = create_trait_with_render_ui("Leaf", "main");
+        let result = validate_page_slots(&[&host, &card, &leaf], "test", Domain::Business);
+        assert!(result.is_valid(), "Errors: {:?}", result.errors);
+    }
+
+    #[test]
+    fn test_unembedded_peer_still_contends_beside_an_embedding_host() {
+        let host = create_embedding_trait("Host", "main", &["Child"], false);
+        let child = create_trait_with_render_ui("Child", "main");
+        let peer = create_trait_with_render_ui("Peer", "main");
+        let result = validate_page_slots(&[&host, &child, &peer], "test", Domain::Business);
+        assert!(result
+            .errors
+            .iter()
+            .any(|e| e.code == ErrorCode::SlotContention));
+    }
+
+    #[test]
+    fn test_embedded_child_does_not_cover_main() {
+        let host = create_embedding_trait("Host", "sidebar", &["Child"], false);
+        let child = create_trait_with_render_ui("Child", "main");
+        let result = validate_page_slots(&[&host, &child], "test", Domain::Business);
+        assert!(result
+            .errors
+            .iter()
+            .any(|e| e.code == ErrorCode::SlotMainNotCovered));
+    }
+
+    #[test]
+    fn test_embedded_trait_does_not_contend_at_runtime() {
+        let mut host = create_two_state_trait("Host", Some("main"), "GO", "main");
+        let mut child = create_two_state_trait("Child", Some("main"), "GO", "main");
+        host.state_machine.transitions[1].effects = Some(vec![SExpression::Array(vec![
+            SExpression::String("render-ui".to_string()),
+            SExpression::String("main".to_string()),
+            SExpression::Object(
+                [(
+                    "children".to_string(),
+                    SExpression::Array(vec![SExpression::String("@trait.Child".to_string())]),
+                )]
+                .into_iter()
+                .collect(),
+            ),
+        ])]);
+        child.state_machine.transitions[0].effects = None;
+        let result = validate_page_slots(&[&host, &child], "test", Domain::Business);
+        assert!(
+            !result
+                .errors
+                .iter()
+                .any(|e| e.code == ErrorCode::SlotContentionRuntime),
+            "Errors: {:?}",
+            result.errors
+        );
+    }
+
+    #[test]
+    fn test_render_ui_inside_an_if_branch_covers_main() {
+        let mut trait_def = create_trait_with_render_ui("Cond", "main");
+        let render = trait_def.state_machine.transitions[0].effects.take().unwrap();
+        let mut branch = vec![
+            SExpression::String("if".to_string()),
+            SExpression::Bool(true),
+        ];
+        branch.extend(render);
+        trait_def.state_machine.transitions[0].effects = Some(vec![SExpression::Array(branch)]);
+        let result = validate_page_slots(&[&trait_def], "test", Domain::Business);
+        assert!(result.is_valid(), "Errors: {:?}", result.errors);
+    }
+
+    #[test]
+    fn test_one_trait_with_two_init_arms_does_not_contend_with_itself() {
+        let mut trait_def = create_trait_with_render_ui("Arms", "main");
+        let second = trait_def.state_machine.transitions[0].clone();
+        trait_def.state_machine.transitions.push(second);
+        let result = validate_page_slots(&[&trait_def], "test", Domain::Business);
+        assert!(result.is_valid(), "Errors: {:?}", result.errors);
     }
 
     #[test]

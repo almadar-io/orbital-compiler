@@ -462,16 +462,6 @@ pub const VALID_FIELD_TYPES: &[&str] = &[
     "union",
 ];
 
-/// Valid trait categories
-pub const VALID_TRAIT_CATEGORIES: &[&str] = &[
-    "interaction",
-    "integration",
-    "lifecycle",
-    "game-core",
-    "game-entity",
-    "game-ui",
-];
-
 /// Valid page view types
 pub const VALID_VIEW_TYPES: &[&str] = &["list", "detail", "create", "edit", "dashboard", "custom"];
 
@@ -698,7 +688,7 @@ pub fn validate_comprehensive_full(
     // flattened schema is visible as a candidate forwarder.
     ctx.merge(orbital_config::validate_orbital_config_forwarding(schema));
 
-    // Rung 2 (2026-09-24): client-ticked `[runtime]` frames need `local` traits.
+    // Rung 2 (2026-09-24): client-ticked `[runtime]` frames need `[client]` traits.
     ctx.merge(client_tick_locality::validate_client_tick_locality(schema));
 
     ctx.into_result()
@@ -808,7 +798,7 @@ fn collect_names(schema: &OrbitalSchema, ctx: &mut ValidationContext) {
         // it does for a declared page that has no INIT. `entry` keeps a real
         // declaration's payload authoritative when both are present.
         for expectation in orbital.expects.iter().flatten() {
-            if let orbital_core_base::schema::ExpectDeclaration::Page { path, .. } = expectation {
+            if let orbital_core_base::schema::ExpectDeclaration::Page { path, protocol: None, .. } = expectation {
                 ctx.page_paths.insert(path.clone());
                 ctx.page_init_payloads.entry(path.clone()).or_default();
             }

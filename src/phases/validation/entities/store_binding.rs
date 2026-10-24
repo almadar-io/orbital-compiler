@@ -25,7 +25,7 @@ pub(crate) fn store_binding_issues(schema: &OrbitalSchema) -> ValidationResult {
         for entity_ref in std::iter::once(&orbital.entity).chain(orbital.auxiliary_entities.iter().flatten()) {
             let EntityRef::Inline(def) = entity_ref else { continue };
             let path = format!("orbitals[{i}].entity.{}", def.name);
-            let in_store = def.persistence != Some(Persistence::Runtime) && !def.local;
+            let in_store = def.persistence != Some(Persistence::Runtime) && !def.browser;
             if let Some(driver) = def.store.as_deref() {
                 if !in_store {
                     result.add_error(

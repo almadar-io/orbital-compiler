@@ -1672,6 +1672,29 @@ pub(crate) fn coerce_trait_knob_conditions(
     }
 }
 
+/// Whether a literal default of the declared type `ty` is inferred narrower than the type: a `Map` (the literal reads as
+/// a record of its keys), or a record, or a list of records, that declares an optional field the literal may omit.
+fn literal_reads_narrower(ty: &orbital_core_base::ir::OirType) -> bool {
+    use orbital_core_base::ir::OirType;
+    fn peel(t: &OirType) -> &OirType {
+        match t {
+            OirType::Optional { inner } => peel(inner),
+            other => other,
+        }
+    }
+    fn record(t: &OirType) -> bool {
+        match peel(t) {
+            OirType::Map { .. } => true,
+            OirType::Struct { fields, .. } => fields.iter().any(|f| !f.required || record(&f.field_type)),
+            _ => false,
+        }
+    }
+    match peel(ty) {
+        OirType::Array { inner } => record(inner),
+        other => record(other),
+    }
+}
+
 /// The `typed` value an operator reads for each knob whose declared type is a list whose items may differ in kind
 /// (`[CliCommand]`, `[SExpr]`) and whose value is a non-empty literal: the literal, carrying the declared type as
 /// JSON, so the checker reads the knob's type instead of one inferred from the items.
@@ -1684,16 +1707,23 @@ pub(crate) fn declared_list_types(
         return out;
     };
     for (knob, value) in config_subs.iter() {
-        let Some(field) = declared.get(knob).filter(|f| f.items.is_some()) else {
+        let Some(field) = declared.get(knob) else {
             continue;
         };
-        if !matches!(value, SExpression::Array(items) if !items.is_empty())
-            || sexpr_tree_contains_binding(value)
-        {
+        let literal = match value {
+            SExpression::Array(items) => !items.is_empty(),
+            SExpression::Object(_) => true,
+            _ => false,
+        };
+        if !literal || sexpr_tree_contains_binding(value) {
             continue;
         }
         let ty = crate::phases::resolve::config_field_carried_type(field);
-        if !crate::phases::validation::effect::needs_declaration(&ty) {
+        let list_type = matches!(&ty, orbital_core_base::ir::OirType::Array { .. })
+            || matches!(&ty, orbital_core_base::ir::OirType::Optional { inner } if matches!(**inner, orbital_core_base::ir::OirType::Array { .. }));
+        if matches!(value, SExpression::Array(_)) != list_type
+            || (!crate::phases::validation::effect::needs_declaration(&ty) && !literal_reads_narrower(&ty))
+        {
             continue;
         }
         let Ok(text) = serde_json::to_string(&ty) else {
@@ -3357,6 +3387,58 @@ mod literal_list_tests {
             matches!(&declared, orbital_core_base::ir::OirType::Array { inner } if matches!(**inner, orbital_core_base::ir::OirType::Union { .. })),
             "{declared:?}"
         );
+    }
+
+    fn knob_trait(knob: serde_json::Value, effect: serde_json::Value) -> TraitDefinition {
+        serde_json::from_value(serde_json::json!({
+            "name": "Runner",
+            "config": { "knob": knob },
+            "stateMachine": {
+                "states": [{ "name": "idle", "isInitial": true }],
+                "transitions": [{ "from": "idle", "to": "idle", "event": "RUN", "effects": [effect] }]
+            }
+        }))
+        .expect("trait")
+    }
+
+    fn edge_items(color_required: bool) -> serde_json::Value {
+        serde_json::json!({ "type": "object", "properties": {
+            "from": { "name": "from", "type": "string", "required": true },
+            "color": { "name": "color", "type": "string", "required": color_required }
+        } })
+    }
+
+    #[test]
+    fn a_literal_default_that_may_omit_a_declared_optional_field_keeps_the_declared_type() {
+        let read = serde_json::json!(["set", "@entity.n", ["array/len", "@config.knob"]]);
+        let mut optional = knob_trait(
+            serde_json::json!({ "type": "[Edge]", "default": [{ "from": "a" }], "items": edge_items(false) }),
+            read.clone(),
+        );
+        apply_inline_config_defaults(&mut optional, &mut Vec::new());
+        let effect = serde_json::to_value(first_effect(&optional)).unwrap();
+        assert_eq!(effect[2][1][0], "typed", "{effect}");
+        let mut required = knob_trait(
+            serde_json::json!({ "type": "[Edge]", "default": [{ "from": "a", "color": "red" }], "items": edge_items(true) }),
+            read,
+        );
+        apply_inline_config_defaults(&mut required, &mut Vec::new());
+        let effect = serde_json::to_value(first_effect(&required)).unwrap();
+        assert_ne!(effect[2][1][0], "typed", "control: a literal that fills every field reads as itself: {effect}");
+    }
+
+    #[test]
+    fn a_map_knob_with_a_literal_default_keeps_its_declared_map_type() {
+        let mut t = knob_trait(
+            serde_json::json!({ "type": "Map<string,Edge>", "default": {}, "items": edge_items(true) }),
+            serde_json::json!(["set", "@entity.n", ["object/keys", "@config.knob"]]),
+        );
+        apply_inline_config_defaults(&mut t, &mut Vec::new());
+        let effect = serde_json::to_value(first_effect(&t)).unwrap();
+        assert_eq!(effect[2][1][0], "typed", "{effect}");
+        let declared: orbital_core_base::ir::OirType =
+            serde_json::from_str(effect[2][1][2].as_str().expect("type text")).expect("an IR type");
+        assert!(matches!(declared, orbital_core_base::ir::OirType::Map { .. }), "{declared:?}");
     }
 
     #[test]

@@ -386,22 +386,37 @@ fn address_of(page: &PageDefinition) -> serde_json::Value {
 
 #[test]
 fn a_page_reference_to_a_protocol_page_carries_its_protocol_and_address() {
-    let schema = inline_with_http_upstream(&page_import(r#"{ "ref": "Up.pages.Api" }"#)).expect("inline");
+    let schema = inline_with_http_upstream(&page_import(r#"{ "ref": "Up.pages.Api", "protocol": "http" }"#)).expect("inline");
     let api = page_named(&schema, "Api");
     assert_eq!(api.protocol.as_deref(), Some("http"));
     assert!(!api.is_route());
-    assert_eq!(address_of(api), serde_json::json!({ "host": "0.0.0.0", "port": 8080, "path": "/" }));
+    assert_eq!(address_of(api), serde_json::json!({ "host": "0.0.0.0", "port": 8080.0, "path": "/" }));
 }
 
 #[test]
 fn the_reference_form_overrides_the_address_and_keeps_the_protocol() {
     let schema = inline_with_http_upstream(&page_import(
-        r#"{ "ref": "Up.pages.Api", "address": { "host": "127.0.0.1", "port": 9, "path": "/v1" } }"#,
+        r#"{ "ref": "Up.pages.Api", "protocol": "http", "address": { "host": "127.0.0.1", "port": 9, "path": "/v1" } }"#,
     ))
     .expect("inline");
     let api = page_named(&schema, "Api");
     assert_eq!(api.protocol.as_deref(), Some("http"));
-    assert_eq!(address_of(api), serde_json::json!({ "host": "127.0.0.1", "port": 9, "path": "/v1" }));
+    assert_eq!(address_of(api), serde_json::json!({ "host": "127.0.0.1", "port": 9.0, "path": "/v1" }));
+}
+
+#[test]
+fn a_page_reference_restates_its_protocol_and_it_must_match() {
+    for (call_site, expected, found) in [
+        (r#"{ "ref": "Up.pages.Api" }"#, "http", "route"),
+        (r#"{ "ref": "Up.pages.Api", "protocol": "stdio" }"#, "http", "stdio"),
+    ] {
+        let err = inline_with_http_upstream(&page_import(call_site)).expect_err(call_site);
+        assert_eq!(err.structured_code(), "ORB_O_PAGE_PROTOCOL_MISMATCH", "{call_site}: {err}");
+        let text = err.to_string();
+        assert!(text.contains(expected) && text.contains(found), "{text}");
+    }
+    let err = inline(&page_import(r#"{ "ref": "Up.pages.AboutPage", "protocol": "http" }"#)).expect_err("a route restated as http");
+    assert_eq!(err.structured_code(), "ORB_O_PAGE_PROTOCOL_MISMATCH");
 }
 
 #[test]

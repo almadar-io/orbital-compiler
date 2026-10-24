@@ -83,6 +83,15 @@ fn apply_overrides_to_page(
         roles: obj.roles.clone(),
     };
     let path = obj.path.clone().unwrap_or_else(|| page_def.path.clone());
+    let found = obj.protocol.as_deref().unwrap_or(orbital_core_base::protocols::ROUTE);
+    if found != page_def.protocol_name() {
+        return Err(InlineError::PageProtocolMismatch {
+            reference: obj.reference.clone(),
+            path,
+            expected: page_def.protocol_name().to_string(),
+            found: found.to_string(),
+        });
+    }
     apply_page_modifiers(page_def, &mods, &obj.reference, &path)?;
     if let Some(path_override) = &obj.path {
         page_def.path = path_override.clone();

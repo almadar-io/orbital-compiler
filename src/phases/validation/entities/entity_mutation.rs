@@ -16,6 +16,7 @@
 use super::render_ui::is_render_ui_effect;
 use super::{ErrorCode, Severity, ValidationContext, ValidationError, ValidationResult};
 use orbital_core_base::runs_on::Residence;
+use orbital_core_base::schema::DispatchMode as Declared;
 use orbital_core_base::schema::{
     EntityDefinition, ListenSource, Orbital, OrbitalSchema, PageRef, Persistence, SExpression,
     StringOrNumber, TraitDefinition, TraitReference, TransitionDefinition,
@@ -832,8 +833,8 @@ fn find_async_operator_call(expr: &SExpression) -> Option<&str> {
 // ============================================================================
 
 /// True when `expr`'s tree calls an effect whose registry `runsOn` is `server`
-/// (`orbital_core::effects::runs_on`), at any depth — a `local` trait
-/// (`OirTrait::dispatch_mode`) carrying one is mis-tagged, since `local`
+/// (`orbital_core::effects::runs_on`), at any depth — a `[client]` trait
+/// (`OirTrait::dispatch_mode`) carrying one is mis-tagged, since `[client]`
 /// declares its transitions never await a server round trip.
 fn contains_server_bound_effect(expr: &SExpression, residence: &Residence) -> bool {
     orbital_core_base::runs_on::sexpr_runs_server_effect(expr, residence)
@@ -1007,23 +1008,10 @@ fn validate_trait_guard_frame_field_authorization(
     result
 }
 
-/// The pre-resolve schema-shape twin of `OirTrait::dispatch_mode`'s
-/// client-only test (`RuntimeOptimistic | HybridClientOnly`). Validation runs
-/// before `resolve`, so no `OirTrait` exists yet to call the real method on;
-/// this replicates its exact three-way lookup (`[runtime]` entity →
-/// optimistic, `local` trait → hybrid client-only, else server-gated) over
-/// the schema types `resolve_trait`/`resolve_field` read it from — same pure
-/// lookup, same inputs, one level earlier in the pipeline.
-fn schema_dispatch_is_client_only(
-    trait_def: &TraitDefinition,
-    entity_definitions: &HashMap<String, EntityDefinition>,
-) -> bool {
-    let entity_is_client = trait_def
-        .linked_entity
-        .as_ref()
-        .and_then(|e| entity_definitions.get(e))
-        .is_some_and(EntityDefinition::is_client_resident);
-    entity_is_client || trait_def.local
+/// Whether the trait declares a client-run dispatch (`[client]` or `[optimistic]`); nothing is inferred
+/// from the linked entity or the trait's effects.
+fn schema_dispatch_is_client_only(trait_def: &TraitDefinition) -> bool {
+    trait_def.dispatch.is_some()
 }
 
 /// A transition's server-bound effects in order — `render-ui` and every other
@@ -1060,7 +1048,7 @@ fn validate_trait_auth_guard_client_only(
     entity_definitions: &HashMap<String, EntityDefinition>,
 ) -> ValidationResult {
     let mut result = ValidationResult::new();
-    if !schema_dispatch_is_client_only(trait_def, entity_definitions) {
+    if !schema_dispatch_is_client_only(trait_def) {
         return result;
     }
     let residence = Residence::of_entities(entity_definitions.values());
@@ -1099,7 +1087,7 @@ fn validate_trait_auth_guard_client_only(
             "trait {:?} transition '{}' guards on @user, but this trait's dispatch is client-only ({}) — the client state machine advances optimistically before the server evaluates this guard; the effects stay server-gated, the UI transition does not, since the client can construct any @user value it likes",
             trait_def.name,
             transition.event,
-            if trait_def.local { "local" } else { "[runtime] entity" }
+            if trait_def.dispatch == Some(Declared::Client) { "[client]" } else { "[optimistic]" }
         );
         result.add_error(ValidationError {
             code: ErrorCode::AuthGuardClientOnly,
@@ -1107,7 +1095,7 @@ fn validate_trait_auth_guard_client_only(
             path: format!("{}.stateMachine.transitions[{}].guard", path, i),
             severity: Severity::Warning,
             suggestion: Some(
-                "If this guard is meant as an authorization boundary, move the mutation to a server-gated (non-local, non-[runtime]) trait; otherwise treat it as a UX precondition only.".to_string(),
+                "If this guard is meant as an authorization boundary, move the mutation to a server-gated (not `[client]` or `[optimistic]`) trait; otherwise treat it as a UX precondition only.".to_string(),
             ),
             valid_values: None,
             expected_shape: None,
@@ -1178,14 +1166,14 @@ pub fn validate_all_mixed_residence(schema: &OrbitalSchema, ctx: &mut Validation
 }
 
 /// `ORB_T_CLIENT_TICK_SERVER_EFFECT`: a browser-run tick (trait not server-awaited, tick not
-/// `[background]`) carrying a server effect. A `local` trait is reported by
+/// `[background]`) carrying a server effect. A `[client]` trait is reported by
 /// `ORB_T_LOCAL_TRAIT_TOUCHES_SERVER` instead, so it is not reported twice.
 pub fn validate_all_client_tick_server_effects(schema: &OrbitalSchema, ctx: &mut ValidationContext) {
     use orbital_core_base::runs_on::sexpr_runs_server_effect;
     use orbital_core_base::dispatch_mode::DispatchMode;
     let residence = Residence::of_entities(ctx.entity_definitions.values());
     for (trait_def, path) in super::inline_traits(schema) {
-        if trait_def.local {
+        if trait_def.dispatch == Some(Declared::Client) {
             continue;
         }
         let entity = trait_def
@@ -1218,7 +1206,7 @@ pub fn validate_all_client_tick_server_effects(schema: &OrbitalSchema, ctx: &mut
     }
 }
 
-/// Run the `local` trait dispatch-contract pair
+/// Run the `[client]` trait dispatch-contract pair
 /// (`ORB_T_LOCAL_TRAIT_TOUCHES_SERVER` / `ORB_T_LOCAL_ON_NON_SHARED_PERSISTENT`)
 /// for every orbital in the schema.
 pub fn validate_all_local_trait_dispatch(schema: &OrbitalSchema, ctx: &mut ValidationContext) {
@@ -1228,7 +1216,7 @@ pub fn validate_all_local_trait_dispatch(schema: &OrbitalSchema, ctx: &mut Valid
     }
 }
 
-/// Per-trait `local` dispatch-contract check, factored out so it can run
+/// Per-trait `[client]` dispatch-contract check, factored out so it can run
 /// against a hand-built `TraitDefinition` fixture without a full
 /// `OrbitalSchema` (mirrors `validate_trait_tick_guards`'s shape).
 fn validate_trait_local_dispatch(
@@ -1237,11 +1225,11 @@ fn validate_trait_local_dispatch(
     entity_definitions: &HashMap<String, EntityDefinition>,
 ) -> ValidationResult {
     let mut result = ValidationResult::new();
-    if !trait_def.local {
+    if trait_def.dispatch != Some(Declared::Client) {
         return result;
     }
 
-    // ORB_T_LOCAL_ON_NON_SHARED_PERSISTENT — `local` is only legal on an
+    // ORB_T_LOCAL_ON_NON_SHARED_PERSISTENT — `[client]` is only legal on an
     // entity multiple traits co-mutate client-side (`[shared]`) or one that
     // is never persisted at all (`[runtime]`).
     if let Some(linked) = &trait_def.linked_entity {
@@ -1252,12 +1240,12 @@ fn validate_trait_local_dispatch(
                         ErrorCode::TraitLocalOnNonSharedPersistent,
                         path,
                         format!(
-                            "trait {:?} is [local] but its linked entity {:?} is neither [shared] nor client-resident ([runtime] or [persistent: x, local]) — local dispatch would silently hide server-gated writes behind client-only optimism",
+                            "trait {:?} is [client] but its linked entity {:?} is neither [shared] nor client-resident ([runtime] or [persistent: x, browser]) — local dispatch would silently hide server-gated writes behind client-only optimism",
                             trait_def.name, linked
                         ),
                     )
                     .with_suggestion(format!(
-                        "Add [shared] or a `runtime` persistence tag to entity {:?}, or drop [local] from trait {:?}",
+                        "Add [shared] or a `runtime` persistence tag to entity {:?}, or drop [client] from trait {:?}",
                         linked, trait_def.name
                     )),
                 );
@@ -1265,7 +1253,7 @@ fn validate_trait_local_dispatch(
         }
     }
 
-    // ORB_T_LOCAL_TRAIT_TOUCHES_SERVER — a local trait's transitions must
+    // ORB_T_LOCAL_TRAIT_TOUCHES_SERVER — a client trait's transitions must
     // never touch the server or read viewer identity.
     let residence = Residence::of_entities(entity_definitions.values());
     for (i, transition) in trait_def.state_machine.transitions.iter().enumerate() {
@@ -1276,12 +1264,12 @@ fn validate_trait_local_dispatch(
                         ErrorCode::TraitLocalTouchesServer,
                         format!("{}.stateMachine.transitions[{}].guard", path, i),
                         format!(
-                            "trait {:?} is [local] but transition '{}' guards on @user — a local trait's transitions never await a server round trip, so a viewer-identity read here is either unreachable or a false authorization boundary",
+                            "trait {:?} is [client] but transition '{}' guards on @user — a client trait's transitions never await a server round trip, so a viewer-identity read here is either unreachable or a false authorization boundary",
                             trait_def.name, transition.event
                         ),
                     )
                     .with_suggestion(
-                        "Drop [local] from this trait, or remove the @user read from the guard",
+                        "Drop [client] from this trait, or remove the @user read from the guard",
                     ),
                 );
             }
@@ -1294,12 +1282,12 @@ fn validate_trait_local_dispatch(
                             ErrorCode::TraitLocalTouchesServer,
                             format!("{}.stateMachine.transitions[{}].effects[{}]", path, i, j),
                             format!(
-                                "trait {:?} is [local] but transition '{}' runs a server-bound effect — a local trait's transitions never await a server round trip",
+                                "trait {:?} is [client] but transition '{}' runs a server-bound effect — a client trait's transitions never await a server round trip",
                                 trait_def.name, transition.event
                             ),
                         )
                         .with_suggestion(
-                            "Drop [local] from this trait, or move the server-bound effect to a non-local trait",
+                            "Drop [client] from this trait, or move the server-bound effect to a non-client trait",
                         ),
                     );
                 }
@@ -1315,12 +1303,12 @@ fn validate_trait_local_dispatch(
                             ErrorCode::TraitLocalTouchesServer,
                             format!("{}.ticks[{}].effects[{}]", path, i, j),
                             format!(
-                                "trait {:?} is [local] but tick '{}' runs a server-bound effect — a local trait's transitions never await a server round trip",
+                                "trait {:?} is [client] but tick '{}' runs a server-bound effect — a client trait's transitions never await a server round trip",
                                 trait_def.name, tick.name
                             ),
                         )
                         .with_suggestion(
-                            "Drop [local] from this trait, or move the server-bound effect to a non-local trait",
+                            "Drop [client] from this trait, or move the server-bound effect to a non-client trait",
                         ),
                     );
                 }
@@ -2001,7 +1989,7 @@ mod tests {
         effects: Vec<SExpression>,
     ) -> TraitDefinition {
         let mut t = trait_with_init_effects(name, linked_entity, effects);
-        t.local = true;
+        t.dispatch = Some(Declared::Client);
         t.state_machine.transitions[0].guard = guard;
         t
     }
@@ -2357,6 +2345,8 @@ mod tests {
             ],
             pages: Some(vec![PageRef::Inline(PageDefinition {
                 translation_of: None,
+                protocol: None,
+                address: None,
                 source_page: None,
                 access: None,
                 indexing: None,
@@ -2957,7 +2947,7 @@ mod tests {
         let result = validate_trait_local_dispatch(&t, "test", &defs);
         assert!(
             result.errors.is_empty(),
-            "A non-local trait must be exempt from both Rule 8 checks: {:?}",
+            "A non-client trait must be exempt from both Rule 8 checks: {:?}",
             result.errors
         );
     }

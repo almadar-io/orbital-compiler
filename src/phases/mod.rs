@@ -59,6 +59,7 @@ pub use validation::{
 
 use crate::composition::ComposeError;
 use orbital_core_base::ir::OirModule;
+use orbital_core_base::logging::ns;
 use orbital_core_base::schema::OrbitalSchema;
 use std::path::{Path, PathBuf};
 use thiserror::Error;
@@ -113,8 +114,6 @@ pub struct CompilerOptions {
     /// readiness landed in the same change set, but the owner flips the
     /// default only after reviewing the TS before/after diff.
     pub nominalize: bool,
-    /// Verbose output
-    pub verbose: bool,
     /// Set when behavior-package discovery (`orbital_core::behavior_packages::
     /// discover`, run from the process cwd) failed — a `PrefixConflict` or a
     /// malformed installed package. `packages` is then empty, which callers
@@ -187,16 +186,10 @@ pub fn app_root(explicit: Option<&str>, cwd: &Path) -> Option<PathBuf> {
 /// Compile a schema file to OIR
 pub fn compile_file(path: impl AsRef<Path>, options: &CompilerOptions) -> CompileResult<OirModule> {
     let path = path.as_ref();
-
-    if options.verbose {
-        eprintln!("Compiling: {}", path.display());
-    }
+    let _span = tracing::info_span!(target: ns::COMPILER, "compile", file = %path.display()).entered();
 
     // Phase 1: Parse
-    if options.verbose {
-        eprintln!("  Phase 1: Parsing...");
-    }
-    let schema = parse_file(path)?;
+    let schema = tracing::info_span!(target: ns::COMPILER, "parse").in_scope(|| parse_file(path))?;
 
     // Continue with common compilation, passing source path for inline phase
     compile_schema_with_path(schema, options, Some(path))
@@ -258,23 +251,14 @@ pub(crate) fn resolve_schema_with_inline(
     //           `inline_schema` runs the V4-W4 identity normalization internally
     //           (right after its own `ensure_stamped`), so `orb validate` — which
     //           calls the inline entry directly — is covered by the same pass.
-    if options.verbose {
-        eprintln!("  Phase 2: Inlining...");
-    }
-    inline_schema(&mut schema, inline, source_path)?;
+    tracing::info_span!(target: ns::COMPILER, "inline").in_scope(|| inline_schema(&mut schema, inline, source_path))?;
 
     // Phase 2.5: Compose (depends on inline having resolved aliases)
-    if options.verbose {
-        eprintln!("  Phase 2.5: Composing behaviors...");
-    }
-    compose_schema(&mut schema, &options.compose)?;
+    tracing::info_span!(target: ns::COMPILER, "compose").in_scope(|| compose_schema(&mut schema, &options.compose))?;
 
     // Phase 3: Enrich (add defaults like collection names — runs on resolved schema
     //           so inlined entities are enriched too)
-    if options.verbose {
-        eprintln!("  Phase 3: Enriching...");
-    }
-    enrich_schema(&mut schema, &options.enrichment);
+    tracing::info_span!(target: ns::COMPILER, "enrich").in_scope(|| enrich_schema(&mut schema, &options.enrichment));
 
     // The theme presets the program references travel with it, so a runtime
     // with no installed `@almadar/core` (wasm, mobile) resolves its theme.
@@ -345,27 +329,18 @@ fn compile_schema_with_path(
     // Phase 4: Validate (runs on the fully inlined + enriched schema so reference
     //           checks and collection-presence checks are accurate)
     if !options.skip_validation {
-        if options.verbose {
-            eprintln!("  Phase 4: Validating...");
-        }
-        validate_schema(&schema)?;
+        tracing::info_span!(target: ns::COMPILER, "validate").in_scope(|| validate_schema(&schema))?;
 
         // Run comprehensive validation if enabled
         if options.comprehensive_validation {
-            if options.verbose {
-                eprintln!("  Phase 4b: Comprehensive validation...");
+            let result = tracing::info_span!(target: ns::COMPILER, "comprehensive validation")
+                .in_scope(|| validate_for_compile(&schema, options));
+            // Comprehensive validation is advisory here: its errors are reported, not fatal.
+            for error in &result.errors {
+                tracing::warn!(target: ns::COMPILER, code = %error.code, path = %error.path, "{}", error.message);
             }
-            let result = validate_for_compile(&schema, options);
-            if !result.is_valid() {
-                // Log errors but don't fail compilation yet (comprehensive validation is advisory)
-                for error in &result.errors {
-                    eprintln!("    [{}] {}: {}", error.code, error.path, error.message);
-                }
-            }
-            if result.has_warnings() && options.verbose {
-                for warning in &result.warnings {
-                    eprintln!("    [WARN] {}: {}", warning.path, warning.message);
-                }
+            for warning in &result.warnings {
+                tracing::info!(target: ns::COMPILER, path = %warning.path, "{}", warning.message);
             }
         }
     }
@@ -374,10 +349,7 @@ fn compile_schema_with_path(
     reflect::fold_literal_reflection(&mut schema, source_path)?;
 
     // Phase 5: Resolve to OIR
-    if options.verbose {
-        eprintln!("  Phase 5: Resolving...");
-    }
-    let mut oir = resolve_to_oir(&schema)?;
+    let mut oir = tracing::info_span!(target: ns::COMPILER, "resolve").in_scope(|| resolve_to_oir(&schema))?;
     oir.egress = schema.egress.clone().unwrap_or_default();
     oir.program_credentials = orbital_core_base::secrets::program_credentials(
         &serde_json::to_value(&schema).map_err(std::io::Error::from)?,
@@ -402,23 +374,15 @@ fn compile_schema_with_path(
     // `named_types` + `TypeRef`s — post-Resolve, pre-codegen, so every
     // backend sees the same table.
     if options.nominalize {
-        if options.verbose {
-            eprintln!("  Phase 5b: Nominalizing...");
-        }
-        let stats = nominalize::nominalize_module(&mut oir);
-        if options.verbose {
-            eprintln!(
-                "    registered={}, reused_existing={}, reused_dedup={}, skipped_collisions={}",
-                stats.registered,
-                stats.reused_existing,
-                stats.reused_dedup,
-                stats.skipped_collisions
-            );
-        }
-    }
-
-    if options.verbose {
-        eprintln!("  Compilation complete!");
+        let stats = tracing::info_span!(target: ns::COMPILER, "nominalize").in_scope(|| nominalize::nominalize_module(&mut oir));
+        tracing::debug!(
+            target: ns::COMPILER,
+            registered = stats.registered,
+            reused_existing = stats.reused_existing,
+            reused_dedup = stats.reused_dedup,
+            skipped_collisions = stats.skipped_collisions,
+            "nominalized"
+        );
     }
 
     Ok(oir)
@@ -427,10 +391,7 @@ fn compile_schema_with_path(
 /// Compile a JSON string to OIR
 pub fn compile_json(json: &str, options: &CompilerOptions) -> CompileResult<OirModule> {
     // Phase 1: Parse
-    if options.verbose {
-        eprintln!("  Phase 1: Parsing JSON...");
-    }
-    let schema = parse_json(json)?;
+    let schema = tracing::info_span!(target: ns::COMPILER, "parse").in_scope(|| parse_json(json))?;
 
     // Continue with common compilation
     compile_schema(schema, options)

@@ -114,11 +114,11 @@ pub fn validate_all_circuits(schema: &OrbitalSchema, ctx: &mut ValidationContext
         // (failure-arm pair, modal-shell pair, filter-field-never-written,
         // dead-bodiless-action) exactly as the JS did, for faithfulness: a
         // trait the client never mounts can't strand a user on a dead
-        // control. `client-unbound-state-machine` reads the SAME set the
-        // opposite way — it fires precisely when a trait is NOT in it.
+        // control. ORB_T_TRAIT_UNMOUNTED reads the mounted set instead (every
+        // protocol's pages), firing when a trait is in neither.
         let bound = client_bound_traits(orbital);
         if super::mounts::is_program(schema, orbital) {
-            ctx.merge(validate_client_bound_state_machines(i, orbital, &bound));
+            ctx.merge(validate_client_bound_state_machines(i, orbital, &crate::phases::embed_graph::mounted_traits(orbital)));
         }
         let page_traits = crate::phases::embed_graph::page_declared_traits(orbital);
         for (j, trait_ref) in orbital.traits.iter().enumerate() {
@@ -4144,7 +4144,7 @@ mod tests {
         assert_eq!(result.errors[0].code, ErrorCode::CircuitSelfEmitLoop);
     }
 
-    // --- ORB_CIRCUIT_CLIENT_UNBOUND_STATE_MACHINE ---
+    // --- ORB_T_TRAIT_UNMOUNTED ---
 
     fn orbital_json(traits: Vec<serde_json::Value>, pages: serde_json::Value) -> Orbital {
         use orbital_core_base::schema::EntityRef;
@@ -4204,7 +4204,7 @@ mod tests {
             result
                 .errors
                 .iter()
-                .any(|e| e.code == ErrorCode::CircuitClientUnboundStateMachine
+                .any(|e| e.code == ErrorCode::TraitUnmounted
                     && e.message.contains("Orphan")),
             "{:?}",
             result.errors
@@ -4219,28 +4219,51 @@ mod tests {
         );
     }
 
-    #[test]
-    fn client_binding_is_not_required_for_explicit_computational_traits() {
-        for category in ["integration", "lifecycle"] {
-            let mut trait_def = inline_trait_with_a_transition("Worker");
-            trait_def["category"] = serde_json::json!(category);
-            let orbital = orbital_json(vec![trait_def.clone()], serde_json::json!([]));
-            assert!(
-                validate_client_bound_state_machines(0, &orbital, &HashSet::new())
-                    .errors
-                    .is_empty()
-            );
+    fn unmounted_in(orbitals: Vec<Orbital>) -> bool {
+        let mut schema: OrbitalSchema =
+            serde_json::from_value(serde_json::json!({ "name": "p", "orbitals": [] })).unwrap();
+        schema.orbitals = orbitals;
+        let mut ctx = ValidationContext::new();
+        validate_all_circuits(&schema, &mut ctx);
+        ctx.result
+            .errors
+            .iter()
+            .any(|error| error.code == ErrorCode::TraitUnmounted)
+    }
 
-            trait_def["stateMachine"]["transitions"][0]["effects"] =
-                serde_json::json!([["render-ui", "main", {"type": "card"}]]);
-            let orbital = orbital_json(vec![trait_def], serde_json::json!([]));
-            assert!(
-                validate_client_bound_state_machines(0, &orbital, &HashSet::new())
-                    .errors
-                    .iter()
-                    .any(|error| error.code == ErrorCode::CircuitClientUnboundStateMachine)
-            );
-        }
+    #[test]
+    fn an_atom_with_no_pages_may_mount_nothing() {
+        let atom = orbital_json(vec![inline_trait_with_a_transition("Worker")], serde_json::json!([]));
+        assert!(!unmounted_in(vec![atom]));
+    }
+
+    #[test]
+    fn control_a_trait_on_no_page_of_an_orbital_with_pages_is_unmounted() {
+        let orbital = orbital_json(
+            vec![inline_trait_with_a_transition("Home"), inline_trait_with_a_transition("Worker")],
+            serde_json::json!([{ "name": "H", "path": "/h", "traits": [{ "ref": "Home" }] }]),
+        );
+        assert!(unmounted_in(vec![orbital]));
+    }
+
+    #[test]
+    fn edge_an_organism_orbital_without_pages_is_a_program() {
+        let atom = orbital_json(vec![inline_trait_with_a_transition("Worker")], serde_json::json!([]));
+        let mut sibling = orbital_json(vec![], serde_json::json!([]));
+        sibling.name = "Sibling".to_string();
+        assert!(unmounted_in(vec![atom, sibling]));
+    }
+
+    #[test]
+    fn edge_a_trait_on_a_protocol_endpoint_is_mounted() {
+        let orbital = orbital_json(
+            vec![inline_trait_with_a_transition("Home"), inline_trait_with_a_transition("Worker")],
+            serde_json::json!([
+                { "name": "H", "path": "/h", "traits": [{ "ref": "Home" }] },
+                { "name": "B", "path": "", "protocol": "boot", "traits": [{ "ref": "Worker" }] }
+            ]),
+        );
+        assert!(!unmounted_in(vec![orbital]));
     }
 
     /// A trait with an empty `stateMachine.transitions` has nothing to bind
@@ -4300,7 +4323,7 @@ mod tests {
         let hit = result
             .errors
             .iter()
-            .find(|e| e.code == ErrorCode::CircuitClientUnboundStateMachine)
+            .find(|e| e.code == ErrorCode::TraitUnmounted)
             .unwrap_or_else(|| panic!("expected a finding: {:?}", result.errors));
         assert!(
             hit.suggestion
@@ -4331,7 +4354,7 @@ mod tests {
         let hit = result
             .errors
             .iter()
-            .find(|e| e.code == ErrorCode::CircuitClientUnboundStateMachine)
+            .find(|e| e.code == ErrorCode::TraitUnmounted)
             .unwrap_or_else(|| panic!("expected a finding: {:?}", result.errors));
         assert!(
             hit.suggestion

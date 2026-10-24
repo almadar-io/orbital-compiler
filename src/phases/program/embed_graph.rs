@@ -296,10 +296,19 @@ fn overlay_only_embeds(td: &orbital_core_base::schema::TraitDefinition) -> HashS
 /// trait, the common post-inline shape — `TraitReference::Reference.reference`
 /// serializes as `"ref"`, `PageTraitRef.ref` in the TS type).
 pub(crate) fn client_bound_traits(orbital: &Orbital) -> HashSet<String> {
+    reached_from(orbital, declared_traits(orbital, |page| page.is_route()))
+}
+
+/// Every trait some page of any protocol mounts, directly or through `@trait` embeds.
+pub(crate) fn mounted_traits(orbital: &Orbital) -> HashSet<String> {
+    reached_from(orbital, page_declared_traits(orbital))
+}
+
+fn reached_from(orbital: &Orbital, seeds: HashSet<String>) -> HashSet<String> {
     let graph = EmbedGraph::build(&orbital.traits);
     let forward = graph.embedded_children();
 
-    let mut bound: HashSet<String> = page_declared_traits(orbital);
+    let mut bound: HashSet<String> = seeds;
     let mut queue: Vec<String> = bound.iter().cloned().collect();
     while let Some(current) = queue.pop() {
         for child in forward.get(current.as_str()).into_iter().flatten() {
@@ -314,11 +323,18 @@ pub(crate) fn client_bound_traits(orbital: &Orbital) -> HashSet<String> {
 /// The traits an inline page declares directly in its own trait list: a page-declared
 /// `Inline` trait's `name`, or a `Reference` page trait's `reference`.
 pub(crate) fn page_declared_traits(orbital: &Orbital) -> HashSet<String> {
+    declared_traits(orbital, |_| true)
+}
+
+fn declared_traits(orbital: &Orbital, keep: impl Fn(&orbital_core_base::schema::PageDefinition) -> bool) -> HashSet<String> {
     let mut declared: HashSet<String> = HashSet::new();
     for page_ref in orbital.pages.iter().flatten() {
         let PageRef::Inline(page) = page_ref else {
             continue;
         };
+        if !keep(page) {
+            continue;
+        }
         for trait_ref in page.traits.iter().flatten() {
             match trait_ref {
                 TraitReference::Inline(td) => {
@@ -678,6 +694,21 @@ mod tests {
     /// (`timeline_shaped_traits`'s Feed -> Stack8 -> Stack5 -> Typography4
     /// chain). A trait nothing on the page reaches, directly or
     /// transitively, is NOT bound even though it lives in the same orbital.
+    #[test]
+    fn a_trait_mounted_only_on_a_protocol_endpoint_is_not_client_bound() {
+        let traits = vec![inline_trait("Server", json!({}), json!([])), inline_trait("View", json!({}), json!([]))];
+        let orbital = orbital_with_pages(
+            traits,
+            json!([
+                { "name": "Home", "path": "/", "traits": [ { "ref": "View" } ] },
+                { "name": "Api", "path": "", "protocol": "http", "traits": [ { "ref": "Server" } ] }
+            ]),
+        );
+        let bound = client_bound_traits(&orbital);
+        assert!(bound.contains("View"), "control: a route trait is client-bound");
+        assert!(!bound.contains("Server"), "{bound:?}");
+    }
+
     #[test]
     fn client_bound_traits_seeds_from_page_and_walks_embed_adjacency() {
         let mut traits = timeline_shaped_traits();

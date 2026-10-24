@@ -1,13 +1,13 @@
 //! Trait Validation
 //!
-//! Validates trait references, categories, state machines, and transitions.
+//! Validates trait references, state machines, and transitions.
 //! Ported from `builder/packages/shared/src/orbitals/validation/trait-validator.ts`.
 
 use super::{
     is_std_trait, render_ui::is_render_ui_effect, trait_path, ErrorCode, ValidationContext,
     ValidationError, ValidationResult,
 };
-use super::mounts::{renders_ui, Mounts};
+use super::mounts::{renders_body, renders_ui, Mounts};
 use orbital_core_base::schema::{
     EntityDefinition, Orbital, OrbitalSchema, Persistence, SExpression, StateMachine,
     StringOrArray, TraitDefinition, TraitReference, TransitionDefinition,
@@ -390,161 +390,6 @@ pub fn validate_trait_definition(
     }
 
     // Validate linked entity if specified
-            if let Some(linked) = linked_entity {
-                if !known_entities.contains(linked) {
-                    result.add_error(
-                        ValidationError::error(
-                            ErrorCode::EntityInvalidRelation,
-                            format!("{}.linkedEntity", path),
-                            format!("Linked entity '{}' does not exist", linked),
-                        )
-                        .with_suggestion("Ensure the linked entity is defined in the schema"),
-                    );
-                }
-            }
-        }
-    }
-
-    result
-}
-
-/// Build a `trait name -> declared event-key set` map from every INLINE trait in
-/// the schema. The event set is the union of declared `emits`, transition
-/// triggers, and `state_machine.events[].key` — the same union the inline phase
-/// validates rename source keys against.
-fn build_trait_event_sets(schema: &OrbitalSchema) -> HashMap<String, HashSet<String>> {
-    let mut map: HashMap<String, HashSet<String>> = HashMap::new();
-    for orbital in &schema.orbitals {
-        for trait_ref in &orbital.traits {
-            if let TraitReference::Inline(trait_def) = trait_ref {
-                let entry = map.entry(trait_def.name.clone()).or_default();
-                if let Some(emits) = &trait_def.emits {
-                    for e in emits {
-                        entry.insert(e.event.clone());
-                    }
-                }
-                for t in &trait_def.state_machine.transitions {
-                    entry.insert(t.event.clone());
-                }
-                if let Some(events) = &trait_def.state_machine.events {
-                    for e in events {
-                        entry.insert(e.key.clone());
-                    }
-                }
-                // Effect emit-maps + render-ui event props — the same union the
-                // inline phase's RULE 3 checks rename source keys against, so
-                // the two checks can never disagree on what counts as known.
-                entry.extend(super::cross_orbital::collect_effect_produced_events(
-                    trait_def,
-                ));
-            }
-        }
-    }
-    map
-}
-
-/// Validate the `events` rename map on a `TraitReference::Reference` against the
-/// referenced trait's known event set. Each `from` key that names no declared
-/// event silently no-ops the rename at runtime — surface it as
-/// `ORB_T_EVENT_RENAME_UNKNOWN_KEY` instead. Skips silently when the referenced
-/// trait's event set is unknown (external / std trait not present inline in this
-/// schema) — those are covered by the inline phase when resolved.
-fn validate_event_renames(
-    trait_ref: &TraitReference,
-    path: &str,
-    trait_events: &HashMap<String, HashSet<String>>,
-) -> ValidationResult {
-    let mut result = ValidationResult::new();
-    let TraitReference::Reference {
-        reference,
-        name,
-        events: Some(events),
-        ..
-    } = trait_ref
-    else {
-        return result;
-    };
-
-    // Resolve the referenced trait name: the `ref:`'s trailing `.Member`
-    // segment, else the `name` field.
-    let target_name = reference
-        .as_deref()
-        .and_then(|r| r.rsplit('.').next())
-        .or(name.as_deref());
-    let Some(target_name) = target_name else {
-        return result;
-    };
-    let Some(known) = trait_events.get(target_name) else {
-        // Unknown target event set (external/std) — defer to the inline phase.
-        return result;
-    };
-
-    for from in events.keys() {
-        if from.is_empty() {
-            continue;
-        }
-        if !known.contains(from) {
-            result.add_error(
-                ValidationError::error(
-                    ErrorCode::EventRenameUnknownKey,
-                    path,
-                    format!(
-                        "events rename key '{}' does not name any event declared by trait '{}';                          the rename silently no-ops.",
-                        from, target_name
-                    ),
-                )
-                .with_suggestion(
-                    "Use an event key the referenced trait declares (an emit, a transition                      trigger, or a stateMachine.events entry).",
-                ),
-            );
-        }
-    }
-
-    result
-}
-
-/// Validate a full trait definition
-pub fn validate_trait_definition(
-    trait_def: &TraitDefinition,
-    path: &str,
-    known_entities: &HashSet<String>,
-    route: bool,
-) -> ValidationResult {
-    let mut result = ValidationResult::new();
-
-    // Trait must have a name
-    if trait_def.name.is_empty() {
-        result.add_error(
-            ValidationError::error(
-                ErrorCode::TraitUndefined,
-                format!("{}.name", path),
-                "Trait name is required",
-            )
-            .with_suggestion("Add a descriptive name for the trait"),
-        );
-    }
-
-    // Validate trait category if specified
-    if let Some(category) = &trait_def.category {
-        let category_str = category_to_string(category);
-        if !VALID_TRAIT_CATEGORIES.contains(&category_str.as_str()) {
-            result.add_error(
-                ValidationError::error(
-                    ErrorCode::TraitInvalidCategory,
-                    format!("{}.category", path),
-                    format!("Invalid trait category: '{}'", category_str),
-                )
-                .with_valid_values(
-                    VALID_TRAIT_CATEGORIES
-                        .iter()
-                        .map(|s| s.to_string())
-                        .collect(),
-                ),
-            );
-        }
-    }
-
-    // Validate linked entity if specified
     if let Some(linked) = &trait_def.linked_entity {
         if !known_entities.contains(linked) {
             result.add_error(
@@ -561,24 +406,6 @@ pub fn validate_trait_definition(
     // Validate state machine
     let sm_result = validate_state_machine(&trait_def.state_machine, path, trait_def, route);
     result.merge(sm_result);
-
-    // A trait on a route page paints it
-    if route {
-        let has_render_ui = has_render_ui_effects(&trait_def.state_machine);
-        if !has_render_ui {
-            result.add_error(
-                ValidationError::error(
-                    ErrorCode::TraitMissingRenderUI,
-                    path,
-                    format!(
-                        "Route trait '{}' should have render_ui effects",
-                        trait_def.name
-                    ),
-                )
-                .with_suggestion("Add render_ui effects to transitions to render UI components"),
-            );
-        }
-    }
 
     // Validate `trait`-typed config field defaults — must be `@trait.<TraitName>`
     // strings, or `Null` (the reserved "unbound" value — owner ruling
@@ -1105,7 +932,7 @@ pub fn validate_state_machine(
     result.merge(transitions_result);
 
     // Check for INIT transition on initial state (for interaction traits)
-    if route && !initial_states.is_empty() {
+    if route && renders_body(trait_def) && !initial_states.is_empty() {
         let has_init = sm
             .transitions
             .iter()
@@ -1437,35 +1264,6 @@ pub fn validate_trait_uniqueness(schema: &OrbitalSchema) -> ValidationResult {
     result
 }
 
-/// Check if state machine has render_ui effects. Looks through `if`
-/// wrappers — a conditional whose branches render still renders.
-
-fn has_render_ui_effects(sm: &StateMachine) -> bool {
-    fn renders(expr: &SExpression) -> bool {
-        if is_render_ui_effect(expr) {
-            return true;
-        }
-        if let SExpression::Array(arr) = expr {
-            if let Some(SExpression::String(op)) = arr.first() {
-                if op == "if" {
-                    return arr.iter().skip(2).any(renders);
-                }
-            }
-        }
-        false
-    }
-    for transition in &sm.transitions {
-        if let Some(effects) = &transition.effects {
-            for effect in effects {
-                if renders(effect) {
-                    return true;
-                }
-            }
-        }
-    }
-    false
-}
-
 /// Entity names fetched (`["fetch", E]` / `["ref", E]`) by INIT transitions
 /// leaving the state machine's initial state.
 fn init_fetch_targets(sm: &StateMachine) -> Vec<&str> {
@@ -1549,7 +1347,7 @@ fn validate_orbital_init_fetch(
         for target in init_fetch_targets(&trait_def.state_machine) {
             fetched.insert(target);
         }
-        if !mounts.on_route(trait_def) {
+        if !mounts.on_route(trait_def) || !renders_body(trait_def) {
             continue;
         }
         let Some(linked) = &trait_def.linked_entity else {
@@ -1722,8 +1520,8 @@ mod tests {
             ]),
             transitions: vec![
                 // INIT self-transition with a render-ui effect — required for
-                // Interaction traits to pass the validator (TraitMissingInitTransition +
-                // TraitMissingRenderUI errors fire otherwise).
+                // Interaction traits to pass the validator (TraitMissingInitTransition
+                // errors fire otherwise).
                 TransitionDefinition {
                     event_id: None,
                     from: StringOrArray::Single("idle".to_string()),
@@ -2286,7 +2084,7 @@ mod tests {
             ref_id: None,
         };
 
-        let result = validate_trait_reference(&trait_ref, "test", &HashSet::new(), &HashSet::new());
+        let result = validate_trait_reference(&trait_ref, "test", &HashSet::new(), &HashSet::new(), true);
         assert!(result
             .errors
             .iter()
@@ -2312,7 +2110,7 @@ mod tests {
             ref_id: None,
         };
 
-        let result = validate_trait_reference(&trait_ref, "test", &HashSet::new(), &HashSet::new());
+        let result = validate_trait_reference(&trait_ref, "test", &HashSet::new(), &HashSet::new(), true);
         assert!(result.is_valid());
     }
 
@@ -2473,6 +2271,20 @@ mod tests {
         layout.linked_entity = Some("Item".to_string());
         let layout = with_render(layout, "@trait.Child");
         assert_eq!(init_fetch_errors(&make_orbital(vec![layout])), 0);
+    }
+
+    #[test]
+    fn test_init_fetch_ignores_a_non_rendering_helper_that_reads_its_entity() {
+        let mut helper = create_valid_trait();
+        helper.name = "Helper".to_string();
+        helper.linked_entity = Some("Item".to_string());
+        helper.state_machine.transitions[0].effects = Some(vec![SExpression::Array(vec![
+            SExpression::String("set".to_string()),
+            SExpression::String("@entity.name".to_string()),
+            SExpression::String("x".to_string()),
+        ])]);
+        assert_eq!(init_fetch_errors(&make_orbital(vec![helper])), 0);
+        assert_eq!(init_fetch_errors(&make_orbital(vec![make_consumer("View")])), 1);
     }
 
     #[test]

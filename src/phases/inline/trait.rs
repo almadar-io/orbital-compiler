@@ -1615,6 +1615,16 @@ type SiblingPull = (
 /// rename has been applied, so users with two distinct `name` overrides
 /// (e.g. `CartItemAddItem` and `CartItemEditItem`) are unaffected.
 #[allow(clippy::too_many_arguments)]
+fn inherit_embedder_dispatch(child: &mut TraitDefinition, traits: &[TraitReference], embedder: &str) {
+    if child.dispatch.is_some() {
+        return;
+    }
+    child.dispatch = traits.iter().find_map(|tr| match tr {
+        TraitReference::Inline(td) if td.name == embedder => td.dispatch,
+        _ => None,
+    });
+}
+
 pub(crate) fn inline_traits(
     traits: &[TraitReference],
     ctx: &InlineContext,
@@ -2761,6 +2771,7 @@ pub(crate) fn inline_traits(
             pulled_owner.insert(final_name.clone(), owner);
             seen_names.insert(final_name.clone());
             pulled_names.push(final_name);
+            inherit_embedder_dispatch(&mut sibling_def, &result, &parent_name);
             result.push(TraitReference::Inline(sibling_def));
         }
     }
@@ -2981,6 +2992,51 @@ mod entity_id_reader_tests {
         SExpression::String(v.to_string())
     }
 
+    use orbital_core_base::schema::DispatchMode;
+
+    fn named_with(name: &str, dispatch: Option<DispatchMode>) -> TraitDefinition {
+        let mut td = trait_rendering_knob("k", "E", None);
+        td.name = name.to_string();
+        td.dispatch = dispatch;
+        td
+    }
+
+    fn embed(parent: Option<DispatchMode>, child: Option<DispatchMode>) -> Option<DispatchMode> {
+        let traits = [TraitReference::Inline(named_with("Parent", parent))];
+        let mut c = named_with("Child", child);
+        inherit_embedder_dispatch(&mut c, &traits, "Parent");
+        c.dispatch
+    }
+
+    #[test]
+    fn embed_child_without_mode_takes_the_client_embedder_mode() {
+        assert_eq!(embed(Some(DispatchMode::Client), None), Some(DispatchMode::Client));
+    }
+
+    #[test]
+    fn embed_child_declaring_optimistic_keeps_it_under_a_client_embedder() {
+        assert_eq!(
+            embed(Some(DispatchMode::Client), Some(DispatchMode::Optimistic)),
+            Some(DispatchMode::Optimistic)
+        );
+    }
+
+    #[test]
+    fn embed_child_stays_server_under_an_embedder_with_no_mode() {
+        assert_eq!(embed(None, None), None);
+    }
+
+    #[test]
+    fn grandchild_inherits_through_the_child() {
+        let mut traits = vec![TraitReference::Inline(named_with("Parent", Some(DispatchMode::Client)))];
+        let mut child = named_with("Child", None);
+        inherit_embedder_dispatch(&mut child, &traits, "Parent");
+        traits.push(TraitReference::Inline(child));
+        let mut grand = named_with("Grand", None);
+        inherit_embedder_dispatch(&mut grand, &traits, "Child");
+        assert_eq!(grand.dispatch, Some(DispatchMode::Client));
+    }
+
     fn payload_field(name: &str) -> PayloadField {
         PayloadField {
             nullable: None,
@@ -3022,6 +3078,7 @@ mod entity_id_reader_tests {
             }]
         });
         TraitDefinition {
+            dispatch: None,
             effect_row: None,
             type_params: None,
             type_args: None,
@@ -3191,6 +3248,7 @@ mod entity_id_reader_tests {
     /// caller so the two scenarios (renamed vs not) can be expressed.
     fn trait_with_entity_token(token: &str) -> TraitDefinition {
         TraitDefinition {
+            dispatch: None,
             effect_row: None,
             type_params: None,
             type_args: None,

@@ -127,6 +127,9 @@ struct Inferer<'c> {
     /// `let` locals bound to one member of a value (`(let ((k (object/get @n "kind" ""))) ...)`): a tag test on the
     /// local narrows that value.
     tag_aliases: RefCell<Vec<(String, OirBinding, String)>>,
+    /// `let` locals bound to a type test (`(let ((isObj (validate/object @p))) ...)`): the facts the test shows of its
+    /// operand when the local is true and when it is false.
+    fact_aliases: RefCell<Vec<FactAlias>>,
     children: RefCell<Vec<ChildrenDependency>>,
     named_types: RefCell<std::sync::Arc<std::collections::BTreeMap<String, OirType>>>,
     /// The type inferred for each `["typed", value, "#slot:<n>"]` the typed-arguments pass tagged.
@@ -139,6 +142,7 @@ struct ScopeState {
     presence: Vec<OirBinding>,
     children: Vec<ChildrenDependency>,
     absent: Vec<String>,
+    fact_aliases: Vec<FactAlias>,
 }
 
 impl<'c> Inferer<'c> {
@@ -152,6 +156,7 @@ impl<'c> Inferer<'c> {
             absent_locals: RefCell::new(Vec::new()),
             refinements: RefCell::new(Vec::new()),
             tag_aliases: RefCell::new(Vec::new()),
+            fact_aliases: RefCell::new(Vec::new()),
             children: RefCell::new(Vec::new()),
             named_types: RefCell::new(std::sync::Arc::default()),
             slots: RefCell::new(Vec::new()),
@@ -579,12 +584,26 @@ impl<'c> Inferer<'c> {
                 .map(|(name, _)| name.clone()),
         );
         let previous_absent = self.absent_locals.replace(absent);
+        let visible = self
+            .fact_aliases
+            .borrow()
+            .iter()
+            .filter(|alias| {
+                !names.iter().any(|(name, _)| {
+                    alias.name == *name
+                        || alias.when_true.iter().chain(&alias.when_false).any(|fact| fact.mentions_local(name))
+                })
+            })
+            .cloned()
+            .collect();
+        let previous_aliases = self.fact_aliases.replace(visible);
         ScopeState {
             depth,
             refinements: previous,
             presence: previous_presence,
             children: previous_children,
             absent: previous_absent,
+            fact_aliases: previous_aliases,
         }
     }
 
@@ -593,6 +612,7 @@ impl<'c> Inferer<'c> {
         self.present.replace(state.presence);
         self.children.replace(state.children);
         self.absent_locals.replace(state.absent);
+        self.fact_aliases.replace(state.fact_aliases);
         self.scopes.borrow_mut().truncate(state.depth);
     }
 
@@ -618,7 +638,14 @@ impl<'c> Inferer<'c> {
                     let ty = self.infer_local_initializer(value);
                     let absent = self.absent_operand(value).is_some();
                     let alias = member_read(value);
+                    let (when_true, when_false) = {
+                        let aliases = self.fact_aliases.borrow();
+                        (type_facts(value, true, &aliases), type_facts(value, false, &aliases))
+                    };
                     scopes.push(self.enter_scope(&[(name.clone(), ty)]));
+                    if !when_true.is_empty() || !when_false.is_empty() {
+                        self.fact_aliases.borrow_mut().push(FactAlias { name: name.clone(), when_true, when_false });
+                    }
                     if let Some((owner, member)) = alias {
                         self.tag_aliases.borrow_mut().push((name.clone(), owner, member));
                         aliased += 1;
@@ -959,13 +986,18 @@ impl<'c> Inferer<'c> {
                 self.ctx.named_type(name.as_ref())
             })
             .map(|ty| self.unfold(ty));
+        let mut integral = vec![false; args.len()];
+        let mut arg_types: Vec<Option<OirType>> = vec![None; args.len()];
         for (index, arg) in args.iter().enumerate() {
             if let Some(declared) = &declared_node {
                 self.register_named_types(declared, &mut bindings);
                 signature.bind_declared_node(&mut bindings, index, declared.clone());
             }
             let refined = self.refinements.borrow().len();
-            let guards = self.through_aliases(type_guards_for(name, args, index));
+            let guards = {
+                let aliases = self.fact_aliases.borrow();
+                self.through_aliases(type_guards_for(name, args, index, &aliases))
+            };
             self.refinements.borrow_mut().extend(guards);
             let narrowed = self.present.borrow().len();
             self.present
@@ -1053,6 +1085,14 @@ impl<'c> Inferer<'c> {
                     if let Some(Known::Type(ty)) = &known {
                         self.register_named_types(ty, &mut bindings);
                     }
+                    arg_types[index] = match &known {
+                        Some(Known::Type(ty)) => Some(ty.clone()),
+                        _ => None,
+                    };
+                    integral[index] = match other {
+                        OirExpr::Number { value } => value.fract() == 0.0,
+                        _ => matches!(&known, Some(Known::Type(OirType::Integer))),
+                    };
                     let actual = Actual {
                         known,
                         text: Self::literal_text(other),
@@ -1099,6 +1139,18 @@ impl<'c> Inferer<'c> {
         if refuted {
             return None;
         }
+        if signature.semantics() == Some("tuple-element") {
+            if let (Some(Some(OirType::Tuple { items })), Some(OirExpr::Number { value })) =
+                (arg_types.first(), args.get(1))
+            {
+                if let Some(item) = (value.fract() == 0.0 && *value >= 0.0)
+                    .then(|| items.get(*value as usize))
+                    .flatten()
+                {
+                    return Some(self.unfold(item.clone()));
+                }
+            }
+        }
         let result =
             signature.result_with_options(&bindings, |index, field| match args.get(index) {
                 None => Some(false),
@@ -1139,6 +1191,15 @@ impl<'c> Inferer<'c> {
         let result = match result {
             OirType::Optional { inner } if defaulted => *inner,
             other => other,
+        };
+        let result = match (signature.semantics(), &result) {
+            (Some("integer-closed"), OirType::Number)
+                if !args.is_empty() && integral.iter().all(|whole| *whole) =>
+            {
+                OirType::Integer
+            }
+            (Some("integer-result"), OirType::Number) if args.len() == 1 => OirType::Integer,
+            _ => result,
         };
         Some(self.unfold(result))
     }
@@ -1516,6 +1577,13 @@ struct ChildrenDependency {
     children: OirBinding,
 }
 
+#[derive(Clone)]
+struct FactAlias {
+    name: String,
+    when_true: Vec<TypeFact>,
+    when_false: Vec<TypeFact>,
+}
+
 #[derive(Clone, PartialEq)]
 struct TypeFact {
     operand: OirBinding,
@@ -1581,7 +1649,17 @@ fn guarded_operand(expr: &OirExpr) -> Option<(OirBinding, Option<ReadProjection>
     ))
 }
 
-fn type_facts(expr: &OirExpr, truth: bool) -> Vec<TypeFact> {
+fn type_facts(expr: &OirExpr, truth: bool, aliases: &[FactAlias]) -> Vec<TypeFact> {
+    if let OirExpr::Binding { binding } = expr {
+        if let (OirBindingRoot::Local(local), true) = (&binding.root, binding.path.is_empty()) {
+            return aliases
+                .iter()
+                .rev()
+                .find(|alias| alias.name == *local)
+                .map(|alias| if truth { alias.when_true.clone() } else { alias.when_false.clone() })
+                .unwrap_or_default();
+        }
+    }
     let Some((name, args)) = as_call(expr) else {
         return Vec::new();
     };
@@ -1632,18 +1710,18 @@ fn type_facts(expr: &OirExpr, truth: bool) -> Vec<TypeFact> {
         }
         "not" => args
             .first()
-            .map(|arg| type_facts(arg, !truth))
+            .map(|arg| type_facts(arg, !truth, aliases))
             .unwrap_or_default(),
         "and" => combine(
-            args.iter().map(|arg| type_facts(arg, truth)).collect(),
+            args.iter().map(|arg| type_facts(arg, truth, aliases)).collect(),
             truth,
         ),
         "or" if truth => {
-            let parts: Vec<Vec<TypeFact>> = args.iter().map(|arg| type_facts(arg, true)).collect();
+            let parts: Vec<Vec<TypeFact>> = args.iter().map(|arg| type_facts(arg, true, aliases)).collect();
             joined_tags(&parts).unwrap_or_else(|| combine(parts, false))
         }
         "or" => combine(
-            args.iter().map(|arg| type_facts(arg, truth)).collect(),
+            args.iter().map(|arg| type_facts(arg, truth, aliases)).collect(),
             !truth,
         ),
         _ => Vec::new(),
@@ -1714,19 +1792,19 @@ fn member_read(expr: &OirExpr) -> Option<(OirBinding, String)> {
     Some((operand, member))
 }
 
-fn type_guards_for(name: &str, args: &[&OirExpr], index: usize) -> Vec<TypeFact> {
+fn type_guards_for(name: &str, args: &[&OirExpr], index: usize, aliases: &[FactAlias]) -> Vec<TypeFact> {
     match name {
         "and" => args[..index]
             .iter()
-            .flat_map(|arg| type_facts(arg, true))
+            .flat_map(|arg| type_facts(arg, true, aliases))
             .collect(),
         "or" => args[..index]
             .iter()
-            .flat_map(|arg| type_facts(arg, false))
+            .flat_map(|arg| type_facts(arg, false, aliases))
             .collect(),
         "if" | "when" if index >= 1 => args
             .first()
-            .map(|condition| type_facts(condition, name == "when" || index == 1))
+            .map(|condition| type_facts(condition, name == "when" || index == 1, aliases))
             .unwrap_or_default(),
         _ => Vec::new(),
     }
@@ -2756,6 +2834,80 @@ mod tests {
                 _ => None,
             }
         }
+    }
+
+    struct UnionEntity;
+    impl TypeCtx for UnionEntity {
+        fn binding_type(&self, _: &OirBinding) -> Option<OirType> {
+            Some(recursive_value_type())
+        }
+        fn named_type(&self, name: &str) -> Option<OirType> {
+            (name == "Value").then(recursive_value_type)
+        }
+    }
+
+    #[test]
+    fn a_literal_index_reads_the_type_of_that_tuple_position() {
+        let pair = OirType::Tuple { items: vec![OirType::String, OirType::array(OirType::Number)] };
+        let row = Row(vec![("pair", pair)]);
+        let at = |index: f64| infer_oir_expr_type(&call("array/nth", vec![entity(&["pair"]), num(index)]), &row);
+        assert_eq!(at(0.0), Some(OirType::String));
+        assert_eq!(at(1.0), Some(OirType::array(OirType::Number)));
+        assert_eq!(at(2.0), None, "control: past the tuple nothing is read");
+    }
+
+    #[test]
+    fn integer_arithmetic_is_closed_and_a_fractional_or_number_operand_widens() {
+        let row = Row(vec![("steps", OirType::Integer), ("ratio", OirType::Number)]);
+        let ty = |name: &str, args: Vec<OirExpr>| infer_oir_expr_type(&call(name, args), &row);
+        let steps = || entity(&["steps"]);
+        let ratio = || entity(&["ratio"]);
+        for name in ["+", "-", "*", "%", "math/min", "math/max"] {
+            assert_eq!(ty(name, vec![steps(), num(1.0)]), Some(OirType::Integer), "{name}");
+            assert_eq!(ty(name, vec![steps(), num(1.5)]), Some(OirType::Number), "{name}: a fractional literal");
+            assert_eq!(ty(name, vec![steps(), ratio()]), Some(OirType::Number), "{name}: a number operand");
+        }
+        assert_eq!(ty("math/abs", vec![steps()]), Some(OirType::Integer));
+        assert_eq!(ty("math/abs", vec![ratio()]), Some(OirType::Number));
+        assert_eq!(ty("/", vec![steps(), num(2.0)]), Some(OirType::Number), "division is not closed");
+        for name in ["math/floor", "math/ceil", "math/round"] {
+            assert_eq!(ty(name, vec![ratio()]), Some(OirType::Integer), "{name}");
+        }
+        assert_eq!(ty("math/round", vec![ratio(), num(2.0)]), Some(OirType::Number), "decimals keep a fraction");
+    }
+
+    #[test]
+    fn a_let_bound_type_test_narrows_its_operand_like_the_test_written_inline() {
+        let probe = |test: &str, condition: serde_json::Value, then: serde_json::Value, otherwise: serde_json::Value| {
+            lowered(serde_json::json!([
+                "let",
+                [["p", "@entity.v"], ["flag", [test, "@p"]]],
+                ["if", condition, then, otherwise]
+            ]))
+        };
+        let direct = probe("validate/array", serde_json::json!("@flag"), serde_json::json!(["array/len", "@p"]), serde_json::json!(0));
+        assert!(check_oir_expr(&direct, &UnionEntity).is_empty(), "{:?}", check_oir_expr(&direct, &UnionEntity));
+        let negated = probe("validate/array", serde_json::json!(["not", "@flag"]), serde_json::json!(0), serde_json::json!(["array/len", "@p"]));
+        assert!(check_oir_expr(&negated, &UnionEntity).is_empty(), "{:?}", check_oir_expr(&negated, &UnionEntity));
+        let either = probe(
+            "validate/array",
+            serde_json::json!(["or", "@flag", ["validate/string", "@p"]]),
+            serde_json::json!(["array/len", "@p"]),
+            serde_json::json!(0),
+        );
+        assert!(!check_oir_expr(&either, &UnionEntity).is_empty(), "control: an or shows neither test");
+        let wrong = probe("validate/string", serde_json::json!("@flag"), serde_json::json!(["array/len", "@p"]), serde_json::json!(0));
+        assert!(!check_oir_expr(&wrong, &UnionEntity).is_empty(), "control: the test narrows to its own type only");
+    }
+
+    #[test]
+    fn a_let_bound_type_test_does_not_narrow_a_shadowing_parameter() {
+        let shadowed = lowered(serde_json::json!([
+            "let",
+            [["p", "@entity.v"], ["flag", ["validate/array", "@p"]]],
+            ["array/map", ["list", "@p"], ["fn", "p", ["if", "@flag", ["array/len", "@p"], 0]]]
+        ]));
+        assert!(!check_oir_expr(&shadowed, &UnionEntity).is_empty());
     }
 
     #[test]

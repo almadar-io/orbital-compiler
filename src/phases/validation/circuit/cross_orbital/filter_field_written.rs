@@ -651,6 +651,8 @@ mod tests {
             traits,
             pages: Some(vec![PageRef::Inline(PageDefinition {
                 translation_of: None,
+                protocol: None,
+                address: None,
                 source_page: None,
                 access: None,
                 indexing: None,

@@ -532,8 +532,8 @@ fn validate_page(page: &PageDefinition, path: &str, ctx: &mut ValidationContext)
         ctx.add_error(ValidationError::missing_field(path, "name"));
     }
 
-    // Validate page path
-    if page.path.is_empty() {
+    // A route is reached by its path; a protocol page by its address.
+    if page.is_route() && page.path.is_empty() {
         ctx.add_error(ValidationError::missing_field(path, "path"));
     }
 
@@ -852,6 +852,7 @@ mod tests {
         transitions: Vec<TransitionDefinition>,
     ) -> TraitDefinition {
         TraitDefinition {
+            dispatch: None,
             effect_row: None,
             type_params: None,
             type_args: None,
@@ -1031,6 +1032,19 @@ mod tests {
             "compile-time gate must surface the shared owner's code, got: {message}"
         );
     }
+    #[test]
+    fn only_a_route_page_needs_a_path() {
+        let page = |value: serde_json::Value| -> Vec<String> {
+            let page: PageDefinition = serde_json::from_value(value).unwrap();
+            let mut ctx = ValidationContext::new();
+            validate_page(&page, "orbitals[0].pages[0]", &mut ctx);
+            ctx.errors.iter().map(|e| e.to_string()).collect()
+        };
+        assert!(page(serde_json::json!({ "name": "Start", "path": "", "protocol": "boot" })).is_empty());
+        let route = page(serde_json::json!({ "name": "Home", "path": "" }));
+        assert!(route.iter().any(|e| e.contains("path")), "{route:?}");
+    }
+
     #[test]
     fn a_spec_orbital_needs_no_trait_but_an_empty_orbital_still_does() {
         let spec: Orbital = serde_json::from_value(serde_json::json!({

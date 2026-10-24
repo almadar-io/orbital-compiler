@@ -41,13 +41,9 @@ pub enum ErrorCode {
     EntityInvalidFieldName,
     /// Persistent entity missing collection property
     EntityMissingCollection,
-    /// `local` on a non-persistent entity (ORB_E_LOCAL_REQUIRES_PERSISTENT)
+    /// `browser` on a non-persistent entity (ORB_E_LOCAL_REQUIRES_PERSISTENT)
     EntityLocalRequiresPersistent,
-    /// `mock` seeding on an entity that is not `local` (ORB_E_MOCK_SEED_NOT_LOCAL)
-    EntityMockSeedNotLocal,
-    /// Both `mock` seeding and written-out `instances` (ORB_E_SEED_SOURCE_CONFLICT)
-    EntitySeedSourceConflict,
-    /// `[identity]` entity declared `local` (ORB_E_IDENTITY_LOCAL)
+    /// `[identity]` entity declared `browser` (ORB_E_IDENTITY_LOCAL)
     EntityIdentityLocal,
     /// A written-out row with an unknown field, a missing required field, or (local) no id (ORB_E_INSTANCE_INVALID)
     EntityInstanceInvalid,
@@ -244,9 +240,9 @@ pub enum ErrorCode {
     /// forward, `@entity.*`, payload ref) satisfies the requirement — only
     /// a fully missing key fires. The atom's own page binding is exempt.
     TraitConfigMissingRequiredKey,
-    /// A `local` trait's transitions contain a server-bound effect
+    /// A `[client]` trait's transitions contain a server-bound effect
     /// (`fetch`/`persist`/`call-service`/`ref`/`deref`/`swap`/`watch`/
-    /// `atomic`/`fetch-stream`), or a guard reading `@user.*`. `local`
+    /// `atomic`/`fetch-stream`), or a guard reading `@user.*`. `[client]`
     /// declares client-only dispatch (`OirTrait::dispatch_mode`) — a trait
     /// that actually touches the server or reads viewer identity is
     /// mis-tagged; its transitions would never await the round trip they
@@ -257,8 +253,8 @@ pub enum ErrorCode {
     /// `runsOn: server` operator. Nothing replays a tick on the server, so the effect would be
     /// dropped. Server work goes through an emitted event a server-side trait handles.
     TraitClientTickServerEffect,
-    /// `local` on a trait whose linked entity is neither `[shared]` nor
-    /// `[runtime]`. `local` is only legal on an entity multiple traits
+    /// `[client]` on a trait whose linked entity is neither `[shared]` nor
+    /// `[runtime]`. `[client]` is only legal on an entity multiple traits
     /// co-mutate client-side (`[shared]`) or one that is never persisted at
     /// all (`[runtime]`) — on an ordinary persistent entity it would silently
     /// hide server-gated writes behind client-only dispatch. Wave 2. Error
@@ -610,7 +606,7 @@ pub enum ErrorCode {
     HttpHeaderInvalid,
     /// An HTTP request's `timeoutMs`, `delayMs` or `retry` is not a value of its declared kind.
     HttpRequestOptionInvalid,
-    /// an `http` with `auth` sits where its trait runs on the client (a `local` trait, a browser-run tick)
+    /// an `http` with `auth` sits where its trait runs on the client (a `[client]` trait, a browser-run tick)
     HttpAuthOnClient,
     /// an `http` request has more than one body kind, or a body on GET
     HttpBodyConflict,
@@ -779,7 +775,7 @@ pub enum ErrorCode {
     /// nothing (std-pong's PADDLE_MOVE, 2026-09-24).
     EmitUnroutedToHandler,
     /// A trait writing a client-held `[runtime]` frame from client ticks (or
-    /// bound to a `[shared]` one another trait ticks) is not `local`: its
+    /// bound to a `[shared]` one another trait ticks) is not `[client]`: its
     /// dispatches post to a stateful host whose stale copy folds back.
     ClientTickNotLocal,
     /// Circular dependency in event wiring
@@ -1364,7 +1360,7 @@ pub enum ErrorCode {
     /// A store driver orbital has no trait handling one of ROW_READ / ROW_LIST / ROWS_QUERY / ROWS_WRITE
     /// (`spec/store/row-store.lolo`). Error severity.
     StoreDriverContract,
-    /// `store:` on an entity whose rows live in no store (`[runtime]` or browser-`local`). Error severity.
+    /// `store:` on an entity whose rows live in no store (`[runtime]` or browser-stored). Error severity.
     StoreOnNonPersistent,
     /// A trait outside a store driver orbital emits a row verb: the store seam alone asks a driver, one frame per
     /// ask (EXEC-STORE-4). Error severity.
@@ -1523,8 +1519,6 @@ impl ErrorCode {
             ErrorCode::EntityInvalidFieldName => "ORB_E_INVALID_FIELD_NAME",
             ErrorCode::EntityMissingCollection => "ORB_E_MISSING_COLLECTION",
             ErrorCode::EntityLocalRequiresPersistent => "ORB_E_LOCAL_REQUIRES_PERSISTENT",
-            ErrorCode::EntityMockSeedNotLocal => "ORB_E_MOCK_SEED_NOT_LOCAL",
-            ErrorCode::EntitySeedSourceConflict => "ORB_E_SEED_SOURCE_CONFLICT",
             ErrorCode::EntityIdentityLocal => "ORB_E_IDENTITY_LOCAL",
             ErrorCode::EntityInstanceInvalid => "ORB_E_INSTANCE_INVALID",
             ErrorCode::EntityLocaleInstancesNotLocal => "ORB_E_LOCALE_INSTANCES_NOT_LOCAL",
@@ -1990,8 +1984,6 @@ impl ErrorCode {
             | ErrorCode::EntityInvalidFieldName
             | ErrorCode::EntityMissingCollection
             | ErrorCode::EntityLocalRequiresPersistent
-            | ErrorCode::EntityMockSeedNotLocal
-            | ErrorCode::EntitySeedSourceConflict
             | ErrorCode::EntityIdentityLocal
             | ErrorCode::EntityInstanceInvalid
             | ErrorCode::EntityLocaleInstancesNotLocal

@@ -2,7 +2,7 @@
 
 use crate::phases::embed_graph::EmbedGraph;
 use orbital_core_base::effect_row::EffectSite;
-use orbital_core_base::schema::{Orbital, OrbitalSchema, PageDefinition, TraitDefinition, TraitReference};
+use orbital_core_base::schema::{Orbital, OrbitalSchema, TraitDefinition, TraitReference};
 use std::collections::HashSet;
 
 #[derive(Default)]
@@ -58,10 +58,6 @@ impl Mounts {
     }
 }
 
-pub(crate) fn pages_of(orbital: &Orbital) -> impl Iterator<Item = &PageDefinition> {
-    orbital.pages.iter().flatten().filter_map(|p| p.as_inline())
-}
-
 /// A program is an orbital with pages, or any orbital of a multi-orbital file; a lone orbital with no
 /// pages is an atom, reached by events and specified with `expects page`.
 pub(crate) fn is_program(schema: &OrbitalSchema, orbital: &Orbital) -> bool {
@@ -82,4 +78,25 @@ pub(crate) fn renders_ui(trait_def: &TraitDefinition) -> bool {
         }
     }
     effects.iter().any(|effect| effect.kind == "render-ui")
+}
+
+/// Whether the trait paints a page body (`orbital_core::slots::MAIN_SLOTS`). A trait that only toasts or opens an
+/// overlay is a helper for the INIT rules (EXEC-ENDPOINT-4); an unresolved slot counts as a body.
+pub(crate) fn renders_body(trait_def: &TraitDefinition) -> bool {
+    let mut effects = Vec::new();
+    for transition in &trait_def.state_machine.transitions {
+        for effect in transition.effects.iter().flatten() {
+            effect.collect_effect_uses(EffectSite::Transition, &mut effects);
+        }
+    }
+    for tick in trait_def.ticks.iter().flatten() {
+        for effect in &tick.effects {
+            effect.collect_effect_uses(EffectSite::Tick, &mut effects);
+        }
+    }
+    effects.iter().any(|effect| {
+        effect.kind == "render-ui"
+            && (!effect.resolved
+                || effect.resource.as_deref().is_none_or(|slot| orbital_core_base::slots::MAIN_SLOTS.contains(&slot)))
+    })
 }

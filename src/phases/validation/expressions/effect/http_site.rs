@@ -1,6 +1,6 @@
 //! `ORB_HTTP_AUTH_ON_CLIENT`: an `http` call with an `auth` key is server-only
 //! (`orbital_core::effects::http_auth`), so it must not sit where its trait runs
-//! on the client — a `local` trait, or a tick the browser runs. A keyless `http`
+//! on the client — a `[client]` trait, or a tick the browser runs. A keyless `http`
 //! runs there (`docs/Almadar_Embedded_Kernel.md` H.7, P12). The generic
 //! `ORB_T_LOCAL_TRAIT_TOUCHES_SERVER` / `ORB_T_CLIENT_TICK_SERVER_EFFECT` also fire
 //! for the same call; this code names the actual cause.
@@ -12,6 +12,7 @@
 use super::super::{inline_traits, ErrorCode, ValidationContext, ValidationError, ValidationResult};
 use orbital_core_base::runs_on::{http_auth, sexpr_runs_server_effect, HttpAuth, Residence};
 use orbital_core_base::dispatch_mode::DispatchMode;
+use orbital_core_base::schema::DispatchMode as Declared;
 use orbital_core_base::schema::{OrbitalSchema, SExpression, TraitDefinition};
 
 fn keyed_http_calls<'a>(expr: &'a SExpression, out: &mut Vec<&'a [SExpression]>) {
@@ -97,7 +98,7 @@ pub(crate) fn validate_http_auth_placement(schema: &OrbitalSchema, ctx: &mut Val
             .linked_entity
             .as_ref()
             .and_then(|name| ctx.entity_definitions.get(name));
-        let ticks_run_on_client = trait_def.local
+        let ticks_run_on_client = trait_def.dispatch == Some(Declared::Client)
             || trait_def.dispatch_mode(entity, &residence) != DispatchMode::PersistedAwaited;
         let mut result = ValidationResult::new();
         for (i, transition) in trait_def.state_machine.transitions.iter().enumerate() {
@@ -122,7 +123,7 @@ pub(crate) fn validate_http_auth_placement(schema: &OrbitalSchema, ctx: &mut Val
                 &format!("tick '{}'", tick.name),
             );
         }
-        if trait_def.local {
+        if trait_def.dispatch == Some(Declared::Client) {
             for (i, transition) in trait_def.state_machine.transitions.iter().enumerate() {
                 for (j, effect) in transition.effects.iter().flatten().enumerate() {
                     report(
@@ -130,7 +131,7 @@ pub(crate) fn validate_http_auth_placement(schema: &OrbitalSchema, ctx: &mut Val
                         trait_def,
                         format!("{path}.stateMachine.transitions[{i}].effects[{j}]"),
                         effect,
-                        "is [local], so its transitions run on the client",
+                        "is [client], so its transitions run on the client",
                     );
                 }
             }

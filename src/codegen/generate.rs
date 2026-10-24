@@ -6,6 +6,7 @@
 
 use crate::phases::{compile_file_with_source, parse_file, CompilerOptions};
 use orbital_core_base::ir::OirModule;
+use orbital_core_base::logging::ns;
 use orbital_core_base::shell::{Shell, ShellError};
 use std::collections::HashMap;
 use std::path::Path;
@@ -67,7 +68,6 @@ impl GenerateOptions {
         orbital_core_base::project::WriteOptions {
             copy_template: self.copy_template,
             clean: self.clean,
-            verbose: self.verbose,
             mode: self.mode,
             service_runtimes: self.compiler.service_runtimes.clone(),
         }
@@ -88,8 +88,6 @@ pub struct GenerateOptions {
     pub copy_template: bool,
     /// Whether to clean existing generated files first
     pub clean: bool,
-    /// Verbose output
-    pub verbose: bool,
     /// Shell mode (full, client, server)
     pub mode: ShellMode,
 }
@@ -150,10 +148,7 @@ pub fn generate_from_file_with_source_using<R>(
     write: impl FnOnce(&OirModule, &Path) -> GenerateResult<R>,
 ) -> GenerateResult<R> {
     let output_dir = output_dir.as_ref();
-
-    if options.verbose {
-        eprintln!("Compiling: {}", schema_path.display());
-    }
+    let _span = tracing::info_span!(target: ns::COMPILER, "generate", file = %schema_path.display()).entered();
 
     // Step 1: Compile schema to OIR
     let oir = compile_file_with_source(schema_path, source_path, &options.compiler)?;
@@ -193,9 +188,7 @@ pub fn generate_from_file_with_source_using<R>(
     // Step 6: Copy source schema to output directory for reference
     let dest_schema = output_dir.join("schema.orb");
     std::fs::copy(schema_path, &dest_schema)?;
-    if options.verbose {
-        eprintln!("Copied schema to: {}", dest_schema.display());
-    }
+    tracing::info!(target: ns::COMPILER, path = %dest_schema.display(), "copied schema");
 
     // Step 7: Emit `resolved.orb` alongside the copied source schema.
     //
@@ -237,8 +230,8 @@ pub fn generate_from_file_with_source_using<R>(
                         resolved_path.display(),
                         err
                     );
-                } else if options.verbose {
-                    eprintln!("Wrote resolved.orb to: {}", resolved_path.display());
+                } else {
+                    tracing::info!(target: ns::COMPILER, path = %resolved_path.display(), "wrote resolved.orb");
                 }
             }
         }

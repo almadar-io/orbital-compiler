@@ -712,6 +712,7 @@ mod render_ui_pattern_contract_reference_tests {
             node,
         ]);
         TraitDefinition {
+            dispatch: None,
             effect_row: None,
             type_params: None,
             type_args: None,

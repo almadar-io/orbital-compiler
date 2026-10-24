@@ -21,7 +21,374 @@ static PATH_REGEX: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"^/[a-zA-Z0-9\
 /// Regex for valid page names (PascalCase)
 static NAME_REGEX: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"^[A-Z][a-zA-Z0-9]*$").unwrap());
 
-@@TESTS_PLACEHOLDER@@
+#[cfg(test)]
+mod endpoint_tests {
+    use super::*;
+    use crate::phases::validation::closed_circuit::validate_all_circuits;
+    use crate::phases::validation::slot::validate_all_slots;
+    use crate::phases::validation::trait_validator::validate_all_traits;
+    use serde_json::{json, Value};
+
+    fn trait_json(name: &str, event: &str, renders: bool) -> Value {
+        let effects = if renders {
+            json!([["render-ui", "main", {"type": "card"}]])
+        } else {
+            json!([])
+        };
+        json!({"name": name, "stateMachine": {
+            "states": [{"name": "ready", "isInitial": true}],
+            "transitions": [{"from": "ready", "to": "ready", "event": event, "effects": effects}]
+        }})
+    }
+
+    fn orbital(name: &str, traits: Vec<Value>, pages: Value) -> Value {
+        let mut orbital = json!({
+            "name": name,
+            "entity": {"name": format!("{name}Row"), "persistence": "runtime", "fields": [{"name": "id", "type": "string"}]},
+            "traits": traits
+        });
+        if !pages.is_null() {
+            orbital["pages"] = pages;
+        }
+        orbital
+    }
+
+    fn route(path: &str, traits: &[&str]) -> Value {
+        let refs: Vec<Value> = traits.iter().map(|t| json!({"ref": t})).collect();
+        json!({"name": format!("P{}", path.replace('/', "")), "path": path, "traits": refs})
+    }
+
+    fn endpoint(protocol: &str, address: Value, traits: &[&str]) -> Value {
+        let refs: Vec<Value> = traits.iter().map(|t| json!({"ref": t})).collect();
+        let mut page = json!({"name": format!("E{protocol}"), "path": "", "protocol": protocol, "traits": refs});
+        if !address.is_null() {
+            page["address"] = address;
+        }
+        page
+    }
+
+    fn http(path: &str, traits: &[&str]) -> Value {
+        endpoint("http", json!({"host": "0.0.0.0", "port": 8080, "path": path}), traits)
+    }
+
+    fn grants() -> Value {
+        json!({"net": [{"target": "0.0.0.0:8080", "kinds": ["listen"]}]})
+    }
+
+    fn run(orbitals: Vec<Value>, grants: Value) -> Vec<ErrorCode> {
+        let mut schema = json!({"name": "p", "orbitals": orbitals});
+        if !grants.is_null() {
+            schema["osGrants"] = grants;
+        }
+        let schema: OrbitalSchema = serde_json::from_value(schema).unwrap();
+        let mut ctx = ValidationContext::new();
+        validate_all_pages(&schema, &mut ctx);
+        validate_all_slots(&schema, &mut ctx);
+        validate_all_traits(&schema, &mut ctx);
+        validate_all_circuits(&schema, &mut ctx);
+        ctx.result.errors.into_iter().map(|e| e.code).collect()
+    }
+
+    fn one(traits: Vec<Value>, pages: Value, grants: Value) -> Vec<ErrorCode> {
+        run(vec![orbital("Main", traits, pages)], grants)
+    }
+
+    #[test]
+    fn a_route_page_may_carry_a_trait_that_draws_nothing() {
+        let page = json!([route("/t", &["V", "H"])]);
+        let codes = one(vec![trait_json("V", "INIT", true), trait_json("H", "GO", false)], page, Value::Null);
+        for code in [ErrorCode::TraitMissingRenderUI, ErrorCode::TraitMissingInitTransition, ErrorCode::SlotMainNotCovered] {
+            assert!(!codes.contains(&code), "{code:?} in {codes:?}");
+        }
+    }
+
+    #[test]
+    fn a_route_page_whose_traits_render_nothing_errors() {
+        let page = json!([route("/t", &["H"])]);
+        let codes = one(vec![trait_json("H", "INIT", false)], page, Value::Null);
+        assert!(codes.contains(&ErrorCode::SlotMainNotCovered), "{codes:?}");
+        let page = json!([route("/t", &["H", "G"])]);
+        let codes = one(vec![trait_json("H", "INIT", false), trait_json("G", "GO", false)], page, Value::Null);
+        assert!(codes.contains(&ErrorCode::SlotMainNotCovered), "{codes:?}");
+        let page = json!([route("/t", &["H"])]);
+        let codes = one(vec![trait_json("H", "INIT", true)], page, Value::Null);
+        assert!(!codes.contains(&ErrorCode::SlotMainNotCovered), "{codes:?}");
+    }
+
+    #[test]
+    fn a_route_page_rendering_only_outside_main_errors() {
+        let sidebar = json!({"name": "S", "stateMachine": {
+            "states": [{"name": "ready", "isInitial": true}],
+            "transitions": [{"from": "ready", "to": "ready", "event": "INIT",
+                "effects": [["render-ui", "sidebar", {"type": "card"}]]}]
+        }});
+        let codes = one(vec![sidebar], json!([route("/t", &["S"])]), Value::Null);
+        assert!(codes.contains(&ErrorCode::SlotMainNotCovered), "{codes:?}");
+    }
+
+    #[test]
+    fn a_route_trait_without_an_init_on_its_initial_state_errors() {
+        let codes = one(vec![trait_json("T", "GO", true)], json!([route("/t", &["T"])]), Value::Null);
+        assert!(codes.contains(&ErrorCode::TraitMissingInitTransition), "{codes:?}");
+        let codes = one(vec![trait_json("T", "INIT", true)], json!([route("/t", &["T"])]), Value::Null);
+        assert!(!codes.contains(&ErrorCode::TraitMissingInitTransition), "{codes:?}");
+    }
+
+    #[test]
+    fn a_non_rendering_route_helper_needs_no_init() {
+        let page = json!([route("/t", &["V", "H"])]);
+        let codes = one(vec![trait_json("V", "INIT", true), trait_json("H", "GO", false)], page, Value::Null);
+        assert!(!codes.contains(&ErrorCode::TraitMissingInitTransition), "{codes:?}");
+        let page = json!([route("/t", &["V", "H"])]);
+        let codes = one(vec![trait_json("V", "INIT", true), trait_json("H", "GO", true)], page, Value::Null);
+        assert!(codes.contains(&ErrorCode::TraitMissingInitTransition), "{codes:?}");
+    }
+
+    #[test]
+    fn a_route_helper_that_only_toasts_needs_no_init() {
+        let notifier = json!({"name": "Notifier", "stateMachine": {
+            "states": [{"name": "ready", "isInitial": true}],
+            "transitions": [{"from": "ready", "to": "ready", "event": "FLAGGED",
+                "effects": [["render-ui", "toast", {"type": "alert", "message": "Flagged"}]]}]
+        }});
+        let page = json!([route("/t", &["V", "Notifier"])]);
+        let codes = one(vec![trait_json("V", "INIT", true), notifier], page, Value::Null);
+        assert!(!codes.contains(&ErrorCode::TraitMissingInitTransition), "{codes:?}");
+    }
+
+    #[test]
+    fn a_trait_embedded_by_a_route_trait_is_still_a_route_trait() {
+        let host = json!({"name": "Host", "stateMachine": {
+            "states": [{"name": "ready", "isInitial": true}],
+            "transitions": [{"from": "ready", "to": "ready", "event": "INIT",
+                "effects": [["render-ui", "main", {"type": "stack", "children": ["@trait.Child"]}]]}]
+        }});
+        let codes = one(vec![host.clone(), trait_json("Child", "GO", true)], json!([route("/t", &["Host"])]), Value::Null);
+        assert!(codes.contains(&ErrorCode::TraitMissingInitTransition), "{codes:?}");
+        assert!(!codes.contains(&ErrorCode::TraitUnmounted), "{codes:?}");
+        let codes = one(vec![host, trait_json("Child", "GO", false)], json!([route("/t", &["Host"])]), Value::Null);
+        assert!(!codes.contains(&ErrorCode::TraitMissingInitTransition), "{codes:?}");
+        assert!(!codes.contains(&ErrorCode::TraitUnmounted), "{codes:?}");
+    }
+
+    #[test]
+    fn a_trait_mounted_only_on_an_endpoint_renders_nothing() {
+        let page = json!([route("/t", &["V"]), http("/", &["S"])]);
+        let codes = one(vec![trait_json("V", "INIT", true), trait_json("S", "INIT", true)], page, grants());
+        assert!(codes.contains(&ErrorCode::TraitEndpointRenders), "{codes:?}");
+        let page = json!([route("/t", &["V"]), http("/", &["S"])]);
+        let codes = one(vec![trait_json("V", "INIT", true), trait_json("S", "GO", false)], page, grants());
+        for code in [
+            ErrorCode::TraitEndpointRenders,
+            ErrorCode::TraitMissingRenderUI,
+            ErrorCode::TraitMissingInitTransition,
+            ErrorCode::TraitUnmounted,
+        ] {
+            assert!(!codes.contains(&code), "{code:?} in {codes:?}");
+        }
+    }
+
+    #[test]
+    fn a_boot_trait_that_renders_errors() {
+        let page = json!([route("/t", &["V"]), endpoint("boot", Value::Null, &["B"])]);
+        let codes = one(vec![trait_json("V", "INIT", true), trait_json("B", "INIT", true)], page, Value::Null);
+        assert!(codes.contains(&ErrorCode::TraitEndpointRenders), "{codes:?}");
+    }
+
+    #[test]
+    fn one_trait_on_a_route_and_an_endpoint_errors() {
+        let page = json!([route("/t", &["T"]), http("/", &["T"])]);
+        let codes = one(vec![trait_json("T", "INIT", true)], page, grants());
+        assert!(codes.contains(&ErrorCode::TraitOnRouteAndEndpoint), "{codes:?}");
+        assert!(!codes.contains(&ErrorCode::TraitEndpointRenders), "{codes:?}");
+        let page = json!([route("/t", &["T"]), route("/u", &["T"])]);
+        let codes = one(vec![trait_json("T", "INIT", true)], page, Value::Null);
+        assert!(!codes.contains(&ErrorCode::TraitOnRouteAndEndpoint), "{codes:?}");
+    }
+
+    #[test]
+    fn an_atom_with_no_pages_mounts_nothing_and_is_not_checked_for_interaction() {
+        let codes = one(vec![trait_json("T", "GO", false)], Value::Null, Value::Null);
+        for code in [
+            ErrorCode::TraitUnmounted,
+            ErrorCode::TraitMissingRenderUI,
+            ErrorCode::TraitMissingInitTransition,
+        ] {
+            assert!(!codes.contains(&code), "{code:?} in {codes:?}");
+        }
+    }
+
+    #[test]
+    fn a_program_trait_on_no_page_is_unmounted() {
+        let two = run(
+            vec![
+                orbital("A", vec![trait_json("T", "INIT", false)], Value::Null),
+                orbital("B", vec![trait_json("U", "INIT", true)], json!([route("/u", &["U"])])),
+            ],
+            Value::Null,
+        );
+        assert!(two.contains(&ErrorCode::TraitUnmounted), "{two:?}");
+        let with_pages = one(
+            vec![trait_json("T", "INIT", true), trait_json("U", "INIT", true)],
+            json!([route("/t", &["T"])]),
+            Value::Null,
+        );
+        assert!(with_pages.contains(&ErrorCode::TraitUnmounted), "{with_pages:?}");
+        let mounted = one(
+            vec![trait_json("T", "INIT", true), trait_json("U", "INIT", true)],
+            json!([route("/t", &["T", "U"])]),
+            Value::Null,
+        );
+        assert!(!mounted.contains(&ErrorCode::TraitUnmounted), "{mounted:?}");
+    }
+
+    fn server_trait() -> Vec<Value> {
+        vec![trait_json("V", "INIT", true), trait_json("S", "GO", false)]
+    }
+
+    fn with_http(address: Value, grants: Value, config: Value) -> Vec<ErrorCode> {
+        let mut main = orbital(
+            "Main",
+            server_trait(),
+            json!([route("/t", &["V"]), endpoint("http", address, &["S"])]),
+        );
+        if !config.is_null() {
+            main["config"] = config;
+        }
+        run(vec![main], grants)
+    }
+
+    fn literal_address() -> Value {
+        json!({"host": "0.0.0.0", "port": 8080, "path": "/"})
+    }
+
+    #[test]
+    fn an_http_endpoint_needs_a_covering_net_listen_grant() {
+        let codes = with_http(literal_address(), Value::Null, Value::Null);
+        assert!(codes.contains(&ErrorCode::PageEndpointGrantMissing), "{codes:?}");
+        let codes = with_http(literal_address(), grants(), Value::Null);
+        assert!(!codes.contains(&ErrorCode::PageEndpointGrantMissing), "{codes:?}");
+        let other = json!({"net": [{"target": "0.0.0.0:9090", "kinds": ["listen"]}]});
+        let codes = with_http(literal_address(), other, Value::Null);
+        assert!(codes.contains(&ErrorCode::PageEndpointGrantMissing), "{codes:?}");
+        let tcp = json!({"net": [{"target": "0.0.0.0:8080", "kinds": ["tcp"]}]});
+        let codes = with_http(literal_address(), tcp, Value::Null);
+        assert!(codes.contains(&ErrorCode::PageEndpointGrantMissing), "{codes:?}");
+    }
+
+    #[test]
+    fn an_http_address_reading_config_is_covered_by_the_grant_of_its_default() {
+        let config = json!({"port": {"type": "number", "default": 8080}, "host": {"type": "string", "default": "0.0.0.0"}});
+        let address = json!({"host": "@config.host", "port": "@config.port"});
+        let codes = with_http(address.clone(), grants(), config.clone());
+        assert!(!codes.contains(&ErrorCode::PageEndpointGrantMissing), "{codes:?}");
+        assert!(!codes.contains(&ErrorCode::PageAddressInvalid), "{codes:?}");
+        let codes = with_http(address, Value::Null, config);
+        assert!(codes.contains(&ErrorCode::PageEndpointGrantMissing), "{codes:?}");
+    }
+
+    #[test]
+    fn an_address_knob_without_a_default_is_refused_so_the_grant_is_checked_exactly() {
+        let config = json!({"port": {"type": "number"}, "host": {"type": "string", "default": "0.0.0.0"}});
+        let codes = with_http(json!({"host": "@config.host", "port": "@config.port"}), grants(), config);
+        assert!(codes.contains(&ErrorCode::PageAddressInvalid), "{codes:?}");
+        let codes = with_http(json!({"host": "0.0.0.0", "port": ["+", 8000, 80]}), grants(), Value::Null);
+        assert!(codes.contains(&ErrorCode::PageAddressInvalid), "a computed port cannot be checked against a grant: {codes:?}");
+        let codes = with_http(json!({"host": "0.0.0.0", "port": 9999}), grants(), Value::Null);
+        assert!(codes.contains(&ErrorCode::PageEndpointGrantMissing), "control: an exact address outside the grant: {codes:?}");
+    }
+
+    #[test]
+    fn an_address_is_typed_against_the_protocol_row() {
+        for bad in [
+            json!({"host": "0.0.0.0", "port": "8080"}),
+            json!({"port": 8080}),
+            json!({"host": "0.0.0.0", "port": 8080, "extra": 1}),
+        ] {
+            let codes = with_http(bad.clone(), grants(), Value::Null);
+            assert!(codes.contains(&ErrorCode::PageAddressInvalid), "{bad} {codes:?}");
+        }
+        let config = json!({"port": {"type": "string", "default": "x"}});
+        let codes = with_http(json!({"host": "0.0.0.0", "port": "@config.port"}), grants(), config);
+        assert!(codes.contains(&ErrorCode::PageAddressInvalid), "{codes:?}");
+        let codes = with_http(json!({"host": "0.0.0.0", "port": 8080}), grants(), Value::Null);
+        assert!(!codes.contains(&ErrorCode::PageAddressInvalid), "{codes:?}");
+    }
+
+    #[test]
+    fn a_protocol_without_an_address_takes_none() {
+        let page = json!([route("/t", &["V"]), endpoint("boot", json!({"x": 1}), &["S"])]);
+        let codes = one(server_trait(), page, Value::Null);
+        assert!(codes.contains(&ErrorCode::PageAddressInvalid), "{codes:?}");
+        let page = json!([route("/t", &["V"]), endpoint("boot", Value::Null, &["S"])]);
+        let codes = one(server_trait(), page, Value::Null);
+        assert!(!codes.contains(&ErrorCode::PageAddressInvalid), "{codes:?}");
+    }
+
+    #[test]
+    fn a_stdio_endpoint_needs_a_stdio_grant() {
+        let page = json!([route("/t", &["V"]), endpoint("stdio", Value::Null, &["S"])]);
+        let codes = one(server_trait(), page.clone(), Value::Null);
+        assert!(codes.contains(&ErrorCode::PageEndpointGrantMissing), "{codes:?}");
+        let codes = one(server_trait(), page.clone(), json!({"stdio": ["in"]}));
+        assert!(codes.contains(&ErrorCode::PageEndpointGrantMissing), "reading alone is not enough: {codes:?}");
+        let codes = one(server_trait(), page.clone(), json!({"stdio": ["out", "err"]}));
+        assert!(codes.contains(&ErrorCode::PageEndpointGrantMissing), "{codes:?}");
+        let codes = one(server_trait(), page, json!({"stdio": ["in", "out"]}));
+        assert!(!codes.contains(&ErrorCode::PageEndpointGrantMissing), "{codes:?}");
+    }
+
+    #[test]
+    fn an_unknown_protocol_is_refused() {
+        let page = json!([route("/t", &["V"]), endpoint("grpc", Value::Null, &["S"])]);
+        let codes = one(server_trait(), page, Value::Null);
+        assert!(codes.contains(&ErrorCode::PageUnknownProtocol), "{codes:?}");
+        let page = json!([route("/t", &["V"]), endpoint("route", Value::Null, &["S"])]);
+        let codes = one(server_trait(), page, Value::Null);
+        assert!(codes.contains(&ErrorCode::PageUnknownProtocol), "{codes:?}");
+        let page = json!([route("/t", &["V"]), endpoint("boot", Value::Null, &["S"])]);
+        let codes = one(server_trait(), page, Value::Null);
+        assert!(!codes.contains(&ErrorCode::PageUnknownProtocol), "{codes:?}");
+    }
+
+    #[test]
+    fn paths_collide_only_within_one_protocol() {
+        let page = json!([route("/x", &["V"]), http("/x", &["S"])]);
+        let codes = one(server_trait(), page, grants());
+        assert!(!codes.contains(&ErrorCode::PageDuplicatePath), "{codes:?}");
+        let page = json!([route("/x", &["V"]), route("/x", &["V"])]);
+        let codes = one(vec![trait_json("V", "INIT", true)], page, Value::Null);
+        assert!(codes.contains(&ErrorCode::PageDuplicatePath), "{codes:?}");
+        let mut second = http("/x", &["S"]);
+        second["name"] = json!("Other");
+        let page = json!([route("/t", &["V"]), http("/x", &["S"]), second]);
+        let codes = one(server_trait(), page, grants());
+        assert!(codes.contains(&ErrorCode::PageDuplicatePath), "{codes:?}");
+        let mut elsewhere = http("/y", &["S"]);
+        elsewhere["name"] = json!("Other");
+        let page = json!([route("/t", &["V"]), http("/x", &["S"]), elsewhere]);
+        let codes = one(server_trait(), page, grants());
+        assert!(!codes.contains(&ErrorCode::PageDuplicatePath), "{codes:?}");
+    }
+
+    #[test]
+    fn only_routes_can_be_unreachable_and_the_boot_page_is_the_first_route() {
+        let page = json!([http("/", &["S"]), route("/t", &["V"])]);
+        let codes = one(server_trait(), page, grants());
+        assert!(!codes.contains(&ErrorCode::PageUnreachable), "{codes:?}");
+        let page = json!([route("/t", &["V"]), route("/u", &["V"])]);
+        let codes = one(vec![trait_json("V", "INIT", true)], page, Value::Null);
+        assert!(codes.contains(&ErrorCode::PageUnreachable), "{codes:?}");
+    }
+
+    #[test]
+    fn an_endpoint_page_needs_no_main_slot() {
+        let page = json!([route("/t", &["V"]), http("/", &["S"])]);
+        let codes = one(server_trait(), page, grants());
+        assert!(!codes.contains(&ErrorCode::SlotMainNotCovered), "{codes:?}");
+    }
+}
+
 /// Validate all pages in a schema
 pub fn validate_all_pages(schema: &OrbitalSchema, ctx: &mut ValidationContext) {
     for (i, orbital) in schema.orbitals.iter().enumerate() {
@@ -665,7 +1032,7 @@ fn address_problems(
         return problems;
     };
     for key in record.keys() {
-        if !fields.iter().any(|f| f.name == key) {
+        if !fields.iter().any(|f| f.name == key.as_str()) {
             problems.push(format!("'{key}' is no field of the '{}' address", spec.name));
         }
     }
@@ -704,14 +1071,12 @@ fn grant_problem(
     page: &PageDefinition,
     schema: &OrbitalSchema,
     orbital: &orbital_core_base::schema::Orbital,
-) -> Option<String> {
-    use orbital_core_base::os_grants::NetKind;
+) -> Option<(ErrorCode, String)> {
+    use orbital_core_base::os_grants::{NetKind, StdioKind};
     let grants = schema.orbital_os_grants(orbital);
     match spec.grant? {
-        protocols::GrantKind::Stdio => grants
-            .stdio
-            .is_empty()
-            .then(|| format!("'{}' endpoints need a `stdio` grant", spec.name)),
+        protocols::GrantKind::Stdio => (!(grants.stdio.contains(&StdioKind::In) && grants.stdio.contains(&StdioKind::Out)))
+            .then(|| (ErrorCode::PageEndpointGrantMissing, format!("'{}' endpoints read and write: they need `stdio: [in, out]`", spec.name))),
         protocols::GrantKind::NetListen => {
             let record = match page.address.as_ref() {
                 Some(SExpression::Object(record)) => Some(record),
@@ -728,14 +1093,19 @@ fn grant_problem(
                     if port.fract() == 0.0 && (0.0..=65535.0).contains(port) =>
                 {
                     (!grants.net_allows(host, *port as u16, NetKind::Listen)).then(|| {
-                        format!(
-                            "'{}' endpoint {host}:{} has no covering `net` listen grant",
-                            spec.name, *port as u16
+                        (
+                            ErrorCode::PageEndpointGrantMissing,
+                            format!("'{}' endpoint {host}:{} has no covering `net` listen grant", spec.name, *port as u16),
                         )
                     })
                 }
-                _ => (!grants.net.iter().any(|g| g.kinds.contains(&NetKind::Listen)))
-                    .then(|| format!("'{}' endpoints need a `net` listen grant", spec.name)),
+                _ => Some((
+                    ErrorCode::PageAddressInvalid,
+                    format!(
+                        "'{}' endpoint host and port must be literals or `@config` knobs with a declared default, so the `net` listen grant can be checked",
+                        spec.name
+                    ),
+                )),
             }
         }
     }
@@ -754,7 +1124,7 @@ pub fn validate_protocol_pages(schema: &OrbitalSchema) -> ValidationResult {
                 continue;
             };
             let location = format!("orbitals[{i}].pages[{j}]");
-            let Some(spec) = protocols::protocol(page.protocol_name()) else {
+            let Some(spec) = protocols::protocol(page.protocol_name()).filter(|p| !p.viewer) else {
                 result.add_error(
                     ValidationError::error(
                         ErrorCode::PageUnknownProtocol,
@@ -772,10 +1142,10 @@ pub fn validate_protocol_pages(schema: &OrbitalSchema) -> ValidationResult {
                     format!("page '{}': {problem}", page.name),
                 ));
             }
-            if let Some(problem) = grant_problem(spec, page, schema, orbital) {
+            if let Some((code, problem)) = grant_problem(spec, page, schema, orbital) {
                 result.add_error(
                     ValidationError::error(
-                        ErrorCode::PageEndpointGrantMissing,
+                        code,
                         location,
                         format!("page '{}': {problem}", page.name),
                     )
@@ -1093,6 +1463,8 @@ mod tests {
     fn create_valid_page() -> PageDefinition {
         PageDefinition {
             translation_of: None,
+            protocol: None,
+            address: None,
             source_page: None,
             access: None,
             indexing: None,
