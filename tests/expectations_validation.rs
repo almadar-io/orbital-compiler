@@ -849,7 +849,7 @@ orbital Base {
   id : string!
   value : number?!
  }
- trait Writer -> @rebindable Source [integration] {
+ trait Writer -> @rebindable Source {
   initial: ready
   state ready {
    ASK -> ready when (or (= ?value null) (>= ?value 0))
@@ -1032,57 +1032,6 @@ fn a_satisfied_composed_program_is_clean() {
             .iter()
             .any(|c| c.starts_with("ORB_S_EXPECT") || c.starts_with("ORB_S_ACCESS_POLICY")),
         "a satisfied program must be clean of expectation codes, got {codes:?}"
-    );
-}
-
-// ---------------------------------------------------------------------------
-// `expects` never declares
-// ---------------------------------------------------------------------------
-
-/// `expects entity [identity]` is not an identity declaration: a real [identity]
-/// entity alongside expectations must not trip the uniqueness rule.
-#[test]
-fn expects_identity_never_counts_as_an_identity_declaration() {
-    let schema = json!({
-        "name": "App",
-        "orbitals": [
-            {
-                "name": "CustomerOrbital",
-                "entity": {
-                    "name": "Customer",
-                    "identity": true,
-                    "persistence": "persistent",
-                    "collection": "customers",
-                    "fields": [
-                        { "name": "id", "type": "string" },
-                        { "name": "role", "type": "string", "values": ["admin"] }
-                    ]
-                },
-                "traits": [],
-                "pages": []
-            },
-            {
-                "name": "ProductOrbital",
-                "expects": [
-                    { "kind": "identity", "name": "Customer",
-                      "shape": [{ "name": "role", "type": "string", "values": ["admin"] }] },
-                    { "kind": "identity" }
-                ],
-                "entity": {
-                    "name": "Product",
-                    "persistence": "persistent",
-                    "collection": "products",
-                    "fields": [{ "name": "id", "type": "string" }]
-                },
-                "traits": [],
-                "pages": []
-            }
-        ]
-    });
-    let codes = run_full(schema);
-    assert!(
-        !codes.contains(&"ORB_S_IDENTITY_NOT_UNIQUE".to_string()),
-        "expects never declares identity, got {codes:?}"
     );
 }
 

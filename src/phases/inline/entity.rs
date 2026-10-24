@@ -699,6 +699,7 @@ mod render_ui_pattern_contract_reference_tests {
                 description: None,
                 synonyms: None,
                 projected_from: None,
+                record: None,
             }],
             id: None,
             invariants: None,

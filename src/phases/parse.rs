@@ -132,7 +132,7 @@ mod tests {
         let path = dir.path().join("door.lolo");
         std::fs::write(
             &path,
-            "app Door [version: \"1.0.0\"]\norbital DoorOrbital {\n  entity Door [runtime] {\n    id : string!\n  }\n  trait DoorLife -> Door [interaction] {\n    initial: closed\n    state closed {\n      INIT -> closed\n      OPEN -> open\n    }\n    state open {\n      CLOSE -> closed\n    }\n  }\n  page \"/door\" -> DoorLife\n}\n",
+            "app Door [version: \"1.0.0\"]\norbital DoorOrbital {\n  entity Door [runtime] {\n    id : string!\n  }\n  trait DoorLife -> Door {\n    initial: closed\n    state closed {\n      INIT -> closed\n      OPEN -> open\n    }\n    state open {\n      CLOSE -> closed\n    }\n  }\n  page \"/door\" -> DoorLife\n}\n",
         )
         .unwrap();
         let schema = parse_file(&path).expect("a .lolo file parses");

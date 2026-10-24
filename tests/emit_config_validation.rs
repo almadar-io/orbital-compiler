@@ -81,6 +81,7 @@ fn schema_with_effects(
             description: None,
             synonyms: None,
             projected_from: None,
+            record: None,
         }],
         instances: None,
         id: None,
@@ -88,6 +89,7 @@ fn schema_with_effects(
     };
 
     let trait_def = TraitDefinition {
+        dispatch: None,
         effect_row: None,
         type_params: None,
         type_args: None,

@@ -1,9 +1,9 @@
-//! Entity Mutation & Tick Guards
+//! Entity Mutation
 //!
 //! Multi-trait entity-mutation rules (`SPLIT_ENTITY_MUTATION`,
-//! `SharedEntityFieldConflict`, `SharedEntityRenderAuthority`) plus the
-//! non-`Cron` tick backstop (`ORB_TICK_REQUIRES_RUNTIME`,
-//! `ORB_TICK_ASYNC_EFFECT`). Runs POST-INLINE (after `uses` imports resolve)
+//! `SharedEntityFieldConflict`, `SharedEntityRenderAuthority`). The non-`Cron`
+//! tick backstop (`ORB_TICK_REQUIRES_RUNTIME`, `ORB_TICK_ASYNC_EFFECT`) is
+//! owned by the std lint `std-orb-lint-tick-requires-runtime`. Runs POST-INLINE (after `uses` imports resolve)
 //! so the fully composed trait set and each entity's `shared` /
 //! `persistence` flags are visible.
 //!
@@ -19,7 +19,7 @@ use orbital_core_base::runs_on::Residence;
 use orbital_core_base::schema::DispatchMode as Declared;
 use orbital_core_base::schema::{
     EntityDefinition, ListenSource, Orbital, OrbitalSchema, PageRef, Persistence, SExpression,
-    StringOrNumber, TraitDefinition, TraitReference, TransitionDefinition,
+    TraitDefinition, TraitReference, TransitionDefinition,
 };
 use std::collections::{HashMap, HashSet};
 
@@ -714,121 +714,6 @@ pub fn validate_all_merged_field_usage(schema: &OrbitalSchema, ctx: &mut Validat
 }
 
 // ============================================================================
-// A. Non-`Cron` tick backstop
-// ============================================================================
-
-/// Non-`Cron` tick guards — the corpus-facing backstop mirroring the lolo L1
-/// tick guards. `Cron` intervals are exempt (the sole server-schedulable
-/// interval); every other interval (frame / duration) fires on a client
-/// cadence, which is what these rules guard against.
-pub fn validate_all_tick_guards(schema: &OrbitalSchema, ctx: &mut ValidationContext) {
-    for (trait_def, path) in super::inline_traits(schema) {
-        let result = validate_trait_tick_guards(trait_def, &path, &ctx.entity_definitions);
-        ctx.merge(result);
-    }
-}
-
-/// Per-trait tick-guard check (both `ORB_TICK_REQUIRES_RUNTIME` and
-/// `ORB_TICK_ASYNC_EFFECT`), factored out of `validate_all_tick_guards` so it
-/// can run against a hand-built `TraitDefinition` fixture without needing a
-/// full `OrbitalSchema`.
-fn validate_trait_tick_guards(
-    trait_def: &TraitDefinition,
-    path: &str,
-    entity_definitions: &HashMap<String, EntityDefinition>,
-) -> ValidationResult {
-    let mut result = ValidationResult::new();
-    let Some(ticks) = &trait_def.ticks else {
-        return result;
-    };
-
-    let has_non_cron_tick = ticks.iter().any(|t| !tick_is_cron(&t.interval));
-    if has_non_cron_tick {
-        if let Some(linked) = &trait_def.linked_entity {
-            let is_persistent = entity_definitions
-                .get(linked)
-                .map(|e| matches!(e.persistence, None | Some(Persistence::Persistent)))
-                .unwrap_or(false);
-            if is_persistent {
-                result.add_error(
-                    ValidationError::error(
-                        ErrorCode::TickRequiresRuntime,
-                        format!("{}.ticks", path),
-                        format!(
-                            "trait {:?} runs a non-cron tick against entity {:?}, which is Persistent — a persistent entity mutated on every tick is usually meant to be [runtime]",
-                            trait_def.name, linked
-                        ),
-                    )
-                    .with_suggestion(format!(
-                        "Mark entity {:?} [runtime], or switch the tick to a Cron interval if it's a server-scheduled job",
-                        linked
-                    )),
-                );
-            }
-        }
-    }
-
-    for (i, tick) in ticks.iter().enumerate() {
-        if tick_is_cron(&tick.interval) {
-            continue;
-        }
-        for (j, effect) in tick.effects.iter().enumerate() {
-            if let Some(op_name) = find_async_operator_call(effect) {
-                result.add_error(
-                    ValidationError::error(
-                        ErrorCode::TickAsyncEffect,
-                        format!("{}.ticks[{}].effects[{}]", path, i, j),
-                        format!(
-                            "trait {:?} tick '{}' calls server-async operator '{}' on a non-cron interval — repeated per-tick agent/LLM calls can pile up",
-                            trait_def.name, tick.name, op_name
-                        ),
-                    )
-                    .with_suggestion(
-                        "Trigger the async call from an explicit event-driven transition, or use a Cron-scheduled tick",
-                    ),
-                );
-            }
-        }
-    }
-
-    result
-}
-
-/// True when `interval` is a valid 5-field cron expression — the sole
-/// server-schedulable tick interval, exempt from the guards above. Reuses
-/// the canonical cron parser (`orbital_core::cron`) rather than
-/// reimplementing cron syntax; mirrors the check
-/// `phases::resolve::resolve_tick` runs when lowering to `OirInterval::Cron`.
-fn tick_is_cron(interval: &StringOrNumber) -> bool {
-    match interval {
-        StringOrNumber::Number(_) => false,
-        StringOrNumber::String(s) => orbital_core_base::cron::is_valid_cron_expression(s),
-    }
-}
-
-/// Find the first server-async operator call anywhere in `expr`'s tree.
-/// "Async" = the baked canonical registry's `std-llm` category (LLM calls:
-/// `llm/generate`, `llm/call-tools`, `llm/embed`, ... — formerly `agent/*`
-/// under `std-agent`). Consults `embedded::get_operator` (the baked
-/// canonical-operators.json, the source of record) — the hand-maintained
-/// static table in `canonical_operators.rs` predates the rename and never
-/// carried these operators, which is how this rule went silently dead.
-fn find_async_operator_call(expr: &SExpression) -> Option<&str> {
-    match expr {
-        SExpression::Array(arr) => {
-            if let Some(SExpression::String(op)) = arr.first() {
-                if crate::embedded::get_operator(op).is_some_and(|m| m.category == "std-llm") {
-                    return Some(op.as_str());
-                }
-            }
-            arr.iter().find_map(|item| find_async_operator_call(item))
-        }
-        SExpression::Object(obj) => obj.values().find_map(find_async_operator_call),
-        _ => None,
-    }
-}
-
-// ============================================================================
 // C. Local trait dispatch contract (Wave 2)
 // ============================================================================
 
@@ -847,8 +732,7 @@ fn contains_server_bound_effect(expr: &SExpression, residence: &Residence) -> bo
 const MUTATING_SERVER_OPERATORS: &[&str] = &["persist", "call-service"];
 
 /// True when `expr`'s tree contains a call to any operator in `ops`, at any
-/// depth (recurses through control-flow wrappers the same way
-/// `find_async_operator_call` does for the tick backstop). Single walker
+/// depth (recurses through control-flow wrappers). Single walker
 /// shared by every "does this effect touch operator X" check in this module.
 fn expr_calls_any_operator(expr: &SExpression, ops: &[&str]) -> bool {
     expr_calls_operator_where(expr, &|op| ops.contains(&op))
@@ -1168,9 +1052,12 @@ pub fn validate_all_mixed_residence(schema: &OrbitalSchema, ctx: &mut Validation
 /// `ORB_T_CLIENT_TICK_SERVER_EFFECT`: a browser-run tick (trait not server-awaited, tick not
 /// `[background]`) carrying a server effect. A `[client]` trait is reported by
 /// `ORB_T_LOCAL_TRAIT_TOUCHES_SERVER` instead, so it is not reported twice.
-pub fn validate_all_client_tick_server_effects(schema: &OrbitalSchema, ctx: &mut ValidationContext) {
-    use orbital_core_base::runs_on::sexpr_runs_server_effect;
+pub fn validate_all_client_tick_server_effects(
+    schema: &OrbitalSchema,
+    ctx: &mut ValidationContext,
+) {
     use orbital_core_base::dispatch_mode::DispatchMode;
+    use orbital_core_base::runs_on::sexpr_runs_server_effect;
     let residence = Residence::of_entities(ctx.entity_definitions.values());
     for (trait_def, path) in super::inline_traits(schema) {
         if trait_def.dispatch == Some(Declared::Client) {
@@ -1184,7 +1071,12 @@ pub fn validate_all_client_tick_server_effects(schema: &OrbitalSchema, ctx: &mut
             continue;
         }
         for (i, tick) in trait_def.ticks.iter().flatten().enumerate() {
-            if tick.background || !tick.effects.iter().any(|e| sexpr_runs_server_effect(e, &residence)) {
+            if tick.background
+                || !tick
+                    .effects
+                    .iter()
+                    .any(|e| sexpr_runs_server_effect(e, &residence))
+            {
                 continue;
             }
             ctx.merge({
@@ -1233,7 +1125,14 @@ fn validate_trait_local_dispatch(
     // entity multiple traits co-mutate client-side (`[shared]`) or one that
     // is never persisted at all (`[runtime]`).
     if let Some(linked) = &trait_def.linked_entity {
-        if let Some(entity_def) = entity_definitions.get(linked) {
+        let writes_linked = !collect_entity_mutators(std::iter::once(trait_def)).is_empty()
+            || trait_def
+                .state_machine
+                .transitions
+                .iter()
+                .flat_map(|t| t.effects.iter().flatten())
+                .any(|e| expr_persists_entity_create_or_update(e, linked));
+        if let Some(entity_def) = entity_definitions.get(linked).filter(|_| writes_linked) {
             if !entity_def.shared && !entity_def.is_client_resident() {
                 result.add_error(
                     ValidationError::error(
@@ -1257,6 +1156,13 @@ fn validate_trait_local_dispatch(
     // never touch the server or read viewer identity.
     let residence = Residence::of_entities(entity_definitions.values());
     for (i, transition) in trait_def.state_machine.transitions.iter().enumerate() {
+        if transition
+            .guard
+            .as_ref()
+            .is_some_and(SExpression::is_statically_false)
+        {
+            continue;
+        }
         if let Some(guard) = &transition.guard {
             if references_user_binding(guard) {
                 result.add_error(
@@ -1814,8 +1720,7 @@ mod tests {
     use super::*;
     use orbital_core_base::schema::{
         EmitDefinition, EntityRef, FieldDefinition, FieldType, ListenDefinition, PageDefinition,
-        PayloadField, StateDefinition, StateMachine, StringOrArray, TickDefinition,
-        TransitionDefinition,
+        PayloadField, StateDefinition, StateMachine, StringOrArray, TransitionDefinition,
     };
 
     fn s(v: &str) -> SExpression {
@@ -1828,7 +1733,8 @@ mod tests {
     }
 
     #[test]
-    fn a_batch_built_with_flatten_and_if_branches_writes_every_entity_a_branch_creates_or_updates() {
+    fn a_batch_built_with_flatten_and_if_branches_writes_every_entity_a_branch_creates_or_updates()
+    {
         let effect = batch(serde_json::json!(["array/flatten", [
             [["create", "NameLock", { "id": "@entity.name" }]],
             ["if", "@entity.held", [["delete", "NameLock", "@entity.held"]], ["array/take", [["delete", "NameLock", ""]], 0.0]],
@@ -1845,7 +1751,10 @@ mod tests {
             ["array/take", [["create", "NameLock", { "id": "x" }]], 0.0]
         ]]));
         assert!(!expr_persists_entity_create_or_update(&deletes, "NameLock"));
-        assert!(!expr_persists_entity_create_or_update(&deletes, "NameHolder"));
+        assert!(!expr_persists_entity_create_or_update(
+            &deletes,
+            "NameHolder"
+        ));
     }
     fn arr(items: Vec<SExpression>) -> SExpression {
         SExpression::Array(items)
@@ -1891,6 +1800,7 @@ mod tests {
                 description: None,
                 synonyms: None,
                 projected_from: None,
+                record: None,
             }],
             id: None,
             invariants: None,
@@ -2004,27 +1914,6 @@ mod tests {
     ) -> TraitDefinition {
         let mut t = trait_with_init_effects(name, linked_entity, effects);
         t.state_machine.transitions[0].guard = guard;
-        t
-    }
-
-    fn trait_with_tick(
-        name: &str,
-        linked_entity: &str,
-        interval: &str,
-        effects: Vec<SExpression>,
-    ) -> TraitDefinition {
-        let mut t = trait_with_init_effects(name, linked_entity, vec![]);
-        t.state_machine.transitions.clear();
-        t.ticks = Some(vec![TickDefinition {
-            name: "Tick".to_string(),
-            interval: StringOrNumber::String(interval.to_string()),
-            guard: None,
-            effects,
-            applies_to: None,
-            description: None,
-            background: false,
-            while_visible: false,
-        }]);
         t
     }
 
@@ -2670,104 +2559,6 @@ mod tests {
         );
     }
 
-    // ---- A: tick guards -----------------------------------------------------
-
-    #[test]
-    fn tick_requires_runtime_warns_on_persistent_non_cron() {
-        let t = trait_with_tick("Cooldown", "CooldownRecord", "100ms", vec![]);
-        let mut defs = HashMap::new();
-        defs.insert(
-            "CooldownRecord".to_string(),
-            entity("CooldownRecord", false, Some(Persistence::Persistent)),
-        );
-        let result = validate_trait_tick_guards(&t, "test", &defs);
-        assert!(
-            result
-                .errors
-                .iter()
-                .any(|e| e.code == ErrorCode::TickRequiresRuntime),
-            "Expected TickRequiresRuntime error: {:?}",
-            result.errors
-        );
-        assert!(result.warnings.is_empty());
-    }
-
-    #[test]
-    fn tick_cron_interval_exempt() {
-        let t = trait_with_tick("Scheduled", "Job", "0 9 * * *", vec![]);
-        let mut defs = HashMap::new();
-        defs.insert(
-            "Job".to_string(),
-            entity("Job", false, Some(Persistence::Persistent)),
-        );
-        let result = validate_trait_tick_guards(&t, "test", &defs);
-        assert!(
-            !result
-                .all_issues()
-                .any(|e| e.code == ErrorCode::TickRequiresRuntime),
-            "Cron interval must be exempt: {:?}",
-            result.warnings
-        );
-    }
-
-    #[test]
-    fn tick_requires_runtime_passes_on_runtime_entity() {
-        let t = trait_with_tick("Cooldown", "CooldownRecord", "100ms", vec![]);
-        let mut defs = HashMap::new();
-        defs.insert(
-            "CooldownRecord".to_string(),
-            entity("CooldownRecord", false, Some(Persistence::Runtime)),
-        );
-        let result = validate_trait_tick_guards(&t, "test", &defs);
-        assert!(
-            !result
-                .all_issues()
-                .any(|e| e.code == ErrorCode::TickRequiresRuntime),
-            "Runtime entity must not trip TickRequiresRuntime: {:?}",
-            result.warnings
-        );
-    }
-
-    #[test]
-    fn tick_async_effect_warns() {
-        let async_call = arr(vec![s("llm/generate"), s("prompt")]);
-        let t = trait_with_tick("Chatter", "ChatState", "1s", vec![async_call]);
-        let mut defs = HashMap::new();
-        defs.insert(
-            "ChatState".to_string(),
-            entity("ChatState", false, Some(Persistence::Runtime)),
-        );
-        let result = validate_trait_tick_guards(&t, "test", &defs);
-        assert!(
-            result
-                .errors
-                .iter()
-                .any(|e| e.code == ErrorCode::TickAsyncEffect),
-            "Expected TickAsyncEffect error: {:?}",
-            result.errors
-        );
-        assert!(result.warnings.is_empty());
-    }
-
-    #[test]
-    fn tick_async_effect_exempt_on_cron() {
-        let async_call = arr(vec![s("llm/generate"), s("prompt")]);
-        let t = trait_with_tick("Chatter", "ChatState", "0 9 * * *", vec![async_call]);
-        let mut defs = HashMap::new();
-        defs.insert(
-            "ChatState".to_string(),
-            entity("ChatState", false, Some(Persistence::Runtime)),
-        );
-        let result = validate_trait_tick_guards(&t, "test", &defs);
-        assert!(
-            !result
-                .all_issues()
-                .any(|e| e.code == ErrorCode::TickAsyncEffect),
-            "Cron tick must be exempt from TickAsyncEffect: {:?}",
-            result.warnings
-        );
-    }
-
     // ---- C: local trait dispatch contract ----------------------------------
 
     #[test]
@@ -2793,6 +2584,67 @@ mod tests {
             "Expected TraitLocalTouchesServer error: {:?}",
             result.errors
         );
+    }
+
+    #[test]
+    fn a_render_only_client_trait_on_a_persistent_entity_hides_no_write() {
+        let mut defs = HashMap::new();
+        defs.insert(
+            "Message".to_string(),
+            entity("Message", false, Some(Persistence::Persistent)),
+        );
+        let flagged = |effects: Vec<SExpression>| {
+            let t = local_trait_with_guard("Head", "Message", None, effects);
+            validate_trait_local_dispatch(&t, "test", &defs)
+                .errors
+                .iter()
+                .any(|e| e.code == ErrorCode::TraitLocalOnNonSharedPersistent)
+        };
+        let render = arr(vec![
+            s("render-ui"),
+            s("main"),
+            SExpression::Object(orbital_core_base::schema::SObject::new()),
+        ]);
+        assert!(
+            !flagged(vec![render]),
+            "a trait that only paints writes nothing"
+        );
+        assert!(
+            flagged(vec![arr(vec![s("set"), s("@entity.title"), s("x")])]),
+            "control: a client write to a persistent row is still hidden optimism"
+        );
+    }
+
+    #[test]
+    fn a_server_effect_behind_a_statically_false_guard_is_dead_on_a_client_trait() {
+        let persist_effect = arr(vec![
+            s("persist"),
+            s("create"),
+            s("Message"),
+            SExpression::Object(orbital_core_base::schema::SObject::new()),
+        ]);
+        let mut defs = HashMap::new();
+        defs.insert(
+            "Message".to_string(),
+            entity("Message", true, Some(Persistence::Persistent)),
+        );
+        let touches = |guard: Option<SExpression>| {
+            let t =
+                local_trait_with_guard("Timeline", "Message", guard, vec![persist_effect.clone()]);
+            validate_trait_local_dispatch(&t, "test", &defs)
+                .errors
+                .iter()
+                .any(|e| e.code == ErrorCode::TraitLocalTouchesServer)
+        };
+        assert!(
+            !touches(Some(SExpression::Bool(false))),
+            "a call site's literal false knob kills the arm"
+        );
+        assert!(
+            touches(Some(s("@config.selfFetch"))),
+            "control: an unsubstituted knob may be true"
+        );
+        assert!(touches(None), "control: an unguarded arm runs");
     }
 
     fn local_touches_server(op: &str) -> bool {
@@ -2975,6 +2827,7 @@ mod tests {
             description: None,
             synonyms: None,
             projected_from: None,
+            record: None,
         });
         e
     }
@@ -3348,7 +3201,10 @@ mod tests {
         let fetch_effect = arr(vec![
             s("fetch"),
             s("Progress"),
-            SExpression::Object(orbital_core_base::schema::SObject::from([("filter".to_string(), filter_expr)])),
+            SExpression::Object(orbital_core_base::schema::SObject::from([(
+                "filter".to_string(),
+                filter_expr,
+            )])),
         ]);
         let t = trait_with_init_effects(
             "MyProgressDisplay",
@@ -3635,7 +3491,8 @@ mod tests {
                 SExpression::Object(orbital_core_base::schema::SObject::new()),
             ]),
         ]);
-        let t = trait_with_guard("Cursor", "Cursor", Some(guard), vec![nested_fetch]);
+        let mut t = trait_with_guard("Cursor", "Cursor", Some(guard), vec![nested_fetch]);
+        t.dispatch = Some(Declared::Optimistic);
         let mut defs = HashMap::new();
         defs.insert(
             "Cursor".to_string(),
@@ -3706,7 +3563,9 @@ mod tests {
     }
 
     fn auth_guard_warns(t: &TraitDefinition) -> bool {
-        validate_trait_auth_guard_client_only(t, "t", &runtime_defs())
+        let mut t = t.clone();
+        t.dispatch = Some(Declared::Optimistic);
+        validate_trait_auth_guard_client_only(&t, "t", &runtime_defs())
             .warnings
             .iter()
             .any(|e| e.code == ErrorCode::AuthGuardClientOnly)
@@ -3821,6 +3680,7 @@ mod tests {
             description: None,
             synonyms: None,
             projected_from: None,
+            record: None,
         }
     }
 
@@ -3872,10 +3732,10 @@ mod tests {
             metadata: None,
             schema_version: None,
             ledger: None,
-    egress: None,
-    inbound: None,
-    os_grants: None,
-    deployment: None,
+            egress: None,
+            inbound: None,
+            os_grants: None,
+            deployment: None,
         }
     }
 

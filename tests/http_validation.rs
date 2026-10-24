@@ -196,35 +196,6 @@ fn egress_undeclared_token_url_origin() {
 }
 
 #[test]
-fn egress_entry_invalid() {
-    for bad in ["https://a.com/path", "a.com", "ftp://a.com", "https://a.com/", "https://a.com:x", "https://"] {
-        let r = check(json!([bad]), config(), json!([]));
-        assert!(fires(&r, ErrorCode::HttpEgressEntryInvalid), "{bad}");
-    }
-    for good in ["https://a.com", "http://localhost:8080", "https://[::1]:9000"] {
-        let r = check(json!([good]), config(), json!([]));
-        assert!(!fires(&r, ErrorCode::HttpEgressEntryInvalid), "{good}");
-    }
-}
-
-#[test]
-fn egress_entry_accepts_tcp_protocol_origins_only_as_origins() {
-    for good in [
-        "redis://cache.internal:6379",
-        "rediss://cache.internal",
-        "postgres://db.internal:5432",
-        "postgresql://db.internal",
-    ] {
-        let r = check(json!([good]), config(), json!([]));
-        assert!(!fires(&r, ErrorCode::HttpEgressEntryInvalid), "{good}");
-    }
-    for bad in ["ftp://x", "redis://cache.internal/0", "postgres://u:p@db.internal", "redis://", "redis://h:x"] {
-        let r = check(json!([bad]), config(), json!([]));
-        assert!(fires(&r, ErrorCode::HttpEgressEntryInvalid), "{bad}");
-    }
-}
-
-#[test]
 fn origin_not_static() {
     for origin in [json!("@payload.base"), json!("@config.plain"), json!("@config.limit"), json!("@config.missing"), json!(["str/concat", "https://", "x"])] {
         let r = check(json!([]), config(), call(origin.clone(), json!({})));
@@ -797,12 +768,6 @@ fn an_origin_may_carry_a_path_prefix_that_egress_does_not_name() {
 }
 
 #[test]
-fn an_egress_entry_with_a_path_is_still_invalid() {
-    let r = check(json!([format!("{ORIGIN}/esign")]), config(), call(json!(ORIGIN), json!({})));
-    assert!(fires(&r, ErrorCode::HttpEgressEntryInvalid));
-}
-
-#[test]
 fn p11_invalid_origin_prefix_segments_are_rejected_for_literals() {
     for prefix in ["/esign//v2", "/esign/./v2", "/esign/../v2"] {
         let origin = format!("{ORIGIN}{prefix}");
@@ -867,25 +832,8 @@ fn p11_origin_prefixes_preserve_scheme_host_and_port_authority_checks() {
                 "{origin} / {binding} against {egress}: {:?}",
                 r.errors
             );
-            for code in [ErrorCode::HttpOriginNotStatic, ErrorCode::HttpEgressEntryInvalid] {
-                assert!(!fires(&r, code), "{origin} / {binding}: {:?}", r.errors);
-            }
+            assert!(!fires(&r, ErrorCode::HttpOriginNotStatic), "{origin} / {binding}: {:?}", r.errors);
         }
-    }
-}
-
-#[test]
-fn p11_origin_prefixes_do_not_make_egress_path_entries_valid() {
-    let origin = format!("{ORIGIN}/esign/v2");
-    let mut prefixed = config();
-    prefixed["origin"]["default"] = json!(origin);
-    for binding in [json!(origin), json!("@config.origin")] {
-        let r = check(
-            json!([format!("{ORIGIN}/esign")]),
-            prefixed.clone(),
-            call(binding.clone(), json!({})),
-        );
-        assert!(fires(&r, ErrorCode::HttpEgressEntryInvalid), "{binding}: {:?}", r.errors);
     }
 }
 

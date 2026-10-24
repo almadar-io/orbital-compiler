@@ -82,7 +82,6 @@
     ],
     "traits": [
       {
-        "category": "interaction",
         "config": {
           "embedKnob1": {
             "default": "VALUE1",
@@ -127,7 +126,6 @@
         }
       },
       {
-        "category": "interaction",
         "config": {
           "embedKnob2": {
             "default": "VALUE2",
@@ -172,7 +170,6 @@
         }
       },
       {
-        "category": "interaction",
         "config": {
           "embedKnob1": {
             "default": "VALUE1",
@@ -200,7 +197,6 @@
         }
       },
       {
-        "category": "interaction",
         "config": {
           "deadKnob": {
             "default": "only-forwarder-value",
@@ -246,7 +242,6 @@
         }
       },
       {
-        "category": "interaction",
         "config": {
           "navItems": {
             "default": [
@@ -399,7 +394,6 @@
         ],
         "traits": [
           {
-            "category": "interaction",
             "config": {
               "embedKnob1": {
                 "default": "VALUE1",
@@ -442,7 +436,6 @@
             }
           },
           {
-            "category": "interaction",
             "config": {
               "embedKnob2": {
                 "default": "VALUE2",
@@ -485,7 +478,6 @@
             }
           },
           {
-            "category": "interaction",
             "config": {
               "embedKnob1": {
                 "default": "@config.embedKnob1",
@@ -509,7 +501,6 @@
             }
           },
           {
-            "category": "interaction",
             "config": {
               "deadKnob": {
                 "default": "@config.deadKnobOrbital",
@@ -552,7 +543,6 @@
             }
           },
           {
-            "category": "interaction",
             "config": {
               "navItems": {
                 "default": "@config.navItems",
@@ -652,7 +642,6 @@
           ],
           "traits": [
             {
-              "category": "interaction",
               "config": {
                 "embedKnob1": {
                   "default": "VALUE1",
@@ -695,7 +684,6 @@
               }
             },
             {
-              "category": "interaction",
               "config": {
                 "embedKnob2": {
                   "default": "VALUE2",
@@ -738,7 +726,6 @@
               }
             },
             {
-              "category": "interaction",
               "config": {
                 "embedKnob1": {
                   "default": "@config.embedKnob1",
@@ -762,7 +749,6 @@
               }
             },
             {
-              "category": "interaction",
               "config": {
                 "deadKnob": {
                   "default": "@config.deadKnobOrbital",
@@ -805,7 +791,6 @@
               }
             },
             {
-              "category": "interaction",
               "config": {
                 "navItems": {
                   "default": "@config.navItems",

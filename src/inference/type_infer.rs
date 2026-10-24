@@ -315,6 +315,19 @@ impl<'c> Inferer<'c> {
         {
             ty = self.narrow(&ty, &fact.predicate, fact.truth).unwrap_or(ty);
         }
+        // A tag test on the owner (`(!= @entity.tier "none")`) narrows the member it reads when that member is an enum.
+        if let Some((member, owner)) = binding.path.split_last() {
+            let owner = OirBinding { root: binding.root.clone(), path: owner.to_vec() };
+            for fact in self.refinements.borrow().iter().filter(|fact| fact.projection.is_none() && fact.operand == owner) {
+                if let (Narrowing::Tag { member: tested, literals }, OirType::Enum { name }) =
+                    (&fact.predicate, self.unfold(ty.clone()))
+                {
+                    if tested == member {
+                        ty = narrow_enum(&name, literals, fact.truth).unwrap_or(ty);
+                    }
+                }
+            }
+        }
         Some(ty)
     }
 
@@ -625,6 +638,18 @@ impl<'c> Inferer<'c> {
 
     /// `(let [[name value] …] body)`: each name is in scope, typed by its value, for the bindings after it and the body.
     fn infer_let(&self, args: &[OirExpr]) -> Option<OirType> {
+        match self.in_let_scope(args, |body| self.known(body))? {
+            Some(Known::Type(ty)) => Some(ty),
+            Some(Known::Void) => {
+                self.void.set(true);
+                None
+            }
+            _ => None,
+        }
+    }
+
+    /// Run `f` on a `let`'s body with its bindings in scope.
+    fn in_let_scope<R>(&self, args: &[OirExpr], f: impl FnOnce(&OirExpr) -> R) -> Option<R> {
         let (OirExpr::Array { items: bindings }, Some(body)) = (args.first()?, args.get(1)) else {
             return None;
         };
@@ -656,7 +681,7 @@ impl<'c> Inferer<'c> {
                 }
             }
         }
-        let body_known = self.known(body);
+        let out = f(body);
         {
             let mut aliases = self.tag_aliases.borrow_mut();
             let kept = aliases.len() - aliased;
@@ -665,14 +690,7 @@ impl<'c> Inferer<'c> {
         for scope in scopes.into_iter().rev() {
             self.leave_scope(scope);
         }
-        match body_known {
-            Some(Known::Type(ty)) => Some(ty),
-            Some(Known::Void) => {
-                self.void.set(true);
-                None
-            }
-            _ => None,
-        }
+        Some(out)
     }
 
     fn infer_local_initializer(&self, value: &OirExpr) -> Option<OirType> {
@@ -800,6 +818,51 @@ impl<'c> Inferer<'c> {
                     self.diagnostics.borrow_mut().truncate(mark);
                 }
                 return None;
+            }
+        }
+        if let (OirExpr::Call { function, args }, OirType::Array { inner }) = (expr, expected) {
+            match (function.as_str(), args.as_slice()) {
+                ("let", _) => {
+                    return self
+                        .in_let_scope(args, |body| self.infer_contextual(body, expected, named, expanding))
+                        .flatten();
+                }
+                ("array/concat", parts) => {
+                    for part in parts {
+                        self.infer_contextual(part, expected, named, &mut Vec::new())?;
+                    }
+                    return Some(expected.clone());
+                }
+                ("list", items) => {
+                    for item in items {
+                        self.infer_contextual(item, inner, named, &mut Vec::new())?;
+                    }
+                    return Some(expected.clone());
+                }
+                ("array/map", [source, OirExpr::Lambda { params, body }]) => {
+                    let element = self.infer(source).as_ref().and_then(element_of);
+                    let mut names: Vec<(String, Option<OirType>)> = Vec::new();
+                    if let Some(param) = params.first() {
+                        names.push((param.clone(), element.clone()));
+                    }
+                    if let Some(index) = params.get(1) {
+                        names.push((index.clone(), Some(OirType::Number)));
+                    }
+                    if orbital_core_eval::evaluator::callback_index_position(function).is_some() {
+                        names.push(("item".to_string(), element));
+                        names.push(("index".to_string(), Some(OirType::Number)));
+                    }
+                    self.with_scope(&names, || self.infer_contextual(body, inner, named, &mut Vec::new()))?;
+                    return Some(expected.clone());
+                }
+                _ => {}
+            }
+        }
+        if let OirExpr::Call { function, args } = expr {
+            if function == "let" {
+                return self
+                    .in_let_scope(args, |body| self.infer_contextual(body, expected, named, expanding))
+                    .flatten();
             }
         }
         match (expr, expected) {
@@ -1139,6 +1202,49 @@ impl<'c> Inferer<'c> {
         if refuted {
             return None;
         }
+        // A key read from a `field R T` knob names a field of the declared value type, when the record read is an `R`;
+        // the row may lack it.
+        if let Some(projection) = signature.field_projection() {
+            if let (
+                Some(key),
+                Some(Some(OirType::FieldRef {
+                    record,
+                    value: Some(value),
+                })),
+                Some(Some(source)),
+            ) = (
+                args.get(projection.key_arg).copied(),
+                arg_types.get(projection.key_arg),
+                arg_types.get(projection.source_arg),
+            ) {
+                if Self::literal_text(key).is_none() && self.is_record(source, record) {
+                    let defaulted = projection
+                        .default_arg
+                        .and_then(|index| args.get(index))
+                        .is_some_and(|default| !matches!(default, OirExpr::Null));
+                    let read = (**value).clone();
+                    return Some(self.unfold(if defaulted {
+                        read
+                    } else {
+                        OirType::optional(read)
+                    }));
+                }
+            }
+        }
+        if signature.semantics() == Some("coalesce") {
+            if let Some(last) = arg_types.last() {
+                let present_fallback = last
+                    .as_ref()
+                    .is_some_and(|t| !matches!(self.unfold(t.clone()), OirType::Optional { .. }));
+                if present_fallback {
+                    let result = signature.result_with_options(&bindings, |_, _| None)?;
+                    return Some(self.unfold(match result {
+                        OirType::Optional { inner } => *inner,
+                        other => other,
+                    }));
+                }
+            }
+        }
         if signature.semantics() == Some("tuple-element") {
             if let (Some(Some(OirType::Tuple { items })), Some(OirExpr::Number { value })) =
                 (arg_types.first(), args.get(1))
@@ -1202,6 +1308,28 @@ impl<'c> Inferer<'c> {
             _ => result,
         };
         Some(self.unfold(result))
+    }
+
+    /// Whether `source` is a record of the type `record` a field reference names. `@entity` is the row the context
+    /// binds; a sigil form that only the call site resolves never matches here.
+    fn is_record(&self, source: &OirType, record: &OirType) -> bool {
+        let wanted = match record {
+            OirType::Reference { entity } if entity == "@entity" => {
+                self.ctx.binding_type(&OirBinding::entity(Vec::new()))
+            }
+            OirType::Reference { entity } if entity.starts_with('@') => None,
+            OirType::Reference { entity } => self
+                .ctx
+                .entity_type(entity)
+                .or_else(|| self.ctx.named_type(entity)),
+            other => Some(other.clone()),
+        };
+        wanted.is_some_and(|wanted| {
+            orbital_core_base::type_compat::assignable(
+                &self.unfold(source.clone()),
+                &self.unfold(wanted),
+            )
+        })
     }
 
     /// `names_the_element` is true for a callback that is handed the element's index: both evaluators then also bind
@@ -1283,6 +1411,7 @@ impl<'c> Inferer<'c> {
         match narrowing {
             Narrowing::Type(predicate) => refine_type(&self.unfold(ty.clone()), *predicate, truth),
             Narrowing::Tag { member, literals } => self.narrow_tag(&self.unfold(ty.clone()), member, literals, truth),
+            Narrowing::HasKey(key) => self.narrow_has_key(&self.unfold(ty.clone()), key, truth),
         }
     }
 
@@ -1310,6 +1439,76 @@ impl<'c> Inferer<'c> {
                     _ => Some(OirType::Union { variants: kept }),
                 }
             }
+            OirType::Enum { name } if member.is_empty() => narrow_enum(name, literals, truth),
+            OirType::Struct { fields, additional } if !member.is_empty() => {
+                let Some(field) = fields.iter().find(|field| field.name == member) else {
+                    return Some(ty.clone());
+                };
+                let narrowed = match self.unfold(field.field_type.clone()) {
+                    OirType::Enum { name } => narrow_enum(&name, literals, truth)?,
+                    _ => return Some(ty.clone()),
+                };
+                let fields = fields
+                    .iter()
+                    .map(|f| {
+                        let mut f = f.clone();
+                        if f.name == member {
+                            f.field_type = narrowed.clone();
+                        }
+                        f
+                    })
+                    .collect();
+                Some(OirType::Struct { fields, additional: additional.clone() })
+            }
+            _ => Some(ty.clone()),
+        }
+    }
+
+    /// The variants of a union of records that have (`truth`) or lack `key`; on one record a held test makes `key`
+    /// present. A held test also shows an optional value present.
+    fn narrow_has_key(&self, ty: &OirType, key: &str, truth: bool) -> Option<OirType> {
+        let has = |record: &OirType| match self.unfold(record.clone()) {
+            OirType::Struct { fields, .. } => fields.iter().find(|f| f.name == key).map(|f| f.required),
+            _ => None,
+        };
+        match ty {
+            OirType::Optional { inner } => {
+                let narrowed = self.narrow_has_key(&self.unfold((**inner).clone()), key, truth)?;
+                Some(if truth { narrowed } else { OirType::optional(narrowed) })
+            }
+            OirType::Union { variants } => {
+                let kept: Vec<OirField> = variants
+                    .iter()
+                    .filter(|variant| match has(&variant.field_type) {
+                        Some(_) if truth => true,
+                        Some(required) => !required,
+                        None => !truth,
+                    })
+                    .cloned()
+                    .collect();
+                match kept.as_slice() {
+                    [] => None,
+                    _ if kept.len() == variants.len() => Some(ty.clone()),
+                    [only] => Some(only.field_type.clone()),
+                    _ => Some(OirType::Union { variants: kept }),
+                }
+            }
+            OirType::Struct { fields, additional } if truth => Some(OirType::Struct {
+                fields: fields
+                    .iter()
+                    .map(|f| {
+                        let mut f = f.clone();
+                        if f.name == key {
+                            f.required = true;
+                            if let OirType::Optional { inner } = &f.field_type {
+                                f.field_type = (**inner).clone();
+                            }
+                        }
+                        f
+                    })
+                    .collect(),
+                additional: additional.clone(),
+            }),
             _ => Some(ty.clone()),
         }
     }
@@ -1510,8 +1709,8 @@ fn intersection_of(mut lists: impl Iterator<Item = Vec<OirBinding>>) -> Vec<OirB
     })
 }
 
-/// The operands `expr` shows present when it evaluates to `truth`: `(validate/required x)`, `(!= x null)`, a bare
-/// `x`, and `and` / `or` / `not` over them. Nothing else narrows.
+/// The operands `expr` shows present when it evaluates to `truth`: `(validate/required x)`, `(!= x null)`,
+/// `(object/has m k)` (which shows `m`), a bare `x`, and `and` / `or` / `not` over them. Nothing else narrows.
 fn presence(expr: &OirExpr, truth: bool) -> Vec<OirBinding> {
     if truth {
         if let Some(key) = operand_key(expr) {
@@ -1540,6 +1739,11 @@ fn presence(expr: &OirExpr, truth: bool) -> Vec<OirBinding> {
     };
     match name {
         "validate/required" | "required" if truth => args
+            .first()
+            .and_then(|a| operand_key(a))
+            .into_iter()
+            .collect(),
+        "object/has" if truth => args
             .first()
             .and_then(|a| operand_key(a))
             .into_iter()
@@ -1598,6 +1802,8 @@ enum Narrowing {
     Type(orbital_core_eval::evaluator::operators::TypePredicate),
     /// The member's tag is one of `literals` (an `or` of tag tests on one member joins them).
     Tag { member: String, literals: Vec<String> },
+    /// `(object/has v key)`: the value has (or lacks) that field.
+    HasKey(String),
 }
 
 #[derive(Clone, PartialEq)]
@@ -1649,6 +1855,19 @@ fn guarded_operand(expr: &OirExpr) -> Option<(OirBinding, Option<ReadProjection>
     ))
 }
 
+/// The members of a literal enum that are (`truth`) or are not among `literals`; none left is no type.
+fn narrow_enum(name: &str, literals: &[String], truth: bool) -> Option<OirType> {
+    let members = orbital_core_base::type_compat::literal_union_members(name)?;
+    let kept: Vec<String> = members.iter().filter(|m| literals.contains(m) == truth).cloned().collect();
+    if kept.is_empty() {
+        return None;
+    }
+    if kept.len() == members.len() {
+        return Some(OirType::Enum { name: name.to_string() });
+    }
+    orbital_core_base::type_compat::literal_union_text(&kept).map(OirType::enum_type)
+}
+
 fn type_facts(expr: &OirExpr, truth: bool, aliases: &[FactAlias]) -> Vec<TypeFact> {
     if let OirExpr::Binding { binding } = expr {
         if let (OirBindingRoot::Local(local), true) = (&binding.root, binding.path.is_empty()) {
@@ -1692,6 +1911,18 @@ fn type_facts(expr: &OirExpr, truth: bool, aliases: &[FactAlias]) -> Vec<TypeFac
         })
     };
     match name {
+        "object/has" => match args.as_slice() {
+            [value, OirExpr::String { value: key }] => guarded_operand(value)
+                .map(|(operand, projection)| TypeFact {
+                    operand,
+                    projection,
+                    predicate: Narrowing::HasKey(key.clone()),
+                    truth,
+                })
+                .into_iter()
+                .collect(),
+            _ => Vec::new(),
+        },
         "=" | "==" | "!=" => {
             let equal = name != "!=";
             match args.as_slice() {
@@ -1915,6 +2146,18 @@ pub fn infer_oir_expr_type<C: TypeCtx>(expr: &OirExpr, ctx: &C) -> Option<OirTyp
     Inferer::new(ctx).infer(expr)
 }
 
+/// The type of `expr` where `condition` holds, as a transition's guard holds for its effects.
+pub fn infer_under_condition<C: TypeCtx>(condition: &OirExpr, expr: &OirExpr, ctx: &C) -> Option<OirType> {
+    let inferer = Inferer::new(ctx);
+    let facts = {
+        let aliases = inferer.fact_aliases.borrow();
+        inferer.through_aliases(type_facts(condition, true, &aliases))
+    };
+    inferer.refinements.borrow_mut().extend(facts);
+    inferer.present.borrow_mut().extend(presence(condition, true));
+    inferer.infer(expr)
+}
+
 /// Every call in `expr` (lambda bodies included, with their parameters typed) whose argument contradicts the
 /// operator's signature.
 /// The type inferred for each slot tag (`["typed", value, "<tag>"]`) in `expr`, by tag; an undetermined slot is absent.
@@ -1956,7 +2199,7 @@ impl TypeCtx for NoBindingCtx {
 pub fn collect_guard_type_warnings(module: &OirModule) -> Vec<String> {
     fn check_guard(guard: &OirExpr, trait_name: &str, site: &str, out: &mut Vec<String>) {
         match infer_oir_expr_type(guard, &NoBindingCtx) {
-            Some(OirType::Number | OirType::String | OirType::Array { .. }) => out.push(format!(
+            Some(OirType::Number | OirType::Integer | OirType::String | OirType::Array { .. }) => out.push(format!(
                 "{trait_name}: {site} guard does not return boolean \
                  (resolves to a non-boolean type) — it will run with JS truthiness coercion"
             )),
@@ -2552,6 +2795,60 @@ mod tests {
     }
 
     #[test]
+    fn a_coalesce_with_a_present_fallback_is_present() {
+        let row = Row(vec![("s", OirType::optional(OirType::String)), ("t", OirType::optional(OirType::String))]);
+        for op in ["or", "str/default"] {
+            assert_eq!(
+                infer_oir_expr_type(&call(op, vec![entity(&["s"]), text("d")]), &row),
+                Some(OirType::String),
+                "{op}: a literal fallback is never absent"
+            );
+            assert_eq!(
+                infer_oir_expr_type(&call(op, vec![entity(&["s"]), entity(&["t"])]), &row),
+                Some(OirType::optional(OirType::String)),
+                "{op} control: an optional fallback may be absent too"
+            );
+        }
+    }
+
+    #[test]
+    fn an_object_get_through_a_field_ref_key_has_the_fields_type() {
+        let field_ref = |record: &str, value: Option<OirType>| OirType::FieldRef {
+            record: Box::new(OirType::Reference {
+                entity: record.to_string(),
+            }),
+            value: value.map(Box::new),
+        };
+        let row = |key: OirType| {
+            Row(vec![
+                ("k", key),
+                ("name", OirType::String),
+                ("count", OirType::Number),
+            ])
+        };
+        let get = || call("object/get", vec![entity(&[]), entity(&["k"])]);
+        // the record read is the bound row the key names a field of: the field's type, absent when the row lacks it.
+        let matching = row(field_ref("@entity", Some(OirType::String)));
+        assert_eq!(
+            infer_oir_expr_type(&get(), &matching),
+            Some(OirType::optional(OirType::String))
+        );
+        assert!(check_oir_expr(&get(), &matching).is_empty());
+        // control: a key into a different record does not apply to this one.
+        let other = row(field_ref("Other", Some(OirType::String)));
+        assert_eq!(infer_oir_expr_type(&get(), &other), None);
+        // control: a field of any type says nothing about the read.
+        let any = row(field_ref("@entity", None));
+        assert_eq!(infer_oir_expr_type(&get(), &any), None);
+        let found = check_oir_expr(&call("array/len", vec![get()]), &any);
+        assert_eq!(found.len(), 1, "{found:?}");
+        assert!(
+            matches!(found[0].mismatch, Mismatch::Undetermined { .. }),
+            "{found:?}"
+        );
+    }
+
+    #[test]
     fn a_key_that_names_no_field_is_reported() {
         let row = tags_row();
         let found = check_oir_expr(&call("object/get", vec![entity(&[]), text("nope")]), &row);
@@ -2874,6 +3171,99 @@ mod tests {
             assert_eq!(ty(name, vec![ratio()]), Some(OirType::Integer), "{name}");
         }
         assert_eq!(ty("math/round", vec![ratio(), num(2.0)]), Some(OirType::Number), "decimals keep a fraction");
+    }
+
+    #[test]
+    fn an_object_has_guard_shows_the_map_present() {
+        let row = Row(vec![
+            ("m", OirType::optional(OirType::map(OirType::String, OirType::array(OirType::Number)))),
+            ("v", OirType::array(OirType::Number)),
+        ]);
+        let lookup = serde_json::json!(["array/cosine", ["object/get", "@entity.m", "k"], "@entity.v"]);
+        let guarded = |has: serde_json::Value| lowered(serde_json::json!(["when", has, lookup.clone()]));
+        assert!(!check_oir_expr(&lowered(lookup.clone()), &row).is_empty(), "control: an optional map can be missing");
+        let present = guarded(serde_json::json!(["object/has", "@entity.m", "k"]));
+        assert!(check_oir_expr(&present, &row).is_empty(), "{:?}", check_oir_expr(&present, &row));
+        let other = guarded(serde_json::json!(["object/has", "@entity.v", "k"]));
+        assert!(!check_oir_expr(&other, &row).is_empty(), "control: a test of another value shows nothing of m");
+    }
+
+    /// An annotated `let` reads its initializer against the declared type through `array/concat`, an `array/map`
+    /// callback and an inner `let`, so records that set different optional members are one list (std-agent-tool-loop).
+    #[test]
+    fn an_annotated_let_pushes_its_type_into_concat_map_and_let() {
+        let field = |name: &str, ty: OirType, required: bool| {
+            let mut f = OirField::new(name.to_string(), ty);
+            f.required = required;
+            f
+        };
+        let binding = OirType::Struct {
+            additional: None,
+            fields: vec![
+                field("name", OirType::String, true),
+                field("kind", OirType::enum_type("\"input\"|\"read\""), true),
+                field("entity", OirType::String, false),
+                field("address", OirType::String, false),
+            ],
+        };
+        let declared = |ty: OirType| {
+            let shape = orbital_core_base::ir::types::DeclaredShape {
+                version: Some(1),
+                name: Some("Binding".into()),
+                ty,
+                named: [("Binding".to_string(), binding.clone())].into_iter().collect(),
+            };
+            serde_json::to_string(&shape).unwrap()
+        };
+        let list = OirType::array(OirType::TypeRef { name: "Binding".into() });
+        let program = |kind: &str| {
+            let sexpr: orbital_core_base::schema::SExpression = serde_json::from_value(serde_json::json!([
+                "let",
+                [["r", ["typed",
+                    ["array/concat",
+                        ["array/map", ["list", "a", "b"], ["fn", "x", { "name": "@x", "kind": "input", "address": "@x" }]],
+                        ["let", [["n", "e"]], ["list", { "name": "read", "kind": kind, "entity": "@n" }]]],
+                    declared(list.clone())]]],
+                ["array/len", "@r"]
+            ]))
+            .expect("s-expression");
+            orbital_core_eval::lower::lower_sexpr_keeping_typed(&sexpr).expect("lowers")
+        };
+        let found = check_oir_expr(&program("read"), &Row(vec![]));
+        assert!(found.is_empty(), "{found:?}");
+        let wrong = check_oir_expr(&program("write"), &Row(vec![]));
+        assert!(!wrong.is_empty(), "control: a kind outside the enum is still refused");
+    }
+
+    #[test]
+    fn an_object_has_test_keeps_the_variants_that_have_the_key() {
+        let variant = |key: &str| OirType::Struct {
+            additional: None,
+            fields: vec![{
+                let mut f = OirField::new(key.to_string(), OirType::String);
+                f.required = true;
+                f
+            }],
+        };
+        let union = OirType::Union {
+            variants: vec![
+                OirField::new("scope".to_string(), variant("scope")),
+                OirField::new("read".to_string(), variant("read")),
+                OirField::new("event".to_string(), variant("event")),
+            ],
+        };
+        let row = Row(vec![("t", union)]);
+        let ty = |e: serde_json::Value| infer_oir_expr_type(&lowered(e), &row);
+        assert_eq!(
+            ty(serde_json::json!(["let", [["t", "@entity.t"]], ["if", ["object/has", "@t", "read"], "@t.read", "x"]])),
+            Some(OirType::String),
+            "under the test only the read variant remains, whose read is present"
+        );
+        assert_eq!(
+            ty(serde_json::json!(["let", [["t", "@entity.t"]], "@t.read"])),
+            Some(OirType::optional(OirType::String)),
+            "control: unguarded, only some variants have read"
+        );
     }
 
     #[test]

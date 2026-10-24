@@ -160,7 +160,6 @@ pub(crate) fn validate_set_value_type(
         return result;
     };
     let entity_ty = &entity_meta.field_type;
-    let payload_ty = orbital_core_base::type_compat::oir_type_kind(payload_shape);
 
     let resolve = |name: &str| schema.and_then(|s| crate::phases::resolve::declared_struct_type(s, name));
     if !orbital_core_base::type_compat::oir_type_satisfies_with_named(payload_shape, &entity_meta.shape, &resolve) {
@@ -171,7 +170,10 @@ pub(crate) fn validate_set_value_type(
                 format!(
                     "set @entity.{} (type '{}') is assigned payload field '{}' (type '{}'); \
                      the declared types do not match.",
-                    entity_field, entity_ty, payload_field, payload_ty
+                    entity_field,
+                    orbital_core_base::signature::describe_type(&entity_meta.shape),
+                    payload_field,
+                    orbital_core_base::signature::describe_type(payload_shape)
                 ),
             )
             .with_suggestion(if entity_ty == "relation" {
@@ -455,8 +457,21 @@ pub(crate) fn expr_return_incompatible_in_ctx<C: crate::type_infer::TypeCtx>(
     declared: &orbital_core_base::ir::OirType,
     ctx: &C,
 ) -> Option<orbital_core_base::ir::OirType> {
+    expr_return_incompatible_given(value, declared, ctx, None)
+}
+
+/// As [`expr_return_incompatible_in_ctx`], read where `guard` holds (the guard of the transition the value is in).
+pub(crate) fn expr_return_incompatible_given<C: crate::type_infer::TypeCtx>(
+    value: &SExpression,
+    declared: &orbital_core_base::ir::OirType,
+    ctx: &C,
+    guard: Option<&SExpression>,
+) -> Option<orbital_core_base::ir::OirType> {
     let oir_value = crate::phases::resolve::resolve_sexpr_standalone(value).ok()?;
-    let inferred = crate::type_infer::infer_oir_expr_type(&oir_value, ctx)?;
+    let inferred = match guard.and_then(|g| crate::phases::resolve::resolve_sexpr_standalone(g).ok()) {
+        Some(condition) => crate::type_infer::infer_under_condition(&condition, &oir_value, ctx)?,
+        None => crate::type_infer::infer_oir_expr_type(&oir_value, ctx)?,
+    };
     if orbital_core_base::type_compat::is_unknowable(&inferred)
         || orbital_core_base::type_compat::sub_with_named(&inferred, declared, &|name| ctx.named_type(name))
             .is_some_and(|c| !c.is_explicit())
@@ -850,6 +865,7 @@ fn field_type_str(ft: &FieldType) -> std::borrow::Cow<'static, str> {
         FieldType::Node => "node".into(),
         FieldType::Event => "event".into(),
         FieldType::EventAddress => "EventAddress".into(),
+        FieldType::Field => "field".into(),
         FieldType::SExpr => "SExpr".into(),
         FieldType::Union => "union".into(),
         FieldType::TypeVar(v) => format!("${}", v.0).into(),
@@ -1465,6 +1481,18 @@ mod set_value_type_tests {
             SExpression::String("?input".into()),
         ];
         validate_set_value_type(&arr, "p", &entity, &payload, schema)
+    }
+
+    #[test]
+    fn a_mismatch_names_both_types_in_full() {
+        let r = check(
+            OirType::map(OirType::String, OirType::String),
+            "object",
+            OirType::map(OirType::String, OirType::optional(OirType::String)),
+        );
+        let message = &r.errors[0].message;
+        assert!(message.contains("(type 'Map string string')"), "{message}");
+        assert!(message.contains("(type 'Map string string?')"), "{message}");
     }
 
     #[test]

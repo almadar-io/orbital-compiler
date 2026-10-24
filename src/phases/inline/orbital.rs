@@ -1078,14 +1078,10 @@ pub(crate) fn resolve_orbital_reference(
             }
             continue;
         }
-        // A same-name import keeps its sibling references: the consumer declaring that exact entity (its own
-        // same-name import of the sibling) is the entity the reference already names.
-        let kept_as_is = import_prefix(&local_name, obj).is_empty() && consumer_entity_ids.contains_key(entity);
-        if !kept_as_is
-            && obj
-                .entities
-                .as_ref()
-                .is_none_or(|m| !m.contains_key(entity))
+        if obj
+            .entities
+            .as_ref()
+            .is_none_or(|m| !m.contains_key(entity))
         {
             entity_unmapped.push((site.clone(), entity.clone()));
         }
@@ -6384,7 +6380,7 @@ mod tests {
 
     #[test]
     fn extend_field_set_by_a_reference_body_sibling_is_not_flagged_unread() {
-        // The consumer's OWN sibling trait (`trait X -> Local [lifecycle]`
+        // The consumer's OWN sibling trait (`trait X -> Local`
         // inside the reference body) stamps the added field — a read/set
         // site the kept-traits-only scan used to miss (Project Friday's
         // `TimesheetApproval.OPEN_SHEET` `(set @entity.workspaceId ?workspaceId)`).

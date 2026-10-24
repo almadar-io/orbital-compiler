@@ -17,6 +17,7 @@ use orbital_core_base::schema::{
     FieldType, Orbital, OrbitalSchema, PayloadField, SExpression, TagReading, TraitDefinition,
     TraitReference, UnionVariantChoice,
 };
+use orbital_core_base::ir::OirType as OrbitalOirType;
 use orbital_core_base::type_compat::set_value_type_compatible;
 
 use super::error::{ErrorCode, ValidationError};
@@ -454,7 +455,7 @@ fn trait_own_payload_fields(trait_def: &TraitDefinition) -> Vec<PayloadField> {
 /// posture of skipping opaque types it doesn't know how to validate.
 fn config_declared_kind(field_type: &str) -> Option<&str> {
     match field_type {
-        "event" | "slot" | "pattern" | "icon" | "component" | "secret" | "asset" => Some("string"),
+        "event" | "field" | "slot" | "pattern" | "icon" | "component" | "secret" | "asset" => Some("string"),
         "int" | "float" => Some("number"),
         "trait" => None,
         // `Map K V` is a real dictionary type, not an opaque generic: it lowers
@@ -856,6 +857,14 @@ fn validate_config_field(
         }
     }
 
+    if matches!(ft, "field" | "[field]") {
+        if let (Some(bctx), Some(default)) = (binding_ctx, &field.default) {
+            let knob = event_ctx.map_or(path, |(_, name)| name);
+            result.merge(check_field_ref_knob(field, knob, default, path, bctx));
+        }
+        return result;
+    }
+
     // `render-ui` typed config fields carry a full render-ui SExpr tree
     // as their default — variants override it with their own tree. The
     // tree is validated by the same render-ui validator that runs on
@@ -1086,6 +1095,168 @@ fn validate_config_field(
     result
 }
 
+/// The fields of the record `R` a `field R T` knob names, with a label for messages. `None` when `R` is not known at
+/// this call site (an unbound type variable, a knob that holds no literal): nothing is checked then.
+fn field_ref_record_fields(
+    record: Option<&str>,
+    properties: Option<&HashMap<String, FieldDefinition>>,
+    bctx: &ReferenceBindingCtx,
+) -> Option<(String, Vec<(String, OrbitalOirType)>)> {
+    use orbital_core_base::ir::types::{field_shape, payload_field_shape};
+    let shaped = |defs: &[FieldDefinition]| -> Vec<(String, OrbitalOirType)> {
+        defs.iter()
+            .filter_map(|def| Some((def.name.clone()?, field_shape(def))))
+            .collect()
+    };
+    let knob_text = |knob: &str| -> Option<String> {
+        match bctx.trait_def.config.as_ref()?.get(knob)?.default.as_ref()? {
+            SExpression::String(text) if !text.is_empty() && !text.starts_with('@') => {
+                Some(text.clone())
+            }
+            _ => None,
+        }
+    };
+    // A column an imported atom's entity merged in (`merged_from`) is not one the host declares or writes, so a
+    // knob may not name it.
+    let entity_fields = |name: &str| -> Option<(String, Vec<(String, OrbitalOirType)>)> {
+        let entity = bctx.entity_definitions.get(name)?;
+        let declared: Vec<FieldDefinition> =
+            entity.fields.iter().filter(|f| f.merged_from.is_none()).cloned().collect();
+        Some((name.to_string(), shaped(&declared)))
+    };
+    if let Some(properties) = properties.filter(|p| !p.is_empty()) {
+        let fields = properties
+            .iter()
+            .map(|(name, def)| (name.clone(), field_shape(def)))
+            .collect();
+        return Some((record.unwrap_or("the record").to_string(), fields));
+    }
+    let record = record?;
+    if record == "@entity" {
+        return entity_fields(bctx.trait_def.linked_entity.as_deref()?);
+    }
+    if let Some(knob) = record.strip_prefix("@entity(").and_then(|r| r.strip_suffix(')')) {
+        return entity_fields(&knob_text(knob)?);
+    }
+    if let Some(knob) = record.strip_prefix("@payload(").and_then(|r| r.strip_suffix(')')) {
+        let event = knob_text(knob)?;
+        let declared = bctx
+            .trait_def
+            .state_machine
+            .events
+            .as_ref()?
+            .iter()
+            .find(|candidate| candidate.key == event)?;
+        if let Some(entity) = &declared.payload_entity {
+            return entity_fields(entity);
+        }
+        let fields = declared
+            .payload_schema
+            .as_ref()?
+            .iter()
+            .map(|field| (field.name.clone(), payload_field_shape(field)))
+            .collect();
+        return Some((format!("the payload of {event}"), fields));
+    }
+    if record.starts_with('$') || record.starts_with('@') {
+        return None;
+    }
+    entity_fields(record)
+}
+
+/// A `field R T` knob (or a list of them): every name a call site gives is a field of `R`, and that field's type
+/// satisfies `T` when the knob declares one. Bindings and computed values defer.
+fn check_field_ref_knob(
+    field: &ConfigField,
+    knob: &str,
+    value: &SExpression,
+    path: &str,
+    bctx: &ReferenceBindingCtx,
+) -> ValidationResult {
+    let mut result = ValidationResult::new();
+    if is_deferred_computed(value) {
+        return result;
+    }
+    let named: Vec<(String, &str)> = match (field.field_type.as_str(), value) {
+        ("field", SExpression::String(name)) => vec![(path.to_string(), name.as_str())],
+        ("[field]", SExpression::Array(items)) => items
+            .iter()
+            .enumerate()
+            .filter_map(|(i, item)| match item {
+                SExpression::String(name) => Some((format!("{path}[{i}]"), name.as_str())),
+                _ => None,
+            })
+            .collect(),
+        _ => return result,
+    };
+    let (record, properties, element) = if field.field_type == "[field]" {
+        let item = field.items.as_deref();
+        (
+            item.and_then(|i| i.record.as_deref()),
+            item.and_then(|i| i.properties.as_ref()),
+            item.and_then(|i| i.items.as_deref()),
+        )
+    } else {
+        (
+            field.record.as_deref(),
+            field.properties.as_ref(),
+            field.items.as_deref(),
+        )
+    };
+    let Some((label, fields)) = field_ref_record_fields(record, properties, bctx) else {
+        return result;
+    };
+    let expected = element.map(orbital_core_base::ir::types::field_shape);
+    let fits = |actual: &OrbitalOirType| match &expected {
+        Some(expected) => orbital_core_base::type_compat::assignable(actual, expected),
+        None => true,
+    };
+    let mut valid: Vec<String> = fields
+        .iter()
+        .filter(|(_, ty)| fits(ty))
+        .map(|(name, _)| name.clone())
+        .collect();
+    valid.sort();
+    for (at, name) in named {
+        if name.starts_with('@') {
+            continue;
+        }
+        let Some((_, actual)) = fields.iter().find(|(candidate, _)| candidate == name) else {
+            result.add_error(
+                ValidationError::error(
+                    ErrorCode::ConfigFieldRefUnknown,
+                    &at,
+                    format!("`{knob}` names `{name}`, which is not a field of {label}"),
+                )
+                .with_suggestion(format!("name one of the fields of {label}: {}", valid.join(", ")))
+                .with_valid_values(valid.clone()),
+            );
+            continue;
+        };
+        if let Some(expected) = &expected {
+            if !fits(actual) {
+                let actual = orbital_core_base::type_compat::oir_type_kind(actual);
+                let wanted = orbital_core_base::type_compat::oir_type_kind(expected);
+                result.add_error(
+                    ValidationError::error(
+                        ErrorCode::ConfigFieldRefTypeMismatch,
+                        &at,
+                        format!(
+                            "`{knob}` names `{name}`, a {actual} field of {label}; the knob takes {wanted} fields"
+                        ),
+                    )
+                    .with_suggestion(format!(
+                        "name one of the {wanted} fields of {label}: {}",
+                        valid.join(", ")
+                    ))
+                    .with_valid_values(valid.clone()),
+                );
+            }
+        }
+    }
+    result
+}
+
 /// Walk the declared shape (a `ConfigField` carrying `field_type` +
 /// optional `items` / `properties` / `values`) and check the actual
 /// `default` value against it.
@@ -1278,6 +1449,7 @@ fn check_config_default_shape(
                 description: None,
                 synonyms: None,
                 projected_from: None,
+                record: None,
             };
             let ancestors = root_ancestor_map(field, Some(&root_struct));
             let mut probe = ValidationResult::new();
@@ -3497,6 +3669,192 @@ mod reference_binding_type_tests {
         assert_eq!(mismatch_errors(&result).len(), 1, "{:?}", result.errors);
     }
 
+    fn field_knob_schema(config: &str, events: &str) -> String {
+        format!(
+            r#"{{
+      "name": "t", "version": "1.0.0",
+      "orbitals": [{{
+        "name": "O",
+        "entity": {{ "name": "Contact", "fields": [
+          {{ "name": "name", "type": "string" }},
+          {{ "name": "email", "type": "string" }},
+          {{ "name": "age", "type": "number" }},
+          {{ "name": "nickname", "type": "string", "mergedFrom": "Person" }}
+        ] }},
+        "traits": [{{
+          "name": "Panel",
+          "linkedEntity": "Contact",
+          "config": {{ {config} }},
+          "stateMachine": {{
+            "states": [{{ "name": "idle", "isInitial": true }}],
+            "events": [{events}],
+            "transitions": [
+              {{ "from": "idle", "to": "idle", "event": "INIT", "effects": [] }},
+              {{ "from": "idle", "to": "idle", "event": "SELECT", "effects": [] }}
+            ]
+          }}
+        }}]
+      }}]
+    }}"#
+        )
+    }
+
+    fn field_ref_errors(result: &ValidationResult, code: ErrorCode) -> Vec<&ValidationError> {
+        result.errors.iter().filter(|e| e.code == code).collect()
+    }
+
+    fn no_field_ref_errors(result: &ValidationResult) -> bool {
+        field_ref_errors(result, ErrorCode::ConfigFieldRefUnknown).is_empty()
+            && field_ref_errors(result, ErrorCode::ConfigFieldRefTypeMismatch).is_empty()
+    }
+
+    #[test]
+    fn a_field_knob_names_a_field_of_the_bound_entity() {
+        let strings = |names: &str| {
+            run(&field_knob_schema(
+                &format!(
+                    r#""titleFields": {{ "type": "[field]", "items": {{ "type": "field", "record": "@entity", "items": {{ "type": "string" }} }}, "default": [{names}] }}"#
+                ),
+                "",
+            ))
+        };
+        let ok = strings(r#""name", "email""#);
+        assert!(no_field_ref_errors(&ok), "{:?}", ok.errors);
+
+        let merged = strings(r#""nickname""#);
+        assert_eq!(
+            field_ref_errors(&merged, ErrorCode::ConfigFieldRefUnknown).len(),
+            1,
+            "a column an imported atom merged in is not one the host declares: {:?}",
+            merged.errors
+        );
+
+        let typo = strings(r#""name", "nmae""#);
+        let unknown = field_ref_errors(&typo, ErrorCode::ConfigFieldRefUnknown);
+        assert_eq!(unknown.len(), 1, "{:?}", typo.errors);
+        assert!(
+            unknown[0]
+                .message
+                .contains("`titleFields` names `nmae`, which is not a field of Contact"),
+            "{}",
+            unknown[0].message
+        );
+        assert!(field_ref_errors(&typo, ErrorCode::ConfigFieldRefTypeMismatch).is_empty());
+
+        let empty = strings(r#""name", """#);
+        assert_eq!(
+            field_ref_errors(&empty, ErrorCode::ConfigFieldRefUnknown).len(),
+            1,
+            "an empty name is not a field; an unset knob is absent: {:?}",
+            empty.errors
+        );
+
+        let number = strings(r#""age""#);
+        let mismatch = field_ref_errors(&number, ErrorCode::ConfigFieldRefTypeMismatch);
+        assert_eq!(mismatch.len(), 1, "{:?}", number.errors);
+        assert!(
+            mismatch[0].message.contains(
+                "`titleFields` names `age`, a number field of Contact; the knob takes string fields"
+            ),
+            "{}",
+            mismatch[0].message
+        );
+        assert!(field_ref_errors(&number, ErrorCode::ConfigFieldRefUnknown).is_empty());
+
+        // control: a knob that names any field accepts the number field, and still rejects a typo.
+        let any = |name: &str| {
+            run(&field_knob_schema(
+                &format!(
+                    r#""groupByField": {{ "type": "field", "record": "@entity", "default": "{name}" }}"#
+                ),
+                "",
+            ))
+        };
+        assert!(no_field_ref_errors(&any("age")), "{:?}", any("age").errors);
+        assert_eq!(
+            field_ref_errors(&any("agee"), ErrorCode::ConfigFieldRefUnknown).len(),
+            1
+        );
+
+        // control: an entity named as the record is checked against that entity, not the bound one.
+        let other = run(&format!(
+            r#"{{
+      "name": "t", "version": "1.0.0",
+      "orbitals": [{{
+        "name": "O",
+        "entity": {{ "name": "Contact", "fields": [ {{ "name": "name", "type": "string" }} ] }},
+        "traits": [{{
+          "name": "Panel",
+          "linkedEntity": "Contact",
+          "config": {{ "k": {{ "type": "field", "record": "Company", "default": "headcount" }} }},
+          "stateMachine": {{
+            "states": [{{ "name": "idle", "isInitial": true }}],
+            "transitions": [{{ "from": "idle", "to": "idle", "event": "INIT", "effects": [] }}]
+          }}
+        }}]
+      }}, {{
+        "name": "P",
+        "entity": {{ "name": "Company", "fields": [ {{ "name": "headcount", "type": "number" }} ] }},
+        "traits": []
+      }}]
+    }}"#
+        ));
+        assert!(no_field_ref_errors(&other), "{:?}", other.errors);
+    }
+
+    #[test]
+    fn a_field_knob_names_a_field_of_an_event_payload() {
+        let knob = |items: &str, name: &str| {
+            run(&field_knob_schema(
+                &format!(
+                    r#""event": {{ "type": "event", "default": "SELECT" }}, "coalesceKey": {{ "type": "field", "record": "@payload(event)", {items} "default": "{name}" }}"#
+                ),
+                r#"{ "key": "SELECT", "payloadSchema": [ { "name": "title", "type": "string" }, { "name": "rank", "type": "number" } ] }"#,
+            ))
+        };
+        assert!(no_field_ref_errors(&knob("", "title")), "{:?}", knob("", "title").errors);
+        // a payload field is not an entity field: `age` belongs to Contact, not to SELECT.
+        let wrong = knob("", "age");
+        let unknown = field_ref_errors(&wrong, ErrorCode::ConfigFieldRefUnknown);
+        assert_eq!(unknown.len(), 1, "{:?}", wrong.errors);
+        assert!(unknown[0].message.contains("not a field of the payload of SELECT"), "{}", unknown[0].message);
+        let typed = r#""items": { "type": "string" },"#;
+        let mismatch = knob(typed, "rank");
+        assert_eq!(
+            field_ref_errors(&mismatch, ErrorCode::ConfigFieldRefTypeMismatch).len(),
+            1,
+            "{:?}",
+            mismatch.errors
+        );
+        // control: a string payload field satisfies the string knob; any-field accepts the number one.
+        assert!(no_field_ref_errors(&knob(typed, "title")));
+        assert!(no_field_ref_errors(&knob("", "rank")));
+    }
+
+    #[test]
+    fn a_field_knob_names_a_field_of_a_record_alias() {
+        let point = r#""properties": { "x": { "type": "number" }, "label": { "type": "string" } },"#;
+        let knob = |items: &str, name: &str| {
+            run(&field_knob_schema(
+                &format!(
+                    r#""column": {{ "type": "field", "record": "Point", {point} {items} "default": "{name}" }}"#
+                ),
+                "",
+            ))
+        };
+        let number = r#""items": { "type": "number" },"#;
+        assert!(no_field_ref_errors(&knob(number, "x")), "{:?}", knob(number, "x").errors);
+        let mismatch = knob(number, "label");
+        let found = field_ref_errors(&mismatch, ErrorCode::ConfigFieldRefTypeMismatch);
+        assert_eq!(found.len(), 1, "{:?}", mismatch.errors);
+        assert!(found[0].message.contains("a string field of Point; the knob takes number fields"), "{}", found[0].message);
+        let unknown = knob(number, "z");
+        assert_eq!(field_ref_errors(&unknown, ErrorCode::ConfigFieldRefUnknown).len(), 1);
+        // control: without a value type the string field is fine; a Contact field is not a Point field.
+        assert!(no_field_ref_errors(&knob("", "label")));
+        assert_eq!(field_ref_errors(&knob("", "age"), ErrorCode::ConfigFieldRefUnknown).len(), 1);
+    }
+
     fn payload_trait_schema(field_type: &str, payload_type: &str, default_ref: &str) -> String {
         format!(
             r#"{{
@@ -3572,6 +3930,7 @@ mod recursive_type_literal_tests {
             description: None,
             synonyms: None,
             projected_from: None,
+            record: None,
         };
         let sub_menu_array = FieldDefinition {
             nullable: None,
@@ -3592,6 +3951,7 @@ mod recursive_type_literal_tests {
             description: None,
             synonyms: None,
             projected_from: None,
+            record: None,
         };
         let label = FieldDefinition {
             nullable: None,
@@ -3612,6 +3972,7 @@ mod recursive_type_literal_tests {
             description: None,
             synonyms: None,
             projected_from: None,
+            record: None,
         };
         let mut props = HashMap::new();
         props.insert("label".to_string(), label);
@@ -3635,6 +3996,7 @@ mod recursive_type_literal_tests {
             description: None,
             synonyms: None,
             projected_from: None,
+            record: None,
         };
         ConfigField {
             nullable: None,
@@ -3654,6 +4016,7 @@ mod recursive_type_literal_tests {
             nested_forwarded_from: Vec::new(),
             payload_for: None,
             projected_from: None,
+            record: None,
         }
     }
 
@@ -3753,6 +4116,7 @@ mod skip_required_members_tests {
             description: None,
             synonyms: None,
             projected_from: None,
+            record: None,
         };
         let mut props = HashMap::new();
         props.insert("id".to_string(), required_string("id"));
@@ -3776,6 +4140,7 @@ mod skip_required_members_tests {
             description: None,
             synonyms: None,
             projected_from: None,
+            record: None,
         }
     }
 

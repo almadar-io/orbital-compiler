@@ -7,8 +7,6 @@
 use orbital_compiler::phases::enrich::{enrich_schema, EnrichmentConfig};
 use orbital_compiler::phases::inline::{inline_schema, InlineConfig};
 use orbital_compiler::phases::parse::parse_file;
-use orbital_compiler::phases::validation::error::ErrorCode;
-use orbital_compiler::phases::validation::validate_comprehensive_without_services;
 use orbital_core_base::schema::{EntityRef, OrbitalSchema};
 use std::path::Path;
 
@@ -339,52 +337,8 @@ fn no_rebind_import_registers_aux_once_and_merges_nowhere() {
     );
 }
 
-#[test]
-fn aux_entity_is_legal_relation_target_and_its_fields_are_walked() {
-    let src = r#"{
-      "name": "test-aux-relations",
-      "version": "1.0.0",
-      "orbitals": [{
-        "name": "PostOrbital",
-        "entity": {
-          "name": "Post",
-          "persistence": "persistent",
-          "fields": [
-            { "name": "id", "type": "string", "required": true },
-            { "name": "tagIds", "type": "relation", "relation": { "entity": "Tag", "cardinality": "many" } }
-          ]
-        },
-        "auxiliaryEntities": [{
-          "name": "Tag",
-          "persistence": "persistent",
-          "fields": [
-            { "name": "id", "type": "string", "required": true },
-            { "name": "ghostRef", "type": "relation", "relation": { "entity": "Nowhere", "cardinality": "one" } }
-          ]
-        }],
-        "traits": []
-      }]
-    }"#;
-    let schema: OrbitalSchema = serde_json::from_str(src).expect("parse schema");
-    let result = validate_comprehensive_without_services(&schema);
-    let unresolved: Vec<_> = result
-        .errors
-        .iter()
-        .filter(|e| e.code == ErrorCode::UnresolvedRelationTarget)
-        .collect();
-    assert!(
-        !unresolved
-            .iter()
-            .any(|e| e.message.contains("points at 'Tag'")),
-        "aux entity must be a legal relation target, got {unresolved:?}"
-    );
-    assert!(
-        unresolved
-            .iter()
-            .any(|e| e.message.contains("points at 'Nowhere'")),
-        "aux entities' own relation fields must be walked, got {unresolved:?}"
-    );
-}
+// aux_entity_is_legal_relation_target_and_its_fields_are_walked moved to the std lint golden
+// lint-relation-targets `an-auxiliary-entity-is-a-legal-target-and-its-own-relations-are-walked`.
 
 #[test]
 fn aux_entity_gets_default_collection() {

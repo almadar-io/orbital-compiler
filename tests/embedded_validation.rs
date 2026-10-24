@@ -25,6 +25,7 @@ fn make_trait_with_transition(
     effects: Vec<SExpression>,
 ) -> TraitDefinition {
     TraitDefinition {
+        dispatch: None,
         effect_row: None,
         type_params: None,
         type_args: None,

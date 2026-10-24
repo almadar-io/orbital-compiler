@@ -95,6 +95,7 @@ fn task_entity() -> EntityDefinition {
             description: None,
             synonyms: None,
             projected_from: None,
+            record: None,
         }],
         instances: None,
         id: None,
@@ -128,6 +129,7 @@ fn schema_for_f1(strict_target_event: &str) -> OrbitalSchema {
     ]);
 
     let trait_def = TraitDefinition {
+        dispatch: None,
         effect_row: None,
         type_params: None,
         type_args: None,
@@ -279,6 +281,7 @@ fn schema_with_two_emitters_and_listener_source(
                     listens: Option<Vec<ListenDefinition>>|
      -> TraitDefinition {
         TraitDefinition {
+            dispatch: None,
             effect_row: None,
             type_params: None,
             type_args: None,
@@ -570,6 +573,7 @@ fn render_button_trait(
     entity_field: &str,
 ) -> TraitDefinition {
     TraitDefinition {
+        dispatch: None,
         effect_row: None,
         type_params: None,
         type_args: None,
@@ -627,6 +631,7 @@ fn schema_with_render_action_payload(
 ) -> OrbitalSchema {
     let mk_plain = |name: &str, fields: Vec<PayloadField>| -> TraitDefinition {
         TraitDefinition {
+            dispatch: None,
             effect_row: None,
             type_params: None,
             type_args: None,
@@ -671,6 +676,7 @@ fn schema_with_render_action_payload(
     };
     let mk_listener_trait = |listens: Vec<ListenDefinition>| -> TraitDefinition {
         TraitDefinition {
+            dispatch: None,
             effect_row: None,
             type_params: None,
             type_args: None,
@@ -896,6 +902,7 @@ fn schema_with_default(field: FieldDefinition) -> OrbitalSchema {
                 description: None,
                 synonyms: None,
                 projected_from: None,
+                record: None,
             },
             field,
         ],
@@ -950,104 +957,3 @@ fn schema_with_default(field: FieldDefinition) -> OrbitalSchema {
     }
 }
 
-#[test]
-fn f3_default_outside_values_errors() {
-    let field = FieldDefinition {
-        nullable: None,
-        additional_properties: None,
-        mock: None,
-        merged_from: None,
-        name: Some("status".to_string()),
-        field_type: FieldType::String,
-        required: Some(false),
-        primary_key: None,
-        unique: None,
-        default: Some(s("d")),
-        values: Some(vec!["a".to_string(), "b".to_string(), "c".to_string()]),
-        relation: None,
-        items: None,
-        properties: None,
-        intrinsic: None,
-        description: None,
-        synonyms: None,
-        projected_from: None,
-    };
-    let schema = schema_with_default(field);
-    let result = run(&schema);
-    let hit = result
-        .errors
-        .iter()
-        .any(|e| matches!(e.code, ErrorCode::LiteralUnionDefaultMismatch));
-    assert!(
-        hit,
-        "F.3: expected LiteralUnionDefaultMismatch when default isn't in values. errors={:?}",
-        result.errors.iter().map(|e| &e.code).collect::<Vec<_>>()
-    );
-}
-
-#[test]
-fn f3_default_inside_values_passes() {
-    let field = FieldDefinition {
-        nullable: None,
-        additional_properties: None,
-        mock: None,
-        merged_from: None,
-        name: Some("status".to_string()),
-        field_type: FieldType::String,
-        required: Some(false),
-        primary_key: None,
-        unique: None,
-        default: Some(s("b")),
-        values: Some(vec!["a".to_string(), "b".to_string(), "c".to_string()]),
-        relation: None,
-        items: None,
-        properties: None,
-        intrinsic: None,
-        description: None,
-        synonyms: None,
-        projected_from: None,
-    };
-    let schema = schema_with_default(field);
-    let result = run(&schema);
-    let hit = result
-        .errors
-        .iter()
-        .any(|e| matches!(e.code, ErrorCode::LiteralUnionDefaultMismatch));
-    assert!(
-        !hit,
-        "F.3: default in values should not flag. errors={:?}",
-        result.errors.iter().map(|e| &e.code).collect::<Vec<_>>()
-    );
-}
-
-#[test]
-fn f3_no_values_passes() {
-    // A field with a default but no values list is fine.
-    let field = FieldDefinition {
-        nullable: None,
-        additional_properties: None,
-        mock: None,
-        merged_from: None,
-        name: Some("status".to_string()),
-        field_type: FieldType::String,
-        required: Some(false),
-        primary_key: None,
-        unique: None,
-        default: Some(s("anything")),
-        values: None,
-        relation: None,
-        items: None,
-        properties: None,
-        intrinsic: None,
-        description: None,
-        synonyms: None,
-        projected_from: None,
-    };
-    let schema = schema_with_default(field);
-    let result = run(&schema);
-    let hit = result
-        .errors
-        .iter()
-        .any(|e| matches!(e.code, ErrorCode::LiteralUnionDefaultMismatch));
-    assert!(!hit);
-}

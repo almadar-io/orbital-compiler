@@ -3,14 +3,14 @@
 //! Validates trait references, state machines, and transitions.
 //! Ported from `builder/packages/shared/src/orbitals/validation/trait-validator.ts`.
 
+use super::mounts::{renders_body, renders_ui, Mounts};
 use super::{
     is_std_trait, render_ui::is_render_ui_effect, trait_path, ErrorCode, ValidationContext,
     ValidationError, ValidationResult,
 };
-use super::mounts::{renders_body, renders_ui, Mounts};
 use orbital_core_base::schema::{
     EntityDefinition, Orbital, OrbitalSchema, Persistence, SExpression, StateMachine,
-    StringOrArray, TraitDefinition, TraitReference, TransitionDefinition,
+    StringOrArray, TraitDefinition, TraitReference,
 };
 use std::collections::{HashMap, HashSet};
 
@@ -22,14 +22,8 @@ pub fn validate_all_traits(schema: &OrbitalSchema, ctx: &mut ValidationContext) 
         let mounts = Mounts::of_orbital(orbital);
         for (j, trait_ref) in orbital.traits.iter().enumerate() {
             let path = trait_path(i, &orbital.name, j, trait_ref);
-            let route = matches!(trait_ref, TraitReference::Inline(def) if mounts.on_route(def));
-            let result = validate_trait_reference(
-                trait_ref,
-                &path,
-                &ctx.trait_names,
-                &ctx.entity_names,
-                route,
-            );
+            let result =
+                validate_trait_reference(trait_ref, &path, &ctx.trait_names, &ctx.entity_names);
             ctx.merge(result);
         }
         ctx.merge(validate_endpoint_mounts(orbital, i, &mounts));
@@ -211,14 +205,13 @@ pub fn validate_trait_reference(
     path: &str,
     known_traits: &HashSet<String>,
     known_entities: &HashSet<String>,
-    route: bool,
 ) -> ValidationResult {
     let mut result = ValidationResult::new();
 
     match trait_ref {
         TraitReference::Inline(trait_def) => {
             // Validate inline trait definition
-            result.merge(validate_trait_definition(trait_def, path, known_entities, route));
+            result.merge(validate_trait_definition(trait_def, path, known_entities));
         }
         TraitReference::Reference {
             reference,
@@ -373,7 +366,6 @@ pub fn validate_trait_definition(
     trait_def: &TraitDefinition,
     path: &str,
     known_entities: &HashSet<String>,
-    route: bool,
 ) -> ValidationResult {
     let mut result = ValidationResult::new();
 
@@ -402,10 +394,6 @@ pub fn validate_trait_definition(
             );
         }
     }
-
-    // Validate state machine
-    let sm_result = validate_state_machine(&trait_def.state_machine, path, trait_def, route);
-    result.merge(sm_result);
 
     // Validate `trait`-typed config field defaults — must be `@trait.<TraitName>`
     // strings, or `Null` (the reserved "unbound" value — owner ruling
@@ -508,7 +496,8 @@ pub(crate) fn validate_unbound_trait_field_embeds(
         .filter(|f| {
             matches!(
                 f.field_type,
-                orbital_core_base::schema::FieldType::Trait | orbital_core_base::schema::FieldType::Behavior
+                orbital_core_base::schema::FieldType::Trait
+                    | orbital_core_base::schema::FieldType::Behavior
             )
         })
         .filter_map(|f| f.name.as_deref())
@@ -639,7 +628,9 @@ fn validate_unbound_trait_embeds(
             match cond {
                 SExpression::String(s) => Some(s.clone()),
                 SExpression::Array(call) => match call.as_slice() {
-                    [SExpression::String(op), SExpression::String(s)] if op == "validate/required" => {
+                    [SExpression::String(op), SExpression::String(s)]
+                        if op == "validate/required" =>
+                    {
                         Some(s.clone())
                     }
                     _ => None,
@@ -813,371 +804,6 @@ fn is_trait_ref_string(s: &str) -> bool {
     chars.all(|c| c.is_ascii_alphanumeric())
 }
 
-/// Validate a state machine
-pub fn validate_state_machine(
-    sm: &StateMachine,
-    path: &str,
-    trait_def: &TraitDefinition,
-    route: bool,
-) -> ValidationResult {
-    let mut result = ValidationResult::new();
-    let sm_path = format!("{}.stateMachine", path);
-
-    // Must have at least one state
-    if sm.states.is_empty() {
-        result.add_error(
-            ValidationError::error(
-                ErrorCode::TraitNoInitialState,
-                format!("{}.states", sm_path),
-                "State machine must have at least one state",
-            )
-            .with_suggestion("Add at least one state to the state machine"),
-        );
-        return result;
-    }
-
-    // Collect state names and check for duplicates
-    let mut state_names: HashSet<&str> = HashSet::new();
-    let mut initial_states: Vec<&str> = Vec::new();
-
-    for (i, state) in sm.states.iter().enumerate() {
-        let state_path = format!("{}.states[{}]", sm_path, i);
-
-        // Check for duplicate state names
-        if !state_names.insert(&state.name) {
-            result.add_error(
-                ValidationError::error(
-                    ErrorCode::TraitDuplicateState,
-                    state_path,
-                    format!("Duplicate state name: '{}'", state.name),
-                )
-                .with_suggestion("Each state must have a unique name"),
-            );
-        }
-
-        // Track initial states
-        if state.is_initial == Some(true) {
-            initial_states.push(&state.name);
-        }
-    }
-
-    // Check for exactly one initial state
-    if initial_states.is_empty() {
-        result.add_error(
-            ValidationError::error(
-                ErrorCode::TraitNoInitialState,
-                format!("{}.states", sm_path),
-                "State machine must have an initial state",
-            )
-            .with_suggestion("Mark one state with isInitial: true"),
-        );
-    } else if initial_states.len() > 1 {
-        result.add_error(
-            ValidationError::error(
-                ErrorCode::TraitMultipleInitialStates,
-                format!("{}.states", sm_path),
-                format!("Multiple initial states found: {:?}", initial_states),
-            )
-            .with_suggestion("Only one state should be marked as initial"),
-        );
-    }
-
-    // An event with no name can never be emitted, listened for or dispatched.
-    let empty_events = sm
-        .events
-        .iter()
-        .flatten()
-        .enumerate()
-        .filter(|(_, e)| e.key.is_empty())
-        .map(|(i, _)| format!("{}.events[{}].key", sm_path, i))
-        .chain(
-            trait_def
-                .emits
-                .iter()
-                .flatten()
-                .enumerate()
-                .filter(|(_, e)| e.event.is_empty())
-                .map(|(i, _)| format!("{}.emits[{}].event", path, i)),
-        )
-        .chain(
-            sm.transitions
-                .iter()
-                .enumerate()
-                .filter(|(_, t)| t.event.is_empty())
-                .map(|(i, _)| format!("{}.transitions[{}].event", sm_path, i)),
-        );
-    for empty_path in empty_events {
-        result.add_error(
-            ValidationError::error(
-                ErrorCode::TraitEmptyEventName,
-                empty_path,
-                "Event name is empty",
-            )
-            .with_suggestion(
-                "Name the event, or remove it; an unset optional event knob declares no event",
-            ),
-        );
-    }
-
-    // Collect event names (using key field)
-    let event_names: HashSet<&str> = sm
-        .events
-        .as_ref()
-        .map(|events| events.iter().map(|e| e.key.as_str()).collect())
-        .unwrap_or_default();
-
-    // Validate transitions
-    let transitions_result =
-        validate_transitions(&sm.transitions, &sm_path, &state_names, &event_names);
-    result.merge(transitions_result);
-
-    // Check for INIT transition on initial state (for interaction traits)
-    if route && renders_body(trait_def) && !initial_states.is_empty() {
-        let has_init = sm
-            .transitions
-            .iter()
-            .any(|t| t.event == "INIT" && matches_state(&t.from, initial_states[0]));
-
-        if !has_init {
-            result.add_error(
-                ValidationError::error(
-                    ErrorCode::TraitMissingInitTransition,
-                    format!("{}.transitions", sm_path),
-                    format!(
-                        "Route trait should have INIT transition on initial state '{}'",
-                        initial_states[0]
-                    ),
-                )
-                .with_suggestion("Add a transition: { from: 'initialState', to: 'initialState', event: 'INIT', effects: [...] }"),
-            );
-        }
-    }
-
-    // A declared input is a complete command: the trait accepts it
-    // from its initial (resting) state, so an outside client never has to
-    // drive a UI-shaped flow to reach it.
-    if let (Some(events), Some(initial)) = (sm.events.as_ref(), initial_states.first()) {
-        for (i, ev) in events.iter().enumerate() {
-            if ev.input != Some(true) {
-                continue;
-            }
-            let handled = sm
-                .transitions
-                .iter()
-                .any(|t| t.event == ev.key && matches_state(&t.from, initial));
-            if !handled {
-                result.add_error(
-                    ValidationError::error(
-                        ErrorCode::TraitExternalInputNotResting,
-                        format!("{}.events[{}]", sm_path, i),
-                        format!(
-                            "Input '{}' is not accepted from the initial state '{}'",
-                            ev.key, initial
-                        ),
-                    )
-                    .with_suggestion(
-                        "Declare as an input only a complete command the trait handles from its initial state (e.g. a persistor's DO_CREATE), or add that transition",
-                    ),
-                );
-            }
-        }
-    }
-
-    // Reachability: every declared state must be reachable from the initial
-    // state via some transition path. Mirrors the verifier's BFS exclusions —
-    // skip `from == "*"` wildcards (they don't define real topology edges) and
-    // skip the boot `INIT` self-loop on the initial state. Dead states surface
-    // only as a generic "uncovered" in the verifier today; catch them here.
-    if !initial_states.is_empty() {
-        let initial = initial_states[0];
-        let mut adjacency: HashMap<&str, Vec<&str>> = HashMap::new();
-        for transition in &sm.transitions {
-            // Skip ONLY the boot INIT *self-loop* on the initial state (it adds
-            // no reachability). A `loading --INIT--> loaded` boot transition that
-            // moves to a DIFFERENT state IS a real auto-fired reachability edge
-            // (the runtime fires INIT on mount), so it must be followed — the
-            // walker skips re-firing it, but for reachability `loaded` is reached.
-            if transition.event == "INIT"
-                && matches_state(&transition.from, initial)
-                && transition.to.as_str() == initial
-            {
-                continue;
-            }
-            let froms: Vec<&str> = match &transition.from {
-                StringOrArray::Single(s) => vec![s.as_str()],
-                StringOrArray::Multiple(states) => states.iter().map(|s| s.as_str()).collect(),
-            };
-            for from in froms {
-                if from == "*" {
-                    continue;
-                }
-                adjacency
-                    .entry(from)
-                    .or_default()
-                    .push(transition.to.as_str());
-            }
-        }
-
-        let mut reached: HashSet<&str> = HashSet::new();
-        let mut queue: Vec<&str> = vec![initial];
-        reached.insert(initial);
-        while let Some(state) = queue.pop() {
-            if let Some(targets) = adjacency.get(state) {
-                for &target in targets {
-                    if reached.insert(target) {
-                        queue.push(target);
-                    }
-                }
-            }
-        }
-
-        for state in &sm.states {
-            if !reached.contains(state.name.as_str()) {
-                result.add_error(
-                    ValidationError::error(
-                        ErrorCode::TraitStateUnreachable,
-                        format!("{}.states", sm_path),
-                        format!(
-                            "State '{}' is unreachable from the initial state '{}' via any transition path",
-                            state.name, initial
-                        ),
-                    )
-                    .with_suggestion(
-                        "Add a transition that reaches this state, or remove the dead state",
-                    ),
-                );
-            }
-        }
-    }
-
-    result
-}
-
-/// Validate transitions
-pub fn validate_transitions(
-    transitions: &[TransitionDefinition],
-    path: &str,
-    state_names: &HashSet<&str>,
-    event_names: &HashSet<&str>,
-) -> ValidationResult {
-    let mut result = ValidationResult::new();
-
-    // Track seen transitions for duplicate detection
-    let mut seen_transitions: HashMap<(&str, &str), Vec<usize>> = HashMap::new();
-
-    for (i, transition) in transitions.iter().enumerate() {
-        let trans_path = format!("{}.transitions[{}]", path, i);
-
-        // Validate 'from' states
-        match &transition.from {
-            StringOrArray::Single(state) => {
-                if state != "*" && !state_names.contains(state.as_str()) {
-                    result.add_error(
-                        ValidationError::error(
-                            ErrorCode::TraitInvalidTransition,
-                            format!("{}.from", trans_path),
-                            format!("Source state '{}' does not exist", state),
-                        )
-                        .with_valid_values(state_names.iter().map(|s| s.to_string()).collect()),
-                    );
-                }
-
-                // Track for duplicate detection
-                let key = (state.as_str(), transition.event.as_str());
-                seen_transitions.entry(key).or_default().push(i);
-            }
-            StringOrArray::Multiple(states) => {
-                for state in states {
-                    if state != "*" && !state_names.contains(state.as_str()) {
-                        result.add_error(
-                            ValidationError::error(
-                                ErrorCode::TraitInvalidTransition,
-                                format!("{}.from", trans_path),
-                                format!("Source state '{}' does not exist", state),
-                            )
-                            .with_valid_values(state_names.iter().map(|s| s.to_string()).collect()),
-                        );
-                    }
-                }
-            }
-        }
-
-        // Validate 'to' state
-        if !state_names.contains(transition.to.as_str()) {
-            result.add_error(
-                ValidationError::error(
-                    ErrorCode::TraitInvalidTransition,
-                    format!("{}.to", trans_path),
-                    format!("Target state '{}' does not exist", transition.to),
-                )
-                .with_valid_values(state_names.iter().map(|s| s.to_string()).collect()),
-            );
-        }
-
-        // Validate event is defined (if events are declared)
-        if !event_names.is_empty()
-            && transition.event != "INIT"
-            && !event_names.contains(transition.event.as_str())
-        {
-            result.add_error(
-                ValidationError::error(
-                    ErrorCode::TraitUndefinedEvent,
-                    format!("{}.event", trans_path),
-                    format!(
-                        "Event '{}' is not defined in events array",
-                        transition.event
-                    ),
-                )
-                .with_suggestion("Add the event to the stateMachine.events array"),
-            );
-        }
-    }
-
-    // Check for duplicate transitions (same from/event without guards)
-    for ((from, event), indices) in seen_transitions {
-        if indices.len() > 1 {
-            // Check if all have guards
-            let guarded: Vec<_> = indices
-                .iter()
-                .filter(|&&i| transitions[i].guard.is_some())
-                .collect();
-
-            if guarded.len() < indices.len() - 1 {
-                // More than one unguarded transition
-                result.add_error(
-                    ValidationError::error(
-                        ErrorCode::TraitDuplicateTransition,
-                        format!("{}.transitions", path),
-                        format!(
-                            "Duplicate transitions from '{}' on event '{}' without guards",
-                            from, event
-                        ),
-                    )
-                    .with_suggestion("Add guard conditions to distinguish transitions"),
-                );
-            } else if indices.iter().enumerate().any(|(n, &a)| {
-                indices[n + 1..].iter().any(|&b| {
-                    transitions[a].guard.is_some() && transitions[a].guard == transitions[b].guard
-                })
-            }) {
-                result.add_error(
-                    ValidationError::error(
-                        ErrorCode::TraitDuplicateTransition,
-                        format!("{}.transitions", path),
-                        format!(
-                            "Duplicate transitions from '{}' on event '{}' with the same guard",
-                            from, event
-                        ),
-                    )
-                    .with_suggestion("Remove the repeated arm, or give each arm its own guard"),
-                );
-            }
-        }
-    }
-
-    result
-}
-
 /// ORB_T_ENDPOINT_TRAIT_RENDERS / ORB_T_TRAIT_ON_ROUTE_AND_ENDPOINT: a trait mounted on protocol
 /// endpoints has no viewer, and one trait is listed on a route or on endpoints, never both.
 fn validate_endpoint_mounts(
@@ -1298,6 +924,28 @@ fn init_fetch_targets(sm: &StateMachine) -> Vec<&str> {
     targets
 }
 
+/// Whether a trait `persist create`s `entity` anywhere: the row it works on is
+/// one it makes, so it reads nothing that needs loading.
+fn creates_entity(trait_def: &TraitDefinition, entity: &str) -> bool {
+    fn creates(expr: &SExpression, entity: &str) -> bool {
+        match expr {
+            SExpression::Array(items) => {
+                matches!(items.as_slice(), [SExpression::String(op), SExpression::String(verb), SExpression::String(e), ..]
+                    if op == "persist" && verb == "create" && e == entity)
+                    || items.iter().any(|i| creates(i, entity))
+            }
+            SExpression::Object(map) => map.values().any(|v| creates(v, entity)),
+            _ => false,
+        }
+    }
+    trait_def
+        .state_machine
+        .transitions
+        .iter()
+        .flat_map(|t| t.effects.iter().flatten())
+        .any(|e| creates(e, entity))
+}
+
 /// Whether `expr` holds an `@entity` binding — the whole row or any path into it.
 fn mentions_entity_binding(expr: &SExpression) -> bool {
     match expr {
@@ -1353,7 +1001,7 @@ fn validate_orbital_init_fetch(
         let Some(linked) = &trait_def.linked_entity else {
             continue;
         };
-        if !trait_reads_its_entity(trait_def) {
+        if !trait_reads_its_entity(trait_def) || creates_entity(trait_def, linked) {
             continue;
         }
         let is_persistent = entity_definitions
@@ -1412,62 +1060,11 @@ fn matches_state(from: &StringOrArray, state: &str) -> bool {
 }
 
 #[cfg(test)]
-mod empty_event_name_tests {
-    use super::*;
-
-    fn trait_with(events: serde_json::Value, emits: serde_json::Value) -> TraitDefinition {
-        serde_json::from_value(serde_json::json!({
-            "name": "Calendar",
-            "emits": emits,
-            "stateMachine": {
-                "states": [ { "name": "idle", "isInitial": true } ],
-                "events": events,
-                "transitions": []
-            }
-        }))
-        .expect("trait deserializes")
-    }
-
-    fn codes(td: &TraitDefinition) -> Vec<String> {
-        validate_state_machine(&td.state_machine, "traits[0]", td, true)
-            .errors
-            .iter()
-            .filter(|e| e.code == ErrorCode::TraitEmptyEventName)
-            .map(|e| e.path.clone())
-            .collect()
-    }
-
-    #[test]
-    fn an_empty_event_key_or_emit_name_is_an_error() {
-        let td = trait_with(
-            serde_json::json!([ { "key": "", "name": "on event click" } ]),
-            serde_json::json!([ { "event": "", "scope": "external" } ]),
-        );
-        assert_eq!(
-            codes(&td),
-            vec![
-                "traits[0].stateMachine.events[0].key",
-                "traits[0].emits[0].event"
-            ]
-        );
-    }
-
-    #[test]
-    fn control_named_events_pass() {
-        let td = trait_with(
-            serde_json::json!([ { "key": "OPEN", "name": "open" } ]),
-            serde_json::json!([ { "event": "OPEN", "scope": "external" } ]),
-        );
-        assert!(codes(&td).is_empty());
-    }
-}
-
-#[cfg(test)]
 mod tests {
     use super::*;
     use orbital_core_base::schema::{
         EntityFieldContract, EventDefinition, FieldDefinition, FieldType, SourceBehaviorMetadata,
-        StateDefinition,
+        StateDefinition, TransitionDefinition,
     };
 
     fn create_valid_state_machine() -> StateMachine {
@@ -1519,9 +1116,6 @@ mod tests {
                 },
             ]),
             transitions: vec![
-                // INIT self-transition with a render-ui effect — required for
-                // Interaction traits to pass the validator (TraitMissingInitTransition
-                // errors fire otherwise).
                 TransitionDefinition {
                     event_id: None,
                     from: StringOrArray::Single("idle".to_string()),
@@ -1585,7 +1179,7 @@ mod tests {
     #[test]
     fn test_valid_trait() {
         let trait_def = create_valid_trait();
-        let result = validate_trait_definition(&trait_def, "test", &HashSet::new(), true);
+        let result = validate_trait_definition(&trait_def, "test", &HashSet::new());
         // May have warnings but no errors
         assert!(
             result.errors.iter().all(|e| e.is_warning()),
@@ -1659,7 +1253,7 @@ mod tests {
         #[test]
         fn null_default_is_a_valid_trait_typed_default() {
             let trait_def = trait_with_uitrait(SExpression::Null, uitrait_render_effect());
-            let result = validate_trait_definition(&trait_def, "test", &HashSet::new(), true);
+            let result = validate_trait_definition(&trait_def, "test", &HashSet::new());
             assert!(
                 !has_code(&result, ErrorCode::BindingTraitInvalidFormat),
                 "Null must be accepted as the unbound sentinel: {:?}",
@@ -1672,7 +1266,7 @@ mod tests {
         #[test]
         fn unguarded_embed_of_unbound_knob_errors() {
             let trait_def = trait_with_uitrait(SExpression::Null, uitrait_render_effect());
-            let result = validate_trait_definition(&trait_def, "test", &HashSet::new(), true);
+            let result = validate_trait_definition(&trait_def, "test", &HashSet::new());
             assert!(
                 has_code(&result, ErrorCode::RenderUnboundTraitKnobEmbedded),
                 "an unguarded embed of an unbound trait knob must error: {:?}",
@@ -1687,7 +1281,7 @@ mod tests {
             let guarded =
                 SExpression::Array(vec![s("if"), s("@config.uiTrait"), uitrait_render_effect()]);
             let trait_def = trait_with_uitrait(SExpression::Null, guarded);
-            let result = validate_trait_definition(&trait_def, "test", &HashSet::new(), true);
+            let result = validate_trait_definition(&trait_def, "test", &HashSet::new());
             assert!(
                 !has_code(&result, ErrorCode::RenderUnboundTraitKnobEmbedded),
                 "a guarded embed must not error: {:?}",
@@ -1719,7 +1313,7 @@ mod tests {
         fn an_in_payload_condition_on_the_knob_is_silent() {
             let cond = SExpression::Array(vec![s("if"), s("@config.uiTrait"), s("Edit"), s("New")]);
             let trait_def = trait_with_uitrait(SExpression::Null, render_with_prop(cond));
-            let result = validate_trait_definition(&trait_def, "test", &HashSet::new(), true);
+            let result = validate_trait_definition(&trait_def, "test", &HashSet::new());
             assert!(
                 !has_code(&result, ErrorCode::RenderUnboundTraitKnobEmbedded),
                 "{:?}",
@@ -1732,7 +1326,7 @@ mod tests {
             let cmp = SExpression::Array(vec![s("="), s("@config.uiTrait"), SExpression::Null]);
             let cond = SExpression::Array(vec![s("if"), cmp, s("New"), s("Edit")]);
             let trait_def = trait_with_uitrait(SExpression::Null, render_with_prop(cond));
-            let result = validate_trait_definition(&trait_def, "test", &HashSet::new(), true);
+            let result = validate_trait_definition(&trait_def, "test", &HashSet::new());
             assert!(
                 !has_code(&result, ErrorCode::RenderUnboundTraitKnobEmbedded),
                 "{:?}",
@@ -1749,7 +1343,7 @@ mod tests {
                 SExpression::Null,
             ]);
             let trait_def = trait_with_uitrait(SExpression::Null, render_with_children(guarded));
-            let result = validate_trait_definition(&trait_def, "test", &HashSet::new(), true);
+            let result = validate_trait_definition(&trait_def, "test", &HashSet::new());
             assert!(
                 !has_code(&result, ErrorCode::RenderUnboundTraitKnobEmbedded),
                 "{:?}",
@@ -1766,7 +1360,7 @@ mod tests {
                 s("@config.uiTrait"),
             ]);
             let trait_def = trait_with_uitrait(SExpression::Null, render_with_children(inverted));
-            let result = validate_trait_definition(&trait_def, "test", &HashSet::new(), true);
+            let result = validate_trait_definition(&trait_def, "test", &HashSet::new());
             assert!(
                 has_code(&result, ErrorCode::RenderUnboundTraitKnobEmbedded),
                 "{:?}",
@@ -1783,7 +1377,7 @@ mod tests {
                 SExpression::Null,
             ]);
             let trait_def = trait_with_uitrait(SExpression::Null, render_with_children(other));
-            let result = validate_trait_definition(&trait_def, "test", &HashSet::new(), true);
+            let result = validate_trait_definition(&trait_def, "test", &HashSet::new());
             assert!(
                 has_code(&result, ErrorCode::RenderUnboundTraitKnobEmbedded),
                 "{:?}",
@@ -1797,78 +1391,13 @@ mod tests {
         #[test]
         fn bound_knob_embed_is_never_flagged() {
             let trait_def = trait_with_uitrait(s("@trait.DefaultForm"), uitrait_render_effect());
-            let result = validate_trait_definition(&trait_def, "test", &HashSet::new(), true);
+            let result = validate_trait_definition(&trait_def, "test", &HashSet::new());
             assert!(
                 !has_code(&result, ErrorCode::RenderUnboundTraitKnobEmbedded),
                 "a bound knob's embed must never be flagged: {:?}",
                 result.errors
             );
         }
-    }
-
-    #[test]
-    fn test_trait_no_initial_state() {
-        let mut trait_def = create_valid_trait();
-        trait_def.state_machine.states[0].is_initial = None;
-
-        let result = validate_trait_definition(&trait_def, "test", &HashSet::new(), true);
-        assert!(result
-            .errors
-            .iter()
-            .any(|e| e.code == ErrorCode::TraitNoInitialState));
-    }
-
-    #[test]
-    fn test_trait_multiple_initial_states() {
-        let mut trait_def = create_valid_trait();
-        trait_def.state_machine.states[1].is_initial = Some(true);
-
-        let result = validate_trait_definition(&trait_def, "test", &HashSet::new(), true);
-        assert!(result
-            .errors
-            .iter()
-            .any(|e| e.code == ErrorCode::TraitMultipleInitialStates));
-    }
-
-    #[test]
-    fn test_trait_state_unreachable_fires() {
-        // 3 states: idle (initial) -> active via START; `orphan` has no
-        // incoming transition, so it is unreachable from the initial state.
-        let mut trait_def = create_valid_trait();
-        trait_def.state_machine.states.push(StateDefinition {
-            name: "orphan".to_string(),
-            is_initial: None,
-            is_terminal: None,
-            description: None,
-            time_bound_ms: None,
-            holds: None,
-        });
-
-        let result = validate_trait_definition(&trait_def, "test", &HashSet::new(), true);
-        assert!(
-            result
-                .errors
-                .iter()
-                .any(|e| e.code == ErrorCode::TraitStateUnreachable
-                    && e.message.contains("orphan")),
-            "Expected ORB_T_STATE_UNREACHABLE for 'orphan', got: {:?}",
-            result.errors
-        );
-    }
-
-    #[test]
-    fn test_trait_state_all_reachable_no_fire() {
-        // idle (initial) -> active is fully reachable; no unreachable state.
-        let trait_def = create_valid_trait();
-        let result = validate_trait_definition(&trait_def, "test", &HashSet::new(), true);
-        assert!(
-            !result
-                .errors
-                .iter()
-                .any(|e| e.code == ErrorCode::TraitStateUnreachable),
-            "Did not expect ORB_T_STATE_UNREACHABLE, got: {:?}",
-            result.errors
-        );
     }
 
     // ---- @rebindable enforcement (validate_entity_rebind) ----
@@ -1914,6 +1443,7 @@ mod tests {
                     description: None,
                     synonyms: None,
                     projected_from: None,
+                    record: None,
                 })
                 .collect(),
             instances: None,
@@ -2035,37 +1565,6 @@ mod tests {
     }
 
     #[test]
-    fn test_trait_duplicate_state() {
-        let mut trait_def = create_valid_trait();
-        trait_def.state_machine.states.push(StateDefinition {
-            name: "idle".to_string(), // Duplicate
-            is_initial: None,
-            is_terminal: None,
-            description: None,
-            time_bound_ms: None,
-            holds: None,
-        });
-
-        let result = validate_trait_definition(&trait_def, "test", &HashSet::new(), true);
-        assert!(result
-            .errors
-            .iter()
-            .any(|e| e.code == ErrorCode::TraitDuplicateState));
-    }
-
-    #[test]
-    fn test_trait_invalid_transition_target() {
-        let mut trait_def = create_valid_trait();
-        trait_def.state_machine.transitions[0].to = "nonexistent".to_string();
-
-        let result = validate_trait_definition(&trait_def, "test", &HashSet::new(), true);
-        assert!(result
-            .errors
-            .iter()
-            .any(|e| e.code == ErrorCode::TraitInvalidTransition));
-    }
-
-    #[test]
     fn test_trait_undefined_reference() {
         let trait_ref = TraitReference::Reference {
             dispatch: None,
@@ -2084,7 +1583,7 @@ mod tests {
             ref_id: None,
         };
 
-        let result = validate_trait_reference(&trait_ref, "test", &HashSet::new(), &HashSet::new(), true);
+        let result = validate_trait_reference(&trait_ref, "test", &HashSet::new(), &HashSet::new());
         assert!(result
             .errors
             .iter()
@@ -2110,7 +1609,7 @@ mod tests {
             ref_id: None,
         };
 
-        let result = validate_trait_reference(&trait_ref, "test", &HashSet::new(), &HashSet::new(), true);
+        let result = validate_trait_reference(&trait_ref, "test", &HashSet::new(), &HashSet::new());
         assert!(result.is_valid());
     }
 
@@ -2284,7 +1783,10 @@ mod tests {
             SExpression::String("x".to_string()),
         ])]);
         assert_eq!(init_fetch_errors(&make_orbital(vec![helper])), 0);
-        assert_eq!(init_fetch_errors(&make_orbital(vec![make_consumer("View")])), 1);
+        assert_eq!(
+            init_fetch_errors(&make_orbital(vec![make_consumer("View")])),
+            1
+        );
     }
 
     #[test]
@@ -2319,7 +1821,8 @@ mod tests {
     #[test]
     fn test_init_fetch_fires_once_per_entity_when_nothing_fetches() {
         let orbital = make_orbital(vec![make_consumer("ViewA"), make_consumer("ViewB")]);
-        let result = validate_orbital_init_fetch(&orbital, 0, &entity_defs(), &Mounts::of_orbital(&orbital));
+        let result =
+            validate_orbital_init_fetch(&orbital, 0, &entity_defs(), &Mounts::of_orbital(&orbital));
         let fetch_errors: Vec<_> = result
             .errors
             .iter()
@@ -2341,7 +1844,8 @@ mod tests {
             make_consumer("ViewB"),
             make_datasource("DataSource"),
         ]);
-        let result = validate_orbital_init_fetch(&orbital, 0, &entity_defs(), &Mounts::of_orbital(&orbital));
+        let result =
+            validate_orbital_init_fetch(&orbital, 0, &entity_defs(), &Mounts::of_orbital(&orbital));
         assert!(
             !result
                 .errors
@@ -2349,6 +1853,45 @@ mod tests {
                 .any(|e| e.code == ErrorCode::TraitInitMissingFetch),
             "sibling datasource fetch must satisfy every consumer, got: {:?}",
             result.errors
+        );
+    }
+
+    #[test]
+    fn test_init_fetch_exempts_a_trait_that_creates_the_row_it_works_on() {
+        let mut creator = make_consumer("Run");
+        creator.state_machine.transitions[0]
+            .effects
+            .get_or_insert_with(Vec::new)
+            .push(SExpression::Array(vec![
+                SExpression::String("when".to_string()),
+                SExpression::Bool(true),
+                SExpression::Array(vec![
+                    SExpression::String("persist".to_string()),
+                    SExpression::String("create".to_string()),
+                    SExpression::String("Item".to_string()),
+                    SExpression::Object(orbital_core_base::schema::SObject::new()),
+                ]),
+            ]));
+        assert_eq!(init_fetch_errors(&make_orbital(vec![creator.clone()])), 0);
+        let mut updater = make_consumer("Edit");
+        updater.state_machine.transitions[0]
+            .effects
+            .get_or_insert_with(Vec::new)
+            .push(SExpression::Array(vec![
+                SExpression::String("persist".to_string()),
+                SExpression::String("update".to_string()),
+                SExpression::String("Item".to_string()),
+                SExpression::Object(orbital_core_base::schema::SObject::new()),
+            ]));
+        assert_eq!(
+            init_fetch_errors(&make_orbital(vec![updater])),
+            1,
+            "control: an update reads a stored row"
+        );
+        assert_eq!(
+            init_fetch_errors(&make_orbital(vec![creator, make_consumer("View")])),
+            1,
+            "control: a sibling that only reads still needs a fetch"
         );
     }
 
@@ -2486,7 +2029,7 @@ mod trait_field_embed_tests {
             .expect("default"),
         );
         t.config = Some(HashMap::from([("view".to_string(), cf)]));
-        let r = validate_trait_definition(&t, "t", &HashSet::new(), true);
+        let r = validate_trait_definition(&t, "t", &HashSet::new());
         assert!(
             !r.errors
                 .iter()
@@ -2504,7 +2047,7 @@ mod trait_field_embed_tests {
         cf.default =
             Some(serde_json::from_value(serde_json::json!({ "label": "x" })).expect("default"));
         t.config = Some(HashMap::from([("view".to_string(), cf)]));
-        let r = validate_trait_definition(&t, "t", &HashSet::new(), true);
+        let r = validate_trait_definition(&t, "t", &HashSet::new());
         assert!(r
             .errors
             .iter()
@@ -2569,10 +2112,17 @@ mod behavior_field_embed_tests {
     fn a_presence_test_of_its_own_field_is_a_guard_too() {
         // A trait- or behavior-typed value is not a boolean, so the presence test is explicit.
         let present = serde_json::json!(["validate/required", "@entity.app"]);
-        assert!(!fires(serde_json::json!(["when", present.clone(), embed()])));
+        assert!(!fires(serde_json::json!([
+            "when",
+            present.clone(),
+            embed()
+        ])));
         assert!(!fires(serde_json::json!(["if", present, embed()])));
         let other = serde_json::json!(["validate/required", "@entity.id"]);
-        assert!(fires(serde_json::json!(["when", other, embed()])), "control: another field's test does not exempt it");
+        assert!(
+            fires(serde_json::json!(["when", other, embed()])),
+            "control: another field's test does not exempt it"
+        );
     }
 
     #[test]
@@ -2586,48 +2136,6 @@ mod behavior_field_embed_tests {
             validate_orbital_field_embeds(&trait_with(embed()), &entity(), "t")
                 .errors
                 .is_empty()
-        );
-    }
-
-    fn transitions_from(json: serde_json::Value) -> Vec<TransitionDefinition> {
-        serde_json::from_value(json).expect("transitions deserialize")
-    }
-
-    fn duplicate_hits(json: serde_json::Value) -> usize {
-        let states: HashSet<&str> = HashSet::from(["running", "paused"]);
-        let events: HashSet<&str> = HashSet::new();
-        validate_transitions(&transitions_from(json), "t", &states, &events)
-            .errors
-            .iter()
-            .filter(|e| e.code == ErrorCode::TraitDuplicateTransition)
-            .count()
-    }
-
-    #[test]
-    fn identical_guarded_arms_are_duplicates() {
-        let arm = serde_json::json!({ "from": "paused", "to": "paused", "event": "INIT", "guard": ["not", "@config.autoStart"] });
-        assert_eq!(duplicate_hits(serde_json::json!([arm.clone(), arm])), 1);
-    }
-
-    #[test]
-    fn control_arms_with_different_guards_are_not_duplicates() {
-        assert_eq!(
-            duplicate_hits(serde_json::json!([
-                { "from": "paused", "to": "paused", "event": "INIT", "guard": ["not", "@config.autoStart"] },
-                { "from": "paused", "to": "running", "event": "INIT", "guard": "@config.autoStart" }
-            ])),
-            0
-        );
-    }
-
-    #[test]
-    fn control_one_guarded_and_one_fallback_arm_are_not_duplicates() {
-        assert_eq!(
-            duplicate_hits(serde_json::json!([
-                { "from": "paused", "to": "paused", "event": "INIT", "guard": ["not", "@config.autoStart"] },
-                { "from": "paused", "to": "running", "event": "INIT" }
-            ])),
-            0
         );
     }
 }

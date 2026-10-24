@@ -283,33 +283,6 @@ fn a_page_reference_declares_its_translation_group() {
 }
 
 #[test]
-fn an_import_declaring_index_still_meets_the_indexed_page_rules() {
-    use orbital_compiler::phases::validation::page::validate_page_modifiers;
-    let schema = inline(&whole_import_with(
-        r#"{ "/account": "/me" }"#,
-        r#"{ "/account": { "indexing": "index" } }"#,
-    ))
-    .expect("inline");
-    let codes: Vec<&str> = validate_page_modifiers(&schema)
-        .errors
-        .iter()
-        .map(|e| e.code.as_str())
-        .collect();
-    assert!(codes.contains(&"ORB_P_INDEX_REQUIRES_PUBLIC"), "{codes:?}");
-}
-
-#[test]
-fn control_an_import_meeting_the_rules_passes_them() {
-    use orbital_compiler::phases::validation::page::validate_page_modifiers;
-    let schema = inline(&whole_import_with(
-        r#"{}"#,
-        r#"{ "/about": { "indexing": "index" } }"#,
-    ))
-    .expect("inline");
-    assert!(validate_page_modifiers(&schema).errors.is_empty());
-}
-
-#[test]
 fn a_pages_remap_entry_declares_the_pages_nav_entry() {
     let schema = inline(&format!(
         r#"{{

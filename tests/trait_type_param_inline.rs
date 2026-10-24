@@ -487,7 +487,7 @@ fn struct_alias_arg_resolves_to_object_with_properties() {
     );
 }
 
-/// 5b. Array form: `[$v]` substitutes `[object]` + the same flattened shape.
+/// 5b. Array form: `[$v]` substitutes `[object]` whose element (`items`) carries the alias's flattened shape.
 #[test]
 fn struct_alias_arg_resolves_array_form() {
     let schema = materialize_and_inline_array_with_types(
@@ -499,10 +499,12 @@ fn struct_alias_arg_resolves_array_form() {
     let trait_def = lookup_run_trait(&schema);
     let field = candidate_field(trait_def);
     assert_eq!(field.field_type, "[object]");
+    assert!(field.properties.is_none(), "the list itself has no fields");
     let props = field
-        .properties
+        .items
         .as_ref()
-        .expect("array struct-alias substitution must carry the alias's flattened fields");
+        .and_then(|item| item.properties.as_ref())
+        .expect("array struct-alias substitution must carry the alias's fields on its element");
     let prop_names: Vec<&str> = props.iter().map(|p| p.name.as_str()).collect();
     assert_eq!(prop_names, vec!["id"]);
 }

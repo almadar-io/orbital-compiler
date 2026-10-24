@@ -1335,6 +1335,7 @@ mod entity_prop_contract_tests {
                     description: None,
                     synonyms: None,
                     projected_from: None,
+                    record: None,
                 })
                 .collect(),
             collection: None,

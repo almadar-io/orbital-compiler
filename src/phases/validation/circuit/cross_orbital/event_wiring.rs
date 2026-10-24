@@ -724,8 +724,23 @@ pub(crate) fn collect_failure_events(
         if let Some(SExpression::String(op)) = items.first() {
             if matches!(
                 op.as_str(),
-                "fetch" | "persist" | "call-service" | "http" | "redis" | "postgres" | "random-bytes" | "credential-status" | "credential-forget" | "access-check" | "oauth-authorize" | "oauth-connection-status" | "oauth-connection-forget" | "program/eval" | "program/compose"
-            ) || orbital_core_base::credential_admin::CredentialAdminOp::from_name(op).is_some() {
+                "fetch"
+                    | "persist"
+                    | "call-service"
+                    | "http"
+                    | "redis"
+                    | "postgres"
+                    | "random-bytes"
+                    | "credential-status"
+                    | "credential-forget"
+                    | "access-check"
+                    | "oauth-authorize"
+                    | "oauth-connection-status"
+                    | "oauth-connection-forget"
+                    | "program/eval"
+                    | "program/compose"
+            ) || orbital_core_base::credential_admin::CredentialAdminOp::from_name(op).is_some()
+            {
                 for item in items {
                     if let SExpression::Object(map) = item {
                         if let Some(SExpression::Object(emit_map)) = map.get("emit") {
@@ -824,8 +839,27 @@ pub(crate) fn transition_can_propagate(trait_def: &TraitDefinition, event: &str)
                     if let SExpression::String(op) = &arr[0] {
                         if matches!(
                             op.as_str(),
-                            "fetch" | "persist" | "ref" | "deref" | "call-service" | "http" | "redis" | "postgres" | "random-bytes" | "credential-status" | "credential-forget" | "access-check" | "oauth-authorize" | "oauth-connection-status" | "oauth-connection-forget" | "agent/invoke"
-                        ) || orbital_core_base::credential_admin::CredentialAdminOp::from_name(op).is_some() {
+                            "fetch"
+                                | "persist"
+                                | "ref"
+                                | "deref"
+                                | "call-service"
+                                | "http"
+                                | "redis"
+                                | "postgres"
+                                | "random-bytes"
+                                | "credential-status"
+                                | "credential-forget"
+                                | "access-check"
+                                | "oauth-authorize"
+                                | "oauth-connection-status"
+                                | "oauth-connection-forget"
+                                | "agent/invoke"
+                        ) || orbital_core_base::credential_admin::CredentialAdminOp::from_name(
+                            op,
+                        )
+                        .is_some()
+                        {
                             for item in arr.iter().skip(1) {
                                 if let SExpression::Object(opts) = item {
                                     if opts.contains_key("emit") {
@@ -842,7 +876,9 @@ pub(crate) fn transition_can_propagate(trait_def: &TraitDefinition, event: &str)
     false
 }
 
-pub(crate) fn extract_emit_event(effect: &orbital_core_base::schema::SExpression) -> Option<String> {
+pub(crate) fn extract_emit_event(
+    effect: &orbital_core_base::schema::SExpression,
+) -> Option<String> {
     use orbital_core_base::schema::SExpression;
 
     match effect {
@@ -996,10 +1032,10 @@ mod tests {
             ledger: None,
             schema_version: None,
             config: None,
-    egress: None,
-    inbound: None,
-    os_grants: None,
-    deployment: None,
+            egress: None,
+            inbound: None,
+            os_grants: None,
+            deployment: None,
         }
     }
 
@@ -1165,7 +1201,8 @@ mod tests {
     }
 
     fn render_ui_with_event_prop(pattern_type: &str, prop: &str, event: &str) -> SExpression {
-        let mut node: orbital_core_base::schema::SObject = orbital_core_base::schema::SObject::new();
+        let mut node: orbital_core_base::schema::SObject =
+            orbital_core_base::schema::SObject::new();
         node.insert(
             "type".to_string(),
             SExpression::String(pattern_type.to_string()),
@@ -1272,12 +1309,14 @@ mod tests {
     /// fetch `emit: {success}` map satisfies a scoped std-stats-style listener.
     #[test]
     fn fetch_emit_map_satisfies_scoped_listener() {
-        let mut emit_map: orbital_core_base::schema::SObject = orbital_core_base::schema::SObject::new();
+        let mut emit_map: orbital_core_base::schema::SObject =
+            orbital_core_base::schema::SObject::new();
         emit_map.insert(
             "success".to_string(),
             SExpression::String("SummaryLoaded".to_string()),
         );
-        let mut options: orbital_core_base::schema::SObject = orbital_core_base::schema::SObject::new();
+        let mut options: orbital_core_base::schema::SObject =
+            orbital_core_base::schema::SObject::new();
         options.insert("emit".to_string(), SExpression::Object(emit_map));
         let fetch_effect = SExpression::Array(vec![
             SExpression::String("fetch".to_string()),
@@ -1309,7 +1348,8 @@ mod tests {
     /// branch is an itemActions-style array of `{event: <name>}` descriptors.
     fn conditional_item_actions(then_event: &str, else_event: &str) -> SExpression {
         let descriptor = |event: &str| {
-            let mut dm: orbital_core_base::schema::SObject = orbital_core_base::schema::SObject::new();
+            let mut dm: orbital_core_base::schema::SObject =
+                orbital_core_base::schema::SObject::new();
             dm.insert("name".to_string(), SExpression::String("Edit".to_string()));
             dm.insert("event".to_string(), SExpression::String(event.to_string()));
             SExpression::Object(dm)
@@ -1323,7 +1363,8 @@ mod tests {
     }
 
     fn render_ui_with_item_actions(pattern_type: &str, item_actions: SExpression) -> SExpression {
-        let mut node: orbital_core_base::schema::SObject = orbital_core_base::schema::SObject::new();
+        let mut node: orbital_core_base::schema::SObject =
+            orbital_core_base::schema::SObject::new();
         node.insert(
             "type".to_string(),
             SExpression::String(pattern_type.to_string()),
@@ -1362,12 +1403,54 @@ mod tests {
         );
     }
 
+    /// `orb resolve` wraps a call site's list as `["typed", list, <type>]` inside the atom's `array/filter`: the
+    /// walk sees through both, so the call site's action events are producible.
+    #[test]
+    fn a_typed_filtered_item_actions_list_credits_its_events() {
+        let mut dm: orbital_core_base::schema::SObject = orbital_core_base::schema::SObject::new();
+        dm.insert(
+            "event".to_string(),
+            SExpression::String("ARCHIVE".to_string()),
+        );
+        let typed = SExpression::Array(vec![
+            SExpression::String("typed".to_string()),
+            SExpression::Array(vec![SExpression::Object(dm)]),
+            SExpression::String("{\"kind\":\"array\"}".to_string()),
+        ]);
+        let filtered = SExpression::Array(vec![
+            SExpression::String("array/filter".to_string()),
+            typed,
+            SExpression::Array(vec![
+                SExpression::String("fn".to_string()),
+                SExpression::String("item".to_string()),
+                SExpression::Bool(true),
+            ]),
+        ]);
+        let td = trait_with_effect(
+            "DocList",
+            render_ui_with_item_actions("data-list", filtered),
+        );
+        assert!(collect_effect_produced_events(&td).contains("ARCHIVE"));
+        let td = trait_with_effect(
+            "DocList",
+            render_ui_with_item_actions(
+                "data-list",
+                SExpression::String("@config.itemActions".to_string()),
+            ),
+        );
+        assert!(
+            !collect_effect_produced_events(&td).contains("ARCHIVE"),
+            "control: an unresolved knob credits nothing"
+        );
+    }
+
     /// Nested conditional (`if` inside a branch) must still be walked all the
     /// way down: every leaf branch's events are credited.
     #[test]
     fn nested_conditional_item_actions_credits_every_leaf_branch() {
         let descriptor = |event: &str| {
-            let mut dm: orbital_core_base::schema::SObject = orbital_core_base::schema::SObject::new();
+            let mut dm: orbital_core_base::schema::SObject =
+                orbital_core_base::schema::SObject::new();
             dm.insert("name".to_string(), SExpression::String("Edit".to_string()));
             dm.insert("event".to_string(), SExpression::String(event.to_string()));
             SExpression::Object(dm)
@@ -1404,7 +1487,8 @@ mod tests {
     #[test]
     fn filtered_item_actions_credit_the_same_events_as_a_bare_binding() {
         let descriptor = |event: &str| {
-            let mut dm: orbital_core_base::schema::SObject = orbital_core_base::schema::SObject::new();
+            let mut dm: orbital_core_base::schema::SObject =
+                orbital_core_base::schema::SObject::new();
             dm.insert("event".to_string(), SExpression::String(event.to_string()));
             SExpression::Object(dm)
         };
@@ -1435,7 +1519,8 @@ mod tests {
             events
                 .iter()
                 .map(|event| {
-                    let mut dm: orbital_core_base::schema::SObject = orbital_core_base::schema::SObject::new();
+                    let mut dm: orbital_core_base::schema::SObject =
+                        orbital_core_base::schema::SObject::new();
                     dm.insert(
                         "event".to_string(),
                         SExpression::String((*event).to_string()),
@@ -1748,7 +1833,9 @@ mod tests {
                         nullable: None,
                         additional_properties: None,
                         field_type: "event".to_string(),
-                        default: Some(orbital_core_base::schema::SExpression::String(event.to_string())),
+                        default: Some(orbital_core_base::schema::SExpression::String(
+                            event.to_string(),
+                        )),
                         label: None,
                         description: None,
                         synonyms: None,
@@ -1762,6 +1849,7 @@ mod tests {
                         nested_forwarded_from: Vec::new(),
                         payload_for: None,
                         projected_from: None,
+                        record: None,
                     },
                 )]
                 .into_iter()
@@ -2071,11 +2159,15 @@ mod tests {
                         [
                             (
                                 "type".to_string(),
-                                orbital_core_base::schema::SExpression::String("button".to_string()),
+                                orbital_core_base::schema::SExpression::String(
+                                    "button".to_string(),
+                                ),
                             ),
                             (
                                 "action".to_string(),
-                                orbital_core_base::schema::SExpression::String("GAME_END".to_string()),
+                                orbital_core_base::schema::SExpression::String(
+                                    "GAME_END".to_string(),
+                                ),
                             ),
                         ]
                         .into_iter()

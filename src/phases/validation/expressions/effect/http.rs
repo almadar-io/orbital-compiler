@@ -13,7 +13,7 @@ use super::set::ExprReturnCtx;
 use super::{extract_emit_object_ref, validate_emit_config, DeclaredEmit};
 use orbital_core_base::value::{Value, ValueMap};
 use orbital_core_base::ir::{OirExpr, OirType};
-use orbital_core_base::http_wire::{is_header_name, parse_grant_request, parse_http_headers, parse_egress_entry, parse_origin, parse_origin_prefix, parse_delay_ms, parse_retry, parse_timeout_ms, split_url, GrantRequest, HttpRetry, OriginParts, RetryOperand};
+use orbital_core_base::http_wire::{is_header_name, parse_grant_request, parse_http_headers, parse_origin, parse_origin_prefix, parse_delay_ms, parse_retry, parse_timeout_ms, split_url, GrantRequest, HttpRetry, OriginParts, RetryOperand};
 use orbital_core_base::secrets::config_knob;
 use orbital_core_base::schema::{ConfigField, OrbitalSchema, SExpression, SObject, TraitDefinition};
 use std::collections::HashMap;
@@ -1044,22 +1044,9 @@ fn check_tab_call(
     }
 }
 
-/// Shape, egress and keyed-call checks for every `http` effect, plus the
-/// program's own `egress` entries.
+/// Shape, egress and keyed-call checks for every `http` effect.
 pub(crate) fn validate_http_effects(schema: &OrbitalSchema) -> ValidationResult {
     let mut result = ValidationResult::new();
-    for (i, entry) in schema.egress.iter().flatten().enumerate() {
-        if parse_egress_entry(entry).is_none() {
-            result.add_error(
-                ValidationError::error(
-                    ErrorCode::HttpEgressEntryInvalid,
-                    format!("egress[{i}]"),
-                    format!("egress entry '{entry}' is not scheme://host[:port]"),
-                )
-                .with_suggestion("Write an origin only: no path, query, credentials or trailing slash"),
-            );
-        }
-    }
     let inputs = orbital_core_base::external_inputs::external_inputs_of(schema);
     for (trait_def, path) in inline_traits(schema) {
         let declared = collect_declared_emits(trait_def);

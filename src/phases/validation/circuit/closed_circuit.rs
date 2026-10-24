@@ -118,9 +118,12 @@ pub fn validate_all_circuits(schema: &OrbitalSchema, ctx: &mut ValidationContext
         // protocol's pages), firing when a trait is in neither.
         let bound = client_bound_traits(orbital);
         if super::mounts::is_program(schema, orbital) {
-            ctx.merge(validate_client_bound_state_machines(i, orbital, &crate::phases::embed_graph::mounted_traits(orbital)));
+            ctx.merge(validate_client_bound_state_machines(
+                i,
+                orbital,
+                &crate::phases::embed_graph::mounted_traits(orbital),
+            ));
         }
-        let page_traits = crate::phases::embed_graph::page_declared_traits(orbital);
         for (j, trait_ref) in orbital.traits.iter().enumerate() {
             if let TraitReference::Inline(trait_def) = trait_ref {
                 let path = super::trait_path(i, &orbital.name, j, trait_ref);
@@ -137,11 +140,6 @@ pub fn validate_all_circuits(schema: &OrbitalSchema, ctx: &mut ValidationContext
                     &path,
                 ));
                 ctx.merge(validate_self_emit_loop(trait_def, &orbital.name, &path));
-                if page_traits.contains(&trait_def.name) {
-                    ctx.merge(super::init_coverage::validate_init_coverage(
-                        trait_def, &path,
-                    ));
-                }
             }
         }
     }
@@ -243,7 +241,13 @@ pub fn validate_closed_circuit(
     // mounts (not reachable from any page's `@trait.X` embed closure) can't
     // strand a user, so these gate on `bound` exactly as the JS did.
     if bound.contains(&trait_def.name) {
-        result.merge(validate_failure_arms(state_machine, path));
+        let declared_emits: HashSet<&str> = trait_def
+            .emits
+            .iter()
+            .flatten()
+            .map(|e| e.event.as_str())
+            .collect();
+        result.merge(validate_failure_arms(state_machine, &declared_emits, path));
         result.merge(validate_modal_shell_overlay_contract(state_machine, path));
         result.merge(validate_dead_bodiless_actions(state_machine, path));
         // Ported wiring-lint kind (sub-wave L2) — client-bound, same reason.
@@ -1170,9 +1174,9 @@ pub(crate) fn arms_in<'a>(
 /// nested effect), the same traversal shape `has_render_ui_effects`
 /// (`trait_validator.rs`) uses for a shallower, `if`-only version of this
 /// same question.
-/// True when an arm emits the answer of one of its trait's inbound hooks (EXEC-INBOUND-1): the failure reaches the
-/// caller that sent the request, as a painted toast reaches a viewer.
-fn arm_answers_a_hook(effects: &[SExpression], answers: &HashSet<&str>) -> bool {
+/// True when an arm emits an event the trait declares or the answer of one of its inbound hooks (EXEC-INBOUND-1):
+/// the failure reaches the embedder or the caller, as a painted toast reaches a viewer.
+fn arm_emits_one_of(effects: &[SExpression], answers: &HashSet<&str>) -> bool {
     fn scan(node: &SExpression, answers: &HashSet<&str>) -> bool {
         let SExpression::Array(arr) = node else {
             return false;
@@ -1322,21 +1326,28 @@ fn node_or_descendant_is_self_overlay(node: &SExpression) -> bool {
 ///
 /// For every transition whose effects declare an `emit.failure` event, the
 /// destination state must have an arm handling that event (missing = no arm
-/// at all; renders-nothing = an arm exists but paints nothing) — the async
+/// at all; renders-nothing = an arm exists but neither paints nor emits a
+/// declared event or hook answer) — the async
 /// result contract's failure half is otherwise a live wire terminating in
 /// nothing. Declared-data only: `collect_failure_events` reads the effect
 /// tuple's own `emit: {failure: X}` map, `arms_in`/`arm_paints_something`
 /// read transitions and effects structurally. Ported from the JS wiring
 /// lint's `failure-arm-missing` / `failure-arm-renders-nothing` (same arm
 /// lookup, one pass, two-way branch).
-fn validate_failure_arms(state_machine: &StateMachine, path: &str) -> ValidationResult {
+fn validate_failure_arms(
+    state_machine: &StateMachine,
+    declared_emits: &HashSet<&str>,
+    path: &str,
+) -> ValidationResult {
     let mut result = ValidationResult::new();
-    let hook_answers: HashSet<&str> = state_machine
-        .events
-        .iter()
-        .flatten()
-        .filter_map(|e| e.inbound.as_ref().map(|i| i.answers.as_str()))
-        .collect();
+    let mut reported: HashSet<&str> = declared_emits.clone();
+    reported.extend(
+        state_machine
+            .events
+            .iter()
+            .flatten()
+            .filter_map(|e| e.inbound.as_ref().map(|i| i.answers.as_str())),
+    );
 
     for (i, transition) in state_machine.transitions.iter().enumerate() {
         let Some(effects) = &transition.effects else {
@@ -1369,21 +1380,21 @@ fn validate_failure_arms(state_machine: &StateMachine, path: &str) -> Validation
                     )),
                 );
             } else if !handling_arms.iter().any(|t| {
-                t.effects.as_deref().is_some_and(|e| {
-                    arm_paints_something(e) || arm_answers_a_hook(e, &hook_answers)
-                })
+                t.effects
+                    .as_deref()
+                    .is_some_and(|e| arm_paints_something(e) || arm_emits_one_of(e, &reported))
             }) {
                 result.add_error(
                     ValidationError::error(
                         ErrorCode::CircuitFailureArmRendersNothing,
                         &effect_path,
                         format!(
-                            "state '{}' handles failure event '{}' but its arm renders nothing — the user never sees the failure",
+                            "state '{}' handles failure event '{}' but its arm neither renders nor emits a declared event — the failure reaches no one",
                             transition.to, failure_event
                         ),
                     )
                     .with_suggestion(format!(
-                        "Add `(render-ui toast {{ type: alert, variant: error, message: ... }})` (or another slot) to the '{}' arm.",
+                        "Emit a failure event the trait declares in `emits` from the '{}' arm (its embedder presents it), or render it.",
                         failure_event
                     )),
                 );
@@ -3539,7 +3550,7 @@ mod tests {
                 ])),
             )],
         };
-        let result = validate_failure_arms(&sm, "test");
+        let result = validate_failure_arms(&sm, &HashSet::new(), "test");
         assert!(result
             .errors
             .iter()
@@ -3575,7 +3586,7 @@ mod tests {
             ],
         };
         let renders_nothing = |sm: &StateMachine| {
-            validate_failure_arms(sm, "test")
+            validate_failure_arms(sm, &HashSet::new(), "test")
                 .errors
                 .iter()
                 .any(|e| e.code == ErrorCode::CircuitFailureArmRendersNothing)
@@ -3604,7 +3615,7 @@ mod tests {
                 ])),
             )],
         };
-        let result = validate_failure_arms(&sm("BuildFailed"), "test");
+        let result = validate_failure_arms(&sm("BuildFailed"), &HashSet::new(), "test");
         assert!(result
             .errors
             .iter()
@@ -3624,10 +3635,54 @@ mod tests {
             },
             ..sm("BuildFailed")
         };
-        assert!(!validate_failure_arms(&control, "test")
+        assert!(!validate_failure_arms(&control, &HashSet::new(), "test")
             .errors
             .iter()
             .any(|e| e.code == ErrorCode::CircuitFailureArmMissing));
+    }
+
+    #[test]
+    fn a_failure_arm_that_emits_a_declared_event_hands_the_failure_to_the_embedder() {
+        let sm = StateMachine {
+            states: vec![state("ready")],
+            events: None,
+            transitions: vec![
+                sm_transition(
+                    "ready",
+                    "ready",
+                    "INIT",
+                    effects_from(serde_json::json!([
+                        ["fetch", "Item", { "emit": { "failure": "LoadFailed" } }]
+                    ])),
+                ),
+                sm_transition(
+                    "ready",
+                    "ready",
+                    "LoadFailed",
+                    effects_from(
+                        serde_json::json!([["emit", "ITEM_FAILED", { "error": "@payload.error" }]]),
+                    ),
+                ),
+            ],
+        };
+        let renders_nothing = |declared: &[&str]| {
+            validate_failure_arms(&sm, &declared.iter().copied().collect(), "test")
+                .errors
+                .iter()
+                .any(|e| e.code == ErrorCode::CircuitFailureArmRendersNothing)
+        };
+        assert!(
+            !renders_nothing(&["ITEM_FAILED"]),
+            "a declared failure event reaches the embedder"
+        );
+        assert!(
+            renders_nothing(&[]),
+            "control: an undeclared emit reaches no one"
+        );
+        assert!(
+            renders_nothing(&["OTHER"]),
+            "control: declaring a different event does not count"
+        );
     }
 
     #[test]
@@ -3652,7 +3707,7 @@ mod tests {
                 ),
             ],
         };
-        let result = validate_failure_arms(&sm, "test");
+        let result = validate_failure_arms(&sm, &HashSet::new(), "test");
         assert!(
             result
                 .errors
@@ -3694,7 +3749,7 @@ mod tests {
                 ),
             ],
         };
-        let result = validate_failure_arms(&sm, "test");
+        let result = validate_failure_arms(&sm, &HashSet::new(), "test");
         assert!(result.errors.is_empty(), "{:?}", result.errors);
     }
 
@@ -4204,8 +4259,7 @@ mod tests {
             result
                 .errors
                 .iter()
-                .any(|e| e.code == ErrorCode::TraitUnmounted
-                    && e.message.contains("Orphan")),
+                .any(|e| e.code == ErrorCode::TraitUnmounted && e.message.contains("Orphan")),
             "{:?}",
             result.errors
         );
@@ -4233,14 +4287,20 @@ mod tests {
 
     #[test]
     fn an_atom_with_no_pages_may_mount_nothing() {
-        let atom = orbital_json(vec![inline_trait_with_a_transition("Worker")], serde_json::json!([]));
+        let atom = orbital_json(
+            vec![inline_trait_with_a_transition("Worker")],
+            serde_json::json!([]),
+        );
         assert!(!unmounted_in(vec![atom]));
     }
 
     #[test]
     fn control_a_trait_on_no_page_of_an_orbital_with_pages_is_unmounted() {
         let orbital = orbital_json(
-            vec![inline_trait_with_a_transition("Home"), inline_trait_with_a_transition("Worker")],
+            vec![
+                inline_trait_with_a_transition("Home"),
+                inline_trait_with_a_transition("Worker"),
+            ],
             serde_json::json!([{ "name": "H", "path": "/h", "traits": [{ "ref": "Home" }] }]),
         );
         assert!(unmounted_in(vec![orbital]));
@@ -4248,7 +4308,10 @@ mod tests {
 
     #[test]
     fn edge_an_organism_orbital_without_pages_is_a_program() {
-        let atom = orbital_json(vec![inline_trait_with_a_transition("Worker")], serde_json::json!([]));
+        let atom = orbital_json(
+            vec![inline_trait_with_a_transition("Worker")],
+            serde_json::json!([]),
+        );
         let mut sibling = orbital_json(vec![], serde_json::json!([]));
         sibling.name = "Sibling".to_string();
         assert!(unmounted_in(vec![atom, sibling]));
@@ -4257,7 +4320,10 @@ mod tests {
     #[test]
     fn edge_a_trait_on_a_protocol_endpoint_is_mounted() {
         let orbital = orbital_json(
-            vec![inline_trait_with_a_transition("Home"), inline_trait_with_a_transition("Worker")],
+            vec![
+                inline_trait_with_a_transition("Home"),
+                inline_trait_with_a_transition("Worker"),
+            ],
             serde_json::json!([
                 { "name": "H", "path": "/h", "traits": [{ "ref": "Home" }] },
                 { "name": "B", "path": "", "protocol": "boot", "traits": [{ "ref": "Worker" }] }

@@ -90,15 +90,19 @@ fn credential_program(credential: &str) -> String {
 
 #[test]
 fn the_program_secret_knobs_its_http_auth_reads_are_stamped_as_declared_credentials() {
-    for credential in ["@config.token", "SITE_TOKEN"] {
+    let named = |credential: &str| -> Vec<(String, String, String)> {
         let oir = compile_json(&credential_program(credential), &options(&[])).expect("compiles");
-        let named: Vec<(&str, &str, &str)> = oir
-            .program_credentials
+        oir.program_credentials
             .iter()
-            .map(|c| (c.group.as_str(), c.env_var.as_str(), c.description.as_str()))
-            .collect();
-        assert_eq!(named, vec![("Visits", "SITE_TOKEN", "The site token.")], "{credential}");
-    }
+            .map(|c| (c.group.clone(), c.env_var.clone(), c.description.clone()))
+            .collect()
+    };
+    assert_eq!(
+        named("@config.token"),
+        vec![("Visits".to_string(), "SITE_TOKEN".to_string(), "The site token.".to_string())]
+    );
+    // A literal is never matched to a knob by its default (a name match is a heuristic; resolve keeps `@config.` reads).
+    assert!(named("SITE_TOKEN").is_empty(), "control: a literal credential names no declared knob");
 }
 
 #[test]

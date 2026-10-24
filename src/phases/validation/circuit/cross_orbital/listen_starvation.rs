@@ -358,6 +358,7 @@ mod tests {
             nested_forwarded_from: Vec::new(),
             payload_for: Some(knob.to_string()),
             projected_from: None,
+            record: None,
         }
     }
 

@@ -412,26 +412,28 @@ pub fn validate_uses_config_diagnostics(diagnostics: &[UsesConfigDiagnostic]) ->
 /// cascade traces back to. Never suppressed, and the only rows a suppressed
 /// count is folded into.
 fn is_orbital_ref_root(code: ErrorCode) -> bool {
-    matches!(
-        code,
-        ErrorCode::OrbitalRefConfigUnknownKey
-            | ErrorCode::OrbitalRefOmitEmbeddedTrait
-            | ErrorCode::OrbitalRefRoleUnknownUpstream
-            | ErrorCode::OrbitalRefRoleTargetNotMember
-            | ErrorCode::OrbitalRefEntityUnmapped
-            | ErrorCode::OrbitalRefEntityUnknownKey
-            | ErrorCode::OrbitalRefEntityExpectAmbiguous
-            | ErrorCode::OrbitalRefEntityTargetUnknown
-            | ErrorCode::OrbitalRefPageUnknownPath
-            | ErrorCode::OrbitalRefFieldRenameUnapplied
-            | ErrorCode::OrbitalRefRetypeUnknownField
-            | ErrorCode::OrbitalRefRetypeFieldConflict
-            | ErrorCode::OrbitalRefEntityPersistenceLocked
-            | ErrorCode::OrbitalRefTraitsUnknownTrait
-            | ErrorCode::OrbitalRefTraitsOmittedTrait
-            | ErrorCode::UsesConfigUnknownKey
-    )
+    ORBITAL_REF_ROOTS.contains(&code)
 }
+
+/// The `ORB_O_*`/`ORB_U_*` root codes, by value.
+const ORBITAL_REF_ROOTS: &[ErrorCode] = &[
+    ErrorCode::OrbitalRefConfigUnknownKey,
+    ErrorCode::OrbitalRefOmitEmbeddedTrait,
+    ErrorCode::OrbitalRefRoleUnknownUpstream,
+    ErrorCode::OrbitalRefRoleTargetNotMember,
+    ErrorCode::OrbitalRefEntityUnmapped,
+    ErrorCode::OrbitalRefEntityUnknownKey,
+    ErrorCode::OrbitalRefEntityExpectAmbiguous,
+    ErrorCode::OrbitalRefEntityTargetUnknown,
+    ErrorCode::OrbitalRefPageUnknownPath,
+    ErrorCode::OrbitalRefFieldRenameUnapplied,
+    ErrorCode::OrbitalRefRetypeUnknownField,
+    ErrorCode::OrbitalRefRetypeFieldConflict,
+    ErrorCode::OrbitalRefEntityPersistenceLocked,
+    ErrorCode::OrbitalRefTraitsUnknownTrait,
+    ErrorCode::OrbitalRefTraitsOmittedTrait,
+    ErrorCode::UsesConfigUnknownKey,
+];
 
 /// `diag.path` (`inline/orbital.rs::resolve_orbital_reference`) is
 /// `orbitals[{i}]` for a TOP-LEVEL consumer orbital reference — `i` is
@@ -501,6 +503,37 @@ pub fn suppress_cascaded_by_orbital_ref(
     diagnostics: &[OrbitalRefDiagnostic],
     schema: &OrbitalSchema,
 ) {
+    suppress_cascaded_with::<ValidationError>(result, &mut Vec::new(), diagnostics, schema);
+}
+
+/// A finding the cascade suppression can drop: a std lint's, merged beside the compiler's (`program/validate
+/// { findings }`), is held to the same rule as a compiler row.
+pub trait CascadeRow {
+    fn code(&self) -> &str;
+    fn path(&self) -> &str;
+    fn message(&self) -> &str;
+}
+
+impl CascadeRow for ValidationError {
+    fn code(&self) -> &str {
+        self.code.as_str()
+    }
+    fn path(&self) -> &str {
+        &self.path
+    }
+    fn message(&self) -> &str {
+        &self.message
+    }
+}
+
+/// [`suppress_cascaded_by_orbital_ref`] over `result` and the `extra` rows alike; a suppressed row's code is folded
+/// into the root row that names its entity.
+pub fn suppress_cascaded_with<T: CascadeRow>(
+    result: &mut ValidationResult,
+    extra: &mut Vec<T>,
+    diagnostics: &[OrbitalRefDiagnostic],
+    schema: &OrbitalSchema,
+) {
     if diagnostics.is_empty() {
         return;
     }
@@ -550,58 +583,53 @@ pub fn suppress_cascaded_by_orbital_ref(
 
     // (suppressed entity name -> the downstream codes dropped for it), so the
     // root row can name exactly what it absorbed.
-    let mut suppressed_by_entity: HashMap<String, Vec<&'static str>> = HashMap::new();
+    let mut suppressed_by_entity: HashMap<String, Vec<String>> = HashMap::new();
 
-    let mut suppress = |list: &mut Vec<ValidationError>| {
-        list.retain(|err| {
-            if is_orbital_ref_root(err.code) {
-                return true;
+    let matched = |code: &str, path: &str, message: &str| -> Option<String> {
+        if ORBITAL_REF_ROOTS.iter().any(|root| root.as_str() == code) {
+            return None;
+        }
+        // `ORB_S_OWNER_FIELD_NOT_IDENTITY_TYPED`'s path is the bare
+        // `{entity}.@{sigil}` (`entity_access.rs:434`) — no orbital index
+        // to scope by, so match on the named entity alone: the policy's
+        // own entity, or the relation target the message quotes (the
+        // un-rebound upstream entity IS the cause).
+        if code == ErrorCode::SchemaOwnerFieldNotIdentityTyped.as_str() {
+            return sites.iter().find_map(|site| {
+                site.entities
+                    .iter()
+                    .find(|entity| path.starts_with(&format!("{entity}.@")))
+                    .map(String::as_str)
+                    .or_else(|| quoted_entity(message, &site.entities))
+                    .map(str::to_string)
+            });
+        }
+        sites.iter().find_map(|site| {
+            let index = site.orbital_index?;
+            if !path_under_orbital(path, index) {
+                return None;
             }
-            // `ORB_S_OWNER_FIELD_NOT_IDENTITY_TYPED`'s path is the bare
-            // `{entity}.@{sigil}` (`entity_access.rs:434`) — no orbital index
-            // to scope by, so match on the named entity alone: the policy's
-            // own entity, or the relation target the message quotes (the
-            // un-rebound upstream entity IS the cause).
-            if err.code == ErrorCode::SchemaOwnerFieldNotIdentityTyped {
-                for site in &sites {
-                    let by_path = site
-                        .entities
-                        .iter()
-                        .find(|entity| err.path.starts_with(&format!("{entity}.@")))
-                        .map(String::as_str);
-                    if let Some(entity) =
-                        by_path.or_else(|| quoted_entity(&err.message, &site.entities))
-                    {
-                        suppressed_by_entity
-                            .entry(entity.to_string())
-                            .or_default()
-                            .push(err.code.as_str());
-                        return false;
-                    }
-                }
-                return true;
-            }
-            for site in &sites {
-                let Some(index) = site.orbital_index else {
-                    continue;
-                };
-                if !path_under_orbital(&err.path, index) {
-                    continue;
-                }
-                if let Some(entity) = quoted_entity(&err.message, &site.entities) {
-                    suppressed_by_entity
-                        .entry(entity.to_string())
-                        .or_default()
-                        .push(err.code.as_str());
-                    return false;
-                }
-            }
-            true
-        });
+            quoted_entity(message, &site.entities).map(str::to_string)
+        })
     };
-
-    suppress(&mut result.errors);
-    suppress(&mut result.warnings);
+    let mut suppress = |code: &str, path: &str, message: &str| -> bool {
+        match matched(code, path, message) {
+            Some(entity) => {
+                suppressed_by_entity.entry(entity).or_default().push(code.to_string());
+                false
+            }
+            None => true,
+        }
+    };
+    result.errors.retain(|err| suppress(err.code.as_str(), &err.path, &err.message));
+    result.warnings.retain(|err| suppress(err.code.as_str(), &err.path, &err.message));
+    extra.retain(|row| match matched(row.code(), row.path(), row.message()) {
+        Some(entity) => {
+            suppressed_by_entity.entry(entity).or_default().push(row.code().to_string());
+            false
+        }
+        None => true,
+    });
 
     if suppressed_by_entity.is_empty() {
         return;
@@ -729,6 +757,50 @@ mod suppression_tests {
                 .message
                 .contains("1 downstream finding suppressed: ORB_E_INVALID_RELATION"),
             "root message must record what it absorbed: {}",
+            result.errors[0].message
+        );
+    }
+
+    struct LintRow {
+        code: String,
+        path: String,
+        message: String,
+    }
+
+    impl CascadeRow for LintRow {
+        fn code(&self) -> &str {
+            &self.code
+        }
+        fn path(&self) -> &str {
+            &self.path
+        }
+        fn message(&self) -> &str {
+            &self.message
+        }
+    }
+
+    /// A std lint's finding is held to the same rule as a compiler row (G-ORB-492): dropped when it rediscovers the
+    /// root's unmapped entity in the root's orbital, its code folded into the root's message.
+    #[test]
+    fn drops_a_lint_row_naming_the_unmapped_entity_and_keeps_one_in_another_orbital() {
+        let schema = schema_two_orbitals();
+        let diagnostics = vec![orbital_ref_diag("Other")];
+        let mut result = ValidationResult::new();
+        result.add_error(root_error("Other"));
+        let row = |path: &str| LintRow {
+            code: "ORB_E_INVALID_RELATION".to_string(),
+            path: path.to_string(),
+            message: "Relation target entity 'Other' does not exist".to_string(),
+        };
+        let mut lint = vec![row("orbitals[0].entity.fields[1].relation.entity"), row("orbitals[1].entity.fields[1].relation.entity")];
+
+        suppress_cascaded_with(&mut result, &mut lint, &diagnostics, &schema);
+
+        assert_eq!(lint.len(), 1, "the same-orbital lint row is dropped");
+        assert_eq!(lint[0].path, "orbitals[1].entity.fields[1].relation.entity", "control: another orbital's row stays");
+        assert!(
+            result.errors[0].message.contains("1 downstream finding suppressed: ORB_E_INVALID_RELATION"),
+            "the lint row's code is folded into the root: {}",
             result.errors[0].message
         );
     }

@@ -53,6 +53,7 @@ fn trait_with_trait_binding_in_children(trait_name: &str, binding: &str) -> Trai
     ]);
 
     TraitDefinition {
+        dispatch: None,
         effect_row: None,
         type_params: None,
         type_args: None,
@@ -317,6 +318,7 @@ fn trait_with_binding_outside_render(effect_kind: &str, binding: &str) -> TraitD
         _ => panic!("unknown effect_kind: {effect_kind}"),
     };
     TraitDefinition {
+        dispatch: None,
         effect_row: None,
         type_params: None,
         type_args: None,

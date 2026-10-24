@@ -147,6 +147,7 @@ pub(crate) fn field_of(p: &PayloadField) -> FieldDefinition {
         description: p.description.clone(),
         synonyms: None,
         projected_from: None,
+        record: None,
     }
 }
 
@@ -268,6 +269,35 @@ pub(crate) fn resolve_sigil_types(schema: &mut OrbitalSchema) {
                 for ev in events.iter_mut() {
                     if let Some(schema_fields) = ev.payload_schema.as_mut() {
                         substitute_named_entity_sentinels(schema_fields, resolve);
+                    }
+                }
+            }
+        }
+    }
+
+    // `field (@entity <knob>) T`: the record is the entity the knob names, so a read through the key and the row it
+    // reads (a payload typed `@entity <knob>`, resolved above) name the same entity.
+    for orbital in &mut schema.orbitals {
+        for trait_ref in &mut orbital.traits {
+            let TraitReference::Inline(td) = trait_ref else {
+                continue;
+            };
+            let declared = td.config.clone();
+            let Some(config) = td.config.as_mut() else {
+                continue;
+            };
+            let named = |record: &Option<String>| -> Option<String> {
+                let knob = record.as_deref()?.strip_prefix("@entity(")?.strip_suffix(')')?;
+                let name = knob_value(declared.as_ref(), knob)?;
+                entities.contains_key(&name).then_some(name)
+            };
+            for field in config.values_mut() {
+                if let Some(name) = named(&field.record) {
+                    field.record = Some(name);
+                }
+                if let Some(item) = field.items.as_mut() {
+                    if let Some(name) = named(&item.record) {
+                        item.record = Some(name);
                     }
                 }
             }

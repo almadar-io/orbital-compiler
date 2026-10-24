@@ -84,12 +84,21 @@ mod tests {
 
     #[test]
     fn the_host_binding_drives_the_runtime_dispatch_rule() {
+        let declared = |name: &str, effects: serde_json::Value, mode: Option<&str>| {
+            let mut m = machine(name, effects);
+            if let Some(mode) = mode {
+                m["dispatch"] = serde_json::json!(mode);
+            }
+            m
+        };
         let schema = inlined(serde_json::json!([
-            machine("Pure", serde_json::json!([["set", "@entity.n", 1]])),
-            machine(
+            declared("Pure", serde_json::json!([["set", "@entity.n", 1]]), Some("client")),
+            declared(
                 "Saves",
-                serde_json::json!([["persist", "update", "Frame", "@entity"]])
-            )
+                serde_json::json!([["persist", "update", "Frame", "@entity"]]),
+                Some("optimistic")
+            ),
+            declared("Server", serde_json::json!([["set", "@entity.n", 1]]), None)
         ]));
         let EntityRef::Inline(frame) = &schema.orbitals[0].entity else {
             panic!("inline entity")
@@ -107,5 +116,6 @@ mod tests {
         };
         assert_eq!(mode("Pure"), DispatchMode::HybridClientOnly);
         assert_eq!(mode("Saves"), DispatchMode::RuntimeOptimistic);
+        assert_eq!(mode("Server"), DispatchMode::PersistedAwaited, "control: no declared mode runs on the server");
     }
 }

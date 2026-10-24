@@ -942,6 +942,19 @@ impl<'a> Resolver<'a> {
             };
             return OirType::map(OirType::String, value);
         }
+        // A field reference: `record` is the record `R` and `items` the type of the field it names, not a list element.
+        if field.field_type == "field" {
+            return OirType::FieldRef {
+                record: Box::new(orbital_core_base::ir::types::record_shape(
+                    field.record.as_deref(),
+                    field.properties.as_ref(),
+                )),
+                value: field
+                    .items
+                    .as_ref()
+                    .map(|it| Box::new(self.resolve_field_shape(it).unwrap_or(OirType::Json))),
+            };
+        }
         // Array slot with a typed element shape: `metrics : [MetricSpec]`
         // lowers to `field_type: "[MetricSpec]"` plus `items: FieldDefinition`
         // carrying MetricSpec's fields. Walk items via the existing

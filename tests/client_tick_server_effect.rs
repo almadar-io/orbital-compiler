@@ -28,8 +28,12 @@ fn schema(traits: Vec<Value>) -> OrbitalSchema {
 }
 
 fn editor(linked: &str, target: &str, background: bool) -> Value {
+    editor_in(linked, target, background, Some("optimistic"))
+}
+
+fn editor_in(linked: &str, target: &str, background: bool, mode: Option<&str>) -> Value {
     json!({
-        "name": "Editor", "linkedEntity": linked, "category": "interaction",
+        "name": "Editor", "linkedEntity": linked, "dispatch": mode,
         "stateMachine": {
             "states": [{ "name": "editing", "isInitial": true }],
             "events": [{ "key": "INIT" }],
@@ -72,6 +76,6 @@ fn control_a_background_tick_runs_on_the_server_and_is_allowed() {
 
 #[test]
 fn control_a_server_awaited_trait_ticks_on_the_server_and_is_allowed() {
-    let codes = validate(vec![editor("Doc", "Ledger", false)]);
+    let codes = validate(vec![editor_in("Doc", "Ledger", false, None)]);
     assert!(!codes.contains(&ErrorCode::TraitClientTickServerEffect), "{codes:?}");
 }

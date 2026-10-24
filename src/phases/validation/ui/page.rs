@@ -3,29 +3,16 @@
 //! Validates page structure, paths, and trait references.
 //! Ported from `builder/packages/shared/src/orbitals/validation/page-validator.ts`.
 
-use super::{
-    is_std_trait, ErrorCode, ValidationContext, ValidationError, ValidationResult, VALID_VIEW_TYPES,
-};
-use orbital_core_base::schema::{
-    OrbitalSchema, PageDefinition, SExpression, TraitReference,
-};
 use super::effect::{expr_return_incompatible_in_ctx, BindingTypes, ExprReturnCtx};
+use super::{ErrorCode, ValidationContext, ValidationError, ValidationResult};
 use orbital_core_base::protocols;
-use regex::Regex;
+use orbital_core_base::schema::{OrbitalSchema, PageDefinition, SExpression, TraitReference};
 use std::collections::{HashMap, HashSet};
-use std::sync::LazyLock;
-
-/// Regex for valid page paths (must start with /)
-static PATH_REGEX: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"^/[a-zA-Z0-9\-_/:]*$").unwrap());
-
-/// Regex for valid page names (PascalCase)
-static NAME_REGEX: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"^[A-Z][a-zA-Z0-9]*$").unwrap());
 
 #[cfg(test)]
 mod endpoint_tests {
     use super::*;
     use crate::phases::validation::closed_circuit::validate_all_circuits;
-    use crate::phases::validation::slot::validate_all_slots;
     use crate::phases::validation::trait_validator::validate_all_traits;
     use serde_json::{json, Value};
 
@@ -68,7 +55,11 @@ mod endpoint_tests {
     }
 
     fn http(path: &str, traits: &[&str]) -> Value {
-        endpoint("http", json!({"host": "0.0.0.0", "port": 8080, "path": path}), traits)
+        endpoint(
+            "http",
+            json!({"host": "0.0.0.0", "port": 8080, "path": path}),
+            traits,
+        )
     }
 
     fn grants() -> Value {
@@ -83,7 +74,6 @@ mod endpoint_tests {
         let schema: OrbitalSchema = serde_json::from_value(schema).unwrap();
         let mut ctx = ValidationContext::new();
         validate_all_pages(&schema, &mut ctx);
-        validate_all_slots(&schema, &mut ctx);
         validate_all_traits(&schema, &mut ctx);
         validate_all_circuits(&schema, &mut ctx);
         ctx.result.errors.into_iter().map(|e| e.code).collect()
@@ -96,64 +86,15 @@ mod endpoint_tests {
     #[test]
     fn a_route_page_may_carry_a_trait_that_draws_nothing() {
         let page = json!([route("/t", &["V", "H"])]);
-        let codes = one(vec![trait_json("V", "INIT", true), trait_json("H", "GO", false)], page, Value::Null);
-        for code in [ErrorCode::TraitMissingRenderUI, ErrorCode::TraitMissingInitTransition, ErrorCode::SlotMainNotCovered] {
-            assert!(!codes.contains(&code), "{code:?} in {codes:?}");
-        }
-    }
-
-    #[test]
-    fn a_route_page_whose_traits_render_nothing_errors() {
-        let page = json!([route("/t", &["H"])]);
-        let codes = one(vec![trait_json("H", "INIT", false)], page, Value::Null);
-        assert!(codes.contains(&ErrorCode::SlotMainNotCovered), "{codes:?}");
-        let page = json!([route("/t", &["H", "G"])]);
-        let codes = one(vec![trait_json("H", "INIT", false), trait_json("G", "GO", false)], page, Value::Null);
-        assert!(codes.contains(&ErrorCode::SlotMainNotCovered), "{codes:?}");
-        let page = json!([route("/t", &["H"])]);
-        let codes = one(vec![trait_json("H", "INIT", true)], page, Value::Null);
-        assert!(!codes.contains(&ErrorCode::SlotMainNotCovered), "{codes:?}");
-    }
-
-    #[test]
-    fn a_route_page_rendering_only_outside_main_errors() {
-        let sidebar = json!({"name": "S", "stateMachine": {
-            "states": [{"name": "ready", "isInitial": true}],
-            "transitions": [{"from": "ready", "to": "ready", "event": "INIT",
-                "effects": [["render-ui", "sidebar", {"type": "card"}]]}]
-        }});
-        let codes = one(vec![sidebar], json!([route("/t", &["S"])]), Value::Null);
-        assert!(codes.contains(&ErrorCode::SlotMainNotCovered), "{codes:?}");
-    }
-
-    #[test]
-    fn a_route_trait_without_an_init_on_its_initial_state_errors() {
-        let codes = one(vec![trait_json("T", "GO", true)], json!([route("/t", &["T"])]), Value::Null);
-        assert!(codes.contains(&ErrorCode::TraitMissingInitTransition), "{codes:?}");
-        let codes = one(vec![trait_json("T", "INIT", true)], json!([route("/t", &["T"])]), Value::Null);
-        assert!(!codes.contains(&ErrorCode::TraitMissingInitTransition), "{codes:?}");
-    }
-
-    #[test]
-    fn a_non_rendering_route_helper_needs_no_init() {
-        let page = json!([route("/t", &["V", "H"])]);
-        let codes = one(vec![trait_json("V", "INIT", true), trait_json("H", "GO", false)], page, Value::Null);
-        assert!(!codes.contains(&ErrorCode::TraitMissingInitTransition), "{codes:?}");
-        let page = json!([route("/t", &["V", "H"])]);
-        let codes = one(vec![trait_json("V", "INIT", true), trait_json("H", "GO", true)], page, Value::Null);
-        assert!(codes.contains(&ErrorCode::TraitMissingInitTransition), "{codes:?}");
-    }
-
-    #[test]
-    fn a_route_helper_that_only_toasts_needs_no_init() {
-        let notifier = json!({"name": "Notifier", "stateMachine": {
-            "states": [{"name": "ready", "isInitial": true}],
-            "transitions": [{"from": "ready", "to": "ready", "event": "FLAGGED",
-                "effects": [["render-ui", "toast", {"type": "alert", "message": "Flagged"}]]}]
-        }});
-        let page = json!([route("/t", &["V", "Notifier"])]);
-        let codes = one(vec![trait_json("V", "INIT", true), notifier], page, Value::Null);
-        assert!(!codes.contains(&ErrorCode::TraitMissingInitTransition), "{codes:?}");
+        let codes = one(
+            vec![trait_json("V", "INIT", true), trait_json("H", "GO", false)],
+            page,
+            Value::Null,
+        );
+        assert!(
+            !codes.contains(&ErrorCode::TraitMissingRenderUI),
+            "{codes:?}"
+        );
     }
 
     #[test]
@@ -163,25 +104,41 @@ mod endpoint_tests {
             "transitions": [{"from": "ready", "to": "ready", "event": "INIT",
                 "effects": [["render-ui", "main", {"type": "stack", "children": ["@trait.Child"]}]]}]
         }});
-        let codes = one(vec![host.clone(), trait_json("Child", "GO", true)], json!([route("/t", &["Host"])]), Value::Null);
-        assert!(codes.contains(&ErrorCode::TraitMissingInitTransition), "{codes:?}");
+        let codes = one(
+            vec![host.clone(), trait_json("Child", "GO", true)],
+            json!([route("/t", &["Host"])]),
+            Value::Null,
+        );
         assert!(!codes.contains(&ErrorCode::TraitUnmounted), "{codes:?}");
-        let codes = one(vec![host, trait_json("Child", "GO", false)], json!([route("/t", &["Host"])]), Value::Null);
-        assert!(!codes.contains(&ErrorCode::TraitMissingInitTransition), "{codes:?}");
+        let codes = one(
+            vec![host, trait_json("Child", "GO", false)],
+            json!([route("/t", &["Host"])]),
+            Value::Null,
+        );
         assert!(!codes.contains(&ErrorCode::TraitUnmounted), "{codes:?}");
     }
 
     #[test]
     fn a_trait_mounted_only_on_an_endpoint_renders_nothing() {
         let page = json!([route("/t", &["V"]), http("/", &["S"])]);
-        let codes = one(vec![trait_json("V", "INIT", true), trait_json("S", "INIT", true)], page, grants());
-        assert!(codes.contains(&ErrorCode::TraitEndpointRenders), "{codes:?}");
+        let codes = one(
+            vec![trait_json("V", "INIT", true), trait_json("S", "INIT", true)],
+            page,
+            grants(),
+        );
+        assert!(
+            codes.contains(&ErrorCode::TraitEndpointRenders),
+            "{codes:?}"
+        );
         let page = json!([route("/t", &["V"]), http("/", &["S"])]);
-        let codes = one(vec![trait_json("V", "INIT", true), trait_json("S", "GO", false)], page, grants());
+        let codes = one(
+            vec![trait_json("V", "INIT", true), trait_json("S", "GO", false)],
+            page,
+            grants(),
+        );
         for code in [
             ErrorCode::TraitEndpointRenders,
             ErrorCode::TraitMissingRenderUI,
-            ErrorCode::TraitMissingInitTransition,
             ErrorCode::TraitUnmounted,
         ] {
             assert!(!codes.contains(&code), "{code:?} in {codes:?}");
@@ -191,29 +148,41 @@ mod endpoint_tests {
     #[test]
     fn a_boot_trait_that_renders_errors() {
         let page = json!([route("/t", &["V"]), endpoint("boot", Value::Null, &["B"])]);
-        let codes = one(vec![trait_json("V", "INIT", true), trait_json("B", "INIT", true)], page, Value::Null);
-        assert!(codes.contains(&ErrorCode::TraitEndpointRenders), "{codes:?}");
+        let codes = one(
+            vec![trait_json("V", "INIT", true), trait_json("B", "INIT", true)],
+            page,
+            Value::Null,
+        );
+        assert!(
+            codes.contains(&ErrorCode::TraitEndpointRenders),
+            "{codes:?}"
+        );
     }
 
     #[test]
     fn one_trait_on_a_route_and_an_endpoint_errors() {
         let page = json!([route("/t", &["T"]), http("/", &["T"])]);
         let codes = one(vec![trait_json("T", "INIT", true)], page, grants());
-        assert!(codes.contains(&ErrorCode::TraitOnRouteAndEndpoint), "{codes:?}");
-        assert!(!codes.contains(&ErrorCode::TraitEndpointRenders), "{codes:?}");
+        assert!(
+            codes.contains(&ErrorCode::TraitOnRouteAndEndpoint),
+            "{codes:?}"
+        );
+        assert!(
+            !codes.contains(&ErrorCode::TraitEndpointRenders),
+            "{codes:?}"
+        );
         let page = json!([route("/t", &["T"]), route("/u", &["T"])]);
         let codes = one(vec![trait_json("T", "INIT", true)], page, Value::Null);
-        assert!(!codes.contains(&ErrorCode::TraitOnRouteAndEndpoint), "{codes:?}");
+        assert!(
+            !codes.contains(&ErrorCode::TraitOnRouteAndEndpoint),
+            "{codes:?}"
+        );
     }
 
     #[test]
     fn an_atom_with_no_pages_mounts_nothing_and_is_not_checked_for_interaction() {
         let codes = one(vec![trait_json("T", "GO", false)], Value::Null, Value::Null);
-        for code in [
-            ErrorCode::TraitUnmounted,
-            ErrorCode::TraitMissingRenderUI,
-            ErrorCode::TraitMissingInitTransition,
-        ] {
+        for code in [ErrorCode::TraitUnmounted, ErrorCode::TraitMissingRenderUI] {
             assert!(!codes.contains(&code), "{code:?} in {codes:?}");
         }
     }
@@ -223,7 +192,11 @@ mod endpoint_tests {
         let two = run(
             vec![
                 orbital("A", vec![trait_json("T", "INIT", false)], Value::Null),
-                orbital("B", vec![trait_json("U", "INIT", true)], json!([route("/u", &["U"])])),
+                orbital(
+                    "B",
+                    vec![trait_json("U", "INIT", true)],
+                    json!([route("/u", &["U"])]),
+                ),
             ],
             Value::Null,
         );
@@ -233,7 +206,10 @@ mod endpoint_tests {
             json!([route("/t", &["T"])]),
             Value::Null,
         );
-        assert!(with_pages.contains(&ErrorCode::TraitUnmounted), "{with_pages:?}");
+        assert!(
+            with_pages.contains(&ErrorCode::TraitUnmounted),
+            "{with_pages:?}"
+        );
         let mounted = one(
             vec![trait_json("T", "INIT", true), trait_json("U", "INIT", true)],
             json!([route("/t", &["T", "U"])]),
@@ -265,15 +241,27 @@ mod endpoint_tests {
     #[test]
     fn an_http_endpoint_needs_a_covering_net_listen_grant() {
         let codes = with_http(literal_address(), Value::Null, Value::Null);
-        assert!(codes.contains(&ErrorCode::PageEndpointGrantMissing), "{codes:?}");
+        assert!(
+            codes.contains(&ErrorCode::PageEndpointGrantMissing),
+            "{codes:?}"
+        );
         let codes = with_http(literal_address(), grants(), Value::Null);
-        assert!(!codes.contains(&ErrorCode::PageEndpointGrantMissing), "{codes:?}");
+        assert!(
+            !codes.contains(&ErrorCode::PageEndpointGrantMissing),
+            "{codes:?}"
+        );
         let other = json!({"net": [{"target": "0.0.0.0:9090", "kinds": ["listen"]}]});
         let codes = with_http(literal_address(), other, Value::Null);
-        assert!(codes.contains(&ErrorCode::PageEndpointGrantMissing), "{codes:?}");
+        assert!(
+            codes.contains(&ErrorCode::PageEndpointGrantMissing),
+            "{codes:?}"
+        );
         let tcp = json!({"net": [{"target": "0.0.0.0:8080", "kinds": ["tcp"]}]});
         let codes = with_http(literal_address(), tcp, Value::Null);
-        assert!(codes.contains(&ErrorCode::PageEndpointGrantMissing), "{codes:?}");
+        assert!(
+            codes.contains(&ErrorCode::PageEndpointGrantMissing),
+            "{codes:?}"
+        );
     }
 
     #[test]
@@ -281,21 +269,46 @@ mod endpoint_tests {
         let config = json!({"port": {"type": "number", "default": 8080}, "host": {"type": "string", "default": "0.0.0.0"}});
         let address = json!({"host": "@config.host", "port": "@config.port"});
         let codes = with_http(address.clone(), grants(), config.clone());
-        assert!(!codes.contains(&ErrorCode::PageEndpointGrantMissing), "{codes:?}");
+        assert!(
+            !codes.contains(&ErrorCode::PageEndpointGrantMissing),
+            "{codes:?}"
+        );
         assert!(!codes.contains(&ErrorCode::PageAddressInvalid), "{codes:?}");
         let codes = with_http(address, Value::Null, config);
-        assert!(codes.contains(&ErrorCode::PageEndpointGrantMissing), "{codes:?}");
+        assert!(
+            codes.contains(&ErrorCode::PageEndpointGrantMissing),
+            "{codes:?}"
+        );
     }
 
     #[test]
     fn an_address_knob_without_a_default_is_refused_so_the_grant_is_checked_exactly() {
-        let config = json!({"port": {"type": "number"}, "host": {"type": "string", "default": "0.0.0.0"}});
-        let codes = with_http(json!({"host": "@config.host", "port": "@config.port"}), grants(), config);
+        let config =
+            json!({"port": {"type": "number"}, "host": {"type": "string", "default": "0.0.0.0"}});
+        let codes = with_http(
+            json!({"host": "@config.host", "port": "@config.port"}),
+            grants(),
+            config,
+        );
         assert!(codes.contains(&ErrorCode::PageAddressInvalid), "{codes:?}");
-        let codes = with_http(json!({"host": "0.0.0.0", "port": ["+", 8000, 80]}), grants(), Value::Null);
-        assert!(codes.contains(&ErrorCode::PageAddressInvalid), "a computed port cannot be checked against a grant: {codes:?}");
-        let codes = with_http(json!({"host": "0.0.0.0", "port": 9999}), grants(), Value::Null);
-        assert!(codes.contains(&ErrorCode::PageEndpointGrantMissing), "control: an exact address outside the grant: {codes:?}");
+        let codes = with_http(
+            json!({"host": "0.0.0.0", "port": ["+", 8000, 80]}),
+            grants(),
+            Value::Null,
+        );
+        assert!(
+            codes.contains(&ErrorCode::PageAddressInvalid),
+            "a computed port cannot be checked against a grant: {codes:?}"
+        );
+        let codes = with_http(
+            json!({"host": "0.0.0.0", "port": 9999}),
+            grants(),
+            Value::Null,
+        );
+        assert!(
+            codes.contains(&ErrorCode::PageEndpointGrantMissing),
+            "control: an exact address outside the grant: {codes:?}"
+        );
     }
 
     #[test]
@@ -306,18 +319,32 @@ mod endpoint_tests {
             json!({"host": "0.0.0.0", "port": 8080, "extra": 1}),
         ] {
             let codes = with_http(bad.clone(), grants(), Value::Null);
-            assert!(codes.contains(&ErrorCode::PageAddressInvalid), "{bad} {codes:?}");
+            assert!(
+                codes.contains(&ErrorCode::PageAddressInvalid),
+                "{bad} {codes:?}"
+            );
         }
         let config = json!({"port": {"type": "string", "default": "x"}});
-        let codes = with_http(json!({"host": "0.0.0.0", "port": "@config.port"}), grants(), config);
+        let codes = with_http(
+            json!({"host": "0.0.0.0", "port": "@config.port"}),
+            grants(),
+            config,
+        );
         assert!(codes.contains(&ErrorCode::PageAddressInvalid), "{codes:?}");
-        let codes = with_http(json!({"host": "0.0.0.0", "port": 8080}), grants(), Value::Null);
+        let codes = with_http(
+            json!({"host": "0.0.0.0", "port": 8080}),
+            grants(),
+            Value::Null,
+        );
         assert!(!codes.contains(&ErrorCode::PageAddressInvalid), "{codes:?}");
     }
 
     #[test]
     fn a_protocol_without_an_address_takes_none() {
-        let page = json!([route("/t", &["V"]), endpoint("boot", json!({"x": 1}), &["S"])]);
+        let page = json!([
+            route("/t", &["V"]),
+            endpoint("boot", json!({"x": 1}), &["S"])
+        ]);
         let codes = one(server_trait(), page, Value::Null);
         assert!(codes.contains(&ErrorCode::PageAddressInvalid), "{codes:?}");
         let page = json!([route("/t", &["V"]), endpoint("boot", Value::Null, &["S"])]);
@@ -329,13 +356,29 @@ mod endpoint_tests {
     fn a_stdio_endpoint_needs_a_stdio_grant() {
         let page = json!([route("/t", &["V"]), endpoint("stdio", Value::Null, &["S"])]);
         let codes = one(server_trait(), page.clone(), Value::Null);
-        assert!(codes.contains(&ErrorCode::PageEndpointGrantMissing), "{codes:?}");
+        assert!(
+            codes.contains(&ErrorCode::PageEndpointGrantMissing),
+            "{codes:?}"
+        );
         let codes = one(server_trait(), page.clone(), json!({"stdio": ["in"]}));
-        assert!(codes.contains(&ErrorCode::PageEndpointGrantMissing), "reading alone is not enough: {codes:?}");
-        let codes = one(server_trait(), page.clone(), json!({"stdio": ["out", "err"]}));
-        assert!(codes.contains(&ErrorCode::PageEndpointGrantMissing), "{codes:?}");
+        assert!(
+            codes.contains(&ErrorCode::PageEndpointGrantMissing),
+            "reading alone is not enough: {codes:?}"
+        );
+        let codes = one(
+            server_trait(),
+            page.clone(),
+            json!({"stdio": ["out", "err"]}),
+        );
+        assert!(
+            codes.contains(&ErrorCode::PageEndpointGrantMissing),
+            "{codes:?}"
+        );
         let codes = one(server_trait(), page, json!({"stdio": ["in", "out"]}));
-        assert!(!codes.contains(&ErrorCode::PageEndpointGrantMissing), "{codes:?}");
+        assert!(
+            !codes.contains(&ErrorCode::PageEndpointGrantMissing),
+            "{codes:?}"
+        );
     }
 
     #[test]
@@ -348,27 +391,10 @@ mod endpoint_tests {
         assert!(codes.contains(&ErrorCode::PageUnknownProtocol), "{codes:?}");
         let page = json!([route("/t", &["V"]), endpoint("boot", Value::Null, &["S"])]);
         let codes = one(server_trait(), page, Value::Null);
-        assert!(!codes.contains(&ErrorCode::PageUnknownProtocol), "{codes:?}");
-    }
-
-    #[test]
-    fn paths_collide_only_within_one_protocol() {
-        let page = json!([route("/x", &["V"]), http("/x", &["S"])]);
-        let codes = one(server_trait(), page, grants());
-        assert!(!codes.contains(&ErrorCode::PageDuplicatePath), "{codes:?}");
-        let page = json!([route("/x", &["V"]), route("/x", &["V"])]);
-        let codes = one(vec![trait_json("V", "INIT", true)], page, Value::Null);
-        assert!(codes.contains(&ErrorCode::PageDuplicatePath), "{codes:?}");
-        let mut second = http("/x", &["S"]);
-        second["name"] = json!("Other");
-        let page = json!([route("/t", &["V"]), http("/x", &["S"]), second]);
-        let codes = one(server_trait(), page, grants());
-        assert!(codes.contains(&ErrorCode::PageDuplicatePath), "{codes:?}");
-        let mut elsewhere = http("/y", &["S"]);
-        elsewhere["name"] = json!("Other");
-        let page = json!([route("/t", &["V"]), http("/x", &["S"]), elsewhere]);
-        let codes = one(server_trait(), page, grants());
-        assert!(!codes.contains(&ErrorCode::PageDuplicatePath), "{codes:?}");
+        assert!(
+            !codes.contains(&ErrorCode::PageUnknownProtocol),
+            "{codes:?}"
+        );
     }
 
     #[test]
@@ -380,217 +406,12 @@ mod endpoint_tests {
         let codes = one(vec![trait_json("V", "INIT", true)], page, Value::Null);
         assert!(codes.contains(&ErrorCode::PageUnreachable), "{codes:?}");
     }
-
-    #[test]
-    fn an_endpoint_page_needs_no_main_slot() {
-        let page = json!([route("/t", &["V"]), http("/", &["S"])]);
-        let codes = one(server_trait(), page, grants());
-        assert!(!codes.contains(&ErrorCode::SlotMainNotCovered), "{codes:?}");
-    }
 }
 
 /// Validate all pages in a schema
 pub fn validate_all_pages(schema: &OrbitalSchema, ctx: &mut ValidationContext) {
-    for (i, orbital) in schema.orbitals.iter().enumerate() {
-        if orbital.is_spec() {
-            continue;
-        }
-        if let Some(pages) = &orbital.pages {
-            for (j, page_ref) in pages.iter().enumerate() {
-                let path = format!("orbitals[{}].pages[{}]", i, j);
-                // Only validate inline pages, not references (references are validated during resolution)
-                if let Some(page) = page_ref.as_inline() {
-                    let check_naming = ctx.schema_language.should_check_ascii_naming();
-                    let result =
-                        validate_page(page, &path, &ctx.trait_names, &ctx.trait_ids, check_naming);
-                    ctx.merge(result);
-                }
-            }
-        }
-    }
-
     ctx.merge(validate_protocol_pages(schema));
-    ctx.merge(validate_page_path_uniqueness(schema));
     ctx.merge(validate_page_reachability(schema));
-    ctx.merge(validate_page_modifiers(schema));
-}
-
-fn inline_pages_of(schema: &OrbitalSchema) -> Vec<&PageDefinition> {
-    schema
-        .orbitals
-        .iter()
-        .flat_map(|o| o.pages.iter().flatten())
-        .filter_map(|p| p.as_inline())
-        .filter(|p| p.is_route())
-        .collect()
-}
-
-/// No page may sit on the host's own sign-in route, and the app's `signIn` route
-/// is either that route or a page of the WHOLE program (its eager pages or its
-/// recorded `uses lazy` pages) that anonymous viewers can open.
-/// Run on the top-level program after its lazy children are recorded — a lazy
-/// child alone cannot see the route.
-pub fn validate_sign_in_route(schema: &OrbitalSchema) -> ValidationResult {
-    use orbital_core_base::schema::{is_host_sign_in_route, PageAccess, HOST_SIGN_IN_ROUTE};
-    let mut result = ValidationResult::new();
-    let reserved = inline_pages_of(schema)
-        .into_iter()
-        .map(|p| p.path.clone())
-        .chain(schema.lazy_pages.iter().flatten().map(|p| p.path.clone()))
-        .filter(|path| is_host_sign_in_route(path));
-    for path in reserved {
-        result.add_error(
-            ValidationError::error(
-                ErrorCode::PageHostReservedRoute,
-                path.clone(),
-                format!("'{path}' is the host's own sign-in route; no page may be declared on it"),
-            )
-            .with_suggestion(format!(
-                "move this page to another route; name `signIn: \"{HOST_SIGN_IN_ROUTE}\"` to send viewers to the host's sign-in"
-            )),
-        );
-    }
-    let Some(sign_in) = schema.site.as_ref().and_then(|s| s.sign_in.as_ref()) else {
-        return result;
-    };
-    if is_host_sign_in_route(sign_in) {
-        return result;
-    }
-    let target = normalize_page_path(sign_in);
-    let page = inline_pages_of(schema)
-        .into_iter()
-        .find(|p| normalize_page_path(&p.path) == target);
-    let lazy = schema
-        .lazy_pages
-        .iter()
-        .flatten()
-        .any(|p| normalize_page_path(&p.path) == target);
-    let problem = match page {
-        Some(p) if p.access == Some(PageAccess::Authenticated) => Some(format!(
-            "the `signIn` route '{sign_in}' is itself `access: authenticated`"
-        )),
-        Some(_) => None,
-        None if lazy => None,
-        None => Some(format!(
-            "the `signIn` route '{sign_in}' is no page of this app"
-        )),
-    };
-    if let Some(message) = problem {
-        result.add_error(
-            ValidationError::error(
-                ErrorCode::PageSignInUnknownRoute,
-                "site.signIn".to_string(),
-                message,
-            )
-            .with_suggestion("point `signIn:` at a page anonymous viewers can open"),
-        );
-    }
-    result
-}
-
-/// Page `access` / `indexing` declarations: an indexable page is public,
-/// titled and described (the deploying app's `origin` is checked when its
-/// route manifest is built — a reusable page atom has none of its own); an
-/// authenticated page has a `signIn` route to send a non-admitted viewer to.
-pub fn validate_page_modifiers(schema: &OrbitalSchema) -> ValidationResult {
-    use orbital_core_base::schema::{PageAccess, PageIndexing};
-    let mut result = ValidationResult::new();
-    let site = schema.site.clone().unwrap_or_default();
-    let pages: Vec<(String, &PageDefinition)> = schema
-        .orbitals
-        .iter()
-        .enumerate()
-        .flat_map(|(i, o)| {
-            o.pages
-                .iter()
-                .flatten()
-                .enumerate()
-                .filter_map(move |(j, p)| {
-                    p.as_inline()
-                        .filter(|p| p.is_route())
-                        .map(|p| (format!("orbitals[{i}].pages[{j}]"), p))
-                })
-        })
-        .collect();
-    for (location, page) in &pages {
-        if page.indexing == Some(PageIndexing::Index) {
-            let mut missing = Vec::new();
-            if page.access != Some(PageAccess::Public) {
-                missing.push("`access: public`");
-            }
-            if page.title.is_none() {
-                missing.push("`title:`");
-            }
-            if page.description.is_none() {
-                missing.push("`description:`");
-            }
-            if !missing.is_empty() {
-                result.add_error(
-                    ValidationError::error(
-                        ErrorCode::PageIndexRequiresPublic,
-                        location.clone(),
-                        format!(
-                            "page '{}' ({}) declares `indexing: index` but lacks {}",
-                            page.name,
-                            page.path,
-                            missing.join(", ")
-                        ),
-                    )
-                    .with_suggestion(
-                        "an indexed page is public, titled and described; otherwise declare `indexing: noindex`",
-                    ),
-                );
-            }
-            if page.path.split('/').any(|seg| seg.starts_with(':')) {
-                result.add_error(
-                    ValidationError::error(
-                        ErrorCode::PageIndexParamRoute,
-                        location.clone(),
-                        format!(
-                            "page '{}' ({}) is a parameter route; it cannot be `indexing: index` because its concrete URLs are not declared",
-                            page.name, page.path
-                        ),
-                    )
-                    .with_suggestion("declare `indexing: noindex` on parameter routes"),
-                );
-            }
-        }
-        if page.access == Some(PageAccess::Authenticated) && site.sign_in.is_none() {
-            result.add_error(
-                ValidationError::error(
-                    ErrorCode::PageAuthNoSignIn,
-                    location.clone(),
-                    format!(
-                        "page '{}' ({}) is `access: authenticated` but the app declares no `signIn:` route",
-                        page.name, page.path
-                    ),
-                )
-                .with_suggestion("add `signIn: \"/<route>\"` to the app bracket — the page a non-admitted viewer is sent to"),
-            );
-        }
-    }
-
-    let locales = schema.locales.clone().unwrap_or_default();
-    for (group, locale, paths) in orbital_core_base::messages::duplicate_translation_locales(
-        pages
-            .iter()
-            .map(|(_, p)| (p.path.as_str(), p.translation_of.as_deref())),
-        &locales,
-    ) {
-        result.add_error(
-            ValidationError::error(
-                ErrorCode::PageTranslationDuplicateLocale,
-                paths[1].clone(),
-                format!(
-                    "translation group '{group}' holds {} pages in locale '{locale}' ({}); each locale may hold one",
-                    paths.len(),
-                    paths.join(", ")
-                ),
-            )
-            .with_suggestion("give each page its own locale prefix, or a different `translationOf:`"),
-        );
-    }
-    result
 }
 
 /// Structural reachability signals collected once across the WHOLE schema —
@@ -962,9 +783,7 @@ fn literal_of<'a>(
                 .and_then(|c| c.get(knob))
                 .or_else(|| schema.config.as_ref().and_then(|c| c.get(knob)))
                 .and_then(|field| field.default.as_ref())
-                .filter(|default| {
-                    !matches!(default, SExpression::String(t) if t.starts_with('@'))
-                }),
+                .filter(|default| !matches!(default, SExpression::String(t) if t.starts_with('@'))),
             Some(_) => None,
             None if text.starts_with('@') => None,
             None => Some(value),
@@ -1033,7 +852,10 @@ fn address_problems(
     };
     for key in record.keys() {
         if !fields.iter().any(|f| f.name == key.as_str()) {
-            problems.push(format!("'{key}' is no field of the '{}' address", spec.name));
+            problems.push(format!(
+                "'{key}' is no field of the '{}' address",
+                spec.name
+            ));
         }
     }
     let types = config_types(schema, orbital);
@@ -1048,7 +870,10 @@ fn address_problems(
     for field in fields {
         let Some(value) = record.get(field.name) else {
             if field.required {
-                problems.push(format!("the '{}' address needs '{}'", spec.name, field.name));
+                problems.push(format!(
+                    "the '{}' address needs '{}'",
+                    spec.name, field.name
+                ));
             }
             continue;
         };
@@ -1075,8 +900,17 @@ fn grant_problem(
     use orbital_core_base::os_grants::{NetKind, StdioKind};
     let grants = schema.orbital_os_grants(orbital);
     match spec.grant? {
-        protocols::GrantKind::Stdio => (!(grants.stdio.contains(&StdioKind::In) && grants.stdio.contains(&StdioKind::Out)))
-            .then(|| (ErrorCode::PageEndpointGrantMissing, format!("'{}' endpoints read and write: they need `stdio: [in, out]`", spec.name))),
+        protocols::GrantKind::Stdio => (!(grants.stdio.contains(&StdioKind::In)
+            && grants.stdio.contains(&StdioKind::Out)))
+        .then(|| {
+            (
+                ErrorCode::PageEndpointGrantMissing,
+                format!(
+                    "'{}' endpoints read and write: they need `stdio: [in, out]`",
+                    spec.name
+                ),
+            )
+        }),
         protocols::GrantKind::NetListen => {
             let record = match page.address.as_ref() {
                 Some(SExpression::Object(record)) => Some(record),
@@ -1129,9 +963,18 @@ pub fn validate_protocol_pages(schema: &OrbitalSchema) -> ValidationResult {
                     ValidationError::error(
                         ErrorCode::PageUnknownProtocol,
                         format!("{location}.protocol"),
-                        format!("page '{}' names unknown protocol '{}'", page.name, page.protocol_name()),
+                        format!(
+                            "page '{}' names unknown protocol '{}'",
+                            page.name,
+                            page.protocol_name()
+                        ),
                     )
-                    .with_valid_values(protocols::PROTOCOLS.iter().map(|p| p.name.to_string()).collect()),
+                    .with_valid_values(
+                        protocols::PROTOCOLS
+                            .iter()
+                            .map(|p| p.name.to_string())
+                            .collect(),
+                    ),
                 );
                 continue;
             };
@@ -1154,213 +997,6 @@ pub fn validate_protocol_pages(schema: &OrbitalSchema) -> ValidationResult {
             }
         }
     }
-    result
-}
-
-/// Validate a single page definition
-pub fn validate_page(
-    page: &PageDefinition,
-    path: &str,
-    known_traits: &HashSet<String>,
-    known_trait_ids: &HashSet<String>,
-    check_naming: bool,
-) -> ValidationResult {
-    let mut result = ValidationResult::new();
-
-    // Page must have a name
-    if page.name.is_empty() {
-        result.add_error(
-            ValidationError::error(
-                ErrorCode::PageMissingName,
-                format!("{}.name", path),
-                "Page name is required",
-            )
-            .with_suggestion(
-                "Add a PascalCase name for the page (e.g., 'TaskList', 'UserProfile')",
-            ),
-        );
-    } else if check_naming && !NAME_REGEX.is_match(&page.name) {
-        // GAP-V001: Skip ASCII naming check for non-Latin schemas
-        result.add_error(
-            ValidationError::error(
-                ErrorCode::PageMissingName,
-                format!("{}.name", path),
-                format!("Page name '{}' should be PascalCase", page.name),
-            )
-            .with_suggestion("Use PascalCase for page names (e.g., 'TaskList', 'Dashboard')"),
-        );
-    }
-
-    // Page must have a path
-    if page.is_route() && page.path.is_empty() {
-        result.add_error(
-            ValidationError::error(
-                ErrorCode::PageMissingPath,
-                format!("{}.path", path),
-                "Page path is required",
-            )
-            .with_suggestion("Add a path starting with / (e.g., '/tasks', '/users/:id')"),
-        );
-    } else if page.is_route() {
-        // Path must start with /
-        if !page.path.starts_with('/') {
-            result.add_error(
-                ValidationError::error(
-                    ErrorCode::PageInvalidPath,
-                    format!("{}.path", path),
-                    format!("Page path must start with '/': '{}'", page.path),
-                )
-                .with_suggestion("Prefix the path with / (e.g., '/tasks' instead of 'tasks')"),
-            );
-        }
-
-        // Path format validation (skip for non-Latin schemas — Arabic/etc. paths are valid)
-        if check_naming && !PATH_REGEX.is_match(&page.path) {
-            result.add_error(
-                ValidationError::error(
-                    ErrorCode::PageInvalidPath,
-                    format!("{}.path", path),
-                    format!("Invalid page path format: '{}'", page.path),
-                )
-                .with_suggestion("Use valid path characters: letters, numbers, hyphens, underscores, and colons for params"),
-            );
-        }
-
-        // Reject paths starting with /api (collides with Vite dev server proxy)
-        if page.path.starts_with("/api") {
-            result.add_error(
-                ValidationError::error(
-                    ErrorCode::PageInvalidPath,
-                    format!("{}.path", path),
-                    format!("Page path '{}' starts with '/api' which collides with the API server proxy", page.path),
-                )
-                .with_suggestion("Choose a different path that doesn't start with '/api' (e.g., '/requests' instead of '/apirequests')"),
-            );
-        }
-    }
-
-    // Page must have traits (trait-driven UI)
-    if let Some(traits) = &page.traits {
-        if traits.is_empty() {
-            result.add_error(
-                ValidationError::error(
-                    ErrorCode::PageEmptyTraits,
-                    format!("{}.traits", path),
-                    "Page traits array cannot be empty",
-                )
-                .with_suggestion("Add at least one trait to render UI on the page"),
-            );
-        }
-
-        // Validate each trait reference
-        for (i, trait_ref) in traits.iter().enumerate() {
-            let trait_name = trait_ref.trait_name().unwrap_or("<anonymous>");
-            let trait_path = format!("{}.traits[{} ({})]", path, i, trait_name);
-            let trait_result =
-                validate_page_trait_ref(trait_ref, &trait_path, known_traits, known_trait_ids);
-            result.merge(trait_result);
-        }
-    } else {
-        // Traits array is optional for pages that use primaryEntity + viewType
-        // Only warn if neither traits nor primaryEntity is specified
-        if page.primary_entity.is_none() {
-            result.add_error(
-                ValidationError::error(
-                    ErrorCode::PageMissingTraits,
-                    format!("{}.traits", path),
-                    "Page should have traits array for trait-driven UI",
-                )
-                .with_suggestion("Add traits: ['TraitName'] to define page behavior"),
-            );
-        }
-    }
-
-    // Validate view type if specified
-    if let Some(view_type) = &page.view_type {
-        if !VALID_VIEW_TYPES.contains(&view_type.as_str()) {
-            result.add_error(
-                ValidationError::error(
-                    ErrorCode::PageInvalidViewType,
-                    format!("{}.viewType", path),
-                    format!("Invalid view type: '{}'", view_type),
-                )
-                .with_valid_values(VALID_VIEW_TYPES.iter().map(|s| s.to_string()).collect()),
-            );
-        }
-    }
-
-    // Check for deprecated static sections
-    // This is checked via the PageDefinition type - if it has sections, warn
-    // Note: The Rust schema type may not have sections field, but we check just in case
-
-    result
-}
-
-/// Validate a page trait reference
-fn validate_page_trait_ref(
-    trait_ref: &TraitReference,
-    path: &str,
-    known_traits: &HashSet<String>,
-    known_trait_ids: &HashSet<String>,
-) -> ValidationResult {
-    let mut result = ValidationResult::new();
-
-    match trait_ref {
-        TraitReference::Inline(trait_def) => {
-            // Inline traits are validated separately
-            // Here we just ensure it has a name
-            if trait_def.name.is_empty() {
-                result.add_error(
-                    ValidationError::error(
-                        ErrorCode::PageInvalidTraitRef,
-                        path,
-                        "Inline trait must have a name",
-                    )
-                    .with_suggestion("Add a name property to the inline trait"),
-                );
-            }
-        }
-        TraitReference::Reference {
-            reference,
-            name,
-            ref_id,
-            ..
-        } => {
-            // V4 id-first: when the ref_id resolves to a known inline trait, the
-            // ref is valid regardless of its `reference` name — which may be
-            // stale after a cross-orbital dedup rename (the id is stable). This
-            // is what lets `rewrite_page_trait_refs` be deleted.
-            let id_resolves = ref_id
-                .as_ref()
-                .is_some_and(|id| known_trait_ids.contains(id));
-            let trait_name = reference.as_ref().or(name.as_ref());
-
-            if id_resolves {
-                // ok — id carries the edge
-            } else if let Some(name) = trait_name {
-                if !known_traits.contains(name) && !is_std_trait(name) {
-                    result.add_error(
-                        ValidationError::error(
-                            ErrorCode::PageInvalidTraitRef,
-                            path,
-                            format!("Trait '{}' referenced on page does not exist", name),
-                        )
-                        .with_suggestion("Define traits inline within orbitals or use a std trait"),
-                    );
-                }
-            } else {
-                result.add_error(
-                    ValidationError::error(
-                        ErrorCode::PageInvalidTraitRef,
-                        path,
-                        "Page trait reference must have 'ref' or 'name' property",
-                    )
-                    .with_suggestion("Add ref: 'TraitName' to reference a trait"),
-                );
-            }
-        }
-    }
-
     result
 }
 
@@ -1460,68 +1096,6 @@ pub fn validate_page_path_uniqueness(schema: &OrbitalSchema) -> ValidationResult
 mod tests {
     use super::*;
 
-    fn create_valid_page() -> PageDefinition {
-        PageDefinition {
-            translation_of: None,
-            protocol: None,
-            address: None,
-            source_page: None,
-            access: None,
-            indexing: None,
-            title: None,
-            description: None,
-            name: "TaskList".to_string(),
-            path: "/tasks".to_string(),
-            traits: Some(vec![TraitReference::Reference {
-                dispatch: None,
-                type_args: None,
-                id: None,
-                reference: Some("std/List".to_string()),
-                name: None,
-                linked_entity: None,
-                config: None,
-                events: None,
-                fields: None,
-                listens: None,
-                emits_scope: None,
-                event_ids: None,
-                linked_entity_id: None,
-                ref_id: None,
-            }]),
-            primary_entity: None,
-            view_type: None,
-            is_initial: None,
-            sections: None,
-            icon: None,
-            label: None,
-            id: None,
-            roles: None,
-        }
-    }
-
-    /// A page whose single trait ref carries `reference` (name) + optional
-    /// `ref_id`. Used to prove the V4 id-first page-ref check.
-    fn page_with_ref(reference: &str, ref_id: Option<&str>) -> PageDefinition {
-        let mut p = create_valid_page();
-        p.traits = Some(vec![TraitReference::Reference {
-            dispatch: None,
-            type_args: None,
-            id: None,
-            reference: Some(reference.to_string()),
-            name: None,
-            linked_entity: None,
-            config: None,
-            events: None,
-            fields: None,
-            listens: None,
-            emits_scope: None,
-            event_ids: None,
-            linked_entity_id: None,
-            ref_id: ref_id.map(str::to_string),
-        }]);
-        p
-    }
-
     fn href_obj(href: SExpression) -> SExpression {
         let mut m = std::collections::HashMap::new();
         m.insert("href".to_string(), href);
@@ -1587,154 +1161,10 @@ mod tests {
         assert!(out.is_empty(), "{out:?}");
     }
 
-    #[test]
-    fn test_valid_page() {
-        let page = create_valid_page();
-        let result = validate_page(&page, "test", &HashSet::new(), &HashSet::new(), true);
-        assert!(result.is_valid(), "Errors: {:?}", result.errors);
-    }
-
-    #[test]
-    fn page_trait_ref_valid_via_ref_id_when_name_stale() {
-        // V4: after a molecule/dedup rename, a page ref keeps the OLD name but a
-        // STABLE ref_id. With the name absent from `known_traits` but the id in
-        // `known_trait_ids`, the ref is valid — the id carries the edge. This is
-        // what replaced the deleted `rewrite_page_trait_refs` name rewrite.
-        let page = page_with_ref("StaleOldName", Some("trt_current0000000000000000"));
-        let known_traits = HashSet::new(); // stale name is NOT here
-        let known_trait_ids = HashSet::from(["trt_current0000000000000000".to_string()]);
-        let result = validate_page(&page, "test", &known_traits, &known_trait_ids, true);
-        assert!(
-            !result
-                .errors
-                .iter()
-                .any(|e| e.code == ErrorCode::PageInvalidTraitRef),
-            "id-resolving page ref must not fire PageInvalidTraitRef: {:?}",
-            result.errors
-        );
-    }
-
-    #[test]
-    fn page_trait_ref_invalid_when_neither_name_nor_id_resolves() {
-        // Neither the name nor the ref_id resolves — a genuine dangling ref.
-        let page = page_with_ref("Ghost", Some("trt_ghost000000000000000000"));
-        let result = validate_page(&page, "test", &HashSet::new(), &HashSet::new(), true);
-        assert!(
-            result
-                .errors
-                .iter()
-                .any(|e| e.code == ErrorCode::PageInvalidTraitRef),
-            "unresolvable page ref must fire PageInvalidTraitRef"
-        );
-    }
-
-    #[test]
-    fn test_page_missing_name() {
-        let mut page = create_valid_page();
-        page.name = String::new();
-
-        let result = validate_page(&page, "test", &HashSet::new(), &HashSet::new(), true);
-        assert!(!result.is_valid());
-        assert!(result
-            .errors
-            .iter()
-            .any(|e| e.code == ErrorCode::PageMissingName));
-    }
-
-    #[test]
-    fn test_page_missing_path() {
-        let mut page = create_valid_page();
-        page.path = String::new();
-
-        let result = validate_page(&page, "test", &HashSet::new(), &HashSet::new(), true);
-        assert!(!result.is_valid());
-        assert!(result
-            .errors
-            .iter()
-            .any(|e| e.code == ErrorCode::PageMissingPath));
-    }
-
-    #[test]
-    fn test_page_invalid_path_no_slash() {
-        let mut page = create_valid_page();
-        page.path = "tasks".to_string(); // Missing leading /
-
-        let result = validate_page(&page, "test", &HashSet::new(), &HashSet::new(), true);
-        assert!(!result.is_valid());
-        assert!(result
-            .errors
-            .iter()
-            .any(|e| e.code == ErrorCode::PageInvalidPath));
-    }
-
-    #[test]
-    fn test_page_empty_traits() {
-        let mut page = create_valid_page();
-        page.traits = Some(vec![]);
-
-        let result = validate_page(&page, "test", &HashSet::new(), &HashSet::new(), true);
-        assert!(!result.is_valid());
-        assert!(result
-            .errors
-            .iter()
-            .any(|e| e.code == ErrorCode::PageEmptyTraits));
-    }
-
-    #[test]
-    fn test_page_invalid_trait_ref() {
-        let mut page = create_valid_page();
-        page.traits = Some(vec![TraitReference::Reference {
-            dispatch: None,
-            type_args: None,
-            id: None,
-            reference: Some("NonExistentTrait".to_string()),
-            name: None,
-            linked_entity: None,
-            config: None,
-            events: None,
-            fields: None,
-            listens: None,
-            emits_scope: None,
-            event_ids: None,
-            linked_entity_id: None,
-            ref_id: None,
-        }]);
-
-        let result = validate_page(&page, "test", &HashSet::new(), &HashSet::new(), true);
-        assert!(!result.is_valid());
-        assert!(result
-            .errors
-            .iter()
-            .any(|e| e.code == ErrorCode::PageInvalidTraitRef));
-    }
-
-    #[test]
-    fn test_page_std_trait_ref() {
-        let page = create_valid_page(); // Uses std/List
-
-        let result = validate_page(&page, "test", &HashSet::new(), &HashSet::new(), true);
-        assert!(result.is_valid()); // std traits are always valid
-    }
-
-    #[test]
-    fn test_page_invalid_view_type() {
-        let mut page = create_valid_page();
-        page.view_type = Some("invalid".to_string());
-
-        let result = validate_page(&page, "test", &HashSet::new(), &HashSet::new(), true);
-        assert!(!result.is_valid());
-        assert!(result
-            .errors
-            .iter()
-            .any(|e| e.code == ErrorCode::PageInvalidViewType));
-    }
-
     // ------------------------------------------------------------------
-    // B3-R: page-path convergence — param-shape normalization
-    // (`normalize_page_path`), wired through `validate_all_pages` /
-    // `validate_comprehensive_full`; the OIR layer's own duplicate-PATH
-    // check is deleted (`ir/validation.rs`), so an exact collision now
-    // fires exactly ONCE, from here.
+    // B3-R: the OIR layer's own duplicate-PATH check is deleted
+    // (`ir/validation.rs`); the std lint `page-path-uniqueness` owns the
+    // param-shape collision.
     // ------------------------------------------------------------------
 
     fn schema_with_two_page_paths(path_a: &str, path_b: &str) -> OrbitalSchema {
@@ -1770,50 +1200,9 @@ mod tests {
         .expect("page-path fixture must deserialize")
     }
 
-    fn duplicate_path_errors(schema: &OrbitalSchema) -> Vec<ErrorCode> {
-        crate::phases::validate_comprehensive_full(
-            schema,
-            None,
-            crate::phases::validation::SchemaLanguage::English,
-            crate::embedded::ServiceRegistryData::default(),
-            Vec::new(),
-        )
-        .errors
-        .into_iter()
-        .filter(|e| e.code == ErrorCode::PageDuplicatePath)
-        .map(|e| e.code)
-        .collect()
-    }
-
-    #[test]
-    fn param_shape_collision_fires_once_through_validate_comprehensive_full() {
-        let schema = schema_with_two_page_paths("/x/:id", "/x/:slug");
-        assert_eq!(
-            duplicate_path_errors(&schema).len(),
-            1,
-            "'/x/:id' and '/x/:slug' normalize to the same param shape ('/x/:') and must collide exactly once"
-        );
-    }
-
-    #[test]
-    fn different_param_shapes_do_not_collide() {
-        let schema = schema_with_two_page_paths("/x/:id", "/y/:id");
-        assert!(
-            duplicate_path_errors(&schema).is_empty(),
-            "'/x/:id' and '/y/:id' normalize to different shapes ('/x/:' vs '/y/:') and must not collide"
-        );
-    }
-
     #[test]
     fn oir_layer_no_longer_emits_its_own_duplicate_path_error() {
         let schema = schema_with_two_page_paths("/tasks", "/tasks");
-        // The compiler-phase check still catches the exact collision.
-        assert_eq!(
-            duplicate_path_errors(&schema).len(),
-            1,
-            "exact duplicate must still fire once"
-        );
-
         // `phases/validate.rs`'s own compile-time gate now calls this SAME
         // `validate_page_path_uniqueness` owner (converged — no more second
         // copy), so `compile_schema` correctly refuses this schema outright;

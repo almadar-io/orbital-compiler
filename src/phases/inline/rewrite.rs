@@ -2474,6 +2474,30 @@ pub(crate) fn resolve_type_param_sentinels(
             *shape != old
         });
     });
+    // `field r T`: the record a type variable stands for is the entity the call site binds it to.
+    if let Some(config) = trait_def.config.as_mut() {
+        let bind_record = |record: &mut Option<String>| {
+            let bound = record
+                .as_deref()
+                .and_then(|text| text.strip_prefix('$'))
+                .and_then(|name| match subs.get(name) {
+                    Some(ParamSub::Entity(entity)) => Some(entity.name.clone()),
+                    _ => None,
+                });
+            if let Some(name) = bound {
+                *record = Some(name);
+                true
+            } else {
+                false
+            }
+        };
+        for knob in config.values_mut() {
+            changed |= bind_record(&mut knob.record);
+            if let Some(items) = knob.items.as_deref_mut() {
+                changed |= bind_record(&mut items.record);
+            }
+        }
+    }
     if let Some(config) = trait_def.config.as_mut() {
         for knob in config.values_mut() {
             changed |= resolve_config_sentinel(knob, &subs, &bindings);
@@ -2780,6 +2804,7 @@ fn param_sub_field(sub: &ParamSub) -> Option<FieldDefinition> {
         description: None,
         synonyms: None,
         projected_from: None,
+        record: None,
     })
 }
 

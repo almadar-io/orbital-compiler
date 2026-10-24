@@ -15,7 +15,7 @@ orbital Probe {
   id : string!
   out : [number] = []
  }
- trait Run -> Cell [integration] {
+ trait Run -> Cell {
   initial: ready
   state ready {
    ASK -> ready
@@ -74,7 +74,7 @@ orbital Probe {
  id : string!
  out : number = 0
  }
- trait Run -> Cell [integration] {
+ trait Run -> Cell {
   initial: ready
   state ready {
    ASK -> ready
@@ -126,7 +126,7 @@ orbital Probe {
   id : string!
   out : number = 0
  }
- trait Run -> Cell [integration] {
+ trait Run -> Cell {
   initial: ready
   state ready {
    ASK -> ready
@@ -172,7 +172,7 @@ orbital Probe {
   id : string!
   out : [string] = []
  }
- trait Run -> Cell [integration] {
+ trait Run -> Cell {
   initial: ready
   state ready {
    ASK -> ready
@@ -254,7 +254,7 @@ orbital Probe {
  out : string = ""
  values : Map string V? = {}
  }
- trait Run -> Cell [integration] {
+ trait Run -> Cell {
  initial: ready
  state ready {
  ASK -> ready
@@ -326,7 +326,7 @@ orbital Probe {
  id : string!
  out : number = 0
  }
- trait Run -> Cell [integration] {
+ trait Run -> Cell {
   initial: ready
   state ready {
    ASK -> ready
@@ -372,7 +372,7 @@ orbital Probe {
  id : string!
  out : number = 0
  }
- trait Run -> Cell [integration] {
+ trait Run -> Cell {
   initial: ready
   state ready {
    ASK -> ready
@@ -425,7 +425,7 @@ orbital Probe {
   id : string!
   out : string = ""
  }
- trait Run -> Cell [integration] {
+ trait Run -> Cell {
   initial: ready
   state ready {
    ASK -> ready
@@ -464,7 +464,7 @@ orbital Probe {
   id : string!
   out : number = 0
  }
- trait Run -> Cell [integration] {
+ trait Run -> Cell {
   initial: ready
   state ready {
    ASK -> ready
@@ -509,7 +509,7 @@ orbital Probe {
   id : string!
   out : number = 0
  }
- trait Run -> Cell [integration] {
+ trait Run -> Cell {
   initial: ready
   state ready {
    ASK -> ready

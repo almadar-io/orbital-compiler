@@ -21,7 +21,7 @@ use orbital_core_base::schema::{
 
 use crate::embedded::ServiceRegistryData;
 use super::effect::{
-    expr_return_incompatible_in_ctx, ExprReturnCtx, TraitScopes,
+    expr_return_incompatible_given, expr_return_incompatible_in_ctx, ExprReturnCtx, TraitScopes,
 };
 use super::error::{ErrorCode, ValidationError};
 use super::fired_events::trait_has_dynamic_event_prop_binding;
@@ -92,6 +92,7 @@ pub fn validate_all_emit_payloads(schema: &OrbitalSchema, ctx: &mut ValidationCo
                                 &emit_schemas,
                                 &type_ctx,
                                 schema,
+                                transition.guard.as_ref(),
                             );
                             ctx.merge(result);
                         }
@@ -126,6 +127,7 @@ pub fn validate_all_emit_payloads(schema: &OrbitalSchema, ctx: &mut ValidationCo
                                 &emit_schemas,
                                 &type_ctx,
                                 schema,
+                                tick.guard.as_ref(),
                             );
                             ctx.merge(result);
                         }
@@ -216,6 +218,7 @@ fn validate_emit_literal(
     emit_schemas: &HashMap<&str, &[PayloadField]>,
     type_ctx: &ExprReturnCtx<'_>,
     schema_types: &OrbitalSchema,
+    guard: Option<&SExpression>,
 ) -> ValidationResult {
     let mut result = ValidationResult::new();
 
@@ -327,7 +330,17 @@ fn validate_emit_literal(
                     } else if let Some(actual) = orbital_core_eval::literal_type::literal_value_type(value)
                         .filter(|_| !matches!(value, SExpression::Object(_)))
                     {
-                        if !primitive_types_compatible(expected, actual) {
+                        let members: Vec<&str> = (field.field_type == "union")
+                            .then_some(field.properties.as_deref())
+                            .flatten()
+                            .map(|variants| variants.iter().map(|v| v.field_type.as_str()).collect())
+                            .unwrap_or_default();
+                        let fits = if members.is_empty() {
+                            primitive_types_compatible(expected, actual)
+                        } else {
+                            members.iter().any(|member| primitive_types_compatible(member, actual))
+                        };
+                        if !fits {
                             result.add_error(
                                 ValidationError::error(
                                     ErrorCode::EmitPayloadFieldTypeMismatch,
@@ -347,15 +360,17 @@ fn validate_emit_literal(
                         value,
                         &crate::phases::resolve::payload_field_oir_type(field, schema_types),
                         type_ctx,
+                        guard,
                     )
                     .or_else(|| {
                         if matches!(value, SExpression::Object(_)) {
                             return None;
                         }
-                        expr_return_incompatible_in_ctx(
+                        expr_return_incompatible_given(
                             value,
                             &crate::phases::resolve::payload_field_oir_type(field, schema_types),
                             type_ctx,
+                            guard,
                         )
                     }) {
                         // Operator-call payload value (e.g. `(object/get (array/find …) id)`):
@@ -371,8 +386,10 @@ fn validate_emit_literal(
                                     "Emit '{}' field '{}' evaluates to '{}', declared as '{}'",
                                     event_name,
                                     key,
-                                    orbital_core_base::type_compat::oir_type_kind(&inferred),
-                                    expected
+                                    orbital_core_base::signature::describe_type(&inferred),
+                                    orbital_core_base::signature::describe_type(
+                                        &crate::phases::resolve::payload_field_oir_type(field, schema_types)
+                                    )
                                 ),
                             )
                             .with_suggestion(format!(
@@ -722,20 +739,24 @@ fn list_item_mismatch(
 fn literal_record_type<C: crate::type_infer::TypeCtx>(
     value: &SExpression,
     ctx: &C,
+    guard: Option<&orbital_core_base::ir::OirExpr>,
 ) -> orbital_core_base::ir::OirType {
     use orbital_core_base::ir::{OirField, OirType};
     match value {
         SExpression::Object(members) => {
             let mut fields: Vec<OirField> = members
                 .iter()
-                .map(|(name, member)| OirField::new(name.clone(), literal_record_type(member, ctx)))
+                .map(|(name, member)| OirField::new(name.clone(), literal_record_type(member, ctx, guard)))
                 .collect();
             fields.sort_by(|a, b| a.name.cmp(&b.name));
             OirType::Struct { additional: None, fields }
         }
         _ => crate::phases::resolve::resolve_sexpr_standalone(value)
             .ok()
-            .and_then(|resolved| crate::type_infer::infer_oir_expr_type(&resolved, ctx))
+            .and_then(|resolved| match guard {
+                Some(condition) => crate::type_infer::infer_under_condition(condition, &resolved, ctx),
+                None => crate::type_infer::infer_oir_expr_type(&resolved, ctx),
+            })
             .unwrap_or(OirType::Json),
     }
 }
@@ -746,11 +767,13 @@ fn record_literal_incompatible<C: crate::type_infer::TypeCtx>(
     value: &SExpression,
     declared: &orbital_core_base::ir::OirType,
     ctx: &C,
+    guard: Option<&SExpression>,
 ) -> Option<orbital_core_base::ir::OirType> {
     if !matches!(value, SExpression::Object(_)) {
         return None;
     }
-    let literal = literal_record_type(value, ctx);
+    let condition = guard.and_then(|g| crate::phases::resolve::resolve_sexpr_standalone(g).ok());
+    let literal = literal_record_type(value, ctx, condition.as_ref());
     let fits = orbital_core_base::type_compat::sub_with_named(&literal, declared, &|name| ctx.named_type(name))
         .is_some_and(|c| !c.requires_cast());
     (!fits).then_some(literal)

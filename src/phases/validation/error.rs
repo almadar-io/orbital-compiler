@@ -434,8 +434,6 @@ pub enum ErrorCode {
     SlotContentionTick,
     /// Invalid slot nesting (e.g., modal in modal)
     SlotInvalidNesting,
-    /// HUD slot used in non-game context
-    SlotHudNonGame,
 
     // =========================================================================
     // Render-UI Errors (ORB_RUI_*)
@@ -860,6 +858,10 @@ pub enum ErrorCode {
     BindingUnknownRoot,
     /// `@config.<key>` literal whose key no reachable config schema declares
     ConfigDanglingRef,
+    /// A `field @entity` config knob names something that is not a field of the trait's bound entity
+    ConfigFieldRefUnknown,
+    /// A `field @entity T` config knob names a field whose type is not `T`
+    ConfigFieldRefTypeMismatch,
     /// Invalid binding path
     BindingInvalidPath,
     /// @state binding should not have path
@@ -1641,7 +1643,6 @@ impl ErrorCode {
             ErrorCode::SlotContentionRuntime => "ORB_SLOT_CONTENTION_RUNTIME",
             ErrorCode::SlotContentionTick => "ORB_SLOT_CONTENTION_TICK",
             ErrorCode::SlotInvalidNesting => "ORB_SLOT_INVALID_NESTING",
-            ErrorCode::SlotHudNonGame => "ORB_SLOT_HUD_NON_GAME",
 
             // Render-UI
             ErrorCode::RenderUIInvalidSlot => "ORB_RUI_INVALID_SLOT",
@@ -1796,6 +1797,8 @@ impl ErrorCode {
             ErrorCode::BindingInvalidFormat => "ORB_BINDING_INVALID_FORMAT",
             ErrorCode::BindingUnknownRoot => "ORB_BINDING_UNKNOWN_ROOT",
             ErrorCode::ConfigDanglingRef => "ORB_CONFIG_DANGLING_REF",
+            ErrorCode::ConfigFieldRefUnknown => "ORB_CONFIG_FIELD_REF_UNKNOWN",
+            ErrorCode::ConfigFieldRefTypeMismatch => "ORB_CONFIG_FIELD_REF_TYPE_MISMATCH",
             ErrorCode::BindingInvalidPath => "ORB_BINDING_INVALID_PATH",
             ErrorCode::BindingStateNoPath => "ORB_BINDING_STATE_NO_PATH",
             ErrorCode::BindingNowNoPath => "ORB_BINDING_NOW_NO_PATH",
@@ -2102,8 +2105,7 @@ impl ErrorCode {
             | ErrorCode::SlotContention
             | ErrorCode::SlotContentionRuntime
             | ErrorCode::SlotContentionTick
-            | ErrorCode::SlotInvalidNesting
-            | ErrorCode::SlotHudNonGame => "slot",
+            | ErrorCode::SlotInvalidNesting => "slot",
 
             ErrorCode::RenderUIInvalidSlot
             | ErrorCode::RenderUIInvalidPattern
@@ -2264,6 +2266,8 @@ impl ErrorCode {
             ErrorCode::BindingInvalidFormat
             | ErrorCode::BindingUnknownRoot
             | ErrorCode::ConfigDanglingRef
+            | ErrorCode::ConfigFieldRefUnknown
+            | ErrorCode::ConfigFieldRefTypeMismatch
             | ErrorCode::BindingInvalidPath
             | ErrorCode::BindingStateNoPath
             | ErrorCode::BindingNowNoPath

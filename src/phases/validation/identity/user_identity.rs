@@ -141,30 +141,6 @@ pub fn validate_user_identity(schema: &OrbitalSchema, ctx: &mut ValidationContex
     let mut result = ValidationResult::new();
     let declared = identity_entities(schema);
 
-    // Two DIFFERENTLY-NAMED identity entities. Same-name duplicates across
-    // orbitals are already a hard error upstream (`validate_entity_uniqueness`).
-    let mut names: Vec<&str> = declared.iter().map(|d| d.name.as_str()).collect();
-    names.sort_unstable();
-    names.dedup();
-    if names.len() > 1 {
-        result.add_error(
-            ValidationError::error(
-                ErrorCode::SchemaIdentityNotUnique,
-                "orbitals",
-                format!(
-                    "{} entities are tagged [identity]: {}. `@user` resolves to a single viewer, \
-                     so more than one declaration makes every `@user.x` ambiguous.",
-                    names.len(),
-                    names.join(", ")
-                ),
-            )
-            .with_suggestion(
-                "Keep exactly one [identity] entity and reference it from the other orbitals \
-                 (`ownerId : <IdentityEntity>`).",
-            ),
-        );
-    }
-
     // Undeclared identity ⇒ `@user` still carries the implicit DEFAULT shape —
     // what `normalizeUserContext` produces (id, uid, email, name) plus an
     // unconstrained `role : string`, minus `permissions`

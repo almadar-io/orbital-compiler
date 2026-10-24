@@ -44,69 +44,6 @@ fn sigil_root(s: &str) -> Option<&str> {
     Some(rest.split(['.', '[']).next().unwrap_or(rest))
 }
 
-/// Two entity declarations over one `persistent:` collection must not declare
-/// different access directives.
-///
-/// Access is a property of the DATA, so the runtime resolves policies by
-/// collection: an entity that declares nothing inherits from a sibling bound to
-/// the same collection, which is what stops an organism's `@read` from being
-/// bypassed by a std-atom trait fetching its own entity on that collection
-/// (`R-SHADOW-ENTITY-SHARES-COLLECTION-DIRECTIVES-DONT-APPLY`). Inheritance is
-/// only well-defined while at most one declaration per collection exists; two
-/// different ones are ambiguous and are rejected here rather than silently
-/// resolved by declaration order.
-fn validate_collection_policy_agreement(schema: &OrbitalSchema, result: &mut ValidationResult) {
-    use std::collections::HashMap;
-
-    // collection -> (entity that declared it, its four directives as JSON)
-    let mut declared: HashMap<&str, (&str, Value)> = HashMap::new();
-
-    for orbital in &schema.orbitals {
-        for er in
-            std::iter::once(&orbital.entity).chain(orbital.auxiliary_entities.iter().flatten())
-        {
-            let EntityRef::Inline(entity) = er else {
-                continue;
-            };
-            let Some(collection) = entity.collection.as_deref() else {
-                continue;
-            };
-            let directives = [
-                &entity.read_policy,
-                &entity.create_policy,
-                &entity.update_policy,
-                &entity.delete_policy,
-            ];
-            if directives.iter().all(|d| d.is_none()) {
-                continue;
-            }
-            let Ok(shape) = serde_json::to_value(directives) else {
-                continue;
-            };
-
-            match declared.get(collection) {
-                None => {
-                    declared.insert(collection, (entity.name.as_str(), shape));
-                }
-                Some((first, first_shape)) if *first_shape != shape => {
-                    result.add_error(ValidationError::error(
-                        ErrorCode::SchemaCollectionPolicyConflict,
-                        format!("{}.@access", entity.name),
-                        format!(
-                            "entities `{}` and `{}` both bind collection `{}` but declare \
-                             different access directives. One collection is one table and cannot \
-                             have two visibility rules — give them identical directives, or bind \
-                             one of them to its own collection.",
-                            first, entity.name, collection
-                        ),
-                    ));
-                }
-                Some(_) => {}
-            }
-        }
-    }
-}
-
 /// Owner columns — declared relations to the `[identity]` entity, never
 /// derived from a field name — with no scoping policy declared.
 ///
@@ -188,7 +125,6 @@ fn validate_owner_columns_scoped(schema: &OrbitalSchema, result: &mut Validation
 
 pub fn validate_entity_access(schema: &OrbitalSchema, ctx: &mut ValidationContext) {
     let mut result = ValidationResult::new();
-    validate_collection_policy_agreement(schema, &mut result);
     validate_owner_columns_scoped(schema, &mut result);
     let declared_identity = identity_entities(schema).into_iter().next();
     let default_identity = default_identity_shape();

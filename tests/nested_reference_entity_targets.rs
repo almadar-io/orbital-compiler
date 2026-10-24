@@ -177,12 +177,20 @@ const APP_SAME_NAMES: &str = r#"{
   ]
 }"#;
 
-fn entity_unmapped_same_names(target: &str) -> Vec<(String, String)> {
+fn entity_unmapped_same_names(target: &str, mapped: bool) -> Vec<(String, String)> {
     let dir = tempfile::TempDir::new().expect("temp dir");
     std::fs::write(dir.path().join("atom.orb"), ATOM).expect("write atom");
     std::fs::write(dir.path().join("block.orb"), block(target)).expect("write block");
     let path = dir.path().join("app.orb");
-    std::fs::write(&path, APP_SAME_NAMES).expect("write app");
+    let app = if mapped {
+        APP_SAME_NAMES.replace(
+            r#""reference": { "ref": "Blk.orbitals.HelperOrbital" }"#,
+            r#""reference": { "ref": "Blk.orbitals.HelperOrbital", "entities": { "Thing": "Thing" } }"#,
+        )
+    } else {
+        APP_SAME_NAMES.to_string()
+    };
+    std::fs::write(&path, app).expect("write app");
     let mut schema = parse_file(&path).expect("app parses");
     let (mut trait_cfg, mut orbital_ref, mut uses_cfg) = (Vec::new(), Vec::new(), Vec::new());
     inline_schema_with_orbital_diagnostics(
@@ -197,11 +205,17 @@ fn entity_unmapped_same_names(target: &str) -> Vec<(String, String)> {
     orbital_ref.into_iter().flat_map(|d| d.entity_unmapped).collect()
 }
 
+/// Owner ruling 2026-10-24: a sibling's entity is shared only through a written `entities {}` mapping, never by name.
 #[test]
-fn a_same_name_reimport_keeps_a_sibling_entity_the_app_also_reimports() {
+fn a_same_name_reimport_shares_a_sibling_entity_only_through_its_mapping() {
+    let unmapped = entity_unmapped_same_names("Thing", false);
+    assert!(
+        unmapped.iter().any(|(_, e)| e == "Thing"),
+        "an unmapped sibling entity is diagnosed even when the app re-imports its orbital by name: {unmapped:?}"
+    );
     assert_eq!(
-        entity_unmapped_same_names("Thing"),
+        entity_unmapped_same_names("Thing", true),
         Vec::<(String, String)>::new(),
-        "the helper's reference to the block's Thing stands: the app re-imports ThingOrbital by its own name"
+        "control: the written mapping shares it"
     );
 }

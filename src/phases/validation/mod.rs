@@ -54,8 +54,6 @@ pub mod entity_mutation;
 mod fetch_by_id_payload;
 #[path = "entities/fetch_deliver.rs"]
 mod fetch_deliver;
-#[path = "entities/store_binding.rs"]
-pub mod store_binding;
 
 // identity — identity and access
 #[path = "identity/entity_access.rs"]
@@ -70,8 +68,6 @@ pub(crate) mod client_tick_locality;
 pub(crate) mod mounts;
 #[path = "traits/sigil_context.rs"]
 pub mod sigil_context;
-#[path = "traits/trait_id_uniqueness.rs"]
-pub mod trait_id_uniqueness;
 #[path = "traits/trait_validator.rs"]
 pub mod trait_validator;
 
@@ -88,10 +84,6 @@ pub mod cross_orbital;
 pub mod emit_payload;
 #[path = "circuit/fired_events.rs"]
 pub mod fired_events;
-#[path = "circuit/init_coverage.rs"]
-mod init_coverage;
-#[path = "circuit/payload_field_name.rs"]
-pub mod payload_field_name;
 #[path = "circuit/produced_shape.rs"]
 pub mod produced_shape;
 
@@ -108,8 +100,6 @@ pub mod sexpr;
 pub mod config_type;
 #[path = "types/generic_types.rs"]
 pub mod generic_types;
-#[path = "types/literal_default.rs"]
-pub mod literal_default;
 #[path = "types/time_unit.rs"]
 pub mod time_unit;
 #[path = "types/type_param_sweep.rs"]
@@ -138,8 +128,6 @@ pub mod composed_wiring;
 pub mod cross_registry;
 #[path = "composition/embed_bridge.rs"]
 pub mod embed_bridge;
-#[path = "composition/emit_config_ref.rs"]
-pub mod emit_config_ref;
 #[path = "composition/expectations.rs"]
 pub mod expectations;
 #[path = "composition/orbital_config.rs"]
@@ -233,8 +221,6 @@ pub struct ValidationContext {
     pub page_paths: HashSet<String>,
     /// All service names for duplicate detection
     pub service_names: HashSet<String>,
-    /// Domain type (business, game) for context-aware validation
-    pub domain: Domain,
     /// Schema language for i18n-aware validation (GAP-V001)
     pub schema_language: SchemaLanguage,
     /// Page path -> INIT payload requirements (for navigate validation)
@@ -254,16 +240,6 @@ pub struct ValidationContext {
     pub packages: Vec<orbital_core_base::behavior_packages::BehaviorPackage>,
 }
 
-/// Domain type for context-aware validation
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
-pub enum Domain {
-    /// Business/CRUD applications
-    #[default]
-    Business,
-    /// Game applications (allows HUD slots, etc.)
-    Game,
-}
-
 impl Default for ValidationContext {
     fn default() -> Self {
         Self {
@@ -274,7 +250,6 @@ impl Default for ValidationContext {
             trait_ids: HashSet::new(),
             page_paths: HashSet::new(),
             service_names: HashSet::new(),
-            domain: Domain::default(),
             schema_language: SchemaLanguage::default(),
             page_init_payloads: std::collections::HashMap::new(),
             extra_patterns: None,
@@ -290,13 +265,6 @@ impl ValidationContext {
         Self::default()
     }
 
-    /// Create a context for game domain
-    pub fn for_game() -> Self {
-        Self {
-            domain: Domain::Game,
-            ..Self::default()
-        }
-    }
 
     /// Add an error to the context
     pub fn add_error(&mut self, error: ValidationError) {
@@ -513,27 +481,11 @@ pub fn validate_comprehensive_full(
     ctx.service_registry = service_registry;
     ctx.packages = packages;
 
-    // Detect domain from schema metadata or orbital context
-    if let Some(orbitals) = schema.orbitals.first() {
-        if let Some(domain_ctx) = &orbitals.domain_context {
-            if let Some(category) = &domain_ctx.category {
-                if category.to_lowercase().contains("game") {
-                    ctx.domain = Domain::Game;
-                }
-            }
-        }
-    }
-
     // Phase 1: Collect names for cross-reference validation
     collect_names(schema, &mut ctx);
 
     // Phase 2: Entity validation
     entity::validate_all_entities(schema, &mut ctx);
-
-    // Phase 2b: Phase F.3 literal-union default check (error severity).
-    // Runs after entity collection so the per-field iteration sees the
-    // canonical entity definitions.
-    literal_default::validate_literal_defaults(schema, &mut ctx);
 
     // Phase 3: Trait validation
     trait_validator::validate_all_traits(schema, &mut ctx);
@@ -543,7 +495,6 @@ pub fn validate_comprehensive_full(
 
     // Phase 3c: `emits { @config.<knob> -> ... }` references left
     // unresolved by inline (unknown knob / non-string / no default).
-    emit_config_ref::validate_all_config_ref_emits(schema, &mut ctx);
 
     // Phase 4: Page validation
     page::validate_all_pages(schema, &mut ctx);
@@ -557,11 +508,6 @@ pub fn validate_comprehensive_full(
     // collected via `trait_def.emits`. Error severity.
     emit_payload::validate_all_emit_payloads(schema, &mut ctx);
 
-    // Phase 5b.1: G6 Rule 1 — every emit/event payloadSchema field name must
-    // be a valid TS identifier (no dots, spaces, or leading digits). Defense-
-    // in-depth for the lowering pass that flattens nested payload names.
-    payload_field_name::validate_payload_field_names(schema, &mut ctx);
-
     // Phase 5c: Phase F.2 cross-emitter declared-payload consensus.
     // Compares every event's declared payload across all traits that emit
     // it; errors when two emitters disagree on the field list.
@@ -571,7 +517,6 @@ pub fn validate_comprehensive_full(
     // `events: { OLD: NEW }`-rename variant is caught — a `listens { Src.EVENT
     // -> TRIGGER }` whose TRIGGER has no matching transition in the same trait
     // is a silent dead wire. Error severity.
-    ctx.merge(cross_orbital::validate_listen_triggers(schema));
 
     // Phase 5e: Gate C of the type-integrity campaign — hard error for
     // generic types (json / shapeless object / any) in declaration
@@ -591,10 +536,7 @@ pub fn validate_comprehensive_full(
     // Phase 6: Render-UI validation
     render_ui::validate_all_render_ui(schema, &mut ctx);
 
-    // Phase 7: Slot validation
-    slot::validate_all_slots(schema, &mut ctx);
-    // Tick-scoped slot contention: page mounts resolved through their refs, so
-    // unlike `validate_all_slots` this one actually sees the corpus.
+    // Phase 7: tick-scoped slot contention (the page slot checks are std lints).
     slot::validate_tick_slot_contention(schema, &mut ctx);
 
     // Phase 8: S-expression validation
@@ -623,14 +565,12 @@ pub fn validate_comprehensive_full(
     // post-inline so config knob defaults carry their call-site values.
     user_identity::validate_user_identity(schema, &mut ctx);
     user_identity::validate_user_into_required_slot(schema, &mut ctx);
-    trait_id_uniqueness::validate_unique_trait_ids(schema, &mut ctx);
 
     // Phase 11c3: entity access directives (`@read`/`@create`/`@update`/
     // `@delete`) — field/binding checks on the four per-row authorization
     // predicates. Runs immediately after identity for the same reason (needs
     // the resolved `[identity]` entity, post-inline).
     entity_access::validate_entity_access(schema, &mut ctx);
-    store_binding::validate_store_bindings(schema, &mut ctx);
 
     // Phase 11c4: `expects` consumer-side requirement declarations —
     // persist-payload self-consistency against the consumer's own declared
@@ -639,8 +579,7 @@ pub fn validate_comprehensive_full(
     expectations::validate_expectations(schema, &mut ctx);
 
     // Phase 11d: Multi-trait entity-mutation trio (SPLIT_ENTITY_MUTATION /
-    // SharedEntityFieldConflict / SharedEntityRenderAuthority) + the non-Cron
-    // tick backstop (ORB_TICK_REQUIRES_RUNTIME / ORB_TICK_ASYNC_EFFECT). Runs
+    // SharedEntityFieldConflict / SharedEntityRenderAuthority). Runs
     // post-inline so the fully `uses`-composed trait set and each entity's
     // `shared`/`persistence` flags are visible.
     entity_mutation::validate_all_entity_mutations(schema, &mut ctx);
@@ -648,15 +587,9 @@ pub fn validate_comprehensive_full(
     // entity field no trait of the consuming orbital references —
     // R-ENTITY-FIELD-UNION-ACROSS-SAME-NAMED-ENTITY drift.
     entity_mutation::validate_all_merged_field_usage(schema, &mut ctx);
-    entity_mutation::validate_all_tick_guards(schema, &mut ctx);
     entity_mutation::validate_all_local_trait_dispatch(schema, &mut ctx);
     entity_mutation::validate_all_client_tick_server_effects(schema, &mut ctx);
     entity_mutation::validate_all_mixed_residence(schema, &mut ctx);
-    ctx.merge({
-        let mut result = ValidationResult::new();
-        entity::validate_all_locale_instances(schema, &mut result);
-        result
-    });
     entity_mutation::validate_all_set_column_without_row(schema, &mut ctx);
     entity_mutation::validate_all_guard_frame_field_authorization(schema, &mut ctx);
     entity_mutation::validate_all_auth_guard_client_only(schema, &mut ctx);
@@ -681,7 +614,6 @@ pub fn validate_comprehensive_full(
     // Phase 14: Rabit V4 dual-carry id integrity (ORB_ID_*). No-op on legacy
     // id-free `.orb`; errors on dangling/kind-mismatched/name-drifted id edges,
     // warns on stale ledger rows.
-    id_integrity::validate_id_integrity(schema, &mut ctx);
 
     // Phase 15: orbital-import declared config forwarding (ORB_O_CONFIG_DEAD_KNOB,
     // Almadar_Orbital_Import.md §4.5). Post-inline so every trait in the
@@ -709,8 +641,8 @@ fn collect_names(schema: &OrbitalSchema, ctx: &mut ValidationContext) {
     // legitimately — every orbital's filter pulls FilterTarget). A duplicated
     // name's definition is ambiguous (which orbital's field list?), so it is
     // removed from `entity_definitions` below: field-level binding checks
-    // skip definitions they can't resolve, leaving ORB_X_DUPLICATE_ENTITY as
-    // the single actionable error instead of a phantom FIELD_NOT_FOUND
+    // skip definitions they can't resolve, leaving ORB_X_DUPLICATE_ENTITY (the
+    // std lint's) as the single actionable error instead of a phantom FIELD_NOT_FOUND
     // cascade validated against whichever same-named entity happened to win
     // the map insert.
     let mut primary_names: std::collections::HashSet<&str> = std::collections::HashSet::new();

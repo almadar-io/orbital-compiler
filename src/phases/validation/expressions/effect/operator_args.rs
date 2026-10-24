@@ -700,7 +700,7 @@ mod tests {
     fn an_earlier_delivery_has_the_payload_every_listened_event_declares() {
         use orbital_core_base::ir::{OirField, OirType};
         let with = |prev: Option<OirType>| BindingTypes { prev_payload: prev, ..no_types() };
-        let expr = r#"["array/some", "@prevEvents", ["fn", "e", ["==", ["object/get", ["object/get", "@e", "payload", {}], "id"], "x"]]]"#;
+        let expr = r#"["array/some", "@prevEvents", ["fn", "e", ["==", ["object/get", ["object/get", "@e", "payload"], "id"], "x"]]]"#;
         let run = |types: &BindingTypes| {
             let r = validate_operator_arg_types(&parse(expr), "p", &HashMap::new(), &HashMap::new(), types, None);
             r.errors.len()

@@ -574,6 +574,7 @@ mod tests {
             synonyms: None,
             merged_from: None,
             projected_from: None,
+            record: None,
         }
     }
 

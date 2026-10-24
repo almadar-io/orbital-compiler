@@ -3397,6 +3397,18 @@ pub(super) fn merge_expectation(into: &mut Vec<ExpectDeclaration>, incoming: Exp
         }
         // A route has no shape to union — the path IS the declaration, so
         // dedup by path and keep the first.
+        ExpectDeclaration::Page { path, protocol: Some(protocol), traits, strict } => {
+            // A protocol page has no address to name it by, so two expectations
+            // are two pages; only an equal one is stored once.
+            let equal = into.iter_mut().find(|d| {
+                matches!(d, ExpectDeclaration::Page { path: p, protocol: Some(q), traits: t, .. }
+                    if *p == path && *q == protocol && *t == traits)
+            });
+            match equal {
+                Some(ExpectDeclaration::Page { strict: existing_strict, .. }) => *existing_strict |= strict,
+                _ => into.push(ExpectDeclaration::Page { path, protocol: Some(protocol), traits, strict }),
+            }
+        }
         ExpectDeclaration::Page { path, protocol, traits, strict } => {
             if let Some(ExpectDeclaration::Page {
                 traits: existing_traits,
@@ -3501,6 +3513,27 @@ mod tests {
             "kind": "transition", "traitName": "Wallet", "from": "idle", "event": "SPEND", "to": "active" })).unwrap();
         merge_expectation(&mut other, control);
         assert_eq!(other.len(), 2, "control: a different edge is its own expectation");
+    }
+
+    #[test]
+    fn protocol_page_expectations_from_different_orbitals_stay_separate() {
+        let page = |protocol: Option<&str>, path: &str, traits: &[&str]| -> ExpectDeclaration {
+            let mut v = serde_json::json!({ "kind": "page", "path": path, "traits": traits });
+            if let Some(word) = protocol {
+                v["protocol"] = serde_json::json!(word);
+            }
+            serde_json::from_value(v).unwrap()
+        };
+        let mut boot = Vec::new();
+        merge_expectation(&mut boot, page(Some("boot"), "", &["Validate"]));
+        merge_expectation(&mut boot, page(Some("boot"), "", &["Compile"]));
+        assert_eq!(boot.len(), 2, "each boot expectation is satisfied by its own boot page");
+        merge_expectation(&mut boot, page(Some("boot"), "", &["Compile"]));
+        assert_eq!(boot.len(), 2, "an equal one is stored once");
+        let mut route = Vec::new();
+        merge_expectation(&mut route, page(None, "/home", &["Grid"]));
+        merge_expectation(&mut route, page(None, "/home", &["Recent"]));
+        assert_eq!(route.len(), 1, "control: one route path is one page, so its traits union");
     }
     use std::path::PathBuf;
 
@@ -4055,8 +4088,6 @@ mod tests {
 
     #[test]
     fn merge_source_ledgers_preserves_cross_file_id() {
-        use crate::phases::validation::error::ErrorCode;
-        use crate::phases::validation::{id_integrity, ValidationContext};
         use orbital_core_base::identity::{IdKind, LedgerEntry, LedgerOwner};
 
         // Consumer schema: one orbital whose inline trait references a FOREIGN
@@ -4093,21 +4124,10 @@ mod tests {
         });
         let mut schema: OrbitalSchema = serde_json::from_value(json).expect("fixture parses");
 
-        let id_codes = |schema: &OrbitalSchema| -> Vec<ErrorCode> {
-            let mut ctx = ValidationContext::new();
-            id_integrity::validate_id_integrity(schema, &mut ctx);
-            ctx.into_result()
-                .all_issues()
-                .map(|e| e.code)
-                .filter(|c| c.category() == "identity")
-                .collect()
-        };
-
-        // Before the merge: the foreign id dangles.
-        assert_eq!(
-            id_codes(&schema),
-            vec![ErrorCode::OrbIdUnknownRef],
-            "pre-merge: the foreign linkedEntity id must be unknown"
+        // Before the merge: the consumer ledger has no row for the foreign id its trait links.
+        assert!(
+            !schema.ledger.as_ref().unwrap().entries.contains_key("ent_SRC0000000000000000000000"),
+            "pre-merge: the foreign linkedEntity id has no ledger row"
         );
 
         // Source ledger union carrying the foreign entity's row.
@@ -4127,18 +4147,13 @@ mod tests {
 
         super::merge_source_ledgers(&mut schema, &source_union);
 
-        // The row is now in the consumer ledger and id integrity is clean.
+        // The row is now in the consumer ledger (std-orb-lint-id-refs resolves the id through it).
         assert!(schema
             .ledger
             .as_ref()
             .unwrap()
             .entries
             .contains_key("ent_SRC0000000000000000000000"));
-        assert!(
-            id_codes(&schema).is_empty(),
-            "post-merge: cross-file id must resolve, no ORB_ID_* diagnostics: {:?}",
-            id_codes(&schema)
-        );
     }
 
     // ------------------------------------------------------------------
@@ -4703,6 +4718,7 @@ mod tests {
             description: None,
             synonyms: None,
             projected_from: None,
+            record: None,
         };
         EntityDefinition {
             timestamps: None,
@@ -4798,6 +4814,7 @@ mod tests {
             description: None,
             synonyms: None,
             projected_from: None,
+            record: None,
         }
     }
 
@@ -6237,6 +6254,7 @@ mod tests {
             description: None,
             synonyms: None,
             projected_from: None,
+            record: None,
         }
     }
 

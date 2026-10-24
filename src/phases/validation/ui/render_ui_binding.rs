@@ -422,7 +422,11 @@ fn field_type_to_binding(ft: &FieldType) -> BindingType {
         // does `event` (Phase B struct-field carrier) — an event name is a
         // string at the render-binding lattice, same as the scalar
         // config-knob `event` type.
-        FieldType::Slot | FieldType::Pattern | FieldType::Event | FieldType::EventAddress => {
+        FieldType::Slot
+        | FieldType::Pattern
+        | FieldType::Event
+        | FieldType::EventAddress
+        | FieldType::Field => {
             BindingType::String
         }
         // Renderable content binds like an object (a pattern tree) — and the
@@ -770,6 +774,7 @@ mod tests {
                     description: None,
                     synonyms: None,
                     projected_from: None,
+                    record: None,
                 }],
                 id: None,
                 invariants: None,
@@ -856,6 +861,7 @@ mod tests {
                     description: None,
                     synonyms: None,
                     projected_from: None,
+                    record: None,
                 }],
                 id: None,
                 invariants: None,

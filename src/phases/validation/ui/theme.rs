@@ -7,7 +7,7 @@ use super::error::{ErrorCode, ValidationError, ValidationResult};
 use super::ValidationContext;
 use crate::embedded::builtin_theme_names;
 use orbital_core_base::schema::{
-    OrbitalSchema, SExpression, ThemeDefinition, ThemeRef, TraitDefinition, TraitReference, TypeScaleTokens,
+    OrbitalSchema, SExpression, ThemeDefinition, ThemeRef, TraitDefinition, TypeScaleTokens,
 };
 use regex::Regex;
 use std::collections::HashSet;
@@ -40,9 +40,12 @@ pub fn validate_all_themes(schema: &OrbitalSchema, ctx: &mut ValidationContext) 
     }
     for (i, key) in schema.themes.iter().flatten().enumerate() {
         let path = format!("themes[{}]", i);
-        ctx.merge(validate_theme_ref(&ThemeRef::Reference(key.clone()), &path, &inline_names));
+        ctx.merge(validate_theme_ref(
+            &ThemeRef::Reference(key.clone()),
+            &path,
+            &inline_names,
+        ));
     }
-    ctx.merge(validate_theme_pin_matches_app(schema));
     ctx.merge(validate_data_themes(schema));
 }
 
@@ -65,14 +68,25 @@ fn declared_theme_bases(schema: &OrbitalSchema) -> HashSet<String> {
         ThemeRef::Inline(def) if !def.name.is_empty() => Some(def.name.clone()),
         _ => None,
     })
-    .chain(schema.themes.iter().flatten().map(|k| theme_base(k).to_string()))
+    .chain(
+        schema
+            .themes
+            .iter()
+            .flatten()
+            .map(|k| theme_base(k).to_string()),
+    )
     .collect()
 }
 
 /// The literal theme a `data-theme` value names: the string itself, or the literal default of the `@config` knob it
 /// reads. `None` for an unset knob, any other binding, or an expression.
-fn literal_data_theme<'a>(value: &'a SExpression, trait_def: &'a TraitDefinition) -> Option<&'a str> {
-    let SExpression::String(s) = value else { return None };
+fn literal_data_theme<'a>(
+    value: &'a SExpression,
+    trait_def: &'a TraitDefinition,
+) -> Option<&'a str> {
+    let SExpression::String(s) = value else {
+        return None;
+    };
     let literal = match s.strip_prefix("@config.") {
         Some(knob) => match trait_def.config.as_ref()?.get(knob)?.default.as_ref()? {
             SExpression::String(v) => v.as_str(),
@@ -83,7 +97,11 @@ fn literal_data_theme<'a>(value: &'a SExpression, trait_def: &'a TraitDefinition
     (!literal.is_empty() && !literal.starts_with('@')).then_some(literal)
 }
 
-fn collect_data_themes<'a>(expr: &'a SExpression, trait_def: &'a TraitDefinition, found: &mut Vec<&'a str>) {
+fn collect_data_themes<'a>(
+    expr: &'a SExpression,
+    trait_def: &'a TraitDefinition,
+    found: &mut Vec<&'a str>,
+) {
     match expr {
         SExpression::Object(map) => {
             for (key, value) in map.iter() {
@@ -95,7 +113,9 @@ fn collect_data_themes<'a>(expr: &'a SExpression, trait_def: &'a TraitDefinition
                 collect_data_themes(value, trait_def, found);
             }
         }
-        SExpression::Array(items) => items.iter().for_each(|item| collect_data_themes(item, trait_def, found)),
+        SExpression::Array(items) => items
+            .iter()
+            .for_each(|item| collect_data_themes(item, trait_def, found)),
         _ => {}
     }
 }
@@ -124,7 +144,10 @@ pub fn validate_data_themes(schema: &OrbitalSchema) -> ValidationResult {
         }
         found.sort_unstable();
         found.dedup();
-        for theme in found.into_iter().filter(|t| !declared.contains(theme_base(t))) {
+        for theme in found
+            .into_iter()
+            .filter(|t| !declared.contains(theme_base(t)))
+        {
             result.add_error(
                 ValidationError::error(
                     ErrorCode::ThemeUndeclared,
@@ -137,91 +160,6 @@ pub fn validate_data_themes(schema: &OrbitalSchema) -> ValidationResult {
                 )),
             );
         }
-    }
-    result
-}
-
-/// The schema's app-level `theme "<key>"` declaration, if any — a bare
-/// reference string, or an inline theme's own `name`. `None` (empty string
-/// included) means the app declares no app-level theme, in which case there
-/// is nothing to contradict.
-fn app_theme_key(schema: &OrbitalSchema) -> Option<&str> {
-    match schema.theme.as_ref()? {
-        ThemeRef::Reference(s) if !s.is_empty() => Some(s.as_str()),
-        ThemeRef::Inline(def) if !def.name.is_empty() => Some(def.name.as_str()),
-        _ => None,
-    }
-}
-
-/// A trait config's `theme` default, when it is a LITERAL, NON-EMPTY pin
-/// that is not a binding. `""` (an empty knob default) and any `@…` binding
-/// are unpinned — an orbital riding the ambient default via `@currentTheme`
-/// must stay silent, which is what stops the JS `app-theme-divergent`'s
-/// 47-hit false positive (an empty string counted as a pin).
-fn theme_pin_of(default: Option<&SExpression>) -> Option<&str> {
-    match default? {
-        SExpression::String(s) if !s.is_empty() && !s.starts_with('@') => Some(s.as_str()),
-        _ => None,
-    }
-}
-
-/// A trait pins `config.theme` to a literal that contradicts the schema's
-/// app-level `theme` declaration.
-///
-/// App-level branch only (JS `app-theme-divergent`, L1116-1133): with an
-/// app-level theme declared, an unpinned orbital inherits it through
-/// `@currentTheme`, so only a pin that CONTRADICTS the app value is drift.
-/// The JS dominant-vote branch (no app-level theme: flag whichever orbital
-/// doesn't match the plurality pin) is a heuristic over which theme "wins" —
-/// not ported; retired per owner ruling. JS twin: the app-level half of
-/// `app-theme-divergent` in `wiring-lint.ts`.
-fn validate_theme_pin_matches_app(schema: &OrbitalSchema) -> ValidationResult {
-    let mut result = ValidationResult::new();
-    let Some(app_theme) = app_theme_key(schema) else {
-        return result;
-    };
-    for (oi, orbital) in schema.orbitals.iter().enumerate() {
-        let mut pinned: Vec<&str> = Vec::new();
-        for trait_ref in &orbital.traits {
-            let config = match trait_ref {
-                TraitReference::Inline(td) => td.config.as_ref(),
-                TraitReference::Reference { config, .. } => config.as_ref(),
-            };
-            let Some(pin) = config
-                .and_then(|c| c.get("theme"))
-                .and_then(|f| theme_pin_of(f.default.as_ref()))
-            else {
-                continue;
-            };
-            if !pinned.contains(&pin) {
-                pinned.push(pin);
-            }
-        }
-        let mut divergent: Vec<&str> = pinned.into_iter().filter(|t| *t != app_theme).collect();
-        if divergent.is_empty() {
-            continue;
-        }
-        divergent.sort_unstable();
-        let quoted = divergent
-            .iter()
-            .map(|t| format!("\"{}\"", t))
-            .collect::<Vec<_>>()
-            .join(", ");
-        result.add_error(
-            ValidationError::error(
-                ErrorCode::ThemePinContradictsApp,
-                format!("orbitals[{} ({})].theme", oi, orbital.name),
-                format!(
-                    "{} pins theme {} while the app declares \"{}\" at the app level",
-                    orbital.name, quoted, app_theme
-                ),
-            )
-            .with_suggestion(
-                "remove the config pin so the orbital inherits the app theme via @currentTheme \
-                 — or, for a deliberate per-orbital override, declare it as the orbital's own \
-                 `theme \"<key>\"`",
-            ),
-        );
     }
     result
 }
@@ -675,120 +613,6 @@ mod tests {
     }
 }
 
-#[cfg(test)]
-mod theme_pin_contradicts_app_tests {
-    use super::*;
-
-    fn schema_from_json(json: &str) -> OrbitalSchema {
-        serde_json::from_str(json).expect("fixture parses")
-    }
-
-    fn findings(json: &str) -> Vec<ValidationError> {
-        validate_theme_pin_matches_app(&schema_from_json(json)).errors
-    }
-
-    /// An unpinned orbital (empty config on its layout ref-trait) rides the
-    /// app theme via `@currentTheme` — clean. A pin that matches the app
-    /// theme is clean too.
-    const UNPINNED_ORBITALS_ARE_CLEAN: &str = r#"{
-      "name": "fixture", "version": "1.0.0", "theme": "linear-clean-light",
-      "orbitals": [
-        {
-          "name": "TaskOrbital",
-          "entity": { "name": "W", "fields": [] },
-          "traits": [{ "ref": "std-app-layout#AppLayout", "name": "TaskLayout",
-            "config": { "theme": { "type": "string", "default": "linear-clean-light" } } }]
-        },
-        {
-          "name": "RosterOrbital",
-          "entity": { "name": "V", "fields": [] },
-          "traits": [{ "ref": "std-app-layout#AppLayout", "name": "RosterLayout" }]
-        }
-      ]
-    }"#;
-
-    const CONTRADICTING_PIN: &str = r#"{
-      "name": "fixture", "version": "1.0.0", "theme": "linear-clean-light",
-      "orbitals": [
-        {
-          "name": "TaskOrbital",
-          "entity": { "name": "W", "fields": [] },
-          "traits": [{ "ref": "std-app-layout#AppLayout", "name": "TaskLayout" }]
-        },
-        {
-          "name": "OddOrbital",
-          "entity": { "name": "V", "fields": [] },
-          "traits": [{ "ref": "std-app-layout#AppLayout", "name": "OddLayout",
-            "config": { "theme": { "type": "string", "default": "terminal-dark" } } }]
-        }
-      ]
-    }"#;
-
-    /// `""` is an unset knob default, not a pin — the JS false positive this
-    /// port fixes (47 corpus hits were exactly this shape).
-    const EMPTY_STRING_PIN_IS_UNPINNED: &str = r#"{
-      "name": "fixture", "version": "1.0.0", "theme": "linear-clean-light",
-      "orbitals": [{
-        "name": "OddOrbital",
-        "entity": { "name": "V", "fields": [] },
-        "traits": [{ "ref": "std-app-layout#AppLayout", "name": "OddLayout",
-          "config": { "theme": { "type": "string", "default": "" } } }]
-      }]
-    }"#;
-
-    /// A `@currentTheme`-shaped binding is a live read, not a literal pin.
-    const BINDING_PIN_IS_UNPINNED: &str = r#"{
-      "name": "fixture", "version": "1.0.0", "theme": "linear-clean-light",
-      "orbitals": [{
-        "name": "OddOrbital",
-        "entity": { "name": "V", "fields": [] },
-        "traits": [{ "ref": "std-app-layout#AppLayout", "name": "OddLayout",
-          "config": { "theme": { "type": "string", "default": "@currentTheme" } } }]
-      }]
-    }"#;
-
-    #[test]
-    fn unpinned_and_matching_orbitals_are_clean_when_app_declares_a_theme() {
-        assert!(findings(UNPINNED_ORBITALS_ARE_CLEAN).is_empty());
-    }
-
-    #[test]
-    fn flags_a_config_pin_contradicting_the_app_theme() {
-        let errors = findings(CONTRADICTING_PIN);
-        assert_eq!(errors.len(), 1);
-        assert_eq!(errors[0].code, ErrorCode::ThemePinContradictsApp);
-        assert!(errors[0].message.contains("OddOrbital"));
-        assert!(errors[0].message.contains("terminal-dark"));
-        assert!(errors[0].message.contains("linear-clean-light"));
-    }
-
-    #[test]
-    fn an_empty_string_pin_is_unpinned_not_divergent() {
-        assert!(findings(EMPTY_STRING_PIN_IS_UNPINNED).is_empty());
-    }
-
-    #[test]
-    fn a_binding_pin_is_unpinned_not_divergent() {
-        assert!(findings(BINDING_PIN_IS_UNPINNED).is_empty());
-    }
-
-    #[test]
-    fn no_app_level_theme_declared_is_silent() {
-        let schema = schema_from_json(
-            r#"{
-          "name": "fixture", "version": "1.0.0",
-          "orbitals": [{
-            "name": "OddOrbital",
-            "entity": { "name": "V", "fields": [] },
-            "traits": [{ "ref": "std-app-layout#AppLayout", "name": "OddLayout",
-              "config": { "theme": { "type": "string", "default": "terminal-dark" } } }]
-          }]
-        }"#,
-        );
-        assert!(validate_theme_pin_matches_app(&schema).errors.is_empty());
-    }
-}
-
 /// A `data-theme` that resolves to a literal theme must name one the program declares
 /// (its app or orbital `theme`, or its `themes` list), since a compiled client ships only those (G-UI-106).
 #[cfg(test)]
@@ -819,7 +643,11 @@ mod data_theme_declared_tests {
     }
 
     fn codes(schema: &OrbitalSchema) -> Vec<ErrorCode> {
-        validate_data_themes(schema).errors.into_iter().map(|e| e.code).collect()
+        validate_data_themes(schema)
+            .errors
+            .into_iter()
+            .map(|e| e.code)
+            .collect()
     }
 
     #[test]
@@ -827,12 +655,21 @@ mod data_theme_declared_tests {
         let errors = validate_data_themes(&site("", "@config.demoTheme", "clay-dark")).errors;
         assert_eq!(errors.len(), 1);
         assert_eq!(errors[0].code, ErrorCode::ThemeUndeclared);
-        assert!(errors[0].message.contains("clay-dark"), "{}", errors[0].message);
+        assert!(
+            errors[0].message.contains("clay-dark"),
+            "{}",
+            errors[0].message
+        );
     }
 
     #[test]
     fn control_the_same_theme_declared_in_themes_is_clean() {
-        assert!(codes(&site(r#", "themes": ["clay-dark"]"#, "@config.demoTheme", "clay-dark")).is_empty());
+        assert!(codes(&site(
+            r#", "themes": ["clay-dark"]"#,
+            "@config.demoTheme",
+            "clay-dark"
+        ))
+        .is_empty());
     }
 
     #[test]
@@ -842,7 +679,10 @@ mod data_theme_declared_tests {
 
     #[test]
     fn edge_a_literal_data_theme_is_checked_too() {
-        assert_eq!(codes(&site("", "terminal-dark", "")), vec![ErrorCode::ThemeUndeclared]);
+        assert_eq!(
+            codes(&site("", "terminal-dark", "")),
+            vec![ErrorCode::ThemeUndeclared]
+        );
     }
 
     #[test]
@@ -856,16 +696,37 @@ mod data_theme_declared_tests {
         let mut ctx = ValidationContext::default();
         validate_all_themes(&site("", "@config.demoTheme", "clay-dark"), &mut ctx);
         let errors = ctx.into_result().errors;
-        assert_eq!(errors.iter().filter(|e| e.code == ErrorCode::ThemeUndeclared).count(), 1, "{errors:?}");
-        let finals = super::super::final_program::validate_final_program(&site("", "@config.demoTheme", "clay-dark")).errors;
-        assert!(finals.iter().all(|e| e.code != ErrorCode::ThemeUndeclared), "the final pass must not report it again");
+        assert_eq!(
+            errors
+                .iter()
+                .filter(|e| e.code == ErrorCode::ThemeUndeclared)
+                .count(),
+            1,
+            "{errors:?}"
+        );
+        let finals = super::super::final_program::validate_final_program(&site(
+            "",
+            "@config.demoTheme",
+            "clay-dark",
+        ))
+        .errors;
+        assert!(
+            finals.iter().all(|e| e.code != ErrorCode::ThemeUndeclared),
+            "the final pass must not report it again"
+        );
     }
 
     #[test]
     fn edge_a_themes_entry_must_name_a_real_theme() {
         let mut ctx = ValidationContext::default();
-        validate_all_themes(&site(r#", "themes": ["zz-unknown-dark"]"#, "", ""), &mut ctx);
+        validate_all_themes(
+            &site(r#", "themes": ["zz-unknown-dark"]"#, "", ""),
+            &mut ctx,
+        );
         let errors = ctx.into_result().errors;
-        assert!(errors.iter().any(|e| e.code == ErrorCode::UnknownTheme), "{errors:?}");
+        assert!(
+            errors.iter().any(|e| e.code == ErrorCode::UnknownTheme),
+            "{errors:?}"
+        );
     }
 }
