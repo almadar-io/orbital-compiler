@@ -2072,6 +2072,8 @@ pub(crate) fn resolve_orbital_reference(
     if let Some(upstream_expects) = upstream.expects.as_ref() {
         let kept_traits = materialized_trait_subs(&upstream, obj, &local_name);
         let own = orbital.expects.get_or_insert_with(Vec::new);
+        let mut shape_subs = subs.clone();
+        shape_subs.extend(expected_entity_map.iter().map(|(from, to)| (from.clone(), to.clone())));
         for expect in upstream_expects {
             let mut expect = expect.clone();
             // The obligations about the upstream's own traits and pages are owed under the import's renames, and
@@ -2082,7 +2084,7 @@ pub(crate) fn resolve_orbital_reference(
             if let orbital_core_base::schema::ExpectDeclaration::Entity { shape: Some(fields), .. }
             | orbital_core_base::schema::ExpectDeclaration::Identity { shape: Some(fields), .. } = &mut expect
             {
-                rename_relation_targets_in_fields(fields, &subs, &entity_ids);
+                rename_relation_targets_in_fields(fields, &shape_subs, &entity_ids);
             }
             if let orbital_core_base::schema::ExpectDeclaration::Entity { name, strict: true, .. } = &mut expect {
                 if let Some(local) = entity_renames.get(name.as_str()) {
@@ -4859,6 +4861,49 @@ mod tests {
         }).expect("the Path expectation travels with the import");
         assert_eq!(target(&path_shape, "ownerId").as_deref(), Some("LearnerLearner"), "an expectation's relation to the bound entity follows the binding");
         assert_eq!(target(&path_shape, "topicId").as_deref(), Some("Topic"), "control: a relation to an unbound entity is left as declared");
+    }
+
+    #[test]
+    fn an_entities_binding_renames_relation_targets_to_entities_the_import_only_expects() {
+        let upstream: Orbital = serde_json::from_value(json!({
+            "name": "MentorOrbital",
+            "entity": { "name": "Flow", "persistence": "runtime", "fields": [
+                { "name": "id", "type": "string", "required": true }
+            ] },
+            "expects": [
+                { "kind": "entity", "name": "SharedCourse", "shape": [{ "name": "id", "type": "string", "required": true }] },
+                { "kind": "entity", "name": "Enrollment", "shape": [
+                    { "name": "id", "type": "string", "required": true },
+                    { "name": "courseId", "type": "relation", "relation": { "entity": "SharedCourse", "cardinality": "one" } },
+                    { "name": "otherId", "type": "relation", "relation": { "entity": "Elsewhere", "cardinality": "one" } }
+                ] }
+            ],
+            "traits": []
+        }))
+        .unwrap();
+        let mut ctx = InlineContext::new();
+        ctx.add_alias_multi("Up", vec![upstream], "mentor".to_string());
+        let mut orbital: Orbital = serde_json::from_value(json!({ "name": "Local", "entity": "Up.orbitals.MentorOrbital.entity", "traits": [] })).unwrap();
+        orbital.uses = Some(vec![UseDeclaration { lazy: None, from: "mentor".to_string(), alias: "Up".to_string(), config: None }]);
+        let obj = OrbitalRefObject {
+            reference: "Up.orbitals.MentorOrbital".to_string(),
+            entities: Some(HashMap::from([
+                ("SharedCourse".to_string(), "LearnSharedCourse".to_string()),
+                ("Enrollment".to_string(), "LearnEnrollment".to_string()),
+            ])),
+            ..Default::default()
+        };
+        resolve_orbital_reference(&mut orbital, &obj, &ctx, &HashMap::new(), &HashMap::new(), &HashMap::new(), None, &mut Vec::new(), None, &mut Vec::new())
+            .expect("resolves");
+        let shape = orbital.expects.iter().flatten().find_map(|e| match e {
+            orbital_core_base::schema::ExpectDeclaration::Entity { shape: Some(shape), .. } if shape.iter().any(|f| f.name.as_deref() == Some("courseId")) => Some(shape.clone()),
+            _ => None,
+        }).expect("the Enrollment expectation travels with the import");
+        let target = |name: &str| {
+            shape.iter().find(|f| f.name.as_deref() == Some(name)).and_then(|f| f.relation.as_ref()).map(|r| r.entity.clone())
+        };
+        assert_eq!(target("courseId").as_deref(), Some("LearnSharedCourse"), "a relation to an expected entity follows the binding");
+        assert_eq!(target("otherId").as_deref(), Some("Elsewhere"), "control: a relation to an unbound entity is left as declared");
     }
 
     fn stage_b_ctx() -> InlineContext {

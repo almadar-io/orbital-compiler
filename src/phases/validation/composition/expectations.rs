@@ -1158,6 +1158,14 @@ fn check_identity_link(
     }
 }
 
+/// A field's type as a message names it: a relation names the entity it points at.
+fn field_type_label(field: &FieldDefinition) -> String {
+    match &field.relation {
+        Some(relation) => format!("relation to `{}`", relation.entity),
+        None => field_type_str(field),
+    }
+}
+
 /// The §5.1 variance rules, per expected field: the provider must declare the
 /// name (width: extra provider fields are fine), the types must be compatible
 /// per orbital-core's `type_compat`, closed literal unions compare by subset,
@@ -1217,8 +1225,8 @@ fn check_shape(
             }
         }
 
-        let expected_type = field_type_str(expected);
-        let actual_type = field_type_str(actual);
+        let expected_type = field_type_label(expected);
+        let actual_type = field_type_label(actual);
         // Optionality is one-directional: the failure is a consumer DEMANDING
         // a guarantee the provider does not give (expected required, provider
         // optional). A provider that always supplies the field satisfies an

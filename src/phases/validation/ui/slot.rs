@@ -100,7 +100,7 @@ pub fn validate_page_slots(
 
     // Check slot contention (multiple traits rendering to same slot)
     for (slot, trait_names) in &initial_slots {
-        if trait_names.len() > 1 {
+        if trait_names.len() > 1 && !orbital_core_base::slots::SHARED_OVERLAY_SLOTS.contains(&slot.as_str()) {
             result.add_error(
                 ValidationError::error(
                     ErrorCode::SlotContention,
@@ -179,7 +179,7 @@ pub fn validate_page_slots(
         // in the same state. That isn't contention — only distinct traits count.
         trait_names.sort();
         trait_names.dedup();
-        if trait_names.len() > 1 {
+        if trait_names.len() > 1 && !orbital_core_base::slots::SHARED_OVERLAY_SLOTS.contains(&slot.as_str()) {
             result.add_error(
                 ValidationError::error(
                     ErrorCode::SlotContentionRuntime,
